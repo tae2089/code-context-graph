@@ -11,6 +11,7 @@ import (
 
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"github.com/imtaebin/code-context-graph/internal/parse"
+	"github.com/imtaebin/code-context-graph/internal/store/agestore"
 )
 
 var skipDirs = map[string]bool{
@@ -173,7 +174,7 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 				}
 			}
 
-			// Sync to Apache AGE graph if --graph flag is set
+			// Sync to Apache AGE graph + pgvector if --graph flag is set
 			if syncGraph && deps.AgeStore != nil {
 				deps.Logger.Info("syncing to AGE graph")
 				if err := deps.AgeStore.ClearGraph(ctx); err != nil {
@@ -188,6 +189,30 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 						deps.Logger.Warn("sync edges to AGE failed", "error", err)
 					} else {
 						deps.Logger.Info("AGE graph synced", "nodes", len(indexNodes), "edges", len(edges))
+					}
+				}
+
+				// Sync pgvector documents for semantic search
+				if err := deps.AgeStore.InitPGVector(ctx); err != nil {
+					deps.Logger.Warn("pgvector init failed", "error", err)
+				} else {
+					var pvDocs []agestore.PGVectorDocument
+					for _, n := range indexNodes {
+						pvDocs = append(pvDocs, agestore.PGVectorDocument{
+							NodeID:  n.ID,
+							Content: buildContent(n),
+							Metadata: map[string]string{
+								"qualified_name": n.QualifiedName,
+								"kind":           string(n.Kind),
+								"file_path":      n.FilePath,
+								"language":       n.Language,
+							},
+						})
+					}
+					if err := deps.AgeStore.SyncPGVectorDocuments(ctx, pvDocs); err != nil {
+						deps.Logger.Warn("pgvector sync failed", "error", err)
+					} else {
+						deps.Logger.Info("pgvector documents synced", "documents", len(pvDocs))
 					}
 				}
 			}

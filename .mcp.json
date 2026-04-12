@@ -3,6 +3,13 @@
     "ccg": {
       "command": "./ccg",
       "args": ["serve", "--db", "sqlite", "--dsn", "ccg.db"]
+    },
+    "pgvector": {
+      "command": "npx",
+      "args": ["-y", "mcp-pgvector-server"],
+      "env": {
+        "DATABASE_URL": "postgresql://ccg:ccg@localhost:5455/ccg"
+      }
     }
   }
 }

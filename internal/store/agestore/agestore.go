@@ -167,6 +167,56 @@ func (s *Store) ExecuteCypherJSON(ctx context.Context, cypher string, columnCoun
 	return string(b), nil
 }
 
+// InitPGVector creates the pgvector extension and documents table.
+func (s *Store) InitPGVector(ctx context.Context) error {
+	stmts := []string{
+		"CREATE EXTENSION IF NOT EXISTS vector",
+		`CREATE TABLE IF NOT EXISTS ccg_documents (
+			id SERIAL PRIMARY KEY,
+			node_id INTEGER NOT NULL,
+			content TEXT NOT NULL,
+			metadata JSONB,
+			embedding vector(1536),
+			created_at TIMESTAMP DEFAULT NOW()
+		)`,
+		"CREATE INDEX IF NOT EXISTS idx_ccg_documents_node_id ON ccg_documents(node_id)",
+	}
+	for _, stmt := range stmts {
+		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("pgvector init %q: %w", stmt[:40], err)
+		}
+	}
+	return nil
+}
+
+// PGVectorDocument represents a document for pgvector embedding.
+type PGVectorDocument struct {
+	NodeID   uint
+	Content  string
+	Metadata map[string]string
+}
+
+// SyncPGVectorDocuments clears and inserts documents for pgvector embedding.
+func (s *Store) SyncPGVectorDocuments(ctx context.Context, docs []PGVectorDocument) error {
+	// Clear existing documents
+	if _, err := s.db.ExecContext(ctx, "DELETE FROM ccg_documents"); err != nil {
+		return fmt.Errorf("clear pgvector docs: %w", err)
+	}
+
+	// Batch insert
+	for _, d := range docs {
+		metaJSON, _ := json.Marshal(d.Metadata)
+		_, err := s.db.ExecContext(ctx,
+			"INSERT INTO ccg_documents (node_id, content, metadata) VALUES ($1, $2, $3)",
+			d.NodeID, d.Content, string(metaJSON),
+		)
+		if err != nil {
+			return fmt.Errorf("insert pgvector doc node_id=%d: %w", d.NodeID, err)
+		}
+	}
+	return nil
+}
+
 // Close closes the connection.
 func (s *Store) Close() error {
 	return s.db.Close()
