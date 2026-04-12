@@ -8,8 +8,7 @@ import (
 
 // ServeConfig holds parsed flags for the serve subcommand.
 type ServeConfig struct {
-	DBDriver string
-	DSN      string
+	// Global db configs are now read from viper via PersistentPreRunE
 }
 
 func newServeCmd(deps *Deps) *cobra.Command {
@@ -26,9 +25,6 @@ func newServeCmd(deps *Deps) *cobra.Command {
 			return fmt.Errorf("ServeFunc not configured")
 		},
 	}
-
-	cmd.Flags().StringVar(&cfg.DBDriver, "db", "sqlite", "Database driver: sqlite, postgres, mysql")
-	cmd.Flags().StringVar(&cfg.DSN, "dsn", "ccg.db", "Database connection string")
 
 	return cmd
 }

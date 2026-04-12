@@ -106,6 +106,9 @@ func setupTestDeps(t *testing.T) *Deps {
 	}
 	sb := search.NewSQLiteBackend()
 	if err := sb.Migrate(db); err != nil {
+		if strings.Contains(err.Error(), "no such module: fts5") {
+			t.Skip("fts5 module not available, skipping test")
+		}
 		t.Fatal(err)
 	}
 
@@ -1680,17 +1683,17 @@ func TestFindDeadCode_NoDeadCode(t *testing.T) {
 // ============================================================
 
 type mockQueryService struct {
-	callersOfCalled   bool
-	calleesOfCalled   bool
-	importsOfCalled   bool
-	importersOfCalled bool
-	childrenOfCalled  bool
-	testsForCalled    bool
+	callersOfCalled    bool
+	calleesOfCalled    bool
+	importsOfCalled    bool
+	importersOfCalled  bool
+	childrenOfCalled   bool
+	testsForCalled     bool
 	inheritorsOfCalled bool
-	fileSummaryCalled bool
-	result            []model.Node
-	fileSummaryResult *query.FileSummary
-	err               error
+	fileSummaryCalled  bool
+	result             []model.Node
+	fileSummaryResult  *query.FileSummary
+	err                error
 }
 
 func (m *mockQueryService) CallersOf(ctx context.Context, nodeID uint) ([]model.Node, error) {
@@ -1760,11 +1763,11 @@ func (m *mockCouplingAnalyzer) Analyze(ctx context.Context) ([]coupling.Coupling
 }
 
 type mockCoverageAnalyzer struct {
-	byFileCalled      bool
-	byCommunCalled    bool
-	fileResult        *coverage.FileCoverage
-	communityResult   *coverage.CommunityCoverage
-	err               error
+	byFileCalled    bool
+	byCommunCalled  bool
+	fileResult      *coverage.FileCoverage
+	communityResult *coverage.CommunityCoverage
+	err             error
 }
 
 func (m *mockCoverageAnalyzer) ByFile(ctx context.Context, filePath string) (*coverage.FileCoverage, error) {

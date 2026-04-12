@@ -28,49 +28,61 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"github.com/imtaebin/code-context-graph/internal/parse/treesitter"
 	"github.com/imtaebin/code-context-graph/internal/store/gormstore"
+	"github.com/imtaebin/code-context-graph/internal/store/pgstore"
 	"github.com/imtaebin/code-context-graph/internal/store/search"
 )
 
 func main() {
 	logger := slog.Default()
 
-	// CLI용 DB + Store + Walkers 초기화 (SQLite 기본)
-	db, err := openDB("sqlite", "ccg.db")
-	if err != nil {
-		slog.Error("open database", "error", err)
-		os.Exit(1)
-	}
-
-	st := gormstore.New(db)
-	if err := st.AutoMigrate(); err != nil {
-		slog.Error("auto-migrate", "error", err)
-		os.Exit(1)
-	}
-	if err := db.AutoMigrate(&model.SearchDocument{}, &model.Flow{}, &model.FlowMembership{}); err != nil {
-		slog.Error("migrate extra models", "error", err)
-		os.Exit(1)
-	}
-
-	sb := newSearchBackend("sqlite")
-	if err := sb.Migrate(db); err != nil {
-		slog.Error("migrate search backend", "error", err)
-		os.Exit(1)
-	}
-
-	walkers := buildWalkers(logger)
-
-	syncer := incremental.New(st, walkers[".go"])
-
 	deps := &cli.Deps{
-		Logger:        logger,
-		DB:            db,
-		Store:         st,
-		SearchBackend: sb,
-		Walkers:       walkers,
-		Syncer:        syncer,
-		ServeFunc: func(cfg cli.ServeConfig) error {
-			return runServe(cfg.DBDriver, cfg.DSN)
-		},
+		Logger: logger,
+	}
+
+	deps.InitFunc = func(driver, dsn string) error {
+		// Initialize the DB ONLY when the command actually runs via PersistentPreRunE
+		db, err := openDB(driver, dsn)
+		if err != nil {
+			return fmt.Errorf("open database: %w", err)
+		}
+
+		st := gormstore.New(db)
+		if err := st.AutoMigrate(); err != nil {
+			return fmt.Errorf("auto-migrate store: %w", err)
+		}
+		if err := db.AutoMigrate(&model.SearchDocument{}, &model.Flow{}, &model.FlowMembership{}); err != nil {
+			return fmt.Errorf("migrate extra models: %w", err)
+		}
+
+		sb := newSearchBackend(driver)
+		if err := sb.Migrate(db); err != nil {
+			return fmt.Errorf("migrate search backend: %w", err)
+		}
+
+		var pg *pgstore.Store
+		if driver == "postgres" {
+			var pgErr error
+			pg, pgErr = pgstore.New(dsn)
+			if pgErr != nil {
+				return fmt.Errorf("init pgstore: %w", pgErr)
+			}
+		}
+
+		walkers := buildWalkers(deps.Logger)
+		syncer := incremental.New(st, walkers[".go"])
+
+		deps.DB = db
+		deps.Store = st
+		deps.SearchBackend = sb
+		deps.Walkers = walkers
+		deps.Syncer = syncer
+		deps.PGStore = pg
+
+		return nil
+	}
+
+	deps.ServeFunc = func(cfg cli.ServeConfig) error {
+		return runServe(deps)
 	}
 
 	cmd := cli.NewRootCmd(deps)
@@ -116,50 +128,31 @@ func buildWalkers(logger *slog.Logger) map[string]*treesitter.Walker {
 	return walkers
 }
 
-func runServe(dbDriver, dsn string) error {
-	logger := slog.Default()
-	logger.Info("starting code-context-graph", "db", dbDriver)
+func runServe(deps *cli.Deps) error {
+	deps.Logger.Info("starting code-context-graph MCP server")
 
-	db, err := openDB(dbDriver, dsn)
-	if err != nil {
-		return fmt.Errorf("open database: %w", err)
-	}
-
-	st := gormstore.New(db)
-	if err := st.AutoMigrate(); err != nil {
-		return fmt.Errorf("auto-migrate: %w", err)
-	}
-	if err := db.AutoMigrate(&model.SearchDocument{}, &model.Flow{}, &model.FlowMembership{}); err != nil {
-		return fmt.Errorf("migrate extra models: %w", err)
-	}
-
-	sb := newSearchBackend(dbDriver)
-	if err := sb.Migrate(db); err != nil {
-		return fmt.Errorf("migrate search backend: %w", err)
-	}
-
-	walker := treesitter.NewWalker(treesitter.GoSpec, treesitter.WithLogger(logger))
+	walker := treesitter.NewWalker(treesitter.GoSpec, treesitter.WithLogger(deps.Logger))
 
 	mcpDeps := &mcpserver.Deps{
-		Store:            st,
-		DB:               db,
-		Parser:           walker,
-		SearchBackend:    sb,
-		ImpactAnalyzer:   impact.New(st),
-		FlowTracer:       flows.New(st),
-		ChangesGitClient: changes.NewExecGitClient(),
-		QueryService:     query.New(db),
-		LargefuncAnalyzer: largefunc.New(db),
-		DeadcodeAnalyzer:  deadcode.New(db),
-		CouplingAnalyzer:  coupling.New(db),
-		CoverageAnalyzer:  coverage.New(db),
-		CommunityBuilder:  community.New(db),
-		Logger:           logger,
+		Store:             deps.Store,
+		DB:                deps.DB,
+		Parser:            walker,
+		SearchBackend:     deps.SearchBackend,
+		ImpactAnalyzer:    impact.New(deps.Store),
+		FlowTracer:        flows.New(deps.Store),
+		ChangesGitClient:  changes.NewExecGitClient(),
+		QueryService:      query.New(deps.DB),
+		LargefuncAnalyzer: largefunc.New(deps.DB),
+		DeadcodeAnalyzer:  deadcode.New(deps.DB),
+		CouplingAnalyzer:  coupling.New(deps.DB),
+		CoverageAnalyzer:  coverage.New(deps.DB),
+		CommunityBuilder:  community.New(deps.DB),
+		Logger:            deps.Logger,
 	}
 
 	srv := mcpserver.NewServer(mcpDeps)
 
-	logger.Info("serving MCP over stdio")
+	deps.Logger.Info("serving MCP over stdio")
 	if err := server.ServeStdio(srv); err != nil {
 		return fmt.Errorf("MCP server: %w", err)
 	}

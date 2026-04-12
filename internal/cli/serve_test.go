@@ -4,24 +4,21 @@ import (
 	"testing"
 )
 
-func TestServeCommand_AcceptsDBFlags(t *testing.T) {
+func TestServeCommand_ExecutesServeFunc(t *testing.T) {
 	deps, stdout, stderr := newTestDeps()
 
-	var received ServeConfig
+	called := false
 	deps.ServeFunc = func(cfg ServeConfig) error {
-		received = cfg
+		called = true
 		return nil
 	}
 
-	err := executeCmd(deps, stdout, stderr, "serve", "--db", "postgres", "--dsn", "host=localhost dbname=ccg")
+	err := executeCmd(deps, stdout, stderr, "serve")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if received.DBDriver != "postgres" {
-		t.Fatalf("expected db=postgres, got %s", received.DBDriver)
-	}
-	if received.DSN != "host=localhost dbname=ccg" {
-		t.Fatalf("expected dsn='host=localhost dbname=ccg', got %s", received.DSN)
+	if !called {
+		t.Fatal("expected ServeFunc to be called")
 	}
 }

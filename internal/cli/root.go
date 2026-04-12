@@ -6,12 +6,13 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"gorm.io/gorm"
 
 	"github.com/imtaebin/code-context-graph/internal/analysis/incremental"
-	"github.com/imtaebin/code-context-graph/internal/store/pgstore"
 	"github.com/imtaebin/code-context-graph/internal/parse/treesitter"
 	"github.com/imtaebin/code-context-graph/internal/store"
+	"github.com/imtaebin/code-context-graph/internal/store/pgstore"
 	"github.com/imtaebin/code-context-graph/internal/store/search"
 )
 
@@ -24,11 +25,11 @@ type Deps struct {
 	Walkers       map[string]*treesitter.Walker
 	Syncer        *incremental.Syncer
 	ServeFunc     func(cfg ServeConfig) error
+	InitFunc      func(dbDriver, dsn string) error
 	PGStore       *pgstore.Store
 }
 
 // NewRootCmd creates the root cobra command with all subcommands attached.
-// If deps is nil, a minimal Deps with a default logger is created.
 func NewRootCmd(deps *Deps) *cobra.Command {
 	if deps == nil {
 		deps = &Deps{}
@@ -46,6 +47,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			// 1. Logger Setup
 			level := parseLogLevel(logLevel)
 			opts := &slog.HandlerOptions{Level: level}
 
@@ -59,12 +61,38 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 
 			deps.Logger = slog.New(handler)
 			slog.SetDefault(deps.Logger)
+
+			// 2. Viper Setup
+			viper.AutomaticEnv() // Read from environment variables
+			viper.SetEnvPrefix("CCG") // E.g., CCG_DB_DRIVER
+
+			// 3. Initialize Database if InitFunc is provided
+			if deps.InitFunc != nil {
+				driver := viper.GetString("db.driver")
+				dsn := viper.GetString("db.dsn")
+				if err := deps.InitFunc(driver, dsn); err != nil {
+					return err
+				}
+			}
+
 			return nil
 		},
 	}
 
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "Log level: debug, info, warn, error")
 	rootCmd.PersistentFlags().BoolVar(&logJSON, "log-json", false, "Output logs in JSON format")
+
+	// Global database configuration flags
+	rootCmd.PersistentFlags().String("db-driver", "sqlite", "Database driver (sqlite, postgres, mysql)")
+	rootCmd.PersistentFlags().String("db-dsn", "ccg.db", "Database connection string")
+
+	// Bind flags to viper
+	viper.BindPFlag("db.driver", rootCmd.PersistentFlags().Lookup("db-driver"))
+	viper.BindPFlag("db.dsn", rootCmd.PersistentFlags().Lookup("db-dsn"))
+	
+	// Also explicitly bind env vars just in case AutomaticEnv needs a hint
+	viper.BindEnv("db.driver", "CCG_DB_DRIVER")
+	viper.BindEnv("db.dsn", "CCG_DB_DSN")
 
 	rootCmd.AddCommand(
 		newBuildCmd(deps),
