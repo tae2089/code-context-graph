@@ -65,7 +65,8 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 				}
 
 				relPath, _ := filepath.Rel(absDir, path)
-				nodes, edges, err := walker.Parse(relPath, content)
+				// Single-pass: parse nodes, edges, and comments together
+				nodes, edges, tsComments, err := walker.ParseWithComments(relPath, content)
 				if err != nil {
 					deps.Logger.Warn("parse failed", "path", relPath, "error", err)
 					return nil
@@ -82,8 +83,7 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 					}
 				}
 
-				// Extract comments and bind annotations
-				tsComments, _ := walker.ExtractComments(relPath, content)
+				// Bind annotations from comments extracted in the same parse
 				if len(tsComments) > 0 {
 					binderComments := make([]parse.CommentBlock, len(tsComments))
 					for i, c := range tsComments {
@@ -115,16 +115,29 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 				return fmt.Errorf("walk directory: %w", err)
 			}
 
-			// Build search index with annotation content
+			// Build search index with annotation content (batch query)
 			if deps.SearchBackend != nil && deps.DB != nil {
 				var nodes []model.Node
 				deps.DB.Where("kind IN ?", []string{"function", "class", "type", "test"}).Find(&nodes)
+
+				// Batch load all annotations with tags in 2 queries instead of N+1
+				nodeIDs := make([]uint, len(nodes))
+				for i, n := range nodes {
+					nodeIDs[i] = n.ID
+				}
+				var annotations []model.Annotation
+				deps.DB.Where("node_id IN ?", nodeIDs).Preload("Tags").Find(&annotations)
+				annByNode := make(map[uint]*model.Annotation, len(annotations))
+				for i := range annotations {
+					annByNode[annotations[i].NodeID] = &annotations[i]
+				}
+
+				// Batch delete + create search documents
+				deps.DB.Where("1 = 1").Delete(&model.SearchDocument{})
+				docs := make([]model.SearchDocument, 0, len(nodes))
 				for _, n := range nodes {
 					content := n.Name + " " + n.QualifiedName + " " + string(n.Kind)
-
-					// Include annotation text in search document
-					ann, _ := deps.Store.GetAnnotation(ctx, n.ID)
-					if ann != nil {
+					if ann := annByNode[n.ID]; ann != nil {
 						if ann.Summary != "" {
 							content += " " + ann.Summary
 						}
@@ -135,18 +148,19 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 							content += " " + tag.Value
 						}
 					}
-
-					deps.DB.Where("node_id = ?", n.ID).Delete(&model.SearchDocument{})
-					deps.DB.Create(&model.SearchDocument{
+					docs = append(docs, model.SearchDocument{
 						NodeID:   n.ID,
 						Content:  content,
 						Language: n.Language,
 					})
 				}
+				if len(docs) > 0 {
+					deps.DB.CreateInBatches(docs, 100)
+				}
 				if err := deps.SearchBackend.Rebuild(ctx, deps.DB); err != nil {
 					deps.Logger.Warn("search index rebuild failed", "error", err)
 				} else {
-					deps.Logger.Info("search index rebuilt", "documents", len(nodes))
+					deps.Logger.Info("search index rebuilt", "documents", len(docs))
 				}
 			}
 

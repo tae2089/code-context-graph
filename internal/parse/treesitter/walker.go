@@ -130,6 +130,62 @@ func (w *Walker) Parse(filePath string, content []byte) ([]model.Node, []model.E
 	return nodes, edges, nil
 }
 
+// ParseWithComments parses a file and extracts nodes, edges, and comment blocks in a single pass.
+func (w *Walker) ParseWithComments(filePath string, content []byte) ([]model.Node, []model.Edge, []CommentBlock, error) {
+	lang, err := w.getLanguage()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	parser := sitter.NewParser()
+	parser.SetLanguage(lang)
+
+	tree, err := parser.ParseCtx(context.Background(), nil, content)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("parse error: %w", err)
+	}
+
+	root := tree.RootNode()
+	pkgName := w.extractPackageName(root, content)
+
+	var nodes []model.Node
+	var edges []model.Edge
+	var comments []CommentBlock
+
+	fileNode := model.Node{
+		QualifiedName: filePath,
+		Kind:          model.NodeKindFile,
+		Name:          filePath,
+		FilePath:      filePath,
+		StartLine:     1,
+		EndLine:       int(root.EndPoint().Row) + 1,
+		Language:      w.spec.Name,
+	}
+	nodes = append(nodes, fileNode)
+
+	var interfaces []interfaceInfo
+	w.walkNode(root, content, filePath, pkgName, &nodes, &edges, &interfaces)
+	w.collectComments(root, content, &comments)
+
+	w.resolveImplements(nodes, interfaces, filePath, &edges)
+
+	for _, n := range nodes {
+		if n.Kind == model.NodeKindFile {
+			continue
+		}
+		edges = append(edges, model.Edge{
+			Kind:        model.EdgeKindContains,
+			FilePath:    filePath,
+			Line:        n.StartLine,
+			Fingerprint: fmt.Sprintf("contains:%s:%s", filePath, n.QualifiedName),
+		})
+	}
+
+	w.resolveTestedBy(root, content, filePath, pkgName, nodes, &edges)
+
+	return nodes, edges, comments, nil
+}
+
 func (w *Walker) walkNode(node *sitter.Node, content []byte, filePath, pkgName string, nodes *[]model.Node, edges *[]model.Edge, ifaces *[]interfaceInfo) {
 	nodeType := node.Type()
 
