@@ -31,6 +31,14 @@ func New(db *gorm.DB) *Service {
 	return &Service{db: db}
 }
 
+// ByFile calculates test coverage ratio for a single file.
+// Used by review_changes and pre_merge_check prompts.
+//
+// @param filePath source file path to analyze
+// @return coverage ratio of functions with tested_by edges
+// @intent measure how well a file is covered by tests
+// @domainRule coverage ratio equals tested functions divided by total functions
+// @domainRule files with no functions return ratio 0.0
 func (s *Service) ByFile(ctx context.Context, filePath string) (*FileCoverage, error) {
 	var functions []model.Node
 	if err := s.db.WithContext(ctx).

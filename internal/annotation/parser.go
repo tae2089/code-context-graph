@@ -24,6 +24,15 @@ func NewParser() *Parser {
 	return &Parser{}
 }
 
+// Parse extracts structured annotations from normalized comment text.
+// Supports standard tags and custom AI/business context tags.
+//
+// @param text normalizer output with comment prefixes stripped
+// @return Annotation with Summary, Context, and DocTag list
+// @intent extract machine-readable metadata from developer comments
+// @domainRule first non-tag line becomes Summary, second becomes Context
+// @domainRule recognized tags: param, return, see, intent, domainRule, sideEffect, mutates, requires, ensures
+// @domainRule unknown tags are silently ignored
 func (p *Parser) Parse(text string) (*model.Annotation, error) {
 	ann := &model.Annotation{
 		RawText: text,

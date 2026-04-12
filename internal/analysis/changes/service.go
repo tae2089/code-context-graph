@@ -33,6 +33,16 @@ func New(db *gorm.DB, git GitClient) *Service {
 	return &Service{db: db, git: git}
 }
 
+// Analyze detects changed functions and calculates risk scores.
+// Called from review_changes and pre_merge_check MCP prompts.
+//
+// @param repoDir git repository root path
+// @param baseRef git base reference for diff comparison
+// @return risk entries with hunk count and risk score per changed function
+// @intent identify high-risk code changes before merge
+// @domainRule risk score equals hunk count multiplied by outgoing edge count plus one
+// @sideEffect executes git diff via GitClient
+// @see impact.Analyzer.ImpactRadius
 func (s *Service) Analyze(ctx context.Context, repoDir, baseRef string) ([]RiskEntry, error) {
 	files, err := s.git.ChangedFiles(ctx, repoDir, baseRef)
 	if err != nil {

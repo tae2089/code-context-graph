@@ -22,6 +22,13 @@ func New(db *gorm.DB) *Service {
 	return &Service{db: db}
 }
 
+// Analyze measures coupling strength between communities.
+// Used by MCP get_architecture_overview tool and architecture_map prompt.
+//
+// @return pairs of communities with cross-community edge counts and strength
+// @intent detect tightly coupled modules for architecture improvement
+// @domainRule strength equals edge count divided by maximum edge count across all pairs
+// @domainRule only cross-community edges are counted
 func (s *Service) Analyze(ctx context.Context) ([]CouplingPair, error) {
 	var memberships []model.CommunityMembership
 	if err := s.db.WithContext(ctx).Find(&memberships).Error; err != nil {

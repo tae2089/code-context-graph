@@ -61,6 +61,16 @@ func (w *Walker) Language() string {
 	return w.spec.Name
 }
 
+// Parse processes a source file via Tree-sitter AST and extracts nodes and edges.
+// Core parsing engine supporting 15 languages.
+//
+// @param filePath relative path of the source file
+// @param content raw source file bytes
+// @return extracted nodes, edges, and any parse error
+// @intent build code knowledge graph from source files
+// @domainRule creates File node plus Function, Class, Type nodes per declaration
+// @domainRule generates CALLS, IMPORTS_FROM, CONTAINS, INHERITS, IMPLEMENTS edges
+// @sideEffect allocates Tree-sitter parser per invocation
 func (w *Walker) Parse(filePath string, content []byte) ([]model.Node, []model.Edge, error) {
 	lang, err := w.getLanguage()
 	if err != nil {

@@ -30,6 +30,15 @@ func New(db *gorm.DB) *Builder {
 	return &Builder{db: db}
 }
 
+// Rebuild creates communities by grouping nodes by directory path.
+// Used by MCP run_postprocess tool and architecture_map prompt.
+//
+// @return community stats with node count, internal/external edges, cohesion score
+// @intent partition codebase into logical modules for architecture analysis
+// @domainRule groups nodes by file path directory up to configured depth
+// @domainRule cohesion equals internal edges divided by total edges
+// @sideEffect deletes all existing communities and memberships before rebuilding
+// @mutates Community CommunityMembership tables
 func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 	var result []Stats
 

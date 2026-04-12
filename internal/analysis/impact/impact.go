@@ -20,6 +20,15 @@ func New(store EdgeReader) *Analyzer {
 	return &Analyzer{store: store}
 }
 
+// ImpactRadius performs BFS traversal to find all nodes within the given depth.
+// Used by MCP get_impact_radius tool and pre-merge check prompt.
+//
+// @param nodeID the starting node for blast-radius analysis
+// @param depth BFS traversal depth limit
+// @return all nodes reachable within depth hops
+// @intent identify blast radius of code changes for risk assessment
+// @domainRule traverses both outgoing and incoming edges bidirectionally
+// @see changes.Service.Analyze
 func (a *Analyzer) ImpactRadius(ctx context.Context, nodeID uint, depth int) ([]model.Node, error) {
 	visited := map[uint]bool{nodeID: true}
 	frontier := []uint{nodeID}
