@@ -1,67 +1,95 @@
 ---
 name: ccg
-description: code-context-graph CLI — 코드 그래프 빌드, 검색, Cypher 쿼리 실행
+description: code-context-graph CLI — build code knowledge graphs, search by annotations, execute Cypher queries
 user-invocable: true
 ---
 
-# code-context-graph CLI
+# code-context-graph CLI Skill
 
-코드베이스를 파싱하여 지식 그래프를 구축하고 검색/분석하는 도구입니다.
+A local code analysis tool that parses codebases via Tree-sitter into a knowledge graph with 15 language support, annotation-powered search, and Apache AGE Cypher queries.
 
-## 사용법
+## Subcommands
 
-사용자가 `/ccg` 뒤에 서브커맨드를 입력하면 해당 CLI 명령을 실행합니다.
+| Command | Description | Example |
+|---------|-------------|---------|
+| `build [dir]` | Parse directory, build graph + search index | `ccg build .` |
+| `build --graph [dir]` | Build + sync to Apache AGE graph DB | `ccg build --graph .` |
+| `build --embed [dir]` | Build + generate vector embeddings | `ccg build --embed .` |
+| `update [dir]` | Incremental sync (changed files only) | `ccg update .` |
+| `status` | Show graph statistics (nodes/edges/files) | `ccg status` |
+| `search <query>` | FTS keyword search (includes @annotations) | `ccg search "authentication"` |
+| `search --semantic <q>` | Vector similarity search | `ccg search --semantic "payment flow"` |
+| `query <cypher>` | Execute Cypher query on AGE graph | `ccg query "MATCH (n:Function) RETURN n"` |
 
-### 서브커맨드
+## Execution
 
-| 커맨드 | 설명 | 예시 |
-|--------|------|------|
-| `build [dir]` | 디렉토리를 파싱하여 그래프 빌드 | `/ccg build .` |
-| `build --graph [dir]` | 그래프 빌드 + Apache AGE 동기화 | `/ccg build --graph .` |
-| `build --embed [dir]` | 그래프 빌드 + 벡터 임베딩 | `/ccg build --embed .` |
-| `update [dir]` | 변경된 파일만 증분 업데이트 | `/ccg update .` |
-| `status` | 그래프 통계 (노드/엣지/파일 수) | `/ccg status` |
-| `search <query>` | FTS 키워드 검색 | `/ccg search "인증"` |
-| `search --semantic <q>` | 벡터 시맨틱 검색 | `/ccg search --semantic "결제 관련 코드"` |
-| `query <cypher>` | Cypher 쿼리 직접 실행 | `/ccg query "MATCH (n:Function) RETURN n LIMIT 5"` |
-
-## 실행 방법
-
-사용자 입력에서 서브커맨드와 인자를 파싱하여 Bash로 실행합니다:
+Parse the user's input after `ccg` and run via Bash:
 
 ```bash
 ./ccg {subcommand} {args}
 ```
 
-## 인자가 없으면
+If the binary doesn't exist, build it first:
 
-`/ccg`만 입력된 경우 다음을 안내합니다:
-
-```
-사용 가능한 ccg 커맨드:
-  /ccg build [dir]     — 코드 그래프 빌드
-  /ccg status          — 그래프 통계
-  /ccg search <query>  — 키워드 검색
-  /ccg query <cypher>  — Cypher 쿼리 실행
+```bash
+CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/
 ```
 
-## Cypher 쿼리 예시
+## When no arguments provided
 
-유용한 Cypher 쿼리를 사용자에게 제안할 수 있습니다:
+Show available commands:
 
-```cypher
--- 모든 함수 호출 관계
-MATCH (a:Function)-[:CALLS]->(b:Function) RETURN a.name, b.name
-
--- 특정 함수의 blast-radius (3홉)
-MATCH (start {name: 'Login'})-[*1..3]-(affected) RETURN DISTINCT affected.name
-
--- 호출 경로 찾기
-MATCH path = (a {name: 'Handler'})-[:CALLS*]->(b {name: 'Save'}) RETURN path
-
--- 미사용 코드 탐지
-MATCH (n:Function) WHERE NOT ()-[:CALLS]->(n) RETURN n.qualified_name
-
--- 가장 많이 호출되는 함수
-MATCH ()-[:CALLS]->(n:Function) RETURN n.name, count(*) AS calls ORDER BY calls DESC LIMIT 10
 ```
+Available ccg commands:
+  ccg build [dir]       — Build code knowledge graph
+  ccg update [dir]      — Incremental update
+  ccg status            — Graph statistics
+  ccg search <query>    — Full-text search (annotations included)
+  ccg query <cypher>    — Execute Cypher query (requires AGE)
+```
+
+## Smart Behaviors
+
+### Auto-rebuild when stale
+If `ccg.db` doesn't exist or the user asks to analyze the project, run `ccg build .` first.
+
+### Suggest Cypher queries
+When the user asks graph-related questions, suggest and execute appropriate Cypher:
+
+| User intent | Suggested Cypher |
+|-------------|------------------|
+| "What calls this function?" | `MATCH (a)-[:CALLS]->(b {name: 'X'}) RETURN a.qualified_name` |
+| "Impact of changing X" | `MATCH ({name: 'X'})-[*1..3]-(affected) RETURN DISTINCT affected.qualified_name` |
+| "Path from A to B" | `MATCH path = (a {name: 'A'})-[:CALLS*]->(b {name: 'B'}) RETURN path` |
+| "Dead code" | `MATCH (n:Function) WHERE NOT ()-[:CALLS]->(n) RETURN n.qualified_name` |
+| "Most called functions" | `MATCH ()-[:CALLS]->(n) RETURN n.name, count(*) AS c ORDER BY c DESC LIMIT 10` |
+| "Module dependencies" | `MATCH (a)-[:CALLS]->(b) WHERE a.file_path STARTS WITH 'X' RETURN DISTINCT b.file_path` |
+
+### Annotation-aware search
+When the user asks about business concepts, use FTS search which includes annotation content:
+- `@intent` — function purpose/goal
+- `@domainRule` — business rules
+- `@sideEffect` — side effects
+- `@mutates` — state changes
+- `@index` — file/package level description
+
+Example: user asks "결제 관련 코드" → `ccg search "결제"` finds functions annotated with payment-related @intent/@domainRule.
+
+### Multi-column Cypher
+When RETURN has multiple values, use `--columns N`:
+
+```bash
+ccg query "MATCH (a)-[:CALLS]->(b) RETURN a.name, b.name" --columns 2
+```
+
+## Graph Schema
+
+Vertex labels: `Function`, `Class`, `Type`, `Test`, `File`
+
+Edge labels: `CALLS`, `IMPORTS_FROM`, `INHERITS`, `IMPLEMENTS`, `CONTAINS`, `TESTED_BY`, `DEPENDS_ON`, `REFERENCES`
+
+Vertex properties: `node_id`, `qualified_name`, `name`, `kind`, `file_path`, `language`, `start_line`, `end_line`
+
+## Supported Languages (15)
+
+Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, C#, Kotlin, PHP, Swift, Scala, Lua, Bash
