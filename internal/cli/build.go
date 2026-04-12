@@ -11,7 +11,7 @@ import (
 
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"github.com/imtaebin/code-context-graph/internal/parse"
-	"github.com/imtaebin/code-context-graph/internal/store/agestore"
+	"github.com/imtaebin/code-context-graph/internal/store/pgstore"
 )
 
 var skipDirs = map[string]bool{
@@ -175,17 +175,17 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 			}
 
 			// Sync to Apache AGE graph + pgvector if --graph flag is set
-			if syncGraph && deps.AgeStore != nil {
+			if syncGraph && deps.PGStore != nil {
 				deps.Logger.Info("syncing to AGE graph")
-				if err := deps.AgeStore.ClearGraph(ctx); err != nil {
+				if err := deps.PGStore.ClearGraph(ctx); err != nil {
 					deps.Logger.Warn("clear graph failed", "error", err)
 				}
-				if err := deps.AgeStore.SyncNodes(ctx, indexNodes); err != nil {
+				if err := deps.PGStore.SyncNodes(ctx, indexNodes); err != nil {
 					deps.Logger.Warn("sync nodes to AGE failed", "error", err)
 				} else {
 					var edges []model.Edge
 					deps.DB.Find(&edges)
-					if err := deps.AgeStore.SyncEdges(ctx, edges); err != nil {
+					if err := deps.PGStore.SyncEdges(ctx, edges); err != nil {
 						deps.Logger.Warn("sync edges to AGE failed", "error", err)
 					} else {
 						deps.Logger.Info("AGE graph synced", "nodes", len(indexNodes), "edges", len(edges))
@@ -193,12 +193,12 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 				}
 
 				// Sync pgvector documents for semantic search
-				if err := deps.AgeStore.InitPGVector(ctx); err != nil {
+				if err := deps.PGStore.InitPGVector(ctx); err != nil {
 					deps.Logger.Warn("pgvector init failed", "error", err)
 				} else {
-					var pvDocs []agestore.PGVectorDocument
+					var pvDocs []pgstore.PGVectorDocument
 					for _, n := range indexNodes {
-						pvDocs = append(pvDocs, agestore.PGVectorDocument{
+						pvDocs = append(pvDocs, pgstore.PGVectorDocument{
 							NodeID:  n.ID,
 							Content: buildContent(n),
 							Metadata: map[string]string{
@@ -209,7 +209,7 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 							},
 						})
 					}
-					if err := deps.AgeStore.SyncPGVectorDocuments(ctx, pvDocs); err != nil {
+					if err := deps.PGStore.SyncPGVectorDocuments(ctx, pvDocs); err != nil {
 						deps.Logger.Warn("pgvector sync failed", "error", err)
 					} else {
 						deps.Logger.Info("pgvector documents synced", "documents", len(pvDocs))

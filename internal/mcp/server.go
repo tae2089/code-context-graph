@@ -19,7 +19,6 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/analysis/query"
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"github.com/imtaebin/code-context-graph/internal/store"
-	"github.com/imtaebin/code-context-graph/internal/store/agestore"
 	storesearch "github.com/imtaebin/code-context-graph/internal/store/search"
 )
 
@@ -89,7 +88,6 @@ type Deps struct {
 	CoverageAnalyzer  CoverageAnalyzer
 	CommunityBuilder  CommunityBuilder
 	Incremental       IncrementalSyncer
-	AgeStore          *agestore.Store
 }
 
 func NewServer(deps *Deps) *server.MCPServer {
@@ -246,16 +244,9 @@ func NewServer(deps *Deps) *server.MCPServer {
 			),
 			Handler: h.findDeadCode,
 		},
-		server.ServerTool{
-			Tool: mcp.NewTool("execute_cypher",
-				mcp.WithDescription("Execute a Cypher query on the Apache AGE code graph. Use this for custom graph traversals, path finding, pattern matching, and impact analysis."),
-				mcp.WithString("cypher", mcp.Description("Cypher query string (e.g. MATCH (n:Function)-[:CALLS]->(m) RETURN n, m)"), mcp.Required()),
-			),
-			Handler: h.executeCypher,
-		},
 	)
 
-	log.Info("MCP server created", "name", "code-context-graph", "version", "1.0.0", "tools", 19, "prompts", 5)
+	log.Info("MCP server created", "name", "code-context-graph", "version", "1.0.0", "tools", 18, "prompts", 5)
 
 	p := &promptHandlers{deps: deps}
 	srv.AddPrompts(

@@ -30,7 +30,6 @@ func TestMCPServer_ListTools(t *testing.T) {
 		"get_community",
 		"get_architecture_overview",
 		"find_dead_code",
-		"execute_cypher",
 	}
 
 	if len(tools) != len(expected) {
@@ -55,13 +54,13 @@ func TestMCPServer_Start(t *testing.T) {
 	var _ *server.MCPServer = srv
 }
 
-func TestMCPServer_ListTools_19(t *testing.T) {
+func TestMCPServer_ListTools_18(t *testing.T) {
 	deps := &Deps{}
 	srv := NewServer(deps)
 	tools := srv.ListTools()
 
-	if len(tools) != 19 {
-		t.Fatalf("expected 19 tools, got %d", len(tools))
+	if len(tools) != 18 {
+		t.Fatalf("expected 18 tools, got %d", len(tools))
 	}
 }
 

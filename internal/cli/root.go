@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/imtaebin/code-context-graph/internal/analysis/incremental"
-	"github.com/imtaebin/code-context-graph/internal/store/agestore"
+	"github.com/imtaebin/code-context-graph/internal/store/pgstore"
 	"github.com/imtaebin/code-context-graph/internal/parse/treesitter"
 	"github.com/imtaebin/code-context-graph/internal/store"
 	"github.com/imtaebin/code-context-graph/internal/store/search"
@@ -24,7 +24,7 @@ type Deps struct {
 	Walkers       map[string]*treesitter.Walker
 	Syncer        *incremental.Syncer
 	ServeFunc     func(cfg ServeConfig) error
-	AgeStore      *agestore.Store
+	PGStore       *pgstore.Store
 }
 
 // NewRootCmd creates the root cobra command with all subcommands attached.
@@ -72,7 +72,6 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		newStatusCmd(deps),
 		newSearchCmd(deps),
 		newServeCmd(deps),
-		newQueryCmd(deps),
 	)
 
 	return rootCmd

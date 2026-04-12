@@ -1109,26 +1109,3 @@ func getBool(request mcp.CallToolRequest, name string, defaultVal bool) bool {
 	}
 	return defaultVal
 }
-
-func (h *handlers) executeCypher(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	log := h.logger()
-
-	cypher, err := request.RequireString("cypher")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("missing parameter: %v", err)), nil
-	}
-	columns := request.GetInt("columns", 1)
-
-	log.Info("execute_cypher called", "cypher", cypher, "columns", columns)
-
-	if h.deps.AgeStore == nil {
-		return mcp.NewToolResultError("Apache AGE not configured — start with AGE_DSN environment variable"), nil
-	}
-
-	result, err := h.deps.AgeStore.ExecuteCypherJSON(ctx, cypher, columns)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("cypher error: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(result), nil
-}
