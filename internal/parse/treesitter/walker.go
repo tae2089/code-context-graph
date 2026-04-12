@@ -56,6 +56,11 @@ func NewWalker(spec *LangSpec, opts ...WalkerOption) *Walker {
 	return w
 }
 
+// Language returns the language name of this walker's spec.
+func (w *Walker) Language() string {
+	return w.spec.Name
+}
+
 func (w *Walker) Parse(filePath string, content []byte) ([]model.Node, []model.Edge, error) {
 	lang, err := w.getLanguage()
 	if err != nil {
@@ -877,6 +882,67 @@ func (w *Walker) resolveTestedBy(root *sitter.Node, content []byte, filePath, pk
 					Fingerprint: fmt.Sprintf("tested_by:%s:%s:%s", filePath, bareCallee, testQName),
 				})
 			}
+		}
+	}
+}
+
+// CommentBlock represents a contiguous block of comment lines.
+type CommentBlock struct {
+	StartLine int
+	EndLine   int
+	Text      string
+}
+
+// ExtractComments parses the file and returns comment blocks.
+func (w *Walker) ExtractComments(filePath string, content []byte) ([]CommentBlock, error) {
+	lang, err := w.getLanguage()
+	if err != nil {
+		return nil, err
+	}
+
+	parser := sitter.NewParser()
+	parser.SetLanguage(lang)
+
+	tree, err := parser.ParseCtx(context.Background(), nil, content)
+	if err != nil {
+		return nil, fmt.Errorf("parse error: %w", err)
+	}
+
+	var comments []CommentBlock
+	w.collectComments(tree.RootNode(), content, &comments)
+	return comments, nil
+}
+
+func (w *Walker) collectComments(node *sitter.Node, content []byte, comments *[]CommentBlock) {
+	nodeType := node.Type()
+
+	if nodeType == "comment" || nodeType == "line_comment" || nodeType == "block_comment" {
+		startLine := int(node.StartPoint().Row) + 1
+		endLine := int(node.EndPoint().Row) + 1
+		text := node.Content(content)
+
+		// Merge with previous comment if adjacent
+		if len(*comments) > 0 {
+			last := &(*comments)[len(*comments)-1]
+			if startLine-last.EndLine <= 1 {
+				last.EndLine = endLine
+				last.Text += "\n" + text
+				return
+			}
+		}
+
+		*comments = append(*comments, CommentBlock{
+			StartLine: startLine,
+			EndLine:   endLine,
+			Text:      text,
+		})
+		return
+	}
+
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child != nil {
+			w.collectComments(child, content, comments)
 		}
 	}
 }

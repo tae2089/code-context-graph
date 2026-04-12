@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/imtaebin/code-context-graph/internal/parse"
 )
 
 var skipDirs = map[string]bool{
@@ -81,6 +82,29 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 					}
 				}
 
+				// Extract comments and bind annotations
+				tsComments, _ := walker.ExtractComments(relPath, content)
+				if len(tsComments) > 0 {
+					binderComments := make([]parse.CommentBlock, len(tsComments))
+					for i, c := range tsComments {
+						binderComments[i] = parse.CommentBlock{
+							StartLine: c.StartLine,
+							EndLine:   c.EndLine,
+							Text:      c.Text,
+						}
+					}
+					binder := parse.NewBinder()
+					bindings := binder.Bind(binderComments, nodes, walker.Language())
+					for _, b := range bindings {
+						stored, err := deps.Store.GetNode(ctx, b.Node.QualifiedName)
+						if err != nil || stored == nil {
+							continue
+						}
+						b.Annotation.NodeID = stored.ID
+						deps.Store.UpsertAnnotation(ctx, b.Annotation)
+					}
+				}
+
 				totalFiles++
 				totalNodes += len(nodes)
 				totalEdges += len(edges)
@@ -91,15 +115,31 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 				return fmt.Errorf("walk directory: %w", err)
 			}
 
-			// Build search index
+			// Build search index with annotation content
 			if deps.SearchBackend != nil && deps.DB != nil {
 				var nodes []model.Node
 				deps.DB.Where("kind IN ?", []string{"function", "class", "type", "test"}).Find(&nodes)
 				for _, n := range nodes {
+					content := n.Name + " " + n.QualifiedName + " " + string(n.Kind)
+
+					// Include annotation text in search document
+					ann, _ := deps.Store.GetAnnotation(ctx, n.ID)
+					if ann != nil {
+						if ann.Summary != "" {
+							content += " " + ann.Summary
+						}
+						if ann.Context != "" {
+							content += " " + ann.Context
+						}
+						for _, tag := range ann.Tags {
+							content += " " + tag.Value
+						}
+					}
+
 					deps.DB.Where("node_id = ?", n.ID).Delete(&model.SearchDocument{})
 					deps.DB.Create(&model.SearchDocument{
 						NodeID:   n.ID,
-						Content:  n.Name + " " + n.QualifiedName + " " + string(n.Kind),
+						Content:  content,
 						Language: n.Language,
 					})
 				}

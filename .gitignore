@@ -1,6 +1,6 @@
 # Binaries
-ccg
-dogfood
+/ccg
+/dogfood
 *.exe
 
 # Database
