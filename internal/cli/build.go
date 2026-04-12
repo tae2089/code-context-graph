@@ -224,7 +224,7 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&syncGraph, "graph", false, "Sync graph to Apache AGE (requires AGE_DSN)")
+	cmd.Flags().BoolVar(&syncGraph, "graph", false, "Sync to PostgreSQL + pgvector (requires PG_DSN)")
 
 	return cmd
 }
