@@ -2,6 +2,8 @@
 
 Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 15 languages, 19 MCP tools, custom annotation search, and Apache AGE Cypher queries.
 
+Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) — a Python-based code analysis tool. This project reimplements and extends the concept in Go with multi-DB support, custom annotation system, and MCP integration for AI-powered code understanding.
+
 ## Features
 
 - **15 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, C#, Kotlin, PHP, Swift, Scala, Lua, Bash
@@ -11,9 +13,23 @@ Local code analysis tool that parses codebases via Tree-sitter into a knowledge 
 - **Multi-DB**: SQLite (local), PostgreSQL, MySQL
 - **Full-text search**: FTS5 (SQLite), tsvector+GIN (PostgreSQL), FULLTEXT (MySQL)
 
-## Quick Start
+## Installation
 
-### Build
+### npm / bun (recommended)
+
+```bash
+npm install -g code-context-graph
+# or
+bun install -g code-context-graph
+```
+
+### go install
+
+```bash
+go install github.com/tae2089/code-context-graph/cmd/ccg@latest
+```
+
+### Build from source
 
 ```bash
 CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/
@@ -22,7 +38,7 @@ CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/
 ### Parse your project
 
 ```bash
-./ccg build .
+ccg build .
 ```
 
 ```
@@ -33,17 +49,17 @@ Build complete: 70 files, 749 nodes, 7387 edges
 
 ```bash
 # Keyword search (includes annotations)
-./ccg search "authentication"
+ccg search "authentication"
 
 # Search by business context
-./ccg search "결제"       # finds functions with @intent/@domainRule about payments
-./ccg search "dead code"  # finds deadcode.Find via @intent annotation
+ccg search "결제"       # finds functions with @intent/@domainRule about payments
+ccg search "dead code"  # finds deadcode.Find via @intent annotation
 ```
 
 ### Status
 
 ```bash
-./ccg status
+ccg status
 ```
 
 ```
@@ -121,26 +137,26 @@ docker compose up age -d
 
 ```bash
 AGE_DSN="host=127.0.0.1 port=5455 dbname=ccg user=ccg password=ccg sslmode=disable" \
-  ./ccg build --graph .
+  ccg build --graph .
 ```
 
 ### Cypher queries
 
 ```bash
 # All function call relationships
-./ccg query "MATCH (a:Function)-[:CALLS]->(b:Function) RETURN a.name, b.name" --columns 2
+ccg query "MATCH (a:Function)-[:CALLS]->(b:Function) RETURN a.name, b.name" --columns 2
 
 # Blast-radius (3 hops)
-./ccg query "MATCH ({name: 'Login'})-[*1..3]-(n) RETURN DISTINCT n.qualified_name"
+ccg query "MATCH ({name: 'Login'})-[*1..3]-(n) RETURN DISTINCT n.qualified_name"
 
 # Call path between two functions
-./ccg query "MATCH path = (a {name: 'Handler'})-[:CALLS*]->(b {name: 'Save'}) RETURN path"
+ccg query "MATCH path = (a {name: 'Handler'})-[:CALLS*]->(b {name: 'Save'}) RETURN path"
 
 # Dead code
-./ccg query "MATCH (n:Function) WHERE NOT ()-[:CALLS]->(n) RETURN n.qualified_name"
+ccg query "MATCH (n:Function) WHERE NOT ()-[:CALLS]->(n) RETURN n.qualified_name"
 
 # Most called functions
-./ccg query "MATCH ()-[:CALLS]->(n) RETURN n.name, count(*) AS c ORDER BY c DESC LIMIT 10"
+ccg query "MATCH ()-[:CALLS]->(n) RETURN n.name, count(*) AS c ORDER BY c DESC LIMIT 10"
 ```
 
 ### Graph Schema
@@ -159,7 +175,7 @@ Add `.mcp.json` to your project:
 {
   "mcpServers": {
     "ccg": {
-      "command": "./ccg",
+      "command": "ccg",
       "args": ["serve", "--db", "sqlite", "--dsn", "ccg.db"]
     }
   }
