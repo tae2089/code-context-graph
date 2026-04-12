@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	chromem "github.com/philippgille/chromem-go"
 	"github.com/spf13/cobra"
 
 	"github.com/imtaebin/code-context-graph/internal/model"
@@ -20,6 +21,8 @@ var skipDirs = map[string]bool{
 }
 
 func newBuildCmd(deps *Deps) *cobra.Command {
+	var embed bool
+
 	cmd := &cobra.Command{
 		Use:   "build [directory]",
 		Short: "Parse a directory and build the code graph",
@@ -115,42 +118,49 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 				return fmt.Errorf("walk directory: %w", err)
 			}
 
-			// Build search index with annotation content (batch query)
-			if deps.SearchBackend != nil && deps.DB != nil {
-				var nodes []model.Node
-				deps.DB.Where("kind IN ?", []string{"function", "class", "type", "test", "file"}).Find(&nodes)
-
-				// Batch load all annotations with tags in 2 queries instead of N+1
-				nodeIDs := make([]uint, len(nodes))
-				for i, n := range nodes {
+			// Batch load all nodes and annotations for indexing
+			var indexNodes []model.Node
+			annByNode := map[uint]*model.Annotation{}
+			if deps.DB != nil {
+				deps.DB.Where("kind IN ?", []string{"function", "class", "type", "test", "file"}).Find(&indexNodes)
+				nodeIDs := make([]uint, len(indexNodes))
+				for i, n := range indexNodes {
 					nodeIDs[i] = n.ID
 				}
-				var annotations []model.Annotation
-				deps.DB.Where("node_id IN ?", nodeIDs).Preload("Tags").Find(&annotations)
-				annByNode := make(map[uint]*model.Annotation, len(annotations))
-				for i := range annotations {
-					annByNode[annotations[i].NodeID] = &annotations[i]
-				}
-
-				// Batch delete + create search documents
-				deps.DB.Where("1 = 1").Delete(&model.SearchDocument{})
-				docs := make([]model.SearchDocument, 0, len(nodes))
-				for _, n := range nodes {
-					content := n.Name + " " + n.QualifiedName + " " + string(n.Kind)
-					if ann := annByNode[n.ID]; ann != nil {
-						if ann.Summary != "" {
-							content += " " + ann.Summary
-						}
-						if ann.Context != "" {
-							content += " " + ann.Context
-						}
-						for _, tag := range ann.Tags {
-							content += " " + tag.Value
-						}
+				if len(nodeIDs) > 0 {
+					var annotations []model.Annotation
+					deps.DB.Where("node_id IN ?", nodeIDs).Preload("Tags").Find(&annotations)
+					for i := range annotations {
+						annByNode[annotations[i].NodeID] = &annotations[i]
 					}
+				}
+			}
+
+			// Helper: build content string for a node + annotation
+			buildContent := func(n model.Node) string {
+				content := n.Name + " " + n.QualifiedName + " " + string(n.Kind)
+				if ann := annByNode[n.ID]; ann != nil {
+					if ann.Summary != "" {
+						content += " " + ann.Summary
+					}
+					if ann.Context != "" {
+						content += " " + ann.Context
+					}
+					for _, tag := range ann.Tags {
+						content += " " + tag.Value
+					}
+				}
+				return content
+			}
+
+			// Build FTS search index
+			if deps.SearchBackend != nil && deps.DB != nil {
+				deps.DB.Where("1 = 1").Delete(&model.SearchDocument{})
+				docs := make([]model.SearchDocument, 0, len(indexNodes))
+				for _, n := range indexNodes {
 					docs = append(docs, model.SearchDocument{
 						NodeID:   n.ID,
-						Content:  content,
+						Content:  buildContent(n),
 						Language: n.Language,
 					})
 				}
@@ -164,12 +174,35 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 				}
 			}
 
+			// Build vector embeddings if --embed flag is set
+			if embed && deps.VectorDB != nil {
+				deps.Logger.Info("building vector embeddings")
+				for _, n := range indexNodes {
+					err := deps.VectorDB.Collection.AddDocument(ctx, chromem.Document{
+						ID:      fmt.Sprintf("%d", n.ID),
+						Content: buildContent(n),
+						Metadata: map[string]string{
+							"qualified_name": n.QualifiedName,
+							"kind":           string(n.Kind),
+							"file_path":      n.FilePath,
+							"language":       n.Language,
+						},
+					})
+					if err != nil {
+						deps.Logger.Warn("embed failed", "node", n.QualifiedName, "error", err)
+					}
+				}
+				deps.Logger.Info("vector embeddings built", "documents", len(indexNodes))
+			}
+
 			fmt.Fprintf(stdout(cmd), "Build complete: %d files, %d nodes, %d edges\n", totalFiles, totalNodes, totalEdges)
 			deps.Logger.Info("build complete", "files", totalFiles, "nodes", totalNodes, "edges", totalEdges)
 
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&embed, "embed", false, "Build vector embeddings for semantic search (requires OPENAI_API_KEY)")
 
 	return cmd
 }

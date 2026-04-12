@@ -3,12 +3,13 @@ package model
 import "time"
 
 type Community struct {
-	ID        uint   `gorm:"primaryKey"`
-	Key       string `gorm:"uniqueIndex;size:512;not null"`
-	Label     string `gorm:"size:256;not null"`
-	Strategy  string `gorm:"size:32;not null;index"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID          uint   `gorm:"primaryKey"`
+	Key         string `gorm:"uniqueIndex;size:512;not null"`
+	Label       string `gorm:"size:256;not null"`
+	Strategy    string `gorm:"size:32;not null;index"`
+	Description string `gorm:"type:text"`
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 
 	Members []CommunityMembership `gorm:"foreignKey:CommunityID"`
 }

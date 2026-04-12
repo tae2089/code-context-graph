@@ -112,6 +112,24 @@ func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 			}
 		}
 
+		// Aggregate @index annotations from File nodes into community description
+		fileNodeIDs := []uint{}
+		for _, ns := range groups {
+			for _, n := range ns {
+				if n.Kind == model.NodeKindFile {
+					fileNodeIDs = append(fileNodeIDs, n.ID)
+				}
+			}
+		}
+		annByNode := map[uint]*model.Annotation{}
+		if len(fileNodeIDs) > 0 {
+			var annotations []model.Annotation
+			tx.Where("node_id IN ?", fileNodeIDs).Preload("Tags").Find(&annotations)
+			for i := range annotations {
+				annByNode[annotations[i].NodeID] = &annotations[i]
+			}
+		}
+
 		for key, c := range communityMap {
 			ec := counts[key]
 			var cohesion float64
@@ -119,6 +137,26 @@ func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 			if total > 0 {
 				cohesion = float64(ec.internal) / float64(total)
 			}
+
+			// Build description from member File @index tags
+			var descriptions []string
+			for _, n := range groups[key] {
+				if n.Kind != model.NodeKindFile {
+					continue
+				}
+				if ann := annByNode[n.ID]; ann != nil {
+					for _, tag := range ann.Tags {
+						if tag.Kind == model.TagIndex {
+							descriptions = append(descriptions, tag.Value)
+						}
+					}
+				}
+			}
+			if len(descriptions) > 0 {
+				c.Description = strings.Join(descriptions, "; ")
+				tx.Save(c)
+			}
+
 			result = append(result, Stats{
 				Community:     *c,
 				NodeCount:     int64(len(groups[key])),
