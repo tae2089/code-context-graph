@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/imtaebin/code-context-graph/internal/analysis/incremental"
+	"github.com/imtaebin/code-context-graph/internal/store/agestore"
 	"github.com/imtaebin/code-context-graph/internal/parse/treesitter"
 	"github.com/imtaebin/code-context-graph/internal/store"
 	"github.com/imtaebin/code-context-graph/internal/store/search"
@@ -25,6 +26,7 @@ type Deps struct {
 	Syncer        *incremental.Syncer
 	ServeFunc     func(cfg ServeConfig) error
 	VectorDB      *VectorStore
+	AgeStore      *agestore.Store
 }
 
 // VectorStore wraps chromem-go for semantic search.
@@ -78,6 +80,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		newStatusCmd(deps),
 		newSearchCmd(deps),
 		newServeCmd(deps),
+		newQueryCmd(deps),
 	)
 
 	return rootCmd

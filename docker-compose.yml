@@ -13,6 +13,20 @@ services:
       timeout: 5s
       retries: 10
 
+  age:
+    image: apache/age
+    environment:
+      POSTGRES_USER: ccg
+      POSTGRES_PASSWORD: ccg
+      POSTGRES_DB: ccg
+    ports:
+      - "5455:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ccg -d ccg"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
   mysql:
     image: mysql:8.0
     environment:

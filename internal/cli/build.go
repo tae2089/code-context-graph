@@ -22,6 +22,7 @@ var skipDirs = map[string]bool{
 
 func newBuildCmd(deps *Deps) *cobra.Command {
 	var embed bool
+	var syncGraph bool
 
 	cmd := &cobra.Command{
 		Use:   "build [directory]",
@@ -195,6 +196,25 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 				deps.Logger.Info("vector embeddings built", "documents", len(indexNodes))
 			}
 
+			// Sync to Apache AGE graph if --graph flag is set
+			if syncGraph && deps.AgeStore != nil {
+				deps.Logger.Info("syncing to AGE graph")
+				if err := deps.AgeStore.ClearGraph(ctx); err != nil {
+					deps.Logger.Warn("clear graph failed", "error", err)
+				}
+				if err := deps.AgeStore.SyncNodes(ctx, indexNodes); err != nil {
+					deps.Logger.Warn("sync nodes to AGE failed", "error", err)
+				} else {
+					var edges []model.Edge
+					deps.DB.Find(&edges)
+					if err := deps.AgeStore.SyncEdges(ctx, edges); err != nil {
+						deps.Logger.Warn("sync edges to AGE failed", "error", err)
+					} else {
+						deps.Logger.Info("AGE graph synced", "nodes", len(indexNodes), "edges", len(edges))
+					}
+				}
+			}
+
 			fmt.Fprintf(stdout(cmd), "Build complete: %d files, %d nodes, %d edges\n", totalFiles, totalNodes, totalEdges)
 			deps.Logger.Info("build complete", "files", totalFiles, "nodes", totalNodes, "edges", totalEdges)
 
@@ -203,6 +223,7 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&embed, "embed", false, "Build vector embeddings for semantic search (requires OPENAI_API_KEY)")
+	cmd.Flags().BoolVar(&syncGraph, "graph", false, "Sync graph to Apache AGE (requires AGE_DSN)")
 
 	return cmd
 }
