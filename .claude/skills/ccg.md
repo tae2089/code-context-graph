@@ -20,6 +20,7 @@ A local code analysis tool that parses codebases via Tree-sitter into a knowledg
 | `search <query>` | FTS keyword search (includes @annotations) | `ccg search "authentication"` |
 | `search --semantic <q>` | Vector similarity search | `ccg search --semantic "payment flow"` |
 | `query <cypher>` | Execute Cypher query on AGE graph | `ccg query "MATCH (n:Function) RETURN n"` |
+| `annotate [file\|dir]` | AI-generate annotations for code | `ccg annotate internal/analysis/` |
 
 ## Execution
 
@@ -41,11 +42,74 @@ Show available commands:
 
 ```
 Available ccg commands:
-  ccg build [dir]       — Build code knowledge graph
-  ccg update [dir]      — Incremental update
-  ccg status            — Graph statistics
-  ccg search <query>    — Full-text search (annotations included)
-  ccg query <cypher>    — Execute Cypher query (requires AGE)
+  ccg build [dir]           — Build code knowledge graph
+  ccg update [dir]          — Incremental update
+  ccg status                — Graph statistics
+  ccg search <query>        — Full-text search (annotations included)
+  ccg query <cypher>        — Execute Cypher query (requires AGE)
+  ccg annotate [file|dir]   — AI-generate @annotations for code
+```
+
+## Annotate Command
+
+`ccg annotate` is NOT a CLI binary command — it is an AI-driven workflow executed by Claude.
+
+When the user runs `ccg annotate [file|dir]`, Claude should:
+
+### Step 1: Read target files
+- If a file path is given, read that file
+- If a directory is given, find all source files (`.go`, `.py`, `.ts`, `.java`, etc.)
+- Skip test files, vendor, node_modules
+
+### Step 2: Analyze each function/class/file
+For each declaration, read the code and determine:
+- **What it does** (→ summary line above declaration)
+- **Why it exists** (→ `@intent`)
+- **Business rules it enforces** (→ `@domainRule`)
+- **Side effects** (→ `@sideEffect`: DB writes, API calls, file I/O, notifications)
+- **What state it changes** (→ `@mutates`: fields, tables, caches)
+- **Prerequisites** (→ `@requires`: auth, valid input, active state)
+- **Guarantees** (→ `@ensures`: return conditions, post-state)
+- **File/package purpose** (→ `@index` on package declaration)
+
+### Step 3: Write annotations
+- Add annotations as comments directly above the declaration
+- Use the language's comment syntax (`//` for Go, `#` for Python, etc.)
+- Do NOT overwrite existing annotations — only add missing ones
+- Do NOT add trivial annotations (e.g., `@intent returns the name` for `getName()`)
+
+### Step 4: Rebuild
+After annotating, run `ccg build .` to re-index with new annotations.
+
+### Annotation Quality Rules
+- `@intent` should describe WHY, not WHAT (not "creates user" but "register new account for onboarding flow")
+- `@domainRule` should be specific business logic, not generic validation
+- `@sideEffect` only for actual side effects (DB, network, file, notification)
+- `@index` should summarize the module's responsibility in one line
+- Skip getters/setters/trivial functions — annotate functions with business meaning
+- Write annotations in the same language as existing code comments (Korean if Korean, English if English)
+
+### Example output
+
+```go
+// @index User authentication and session management service.
+package auth
+
+// AuthenticateUser validates credentials and creates a session.
+// Called from login API handler.
+//
+// @param username user login ID
+// @param password plaintext password (hashed internally)
+// @return JWT token on success
+// @intent verify user identity before granting system access
+// @domainRule lock account after 5 consecutive failed attempts
+// @domainRule locked accounts auto-unlock after 30 minutes
+// @sideEffect writes login attempt to audit_log table
+// @sideEffect sends security alert email on 3rd failed attempt
+// @mutates user.FailedAttempts, user.LockedUntil, user.LastLoginAt
+// @requires user.IsActive == true
+// @ensures err == nil implies valid JWT with 24h expiry
+func AuthenticateUser(username, password string) (string, error) {
 ```
 
 ## Smart Behaviors
