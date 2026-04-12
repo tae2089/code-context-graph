@@ -69,11 +69,11 @@ async function install() {
   const url = getDownloadUrl(binaryName);
   const binDir = path.join(__dirname, "bin");
   const isWindows = process.platform === "win32";
-  const binPath = path.join(binDir, isWindows ? "ccg.exe" : "ccg");
+  const binPath = path.join(binDir, isWindows ? "ccg-binary.exe" : "ccg-binary");
 
   // Skip if binary already exists
   if (fs.existsSync(binPath)) {
-    console.log(`ccg already installed at ${binPath}`);
+    console.log(`ccg binary already installed at ${binPath}`);
     return;
   }
 
@@ -105,7 +105,7 @@ async function install() {
       execSync(`tar xzf "${tarPath}" -C "${binDir}"`, { stdio: "ignore" });
       fs.unlinkSync(tarPath);
 
-      // Rename platform-specific binary to 'ccg' (e.g., ccg-darwin-arm64 -> ccg)
+      // Rename platform-specific binary to 'ccg-binary'
       const extracted = path.join(binDir, binaryName);
       if (fs.existsSync(extracted) && extracted !== binPath) {
         fs.renameSync(extracted, binPath);
