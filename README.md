@@ -1,15 +1,15 @@
 # code-context-graph
 
-Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 15 languages, 19 MCP tools, custom annotation search, and Apache AGE Cypher queries.
+Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 15 languages, 18 MCP tools, custom annotation search, and pgvector semantic search.
 
 Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) — a Python-based code analysis tool. This project reimplements and extends the concept in Go with multi-DB support, custom annotation system, and MCP integration for AI-powered code understanding.
 
 ## Features
 
 - **15 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, C#, Kotlin, PHP, Swift, Scala, Lua, Bash
-- **19 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, Cypher queries, and more
+- **18 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, and more
 - **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context
-- **Apache AGE**: Cypher graph queries for path finding, blast-radius, pattern matching
+- **pgvector**: semantic similarity search via PostgreSQL pgvector extension
 - **Multi-DB**: SQLite (local), PostgreSQL, MySQL
 - **Full-text search**: FTS5 (SQLite), tsvector+GIN (PostgreSQL), FULLTEXT (MySQL)
 
@@ -34,6 +34,8 @@ go install github.com/tae2089/code-context-graph/cmd/ccg@latest
 ```bash
 CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/
 ```
+
+## Quick Start
 
 ### Parse your project
 
@@ -125,45 +127,22 @@ func AuthenticateUser(username, password string) (string, error) {
 | `@return` | Return description | `@return JWT token on success` |
 | `@see` | Related function | `@see SessionManager.Create` |
 
-## Apache AGE (Graph Queries)
+## PostgreSQL + pgvector (Semantic Search)
 
 ### Setup
 
 ```bash
-docker compose up age -d
+docker compose up pgvector -d
 ```
 
-### Build with graph sync
+### Build with pgvector sync
 
 ```bash
-AGE_DSN="host=127.0.0.1 port=5455 dbname=ccg user=ccg password=ccg sslmode=disable" \
+PG_DSN="host=127.0.0.1 port=5455 dbname=ccg user=ccg password=ccg sslmode=disable" \
   ccg build --graph .
 ```
 
-### Cypher queries
-
-```bash
-# All function call relationships
-ccg query "MATCH (a:Function)-[:CALLS]->(b:Function) RETURN a.name, b.name" --columns 2
-
-# Blast-radius (3 hops)
-ccg query "MATCH ({name: 'Login'})-[*1..3]-(n) RETURN DISTINCT n.qualified_name"
-
-# Call path between two functions
-ccg query "MATCH path = (a {name: 'Handler'})-[:CALLS*]->(b {name: 'Save'}) RETURN path"
-
-# Dead code
-ccg query "MATCH (n:Function) WHERE NOT ()-[:CALLS]->(n) RETURN n.qualified_name"
-
-# Most called functions
-ccg query "MATCH ()-[:CALLS]->(n) RETURN n.name, count(*) AS c ORDER BY c DESC LIMIT 10"
-```
-
-### Graph Schema
-
-**Vertices**: `Function`, `Class`, `Type`, `Test`, `File`
-
-**Edges**: `CALLS`, `IMPORTS_FROM`, `INHERITS`, `IMPLEMENTS`, `CONTAINS`, `TESTED_BY`, `DEPENDS_ON`, `REFERENCES`
+This stores nodes, edges, and annotation content in PostgreSQL with pgvector, enabling semantic similarity search via the pgvector MCP server.
 
 ## Claude Code Integration
 
@@ -177,12 +156,19 @@ Add `.mcp.json` to your project:
     "ccg": {
       "command": "ccg",
       "args": ["serve", "--db", "sqlite", "--dsn", "ccg.db"]
+    },
+    "pgvector": {
+      "command": "npx",
+      "args": ["-y", "mcp-pgvector-server"],
+      "env": {
+        "DATABASE_URL": "postgresql://ccg:ccg@localhost:5455/ccg"
+      }
     }
   }
 }
 ```
 
-Claude Code automatically connects and gets access to 19 tools including `execute_cypher` for direct Cypher queries.
+Claude Code automatically connects and gets access to 18 MCP tools + pgvector semantic search.
 
 ### Skill
 
@@ -192,7 +178,6 @@ The `/ccg` skill provides:
 /ccg build .                  — Build code graph
 /ccg status                   — Graph statistics
 /ccg search "query"           — Full-text search
-/ccg query "MATCH ..."        — Cypher query
 /ccg annotate internal/       — AI-generate annotations
 ```
 
@@ -214,9 +199,9 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
                                         ↓
                               SQLite / PostgreSQL (GORM)
                                    ↓              ↓
-                            FTS Search      Apache AGE Graph
-                                   ↓              ↓
-                              MCP Server (19 tools)
+                            FTS Search      pgvector (semantic)
+                                   ↓
+                              MCP Server (18 tools)
                                         ↓
                                   Claude Code
 ```
@@ -226,16 +211,13 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
 | Command | Description |
 |---------|-------------|
 | `ccg build [dir]` | Parse and build code graph |
-| `ccg build --graph [dir]` | Build + sync to Apache AGE |
-| `ccg build --embed [dir]` | Build + vector embeddings |
+| `ccg build --graph [dir]` | Build + sync to PostgreSQL + pgvector |
 | `ccg update [dir]` | Incremental sync |
 | `ccg status` | Graph statistics |
 | `ccg search <query>` | Full-text search |
-| `ccg search --semantic <q>` | Semantic vector search |
-| `ccg query <cypher>` | Execute Cypher query |
 | `ccg serve` | Start MCP server (stdio) |
 
-## MCP Tools (19)
+## MCP Tools (18)
 
 | Tool | Description |
 |------|-------------|
@@ -257,7 +239,6 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
 | `get_community` | Community details + coverage |
 | `get_architecture_overview` | Architecture summary with coupling |
 | `get_annotation` | Get annotation and doc tags |
-| `execute_cypher` | Execute arbitrary Cypher queries |
 
 ## Development
 
@@ -268,7 +249,7 @@ CGO_ENABLED=1 go test -tags "fts5" ./... -count=1
 # Build
 CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/
 
-# Docker (PostgreSQL + AGE + MySQL)
+# Docker (PostgreSQL + pgvector + MySQL)
 docker compose up -d
 ```
 

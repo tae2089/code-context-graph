@@ -1,25 +1,22 @@
 ---
 name: ccg
-description: code-context-graph CLI — build code knowledge graphs, search by annotations, execute Cypher queries
+description: code-context-graph CLI — build code knowledge graphs, search by annotations, analyze with 18 MCP tools
 user-invocable: true
 ---
 
 # code-context-graph CLI Skill
 
-A local code analysis tool that parses codebases via Tree-sitter into a knowledge graph with 15 language support, annotation-powered search, and Apache AGE Cypher queries.
+A local code analysis tool that parses codebases via Tree-sitter into a knowledge graph with 15 language support, annotation-powered search, and pgvector semantic search.
 
 ## Subcommands
 
 | Command | Description | Example |
 |---------|-------------|---------|
 | `build [dir]` | Parse directory, build graph + search index | `ccg build .` |
-| `build --graph [dir]` | Build + sync to Apache AGE graph DB | `ccg build --graph .` |
-| `build --embed [dir]` | Build + generate vector embeddings | `ccg build --embed .` |
+| `build --graph [dir]` | Build + sync to PostgreSQL + pgvector | `ccg build --graph .` |
 | `update [dir]` | Incremental sync (changed files only) | `ccg update .` |
 | `status` | Show graph statistics (nodes/edges/files) | `ccg status` |
 | `search <query>` | FTS keyword search (includes @annotations) | `ccg search "authentication"` |
-| `search --semantic <q>` | Vector similarity search | `ccg search --semantic "payment flow"` |
-| `query <cypher>` | Execute Cypher query on AGE graph | `ccg query "MATCH (n:Function) RETURN n"` |
 | `annotate [file\|dir]` | AI-generate annotations for code | `ccg annotate internal/analysis/` |
 
 ## Execution
@@ -46,7 +43,6 @@ Available ccg commands:
   ccg update [dir]          — Incremental update
   ccg status                — Graph statistics
   ccg search <query>        — Full-text search (annotations included)
-  ccg query <cypher>        — Execute Cypher query (requires AGE)
   ccg annotate [file|dir]   — AI-generate @annotations for code
 ```
 
@@ -117,17 +113,19 @@ func AuthenticateUser(username, password string) (string, error) {
 ### Auto-rebuild when stale
 If `ccg.db` doesn't exist or the user asks to analyze the project, run `ccg build .` first.
 
-### Suggest Cypher queries
-When the user asks graph-related questions, suggest and execute appropriate Cypher:
+### Use MCP tools for graph analysis
+When the user asks graph-related questions, use the 18 MCP tools via the ccg MCP server:
 
-| User intent | Suggested Cypher |
-|-------------|------------------|
-| "What calls this function?" | `MATCH (a)-[:CALLS]->(b {name: 'X'}) RETURN a.qualified_name` |
-| "Impact of changing X" | `MATCH ({name: 'X'})-[*1..3]-(affected) RETURN DISTINCT affected.qualified_name` |
-| "Path from A to B" | `MATCH path = (a {name: 'A'})-[:CALLS*]->(b {name: 'B'}) RETURN path` |
-| "Dead code" | `MATCH (n:Function) WHERE NOT ()-[:CALLS]->(n) RETURN n.qualified_name` |
-| "Most called functions" | `MATCH ()-[:CALLS]->(n) RETURN n.name, count(*) AS c ORDER BY c DESC LIMIT 10` |
-| "Module dependencies" | `MATCH (a)-[:CALLS]->(b) WHERE a.file_path STARTS WITH 'X' RETURN DISTINCT b.file_path` |
+| User intent | MCP tool |
+|-------------|----------|
+| "What calls this function?" | `query_graph` (pattern: callers_of) |
+| "Impact of changing X" | `get_impact_radius` (depth: 3) |
+| "Dead code" | `find_dead_code` |
+| "Large functions" | `find_large_functions` |
+| "Module structure" | `list_communities` |
+| "Architecture overview" | `get_architecture_overview` |
+| "Test coverage gaps" | `get_community` (include coverage) |
+| "What changed?" | `detect_changes` |
 
 ### Annotation-aware search
 When the user asks about business concepts, use FTS search which includes annotation content:
@@ -139,20 +137,14 @@ When the user asks about business concepts, use FTS search which includes annota
 
 Example: user asks "결제 관련 코드" → `ccg search "결제"` finds functions annotated with payment-related @intent/@domainRule.
 
-### Multi-column Cypher
-When RETURN has multiple values, use `--columns N`:
-
-```bash
-ccg query "MATCH (a)-[:CALLS]->(b) RETURN a.name, b.name" --columns 2
-```
+### Semantic search via pgvector MCP
+When FTS keyword search is insufficient (cross-language, fuzzy matching), use the pgvector MCP server for semantic similarity search. This requires PostgreSQL mode (`ccg build --graph`).
 
 ## Graph Schema
 
-Vertex labels: `Function`, `Class`, `Type`, `Test`, `File`
+Node kinds: `function`, `class`, `type`, `test`, `file`
 
-Edge labels: `CALLS`, `IMPORTS_FROM`, `INHERITS`, `IMPLEMENTS`, `CONTAINS`, `TESTED_BY`, `DEPENDS_ON`, `REFERENCES`
-
-Vertex properties: `node_id`, `qualified_name`, `name`, `kind`, `file_path`, `language`, `start_line`, `end_line`
+Edge kinds: `calls`, `imports_from`, `inherits`, `implements`, `contains`, `tested_by`, `depends_on`, `references`
 
 ## Supported Languages (15)
 
