@@ -1,3 +1,4 @@
+// @index 미사용 코드 탐지. incoming edge가 없는 함수와 클래스를 dead code 후보로 식별한다.
 package deadcode
 
 import (

@@ -1,3 +1,4 @@
+// @index 모듈 간 결합도 분석. 커뮤니티 경계를 넘는 엣지를 집계하여 아키텍처 결합 강도를 측정한다.
 package coupling
 
 import (

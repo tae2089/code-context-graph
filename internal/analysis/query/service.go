@@ -1,3 +1,4 @@
+// @index 미리 정의된 그래프 쿼리 서비스. 호출자, 피호출자, import, 상속 등 관계 질의를 제공한다.
 package query
 
 import (

@@ -1,3 +1,4 @@
+// @index GORM 기반 그래프 저장소. 노드, 엣지, 어노테이션의 CRUD와 트랜잭션을 관리한다.
 package gormstore
 
 import (

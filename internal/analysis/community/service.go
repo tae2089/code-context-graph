@@ -1,3 +1,4 @@
+// @index 디렉토리 기반 커뮤니티 탐지. 코드베이스를 논리적 모듈로 분할하고 응집도를 측정한다.
 package community
 
 import (

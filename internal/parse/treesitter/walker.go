@@ -1,3 +1,4 @@
+// @index Tree-sitter AST 파서. 15개 언어의 소스 코드를 파싱하여 노드, 엣지, 주석을 추출한다.
 package treesitter
 
 import (

@@ -1,3 +1,4 @@
+// @index MCP 서버. 18개 도구와 5개 프롬프트 템플릿을 통해 코드 분석 기능을 AI에게 노출한다.
 package mcp
 
 import (

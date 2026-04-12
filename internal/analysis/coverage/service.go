@@ -1,3 +1,4 @@
+// @index 테스트 커버리지 분석. tested_by 엣지 기반으로 파일별, 커뮤니티별 커버리지 비율을 계산한다.
 package coverage
 
 import (

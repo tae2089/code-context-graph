@@ -1,3 +1,4 @@
+// @index BFS 기반 blast-radius 분석 엔진. 코드 변경의 영향 범위를 그래프 순회로 계산한다.
 package impact
 
 import (

@@ -34,6 +34,22 @@ func (b *Binder) Bind(comments []CommentBlock, nodes []model.Node, language stri
 	var bindings []Binding
 
 	for _, node := range nodes {
+		// File 노드: package 선언 직전(첫 번째) 주석을 바인딩
+		if node.Kind == model.NodeKindFile {
+			if len(comments) > 0 {
+				first := comments[0]
+				normalized := b.normalizer.Normalize(first.Text, language)
+				ann, err := b.parser.Parse(normalized)
+				if err == nil && hasContent(ann) {
+					bindings = append(bindings, Binding{
+						Node:       node,
+						Annotation: ann,
+					})
+				}
+			}
+			continue
+		}
+
 		for _, comment := range comments {
 			gap := node.StartLine - comment.EndLine
 			if gap < 1 || gap > maxGap {
@@ -55,4 +71,8 @@ func (b *Binder) Bind(comments []CommentBlock, nodes []model.Node, language stri
 	}
 
 	return bindings
+}
+
+func hasContent(ann *model.Annotation) bool {
+	return ann.Summary != "" || ann.Context != "" || len(ann.Tags) > 0
 }

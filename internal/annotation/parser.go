@@ -1,3 +1,4 @@
+// @index 커스텀 어노테이션 파서. 주석에서 @intent, @domainRule, @index 등 구조화된 태그를 추출한다.
 package annotation
 
 import (
@@ -16,6 +17,7 @@ var knownTags = map[string]model.TagKind{
 	"mutates":    model.TagMutates,
 	"requires":   model.TagRequires,
 	"ensures":    model.TagEnsures,
+	"index":      model.TagIndex,
 }
 
 type Parser struct{}

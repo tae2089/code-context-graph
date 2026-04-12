@@ -1,3 +1,4 @@
+// @index Git diff 기반 변경 감지 및 리스크 점수 산출. 변경된 함수의 영향 범위를 분석한다.
 package changes
 
 import (

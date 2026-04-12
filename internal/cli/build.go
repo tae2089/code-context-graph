@@ -118,7 +118,7 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 			// Build search index with annotation content (batch query)
 			if deps.SearchBackend != nil && deps.DB != nil {
 				var nodes []model.Node
-				deps.DB.Where("kind IN ?", []string{"function", "class", "type", "test"}).Find(&nodes)
+				deps.DB.Where("kind IN ?", []string{"function", "class", "type", "test", "file"}).Find(&nodes)
 
 				// Batch load all annotations with tags in 2 queries instead of N+1
 				nodeIDs := make([]uint, len(nodes))
