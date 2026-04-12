@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ccg": {
+      "command": "./ccg",
+      "args": ["serve", "--db", "sqlite", "--dsn", "ccg.db"]
+    }
+  }
+}
