@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 
-	chromem "github.com/philippgille/chromem-go"
 	"github.com/spf13/cobra"
 	"gorm.io/gorm"
 
@@ -25,14 +24,7 @@ type Deps struct {
 	Walkers       map[string]*treesitter.Walker
 	Syncer        *incremental.Syncer
 	ServeFunc     func(cfg ServeConfig) error
-	VectorDB      *VectorStore
 	AgeStore      *agestore.Store
-}
-
-// VectorStore wraps chromem-go for semantic search.
-type VectorStore struct {
-	DB         *chromem.DB
-	Collection *chromem.Collection
 }
 
 // NewRootCmd creates the root cobra command with all subcommands attached.

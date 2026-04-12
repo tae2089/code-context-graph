@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	chromem "github.com/philippgille/chromem-go"
 	"github.com/spf13/cobra"
 
 	"github.com/imtaebin/code-context-graph/internal/model"
@@ -21,7 +20,6 @@ var skipDirs = map[string]bool{
 }
 
 func newBuildCmd(deps *Deps) *cobra.Command {
-	var embed bool
 	var syncGraph bool
 
 	cmd := &cobra.Command{
@@ -175,27 +173,6 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 				}
 			}
 
-			// Build vector embeddings if --embed flag is set
-			if embed && deps.VectorDB != nil {
-				deps.Logger.Info("building vector embeddings")
-				for _, n := range indexNodes {
-					err := deps.VectorDB.Collection.AddDocument(ctx, chromem.Document{
-						ID:      fmt.Sprintf("%d", n.ID),
-						Content: buildContent(n),
-						Metadata: map[string]string{
-							"qualified_name": n.QualifiedName,
-							"kind":           string(n.Kind),
-							"file_path":      n.FilePath,
-							"language":       n.Language,
-						},
-					})
-					if err != nil {
-						deps.Logger.Warn("embed failed", "node", n.QualifiedName, "error", err)
-					}
-				}
-				deps.Logger.Info("vector embeddings built", "documents", len(indexNodes))
-			}
-
 			// Sync to Apache AGE graph if --graph flag is set
 			if syncGraph && deps.AgeStore != nil {
 				deps.Logger.Info("syncing to AGE graph")
@@ -222,7 +199,6 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&embed, "embed", false, "Build vector embeddings for semantic search (requires OPENAI_API_KEY)")
 	cmd.Flags().BoolVar(&syncGraph, "graph", false, "Sync graph to Apache AGE (requires AGE_DSN)")
 
 	return cmd

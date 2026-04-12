@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/mark3labs/mcp-go/server"
-	chromem "github.com/philippgille/chromem-go"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -62,18 +61,6 @@ func main() {
 
 	syncer := incremental.New(st, walkers[".go"])
 
-	// Initialize vector DB for semantic search (persisted to disk)
-	var vectorStore *cli.VectorStore
-	if os.Getenv("OPENAI_API_KEY") != "" {
-		vdb := chromem.NewDB()
-		collection, err := vdb.GetOrCreateCollection("nodes", nil, nil)
-		if err != nil {
-			slog.Warn("vector DB init failed", "error", err)
-		} else {
-			vectorStore = &cli.VectorStore{DB: vdb, Collection: collection}
-		}
-	}
-
 	deps := &cli.Deps{
 		Logger:        logger,
 		DB:            db,
@@ -81,7 +68,6 @@ func main() {
 		SearchBackend: sb,
 		Walkers:       walkers,
 		Syncer:        syncer,
-		VectorDB:      vectorStore,
 		ServeFunc: func(cfg cli.ServeConfig) error {
 			return runServe(cfg.DBDriver, cfg.DSN)
 		},
