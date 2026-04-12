@@ -1,0 +1,29 @@
+{
+  "name": "code-context-graph",
+  "version": "0.0.0",
+  "description": "Local code analysis tool — parse codebases into knowledge graphs with 15 language support, annotation search, and Cypher queries",
+  "keywords": [
+    "code-analysis",
+    "knowledge-graph",
+    "tree-sitter",
+    "mcp",
+    "cypher",
+    "apache-age",
+    "annotations"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tae2089/code-context-graph"
+  },
+  "license": "MIT",
+  "bin": {
+    "ccg": "bin/ccg"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "files": [
+    "install.js",
+    "bin/"
+  ]
+}
