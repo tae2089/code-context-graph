@@ -11,7 +11,6 @@
 - `list_communities`, `get_community`, `get_architecture_overview`
 - `build_or_update_graph`, `run_postprocess`
 - `get_annotation`
-- **`execute_cypher`** — Apache AGE Cypher 쿼리 직접 실행
 
 ## CLI Skill
 
@@ -32,5 +31,5 @@
 
 - TDD: Red → Green → Refactor
 - Tidy First: 구조적 변경과 행위 변경 분리
-- GORM 쿼리만 사용 (raw SQL 금지, AGE Cypher 제외)
+- GORM 쿼리만 사용 (raw SQL 금지)
 - 테스트: `CGO_ENABLED=1 go test -tags "fts5" ./... -count=1`
