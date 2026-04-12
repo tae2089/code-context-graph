@@ -15,7 +15,7 @@ const PLATFORMS = {
   "darwin-x64": "ccg-darwin-amd64",
   "linux-x64": "ccg-linux-amd64",
   "linux-arm64": "ccg-linux-arm64",
-  "win32-x64": "ccg-windows-amd64",
+  "win32-x64": "ccg-windows-amd64", // This is the zip name, the file inside is .exe
 };
 
 function getPlatformKey() {
@@ -82,7 +82,9 @@ async function install() {
 
   try {
     const data = await download(url);
-    fs.mkdirSync(binDir, { recursive: true });
+    if (!fs.existsSync(binDir)) {
+      fs.mkdirSync(binDir, { recursive: true });
+    }
 
     if (isWindows) {
       // Write zip and extract
@@ -90,6 +92,12 @@ async function install() {
       fs.writeFileSync(zipPath, data);
       execSync(`powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${binDir}' -Force"`, { stdio: "ignore" });
       fs.unlinkSync(zipPath);
+
+      // In Windows, the file inside ccg-windows-amd64.zip is ccg-windows-amd64.exe
+      const extracted = path.join(binDir, `${binaryName}.exe`);
+      if (fs.existsSync(extracted) && extracted !== binPath) {
+        fs.renameSync(extracted, binPath);
+      }
     } else {
       // Write tar.gz and extract
       const tarPath = path.join(binDir, "ccg.tar.gz");
@@ -97,7 +105,7 @@ async function install() {
       execSync(`tar xzf "${tarPath}" -C "${binDir}"`, { stdio: "ignore" });
       fs.unlinkSync(tarPath);
 
-      // Rename platform-specific binary to 'ccg'
+      // Rename platform-specific binary to 'ccg' (e.g., ccg-darwin-arm64 -> ccg)
       const extracted = path.join(binDir, binaryName);
       if (fs.existsSync(extracted) && extracted !== binPath) {
         fs.renameSync(extracted, binPath);
