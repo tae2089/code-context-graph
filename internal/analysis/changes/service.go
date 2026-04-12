@@ -1,0 +1,119 @@
+package changes
+
+import (
+	"context"
+
+	"github.com/imtaebin/code-context-graph/internal/model"
+	"gorm.io/gorm"
+)
+
+type GitClient interface {
+	ChangedFiles(ctx context.Context, repoDir, baseRef string) ([]string, error)
+	DiffHunks(ctx context.Context, repoDir, baseRef string, paths []string) ([]Hunk, error)
+}
+
+type Hunk struct {
+	FilePath  string
+	StartLine int
+	EndLine   int
+}
+
+type RiskEntry struct {
+	Node      model.Node
+	HunkCount int
+	RiskScore float64
+}
+
+type Service struct {
+	db  *gorm.DB
+	git GitClient
+}
+
+func New(db *gorm.DB, git GitClient) *Service {
+	return &Service{db: db, git: git}
+}
+
+func (s *Service) Analyze(ctx context.Context, repoDir, baseRef string) ([]RiskEntry, error) {
+	files, err := s.git.ChangedFiles(ctx, repoDir, baseRef)
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return nil, nil
+	}
+
+	hunks, err := s.git.DiffHunks(ctx, repoDir, baseRef, files)
+	if err != nil {
+		return nil, err
+	}
+	if len(hunks) == 0 {
+		return nil, nil
+	}
+
+	hunksByFile := map[string][]Hunk{}
+	for _, h := range hunks {
+		hunksByFile[h.FilePath] = append(hunksByFile[h.FilePath], h)
+	}
+
+	var allNodes []model.Node
+	if err := s.db.WithContext(ctx).Where("file_path IN ?", files).Find(&allNodes).Error; err != nil {
+		return nil, err
+	}
+
+	type hitInfo struct {
+		node      model.Node
+		hunkCount int
+	}
+	hits := map[uint]*hitInfo{}
+
+	for _, n := range allNodes {
+		fileHunks := hunksByFile[n.FilePath]
+		count := 0
+		for _, h := range fileHunks {
+			if h.StartLine <= n.EndLine && h.EndLine >= n.StartLine {
+				count++
+			}
+		}
+		if count > 0 {
+			hits[n.ID] = &hitInfo{node: n, hunkCount: count}
+		}
+	}
+
+	if len(hits) == 0 {
+		return nil, nil
+	}
+
+	nodeIDs := make([]uint, 0, len(hits))
+	for id := range hits {
+		nodeIDs = append(nodeIDs, id)
+	}
+
+	type outCount struct {
+		FromNodeID uint
+		Count      int64
+	}
+	var outCounts []outCount
+	s.db.WithContext(ctx).
+		Model(&model.Edge{}).
+		Select("from_node_id, COUNT(*) as count").
+		Where("from_node_id IN ?", nodeIDs).
+		Group("from_node_id").
+		Scan(&outCounts)
+
+	outMap := map[uint]int64{}
+	for _, oc := range outCounts {
+		outMap[oc.FromNodeID] = oc.Count
+	}
+
+	result := make([]RiskEntry, 0, len(hits))
+	for id, info := range hits {
+		outEdges := outMap[id]
+		result = append(result, RiskEntry{
+			Node:      info.node,
+			HunkCount: info.hunkCount,
+			RiskScore: float64(info.hunkCount) * float64(outEdges+1),
+		})
+	}
+
+	return result, nil
+}

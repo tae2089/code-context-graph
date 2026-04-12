@@ -1,0 +1,15 @@
+# Binaries
+ccg
+dogfood
+*.exe
+
+# Database
+*.db
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Plugin cache
+.omc/
