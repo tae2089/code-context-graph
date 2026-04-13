@@ -152,6 +152,55 @@ func TestRun_GeneratesFileDoc(t *testing.T) {
 	}
 }
 
+func TestRun_GeneratesIndexMd(t *testing.T) {
+	db := newTestDB(t)
+
+	fnNode := model.Node{
+		QualifiedName: "pkg/service.go::Handle",
+		Kind:          model.NodeKindFunction,
+		Name:          "Handle",
+		FilePath:      "pkg/service.go",
+		StartLine:     5, EndLine: 15,
+		Hash: "h3", Language: "go",
+	}
+	db.Create(&fnNode)
+
+	typeNode := model.Node{
+		QualifiedName: "pkg/service.go::Request",
+		Kind:          model.NodeKindType,
+		Name:          "Request",
+		FilePath:      "pkg/service.go",
+		StartLine:     1, EndLine: 4,
+		Hash: "h4", Language: "go",
+	}
+	db.Create(&typeNode)
+
+	gen, outDir := newGenerator(t, db)
+	if err := gen.Run(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(outDir, "index.md"))
+	if err != nil {
+		t.Fatalf("expected index.md: %v", err)
+	}
+
+	got := string(content)
+	for _, want := range []string{
+		"# Code Context Index",
+		"pkg/service.go",
+		"| 2 |",
+		"Handle",
+		"Request",
+		"function",
+		"type",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected %q in index.md, got:\n%s", want, got)
+		}
+	}
+}
+
 func TestLoadNodes_ReturnsNodesWithAnnotations(t *testing.T) {
 	db := newTestDB(t)
 
