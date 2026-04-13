@@ -289,6 +289,44 @@ func TestHandler_Search(t *testing.T) {
 	}
 }
 
+func TestHandler_Search_PathFilter(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+
+	deps.Store.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "internal/auth/login.go::Login", Kind: model.NodeKindFunction, Name: "Login", FilePath: "internal/auth/login.go", StartLine: 1, EndLine: 10, Language: "go"},
+		{QualifiedName: "internal/payment/pay.go::Pay", Kind: model.NodeKindFunction, Name: "Pay", FilePath: "internal/payment/pay.go", StartLine: 1, EndLine: 10, Language: "go"},
+	})
+	loginNode, _ := deps.Store.GetNode(ctx, "internal/auth/login.go::Login")
+	payNode, _ := deps.Store.GetNode(ctx, "internal/payment/pay.go::Pay")
+
+	deps.DB.Create(&model.SearchDocument{NodeID: loginNode.ID, Content: "handle user request", Language: "go"})
+	deps.DB.Create(&model.SearchDocument{NodeID: payNode.ID, Content: "handle payment request", Language: "go"})
+	deps.SearchBackend.Rebuild(ctx, deps.DB)
+
+	// Search with path filter — only auth results
+	result := callTool(t, deps, "search", map[string]any{"query": "handle", "path": "internal/auth"})
+	if result.IsError {
+		t.Fatalf("search returned error: %s", getTextContent(result))
+	}
+
+	text := getTextContent(result)
+	var nodes []map[string]any
+	if err := json.Unmarshal([]byte(text), &nodes); err != nil {
+		t.Fatalf("expected JSON array, got: %s", text)
+	}
+
+	for _, n := range nodes {
+		fp, _ := n["file_path"].(string)
+		if !strings.HasPrefix(fp, "internal/auth") {
+			t.Errorf("expected only auth paths, got: %s", fp)
+		}
+	}
+	if len(nodes) == 0 {
+		t.Fatal("expected at least 1 result for auth path")
+	}
+}
+
 func TestHandler_GetAnnotation(t *testing.T) {
 	deps := setupTestDeps(t)
 	ctx := context.Background()

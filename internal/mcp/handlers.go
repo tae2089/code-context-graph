@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -178,13 +179,24 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 		return mcp.NewToolResultError(fmt.Sprintf("missing parameter: %v", err)), nil
 	}
 	limit := request.GetInt("limit", 10)
+	pathPrefix := request.GetString("path", "")
 
-	log.Info("search called", "query", query, "limit", limit)
+	log.Info("search called", "query", query, "limit", limit, "path", pathPrefix)
 
 	nodes, err := h.deps.SearchBackend.Query(ctx, h.deps.DB, query, limit)
 	if err != nil {
 		log.Error("search error", "query", query, "error", err)
 		return mcp.NewToolResultError(fmt.Sprintf("search error: %v", err)), nil
+	}
+
+	if pathPrefix != "" {
+		filtered := nodes[:0]
+		for _, n := range nodes {
+			if strings.HasPrefix(n.FilePath, pathPrefix) {
+				filtered = append(filtered, n)
+			}
+		}
+		nodes = filtered
 	}
 
 	log.Info("search completed", "query", query, "result_count", len(nodes))

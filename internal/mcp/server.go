@@ -130,9 +130,10 @@ func NewServer(deps *Deps) *server.MCPServer {
 		},
 		server.ServerTool{
 			Tool: mcp.NewTool("search",
-				mcp.WithDescription("Full-text search across code nodes"),
+				mcp.WithDescription("Full-text search across code nodes. Use 'path' to scope results to a module for token-efficient queries."),
 				mcp.WithString("query", mcp.Description("Search query string"), mcp.Required()),
 				mcp.WithNumber("limit", mcp.Description("Maximum number of results"), mcp.DefaultNumber(10)),
+				mcp.WithString("path", mcp.Description("Filter results to file paths starting with this prefix (e.g. internal/auth)")),
 			),
 			Handler: h.search,
 		},
