@@ -190,3 +190,41 @@ func Beta() {}
 	ctx := context.Background()
 	_ = ctx
 }
+
+func TestBuildCommand_NoRecursive_SkipsSubdirs(t *testing.T) {
+	deps, stdout, stderr, db := setupBuildTest(t)
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "root.go", `package root
+func Root() {}
+`)
+
+	subDir := filepath.Join(dir, "sub")
+	os.MkdirAll(subDir, 0755)
+	writeGoFile(t, subDir, "deep.go", `package sub
+func Deep() {}
+`)
+
+	if err := executeCmd(deps, stdout, stderr, "build", "--no-recursive", dir); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var nodes []model.Node
+	db.Find(&nodes)
+
+	for _, n := range nodes {
+		if n.Name == "Deep" {
+			t.Errorf("--no-recursive should not parse subdirectory files, but found Deep")
+		}
+	}
+
+	foundRoot := false
+	for _, n := range nodes {
+		if n.Name == "Root" {
+			foundRoot = true
+		}
+	}
+	if !foundRoot {
+		t.Error("expected Root function in root dir to be parsed")
+	}
+}

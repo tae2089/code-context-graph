@@ -24,6 +24,7 @@ var skipDirs = map[string]bool{
 func newBuildCmd(deps *Deps) *cobra.Command {
 	var syncGraph bool
 	var excludePatterns []string
+	var noRecursive bool
 
 	cmd := &cobra.Command{
 		Use:   "build [directory]",
@@ -55,6 +56,9 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 				relPath, _ := filepath.Rel(absDir, path)
 
 				if info.IsDir() {
+					if path != absDir && noRecursive {
+						return filepath.SkipDir
+					}
 					if skipDirs[info.Name()] || pathutil.MatchExcludes(patterns, relPath) {
 						return filepath.SkipDir
 					}
@@ -233,6 +237,7 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&syncGraph, "graph", false, "Sync to PostgreSQL + pgvector (requires PG_DSN)")
+	cmd.Flags().BoolVar(&noRecursive, "no-recursive", false, "Only parse files in the top-level directory, skip subdirectories")
 	cmd.Flags().StringArrayVar(&excludePatterns, "exclude", nil, "Exclude files/directories matching pattern (repeatable, e.g. --exclude vendor --exclude *.pb.go)")
 
 	return cmd
