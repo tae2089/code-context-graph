@@ -115,6 +115,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		newLanguagesCmd(deps),
 		newExampleCmd(deps),
 		newTagsCmd(deps),
+		newHooksCmd(deps),
 	)
 
 	return rootCmd
