@@ -119,6 +119,12 @@ func renderSymbol(b *strings.Builder, n model.Node, ann *model.Annotation, edges
 		return
 	}
 
+	if ann.Summary != "" {
+		fmt.Fprintf(b, "\n%s\n", ann.Summary)
+	}
+	if ann.Context != "" {
+		fmt.Fprintf(b, "\n> %s\n", ann.Context)
+	}
 	if v := tagValue(ann, model.TagIntent); v != "" {
 		fmt.Fprintf(b, "- **Intent:** %s\n", v)
 	}
@@ -131,6 +137,21 @@ func renderSymbol(b *strings.Builder, n model.Node, ann *model.Annotation, edges
 	if effects := tagValues(ann, model.TagSideEffect); len(effects) > 0 {
 		fmt.Fprintf(b, "- **Side Effects:** %s\n", strings.Join(effects, "; "))
 	}
+	if mutates := tagValues(ann, model.TagMutates); len(mutates) > 0 {
+		fmt.Fprintf(b, "- **Mutates:** %s\n", strings.Join(mutates, "; "))
+	}
+	if reqs := tagValues(ann, model.TagRequires); len(reqs) > 0 {
+		fmt.Fprintf(b, "- **Requires:**\n")
+		for _, r := range reqs {
+			fmt.Fprintf(b, "  - %s\n", r)
+		}
+	}
+	if ensures := tagValues(ann, model.TagEnsures); len(ensures) > 0 {
+		fmt.Fprintf(b, "- **Ensures:**\n")
+		for _, e := range ensures {
+			fmt.Fprintf(b, "  - %s\n", e)
+		}
+	}
 	if params := tagsWithName(ann, model.TagParam); len(params) > 0 {
 		fmt.Fprintf(b, "- **Params:**\n")
 		for _, p := range params {
@@ -139,6 +160,9 @@ func renderSymbol(b *strings.Builder, n model.Node, ann *model.Annotation, edges
 	}
 	if v := tagValue(ann, model.TagReturn); v != "" {
 		fmt.Fprintf(b, "- **Returns:** %s\n", v)
+	}
+	if sees := tagValues(ann, model.TagSee); len(sees) > 0 {
+		fmt.Fprintf(b, "- **See:** %s\n", strings.Join(sees, ", "))
 	}
 
 	var callNames []string

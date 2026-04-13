@@ -145,13 +145,19 @@ func TestRun_GeneratesFileDoc(t *testing.T) {
 	db.Create(&fnNode)
 
 	ann := model.Annotation{
-		NodeID: fnNode.ID,
+		NodeID:  fnNode.ID,
+		Summary: "Bar 함수 요약",
+		Context: "레거시 시스템과의 호환성을 위해 존재",
 		Tags: []model.DocTag{
 			{Kind: model.TagIntent, Value: "bar 요청을 처리한다", Ordinal: 0},
 			{Kind: model.TagDomainRule, Value: "입력값은 양수여야 한다", Ordinal: 1},
 			{Kind: model.TagSideEffect, Value: "DB에 로그를 기록한다", Ordinal: 2},
-			{Kind: model.TagParam, Name: "n", Value: "처리할 정수", Ordinal: 3},
-			{Kind: model.TagReturn, Value: "처리 결과 문자열", Ordinal: 4},
+			{Kind: model.TagMutates, Value: "users 테이블", Ordinal: 3},
+			{Kind: model.TagRequires, Value: "n > 0", Ordinal: 4},
+			{Kind: model.TagEnsures, Value: "반환값은 비어 있지 않다", Ordinal: 5},
+			{Kind: model.TagParam, Name: "n", Value: "처리할 정수", Ordinal: 6},
+			{Kind: model.TagReturn, Value: "처리 결과 문자열", Ordinal: 7},
+			{Kind: model.TagSee, Value: "pkg/service.go::Handle", Ordinal: 8},
 		},
 	}
 	db.Create(&ann)
@@ -174,12 +180,20 @@ func TestRun_GeneratesFileDoc(t *testing.T) {
 		"## Functions",
 		"### Bar",
 		"**Lines:** 10–20",
+		"Bar 함수 요약",
+		"> 레거시 시스템과의 호환성을 위해 존재",
 		"**Intent:** bar 요청을 처리한다",
 		"**Domain Rules:**",
 		"입력값은 양수여야 한다",
 		"**Side Effects:** DB에 로그를 기록한다",
+		"**Mutates:** users 테이블",
+		"**Requires:**",
+		"n > 0",
+		"**Ensures:**",
+		"반환값은 비어 있지 않다",
 		"`n` — 처리할 정수",
 		"**Returns:** 처리 결과 문자열",
+		"**See:** pkg/service.go::Handle",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected %q in file doc, got:\n%s", want, got)
