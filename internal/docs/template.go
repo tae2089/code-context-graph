@@ -55,7 +55,7 @@ func (g *Generator) writeFileDoc(grp nodeGroup) error {
 	content := renderFileDoc(grp)
 	outPath := filepath.Join(g.OutDir, filepath.FromSlash(grp.FilePath+".md"))
 	if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
-		return err
+		return fmt.Errorf("create dir: %w", err)
 	}
 	return os.WriteFile(outPath, []byte(content), 0644)
 }
@@ -63,7 +63,7 @@ func (g *Generator) writeFileDoc(grp nodeGroup) error {
 func (g *Generator) writeIndex(groups []nodeGroup) error {
 	content := renderIndex(groups)
 	if err := os.MkdirAll(g.OutDir, 0755); err != nil {
-		return err
+		return fmt.Errorf("create dir: %w", err)
 	}
 	return os.WriteFile(filepath.Join(g.OutDir, "index.md"), []byte(content), 0644)
 }
@@ -167,7 +167,6 @@ func renderIndex(groups []nodeGroup) string {
 	}
 
 	kindOrder := []model.NodeKind{
-		model.NodeKindFile,
 		model.NodeKindClass,
 		model.NodeKindFunction,
 		model.NodeKindType,

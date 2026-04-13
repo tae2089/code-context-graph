@@ -13,9 +13,9 @@ func newDocsCmd(deps *Deps) *cobra.Command {
 	var outDir string
 
 	cmd := &cobra.Command{
-		Use:   "docs [directory]",
+		Use:   "docs",
 		Short: "Generate markdown documentation from the code graph",
-		Args:  cobra.MaximumNArgs(1),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if deps.DB == nil {
 				return fmt.Errorf("database not initialized")
