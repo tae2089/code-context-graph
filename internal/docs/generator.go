@@ -54,6 +54,27 @@ func (g *Generator) Run() error {
 	return errors.Join(errs...)
 }
 
+// RunIndex regenerates only index.md without rewriting per-file docs.
+func (g *Generator) RunIndex() error {
+	nodes, annByID, err := g.loadNodes()
+	if err != nil {
+		return fmt.Errorf("load nodes: %w", err)
+	}
+
+	if len(g.Exclude) > 0 {
+		filtered := nodes[:0]
+		for _, n := range nodes {
+			if !pathutil.MatchExcludes(g.Exclude, n.FilePath) {
+				filtered = append(filtered, n)
+			}
+		}
+		nodes = filtered
+	}
+
+	groups := groupByFile(nodes, annByID, nil)
+	return g.writeIndex(groups)
+}
+
 func (g *Generator) loadNodes() ([]model.Node, map[uint]*model.Annotation, error) {
 	var nodes []model.Node
 	if err := g.DB.Where("kind IN ?", []string{
