@@ -101,6 +101,9 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		newSearchCmd(deps),
 		newServeCmd(deps),
 		newDocsCmd(deps),
+		newLanguagesCmd(deps),
+		newExampleCmd(deps),
+		newTagsCmd(deps),
 	)
 
 	return rootCmd
