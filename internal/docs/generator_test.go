@@ -143,6 +143,13 @@ func TestRun_GeneratesFileDoc(t *testing.T) {
 			t.Errorf("expected %q in file doc, got:\n%s", want, got)
 		}
 	}
+
+	// 빈 섹션(Classes, Types, Tests)이 출력되지 않아야 함
+	for _, absent := range []string{"## Classes", "## Types", "## Tests"} {
+		if strings.Contains(got, absent) {
+			t.Errorf("expected %q to be absent in file doc, got:\n%s", absent, got)
+		}
+	}
 }
 
 func TestLoadNodes_ReturnsNodesWithAnnotations(t *testing.T) {

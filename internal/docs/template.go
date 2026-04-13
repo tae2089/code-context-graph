@@ -162,7 +162,7 @@ func renderIndex(groups []nodeGroup) string {
 				desc = v
 			}
 		}
-		link := strings.ReplaceAll(grp.FilePath, "\\", "/") + ".md"
+		link := filepath.ToSlash(grp.FilePath) + ".md"
 		fmt.Fprintf(&b, "| [%s](%s) | %d | %s |\n", grp.FilePath, link, len(grp.Nodes), desc)
 	}
 
