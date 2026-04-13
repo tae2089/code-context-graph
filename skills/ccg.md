@@ -19,6 +19,7 @@ A local code analysis tool that parses codebases via Tree-sitter into a knowledg
 | `update [dir]` | Incremental sync (changed files only) | `ccg update .` |
 | `status` | Show graph statistics (nodes/edges/files) | `ccg status` |
 | `search <query>` | FTS keyword search (includes @annotations) | `ccg search "authentication"` |
+| `search --path <prefix> <query>` | Scope search to file path prefix | `ccg search --path internal/auth "login"` |
 | `docs [--out dir]` | Generate Markdown documentation | `ccg docs --out docs/` |
 | `docs --exclude <pat>` | Exclude paths from docs (repeatable) | `ccg docs --exclude vendor` |
 | `index [--out dir]` | Regenerate index.md only | `ccg index --out docs/` |
@@ -158,6 +159,15 @@ When the user asks graph-related questions, suggest and execute appropriate Cyph
 | "Dead code" | `MATCH (n:Function) WHERE NOT ()-[:CALLS]->(n) RETURN n.qualified_name` |
 | "Most called functions" | `MATCH ()-[:CALLS]->(n) RETURN n.name, count(*) AS c ORDER BY c DESC LIMIT 10` |
 | "Module dependencies" | `MATCH (a)-[:CALLS]->(b) WHERE a.file_path STARTS WITH 'X' RETURN DISTINCT b.file_path` |
+
+### Token-efficient search
+Use `--path` to scope results to a module, reducing token load:
+
+```bash
+ccg search --path internal/auth "login"     # auth 모듈만
+ccg search --path internal/payment "charge" # payment 모듈만
+ccg search --path cmd/ "main"               # CLI 진입점만
+```
 
 ### Annotation-aware search
 When the user asks about business concepts, use FTS search which includes annotation content:

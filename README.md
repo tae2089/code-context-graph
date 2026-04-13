@@ -56,6 +56,10 @@ ccg search "authentication"
 # Search by business context
 ccg search "결제"       # finds functions with @intent/@domainRule about payments
 ccg search "dead code"  # finds deadcode.Find via @intent annotation
+
+# Scope to a specific path prefix (token-efficient)
+ccg search --path internal/auth "login"
+ccg search --path internal/payment "handle" --limit 5
 ```
 
 ### Status
