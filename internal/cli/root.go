@@ -100,6 +100,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		newStatusCmd(deps),
 		newSearchCmd(deps),
 		newServeCmd(deps),
+		newDocsCmd(deps),
 	)
 
 	return rootCmd
