@@ -246,8 +246,9 @@ func TestRun_GeneratesIndexMd(t *testing.T) {
 		"# Code Context Index",
 		"pkg/service.go",
 		"| 2 |",
-		"Handle",
-		"Request",
+		// All Symbols 앵커 링크 형식 확인
+		"[Handle](pkg/service.go.md#handle)",
+		"[Request](pkg/service.go.md#request)",
 		"function",
 		"type",
 	} {

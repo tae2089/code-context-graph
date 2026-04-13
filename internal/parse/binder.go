@@ -39,8 +39,8 @@ func (b *Binder) Bind(comments []CommentBlock, nodes []model.Node, language stri
 			if len(comments) > 0 {
 				first := comments[0]
 				normalized := b.normalizer.Normalize(first.Text, language)
-				ann, err := b.parser.Parse(normalized)
-				if err == nil && hasContent(ann) {
+				ann, _ := b.parser.Parse(normalized)
+				if hasContent(ann) {
 					bindings = append(bindings, Binding{
 						Node:       node,
 						Annotation: ann,
@@ -57,10 +57,7 @@ func (b *Binder) Bind(comments []CommentBlock, nodes []model.Node, language stri
 			}
 
 			normalized := b.normalizer.Normalize(comment.Text, language)
-			ann, err := b.parser.Parse(normalized)
-			if err != nil {
-				continue
-			}
+			ann, _ := b.parser.Parse(normalized)
 
 			bindings = append(bindings, Binding{
 				Node:       node,

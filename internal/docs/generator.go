@@ -1,6 +1,7 @@
 package docs
 
 import (
+	"errors"
 	"fmt"
 
 	"gorm.io/gorm"
@@ -29,13 +30,16 @@ func (g *Generator) Run() error {
 
 	groups := groupByFile(nodes, annByID, edgesByFromID)
 
+	var errs []error
 	for _, grp := range groups {
 		if err := g.writeFileDoc(grp); err != nil {
-			return fmt.Errorf("write file doc %s: %w", grp.FilePath, err)
+			errs = append(errs, fmt.Errorf("write file doc %s: %w", grp.FilePath, err))
 		}
 	}
-
-	return g.writeIndex(groups)
+	if err := g.writeIndex(groups); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
 }
 
 func (g *Generator) loadNodes() ([]model.Node, map[uint]*model.Annotation, error) {

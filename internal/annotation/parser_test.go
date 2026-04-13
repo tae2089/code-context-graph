@@ -8,10 +8,7 @@ import (
 
 func TestParse_EmptyString(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("")
 	if ann.Summary != "" {
 		t.Errorf("expected empty Summary, got %q", ann.Summary)
 	}
@@ -25,10 +22,7 @@ func TestParse_EmptyString(t *testing.T) {
 
 func TestParse_WhitespaceOnly(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("   \n\t\n  ")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("   \n\t\n  ")
 	if ann.Summary != "" {
 		t.Errorf("expected empty Summary, got %q", ann.Summary)
 	}
@@ -42,10 +36,7 @@ func TestParse_WhitespaceOnly(t *testing.T) {
 
 func TestParse_SummaryOnly(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("사용자 인증을 수행한다")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("사용자 인증을 수행한다")
 	if ann.Summary != "사용자 인증을 수행한다" {
 		t.Errorf("Summary = %q, want %q", ann.Summary, "사용자 인증을 수행한다")
 	}
@@ -57,10 +48,7 @@ func TestParse_SummaryOnly(t *testing.T) {
 func TestParse_SummaryAndContext(t *testing.T) {
 	p := NewParser()
 	// 빈 줄 없이 이어진 두 줄은 같은 단락 → Summary 하나로 합쳐짐
-	ann, err := p.Parse("사용자 인증을 수행한다\n로그인 핸들러에서 호출됨")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("사용자 인증을 수행한다\n로그인 핸들러에서 호출됨")
 	if ann.Summary != "사용자 인증을 수행한다\n로그인 핸들러에서 호출됨" {
 		t.Errorf("Summary = %q, want multiline summary", ann.Summary)
 	}
@@ -71,10 +59,7 @@ func TestParse_SummaryAndContext(t *testing.T) {
 
 func TestParse_SummaryAndContext_WithBlankLine(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("사용자 인증을 수행한다\n\n로그인 핸들러에서 호출됨")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("사용자 인증을 수행한다\n\n로그인 핸들러에서 호출됨")
 	if ann.Summary != "사용자 인증을 수행한다" {
 		t.Errorf("Summary = %q, want %q", ann.Summary, "사용자 인증을 수행한다")
 	}
@@ -86,10 +71,7 @@ func TestParse_SummaryAndContext_WithBlankLine(t *testing.T) {
 func TestParse_MultilineSummary(t *testing.T) {
 	p := NewParser()
 	// 빈 줄 없이 이어진 여러 줄은 하나의 Summary 단락
-	ann, err := p.Parse("첫째 줄\n둘째 줄\n셋째 줄")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("첫째 줄\n둘째 줄\n셋째 줄")
 	if ann.Summary != "첫째 줄\n둘째 줄\n셋째 줄" {
 		t.Errorf("Summary = %q, want multiline", ann.Summary)
 	}
@@ -102,10 +84,7 @@ func TestParse_MultilineContext(t *testing.T) {
 	p := NewParser()
 	// 빈 줄로 구분된 두 단락: 첫 단락 → Summary, 둘째 단락 → Context
 	input := "요약 첫째 줄\n요약 둘째 줄\n\n컨텍스트 첫째 줄\n컨텍스트 둘째 줄"
-	ann, err := p.Parse(input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse(input)
 	if ann.Summary != "요약 첫째 줄\n요약 둘째 줄" {
 		t.Errorf("Summary = %q, want multiline summary", ann.Summary)
 	}
@@ -116,10 +95,7 @@ func TestParse_MultilineContext(t *testing.T) {
 
 func TestParse_SingleParam(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("@param username 사용자 로그인 ID")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("@param username 사용자 로그인 ID")
 	if len(ann.Tags) != 1 {
 		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
 	}
@@ -140,10 +116,7 @@ func TestParse_SingleParam(t *testing.T) {
 
 func TestParse_MultipleParams(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("@param username 사용자 ID\n@param password 비밀번호")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("@param username 사용자 ID\n@param password 비밀번호")
 	if len(ann.Tags) != 2 {
 		t.Fatalf("expected 2 tags, got %d", len(ann.Tags))
 	}
@@ -157,10 +130,7 @@ func TestParse_MultipleParams(t *testing.T) {
 
 func TestParse_Return(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("@return 인증된 사용자 토큰")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("@return 인증된 사용자 토큰")
 	if len(ann.Tags) != 1 {
 		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
 	}
@@ -178,10 +148,7 @@ func TestParse_Return(t *testing.T) {
 
 func TestParse_See(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("@see LoginHandler.Handle")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("@see LoginHandler.Handle")
 	if len(ann.Tags) != 1 {
 		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
 	}
@@ -195,10 +162,7 @@ func TestParse_See(t *testing.T) {
 
 func TestParse_MultipleSee(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("@see LoginHandler.Handle\n@see SessionManager.Create")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("@see LoginHandler.Handle\n@see SessionManager.Create")
 	if len(ann.Tags) != 2 {
 		t.Fatalf("expected 2 tags, got %d", len(ann.Tags))
 	}
@@ -212,10 +176,7 @@ func TestParse_MultipleSee(t *testing.T) {
 
 func TestParse_Intent(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("@intent 사용자 세션 생성 전 자격 검증")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("@intent 사용자 세션 생성 전 자격 검증")
 	if len(ann.Tags) != 1 {
 		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
 	}
@@ -229,10 +190,7 @@ func TestParse_Intent(t *testing.T) {
 
 func TestParse_DomainRule(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("@domainRule 5회 실패 시 계정 잠금")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("@domainRule 5회 실패 시 계정 잠금")
 	if len(ann.Tags) != 1 {
 		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
 	}
@@ -246,10 +204,7 @@ func TestParse_DomainRule(t *testing.T) {
 
 func TestParse_SideEffect(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("@sideEffect 감사 로그 기록")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("@sideEffect 감사 로그 기록")
 	if len(ann.Tags) != 1 {
 		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
 	}
@@ -263,10 +218,7 @@ func TestParse_SideEffect(t *testing.T) {
 
 func TestParse_Mutates(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("@mutates user.LastLoginAt, session.Token")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("@mutates user.LastLoginAt, session.Token")
 	if len(ann.Tags) != 1 {
 		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
 	}
@@ -280,10 +232,7 @@ func TestParse_Mutates(t *testing.T) {
 
 func TestParse_Requires(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("@requires user.IsActive == true")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("@requires user.IsActive == true")
 	if len(ann.Tags) != 1 {
 		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
 	}
@@ -297,10 +246,7 @@ func TestParse_Requires(t *testing.T) {
 
 func TestParse_Ensures(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("@ensures session != nil")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("@ensures session != nil")
 	if len(ann.Tags) != 1 {
 		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
 	}
@@ -314,10 +260,7 @@ func TestParse_Ensures(t *testing.T) {
 
 func TestParse_MultiLineParam(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("@param username 사용자의\n  로그인 ID")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("@param username 사용자의\n  로그인 ID")
 	if len(ann.Tags) != 1 {
 		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
 	}
@@ -335,10 +278,7 @@ func TestParse_MultiLineParam(t *testing.T) {
 
 func TestParse_MultiLineIntent(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("@intent 사용자 세션 생성 전\n  자격을 검증한다")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("@intent 사용자 세션 생성 전\n  자격을 검증한다")
 	if len(ann.Tags) != 1 {
 		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
 	}
@@ -366,10 +306,7 @@ func TestParse_FullAnnotation(t *testing.T) {
 @see SessionManager.Create`
 
 	p := NewParser()
-	ann, err := p.Parse(input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse(input)
 	// 빈 줄로 구분된 두 단락: Summary와 Context
 	if ann.Summary != "사용자 인증을 수행한다" {
 		t.Errorf("Summary = %q", ann.Summary)
@@ -416,10 +353,7 @@ func TestParse_FullAnnotation(t *testing.T) {
 func TestParse_RawTextPreserved(t *testing.T) {
 	input := "요약\n@param x 값"
 	p := NewParser()
-	ann, err := p.Parse(input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse(input)
 	if ann.RawText != input {
 		t.Errorf("RawText = %q, want %q", ann.RawText, input)
 	}
@@ -427,9 +361,12 @@ func TestParse_RawTextPreserved(t *testing.T) {
 
 func TestParse_UnknownTag(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("@foo 알 수 없는 태그\n@param x 값")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	ann, warnings := p.Parse("@foo 알 수 없는 태그\n@param x 값")
+	if len(warnings) != 1 {
+		t.Fatalf("expected 1 warning for unknown tag, got %d: %v", len(warnings), warnings)
+	}
+	if warnings[0] != "foo" {
+		t.Errorf("warning = %q, want %q", warnings[0], "foo")
 	}
 	if len(ann.Tags) != 1 {
 		t.Fatalf("expected 1 tag (unknown skipped), got %d", len(ann.Tags))
@@ -441,10 +378,7 @@ func TestParse_UnknownTag(t *testing.T) {
 
 func TestParse_TagWithoutValue(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("@return")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("@return")
 	if len(ann.Tags) != 1 {
 		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
 	}
@@ -459,10 +393,7 @@ func TestParse_TagWithoutValue(t *testing.T) {
 func TestParse_ParamWithoutName(t *testing.T) {
 	p := NewParser()
 	// @param 이름 없이 단독 사용 → 무시
-	ann, err := p.Parse("@param")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("@param")
 	if len(ann.Tags) != 0 {
 		t.Errorf("expected 0 tags for @param without name, got %d: %+v", len(ann.Tags), ann.Tags)
 	}
@@ -471,10 +402,7 @@ func TestParse_ParamWithoutName(t *testing.T) {
 func TestParse_ParamNameOnlyNoDescription(t *testing.T) {
 	p := NewParser()
 	// @param name (설명 없음) → Name은 있지만 Value는 빈 문자열로 허용
-	ann, err := p.Parse("@param x")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("@param x")
 	if len(ann.Tags) != 1 {
 		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
 	}
@@ -488,10 +416,7 @@ func TestParse_ParamNameOnlyNoDescription(t *testing.T) {
 
 func TestParse_MixedIndentation(t *testing.T) {
 	p := NewParser()
-	ann, err := p.Parse("\t  요약 내용  \n\t\t@param x 값")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	ann, _ := p.Parse("\t  요약 내용  \n\t\t@param x 값")
 	if ann.Summary != "요약 내용" {
 		t.Errorf("Summary = %q, want %q", ann.Summary, "요약 내용")
 	}

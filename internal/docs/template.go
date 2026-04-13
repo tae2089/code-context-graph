@@ -123,7 +123,10 @@ func renderSymbol(b *strings.Builder, n model.Node, ann *model.Annotation, edges
 		fmt.Fprintf(b, "\n%s\n", ann.Summary)
 	}
 	if ann.Context != "" {
-		fmt.Fprintln(b)
+		// Summary가 없으면 Lines 뒤에 빈 줄이 필요; Summary가 있으면 이미 줄바꿈 있음
+		if ann.Summary == "" {
+			fmt.Fprintln(b)
+		}
 		for _, l := range strings.Split(ann.Context, "\n") {
 			fmt.Fprintf(b, "> %s\n", l)
 		}
@@ -179,7 +182,7 @@ func renderSymbol(b *strings.Builder, n model.Node, ann *model.Annotation, edges
 
 func renderIndex(groups []nodeGroup) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Code Context Index\n\nGenerated: %s\n\n## Files\n\n", time.Now().Format("2006-01-02"))
+	fmt.Fprintf(&b, "# Code Context Index\n\nGenerated: %s\n\n## Files\n\n", time.Now().Format("2006-01-02 15:04"))
 	fmt.Fprintf(&b, "| File | Symbols | Description |\n|------|---------|-------------|\n")
 
 	for _, grp := range groups {
@@ -216,9 +219,27 @@ func renderIndex(groups []nodeGroup) string {
 
 	fmt.Fprintf(&b, "\n## All Symbols\n\n| Symbol | Kind | File |\n|--------|------|------|\n")
 	for _, n := range allNodes {
-		fmt.Fprintf(&b, "| %s | %s | %s |\n", n.Name, string(n.Kind), n.FilePath)
+		slashPath := filepath.ToSlash(n.FilePath)
+		anchor := markdownAnchor(n.Name)
+		link := fmt.Sprintf("[%s](%s.md#%s)", n.Name, slashPath, anchor)
+		fmt.Fprintf(&b, "| %s | %s | %s |\n", link, string(n.Kind), slashPath)
 	}
 
+	return b.String()
+}
+
+// markdownAnchor converts a symbol name to a GitHub-flavored Markdown anchor:
+// lowercase, spaces to hyphens, non-alphanumeric/hyphen/underscore stripped.
+func markdownAnchor(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_':
+			b.WriteRune(r)
+		case r == ' ':
+			b.WriteByte('-')
+		}
+	}
 	return b.String()
 }
 

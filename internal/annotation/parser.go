@@ -35,11 +35,15 @@ func NewParser() *Parser {
 // @domainRule first non-tag line becomes Summary, second becomes Context
 // @domainRule recognized tags: param, return, see, intent, domainRule, sideEffect, mutates, requires, ensures
 // @domainRule unknown tags are silently ignored
-func (p *Parser) Parse(text string) (*model.Annotation, error) {
+// Parse extracts structured annotations from normalized comment text.
+// Returns the annotation and a slice of unrecognized tag names (e.g. ["domainrule"] for a typo).
+// Callers that do not need warnings can discard the second return value.
+func (p *Parser) Parse(text string) (*model.Annotation, []string) {
 	ann := &model.Annotation{RawText: text}
 
 	lines := strings.Split(text, "\n")
 	ordinals := make(map[model.TagKind]int)
+	var warnings []string
 
 	// Phase 1: 첫 @태그 이전 줄들을 단락(빈 줄 구분)으로 분류
 	// 첫 단락 → Summary, 둘째 단락 → Context
@@ -84,7 +88,10 @@ func (p *Parser) Parse(text string) (*model.Annotation, error) {
 		}
 
 		if strings.HasPrefix(trimmed, "@") {
-			parsed := p.parseTagLine(trimmed, ordinals)
+			parsed, unknown := p.parseTagLine(trimmed, ordinals)
+			if unknown != "" {
+				warnings = append(warnings, unknown)
+			}
 			if parsed != nil {
 				ann.Tags = append(ann.Tags, *parsed)
 				inTag = true
@@ -99,17 +106,19 @@ func (p *Parser) Parse(text string) (*model.Annotation, error) {
 		}
 	}
 
-	return ann, nil
+	return ann, warnings
 }
 
-func (p *Parser) parseTagLine(line string, ordinals map[model.TagKind]int) *model.DocTag {
+// parseTagLine parses a single @tag line.
+// Returns (tag, "") on success, (nil, tagName) when the tag is unknown.
+func (p *Parser) parseTagLine(line string, ordinals map[model.TagKind]int) (*model.DocTag, string) {
 	rest := line[1:]
 	parts := strings.SplitN(rest, " ", 2)
 	tagName := parts[0]
 
 	kind, known := knownTags[tagName]
 	if !known {
-		return nil
+		return nil, tagName
 	}
 
 	value := ""
@@ -126,7 +135,7 @@ func (p *Parser) parseTagLine(line string, ordinals map[model.TagKind]int) *mode
 	if kind == model.TagParam {
 		paramParts := strings.SplitN(value, " ", 2)
 		if paramParts[0] == "" {
-			return nil
+			return nil, ""
 		}
 		tag.Name = paramParts[0]
 		if len(paramParts) > 1 {
@@ -136,5 +145,5 @@ func (p *Parser) parseTagLine(line string, ordinals map[model.TagKind]int) *mode
 		tag.Value = value
 	}
 
-	return tag
+	return tag, ""
 }
