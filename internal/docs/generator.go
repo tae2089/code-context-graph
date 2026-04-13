@@ -45,6 +45,29 @@ func (g *Generator) loadNodes() ([]model.Node, map[uint]*model.Annotation, error
 	return nodes, annByID, nil
 }
 
+// LoadEdges는 테스트 접근을 위해 내보낸 래퍼다.
+func (g *Generator) LoadEdges(nodeIDs []uint) (map[uint][]model.Edge, error) {
+	return g.loadEdges(nodeIDs)
+}
+
+func (g *Generator) loadEdges(nodeIDs []uint) (map[uint][]model.Edge, error) {
+	if len(nodeIDs) == 0 {
+		return nil, nil
+	}
+	var edges []model.Edge
+	if err := g.DB.Preload("ToNode").
+		Where("from_node_id IN ? AND kind IN ?", nodeIDs,
+			[]string{string(model.EdgeKindCalls), string(model.EdgeKindImportsFrom)}).
+		Find(&edges).Error; err != nil {
+		return nil, fmt.Errorf("query edges: %w", err)
+	}
+	result := make(map[uint][]model.Edge, len(edges))
+	for _, e := range edges {
+		result[e.FromNodeID] = append(result[e.FromNodeID], e)
+	}
+	return result, nil
+}
+
 func nodeIDsFrom(nodes []model.Node) []uint {
 	ids := make([]uint, len(nodes))
 	for i, n := range nodes {

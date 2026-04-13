@@ -39,6 +39,39 @@ func TestRun_EmptyDB(t *testing.T) {
 	}
 }
 
+func TestLoadEdges_ReturnsCallsAndImports(t *testing.T) {
+	db := newTestDB(t)
+
+	from := model.Node{QualifiedName: "a.go::A", Kind: model.NodeKindFunction, Name: "A", FilePath: "a.go", StartLine: 1, EndLine: 5, Hash: "h1", Language: "go"}
+	to := model.Node{QualifiedName: "b.go::B", Kind: model.NodeKindFunction, Name: "B", FilePath: "b.go", StartLine: 1, EndLine: 5, Hash: "h2", Language: "go"}
+	db.Create(&from)
+	db.Create(&to)
+
+	edge := model.Edge{
+		FromNodeID:  from.ID,
+		ToNodeID:    to.ID,
+		Kind:        model.EdgeKindCalls,
+		FilePath:    "a.go",
+		Line:        3,
+		Fingerprint: "fp1",
+	}
+	db.Create(&edge)
+
+	gen, _ := newGenerator(t, db)
+	edgesByFromID, err := gen.LoadEdges([]uint{from.ID, to.ID})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	edges, ok := edgesByFromID[from.ID]
+	if !ok || len(edges) != 1 {
+		t.Fatalf("expected 1 edge from A, got %v", edgesByFromID)
+	}
+	if edges[0].ToNode.Name != "B" {
+		t.Fatalf("expected ToNode.Name=B, got %s", edges[0].ToNode.Name)
+	}
+}
+
 func TestLoadNodes_ReturnsNodesWithAnnotations(t *testing.T) {
 	db := newTestDB(t)
 
