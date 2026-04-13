@@ -56,15 +56,16 @@ func TestParse_SummaryOnly(t *testing.T) {
 
 func TestParse_SummaryAndContext(t *testing.T) {
 	p := NewParser()
+	// 빈 줄 없이 이어진 두 줄은 같은 단락 → Summary 하나로 합쳐짐
 	ann, err := p.Parse("사용자 인증을 수행한다\n로그인 핸들러에서 호출됨")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if ann.Summary != "사용자 인증을 수행한다" {
-		t.Errorf("Summary = %q, want %q", ann.Summary, "사용자 인증을 수행한다")
+	if ann.Summary != "사용자 인증을 수행한다\n로그인 핸들러에서 호출됨" {
+		t.Errorf("Summary = %q, want multiline summary", ann.Summary)
 	}
-	if ann.Context != "로그인 핸들러에서 호출됨" {
-		t.Errorf("Context = %q, want %q", ann.Context, "로그인 핸들러에서 호출됨")
+	if ann.Context != "" {
+		t.Errorf("Context = %q, want empty", ann.Context)
 	}
 }
 
@@ -82,17 +83,34 @@ func TestParse_SummaryAndContext_WithBlankLine(t *testing.T) {
 	}
 }
 
-func TestParse_ThreeNonTagLines(t *testing.T) {
+func TestParse_MultilineSummary(t *testing.T) {
 	p := NewParser()
+	// 빈 줄 없이 이어진 여러 줄은 하나의 Summary 단락
 	ann, err := p.Parse("첫째 줄\n둘째 줄\n셋째 줄")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if ann.Summary != "첫째 줄" {
-		t.Errorf("Summary = %q, want %q", ann.Summary, "첫째 줄")
+	if ann.Summary != "첫째 줄\n둘째 줄\n셋째 줄" {
+		t.Errorf("Summary = %q, want multiline", ann.Summary)
 	}
-	if ann.Context != "둘째 줄" {
-		t.Errorf("Context = %q, want %q", ann.Context, "둘째 줄")
+	if ann.Context != "" {
+		t.Errorf("Context = %q, want empty", ann.Context)
+	}
+}
+
+func TestParse_MultilineContext(t *testing.T) {
+	p := NewParser()
+	// 빈 줄로 구분된 두 단락: 첫 단락 → Summary, 둘째 단락 → Context
+	input := "요약 첫째 줄\n요약 둘째 줄\n\n컨텍스트 첫째 줄\n컨텍스트 둘째 줄"
+	ann, err := p.Parse(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ann.Summary != "요약 첫째 줄\n요약 둘째 줄" {
+		t.Errorf("Summary = %q, want multiline summary", ann.Summary)
+	}
+	if ann.Context != "컨텍스트 첫째 줄\n컨텍스트 둘째 줄" {
+		t.Errorf("Context = %q, want multiline context", ann.Context)
 	}
 }
 
@@ -309,8 +327,9 @@ func TestParse_MultiLineParam(t *testing.T) {
 	if ann.Tags[0].Name != "username" {
 		t.Errorf("Name = %q, want %q", ann.Tags[0].Name, "username")
 	}
-	if ann.Tags[0].Value != "사용자의 로그인 ID" {
-		t.Errorf("Value = %q, want %q", ann.Tags[0].Value, "사용자의 로그인 ID")
+	// 태그 continuation은 \n으로 이어붙임
+	if ann.Tags[0].Value != "사용자의\n로그인 ID" {
+		t.Errorf("Value = %q, want %q", ann.Tags[0].Value, "사용자의\n로그인 ID")
 	}
 }
 
@@ -323,13 +342,15 @@ func TestParse_MultiLineIntent(t *testing.T) {
 	if len(ann.Tags) != 1 {
 		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
 	}
-	if ann.Tags[0].Value != "사용자 세션 생성 전 자격을 검증한다" {
-		t.Errorf("Value = %q, want %q", ann.Tags[0].Value, "사용자 세션 생성 전 자격을 검증한다")
+	// 태그 continuation은 \n으로 이어붙임
+	if ann.Tags[0].Value != "사용자 세션 생성 전\n자격을 검증한다" {
+		t.Errorf("Value = %q, want %q", ann.Tags[0].Value, "사용자 세션 생성 전\n자격을 검증한다")
 	}
 }
 
 func TestParse_FullAnnotation(t *testing.T) {
 	input := `사용자 인증을 수행한다
+
 로그인 핸들러에서 호출됨
 
 @param username 사용자 로그인 ID
@@ -349,6 +370,7 @@ func TestParse_FullAnnotation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	// 빈 줄로 구분된 두 단락: Summary와 Context
 	if ann.Summary != "사용자 인증을 수행한다" {
 		t.Errorf("Summary = %q", ann.Summary)
 	}

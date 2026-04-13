@@ -123,7 +123,10 @@ func renderSymbol(b *strings.Builder, n model.Node, ann *model.Annotation, edges
 		fmt.Fprintf(b, "\n%s\n", ann.Summary)
 	}
 	if ann.Context != "" {
-		fmt.Fprintf(b, "\n> %s\n", ann.Context)
+		fmt.Fprintln(b)
+		for _, l := range strings.Split(ann.Context, "\n") {
+			fmt.Fprintf(b, "> %s\n", l)
+		}
 	}
 	if v := tagValue(ann, model.TagIntent); v != "" {
 		fmt.Fprintf(b, "- **Intent:** %s\n", v)

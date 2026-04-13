@@ -36,39 +36,66 @@ func NewParser() *Parser {
 // @domainRule recognized tags: param, return, see, intent, domainRule, sideEffect, mutates, requires, ensures
 // @domainRule unknown tags are silently ignored
 func (p *Parser) Parse(text string) (*model.Annotation, error) {
-	ann := &model.Annotation{
-		RawText: text,
-	}
+	ann := &model.Annotation{RawText: text}
 
 	lines := strings.Split(text, "\n")
 	ordinals := make(map[model.TagKind]int)
-	var currentTag *model.DocTag
 
-	for _, line := range lines {
+	// Phase 1: 첫 @태그 이전 줄들을 단락(빈 줄 구분)으로 분류
+	// 첫 단락 → Summary, 둘째 단락 → Context
+	var paragraphs [][]string
+	var currentPara []string
+	firstTagIdx := len(lines)
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "@") {
+			firstTagIdx = i
+			break
+		}
+		if trimmed == "" {
+			if len(currentPara) > 0 {
+				paragraphs = append(paragraphs, currentPara)
+				currentPara = nil
+			}
+		} else {
+			currentPara = append(currentPara, trimmed)
+		}
+	}
+	if len(currentPara) > 0 {
+		paragraphs = append(paragraphs, currentPara)
+	}
+
+	if len(paragraphs) > 0 {
+		ann.Summary = strings.Join(paragraphs[0], "\n")
+	}
+	if len(paragraphs) > 1 {
+		ann.Context = strings.Join(paragraphs[1], "\n")
+	}
+
+	// Phase 2: 태그 파싱. continuation 줄은 \n으로 이어붙임
+	inTag := false
+	for _, line := range lines[firstTagIdx:] {
 		trimmed := strings.TrimSpace(line)
 
 		if trimmed == "" {
+			inTag = false
 			continue
 		}
 
 		if strings.HasPrefix(trimmed, "@") {
-			currentTag = p.parseTagLine(trimmed, ordinals)
-			if currentTag != nil {
-				ann.Tags = append(ann.Tags, *currentTag)
+			parsed := p.parseTagLine(trimmed, ordinals)
+			if parsed != nil {
+				ann.Tags = append(ann.Tags, *parsed)
+				inTag = true
+			} else {
+				inTag = false
 			}
 			continue
 		}
 
-		if currentTag != nil {
-			lastIdx := len(ann.Tags) - 1
-			ann.Tags[lastIdx].Value += " " + trimmed
-			continue
-		}
-
-		if ann.Summary == "" {
-			ann.Summary = trimmed
-		} else if ann.Context == "" {
-			ann.Context = trimmed
+		if inTag && len(ann.Tags) > 0 {
+			ann.Tags[len(ann.Tags)-1].Value += "\n" + trimmed
 		}
 	}
 
