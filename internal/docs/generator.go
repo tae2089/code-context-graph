@@ -16,7 +16,26 @@ type Generator struct {
 
 // Run generates index.md and per-file docs into g.OutDir.
 func (g *Generator) Run() error {
-	return nil
+	nodes, annByID, err := g.loadNodes()
+	if err != nil {
+		return fmt.Errorf("load nodes: %w", err)
+	}
+
+	ids := nodeIDsFrom(nodes)
+	edgesByFromID, err := g.loadEdges(ids)
+	if err != nil {
+		return fmt.Errorf("load edges: %w", err)
+	}
+
+	groups := groupByFile(nodes, annByID, edgesByFromID)
+
+	for _, grp := range groups {
+		if err := g.writeFileDoc(grp); err != nil {
+			return fmt.Errorf("write file doc %s: %w", grp.FilePath, err)
+		}
+	}
+
+	return g.writeIndex(groups)
 }
 
 // LoadNodes는 테스트 접근을 위해 내보낸 래퍼다.

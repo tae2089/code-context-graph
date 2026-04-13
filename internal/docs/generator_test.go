@@ -1,6 +1,9 @@
 package docs_test
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"gorm.io/driver/sqlite"
@@ -69,6 +72,76 @@ func TestLoadEdges_ReturnsCallsAndImports(t *testing.T) {
 	}
 	if edges[0].ToNode.Name != "B" {
 		t.Fatalf("expected ToNode.Name=B, got %s", edges[0].ToNode.Name)
+	}
+}
+
+func TestRun_GeneratesFileDoc(t *testing.T) {
+	db := newTestDB(t)
+
+	fileNode := model.Node{
+		QualifiedName: "internal/foo.go",
+		Kind:          model.NodeKindFile,
+		Name:          "foo.go",
+		FilePath:      "internal/foo.go",
+		StartLine:     1, EndLine: 50,
+		Hash: "hf", Language: "go",
+	}
+	db.Create(&fileNode)
+
+	fileAnn := model.Annotation{
+		NodeID: fileNode.ID,
+		Tags:   []model.DocTag{{Kind: model.TagIndex, Value: "foo 패키지 유틸리티", Ordinal: 0}},
+	}
+	db.Create(&fileAnn)
+
+	fnNode := model.Node{
+		QualifiedName: "internal/foo.go::Bar",
+		Kind:          model.NodeKindFunction,
+		Name:          "Bar",
+		FilePath:      "internal/foo.go",
+		StartLine:     10, EndLine: 20,
+		Hash: "h1", Language: "go",
+	}
+	db.Create(&fnNode)
+
+	ann := model.Annotation{
+		NodeID: fnNode.ID,
+		Tags: []model.DocTag{
+			{Kind: model.TagIntent, Value: "bar 요청을 처리한다", Ordinal: 0},
+			{Kind: model.TagDomainRule, Value: "입력값은 양수여야 한다", Ordinal: 1},
+			{Kind: model.TagParam, Name: "n", Value: "처리할 정수", Ordinal: 2},
+			{Kind: model.TagReturn, Value: "처리 결과 문자열", Ordinal: 3},
+		},
+	}
+	db.Create(&ann)
+
+	gen, outDir := newGenerator(t, db)
+	if err := gen.Run(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	docPath := filepath.Join(outDir, "internal", "foo.go.md")
+	content, err := os.ReadFile(docPath)
+	if err != nil {
+		t.Fatalf("expected file doc at %s: %v", docPath, err)
+	}
+
+	got := string(content)
+	for _, want := range []string{
+		"# internal/foo.go",
+		"> foo 패키지 유틸리티",
+		"## Functions",
+		"### Bar",
+		"**Lines:** 10–20",
+		"**Intent:** bar 요청을 처리한다",
+		"**Domain Rules:**",
+		"입력값은 양수여야 한다",
+		"`n` — 처리할 정수",
+		"**Returns:** 처리 결과 문자열",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected %q in file doc, got:\n%s", want, got)
+		}
 	}
 }
 
