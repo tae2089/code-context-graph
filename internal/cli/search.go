@@ -3,12 +3,14 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
 
 func newSearchCmd(deps *Deps) *cobra.Command {
 	var limit int
+	var pathPrefix string
 
 	cmd := &cobra.Command{
 		Use:   "search <query>",
@@ -25,6 +27,16 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 
 			out := stdout(cmd)
 
+			if pathPrefix != "" {
+				filtered := nodes[:0]
+				for _, n := range nodes {
+					if strings.HasPrefix(n.FilePath, pathPrefix) {
+						filtered = append(filtered, n)
+					}
+				}
+				nodes = filtered
+			}
+
 			if len(nodes) == 0 {
 				fmt.Fprintln(out, "No results")
 				return nil
@@ -39,6 +51,7 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 	}
 
 	cmd.Flags().IntVar(&limit, "limit", 10, "Maximum number of results")
+	cmd.Flags().StringVar(&pathPrefix, "path", "", "Filter results to file paths starting with this prefix (e.g. internal/auth)")
 
 	return cmd
 }

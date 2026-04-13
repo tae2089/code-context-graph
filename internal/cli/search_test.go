@@ -126,3 +126,46 @@ func TestSearchCommand_LimitFlag(t *testing.T) {
 		t.Fatalf("expected 1 result with --limit 1, got %d: %s", len(lines), out)
 	}
 }
+
+func TestSearchCommand_PathFilter_IncludesMatch(t *testing.T) {
+	deps, stdout, stderr, db := setupSearchTest(t)
+
+	ctx := context.Background()
+	nodes := []model.Node{
+		{Name: "AuthLogin", QualifiedName: "internal/auth/login.go::AuthLogin", Kind: model.NodeKindFunction, FilePath: "internal/auth/login.go", StartLine: 1, EndLine: 5, Language: "go"},
+		{Name: "PayPay", QualifiedName: "internal/payment/pay.go::PayPay", Kind: model.NodeKindFunction, FilePath: "internal/payment/pay.go", StartLine: 1, EndLine: 5, Language: "go"},
+	}
+	db.WithContext(ctx).Create(&nodes)
+
+	docs := []model.SearchDocument{
+		{NodeID: nodes[0].ID, Content: "handle user login", Language: "go"},
+		{NodeID: nodes[1].ID, Content: "handle payment", Language: "go"},
+	}
+	db.WithContext(ctx).Create(&docs)
+	search.NewSQLiteBackend().Rebuild(ctx, db)
+
+	if err := executeCmd(deps, stdout, stderr, "search", "--path", "internal/auth", "handle"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "AuthLogin") {
+		t.Errorf("expected AuthLogin in output, got:\n%s", out)
+	}
+	if strings.Contains(out, "PayPay") {
+		t.Errorf("PayPay should be excluded by --path filter, got:\n%s", out)
+	}
+}
+
+func TestSearchCommand_PathFilter_NoMatch(t *testing.T) {
+	deps, stdout, stderr, db := setupSearchTest(t)
+	seedSearchData(t, db)
+
+	if err := executeCmd(deps, stdout, stderr, "search", "--path", "internal/nonexistent", "Hello"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "No results") {
+		t.Errorf("expected 'No results' for unmatched path, got:\n%s", stdout.String())
+	}
+}
