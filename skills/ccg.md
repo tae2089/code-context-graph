@@ -27,6 +27,7 @@ A local code analysis tool that parses codebases via Tree-sitter into a knowledg
 | `example [language]` | Show annotation example for a language | `ccg example go` |
 | `tags` | Show all @tag reference with descriptions | `ccg tags` |
 | `hooks install` | Install pre-commit git hook | `ccg hooks install` |
+| `lint [--out dir]` | Detect orphan, missing, stale docs | `ccg lint --out docs/` |
 | `annotate [file\|dir]` | AI-generate annotations for code | `ccg annotate internal/analysis/` |
 
 ## Execution

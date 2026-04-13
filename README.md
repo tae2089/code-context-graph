@@ -227,6 +227,7 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
 | `ccg example [language]` | Show annotation writing example |
 | `ccg tags` | Show all annotation tag reference |
 | `ccg hooks install` | Install pre-commit git hook |
+| `ccg lint [--out dir]` | Detect orphan, missing, stale docs |
 | `ccg serve` | Start MCP server (stdio) |
 
 ### Config file (`.ccg.yaml`)
