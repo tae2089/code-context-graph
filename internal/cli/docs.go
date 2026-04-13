@@ -22,7 +22,7 @@ func newDocsCmd(deps *Deps) *cobra.Command {
 				return fmt.Errorf("database not initialized")
 			}
 
-			absOut, err := filepath.Abs(outDir)
+			absOut, err := filepath.Abs(resolveOutDir(outDir))
 			if err != nil {
 				return fmt.Errorf("resolve out path: %w", err)
 			}

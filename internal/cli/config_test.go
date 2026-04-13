@@ -60,6 +60,30 @@ func TestResolveExcludes_EmptyFlagUsesConfig(t *testing.T) {
 	viper.Reset()
 }
 
+func TestResolveOutDir_UsesConfigWhenDefault(t *testing.T) {
+	viper.Reset()
+	viper.Set("docs.out", "generated-docs")
+
+	result := resolveOutDir("docs")
+	if result != "generated-docs" {
+		t.Errorf("expected 'generated-docs', got %q", result)
+	}
+
+	viper.Reset()
+}
+
+func TestResolveOutDir_PrefersFlagOverConfig(t *testing.T) {
+	viper.Reset()
+	viper.Set("docs.out", "generated-docs")
+
+	result := resolveOutDir("my-output")
+	if result != "my-output" {
+		t.Errorf("expected 'my-output', got %q", result)
+	}
+
+	viper.Reset()
+}
+
 func TestConfigFlag_LoadsYAML(t *testing.T) {
 	cfgFile := filepath.Join(t.TempDir(), ".ccg.yaml")
 	if err := os.WriteFile(cfgFile, []byte("exclude:\n  - vendor\n  - \"*.pb.go\"\n"), 0o644); err != nil {

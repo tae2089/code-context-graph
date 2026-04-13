@@ -183,7 +183,17 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 
 	log.Info("search called", "query", query, "limit", limit, "path", pathPrefix)
 
-	nodes, err := h.deps.SearchBackend.Query(ctx, h.deps.DB, query, limit)
+	// When path filtering is active, fetch more results from FTS so
+	// that after filtering we still have up to 'limit' results.
+	fetchLimit := limit
+	if pathPrefix != "" {
+		fetchLimit = limit * 5
+		if fetchLimit < 50 {
+			fetchLimit = 50
+		}
+	}
+
+	nodes, err := h.deps.SearchBackend.Query(ctx, h.deps.DB, query, fetchLimit)
 	if err != nil {
 		log.Error("search error", "query", query, "error", err)
 		return mcp.NewToolResultError(fmt.Sprintf("search error: %v", err)), nil
@@ -197,6 +207,9 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 			}
 		}
 		nodes = filtered
+		if len(nodes) > limit {
+			nodes = nodes[:limit]
+		}
 	}
 
 	log.Info("search completed", "query", query, "result_count", len(nodes))
@@ -665,8 +678,9 @@ func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolR
 
 	minLines := request.GetInt("min_lines", 50)
 	limit := request.GetInt("limit", 50)
+	pathPrefix := request.GetString("path", "")
 
-	log.Info("find_large_functions called", "min_lines", minLines, "limit", limit)
+	log.Info("find_large_functions called", "min_lines", minLines, "limit", limit, "path", pathPrefix)
 
 	if h.deps.LargefuncAnalyzer == nil {
 		return mcp.NewToolResultError("LargefuncAnalyzer not configured"), nil
@@ -675,6 +689,16 @@ func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolR
 	nodes, err := h.deps.LargefuncAnalyzer.Find(ctx, minLines)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("largefunc error: %v", err)), nil
+	}
+
+	if pathPrefix != "" {
+		filtered := nodes[:0]
+		for _, n := range nodes {
+			if strings.HasPrefix(n.FilePath, pathPrefix) {
+				filtered = append(filtered, n)
+			}
+		}
+		nodes = filtered
 	}
 
 	if len(nodes) > limit {

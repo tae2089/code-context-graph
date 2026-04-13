@@ -189,6 +189,7 @@ func NewServer(deps *Deps) *server.MCPServer {
 				mcp.WithDescription("Find functions exceeding a line count threshold"),
 				mcp.WithNumber("min_lines", mcp.Description("Minimum line count threshold (default: 50)")),
 				mcp.WithNumber("limit", mcp.Description("Maximum number of results (default: 50)")),
+				mcp.WithString("path", mcp.Description("Filter results to file paths starting with this prefix")),
 			),
 			Handler: h.findLargeFunctions,
 		},

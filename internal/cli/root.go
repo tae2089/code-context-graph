@@ -139,6 +139,18 @@ func stdout(cmd *cobra.Command) io.Writer {
 	return cmd.OutOrStdout()
 }
 
+// resolveOutDir returns the effective output directory: if the CLI flag was left
+// at its default ("docs"), check viper for a config-level override (docs.out).
+func resolveOutDir(flagValue string) string {
+	if flagValue != "docs" {
+		return flagValue
+	}
+	if cfgOut := viper.GetString("docs.out"); cfgOut != "" {
+		return cfgOut
+	}
+	return flagValue
+}
+
 // resolveExcludes merges exclude patterns from the config file (viper "exclude"
 // key) and the command-line flag, deduplicating nothing — order is config first,
 // then flags.

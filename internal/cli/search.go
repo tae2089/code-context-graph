@@ -20,7 +20,12 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 			query := args[0]
 			ctx := context.Background()
 
-			nodes, err := deps.SearchBackend.Query(ctx, deps.DB, query, limit)
+			fetchLimit := limit
+			if pathPrefix != "" {
+				fetchLimit = max(limit*5, 50)
+			}
+
+			nodes, err := deps.SearchBackend.Query(ctx, deps.DB, query, fetchLimit)
 			if err != nil {
 				return fmt.Errorf("search: %w", err)
 			}
@@ -35,6 +40,9 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 					}
 				}
 				nodes = filtered
+				if len(nodes) > limit {
+					nodes = nodes[:limit]
+				}
 			}
 
 			if len(nodes) == 0 {
