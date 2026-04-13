@@ -40,6 +40,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 
 	var logLevel string
 	var logJSON bool
+	var cfgFile string
 
 	rootCmd := &cobra.Command{
 		Use:           "ccg",
@@ -62,9 +63,18 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			deps.Logger = slog.New(handler)
 			slog.SetDefault(deps.Logger)
 
-			// 2. Viper Setup
-			viper.AutomaticEnv() // Read from environment variables
+			// 2. Viper Setup — config file, then env vars, then flags
+			viper.AutomaticEnv()
 			viper.SetEnvPrefix("CCG") // E.g., CCG_DB_DRIVER
+			if cfgFile != "" {
+				viper.SetConfigFile(cfgFile)
+			} else {
+				viper.SetConfigName(".ccg")
+				viper.SetConfigType("yaml")
+				viper.AddConfigPath(".")
+			}
+			// Silently ignore missing config file; all settings have defaults.
+			_ = viper.ReadInConfig()
 
 			// 3. Initialize Database if InitFunc is provided
 			if deps.InitFunc != nil {
@@ -81,6 +91,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "Log level: debug, info, warn, error")
 	rootCmd.PersistentFlags().BoolVar(&logJSON, "log-json", false, "Output logs in JSON format")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "Config file (default: .ccg.yaml in current directory)")
 
 	// Global database configuration flags
 	rootCmd.PersistentFlags().String("db-driver", "sqlite", "Database driver (sqlite, postgres, mysql)")
@@ -89,7 +100,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	// Bind flags to viper
 	viper.BindPFlag("db.driver", rootCmd.PersistentFlags().Lookup("db-driver"))
 	viper.BindPFlag("db.dsn", rootCmd.PersistentFlags().Lookup("db-dsn"))
-	
+
 	// Also explicitly bind env vars just in case AutomaticEnv needs a hint
 	viper.BindEnv("db.driver", "CCG_DB_DRIVER")
 	viper.BindEnv("db.dsn", "CCG_DB_DSN")
@@ -124,4 +135,21 @@ func parseLogLevel(s string) slog.Level {
 
 func stdout(cmd *cobra.Command) io.Writer {
 	return cmd.OutOrStdout()
+}
+
+// resolveExcludes merges exclude patterns from the config file (viper "exclude"
+// key) and the command-line flag, deduplicating nothing — order is config first,
+// then flags.
+func resolveExcludes(flagPatterns []string) []string {
+	cfgPatterns := viper.GetStringSlice("exclude")
+	if len(cfgPatterns) == 0 {
+		return flagPatterns
+	}
+	if len(flagPatterns) == 0 {
+		return cfgPatterns
+	}
+	combined := make([]string, 0, len(cfgPatterns)+len(flagPatterns))
+	combined = append(combined, cfgPatterns...)
+	combined = append(combined, flagPatterns...)
+	return combined
 }

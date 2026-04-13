@@ -30,7 +30,7 @@ func newDocsCmd(deps *Deps) *cobra.Command {
 			gen := &docs.Generator{
 				DB:      deps.DB,
 				OutDir:  absOut,
-				Exclude: excludePatterns,
+				Exclude: resolveExcludes(excludePatterns),
 			}
 
 			if err := gen.Run(); err != nil {

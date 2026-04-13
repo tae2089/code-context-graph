@@ -45,6 +45,8 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 			var totalFiles, totalNodes, totalEdges int
 			ctx := context.Background()
 
+			patterns := resolveExcludes(excludePatterns)
+
 			err = filepath.Walk(absDir, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
 					return err
@@ -53,13 +55,13 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 				relPath, _ := filepath.Rel(absDir, path)
 
 				if info.IsDir() {
-					if skipDirs[info.Name()] || pathutil.MatchExcludes(excludePatterns, relPath) {
+					if skipDirs[info.Name()] || pathutil.MatchExcludes(patterns, relPath) {
 						return filepath.SkipDir
 					}
 					return nil
 				}
 
-				if pathutil.MatchExcludes(excludePatterns, relPath) {
+				if pathutil.MatchExcludes(patterns, relPath) {
 					return nil
 				}
 
