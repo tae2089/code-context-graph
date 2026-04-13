@@ -1104,7 +1104,7 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 				}
 			}
 		}
-		if fp, ok := args["file_pattern"].(string); ok {
+		if fp, ok := args["path"].(string); ok {
 			opts.FilePattern = fp
 		}
 	}

@@ -1689,7 +1689,7 @@ func TestFindDeadCode_FilterByFilePattern(t *testing.T) {
 	deps.DeadcodeAnalyzer = mockDC
 
 	callTool(t, deps, "find_dead_code", map[string]any{
-		"file_pattern": "internal/",
+		"path": "internal/",
 	})
 
 	if !mockDC.findCalled {

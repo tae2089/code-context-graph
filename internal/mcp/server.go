@@ -242,7 +242,7 @@ func NewServer(deps *Deps) *server.MCPServer {
 		server.ServerTool{
 			Tool: mcp.NewTool("find_dead_code",
 				mcp.WithDescription("Find unused code with no incoming edges"),
-				mcp.WithString("file_pattern", mcp.Description("File path prefix filter")),
+				mcp.WithString("path", mcp.Description("Filter results to file paths starting with this prefix")),
 			),
 			Handler: h.findDeadCode,
 		},
