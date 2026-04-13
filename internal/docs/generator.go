@@ -7,12 +7,14 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/imtaebin/code-context-graph/internal/pathutil"
 )
 
 // Generator reads the SQLite graph and writes markdown documentation.
 type Generator struct {
-	DB     *gorm.DB
-	OutDir string
+	DB      *gorm.DB
+	OutDir  string
+	Exclude []string // path/glob patterns to exclude (see pathutil.MatchExcludes)
 }
 
 // Run generates index.md and per-file docs into g.OutDir.
@@ -26,6 +28,16 @@ func (g *Generator) Run() error {
 	edgesByFromID, err := g.loadEdges(ids)
 	if err != nil {
 		return fmt.Errorf("load edges: %w", err)
+	}
+
+	if len(g.Exclude) > 0 {
+		filtered := nodes[:0]
+		for _, n := range nodes {
+			if !pathutil.MatchExcludes(g.Exclude, n.FilePath) {
+				filtered = append(filtered, n)
+			}
+		}
+		nodes = filtered
 	}
 
 	groups := groupByFile(nodes, annByID, edgesByFromID)

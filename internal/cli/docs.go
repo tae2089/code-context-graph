@@ -11,6 +11,7 @@ import (
 
 func newDocsCmd(deps *Deps) *cobra.Command {
 	var outDir string
+	var excludePatterns []string
 
 	cmd := &cobra.Command{
 		Use:   "docs",
@@ -27,8 +28,9 @@ func newDocsCmd(deps *Deps) *cobra.Command {
 			}
 
 			gen := &docs.Generator{
-				DB:     deps.DB,
-				OutDir: absOut,
+				DB:      deps.DB,
+				OutDir:  absOut,
+				Exclude: excludePatterns,
 			}
 
 			if err := gen.Run(); err != nil {
@@ -41,5 +43,6 @@ func newDocsCmd(deps *Deps) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&outDir, "out", "docs", "Output directory for generated documentation")
+	cmd.Flags().StringArrayVar(&excludePatterns, "exclude", nil, "Exclude files/paths matching pattern (repeatable, e.g. --exclude vendor --exclude '*.pb.go')")
 	return cmd
 }

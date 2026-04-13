@@ -11,6 +11,7 @@ import (
 
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"github.com/imtaebin/code-context-graph/internal/parse"
+	"github.com/imtaebin/code-context-graph/internal/pathutil"
 	"github.com/imtaebin/code-context-graph/internal/store/pgstore"
 )
 
@@ -22,6 +23,7 @@ var skipDirs = map[string]bool{
 
 func newBuildCmd(deps *Deps) *cobra.Command {
 	var syncGraph bool
+	var excludePatterns []string
 
 	cmd := &cobra.Command{
 		Use:   "build [directory]",
@@ -48,10 +50,16 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 					return err
 				}
 
+				relPath, _ := filepath.Rel(absDir, path)
+
 				if info.IsDir() {
-					if skipDirs[info.Name()] {
+					if skipDirs[info.Name()] || pathutil.MatchExcludes(excludePatterns, relPath) {
 						return filepath.SkipDir
 					}
+					return nil
+				}
+
+				if pathutil.MatchExcludes(excludePatterns, relPath) {
 					return nil
 				}
 
@@ -66,8 +74,6 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 					deps.Logger.Warn("skip unreadable file", "path", path, "error", err)
 					return nil
 				}
-
-				relPath, _ := filepath.Rel(absDir, path)
 				// Single-pass: parse nodes, edges, and comments together
 				nodes, edges, tsComments, err := walker.ParseWithComments(relPath, content)
 				if err != nil {
@@ -225,6 +231,7 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&syncGraph, "graph", false, "Sync to PostgreSQL + pgvector (requires PG_DSN)")
+	cmd.Flags().StringArrayVar(&excludePatterns, "exclude", nil, "Exclude files/directories matching pattern (repeatable, e.g. --exclude vendor --exclude *.pb.go)")
 
 	return cmd
 }

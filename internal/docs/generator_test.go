@@ -274,3 +274,39 @@ func TestGroupByFile_SortsByFilePath(t *testing.T) {
 		t.Errorf("expected alphabetical order, got %v, %v, %v", groups[0].FilePath, groups[1].FilePath, groups[2].FilePath)
 	}
 }
+
+func TestRun_ExcludePatterns(t *testing.T) {
+	db := newTestDB(t)
+
+	nodes := []model.Node{
+		{QualifiedName: "internal/foo.go::Foo", Kind: model.NodeKindFunction, Name: "Foo", FilePath: "internal/foo.go", StartLine: 1, EndLine: 5, Hash: "h1", Language: "go"},
+		{QualifiedName: "vendor/lib.go::Lib", Kind: model.NodeKindFunction, Name: "Lib", FilePath: "vendor/lib.go", StartLine: 1, EndLine: 5, Hash: "h2", Language: "go"},
+		{QualifiedName: "internal/foo_test.go::TestFoo", Kind: model.NodeKindTest, Name: "TestFoo", FilePath: "internal/foo_test.go", StartLine: 1, EndLine: 5, Hash: "h3", Language: "go"},
+	}
+	for i := range nodes {
+		db.Create(&nodes[i])
+	}
+
+	gen, outDir := newGenerator(t, db)
+	gen.Exclude = []string{"vendor", "*_test.go"}
+
+	if err := gen.Run(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(outDir, "index.md"))
+	if err != nil {
+		t.Fatalf("expected index.md: %v", err)
+	}
+	got := string(content)
+
+	if !strings.Contains(got, "Foo") {
+		t.Errorf("expected Foo in index.md")
+	}
+	if strings.Contains(got, "Lib") {
+		t.Errorf("vendor/lib.go::Lib should be excluded")
+	}
+	if strings.Contains(got, "TestFoo") {
+		t.Errorf("*_test.go matched file should be excluded")
+	}
+}
