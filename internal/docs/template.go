@@ -162,8 +162,9 @@ func renderIndex(groups []nodeGroup) string {
 				desc = v
 			}
 		}
-		link := filepath.ToSlash(grp.FilePath) + ".md"
-		fmt.Fprintf(&b, "| [%s](%s) | %d | %s |\n", grp.FilePath, link, len(grp.Nodes), desc)
+		slashPath := filepath.ToSlash(grp.FilePath)
+		link := slashPath + ".md"
+		fmt.Fprintf(&b, "| [%s](%s) | %d | %s |\n", slashPath, link, len(grp.Nodes), desc)
 	}
 
 	kindOrder := []model.NodeKind{

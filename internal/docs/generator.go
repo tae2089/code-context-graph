@@ -38,11 +38,6 @@ func (g *Generator) Run() error {
 	return g.writeIndex(groups)
 }
 
-// LoadNodes는 테스트 접근을 위해 내보낸 래퍼다.
-func (g *Generator) LoadNodes() ([]model.Node, map[uint]*model.Annotation, error) {
-	return g.loadNodes()
-}
-
 func (g *Generator) loadNodes() ([]model.Node, map[uint]*model.Annotation, error) {
 	var nodes []model.Node
 	if err := g.DB.Where("kind IN ?", []string{"function", "class", "type", "test", "file"}).Find(&nodes).Error; err != nil {
@@ -62,11 +57,6 @@ func (g *Generator) loadNodes() ([]model.Node, map[uint]*model.Annotation, error
 	}
 
 	return nodes, annByID, nil
-}
-
-// LoadEdges는 테스트 접근을 위해 내보낸 래퍼다.
-func (g *Generator) LoadEdges(nodeIDs []uint) (map[uint][]model.Edge, error) {
-	return g.loadEdges(nodeIDs)
 }
 
 func (g *Generator) loadEdges(nodeIDs []uint) (map[uint][]model.Edge, error) {
