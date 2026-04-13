@@ -456,6 +456,36 @@ func TestParse_TagWithoutValue(t *testing.T) {
 	}
 }
 
+func TestParse_ParamWithoutName(t *testing.T) {
+	p := NewParser()
+	// @param 이름 없이 단독 사용 → 무시
+	ann, err := p.Parse("@param")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ann.Tags) != 0 {
+		t.Errorf("expected 0 tags for @param without name, got %d: %+v", len(ann.Tags), ann.Tags)
+	}
+}
+
+func TestParse_ParamNameOnlyNoDescription(t *testing.T) {
+	p := NewParser()
+	// @param name (설명 없음) → Name은 있지만 Value는 빈 문자열로 허용
+	ann, err := p.Parse("@param x")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Name != "x" {
+		t.Errorf("Name = %q, want %q", ann.Tags[0].Name, "x")
+	}
+	if ann.Tags[0].Value != "" {
+		t.Errorf("Value = %q, want empty", ann.Tags[0].Value)
+	}
+}
+
 func TestParse_MixedIndentation(t *testing.T) {
 	p := NewParser()
 	ann, err := p.Parse("\t  요약 내용  \n\t\t@param x 값")

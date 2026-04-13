@@ -125,6 +125,9 @@ func (p *Parser) parseTagLine(line string, ordinals map[model.TagKind]int) *mode
 
 	if kind == model.TagParam {
 		paramParts := strings.SplitN(value, " ", 2)
+		if paramParts[0] == "" {
+			return nil
+		}
 		tag.Name = paramParts[0]
 		if len(paramParts) > 1 {
 			tag.Value = strings.TrimSpace(paramParts[1])

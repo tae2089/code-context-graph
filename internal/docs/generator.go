@@ -21,7 +21,7 @@ func (g *Generator) Run() error {
 		return fmt.Errorf("load nodes: %w", err)
 	}
 
-	ids := nodeIDsFrom(nodes)
+	ids := symbolNodeIDs(nodes)
 	edgesByFromID, err := g.loadEdges(ids)
 	if err != nil {
 		return fmt.Errorf("load edges: %w", err)
@@ -40,7 +40,13 @@ func (g *Generator) Run() error {
 
 func (g *Generator) loadNodes() ([]model.Node, map[uint]*model.Annotation, error) {
 	var nodes []model.Node
-	if err := g.DB.Where("kind IN ?", []string{"function", "class", "type", "test", "file"}).Find(&nodes).Error; err != nil {
+	if err := g.DB.Where("kind IN ?", []string{
+		string(model.NodeKindFunction),
+		string(model.NodeKindClass),
+		string(model.NodeKindType),
+		string(model.NodeKindTest),
+		string(model.NodeKindFile),
+	}).Find(&nodes).Error; err != nil {
 		return nil, nil, fmt.Errorf("query nodes: %w", err)
 	}
 
@@ -81,6 +87,19 @@ func nodeIDsFrom(nodes []model.Node) []uint {
 	ids := make([]uint, len(nodes))
 	for i, n := range nodes {
 		ids[i] = n.ID
+	}
+	return ids
+}
+
+// symbolNodeIDs returns IDs of non-file nodes only.
+// File nodes do not originate call/import edges, so excluding them
+// keeps the loadEdges IN clause minimal.
+func symbolNodeIDs(nodes []model.Node) []uint {
+	ids := make([]uint, 0, len(nodes))
+	for _, n := range nodes {
+		if n.Kind != model.NodeKindFile {
+			ids = append(ids, n.ID)
+		}
 	}
 	return ids
 }
