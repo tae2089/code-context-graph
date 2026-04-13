@@ -16,6 +16,17 @@
 
 `/ccg` 슬래시 커맨드로 CLI를 직접 실행할 수 있습니다.
 
+주요 커맨드:
+- `ccg build [dir]` — 코드 그래프 빌드 (`--exclude`, `--no-recursive` 지원)
+- `ccg docs [--out dir]` — 마크다운 문서 생성
+- `ccg index [--out dir]` — index.md만 재생성
+- `ccg languages` — 지원 언어 목록
+- `ccg example [language]` — 어노테이션 작성 예시
+- `ccg tags` — 태그 레퍼런스
+- `ccg hooks install` — pre-commit 훅 설치
+
+`.ccg.yaml`로 exclude 패턴, DB 설정 등을 프로젝트 기본값으로 관리할 수 있습니다.
+
 ## 어노테이션 시스템
 
 코드에 다음 태그를 사용하여 AI/비즈니스 컨텍스트를 기록합니다:

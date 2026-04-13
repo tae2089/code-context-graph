@@ -1,25 +1,31 @@
 ---
 name: ccg
-description: code-context-graph CLI — build code knowledge graphs, search by annotations, execute Cypher queries
+description: code-context-graph CLI — build code knowledge graphs, search by annotations, generate documentation
 user-invocable: true
 ---
 
 # code-context-graph CLI Skill
 
-A local code analysis tool that parses codebases via Tree-sitter into a knowledge graph with 15 language support, annotation-powered search, and Apache AGE Cypher queries.
+A local code analysis tool that parses codebases via Tree-sitter into a knowledge graph with 16 language support and annotation-powered search.
 
 ## Subcommands
 
 | Command | Description | Example |
 |---------|-------------|---------|
 | `build [dir]` | Parse directory, build graph + search index | `ccg build .` |
-| `build --graph [dir]` | Build + sync to Apache AGE graph DB | `ccg build --graph .` |
-| `build --embed [dir]` | Build + generate vector embeddings | `ccg build --embed .` |
+| `build --graph [dir]` | Build + sync to PostgreSQL + pgvector | `ccg build --graph .` |
+| `build --exclude <pat>` | Exclude files/paths (repeatable) | `ccg build --exclude vendor` |
+| `build --no-recursive [dir]` | Only parse top-level directory | `ccg build --no-recursive .` |
 | `update [dir]` | Incremental sync (changed files only) | `ccg update .` |
 | `status` | Show graph statistics (nodes/edges/files) | `ccg status` |
 | `search <query>` | FTS keyword search (includes @annotations) | `ccg search "authentication"` |
-| `search --semantic <q>` | Vector similarity search | `ccg search --semantic "payment flow"` |
-| `query <cypher>` | Execute Cypher query on AGE graph | `ccg query "MATCH (n:Function) RETURN n"` |
+| `docs [--out dir]` | Generate Markdown documentation | `ccg docs --out docs/` |
+| `docs --exclude <pat>` | Exclude paths from docs (repeatable) | `ccg docs --exclude vendor` |
+| `index [--out dir]` | Regenerate index.md only | `ccg index --out docs/` |
+| `languages` | List all supported languages + extensions | `ccg languages` |
+| `example [language]` | Show annotation example for a language | `ccg example go` |
+| `tags` | Show all @tag reference with descriptions | `ccg tags` |
+| `hooks install` | Install pre-commit git hook | `ccg hooks install` |
 | `annotate [file\|dir]` | AI-generate annotations for code | `ccg annotate internal/analysis/` |
 
 ## Execution
@@ -42,13 +48,37 @@ Show available commands:
 
 ```
 Available ccg commands:
-  ccg build [dir]           — Build code knowledge graph
-  ccg update [dir]          — Incremental update
-  ccg status                — Graph statistics
-  ccg search <query>        — Full-text search (annotations included)
-  ccg query <cypher>        — Execute Cypher query (requires AGE)
-  ccg annotate [file|dir]   — AI-generate @annotations for code
+  ccg build [dir]            — Build code knowledge graph
+  ccg update [dir]           — Incremental update
+  ccg status                 — Graph statistics
+  ccg search <query>         — Full-text search (annotations included)
+  ccg docs [--out dir]       — Generate Markdown documentation
+  ccg index [--out dir]      — Regenerate index.md only
+  ccg languages              — List supported languages
+  ccg example [language]     — Annotation writing example
+  ccg tags                   — Annotation tag reference
+  ccg hooks install          — Install pre-commit git hook
+  ccg annotate [file|dir]    — AI-generate @annotations for code
 ```
+
+## Config File (.ccg.yaml)
+
+Project-level defaults loaded automatically from the working directory:
+
+```yaml
+db:
+  driver: sqlite   # sqlite | postgres | mysql
+  dsn: ccg.db
+
+exclude:
+  - vendor
+  - "*.pb.go"
+
+docs:
+  out: docs
+```
+
+Override with `ccg --config path/to/.ccg.yaml`.
 
 ## Annotate Command
 
@@ -154,6 +184,8 @@ Edge labels: `CALLS`, `IMPORTS_FROM`, `INHERITS`, `IMPLEMENTS`, `CONTAINS`, `TES
 
 Vertex properties: `node_id`, `qualified_name`, `name`, `kind`, `file_path`, `language`, `start_line`, `end_line`
 
-## Supported Languages (15)
+## Supported Languages (16)
 
 Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, C#, Kotlin, PHP, Swift, Scala, Lua, Bash
+
+Run `ccg languages` for the full list with extensions.

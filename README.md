@@ -1,12 +1,12 @@
 # code-context-graph
 
-Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 15 languages, 18 MCP tools, custom annotation search, and pgvector semantic search.
+Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 16 languages, 18 MCP tools, custom annotation search, and pgvector semantic search.
 
 Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) — a Python-based code analysis tool. This project reimplements and extends the concept in Go with multi-DB support, custom annotation system, and MCP integration for AI-powered code understanding.
 
 ## Features
 
-- **15 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, C#, Kotlin, PHP, Swift, Scala, Lua, Bash
+- **16 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, C#, Kotlin, PHP, Swift, Scala, Lua, Bash
 - **18 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, and more
 - **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context
 - **pgvector**: semantic similarity search via PostgreSQL pgvector extension
@@ -212,10 +212,38 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
 |---------|-------------|
 | `ccg build [dir]` | Parse and build code graph |
 | `ccg build --graph [dir]` | Build + sync to PostgreSQL + pgvector |
+| `ccg build --exclude <pat>` | Exclude files/paths (repeatable) |
+| `ccg build --no-recursive [dir]` | Only parse top-level directory |
 | `ccg update [dir]` | Incremental sync |
 | `ccg status` | Graph statistics |
 | `ccg search <query>` | Full-text search |
+| `ccg docs [--out dir]` | Generate Markdown documentation |
+| `ccg index [--out dir]` | Regenerate index.md only |
+| `ccg languages` | List supported languages and extensions |
+| `ccg example [language]` | Show annotation writing example |
+| `ccg tags` | Show all annotation tag reference |
+| `ccg hooks install` | Install pre-commit git hook |
 | `ccg serve` | Start MCP server (stdio) |
+
+### Config file (`.ccg.yaml`)
+
+Project-level defaults loaded automatically from the current directory:
+
+```yaml
+db:
+  driver: sqlite   # sqlite | postgres | mysql
+  dsn: ccg.db
+
+exclude:
+  - vendor
+  - "*.pb.go"
+  - "*_test.go"
+
+docs:
+  out: docs
+```
+
+Override with `ccg --config path/to/config.yaml`.
 
 ## MCP Tools (18)
 
