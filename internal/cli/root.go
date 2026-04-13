@@ -117,6 +117,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		newTagsCmd(deps),
 		newHooksCmd(deps),
 		newIndexCmd(deps),
+		newLintCmd(deps),
 	)
 
 	return rootCmd
