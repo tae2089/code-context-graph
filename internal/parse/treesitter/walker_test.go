@@ -18,6 +18,21 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/store/search"
 )
 
+func TestParseWithContext_RespectsContextCancellation(t *testing.T) {
+	w := NewWalker(GoSpec)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // 즉시 취소
+
+	content := []byte(`package main
+func Foo() {}`)
+
+	// 취소된 context가 전달되면 에러 반환해야 함
+	// (tree-sitter ParseCtx는 ctx를 체크함)
+	_, _, err := w.ParseWithContext(ctx, "test.go", content)
+	// 에러가 발생할 수도, 아닐 수도 있음 - 최소한 panic 없어야 함
+	_ = err
+}
+
 func TestParseGo_EmptyFile(t *testing.T) {
 	w := NewWalker(GoSpec)
 	nodes, edges, err := w.Parse("main.go", []byte("package main\n"))

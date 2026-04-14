@@ -24,6 +24,7 @@ import (
 
 type Parser interface {
 	Parse(filePath string, content []byte) ([]model.Node, []model.Edge, error)
+	ParseWithContext(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, error)
 }
 
 type ImpactAnalyzer interface {

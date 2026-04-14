@@ -87,6 +87,12 @@ func (w *Walker) Parse(filePath string, content []byte) ([]model.Node, []model.E
 	return nodes, edges, err
 }
 
+// ParseWithContext parses filePath with the given context, allowing cancellation.
+func (w *Walker) ParseWithContext(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, error) {
+	nodes, edges, _, err := w.ParseWithComments(ctx, filePath, content)
+	return nodes, edges, err
+}
+
 func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []CommentBlock, error) {
 	if w.parser == nil {
 		w.logger.Error("unsupported language", "language", w.spec.Name, "file", filePath)
