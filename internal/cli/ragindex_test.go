@@ -61,3 +61,39 @@ func TestRagIndexCmd_OutputsBuiltMessage(t *testing.T) {
 		t.Errorf("doc-index.json not created: %v", err)
 	}
 }
+
+func TestRagIndexCmd_NoDB(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+	// deps.DB == nil
+
+	outBuffer := stdout
+	errBuffer := stderr
+	err := executeCmd(deps, outBuffer, errBuffer, "rag-index")
+	if err == nil {
+		t.Fatal("expected error when DB is nil, got nil")
+	}
+}
+
+func TestRagIndexCmd_OutFlag(t *testing.T) {
+	deps := setupRagIndexTestDeps(t)
+	tmpDir := t.TempDir()
+	indexDir := filepath.Join(tmpDir, ".ccg")
+	docsDir := filepath.Join(tmpDir, "mydocs")
+
+	outBuffer := &bytes.Buffer{}
+	errBuffer := &bytes.Buffer{}
+
+	err := executeCmd(deps, outBuffer, errBuffer,
+		"rag-index",
+		"--out", docsDir,
+		"--index-dir", indexDir,
+	)
+	if err != nil {
+		t.Fatalf("Execute() with --out flag error: %v", err)
+	}
+
+	// doc-index.json must be created
+	if _, err := os.Stat(filepath.Join(indexDir, "doc-index.json")); err != nil {
+		t.Errorf("doc-index.json not created: %v", err)
+	}
+}
