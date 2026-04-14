@@ -58,6 +58,23 @@ jobs:
         run: |
           go build -tags "fts5" -ldflags "-s -w" -o ${{ matrix.artifact }} ./cmd/ccg/
 
+      - name: Install UPX (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y upx-ucl
+
+      - name: Install UPX (macOS)
+        if: runner.os == 'macOS'
+        run: brew install upx
+
+      - name: Install UPX (Windows)
+        if: runner.os == 'Windows'
+        run: choco install upx -y
+
+      - name: Compress binary with UPX
+        continue-on-error: true
+        shell: bash
+        run: upx --best --lzma ${{ matrix.artifact }}
+
       - name: Compress (Unix)
         if: matrix.goos != 'windows'
         run: |

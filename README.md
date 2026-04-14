@@ -1,12 +1,12 @@
 # code-context-graph
 
-Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 16 languages, 18 MCP tools, and custom annotation search.
+Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 12 languages, 18 MCP tools, and custom annotation search.
 
 Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) — a Python-based code analysis tool. This project reimplements and extends the concept in Go with multi-DB support, custom annotation system, and MCP integration for AI-powered code understanding.
 
 ## Features
 
-- **16 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, C#, Kotlin, PHP, Swift, Scala, Lua, Bash
+- **12 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua
 - **18 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, and more
 - **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context
 - **Multi-DB**: SQLite (local), PostgreSQL

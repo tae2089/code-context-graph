@@ -6,7 +6,7 @@ user-invocable: true
 
 # code-context-graph CLI Skill
 
-A local code analysis tool that parses codebases via Tree-sitter into a knowledge graph with 16 language support and annotation-powered search.
+A local code analysis tool that parses codebases via Tree-sitter into a knowledge graph with 12 language support and annotation-powered search.
 
 ## Subcommands
 
@@ -144,6 +144,6 @@ Node kinds: `function`, `class`, `type`, `test`, `file`
 
 Edge kinds: `calls`, `imports_from`, `inherits`, `implements`, `contains`, `tested_by`, `depends_on`, `references`
 
-## Supported Languages (15)
+## Supported Languages (12)
 
-Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, C#, Kotlin, PHP, Swift, Scala, Lua, Bash
+Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua
