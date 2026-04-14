@@ -111,17 +111,6 @@ var RubySpec = &LangSpec{
 	TestPrefix:    "test_",
 }
 
-var CSharpSpec = &LangSpec{
-	Name:           "csharp",
-	FunctionTypes:  []string{"method_declaration", "constructor_declaration"},
-	ClassTypes:     []string{"class_declaration", "struct_declaration", "record_declaration"},
-	InterfaceTypes: []string{"interface_declaration"},
-	ImportTypes:    []string{"using_directive"},
-	CallTypes:      []string{"invocation_expression"},
-	TestPrefix:     "Test",
-	TestAttributes: []string{"Test", "Fact", "Theory"},
-}
-
 var KotlinSpec = &LangSpec{
 	Name:           "kotlin",
 	FunctionTypes:  []string{"function_declaration"},
@@ -142,27 +131,6 @@ var PHPSpec = &LangSpec{
 	TestPrefix:     "test",
 }
 
-var SwiftSpec = &LangSpec{
-	Name:           "swift",
-	FunctionTypes:  []string{"function_declaration"},
-	ClassTypes:     []string{"class_declaration", "struct_declaration", "enum_declaration"},
-	InterfaceTypes: []string{"protocol_declaration"},
-	ImportTypes:    []string{"import_declaration"},
-	CallTypes:      []string{"call_expression"},
-	TestPrefix:     "test",
-	ExtensionTypes: []string{"extension_declaration"},
-}
-
-var ScalaSpec = &LangSpec{
-	Name:           "scala",
-	FunctionTypes:  []string{"function_definition"},
-	ClassTypes:     []string{"class_definition", "object_definition"},
-	InterfaceTypes: []string{"trait_definition"},
-	ImportTypes:    []string{"import_declaration"},
-	CallTypes:      []string{"call_expression"},
-	TestPrefix:     "test",
-}
-
 var LuaSpec = &LangSpec{
 	Name:          "lua",
 	FunctionTypes: []string{"function_statement"},
@@ -172,11 +140,3 @@ var LuaSpec = &LangSpec{
 	TestPrefix:    "test_",
 }
 
-var BashSpec = &LangSpec{
-	Name:          "bash",
-	FunctionTypes: []string{"function_definition"},
-	ClassTypes:    []string{},
-	ImportTypes:   []string{"command"},
-	CallTypes:     []string{"command"},
-	TestPrefix:    "test_",
-}

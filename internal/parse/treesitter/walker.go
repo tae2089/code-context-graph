@@ -9,10 +9,8 @@ import (
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/bash"
 	"github.com/smacker/go-tree-sitter/c"
 	"github.com/smacker/go-tree-sitter/cpp"
-	"github.com/smacker/go-tree-sitter/csharp"
 	"github.com/smacker/go-tree-sitter/golang"
 	"github.com/smacker/go-tree-sitter/java"
 	"github.com/smacker/go-tree-sitter/javascript"
@@ -22,8 +20,6 @@ import (
 	"github.com/smacker/go-tree-sitter/python"
 	"github.com/smacker/go-tree-sitter/ruby"
 	"github.com/smacker/go-tree-sitter/rust"
-	"github.com/smacker/go-tree-sitter/scala"
-	"github.com/smacker/go-tree-sitter/swift"
 	"github.com/smacker/go-tree-sitter/typescript/typescript"
 
 	"github.com/imtaebin/code-context-graph/internal/model"
@@ -602,20 +598,12 @@ func (w *Walker) getLanguage() (*sitter.Language, error) {
 		return cpp.GetLanguage(), nil
 	case "rust":
 		return rust.GetLanguage(), nil
-	case "csharp":
-		return csharp.GetLanguage(), nil
 	case "kotlin":
 		return kotlin.GetLanguage(), nil
 	case "php":
 		return php.GetLanguage(), nil
-	case "swift":
-		return swift.GetLanguage(), nil
-	case "scala":
-		return scala.GetLanguage(), nil
 	case "lua":
 		return lua.GetLanguage(), nil
-	case "bash":
-		return bash.GetLanguage(), nil
 	default:
 		return nil, fmt.Errorf("unsupported language: %s", w.spec.Name)
 	}

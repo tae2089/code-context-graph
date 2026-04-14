@@ -98,13 +98,9 @@ func buildWalkers(logger *slog.Logger) map[string]*treesitter.Walker {
 		{treesitter.CSpec, []string{".c", ".h"}},
 		{treesitter.CppSpec, []string{".cpp", ".cc", ".cxx", ".hpp", ".hh", ".hxx"}},
 		{treesitter.RustSpec, []string{".rs"}},
-		{treesitter.CSharpSpec, []string{".cs"}},
 		{treesitter.KotlinSpec, []string{".kt", ".kts"}},
 		{treesitter.PHPSpec, []string{".php"}},
-		{treesitter.SwiftSpec, []string{".swift"}},
-		{treesitter.ScalaSpec, []string{".scala", ".sc"}},
 		{treesitter.LuaSpec, []string{".lua"}},
-		{treesitter.BashSpec, []string{".sh", ".bash", ".zsh"}},
 	}
 
 	walkers := make(map[string]*treesitter.Walker)
