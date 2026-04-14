@@ -17,18 +17,22 @@
 
 HTTP 모드 (`--transport streamable-http`)에서는 `/health` 엔드포인트도 제공합니다.
 
-## CLI Skill
+## CLI Skills (5개)
 
-`/ccg` 슬래시 커맨드로 CLI를 직접 실행할 수 있습니다.
+| Skill | 설명 |
+|-------|------|
+| `/ccg` | 코어 빌드 & 검색 — 파싱, 그래프 빌드, 쿼리, 검색 |
+| `/ccg-analyze` | 코드 분석 — 영향 반경, 플로우 추적, 데드코드, 아키텍처 |
+| `/ccg-annotate` | 어노테이션 시스템 — AI 어노테이션 워크플로우, 태그 레퍼런스 |
+| `/ccg-docs` | 문서 — 문서 생성, RAG 인덱싱, lint |
+| `/ccg-workspace` | 파일 워크스페이스 — 파일/워크스페이스 업로드, 목록, 삭제 |
 
 주요 커맨드:
 - `ccg build [dir]` — 코드 그래프 빌드 (`--exclude`, `--no-recursive` 지원)
+- `ccg search <query>` — 전문 검색 (어노테이션 포함)
 - `ccg docs [--out dir]` — 마크다운 문서 생성
-- `ccg index [--out dir]` — index.md만 재생성
-- `ccg languages` — 지원 언어 목록
-- `ccg example [language]` — 어노테이션 작성 예시
-- `ccg tags` — 태그 레퍼런스
-- `ccg hooks install` — pre-commit 훅 설치
+- `ccg lint [--strict]` — 문서 품질 체크
+- `ccg annotate [file|dir]` — AI 어노테이션 생성
 
 `.ccg.yaml`로 exclude 패턴, DB 설정 등을 프로젝트 기본값으로 관리할 수 있습니다.
 

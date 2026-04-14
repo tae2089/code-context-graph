@@ -169,20 +169,25 @@ curl http://localhost:8080/health
 
 Claude Code automatically connects and gets access to 28 MCP tools.
 
-### Skill
+### Skills (5)
 
-The `/ccg` skill provides:
+| Skill | Description |
+|-------|-------------|
+| `/ccg` | Core build & search — parse, build graph, query, search |
+| `/ccg-analyze` | Code analysis — impact radius, flow tracing, dead code, architecture |
+| `/ccg-annotate` | Annotation system — AI-driven annotation workflow, tag reference |
+| `/ccg-docs` | Documentation — generate docs, RAG indexing, lint |
+| `/ccg-workspace` | File workspace — upload, list, delete files and workspaces |
 
 ```
 /ccg build .                    — Build code graph
 /ccg status                     — Graph statistics
 /ccg search "query"             — Full-text search
-/ccg docs                       — Generate documentation
-/ccg lint                       — Check docs health + annotation coverage
+/ccg-docs docs                  — Generate documentation
+/ccg-docs lint                  — Check docs health + annotation coverage
 /ccg languages                  — List supported languages
-/ccg example go                 — Annotation writing example
-/ccg tags                       — Annotation tag reference
-/ccg annotate internal/         — AI-generate annotations
+/ccg-annotate annotate internal/— AI-generate annotations
+/ccg-workspace                  — Manage file workspaces
 ```
 
 ### AI-Driven Annotation

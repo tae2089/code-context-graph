@@ -1,12 +1,12 @@
 ---
 name: ccg
-description: code-context-graph CLI — build code knowledge graphs, search by annotations, analyze with 28 MCP tools
+description: code-context-graph — build code knowledge graphs and search. Core entry point for parsing, building, and querying code graphs.
 user-invocable: true
 ---
 
-# code-context-graph CLI Skill
+# code-context-graph — Core Build & Search
 
-A local code analysis tool that parses codebases via Tree-sitter into a knowledge graph with 12 language support and annotation-powered search.
+Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph with 12 language support and annotation-powered search.
 
 ## Subcommands
 
@@ -18,7 +18,14 @@ A local code analysis tool that parses codebases via Tree-sitter into a knowledg
 | `update [dir]` | Incremental sync (changed files only) | `ccg update .` |
 | `status` | Show graph statistics (nodes/edges/files) | `ccg status` |
 | `search <query>` | FTS keyword search (includes @annotations) | `ccg search "authentication"` |
-| `annotate [file\|dir]` | AI-generate annotations for code | `ccg annotate internal/analysis/` |
+| `search --path <prefix> <query>` | Scoped search by path prefix | `ccg search --path internal/auth "login"` |
+| `languages` | List supported languages and extensions | `ccg languages` |
+| `example [language]` | Show annotation writing example | `ccg example go` |
+| `tags` | Show all annotation tag reference | `ccg tags` |
+| `serve` | Start MCP server (stdio by default) | `ccg serve` |
+| `serve --transport streamable-http` | Start MCP server over HTTP | `ccg serve --transport streamable-http` |
+| `serve --http-addr :9090` | Custom HTTP listen address | `ccg serve --http-addr :9090` |
+| `serve --stateless` | Stateless session mode | `ccg serve --stateless` |
 
 ## Execution
 
@@ -44,94 +51,32 @@ Available ccg commands:
   ccg update [dir]          — Incremental update
   ccg status                — Graph statistics
   ccg search <query>        — Full-text search (annotations included)
-  ccg annotate [file|dir]   — AI-generate @annotations for code
+  ccg languages             — List supported languages
+  ccg serve                 — Start MCP server
+
+Related skills:
+  /ccg-analyze              — Code analysis & architecture
+  /ccg-annotate             — Annotation system & AI workflow
+  /ccg-docs                 — Documentation & RAG indexing
+  /ccg-workspace            — File workspace management
 ```
 
-## Annotate Command
+## MCP Tools (7)
 
-`ccg annotate` is NOT a CLI binary command — it is an AI-driven workflow executed by Claude.
-
-When the user runs `ccg annotate [file|dir]`, Claude should:
-
-### Step 1: Read target files
-- If a file path is given, read that file
-- If a directory is given, find all source files (`.go`, `.py`, `.ts`, `.java`, etc.)
-- Skip test files, vendor, node_modules
-
-### Step 2: Analyze each function/class/file
-For each declaration, read the code and determine:
-- **What it does** (→ summary line above declaration)
-- **Why it exists** (→ `@intent`)
-- **Business rules it enforces** (→ `@domainRule`)
-- **Side effects** (→ `@sideEffect`: DB writes, API calls, file I/O, notifications)
-- **What state it changes** (→ `@mutates`: fields, tables, caches)
-- **Prerequisites** (→ `@requires`: auth, valid input, active state)
-- **Guarantees** (→ `@ensures`: return conditions, post-state)
-- **File/package purpose** (→ `@index` on package declaration)
-
-### Step 3: Write annotations
-- Add annotations as comments directly above the declaration
-- Use the language's comment syntax (`//` for Go, `#` for Python, etc.)
-- Do NOT overwrite existing annotations — only add missing ones
-- Do NOT add trivial annotations (e.g., `@intent returns the name` for `getName()`)
-
-### Step 4: Rebuild
-After annotating, run `ccg build .` to re-index with new annotations.
-
-### Annotation Quality Rules
-- `@intent` should describe WHY, not WHAT (not "creates user" but "register new account for onboarding flow")
-- `@domainRule` should be specific business logic, not generic validation
-- `@sideEffect` only for actual side effects (DB, network, file, notification)
-- `@index` should summarize the module's responsibility in one line
-- Skip getters/setters/trivial functions — annotate functions with business meaning
-- Write annotations in the same language as existing code comments (Korean if Korean, English if English)
-
-### Example output
-
-```go
-// @index User authentication and session management service.
-package auth
-
-// AuthenticateUser validates credentials and creates a session.
-// Called from login API handler.
-//
-// @param username user login ID
-// @param password plaintext password (hashed internally)
-// @return JWT token on success
-// @intent verify user identity before granting system access
-// @domainRule lock account after 5 consecutive failed attempts
-// @domainRule locked accounts auto-unlock after 30 minutes
-// @sideEffect writes login attempt to audit_log table
-// @sideEffect sends security alert email on 3rd failed attempt
-// @mutates user.FailedAttempts, user.LockedUntil, user.LastLoginAt
-// @requires user.IsActive == true
-// @ensures err == nil implies valid JWT with 24h expiry
-func AuthenticateUser(username, password string) (string, error) {
-```
+| Tool | Description |
+|------|-------------|
+| `parse_project` | Parse source files |
+| `build_or_update_graph` | Full/incremental build with postprocessing |
+| `run_postprocess` | Run flows/communities/search rebuild |
+| `get_node` | Get node by qualified name |
+| `search` | Full-text search |
+| `query_graph` | Predefined graph queries (callers, callees, imports, etc.) |
+| `list_graph_stats` | Node/edge/file counts |
 
 ## Smart Behaviors
 
 ### Auto-rebuild when stale
 If `ccg.db` doesn't exist or the user asks to analyze the project, run `ccg build .` first.
-
-### Use MCP tools for graph analysis
-When the user asks graph-related questions, use the 28 MCP tools via the ccg MCP server:
-
-| User intent | MCP tool |
-|-------------|----------|
-| "What calls this function?" | `query_graph` (pattern: callers_of) |
-| "Impact of changing X" | `get_impact_radius` (depth: 3) |
-| "Dead code" | `find_dead_code` |
-| "Large functions" | `find_large_functions` |
-| "Module structure" | `list_communities` |
-| "Architecture overview" | `get_architecture_overview` |
-| "Test coverage gaps" | `get_community` (include coverage) |
-| "What changed?" | `detect_changes` |
-| "Upload source files" | `upload_file` (base64 content) |
-| "Upload multiple files" | `upload_files` (JSON array of file entries) |
-| "List workspaces" | `list_workspaces` |
-| "Delete a workspace" | `delete_workspace` |
-| "Health check" | `GET /health` (HTTP mode only) |
 
 ### Annotation-aware search
 When the user asks about business concepts, use FTS search which includes annotation content:
