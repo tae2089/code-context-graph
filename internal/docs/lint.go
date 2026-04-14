@@ -116,7 +116,7 @@ func (g *Generator) Lint() (*LintReport, error) {
 
 	// 4. Find unannotated symbols (functions, classes, types — skip tests).
 	var symbolNodes []model.Node
-	if err := g.DB.Select("id, qualified_name, kind, file_path").
+	if err := g.DB.Select("id, qualified_name, kind, file_path, updated_at").
 		Where("kind IN ?", []string{
 			string(model.NodeKindFunction),
 			string(model.NodeKindClass),
@@ -172,11 +172,7 @@ func (g *Generator) Lint() (*LintReport, error) {
 			if n == nil {
 				continue
 			}
-			var freshNode model.Node
-			if err := g.DB.Select("updated_at").First(&freshNode, n.ID).Error; err != nil {
-				continue
-			}
-			if freshNode.UpdatedAt.After(a.UpdatedAt) {
+			if n.UpdatedAt.After(a.UpdatedAt) {
 				report.Contradictions = append(report.Contradictions, Contradiction{
 					QualifiedName: n.QualifiedName,
 					Detail:        "@param exists but node updated since annotation",
