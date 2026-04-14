@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"github.com/imtaebin/code-context-graph/internal/ragindex"
 )
@@ -23,6 +24,11 @@ func newRagIndexCmd(deps *Deps) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if deps.DB == nil {
 				return fmt.Errorf("database not initialized")
+			}
+
+			// --desc 플래그가 없으면 viper config에서 읽음
+			if projectDesc == "" {
+				projectDesc = viper.GetString("rag.description")
 			}
 
 			b := &ragindex.Builder{

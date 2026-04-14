@@ -157,7 +157,7 @@ func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 		Logger:            deps.Logger,
 		Cache:             cache,
 		RagIndexDir:       viper.GetString("rag.index_dir"),
-		RagProjectDesc:    viper.GetString("description"),
+		RagProjectDesc:    viper.GetString("rag.description"),
 	}
 
 	srv := mcpserver.NewServer(mcpDeps)
