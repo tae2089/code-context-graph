@@ -165,19 +165,27 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 	}
 
 	buildContent := func(n model.Node) string {
-		content := n.Name + " " + n.QualifiedName + " " + string(n.Kind)
+		var sb strings.Builder
+		sb.WriteString(n.Name)
+		sb.WriteByte(' ')
+		sb.WriteString(n.QualifiedName)
+		sb.WriteByte(' ')
+		sb.WriteString(string(n.Kind))
 		if ann := annByNode[n.ID]; ann != nil {
 			if ann.Summary != "" {
-				content += " " + ann.Summary
+				sb.WriteByte(' ')
+				sb.WriteString(ann.Summary)
 			}
 			if ann.Context != "" {
-				content += " " + ann.Context
+				sb.WriteByte(' ')
+				sb.WriteString(ann.Context)
 			}
 			for _, tag := range ann.Tags {
-				content += " " + tag.Value
+				sb.WriteByte(' ')
+				sb.WriteString(tag.Value)
 			}
 		}
-		return content
+		return sb.String()
 	}
 
 	if s.SearchBackend != nil && s.DB != nil {
