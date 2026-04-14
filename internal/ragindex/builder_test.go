@@ -366,12 +366,14 @@ func TestPruneTree_NegativeDepth(t *testing.T) {
 		},
 	}
 
-	result := ragindex.PruneTree(root, 0)
-	if len(result.Children) != 1 {
-		t.Fatalf("expected 1 child, got %d", len(result.Children))
-	}
-	if len(result.Children[0].Children) != 1 {
-		t.Fatalf("expected 1 grandchild at depth=0 (unlimited), got %d", len(result.Children[0].Children))
+	for _, depth := range []int{0, -1} {
+		result := ragindex.PruneTree(root, depth)
+		if len(result.Children) != 1 {
+			t.Fatalf("depth=%d: expected 1 child, got %d", depth, len(result.Children))
+		}
+		if len(result.Children[0].Children) != 1 {
+			t.Fatalf("depth=%d: expected 1 grandchild (unlimited), got %d", depth, len(result.Children[0].Children))
+		}
 	}
 }
 
