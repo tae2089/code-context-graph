@@ -11,7 +11,6 @@ type entry struct {
 }
 
 // Cache is a simple in-memory TTL cache safe for concurrent use.
-// A nil Cache is valid and behaves as a no-op (all Gets miss, Sets are ignored).
 type Cache struct {
 	mu      sync.RWMutex
 	entries map[string]entry
