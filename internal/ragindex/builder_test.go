@@ -485,11 +485,17 @@ func TestBuilder_NoSymbolsWithoutIntent(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	comm := model.Community{Key: "core", Label: "Core"}
-	db.Create(&comm)
+	if err := db.Create(&comm).Error; err != nil {
+		t.Fatalf("create community: %v", err)
+	}
 	node := model.Node{QualifiedName: "core/utils.go/helper", Kind: model.NodeKindFunction, Name: "helper",
 		FilePath: "core/utils.go", StartLine: 1, EndLine: 5, Language: "go"}
-	db.Create(&node)
-	db.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: node.ID})
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := db.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: node.ID}).Error; err != nil {
+		t.Fatalf("create membership: %v", err)
+	}
 	// annotation 없음 → @intent 없음
 
 	b := &ragindex.Builder{DB: db, OutDir: filepath.Join(tmpDir, "docs"), IndexDir: tmpDir}
