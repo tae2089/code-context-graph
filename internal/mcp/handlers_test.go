@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -1837,4 +1838,105 @@ type mockIncrementalSyncer struct {
 func (m *mockIncrementalSyncer) Sync(ctx context.Context, files map[string]incremental.FileInfo) (*incremental.SyncStats, error) {
 	m.syncCalled = true
 	return m.result, m.err
+}
+
+// ============================================================
+// Cache helper
+// ============================================================
+
+func openTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatalf("open test db: %v", err)
+	}
+	return db
+}
+
+func makeToolRequest(toolName string, args map[string]any) mcp.CallToolRequest {
+	var req mcp.CallToolRequest
+	req.Params.Name = toolName
+	req.Params.Arguments = args
+	return req
+}
+
+// ============================================================
+// 캐시 패턴 테스트
+// ============================================================
+
+func TestGetNode_CacheHit(t *testing.T) {
+	db := openTestDB(t)
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatal(err)
+	}
+
+	node := model.Node{
+		QualifiedName: "pkg.CacheHitFunc",
+		Name:          "CacheHitFunc",
+		Kind:          model.NodeKindFunction,
+		FilePath:      "pkg/cache_hit.go",
+		Language:      "go",
+	}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	cache := NewCache(5 * time.Minute)
+	h := &handlers{
+		deps:  &Deps{Store: st, DB: db},
+		cache: cache,
+	}
+
+	req := makeToolRequest("get_node", map[string]any{
+		"qualified_name": "pkg.CacheHitFunc",
+	})
+
+	// 1차 호출: DB에서 가져와 캐시에 저장
+	res1, err := h.getNode(context.Background(), req)
+	if err != nil {
+		t.Fatalf("first call error: %v", err)
+	}
+	if res1.IsError {
+		t.Fatal("first call: unexpected error result")
+	}
+
+	// DB에서 노드 삭제 (캐시 히트 검증)
+	if err := db.Unscoped().Delete(&model.Node{}, node.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// 2차 호출: 캐시에서 응답해야 함 (DB에 없어도 성공)
+	res2, err := h.getNode(context.Background(), req)
+	if err != nil {
+		t.Fatalf("second call error: %v", err)
+	}
+	if res2.IsError {
+		t.Fatal("second call (cache hit): unexpected error result")
+	}
+}
+
+func TestGetNode_NoCache(t *testing.T) {
+	db := openTestDB(t)
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatal(err)
+	}
+
+	h := &handlers{
+		deps:  &Deps{Store: st, DB: db},
+		cache: nil,
+	}
+
+	req := makeToolRequest("get_node", map[string]any{
+		"qualified_name": "pkg.NotExist",
+	})
+
+	res, err := h.getNode(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatal("expected error response for missing node without cache")
+	}
 }

@@ -26,6 +26,12 @@ type handlers struct {
 	cache *Cache
 }
 
+// mustJSON serializes v to a JSON string for use as a cache key.
+func mustJSON(v any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
 func (h *handlers) logger() *slog.Logger {
 	if h.deps.Logger != nil {
 		return h.deps.Logger
@@ -105,6 +111,14 @@ func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*m
 
 	log.Info("get_node called", "qualified_name", qn)
 
+	key := "get_node:" + mustJSON(map[string]any{"qualified_name": qn})
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			log.Debug("get_node cache hit", "qualified_name", qn)
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
+
 	node, err := h.deps.Store.GetNode(ctx, qn)
 	if err != nil {
 		log.Error("store error", "tool", "get_node", "error", err)
@@ -126,7 +140,11 @@ func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*m
 		"language":       node.Language,
 	}
 	b, _ := json.Marshal(data)
-	return mcp.NewToolResultText(string(b)), nil
+	result := string(b)
+	if h.cache != nil {
+		h.cache.Set(key, result)
+	}
+	return mcp.NewToolResultText(result), nil
 }
 
 func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -139,6 +157,14 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 	depth := request.GetInt("depth", 1)
 
 	log.Info("get_impact_radius called", "qualified_name", qn, "depth", depth)
+
+	key := "get_impact_radius:" + mustJSON(map[string]any{"qualified_name": qn, "depth": depth})
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			log.Debug("get_impact_radius cache hit", "qualified_name", qn)
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
 
 	node, err := h.deps.Store.GetNode(ctx, qn)
 	if err != nil {
@@ -158,9 +184,9 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 
 	log.Info("get_impact_radius completed", "qualified_name", qn, "result_count", len(nodes))
 
-	result := make([]map[string]any, len(nodes))
+	impactResult := make([]map[string]any, len(nodes))
 	for i, n := range nodes {
-		result[i] = map[string]any{
+		impactResult[i] = map[string]any{
 			"id":             n.ID,
 			"qualified_name": n.QualifiedName,
 			"kind":           n.Kind,
@@ -168,8 +194,12 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 			"file_path":      n.FilePath,
 		}
 	}
-	b, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(b)), nil
+	b, _ := json.Marshal(impactResult)
+	result := string(b)
+	if h.cache != nil {
+		h.cache.Set(key, result)
+	}
+	return mcp.NewToolResultText(result), nil
 }
 
 func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -183,6 +213,14 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 	pathPrefix := request.GetString("path", "")
 
 	log.Info("search called", "query", query, "limit", limit, "path", pathPrefix)
+
+	key := "search:" + mustJSON(map[string]any{"query": query, "limit": limit, "path": pathPrefix})
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			log.Debug("search cache hit", "query", query)
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
 
 	// When path filtering is active, fetch more results from FTS so
 	// that after filtering we still have up to 'limit' results.
@@ -215,9 +253,9 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 
 	log.Info("search completed", "query", query, "result_count", len(nodes))
 
-	result := make([]map[string]any, len(nodes))
+	searchResult := make([]map[string]any, len(nodes))
 	for i, n := range nodes {
-		result[i] = map[string]any{
+		searchResult[i] = map[string]any{
 			"id":             n.ID,
 			"qualified_name": n.QualifiedName,
 			"kind":           n.Kind,
@@ -225,8 +263,12 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 			"file_path":      n.FilePath,
 		}
 	}
-	b, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(b)), nil
+	b, _ := json.Marshal(searchResult)
+	result := string(b)
+	if h.cache != nil {
+		h.cache.Set(key, result)
+	}
+	return mcp.NewToolResultText(result), nil
 }
 
 func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -238,6 +280,14 @@ func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolReques
 	}
 
 	log.Info("get_annotation called", "qualified_name", qn)
+
+	key := "get_annotation:" + mustJSON(map[string]any{"qualified_name": qn})
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			log.Debug("get_annotation cache hit", "qualified_name", qn)
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
 
 	node, err := h.deps.Store.GetNode(ctx, qn)
 	if err != nil {
@@ -275,7 +325,11 @@ func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolReques
 		"tags":    tags,
 	}
 	b, _ := json.Marshal(data)
-	return mcp.NewToolResultText(string(b)), nil
+	result := string(b)
+	if h.cache != nil {
+		h.cache.Set(key, result)
+	}
+	return mcp.NewToolResultText(result), nil
 }
 
 func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -287,6 +341,14 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 	}
 
 	log.Info("trace_flow called", "qualified_name", qn)
+
+	key := "trace_flow:" + mustJSON(map[string]any{"qualified_name": qn})
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			log.Debug("trace_flow cache hit", "qualified_name", qn)
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
 
 	node, err := h.deps.Store.GetNode(ctx, qn)
 	if err != nil {
@@ -319,7 +381,11 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 		"members": members,
 	}
 	b, _ := json.Marshal(data)
-	return mcp.NewToolResultText(string(b)), nil
+	result := string(b)
+	if h.cache != nil {
+		h.cache.Set(key, result)
+	}
+	return mcp.NewToolResultText(result), nil
 }
 
 func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -538,6 +604,14 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 
 	log.Info("query_graph called", "pattern", pattern, "target", target)
 
+	key := "query_graph:" + mustJSON(map[string]any{"pattern": pattern, "target": target})
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			log.Debug("query_graph cache hit", "pattern", pattern, "target", target)
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
+
 	// 패턴 유효성 검사
 	validPatterns := map[string]bool{
 		"callers_of": true, "callees_of": true, "imports_of": true,
@@ -557,13 +631,17 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("file summary error: %v", err)), nil
 		}
-		result := map[string]any{
+		fsData := map[string]any{
 			"pattern": pattern,
 			"target":  target,
 			"results": summary,
 		}
-		b, _ := json.Marshal(result)
-		return mcp.NewToolResultText(string(b)), nil
+		b, _ := json.Marshal(fsData)
+		result := string(b)
+		if h.cache != nil {
+			h.cache.Set(key, result)
+		}
+		return mcp.NewToolResultText(result), nil
 	}
 
 	// 나머지 패턴은 노드를 먼저 조회
@@ -601,9 +679,9 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 		return mcp.NewToolResultError(fmt.Sprintf("query error: %v", err)), nil
 	}
 
-	results := make([]map[string]any, len(nodes))
+	qgResults := make([]map[string]any, len(nodes))
 	for i, n := range nodes {
-		results[i] = map[string]any{
+		qgResults[i] = map[string]any{
 			"id":             n.ID,
 			"qualified_name": n.QualifiedName,
 			"kind":           n.Kind,
@@ -615,15 +693,27 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 	resp := map[string]any{
 		"pattern": pattern,
 		"target":  target,
-		"results": results,
+		"results": qgResults,
 	}
 	b, _ := json.Marshal(resp)
-	return mcp.NewToolResultText(string(b)), nil
+	result := string(b)
+	if h.cache != nil {
+		h.cache.Set(key, result)
+	}
+	return mcp.NewToolResultText(result), nil
 }
 
 func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	log := h.logger()
 	log.Info("list_graph_stats called")
+
+	key := "list_graph_stats:{}"
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			log.Debug("list_graph_stats cache hit")
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
 
 	var nodeCount, edgeCount int64
 	h.deps.DB.WithContext(ctx).Model(&model.Node{}).Count(&nodeCount)
@@ -663,15 +753,19 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 		ebk[k.Kind] = k.Count
 	}
 
-	result := map[string]any{
+	statsData := map[string]any{
 		"total_nodes":       nodeCount,
 		"total_edges":       edgeCount,
 		"nodes_by_kind":     nbk,
 		"nodes_by_language": nbl,
 		"edges_by_kind":     ebk,
 	}
-	b, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(b)), nil
+	b, _ := json.Marshal(statsData)
+	result := string(b)
+	if h.cache != nil {
+		h.cache.Set(key, result)
+	}
+	return mcp.NewToolResultText(result), nil
 }
 
 func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -682,6 +776,14 @@ func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolR
 	pathPrefix := request.GetString("path", "")
 
 	log.Info("find_large_functions called", "min_lines", minLines, "limit", limit, "path", pathPrefix)
+
+	key := "find_large_functions:" + mustJSON(map[string]any{"min_lines": minLines, "limit": limit, "path": pathPrefix})
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			log.Debug("find_large_functions cache hit")
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
 
 	if h.deps.LargefuncAnalyzer == nil {
 		return mcp.NewToolResultError("LargefuncAnalyzer not configured"), nil
@@ -706,10 +808,10 @@ func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolR
 		nodes = nodes[:limit]
 	}
 
-	results := make([]map[string]any, len(nodes))
+	lfResults := make([]map[string]any, len(nodes))
 	for i, n := range nodes {
 		lines := n.EndLine - n.StartLine + 1
-		results[i] = map[string]any{
+		lfResults[i] = map[string]any{
 			"name":  n.QualifiedName,
 			"file":  n.FilePath,
 			"lines": lines,
@@ -717,11 +819,15 @@ func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolR
 	}
 
 	resp := map[string]any{
-		"results": results,
-		"count":   len(results),
+		"results": lfResults,
+		"count":   len(lfResults),
 	}
 	b, _ := json.Marshal(resp)
-	return mcp.NewToolResultText(string(b)), nil
+	result := string(b)
+	if h.cache != nil {
+		h.cache.Set(key, result)
+	}
+	return mcp.NewToolResultText(result), nil
 }
 
 func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -734,6 +840,14 @@ func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolReques
 	base := request.GetString("base", "HEAD~1")
 
 	log.Info("detect_changes called", "repo_root", repoRoot, "base", base)
+
+	key := "detect_changes:" + mustJSON(map[string]any{"repo_root": repoRoot, "base": base})
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			log.Debug("detect_changes cache hit", "repo_root", repoRoot, "base", base)
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
 
 	if h.deps.ChangesGitClient == nil {
 		return mcp.NewToolResultError("ChangesGitClient not configured"), nil
@@ -760,7 +874,11 @@ func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolReques
 		"entries": entries,
 	}
 	b, _ := json.Marshal(resp)
-	return mcp.NewToolResultText(string(b)), nil
+	result := string(b)
+	if h.cache != nil {
+		h.cache.Set(key, result)
+	}
+	return mcp.NewToolResultText(result), nil
 }
 
 func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -774,6 +892,14 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 
 	log.Info("get_affected_flows called", "repo_root", repoRoot, "base", base)
 
+	key := "get_affected_flows:" + mustJSON(map[string]any{"repo_root": repoRoot, "base": base})
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			log.Debug("get_affected_flows cache hit", "repo_root", repoRoot, "base", base)
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
+
 	if h.deps.ChangesGitClient == nil {
 		return mcp.NewToolResultError("ChangesGitClient not configured"), nil
 	}
@@ -785,9 +911,13 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 	}
 
 	if len(risks) == 0 {
-		resp := map[string]any{"affected_flows": []any{}}
-		b, _ := json.Marshal(resp)
-		return mcp.NewToolResultText(string(b)), nil
+		emptyResp := map[string]any{"affected_flows": []any{}}
+		b, _ := json.Marshal(emptyResp)
+		result := string(b)
+		if h.cache != nil {
+			h.cache.Set(key, result)
+		}
+		return mcp.NewToolResultText(result), nil
 	}
 
 	// 변경된 노드 ID 수집
@@ -807,9 +937,13 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 	}
 
 	if len(flowNodes) == 0 {
-		resp := map[string]any{"affected_flows": []any{}}
-		b, _ := json.Marshal(resp)
-		return mcp.NewToolResultText(string(b)), nil
+		emptyResp := map[string]any{"affected_flows": []any{}}
+		b, _ := json.Marshal(emptyResp)
+		result := string(b)
+		if h.cache != nil {
+			h.cache.Set(key, result)
+		}
+		return mcp.NewToolResultText(result), nil
 	}
 
 	flowIDs := make([]uint, 0, len(flowNodes))
@@ -831,7 +965,11 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 
 	resp := map[string]any{"affected_flows": affected}
 	b, _ := json.Marshal(resp)
-	return mcp.NewToolResultText(string(b)), nil
+	result := string(b)
+	if h.cache != nil {
+		h.cache.Set(key, result)
+	}
+	return mcp.NewToolResultText(result), nil
 }
 
 func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -841,6 +979,14 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 	limit := request.GetInt("limit", 50)
 
 	log.Info("list_flows called", "sort_by", sortBy, "limit", limit)
+
+	key := "list_flows:" + mustJSON(map[string]any{"sort_by": sortBy, "limit": limit})
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			log.Debug("list_flows cache hit")
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
 
 	var flowList []model.Flow
 	h.deps.DB.WithContext(ctx).Find(&flowList)
@@ -891,7 +1037,11 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 
 	resp := map[string]any{"flows": infos}
 	b, _ := json.Marshal(resp)
-	return mcp.NewToolResultText(string(b)), nil
+	result := string(b)
+	if h.cache != nil {
+		h.cache.Set(key, result)
+	}
+	return mcp.NewToolResultText(result), nil
 }
 
 func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -901,6 +1051,14 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 	minSize := request.GetInt("min_size", 0)
 
 	log.Info("list_communities called", "sort_by", sortBy, "min_size", minSize)
+
+	key := "list_communities:" + mustJSON(map[string]any{"sort_by": sortBy, "min_size": minSize})
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			log.Debug("list_communities cache hit")
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
 
 	var communities []model.Community
 	h.deps.DB.WithContext(ctx).Find(&communities)
@@ -951,7 +1109,11 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 
 	resp := map[string]any{"communities": infos}
 	b, _ := json.Marshal(resp)
-	return mcp.NewToolResultText(string(b)), nil
+	commResult := string(b)
+	if h.cache != nil {
+		h.cache.Set(key, commResult)
+	}
+	return mcp.NewToolResultText(commResult), nil
 }
 
 func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -965,6 +1127,14 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 
 	log.Info("get_community called", "community_id", communityID, "include_members", includeMembers)
 
+	key := "get_community:" + mustJSON(map[string]any{"community_id": communityID, "include_members": includeMembers})
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			log.Debug("get_community cache hit", "community_id", communityID)
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
+
 	var comm model.Community
 	if err := h.deps.DB.WithContext(ctx).First(&comm, communityID).Error; err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("community %d not found", communityID)), nil
@@ -974,7 +1144,7 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 	h.deps.DB.WithContext(ctx).Model(&model.CommunityMembership{}).
 		Where("community_id = ?", comm.ID).Count(&memberCount)
 
-	result := map[string]any{
+	gcData := map[string]any{
 		"id":         comm.ID,
 		"label":      comm.Label,
 		"node_count": memberCount,
@@ -984,7 +1154,7 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 	if h.deps.CoverageAnalyzer != nil {
 		cc, err := h.deps.CoverageAnalyzer.ByCommunity(ctx, comm.ID)
 		if err == nil && cc != nil {
-			result["coverage"] = cc.Ratio
+			gcData["coverage"] = cc.Ratio
 		}
 	}
 
@@ -1012,28 +1182,44 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 				"file_path":      n.FilePath,
 			}
 		}
-		result["members"] = members
+		gcData["members"] = members
 	}
 
-	b, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(b)), nil
+	b, _ := json.Marshal(gcData)
+	result := string(b)
+	if h.cache != nil {
+		h.cache.Set(key, result)
+	}
+	return mcp.NewToolResultText(result), nil
 }
 
 func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	log := h.logger()
 	log.Info("get_architecture_overview called")
 
+	key := "get_architecture_overview:{}"
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			log.Debug("get_architecture_overview cache hit")
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
+
 	var communities []model.Community
 	h.deps.DB.WithContext(ctx).Find(&communities)
 
 	if len(communities) == 0 {
-		resp := map[string]any{
+		emptyResp := map[string]any{
 			"communities": []any{},
 			"coupling":    []any{},
 			"warnings":    []string{"No communities found. Run community rebuild first."},
 		}
-		b, _ := json.Marshal(resp)
-		return mcp.NewToolResultText(string(b)), nil
+		b, _ := json.Marshal(emptyResp)
+		result := string(b)
+		if h.cache != nil {
+			h.cache.Set(key, result)
+		}
+		return mcp.NewToolResultText(result), nil
 	}
 
 	commInfos := make([]map[string]any, len(communities))
@@ -1081,18 +1267,19 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 		"warnings":    warnings,
 	}
 	b, _ := json.Marshal(resp)
-	return mcp.NewToolResultText(string(b)), nil
+	result := string(b)
+	if h.cache != nil {
+		h.cache.Set(key, result)
+	}
+	return mcp.NewToolResultText(result), nil
 }
 
 func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	log := h.logger()
 	log.Info("find_dead_code called")
 
-	if h.deps.DeadcodeAnalyzer == nil {
-		return mcp.NewToolResultError("DeadcodeAnalyzer not configured"), nil
-	}
-
 	opts := deadcode.Options{}
+	var pathPrefix string
 
 	// kinds 파라미터 처리
 	if args, ok := request.Params.Arguments.(map[string]any); ok {
@@ -1107,7 +1294,20 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 		}
 		if fp, ok := args["path"].(string); ok {
 			opts.FilePattern = fp
+			pathPrefix = fp
 		}
+	}
+
+	key := "find_dead_code:" + mustJSON(map[string]any{"path": pathPrefix})
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			log.Debug("find_dead_code cache hit")
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
+
+	if h.deps.DeadcodeAnalyzer == nil {
+		return mcp.NewToolResultError("DeadcodeAnalyzer not configured"), nil
 	}
 
 	nodes, err := h.deps.DeadcodeAnalyzer.Find(ctx, opts)
@@ -1115,9 +1315,9 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 		return mcp.NewToolResultError(fmt.Sprintf("deadcode error: %v", err)), nil
 	}
 
-	results := make([]map[string]any, len(nodes))
+	dcResults := make([]map[string]any, len(nodes))
 	for i, n := range nodes {
-		results[i] = map[string]any{
+		dcResults[i] = map[string]any{
 			"name":       n.QualifiedName,
 			"kind":       n.Kind,
 			"file":       n.FilePath,
@@ -1126,11 +1326,15 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 	}
 
 	resp := map[string]any{
-		"dead_code": results,
-		"count":     len(results),
+		"dead_code": dcResults,
+		"count":     len(dcResults),
 	}
 	b, _ := json.Marshal(resp)
-	return mcp.NewToolResultText(string(b)), nil
+	result := string(b)
+	if h.cache != nil {
+		h.cache.Set(key, result)
+	}
+	return mcp.NewToolResultText(result), nil
 }
 
 func getBool(request mcp.CallToolRequest, name string, defaultVal bool) bool {
