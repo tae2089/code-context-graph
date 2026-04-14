@@ -114,10 +114,12 @@ func setupTestDeps(t *testing.T) *Deps {
 		t.Fatal(err)
 	}
 
+	goParser := &simpleGoParser{}
 	return &Deps{
 		Store:          st,
 		DB:             db,
-		Parser:         &simpleGoParser{},
+		Parser:         goParser,
+		Walkers:        map[string]Parser{".go": goParser},
 		SearchBackend:  sb,
 		ImpactAnalyzer: impact.New(st),
 		FlowTracer:     flows.New(st),

@@ -50,35 +50,33 @@ func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest
 
 	log.Info("parse_project called", "path", dirPath)
 
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		log.Error("failed to read directory", "path", dirPath, "error", err)
-		return mcp.NewToolResultError(fmt.Sprintf("read dir: %v", err)), nil
-	}
-
 	var parsed, errCount int
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+	err = filepath.Walk(dirPath, func(fp string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
 		}
-		ext := filepath.Ext(entry.Name())
-		if ext != ".go" && ext != ".py" && ext != ".ts" && ext != ".java" && ext != ".rb" {
-			continue
+		if info.IsDir() {
+			return nil
 		}
 
-		fp := filepath.Join(dirPath, entry.Name())
+		ext := strings.ToLower(filepath.Ext(fp))
+		walker, ok := h.deps.Walkers[ext]
+		if !ok {
+			return nil
+		}
+
 		content, err := os.ReadFile(fp)
 		if err != nil {
 			log.Warn("failed to read file", "file", fp, "error", err)
 			errCount++
-			continue
+			return nil
 		}
 
-		nodes, edges, err := h.deps.Parser.Parse(fp, content)
+		nodes, edges, err := walker.Parse(fp, content)
 		if err != nil {
 			log.Warn("failed to parse file", "file", fp, "error", err)
 			errCount++
-			continue
+			return nil
 		}
 
 		log.Debug("parsed file", "file", fp, "nodes", len(nodes), "edges", len(edges))
@@ -86,16 +84,20 @@ func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest
 		if len(nodes) > 0 {
 			if err := h.deps.Store.UpsertNodes(ctx, nodes); err != nil {
 				log.Error("failed to upsert nodes", "file", fp, "error", err)
-				return mcp.NewToolResultError(fmt.Sprintf("upsert nodes: %v", err)), nil
+				return fmt.Errorf("upsert nodes: %w", err)
 			}
 		}
 		if len(edges) > 0 {
 			if err := h.deps.Store.UpsertEdges(ctx, edges); err != nil {
 				log.Error("failed to upsert edges", "file", fp, "error", err)
-				return mcp.NewToolResultError(fmt.Sprintf("upsert edges: %v", err)), nil
+				return fmt.Errorf("upsert edges: %w", err)
 			}
 		}
 		parsed++
+		return nil
+	})
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("walk dir: %v", err)), nil
 	}
 
 	log.Info("parse_project completed", "parsed", parsed, "errors", errCount)
@@ -435,8 +437,10 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 			if info.IsDir() {
 				return nil
 			}
-			ext := filepath.Ext(fp)
-			if ext != ".go" && ext != ".py" && ext != ".ts" && ext != ".java" && ext != ".rb" {
+
+			ext := strings.ToLower(filepath.Ext(fp))
+			walker, ok := h.deps.Walkers[ext]
+			if !ok {
 				return nil
 			}
 
@@ -446,7 +450,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 				return nil
 			}
 
-			nodes, edges, err := h.deps.Parser.Parse(fp, content)
+			nodes, edges, err := walker.Parse(fp, content)
 			if err != nil {
 				log.Warn("failed to parse file", "file", fp, "error", err)
 				return nil
@@ -480,8 +484,8 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 			if info.IsDir() {
 				return nil
 			}
-			ext := filepath.Ext(fp)
-			if ext != ".go" && ext != ".py" && ext != ".ts" && ext != ".java" && ext != ".rb" {
+			ext := strings.ToLower(filepath.Ext(fp))
+			if _, ok := h.deps.Walkers[ext]; !ok {
 				return nil
 			}
 			content, err := os.ReadFile(fp)

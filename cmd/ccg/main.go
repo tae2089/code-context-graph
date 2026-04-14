@@ -116,18 +116,22 @@ func buildWalkers(logger *slog.Logger) map[string]*treesitter.Walker {
 func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 	deps.Logger.Info("starting code-context-graph MCP server")
 
-	walker := treesitter.NewWalker(treesitter.GoSpec, treesitter.WithLogger(deps.Logger))
-
 	var cache *mcpserver.Cache
 	if !cfg.NoCache && cfg.CacheTTL > 0 {
 		cache = mcpserver.NewCache(cfg.CacheTTL)
 		deps.Logger.Info("MCP cache enabled", "ttl", cfg.CacheTTL)
 	}
 
+	mcpWalkers := make(map[string]mcpserver.Parser, len(deps.Walkers))
+	for ext, w := range deps.Walkers {
+		mcpWalkers[ext] = w
+	}
+
 	mcpDeps := &mcpserver.Deps{
 		Store:             deps.Store,
 		DB:                deps.DB,
-		Parser:            walker,
+		Parser:            deps.Walkers[".go"],
+		Walkers:           mcpWalkers,
 		SearchBackend:     deps.SearchBackend,
 		ImpactAnalyzer:    impact.New(deps.Store),
 		FlowTracer:        flows.New(deps.Store),
