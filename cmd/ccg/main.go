@@ -59,7 +59,11 @@ func main() {
 		}
 
 		walkers := buildWalkers(deps.Logger)
-		syncer := incremental.New(st, walkers[".go"])
+		// incremental.Syncer에는 별도 Walker 인스턴스를 생성한다.
+		// sitter.Parser는 thread-safe하지 않으므로 walkers[".go"]와 인스턴스를 공유하면
+		// 동시 호출 시 data race가 발생할 수 있다.
+		syncerWalker := treesitter.NewWalker(treesitter.GoSpec, treesitter.WithLogger(deps.Logger))
+		syncer := incremental.New(st, syncerWalker)
 
 		deps.DB = db
 		deps.Store = st

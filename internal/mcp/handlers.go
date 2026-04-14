@@ -234,10 +234,7 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 	// that after filtering we still have up to 'limit' results.
 	fetchLimit := limit
 	if pathPrefix != "" {
-		fetchLimit = limit * 5
-		if fetchLimit < 50 {
-			fetchLimit = 50
-		}
+		fetchLimit = max(limit*5, 50)
 	}
 
 	nodes, err := h.deps.SearchBackend.Query(ctx, h.deps.DB, query, fetchLimit)
