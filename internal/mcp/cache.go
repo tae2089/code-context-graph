@@ -15,13 +15,16 @@ type Cache struct {
 	mu      sync.RWMutex
 	entries map[string]entry
 	ttl     time.Duration
+	stopCh  chan struct{}
 }
 
 // NewCache creates a Cache with the given TTL and starts a background cleanup goroutine.
+// Call Close() when the cache is no longer needed to stop the goroutine.
 func NewCache(ttl time.Duration) *Cache {
 	c := &Cache{
 		entries: make(map[string]entry),
 		ttl:     ttl,
+		stopCh:  make(chan struct{}),
 	}
 	go c.cleanup()
 	return c
@@ -30,8 +33,8 @@ func NewCache(ttl time.Duration) *Cache {
 // Get returns the cached value and true if the key exists and has not expired.
 func (c *Cache) Get(key string) (string, bool) {
 	c.mu.RLock()
+	defer c.mu.RUnlock()
 	e, ok := c.entries[key]
-	c.mu.RUnlock()
 	if !ok || time.Now().After(e.expiresAt) {
 		return "", false
 	}
@@ -52,18 +55,28 @@ func (c *Cache) Flush() {
 	c.mu.Unlock()
 }
 
+// Close stops the background cleanup goroutine.
+func (c *Cache) Close() {
+	close(c.stopCh)
+}
+
 // cleanup runs every 30s and removes expired entries to prevent unbounded growth.
 func (c *Cache) cleanup() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	for range ticker.C {
-		now := time.Now()
-		c.mu.Lock()
-		for k, e := range c.entries {
-			if now.After(e.expiresAt) {
-				delete(c.entries, k)
+	for {
+		select {
+		case <-ticker.C:
+			now := time.Now()
+			c.mu.Lock()
+			for k, e := range c.entries {
+				if now.After(e.expiresAt) {
+					delete(c.entries, k)
+				}
 			}
+			c.mu.Unlock()
+		case <-c.stopCh:
+			return
 		}
-		c.mu.Unlock()
 	}
 }
