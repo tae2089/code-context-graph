@@ -255,13 +255,15 @@ func NewServer(deps *Deps) *server.MCPServer {
 		server.ServerTool{
 			Tool: mcp.NewTool("build_rag_index",
 				mcp.WithDescription("Build Vectorless RAG index from docs/ and community structure. Stores result in .ccg/doc-index.json"),
+				mcp.WithString("out_dir", mcp.Description("Documentation directory root (default: from config or 'docs')")),
+				mcp.WithString("index_dir", mcp.Description("Directory to write doc-index.json (default: '.ccg')")),
 			),
 			Handler: h.buildRagIndex,
 		},
 		server.ServerTool{
 			Tool: mcp.NewTool("get_rag_tree",
-				mcp.WithDescription("Get the RAG document tree for agent navigation. Use community_id to get a subtree."),
-				mcp.WithString("community_id", mcp.Description("Community node ID (e.g. 'community:3'). Omit for full tree.")),
+				mcp.WithDescription("Get the RAG document tree for navigation. Call without arguments first to see all communities, then pass community_id to drill into a specific one."),
+				mcp.WithString("community_id", mcp.Description("Community node ID as shown in the tree (e.g. 'community:auth'). Omit to get the full tree.")),
 			),
 			Handler: h.getRagTree,
 		},

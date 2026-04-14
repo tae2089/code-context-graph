@@ -2,6 +2,9 @@ package cli
 
 import (
 	"fmt"
+	"io/fs"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -33,6 +36,18 @@ func newRagIndexCmd(deps *Deps) *cobra.Command {
 			}
 
 			fmt.Fprintf(stdout(cmd), "Built doc-index: %d communities, %d files\n", communities, files)
+
+			// Warn if docs directory has fewer .md files than indexed
+			if files > 0 {
+				effectiveOut := resolveOutDir(outDir)
+				mdCount := countMDFiles(effectiveOut)
+				if mdCount == 0 {
+					fmt.Fprintf(stdout(cmd), "Warning: no .md files found in %q. Run 'ccg docs' to generate documentation.\n", effectiveOut)
+				} else if mdCount < files {
+					fmt.Fprintf(stdout(cmd), "Warning: %d files indexed but only %d .md files found in %q. Run 'ccg docs' to update documentation.\n", files, mdCount, effectiveOut)
+				}
+			}
+
 			return nil
 		},
 	}
@@ -41,4 +56,18 @@ func newRagIndexCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().StringVar(&indexDir, "index-dir", ".ccg", "Directory for doc-index.json output")
 
 	return cmd
+}
+
+func countMDFiles(dir string) int {
+	count := 0
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(path, ".md") && filepath.Base(path) != "index.md" {
+			count++
+		}
+		return nil
+	})
+	return count
 }

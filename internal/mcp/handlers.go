@@ -1357,9 +1357,18 @@ func (h *handlers) ragIndexPath() string {
 }
 
 func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	outDir := request.GetString("out_dir", "")
+	indexDir := request.GetString("index_dir", "")
+
+	// Fall back to deps defaults
+	if indexDir == "" {
+		indexDir = h.deps.RagIndexDir
+	}
+
 	b := &ragindex.Builder{
 		DB:       h.deps.DB,
-		IndexDir: h.deps.RagIndexDir,
+		OutDir:   outDir,   // empty string → Builder uses "docs" default
+		IndexDir: indexDir, // empty string → Builder uses ".ccg" default
 	}
 	communities, files, err := b.Build()
 	if err != nil {
@@ -1419,9 +1428,14 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 		return mcp.NewToolResultError("invalid file_path: path traversal not allowed"), nil
 	}
 
-	// Include mtime in cache key to detect file changes
+	const maxDocFileSizeBytes = 1 << 20 // 1 MB
+
+	// Include mtime in cache key to detect file changes; also enforce size limit
 	var mtime int64
 	if stat, statErr := os.Stat(clean); statErr == nil {
+		if stat.Size() > maxDocFileSizeBytes {
+			return mcp.NewToolResultError(fmt.Sprintf("file %q exceeds 1 MB size limit (%d bytes)", filePath, stat.Size())), nil
+		}
 		mtime = stat.ModTime().UnixNano()
 	}
 
