@@ -31,6 +31,9 @@ func (g *ExecGitClient) ChangedFiles(ctx context.Context, repoDir, baseRef strin
 			files = append(files, line)
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan git output: %w", err)
+	}
 	return files, nil
 }
 
@@ -65,6 +68,9 @@ func (g *ExecGitClient) DiffHunks(ctx context.Context, repoDir, baseRef string, 
 				})
 			}
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan git diff output: %w", err)
 	}
 	return hunks, nil
 }
