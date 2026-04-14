@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -999,6 +1000,22 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 		}
 	}
 
+	type flowCount struct {
+		FlowID uint
+		Count  int
+	}
+	var fcRows []flowCount
+	h.deps.DB.WithContext(ctx).
+		Model(&model.FlowMembership{}).
+		Select("flow_id, COUNT(*) as count").
+		Group("flow_id").
+		Scan(&fcRows)
+
+	fcMap := make(map[uint]int, len(fcRows))
+	for _, r := range fcRows {
+		fcMap[r.FlowID] = r.Count
+	}
+
 	var flowList []model.Flow
 	h.deps.DB.WithContext(ctx).Find(&flowList)
 
@@ -1011,35 +1028,24 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 
 	infos := make([]flowInfo, len(flowList))
 	for i, f := range flowList {
-		var memberCount int64
-		h.deps.DB.WithContext(ctx).Model(&model.FlowMembership{}).
-			Where("flow_id = ?", f.ID).Count(&memberCount)
 		infos[i] = flowInfo{
 			ID:          f.ID,
 			Name:        f.Name,
 			Description: f.Description,
-			NodeCount:   int(memberCount),
+			NodeCount:   fcMap[f.ID],
 		}
 	}
 
 	// 정렬
 	switch sortBy {
 	case "node_count":
-		for i := 0; i < len(infos)-1; i++ {
-			for j := i + 1; j < len(infos); j++ {
-				if infos[j].NodeCount > infos[i].NodeCount {
-					infos[i], infos[j] = infos[j], infos[i]
-				}
-			}
-		}
+		sort.Slice(infos, func(i, j int) bool {
+			return infos[i].NodeCount > infos[j].NodeCount
+		})
 	default: // "name"
-		for i := 0; i < len(infos)-1; i++ {
-			for j := i + 1; j < len(infos); j++ {
-				if infos[j].Name < infos[i].Name {
-					infos[i], infos[j] = infos[j], infos[i]
-				}
-			}
-		}
+		sort.Slice(infos, func(i, j int) bool {
+			return infos[i].Name < infos[j].Name
+		})
 	}
 
 	if len(infos) > limit {
@@ -1071,6 +1077,22 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 		}
 	}
 
+	type commCount struct {
+		CommunityID uint
+		Count       int
+	}
+	var ccRows []commCount
+	h.deps.DB.WithContext(ctx).
+		Model(&model.CommunityMembership{}).
+		Select("community_id, COUNT(*) as count").
+		Group("community_id").
+		Scan(&ccRows)
+
+	ccMap := make(map[uint]int, len(ccRows))
+	for _, r := range ccRows {
+		ccMap[r.CommunityID] = r.Count
+	}
+
 	var communities []model.Community
 	h.deps.DB.WithContext(ctx).Find(&communities)
 
@@ -1081,41 +1103,29 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 		Cohesion  float64 `json:"cohesion"`
 	}
 
-	infos := make([]commInfo, 0)
+	infos := make([]commInfo, 0, len(communities))
 	for _, c := range communities {
-		var memberCount int64
-		h.deps.DB.WithContext(ctx).Model(&model.CommunityMembership{}).
-			Where("community_id = ?", c.ID).Count(&memberCount)
-
-		if int(memberCount) < minSize {
+		cnt := ccMap[c.ID]
+		if cnt < minSize {
 			continue
 		}
-
 		infos = append(infos, commInfo{
 			ID:        c.ID,
 			Label:     c.Label,
-			NodeCount: int(memberCount),
+			NodeCount: cnt,
 		})
 	}
 
 	// 정렬
 	switch sortBy {
 	case "name":
-		for i := 0; i < len(infos)-1; i++ {
-			for j := i + 1; j < len(infos); j++ {
-				if infos[j].Label < infos[i].Label {
-					infos[i], infos[j] = infos[j], infos[i]
-				}
-			}
-		}
+		sort.Slice(infos, func(i, j int) bool {
+			return infos[i].Label < infos[j].Label
+		})
 	default: // "size"
-		for i := 0; i < len(infos)-1; i++ {
-			for j := i + 1; j < len(infos); j++ {
-				if infos[j].NodeCount > infos[i].NodeCount {
-					infos[i], infos[j] = infos[j], infos[i]
-				}
-			}
-		}
+		sort.Slice(infos, func(i, j int) bool {
+			return infos[i].NodeCount > infos[j].NodeCount
+		})
 	}
 
 	resp := map[string]any{"communities": infos}
@@ -1233,15 +1243,28 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 		return mcp.NewToolResultText(result), nil
 	}
 
+	type archCommCount struct {
+		CommunityID uint
+		Count       int
+	}
+	var archCCRows []archCommCount
+	h.deps.DB.WithContext(ctx).
+		Model(&model.CommunityMembership{}).
+		Select("community_id, COUNT(*) as count").
+		Group("community_id").
+		Scan(&archCCRows)
+
+	archCCMap := make(map[uint]int, len(archCCRows))
+	for _, r := range archCCRows {
+		archCCMap[r.CommunityID] = r.Count
+	}
+
 	commInfos := make([]map[string]any, len(communities))
 	for i, c := range communities {
-		var memberCount int64
-		h.deps.DB.WithContext(ctx).Model(&model.CommunityMembership{}).
-			Where("community_id = ?", c.ID).Count(&memberCount)
 		commInfos[i] = map[string]any{
 			"id":         c.ID,
 			"label":      c.Label,
-			"node_count": memberCount,
+			"node_count": archCCMap[c.ID],
 		}
 	}
 
