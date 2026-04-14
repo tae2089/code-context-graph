@@ -179,10 +179,15 @@ Claude Code automatically connects and gets access to 18 MCP tools + pgvector se
 The `/ccg` skill provides:
 
 ```
-/ccg build .                  — Build code graph
-/ccg status                   — Graph statistics
-/ccg search "query"           — Full-text search
-/ccg annotate internal/       — AI-generate annotations
+/ccg build .                    — Build code graph
+/ccg status                     — Graph statistics
+/ccg search "query"             — Full-text search
+/ccg docs                       — Generate documentation
+/ccg lint                       — Check docs health + annotation coverage
+/ccg languages                  — List supported languages
+/ccg example go                 — Annotation writing example
+/ccg tags                       — Annotation tag reference
+/ccg annotate internal/         — AI-generate annotations
 ```
 
 ### AI-Driven Annotation
@@ -221,13 +226,16 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
 | `ccg update [dir]` | Incremental sync |
 | `ccg status` | Graph statistics |
 | `ccg search <query>` | Full-text search |
+| `ccg search --path <prefix> <query>` | Scoped search by path prefix |
 | `ccg docs [--out dir]` | Generate Markdown documentation |
 | `ccg index [--out dir]` | Regenerate index.md only |
 | `ccg languages` | List supported languages and extensions |
 | `ccg example [language]` | Show annotation writing example |
 | `ccg tags` | Show all annotation tag reference |
 | `ccg hooks install` | Install pre-commit git hook |
-| `ccg lint [--out dir]` | Detect orphan, missing, stale docs |
+| `ccg hooks install --lint-strict` | Install hook that blocks commit on issues |
+| `ccg lint [--out dir]` | Detect orphan, missing, stale, unannotated |
+| `ccg lint --strict` | Exit 1 on issues (for CI/pre-commit) |
 | `ccg serve` | Start MCP server (stdio) |
 
 ### Config file (`.ccg.yaml`)

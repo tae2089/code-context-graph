@@ -27,7 +27,9 @@ A local code analysis tool that parses codebases via Tree-sitter into a knowledg
 | `example [language]` | Show annotation example for a language | `ccg example go` |
 | `tags` | Show all @tag reference with descriptions | `ccg tags` |
 | `hooks install` | Install pre-commit git hook | `ccg hooks install` |
-| `lint [--out dir]` | Detect orphan, missing, stale docs | `ccg lint --out docs/` |
+| `hooks install --lint-strict` | Install hook that blocks commit on lint issues | `ccg hooks install --lint-strict` |
+| `lint [--out dir]` | Detect orphan, missing, stale, unannotated | `ccg lint --out docs/` |
+| `lint --strict` | Same as lint but exit 1 on issues (for CI) | `ccg lint --strict` |
 | `annotate [file\|dir]` | AI-generate annotations for code | `ccg annotate internal/analysis/` |
 
 ## Execution
@@ -60,6 +62,8 @@ Available ccg commands:
   ccg example [language]     — Annotation writing example
   ccg tags                   — Annotation tag reference
   ccg hooks install          — Install pre-commit git hook
+  ccg lint [--out dir]       — Detect orphan, missing, stale, unannotated
+  ccg lint --strict          — Same as lint, exit 1 on issues (CI/hooks)
   ccg annotate [file|dir]    — AI-generate @annotations for code
 ```
 
