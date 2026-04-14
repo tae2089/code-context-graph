@@ -57,6 +57,10 @@ func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest
 			return nil
 		}
 		if info.IsDir() {
+			name := info.Name()
+			if name == ".git" || name == "vendor" || name == "node_modules" || (name != "." && strings.HasPrefix(name, ".")) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
@@ -98,7 +102,7 @@ func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest
 		return nil
 	})
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("walk dir: %v", err)), nil
+		return nil, fmt.Errorf("walk dir: %w", err)
 	}
 
 	log.Info("parse_project completed", "parsed", parsed, "errors", errCount)
@@ -126,7 +130,7 @@ func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*m
 	node, err := h.deps.Store.GetNode(ctx, qn)
 	if err != nil {
 		log.Error("store error", "tool", "get_node", "error", err)
-		return mcp.NewToolResultError(fmt.Sprintf("store error: %v", err)), nil
+		return nil, fmt.Errorf("store error: %w", err)
 	}
 	if node == nil {
 		log.Warn("node not found", "qualified_name", qn)
@@ -173,7 +177,7 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 	node, err := h.deps.Store.GetNode(ctx, qn)
 	if err != nil {
 		log.Error("store error", "tool", "get_impact_radius", "error", err)
-		return mcp.NewToolResultError(fmt.Sprintf("store error: %v", err)), nil
+		return nil, fmt.Errorf("store error: %w", err)
 	}
 	if node == nil {
 		log.Warn("node not found", "qualified_name", qn)
@@ -183,7 +187,7 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 	nodes, err := h.deps.ImpactAnalyzer.ImpactRadius(ctx, node.ID, depth)
 	if err != nil {
 		log.Error("impact analysis error", "node_id", node.ID, "error", err)
-		return mcp.NewToolResultError(fmt.Sprintf("impact analysis error: %v", err)), nil
+		return nil, fmt.Errorf("impact analysis error: %w", err)
 	}
 
 	log.Info("get_impact_radius completed", "qualified_name", qn, "result_count", len(nodes))
@@ -239,7 +243,7 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 	nodes, err := h.deps.SearchBackend.Query(ctx, h.deps.DB, query, fetchLimit)
 	if err != nil {
 		log.Error("search error", "query", query, "error", err)
-		return mcp.NewToolResultError(fmt.Sprintf("search error: %v", err)), nil
+		return nil, fmt.Errorf("search error: %w", err)
 	}
 
 	if pathPrefix != "" {
@@ -296,7 +300,7 @@ func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolReques
 	node, err := h.deps.Store.GetNode(ctx, qn)
 	if err != nil {
 		log.Error("store error", "tool", "get_annotation", "error", err)
-		return mcp.NewToolResultError(fmt.Sprintf("store error: %v", err)), nil
+		return nil, fmt.Errorf("store error: %w", err)
 	}
 	if node == nil {
 		log.Warn("node not found", "qualified_name", qn)
@@ -306,7 +310,7 @@ func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolReques
 	ann, err := h.deps.Store.GetAnnotation(ctx, node.ID)
 	if err != nil {
 		log.Error("annotation error", "node_id", node.ID, "error", err)
-		return mcp.NewToolResultError(fmt.Sprintf("annotation error: %v", err)), nil
+		return nil, fmt.Errorf("annotation error: %w", err)
 	}
 	if ann == nil {
 		log.Warn("annotation not found", "qualified_name", qn)
@@ -357,7 +361,7 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 	node, err := h.deps.Store.GetNode(ctx, qn)
 	if err != nil {
 		log.Error("store error", "tool", "trace_flow", "error", err)
-		return mcp.NewToolResultError(fmt.Sprintf("store error: %v", err)), nil
+		return nil, fmt.Errorf("store error: %w", err)
 	}
 	if node == nil {
 		log.Warn("node not found", "qualified_name", qn)
@@ -367,7 +371,7 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 	flow, err := h.deps.FlowTracer.TraceFlow(ctx, node.ID)
 	if err != nil {
 		log.Error("trace error", "node_id", node.ID, "error", err)
-		return mcp.NewToolResultError(fmt.Sprintf("trace error: %v", err)), nil
+		return nil, fmt.Errorf("trace error: %w", err)
 	}
 
 	log.Info("trace_flow completed", "qualified_name", qn, "members", len(flow.Members))
@@ -415,6 +419,10 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 				return nil // skip errors
 			}
 			if info.IsDir() {
+				name := info.Name()
+				if name == ".git" || name == "vendor" || name == "node_modules" || (name != "." && strings.HasPrefix(name, ".")) {
+					return filepath.SkipDir
+				}
 				return nil
 			}
 
@@ -452,7 +460,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 			return nil
 		})
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("walk error: %v", err)), nil
+			return nil, fmt.Errorf("walk error: %w", err)
 		}
 	} else {
 		// 증분 빌드
@@ -462,6 +470,10 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 				return nil
 			}
 			if info.IsDir() {
+				name := info.Name()
+				if name == ".git" || name == "vendor" || name == "node_modules" || (name != "." && strings.HasPrefix(name, ".")) {
+					return filepath.SkipDir
+				}
 				return nil
 			}
 			ext := strings.ToLower(filepath.Ext(fp))
@@ -480,12 +492,12 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 			return nil
 		})
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("walk error: %v", err)), nil
+			return nil, fmt.Errorf("walk error: %w", err)
 		}
 
 		stats, err := h.deps.Incremental.Sync(ctx, files)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("incremental sync error: %v", err)), nil
+			return nil, fmt.Errorf("incremental sync error: %w", err)
 		}
 		fileCount = stats.Added + stats.Modified
 	}
@@ -638,7 +650,7 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 	// 나머지 패턴은 노드를 먼저 조회
 	node, err := h.deps.Store.GetNode(ctx, target)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("store error: %v", err)), nil
+		return nil, fmt.Errorf("store error: %w", err)
 	}
 	if node == nil {
 		return mcp.NewToolResultError(fmt.Sprintf("node %q not found", target)), nil
@@ -667,7 +679,7 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 	}
 
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("query error: %v", err)), nil
+		return nil, fmt.Errorf("query error: %w", err)
 	}
 
 	qgResults := make([]map[string]any, len(nodes))
@@ -782,7 +794,7 @@ func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolR
 
 	nodes, err := h.deps.LargefuncAnalyzer.Find(ctx, minLines)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("largefunc error: %v", err)), nil
+		return nil, fmt.Errorf("largefunc error: %w", err)
 	}
 
 	if pathPrefix != "" {
@@ -847,7 +859,7 @@ func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolReques
 	chSvc := changes.New(h.deps.DB, h.deps.ChangesGitClient)
 	risks, err := chSvc.Analyze(ctx, repoRoot, base)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("changes analyze error: %v", err)), nil
+		return nil, fmt.Errorf("changes analyze error: %w", err)
 	}
 
 	entries := make([]map[string]any, len(risks))
@@ -898,7 +910,7 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 	chSvc := changes.New(h.deps.DB, h.deps.ChangesGitClient)
 	risks, err := chSvc.Analyze(ctx, repoRoot, base)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("changes analyze error: %v", err)), nil
+		return nil, fmt.Errorf("changes analyze error: %w", err)
 	}
 
 	if len(risks) == 0 {
@@ -1313,7 +1325,7 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 
 	nodes, err := h.deps.DeadcodeAnalyzer.Find(ctx, opts)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("deadcode error: %v", err)), nil
+		return nil, fmt.Errorf("deadcode error: %w", err)
 	}
 
 	dcResults := make([]map[string]any, len(nodes))

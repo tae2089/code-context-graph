@@ -158,7 +158,10 @@ func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 }
 
 func openDB(driver, dsn string) (*gorm.DB, error) {
-	cfg := &gorm.Config{Logger: gormlogger.Discard}
+	cfg := &gorm.Config{
+		Logger:                 gormlogger.Discard,
+		SkipDefaultTransaction: true,
+	}
 
 	switch driver {
 	case "sqlite":
