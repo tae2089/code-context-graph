@@ -3,7 +3,6 @@ package ragindex
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -216,50 +215,6 @@ func (b *Builder) batchFileSummaries(filePaths []string) (map[string]string, err
 	return result, nil
 }
 
-// fileSummary는 주어진 파일 경로의 노드 중 @index 태그를 찾고,
-// 없으면 @intent 태그를 반환한다. 둘 다 없으면 빈 문자열을 반환한다.
-func (b *Builder) fileSummary(filePath string) (string, error) {
-	slog.Debug("fileSummary 조회", "filePath", filePath)
-
-	// @index 태그 조회: doc_tags → annotations → nodes WHERE nodes.file_path = ? AND doc_tags.kind = "index"
-	summary, err := b.queryTagValueByFilePath(filePath, model.TagIndex)
-	if err != nil {
-		return "", err
-	}
-	if summary != "" {
-		slog.Debug("fileSummary: @index 태그 발견", "filePath", filePath, "summary", summary)
-		return summary, nil
-	}
-
-	// @intent 태그로 폴백
-	summary, err = b.queryTagValueByFilePath(filePath, model.TagIntent)
-	if err != nil {
-		return "", err
-	}
-	slog.Debug("fileSummary: @intent 폴백", "filePath", filePath, "summary", summary)
-	return summary, nil
-}
-
-// queryTagValueByFilePath는 GORM JOIN을 사용하여 특정 파일 경로와 태그 종류에 해당하는
-// DocTag의 Value를 조회한다.
-func (b *Builder) queryTagValueByFilePath(filePath string, kind model.TagKind) (string, error) {
-	var tag model.DocTag
-	result := b.DB.
-		Joins("JOIN annotations ON annotations.id = doc_tags.annotation_id").
-		Joins("JOIN nodes ON nodes.id = annotations.node_id").
-		Where("nodes.file_path = ? AND doc_tags.kind = ?", filePath, kind).
-		Order("doc_tags.ordinal ASC").
-		Limit(1).
-		First(&tag)
-
-	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		return "", nil
-	}
-	if result.Error != nil {
-		return "", fmt.Errorf("queryTagValueByFilePath(%s, %s): %w", filePath, kind, result.Error)
-	}
-	return tag.Value, nil
-}
 
 // docPath는 파일 경로를 기반으로 docs 디렉토리 내의 문서 경로를 반환한다.
 // 전체 상대 경로 구조를 유지하여 basename 충돌을 방지한다.
