@@ -30,7 +30,10 @@ type handlers struct {
 
 // mustJSON serializes v to a JSON string for use as a cache key.
 func mustJSON(v any) string {
-	b, _ := json.Marshal(v)
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic("mustJSON: " + err.Error())
+	}
 	return string(b)
 }
 
