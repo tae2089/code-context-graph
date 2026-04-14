@@ -1385,7 +1385,13 @@ func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) 
 	communityID := request.GetString("community_id", "")
 	depth := int(request.GetFloat("depth", 0))
 
-	key := "get_rag_tree:" + mustJSON(map[string]any{"community_id": communityID, "depth": depth})
+	// doc-index.json mtime을 캐시 키에 포함
+	var indexMtime int64
+	if stat, statErr := os.Stat(h.ragIndexPath()); statErr == nil {
+		indexMtime = stat.ModTime().UnixNano()
+	}
+
+	key := "get_rag_tree:" + mustJSON(map[string]any{"community_id": communityID, "depth": depth, "mtime": indexMtime})
 	if h.cache != nil {
 		if cached, ok := h.cache.Get(key); ok {
 			return mcp.NewToolResultText(cached), nil
@@ -1468,12 +1474,21 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("missing parameter: %v", err)), nil
 	}
-	limit := request.GetInt("limit", 10)
+	if strings.TrimSpace(query) == "" {
+		return mcp.NewToolResultError("query must not be empty"), nil
+	}
+	limit := int(request.GetFloat("limit", 10))
 	if limit <= 0 {
 		limit = 10
 	}
 
-	key := "search_docs:" + mustJSON(map[string]any{"query": query, "limit": limit})
+	// doc-index.json mtime을 캐시 키에 포함
+	var indexMtime int64
+	if stat, statErr := os.Stat(h.ragIndexPath()); statErr == nil {
+		indexMtime = stat.ModTime().UnixNano()
+	}
+
+	key := "search_docs:" + mustJSON(map[string]any{"query": query, "limit": limit, "mtime": indexMtime})
 	if h.cache != nil {
 		if cached, ok := h.cache.Get(key); ok {
 			return mcp.NewToolResultText(cached), nil
@@ -1486,6 +1501,9 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 	}
 
 	results := ragindex.Search(idx.Root, query, limit)
+	if results == nil {
+		results = []ragindex.SearchResult{}
+	}
 
 	b, err := json.Marshal(results)
 	if err != nil {
