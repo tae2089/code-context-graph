@@ -106,11 +106,21 @@ func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*m
 | `get_architecture_overview` | (없음) |
 | `find_dead_code` | path |
 
-## 캐시 제외 툴 (3개 write)
+## 캐시 제외 툴 + 자동 flush (3개 write)
 
 - `parse_project` — DB에 nodes/edges upsert
-- `build_or_update_graph` — 전체 그래프 rebuild/sync
-- `run_postprocess` — flows, communities, FTS 재구성
+- `build_or_update_graph` — 전체 그래프 rebuild/sync → 완료 후 `cache.Flush()` 호출
+- `run_postprocess` — flows, communities, FTS 재구성 → 완료 후 `cache.Flush()` 호출
+
+`parse_project`는 단일 파일 단위 upsert이므로 flush 대상 포함하지 않는다. `build_or_update_graph`와 `run_postprocess`는 그래프 전체 구조가 바뀔 수 있으므로 완료 직후 전체 캐시를 비운다.
+
+```go
+func (c *Cache) Flush() {
+    c.mu.Lock()
+    c.entries = make(map[string]entry)
+    c.mu.Unlock()
+}
+```
 
 ## CLI 플래그 (`internal/cli/serve.go`)
 
@@ -157,6 +167,5 @@ type ServeConfig struct {
 
 ## 미구현 (추후)
 
-- **캐시 무효화 훅**: `build_or_update_graph` 완료 시 전체 캐시 flush
 - **캐시 통계**: `list_graph_stats`에 hit/miss 수 포함
 - **분산 캐시**: 멀티 프로세스 환경 (현재 단일 프로세스 전제)
