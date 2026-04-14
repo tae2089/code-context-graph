@@ -80,7 +80,7 @@ func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest
 			return nil
 		}
 
-		nodes, edges, err := walker.Parse(fp, content)
+		nodes, edges, err := walker.ParseWithContext(ctx, fp, content)
 		if err != nil {
 			log.Warn("failed to parse file", "file", fp, "error", err)
 			errCount++
@@ -150,8 +150,7 @@ func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*m
 		"end_line":       node.EndLine,
 		"language":       node.Language,
 	}
-	b, _ := json.Marshal(data)
-	result := string(b)
+	result := mustJSON(data)
 	if h.cache != nil {
 		h.cache.Set(key, result)
 	}
@@ -205,8 +204,7 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 			"file_path":      n.FilePath,
 		}
 	}
-	b, _ := json.Marshal(impactResult)
-	result := string(b)
+	result := mustJSON(impactResult)
 	if h.cache != nil {
 		h.cache.Set(key, result)
 	}
@@ -271,8 +269,7 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 			"file_path":      n.FilePath,
 		}
 	}
-	b, _ := json.Marshal(searchResult)
-	result := string(b)
+	result := mustJSON(searchResult)
 	if h.cache != nil {
 		h.cache.Set(key, result)
 	}
@@ -332,8 +329,7 @@ func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolReques
 		"context": ann.Context,
 		"tags":    tags,
 	}
-	b, _ := json.Marshal(data)
-	result := string(b)
+	result := mustJSON(data)
 	if h.cache != nil {
 		h.cache.Set(key, result)
 	}
@@ -388,8 +384,7 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 		"name":    flow.Name,
 		"members": members,
 	}
-	b, _ := json.Marshal(data)
-	result := string(b)
+	result := mustJSON(data)
 	if h.cache != nil {
 		h.cache.Set(key, result)
 	}
@@ -438,7 +433,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 				return nil
 			}
 
-			nodes, edges, err := walker.Parse(fp, content)
+			nodes, edges, err := walker.ParseWithContext(ctx, fp, content)
 			if err != nil {
 				log.Warn("failed to parse file", "file", fp, "error", err)
 				return nil
@@ -539,11 +534,11 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		"edges_created": edgeCount,
 		"elapsed_ms":    elapsed,
 	}
-	b, _ := json.Marshal(result)
+	jsonStr := mustJSON(result)
 	if h.cache != nil {
 		h.cache.Flush()
 	}
-	return mcp.NewToolResultText(string(b)), nil
+	return mcp.NewToolResultText(jsonStr), nil
 }
 
 func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -586,11 +581,11 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 		"communities_count": communitiesCount,
 		"fts_indexed":       ftsIndexed,
 	}
-	b, _ := json.Marshal(result)
+	jsonStr := mustJSON(result)
 	if h.cache != nil {
 		h.cache.Flush()
 	}
-	return mcp.NewToolResultText(string(b)), nil
+	return mcp.NewToolResultText(jsonStr), nil
 }
 
 func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -639,8 +634,7 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 			"target":  target,
 			"results": summary,
 		}
-		b, _ := json.Marshal(fsData)
-		result := string(b)
+		result := mustJSON(fsData)
 		if h.cache != nil {
 			h.cache.Set(key, result)
 		}
@@ -698,8 +692,7 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 		"target":  target,
 		"results": qgResults,
 	}
-	b, _ := json.Marshal(resp)
-	result := string(b)
+	result := mustJSON(resp)
 	if h.cache != nil {
 		h.cache.Set(key, result)
 	}
@@ -763,8 +756,7 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 		"nodes_by_language": nbl,
 		"edges_by_kind":     ebk,
 	}
-	b, _ := json.Marshal(statsData)
-	result := string(b)
+	result := mustJSON(statsData)
 	if h.cache != nil {
 		h.cache.Set(key, result)
 	}
@@ -825,8 +817,7 @@ func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolR
 		"results": lfResults,
 		"count":   len(lfResults),
 	}
-	b, _ := json.Marshal(resp)
-	result := string(b)
+	result := mustJSON(resp)
 	if h.cache != nil {
 		h.cache.Set(key, result)
 	}
@@ -876,8 +867,7 @@ func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolReques
 		"base":    base,
 		"entries": entries,
 	}
-	b, _ := json.Marshal(resp)
-	result := string(b)
+	result := mustJSON(resp)
 	if h.cache != nil {
 		h.cache.Set(key, result)
 	}
@@ -915,8 +905,7 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 
 	if len(risks) == 0 {
 		emptyResp := map[string]any{"affected_flows": []any{}}
-		b, _ := json.Marshal(emptyResp)
-		result := string(b)
+		result := mustJSON(emptyResp)
 		if h.cache != nil {
 			h.cache.Set(key, result)
 		}
@@ -941,8 +930,7 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 
 	if len(flowNodes) == 0 {
 		emptyResp := map[string]any{"affected_flows": []any{}}
-		b, _ := json.Marshal(emptyResp)
-		result := string(b)
+		result := mustJSON(emptyResp)
 		if h.cache != nil {
 			h.cache.Set(key, result)
 		}
@@ -967,8 +955,7 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 	}
 
 	resp := map[string]any{"affected_flows": affected}
-	b, _ := json.Marshal(resp)
-	result := string(b)
+	result := mustJSON(resp)
 	if h.cache != nil {
 		h.cache.Set(key, result)
 	}
@@ -1044,8 +1031,7 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 	}
 
 	resp := map[string]any{"flows": infos}
-	b, _ := json.Marshal(resp)
-	result := string(b)
+	result := mustJSON(resp)
 	if h.cache != nil {
 		h.cache.Set(key, result)
 	}
@@ -1120,8 +1106,7 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 	}
 
 	resp := map[string]any{"communities": infos}
-	b, _ := json.Marshal(resp)
-	commResult := string(b)
+	commResult := mustJSON(resp)
 	if h.cache != nil {
 		h.cache.Set(key, commResult)
 	}
@@ -1197,8 +1182,7 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 		gcData["members"] = members
 	}
 
-	b, _ := json.Marshal(gcData)
-	result := string(b)
+	result := mustJSON(gcData)
 	if h.cache != nil {
 		h.cache.Set(key, result)
 	}
@@ -1226,8 +1210,7 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 			"coupling":    []any{},
 			"warnings":    []string{"No communities found. Run community rebuild first."},
 		}
-		b, _ := json.Marshal(emptyResp)
-		result := string(b)
+		result := mustJSON(emptyResp)
 		if h.cache != nil {
 			h.cache.Set(key, result)
 		}
@@ -1291,8 +1274,7 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 		"coupling":    couplingPairs,
 		"warnings":    warnings,
 	}
-	b, _ := json.Marshal(resp)
-	result := string(b)
+	result := mustJSON(resp)
 	if h.cache != nil {
 		h.cache.Set(key, result)
 	}
@@ -1342,8 +1324,7 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 		"dead_code": dcResults,
 		"count":     len(dcResults),
 	}
-	b, _ := json.Marshal(resp)
-	result := string(b)
+	result := mustJSON(resp)
 	if h.cache != nil {
 		h.cache.Set(key, result)
 	}

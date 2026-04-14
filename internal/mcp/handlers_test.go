@@ -36,6 +36,10 @@ import (
 // function declarations from simple Go files without depending on tree-sitter.
 type simpleGoParser struct{}
 
+func (p *simpleGoParser) ParseWithContext(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, error) {
+	return p.Parse(filePath, content)
+}
+
 func (p *simpleGoParser) Parse(filePath string, content []byte) ([]model.Node, []model.Edge, error) {
 	var nodes []model.Node
 	lines := strings.Split(string(content), "\n")
@@ -171,6 +175,24 @@ func getTextContent(result *mcp.CallToolResult) string {
 		return ""
 	}
 	return tc.Text
+}
+
+func TestMustJSON(t *testing.T) {
+	data := map[string]any{"key": "value", "num": 42}
+	result := mustJSON(data)
+	var out map[string]any
+	if err := json.Unmarshal([]byte(result), &out); err != nil {
+		t.Fatalf("mustJSON produced invalid JSON: %v", err)
+	}
+}
+
+func TestMustJSONPanicsOnUnserializable(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("mustJSON should panic on unserializable value")
+		}
+	}()
+	mustJSON(make(chan int)) // channel은 json.Marshal 불가
 }
 
 func TestHandler_ParseProject(t *testing.T) {
