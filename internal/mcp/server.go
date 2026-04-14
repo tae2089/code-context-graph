@@ -277,6 +277,14 @@ func NewServer(deps *Deps) *server.MCPServer {
 			),
 			Handler: h.getDocContent,
 		},
+		server.ServerTool{
+			Tool: mcp.NewTool("search_docs",
+				mcp.WithDescription("Search the RAG document tree by keyword. Matches against node labels and summaries. Returns breadcrumb paths to matching nodes."),
+				mcp.WithString("query", mcp.Description("Search keyword (case-insensitive)"), mcp.Required()),
+				mcp.WithNumber("limit", mcp.Description("Maximum number of results (default: 10)")),
+			),
+			Handler: h.searchDocs,
+		},
 	)
 
 	log.Info("MCP server created", "name", "code-context-graph", "version", "1.0.0", "prompts", 5)

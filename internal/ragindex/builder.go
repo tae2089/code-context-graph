@@ -351,6 +351,52 @@ func LoadIndex(path string) (*Index, error) {
 	return &idx, nil
 }
 
+// SearchResult는 Search 함수가 반환하는 단일 매칭 결과이다.
+type SearchResult struct {
+	ID      string   `json:"id"`
+	Label   string   `json:"label"`
+	Summary string   `json:"summary"`
+	DocPath string   `json:"doc_path,omitempty"`
+	Path    []string `json:"path"` // root부터 해당 노드까지의 Label 경로
+}
+
+// Search는 root 트리를 DFS로 순회하며 query를 Label과 Summary에서
+// case-insensitive 검색하여 최대 maxResults개의 결과를 반환한다.
+// root 노드 자체는 결과에 포함하지 않는다.
+func Search(root *TreeNode, query string, maxResults int) []SearchResult {
+	if root == nil || query == "" {
+		return nil
+	}
+	q := strings.ToLower(query)
+	results := make([]SearchResult, 0)
+	searchNode(root, q, []string{root.Label}, &results, maxResults)
+	return results
+}
+
+func searchNode(n *TreeNode, query string, path []string, results *[]SearchResult, maxResults int) {
+	for _, child := range n.Children {
+		if len(*results) >= maxResults {
+			return
+		}
+		// 슬라이스 공유 방지를 위해 새 슬라이스로 복사
+		childPath := make([]string, len(path)+1)
+		copy(childPath, path)
+		childPath[len(path)] = child.Label
+
+		if strings.Contains(strings.ToLower(child.Label), query) ||
+			strings.Contains(strings.ToLower(child.Summary), query) {
+			*results = append(*results, SearchResult{
+				ID:      child.ID,
+				Label:   child.Label,
+				Summary: child.Summary,
+				DocPath: child.DocPath,
+				Path:    childPath,
+			})
+		}
+		searchNode(child, query, childPath, results, maxResults)
+	}
+}
+
 // FindNode는 root 트리에서 id와 일치하는 TreeNode를 재귀적으로 찾아 반환한다.
 // 없으면 nil을 반환한다.
 func FindNode(root *TreeNode, id string) *TreeNode {

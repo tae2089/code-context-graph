@@ -2177,3 +2177,67 @@ func TestGetRagTree_DepthLimitsChildren(t *testing.T) {
 		t.Fatalf("expected 0 file children at depth=1, got %d", len(communityNode.Children))
 	}
 }
+
+// TestSearchDocs_ReturnsMatches: query 매칭 결과를 JSON으로 반환한다.
+func TestSearchDocs_ReturnsMatches(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = tmpDir
+
+	comm := model.Community{Key: "auth", Label: "Auth Service", Description: "인증 레이어"}
+	if err := deps.DB.Create(&comm).Error; err != nil {
+		t.Fatalf("create community: %v", err)
+	}
+	node := model.Node{QualifiedName: "auth/handler.go/Login", Kind: model.NodeKindFunction,
+		Name: "Login", FilePath: "auth/handler.go", StartLine: 1, EndLine: 20, Language: "go"}
+	if err := deps.DB.Create(&node).Error; err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := deps.DB.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: node.ID}).Error; err != nil {
+		t.Fatalf("create membership: %v", err)
+	}
+	ann := model.Annotation{NodeID: node.ID}
+	if err := deps.DB.Create(&ann).Error; err != nil {
+		t.Fatalf("create annotation: %v", err)
+	}
+	if err := deps.DB.Create(&model.DocTag{AnnotationID: ann.ID, Kind: model.TagIndex, Value: "Auth 서비스 핸들러", Ordinal: 0}).Error; err != nil {
+		t.Fatalf("create doc tag: %v", err)
+	}
+
+	b := &ragindex.Builder{DB: deps.DB, IndexDir: tmpDir, OutDir: filepath.Join(tmpDir, "docs")}
+	if _, _, err := b.Build(); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	result := callTool(t, deps, "search_docs", map[string]any{"query": "auth", "limit": float64(10)})
+	if result.IsError {
+		t.Fatalf("search_docs error: %v", getTextContent(result))
+	}
+
+	var results []ragindex.SearchResult
+	if err := json.Unmarshal([]byte(getTextContent(result)), &results); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("expected at least 1 search result")
+	}
+}
+
+// TestSearchDocs_MissingQuery: query 파라미터 없으면 에러 반환.
+func TestSearchDocs_MissingQuery(t *testing.T) {
+	deps := setupTestDeps(t)
+	result := callTool(t, deps, "search_docs", map[string]any{})
+	if !result.IsError {
+		t.Fatal("expected error for missing query")
+	}
+}
+
+// TestSearchDocs_NoIndex: doc-index.json 없으면 에러 반환.
+func TestSearchDocs_NoIndex(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.RagIndexDir = t.TempDir()
+	result := callTool(t, deps, "search_docs", map[string]any{"query": "something"})
+	if !result.IsError {
+		t.Fatal("expected error when index file missing")
+	}
+}

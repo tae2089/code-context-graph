@@ -516,6 +516,98 @@ func TestBuilder_NoSymbolsWithoutIntent(t *testing.T) {
 	}
 }
 
+// TestSearch_MatchesLabel: query가 label에 매칭되면 결과를 반환한다.
+func TestSearch_MatchesLabel(t *testing.T) {
+	root := &ragindex.TreeNode{
+		ID:    "root",
+		Label: "Root",
+		Children: []*ragindex.TreeNode{
+			{
+				ID:      "community:auth",
+				Label:   "MCP Server",
+				Summary: "핸들러 레이어",
+				Children: []*ragindex.TreeNode{
+					{ID: "file:handlers.go", Label: "handlers.go", Summary: "MCP 핸들러"},
+				},
+			},
+			{
+				ID:      "community:core",
+				Label:   "Core Logic",
+				Summary: "비즈니스 로직",
+			},
+		},
+	}
+
+	results := ragindex.Search(root, "mcp", 10)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results (community + file), got %d", len(results))
+	}
+}
+
+// TestSearch_CaseInsensitive: 검색은 대소문자를 구분하지 않는다.
+func TestSearch_CaseInsensitive(t *testing.T) {
+	root := &ragindex.TreeNode{
+		ID:    "root",
+		Label: "Root",
+		Children: []*ragindex.TreeNode{
+			{ID: "c1", Label: "Auth Service", Summary: "JWT 인증"},
+		},
+	}
+	results := ragindex.Search(root, "AUTH", 10)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+}
+
+// TestSearch_MaxResults: maxResults 파라미터가 결과 수를 제한한다.
+func TestSearch_MaxResults(t *testing.T) {
+	children := make([]*ragindex.TreeNode, 10)
+	for i := range children {
+		children[i] = &ragindex.TreeNode{ID: fmt.Sprintf("c%d", i), Label: "test node", Summary: "test"}
+	}
+	root := &ragindex.TreeNode{ID: "root", Children: children}
+
+	results := ragindex.Search(root, "test", 3)
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results (maxResults), got %d", len(results))
+	}
+}
+
+// TestSearch_IncludesBreadcrumb: 결과에 Path(breadcrumb)가 포함된다.
+func TestSearch_IncludesBreadcrumb(t *testing.T) {
+	root := &ragindex.TreeNode{
+		ID:    "root",
+		Label: "Root",
+		Children: []*ragindex.TreeNode{
+			{
+				ID:    "community:auth",
+				Label: "Auth",
+				Children: []*ragindex.TreeNode{
+					{ID: "file:login.go", Label: "login.go", Summary: "로그인 처리"},
+				},
+			},
+		},
+	}
+	results := ragindex.Search(root, "로그인", 10)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if len(results[0].Path) != 3 {
+		t.Fatalf("expected path length 3 (root→auth→file), got %d: %v", len(results[0].Path), results[0].Path)
+	}
+}
+
+// TestSearch_NoMatch: 매칭 없으면 빈 슬라이스 반환.
+func TestSearch_NoMatch(t *testing.T) {
+	root := &ragindex.TreeNode{ID: "root", Label: "Root", Children: []*ragindex.TreeNode{
+		{ID: "c1", Label: "Auth", Summary: "인증"},
+	}}
+	results := ragindex.Search(root, "zzznomatch", 10)
+	if len(results) != 0 {
+		t.Fatalf("expected 0 results, got %d", len(results))
+	}
+}
+
 // TestFindNode: FindNode가 재귀적으로 트리에서 노드를 찾는지 검증한다.
 func TestFindNode(t *testing.T) {
 	root := &ragindex.TreeNode{

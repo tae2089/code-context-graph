@@ -1463,6 +1463,41 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 	return mcp.NewToolResultText(result), nil
 }
 
+func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	query, err := request.RequireString("query")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("missing parameter: %v", err)), nil
+	}
+	limit := request.GetInt("limit", 10)
+	if limit <= 0 {
+		limit = 10
+	}
+
+	key := "search_docs:" + mustJSON(map[string]any{"query": query, "limit": limit})
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
+
+	idx, err := ragindex.LoadIndex(h.ragIndexPath())
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("load doc-index: %v", err)), nil
+	}
+
+	results := ragindex.Search(idx.Root, query, limit)
+
+	b, err := json.Marshal(results)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("marshal results: %v", err)), nil
+	}
+	resultStr := string(b)
+	if h.cache != nil {
+		h.cache.Set(key, resultStr)
+	}
+	return mcp.NewToolResultText(resultStr), nil
+}
+
 func getBool(request mcp.CallToolRequest, name string, defaultVal bool) bool {
 	if args, ok := request.Params.Arguments.(map[string]any); ok {
 		if v, ok := args[name]; ok {
