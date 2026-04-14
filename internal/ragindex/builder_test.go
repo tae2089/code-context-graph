@@ -328,6 +328,61 @@ func TestBuilder_ProjectDesc(t *testing.T) {
 	}
 }
 
+// TestPruneTree_Depth1: depth=1이면 root와 직계 자식만 반환, 손자 노드 없음.
+func TestPruneTree_Depth1(t *testing.T) {
+	root := &ragindex.TreeNode{
+		ID:    "root",
+		Label: "Root",
+		Children: []*ragindex.TreeNode{
+			{
+				ID:    "c1",
+				Label: "Community 1",
+				Children: []*ragindex.TreeNode{
+					{ID: "f1", Label: "file.go"},
+				},
+			},
+		},
+	}
+
+	result := ragindex.PruneTree(root, 1)
+	if len(result.Children) != 1 {
+		t.Fatalf("expected 1 child, got %d", len(result.Children))
+	}
+	if len(result.Children[0].Children) != 0 {
+		t.Fatalf("expected 0 grandchildren at depth=1, got %d", len(result.Children[0].Children))
+	}
+	// 원본 트리는 변경되지 않아야 함
+	if len(root.Children[0].Children) != 1 {
+		t.Fatal("PruneTree must not modify the original tree")
+	}
+}
+
+// TestPruneTree_NegativeDepth: depth <= 0이면 트리 전체를 반환한다.
+func TestPruneTree_NegativeDepth(t *testing.T) {
+	root := &ragindex.TreeNode{
+		ID: "root",
+		Children: []*ragindex.TreeNode{
+			{ID: "c1", Children: []*ragindex.TreeNode{{ID: "f1"}}},
+		},
+	}
+
+	result := ragindex.PruneTree(root, 0)
+	if len(result.Children) != 1 {
+		t.Fatalf("expected 1 child, got %d", len(result.Children))
+	}
+	if len(result.Children[0].Children) != 1 {
+		t.Fatalf("expected 1 grandchild at depth=0 (unlimited), got %d", len(result.Children[0].Children))
+	}
+}
+
+// TestPruneTree_NilRoot: nil 입력 → nil 반환.
+func TestPruneTree_NilRoot(t *testing.T) {
+	result := ragindex.PruneTree(nil, 2)
+	if result != nil {
+		t.Fatal("expected nil for nil root")
+	}
+}
+
 // TestFindNode: FindNode가 재귀적으로 트리에서 노드를 찾는지 검증한다.
 func TestFindNode(t *testing.T) {
 	root := &ragindex.TreeNode{

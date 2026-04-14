@@ -303,3 +303,31 @@ func FindNode(root *TreeNode, id string) *TreeNode {
 	}
 	return nil
 }
+
+// PruneTree는 root 트리를 maxDepth 깊이까지만 포함한 새 트리를 반환한다.
+// maxDepth <= 0이면 전체 트리를 반환한다. 원본 트리는 변경하지 않는다.
+// depth 계산: root는 depth 0, root의 직계 자식은 depth 1.
+func PruneTree(root *TreeNode, maxDepth int) *TreeNode {
+	if root == nil {
+		return nil
+	}
+	return pruneNode(root, 0, maxDepth)
+}
+
+func pruneNode(n *TreeNode, currentDepth, maxDepth int) *TreeNode {
+	copied := &TreeNode{
+		ID:      n.ID,
+		Label:   n.Label,
+		Summary: n.Summary,
+		DocPath: n.DocPath,
+	}
+	if maxDepth <= 0 || currentDepth < maxDepth {
+		copied.Children = make([]*TreeNode, 0, len(n.Children))
+		for _, child := range n.Children {
+			copied.Children = append(copied.Children, pruneNode(child, currentDepth+1, maxDepth))
+		}
+	} else {
+		copied.Children = []*TreeNode{}
+	}
+	return copied
+}

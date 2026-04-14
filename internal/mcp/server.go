@@ -266,6 +266,7 @@ func NewServer(deps *Deps) *server.MCPServer {
 			Tool: mcp.NewTool("get_rag_tree",
 				mcp.WithDescription("Get the RAG document tree for navigation. Call without arguments first to see all communities, then pass community_id to drill into a specific one."),
 				mcp.WithString("community_id", mcp.Description("Community node ID as shown in the tree (e.g. 'community:auth'). Omit to get the full tree.")),
+				mcp.WithNumber("depth", mcp.Description("Maximum tree depth to return (1=communities only, 2=communities+files, 3=including symbols). Default: 0 (unlimited).")),
 			),
 			Handler: h.getRagTree,
 		},

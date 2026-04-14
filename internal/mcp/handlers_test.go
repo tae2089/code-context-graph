@@ -27,6 +27,7 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/analysis/incremental"
 	"github.com/imtaebin/code-context-graph/internal/analysis/query"
 	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/imtaebin/code-context-graph/internal/ragindex"
 	"github.com/imtaebin/code-context-graph/internal/store/gormstore"
 	"github.com/imtaebin/code-context-graph/internal/store/search"
 )
@@ -2108,5 +2109,71 @@ func TestGetRagTree_InvalidCommunityID(t *testing.T) {
 	})
 	if !result.IsError {
 		t.Fatal("expected error for nonexistent community_id")
+	}
+}
+
+func TestGetRagTree_DepthLimitsChildren(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	// 임시 인덱스 디렉토리 설정
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+
+	// DB에 community + node + CommunityMembership 생성
+	community := model.Community{Key: "auth", Label: "Auth Community", Strategy: "auto"}
+	if err := deps.DB.Create(&community).Error; err != nil {
+		t.Fatalf("create community: %v", err)
+	}
+
+	node := model.Node{
+		QualifiedName: "auth.Login",
+		Kind:          model.NodeKindFunction,
+		Name:          "Login",
+		FilePath:      "internal/auth/login.go",
+		StartLine:     1,
+		EndLine:       10,
+		Language:      "go",
+	}
+	if err := deps.DB.Create(&node).Error; err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+
+	membership := model.CommunityMembership{
+		CommunityID: community.ID,
+		NodeID:      node.ID,
+	}
+	if err := deps.DB.Create(&membership).Error; err != nil {
+		t.Fatalf("create membership: %v", err)
+	}
+
+	// ragindex.Builder로 인덱스 빌드
+	b := &ragindex.Builder{
+		DB:       deps.DB,
+		OutDir:   filepath.Join(tmpDir, "docs"),
+		IndexDir: deps.RagIndexDir,
+	}
+	if _, _, err := b.Build(); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	// depth=1로 get_rag_tree 호출: community 노드는 있지만 파일 노드는 없어야 함
+	result := callTool(t, deps, "get_rag_tree", map[string]any{
+		"depth": float64(1),
+	})
+	if result.IsError {
+		t.Fatalf("get_rag_tree error: %v", getTextContent(result))
+	}
+
+	var treeNode ragindex.TreeNode
+	if err := json.Unmarshal([]byte(getTextContent(result)), &treeNode); err != nil {
+		t.Fatalf("unmarshal tree: %v", err)
+	}
+
+	if len(treeNode.Children) == 0 {
+		t.Fatal("expected community nodes at depth=1, got none")
+	}
+	communityNode := treeNode.Children[0]
+	if len(communityNode.Children) != 0 {
+		t.Fatalf("expected 0 file children at depth=1, got %d", len(communityNode.Children))
 	}
 }

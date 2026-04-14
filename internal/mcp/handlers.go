@@ -1383,8 +1383,9 @@ func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolReques
 
 func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	communityID := request.GetString("community_id", "")
+	depth := int(request.GetFloat("depth", 0))
 
-	key := "get_rag_tree:" + mustJSON(map[string]any{"community_id": communityID})
+	key := "get_rag_tree:" + mustJSON(map[string]any{"community_id": communityID, "depth": depth})
 	if h.cache != nil {
 		if cached, ok := h.cache.Get(key); ok {
 			return mcp.NewToolResultText(cached), nil
@@ -1404,6 +1405,10 @@ func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) 
 		if node == nil {
 			return mcp.NewToolResultError(fmt.Sprintf("community_id %q not found", communityID)), nil
 		}
+	}
+
+	if depth > 0 {
+		node = ragindex.PruneTree(node, depth)
 	}
 
 	b, err := json.Marshal(node)
