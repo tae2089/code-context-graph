@@ -1,0 +1,11 @@
+rules:
+  - pattern: "pkg/bare.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-14"
+  - pattern: "pkg/bare.go::Bare"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-14"

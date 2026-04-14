@@ -12,7 +12,6 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/analysis/incremental"
 	"github.com/imtaebin/code-context-graph/internal/parse/treesitter"
 	"github.com/imtaebin/code-context-graph/internal/store"
-	"github.com/imtaebin/code-context-graph/internal/store/pgstore"
 	"github.com/imtaebin/code-context-graph/internal/store/search"
 )
 
@@ -26,7 +25,6 @@ type Deps struct {
 	Syncer        *incremental.Syncer
 	ServeFunc     func(cfg ServeConfig) error
 	InitFunc      func(dbDriver, dsn string) error
-	PGStore       *pgstore.Store
 }
 
 // NewRootCmd creates the root cobra command with all subcommands attached.
@@ -94,7 +92,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "Config file (default: .ccg.yaml in current directory)")
 
 	// Global database configuration flags
-	rootCmd.PersistentFlags().String("db-driver", "sqlite", "Database driver (sqlite, postgres, mysql)")
+	rootCmd.PersistentFlags().String("db-driver", "sqlite", "Database driver (sqlite, postgres)")
 	rootCmd.PersistentFlags().String("db-dsn", "ccg.db", "Database connection string")
 
 	// Bind flags to viper

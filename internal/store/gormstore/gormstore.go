@@ -32,33 +32,19 @@ func (s *Store) AutoMigrate() error {
 }
 
 func (s *Store) UpsertNodes(ctx context.Context, nodes []model.Node) error {
-	for i := range nodes {
-		result := s.db.WithContext(ctx).
-			Where("qualified_name = ?", nodes[i].QualifiedName).
-			First(&model.Node{})
-
-		if result.Error == gorm.ErrRecordNotFound {
-			if err := s.db.WithContext(ctx).Create(&nodes[i]).Error; err != nil {
-				return fmt.Errorf("create node: %w", err)
-			}
-		} else if result.Error == nil {
-			if err := s.db.WithContext(ctx).
-				Model(&model.Node{}).
-				Where("qualified_name = ?", nodes[i].QualifiedName).
-				Updates(map[string]interface{}{
-					"kind":       nodes[i].Kind,
-					"name":       nodes[i].Name,
-					"file_path":  nodes[i].FilePath,
-					"start_line": nodes[i].StartLine,
-					"end_line":   nodes[i].EndLine,
-					"hash":       nodes[i].Hash,
-					"language":   nodes[i].Language,
-				}).Error; err != nil {
-				return fmt.Errorf("update node: %w", err)
-			}
-		} else {
-			return fmt.Errorf("query node: %w", result.Error)
-		}
+	if len(nodes) == 0 {
+		return nil
+	}
+	err := s.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "qualified_name"}},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"kind", "name", "file_path", "start_line", "end_line", "hash", "language",
+			}),
+		}).
+		CreateInBatches(nodes, 100).Error
+	if err != nil {
+		return fmt.Errorf("batch upsert nodes: %w", err)
 	}
 	return nil
 }
@@ -85,6 +71,17 @@ func (s *Store) GetNodeByID(ctx context.Context, id uint) (*model.Node, error) {
 		return nil, result.Error
 	}
 	return &node, nil
+}
+
+func (s *Store) GetNodesByIDs(ctx context.Context, ids []uint) ([]model.Node, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var nodes []model.Node
+	if err := s.db.WithContext(ctx).Where("id IN ?", ids).Find(&nodes).Error; err != nil {
+		return nil, err
+	}
+	return nodes, nil
 }
 
 func (s *Store) GetNodesByFile(ctx context.Context, filePath string) ([]model.Node, error) {
@@ -130,15 +127,16 @@ func (s *Store) DeleteNodesByFile(ctx context.Context, filePath string) error {
 }
 
 func (s *Store) UpsertEdges(ctx context.Context, edges []model.Edge) error {
-	for i := range edges {
-		if err := s.db.WithContext(ctx).
-			Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "fingerprint"}},
-				DoNothing: true,
-			}).
-			Create(&edges[i]).Error; err != nil {
-			return fmt.Errorf("upsert edge: %w", err)
-		}
+	if len(edges) == 0 {
+		return nil
+	}
+	if err := s.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "fingerprint"}},
+			DoNothing: true,
+		}).
+		CreateInBatches(edges, 500).Error; err != nil {
+		return fmt.Errorf("upsert edge batch: %w", err)
 	}
 	return nil
 }
@@ -151,9 +149,31 @@ func (s *Store) GetEdgesFrom(ctx context.Context, nodeID uint) ([]model.Edge, er
 	return edges, nil
 }
 
+func (s *Store) GetEdgesFromNodes(ctx context.Context, nodeIDs []uint) ([]model.Edge, error) {
+	if len(nodeIDs) == 0 {
+		return nil, nil
+	}
+	var edges []model.Edge
+	if err := s.db.WithContext(ctx).Where("from_node_id IN ?", nodeIDs).Find(&edges).Error; err != nil {
+		return nil, err
+	}
+	return edges, nil
+}
+
 func (s *Store) GetEdgesTo(ctx context.Context, nodeID uint) ([]model.Edge, error) {
 	var edges []model.Edge
 	if err := s.db.WithContext(ctx).Where("to_node_id = ?", nodeID).Find(&edges).Error; err != nil {
+		return nil, err
+	}
+	return edges, nil
+}
+
+func (s *Store) GetEdgesToNodes(ctx context.Context, nodeIDs []uint) ([]model.Edge, error) {
+	if len(nodeIDs) == 0 {
+		return nil, nil
+	}
+	var edges []model.Edge
+	if err := s.db.WithContext(ctx).Where("to_node_id IN ?", nodeIDs).Find(&edges).Error; err != nil {
 		return nil, err
 	}
 	return edges, nil

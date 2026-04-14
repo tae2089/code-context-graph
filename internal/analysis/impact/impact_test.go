@@ -37,6 +37,40 @@ func (m *mockStore) GetNodeByID(_ context.Context, id uint) (*model.Node, error)
 	return n, nil
 }
 
+func (m *mockStore) GetEdgesFromNodes(_ context.Context, nodeIDs []uint) ([]model.Edge, error) {
+	var result []model.Edge
+	for _, id := range nodeIDs {
+		result = append(result, m.edges[id]...)
+	}
+	return result, nil
+}
+
+func (m *mockStore) GetEdgesToNodes(_ context.Context, nodeIDs []uint) ([]model.Edge, error) {
+	var result []model.Edge
+	idMap := make(map[uint]bool)
+	for _, id := range nodeIDs {
+		idMap[id] = true
+	}
+	for _, edgeList := range m.edges {
+		for _, e := range edgeList {
+			if idMap[e.ToNodeID] {
+				result = append(result, e)
+			}
+		}
+	}
+	return result, nil
+}
+
+func (m *mockStore) GetNodesByIDs(_ context.Context, ids []uint) ([]model.Node, error) {
+	var result []model.Node
+	for _, id := range ids {
+		if n, ok := m.nodes[id]; ok {
+			result = append(result, *n)
+		}
+	}
+	return result, nil
+}
+
 func newNode(id uint, name string) *model.Node {
 	return &model.Node{ID: id, QualifiedName: name, Kind: model.NodeKindFunction, Name: name, FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"}
 }

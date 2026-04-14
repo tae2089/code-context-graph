@@ -1,0 +1,7 @@
+{
+  "timestamp": "2026-04-14T18:23:47.276948+09:00",
+  "entries": {
+    "incomplete:pkg/util.go::Format": 1,
+    "missing:pkg/util.go": 1
+  }
+}

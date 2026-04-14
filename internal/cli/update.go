@@ -13,6 +13,12 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/analysis/incremental"
 )
 
+var skipDirs = map[string]bool{
+	".git":         true,
+	"vendor":       true,
+	"node_modules": true,
+}
+
 func newUpdateCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update [directory]",

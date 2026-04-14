@@ -9,8 +9,11 @@ import (
 
 type EdgeReader interface {
 	GetEdgesFrom(ctx context.Context, nodeID uint) ([]model.Edge, error)
+	GetEdgesFromNodes(ctx context.Context, nodeIDs []uint) ([]model.Edge, error)
 	GetEdgesTo(ctx context.Context, nodeID uint) ([]model.Edge, error)
+	GetEdgesToNodes(ctx context.Context, nodeIDs []uint) ([]model.Edge, error)
 	GetNodeByID(ctx context.Context, id uint) (*model.Node, error)
+	GetNodesByIDs(ctx context.Context, ids []uint) ([]model.Node, error)
 }
 
 type Analyzer struct {
@@ -36,40 +39,41 @@ func (a *Analyzer) ImpactRadius(ctx context.Context, nodeID uint, depth int) ([]
 
 	for d := 0; d < depth && len(frontier) > 0; d++ {
 		var next []uint
-		for _, nid := range frontier {
-			edges, err := a.store.GetEdgesFrom(ctx, nid)
-			if err != nil {
-				return nil, err
-			}
-			for _, e := range edges {
-				if !visited[e.ToNodeID] {
-					visited[e.ToNodeID] = true
-					next = append(next, e.ToNodeID)
-				}
-			}
-			incoming, err := a.store.GetEdgesTo(ctx, nid)
-			if err != nil {
-				return nil, err
-			}
-			for _, e := range incoming {
-				if !visited[e.FromNodeID] {
-					visited[e.FromNodeID] = true
-					next = append(next, e.FromNodeID)
-				}
-			}
-		}
-		frontier = next
-	}
 
-	result := make([]model.Node, 0, len(visited))
-	for id := range visited {
-		node, err := a.store.GetNodeByID(ctx, id)
+		edgesFrom, err := a.store.GetEdgesFromNodes(ctx, frontier)
 		if err != nil {
 			return nil, err
 		}
-		if node != nil {
-			result = append(result, *node)
+		for _, e := range edgesFrom {
+			if !visited[e.ToNodeID] {
+				visited[e.ToNodeID] = true
+				next = append(next, e.ToNodeID)
+			}
 		}
+
+		edgesTo, err := a.store.GetEdgesToNodes(ctx, frontier)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range edgesTo {
+			if !visited[e.FromNodeID] {
+				visited[e.FromNodeID] = true
+				next = append(next, e.FromNodeID)
+			}
+		}
+
+		frontier = next
 	}
-	return result, nil
+
+	var allVisited []uint
+	for id := range visited {
+		allVisited = append(allVisited, id)
+	}
+
+	nodes, err := a.store.GetNodesByIDs(ctx, allVisited)
+	if err != nil {
+		return nil, err
+	}
+
+	return nodes, nil
 }

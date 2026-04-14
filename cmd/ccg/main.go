@@ -8,7 +8,6 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/viper"
 
-	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -29,7 +28,6 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"github.com/imtaebin/code-context-graph/internal/parse/treesitter"
 	"github.com/imtaebin/code-context-graph/internal/store/gormstore"
-	"github.com/imtaebin/code-context-graph/internal/store/pgstore"
 	"github.com/imtaebin/code-context-graph/internal/store/search"
 )
 
@@ -60,15 +58,6 @@ func main() {
 			return fmt.Errorf("migrate search backend: %w", err)
 		}
 
-		var pg *pgstore.Store
-		if driver == "postgres" {
-			var pgErr error
-			pg, pgErr = pgstore.New(dsn)
-			if pgErr != nil {
-				return fmt.Errorf("init pgstore: %w", pgErr)
-			}
-		}
-
 		walkers := buildWalkers(deps.Logger)
 		syncer := incremental.New(st, walkers[".go"])
 
@@ -77,7 +66,6 @@ func main() {
 		deps.SearchBackend = sb
 		deps.Walkers = walkers
 		deps.Syncer = syncer
-		deps.PGStore = pg
 
 		return nil
 	}
@@ -177,8 +165,6 @@ func openDB(driver, dsn string) (*gorm.DB, error) {
 		return gorm.Open(sqlite.Open(dsn), cfg)
 	case "postgres":
 		return gorm.Open(postgres.Open(dsn), cfg)
-	case "mysql":
-		return gorm.Open(mysql.Open(dsn), cfg)
 	default:
 		return nil, fmt.Errorf("unsupported database driver: %s", driver)
 	}
@@ -188,8 +174,6 @@ func newSearchBackend(driver string) search.Backend {
 	switch driver {
 	case "postgres":
 		return search.NewPostgresBackend()
-	case "mysql":
-		return search.NewMySQLBackend()
 	default:
 		return search.NewSQLiteBackend()
 	}
