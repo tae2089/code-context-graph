@@ -146,14 +146,18 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 	var indexNodes []model.Node
 	annByNode := map[uint]*model.Annotation{}
 	if s.DB != nil {
-		s.DB.Where("kind IN ?", []string{"function", "class", "type", "test", "file"}).Find(&indexNodes)
+		if err := s.DB.Where("kind IN ?", []string{"function", "class", "type", "test", "file"}).Find(&indexNodes).Error; err != nil {
+			return stats, fmt.Errorf("load index nodes: %w", err)
+		}
 		nodeIDs := make([]uint, len(indexNodes))
 		for i, n := range indexNodes {
 			nodeIDs[i] = n.ID
 		}
 		if len(nodeIDs) > 0 {
 			var annotations []model.Annotation
-			s.DB.Where("node_id IN ?", nodeIDs).Preload("Tags").Find(&annotations)
+			if err := s.DB.Where("node_id IN ?", nodeIDs).Preload("Tags").Find(&annotations).Error; err != nil {
+				return stats, fmt.Errorf("load annotations: %w", err)
+			}
 			for i := range annotations {
 				annByNode[annotations[i].NodeID] = &annotations[i]
 			}
@@ -177,7 +181,9 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 	}
 
 	if s.SearchBackend != nil && s.DB != nil {
-		s.DB.Where("1 = 1").Delete(&model.SearchDocument{})
+		if err := s.DB.Where("1 = 1").Delete(&model.SearchDocument{}).Error; err != nil {
+			return stats, fmt.Errorf("clear search documents: %w", err)
+		}
 		docs := make([]model.SearchDocument, 0, len(indexNodes))
 		for _, n := range indexNodes {
 			docs = append(docs, model.SearchDocument{
@@ -187,7 +193,9 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 			})
 		}
 		if len(docs) > 0 {
-			s.DB.CreateInBatches(docs, 100)
+			if err := s.DB.CreateInBatches(docs, 100).Error; err != nil {
+				return stats, fmt.Errorf("batch insert search documents: %w", err)
+			}
 		}
 		if err := s.SearchBackend.Rebuild(ctx, s.DB); err != nil {
 			s.Logger.Warn("search index rebuild failed", "error", err)

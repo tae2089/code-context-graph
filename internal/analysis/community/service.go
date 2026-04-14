@@ -44,8 +44,12 @@ func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 	var result []Stats
 
 	err := b.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		tx.Where("1 = 1").Delete(&model.CommunityMembership{})
-		tx.Where("1 = 1").Delete(&model.Community{})
+		if err := tx.Where("1 = 1").Delete(&model.CommunityMembership{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("1 = 1").Delete(&model.Community{}).Error; err != nil {
+			return err
+		}
 
 		var nodes []model.Node
 		if err := tx.Find(&nodes).Error; err != nil {
@@ -124,7 +128,9 @@ func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 		annByNode := map[uint]*model.Annotation{}
 		if len(fileNodeIDs) > 0 {
 			var annotations []model.Annotation
-			tx.Where("node_id IN ?", fileNodeIDs).Preload("Tags").Find(&annotations)
+			if err := tx.Where("node_id IN ?", fileNodeIDs).Preload("Tags").Find(&annotations).Error; err != nil {
+				return err
+			}
 			for i := range annotations {
 				annByNode[annotations[i].NodeID] = &annotations[i]
 			}
@@ -154,7 +160,9 @@ func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 			}
 			if len(descriptions) > 0 {
 				c.Description = strings.Join(descriptions, "; ")
-				tx.Save(c)
+				if err := tx.Save(c).Error; err != nil {
+				return err
+			}
 			}
 
 			result = append(result, Stats{

@@ -194,10 +194,13 @@ func (s *Store) UpsertAnnotation(ctx context.Context, ann *model.Annotation) err
 		return result.Error
 	}
 
-	s.db.WithContext(ctx).Where("annotation_id = ?", existing.ID).Delete(&model.DocTag{})
-
-	ann.ID = existing.ID
-	return s.db.WithContext(ctx).Save(ann).Error
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("annotation_id = ?", existing.ID).Delete(&model.DocTag{}).Error; err != nil {
+			return fmt.Errorf("delete doc tags: %w", err)
+		}
+		ann.ID = existing.ID
+		return tx.Save(ann).Error
+	})
 }
 
 func (s *Store) GetAnnotation(ctx context.Context, nodeID uint) (*model.Annotation, error) {
