@@ -25,7 +25,7 @@ func TestHooksInstall_CreatesPreCommitHook(t *testing.T) {
 	}
 
 	hook := string(content)
-	for _, want := range []string{"#!/bin/sh", "ccg build", "ccg docs"} {
+	for _, want := range []string{"#!/bin/sh", "ccg build", "ccg docs", "ccg lint"} {
 		if !strings.Contains(hook, want) {
 			t.Errorf("expected %q in hook, got:\n%s", want, hook)
 		}
