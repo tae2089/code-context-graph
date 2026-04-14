@@ -3,6 +3,7 @@ package gormstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"gorm.io/gorm"
@@ -52,7 +53,7 @@ func (s *Store) UpsertNodes(ctx context.Context, nodes []model.Node) error {
 func (s *Store) GetNode(ctx context.Context, qualifiedName string) (*model.Node, error) {
 	var node model.Node
 	result := s.db.WithContext(ctx).Where("qualified_name = ?", qualifiedName).First(&node)
-	if result.Error == gorm.ErrRecordNotFound {
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
 	if result.Error != nil {
@@ -64,7 +65,7 @@ func (s *Store) GetNode(ctx context.Context, qualifiedName string) (*model.Node,
 func (s *Store) GetNodeByID(ctx context.Context, id uint) (*model.Node, error) {
 	var node model.Node
 	result := s.db.WithContext(ctx).First(&node, id)
-	if result.Error == gorm.ErrRecordNotFound {
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
 	if result.Error != nil {
@@ -204,7 +205,7 @@ func (s *Store) UpsertAnnotation(ctx context.Context, ann *model.Annotation) err
 	var existing model.Annotation
 	result := s.db.WithContext(ctx).Where("node_id = ?", ann.NodeID).First(&existing)
 
-	if result.Error == gorm.ErrRecordNotFound {
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return s.db.WithContext(ctx).Create(ann).Error
 	}
 	if result.Error != nil {
@@ -226,7 +227,7 @@ func (s *Store) GetAnnotation(ctx context.Context, nodeID uint) (*model.Annotati
 		Preload("Tags").
 		Where("node_id = ?", nodeID).
 		First(&ann)
-	if result.Error == gorm.ErrRecordNotFound {
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
 	if result.Error != nil {

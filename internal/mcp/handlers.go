@@ -400,29 +400,8 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		return mcp.NewToolResultError(fmt.Sprintf("missing parameter: %v", err)), nil
 	}
 
-	fullRebuild := true
-	if v, err := request.RequireString("full_rebuild"); err == nil {
-		fullRebuild = v == "true"
-	} else {
-		// try bool from arguments
-		if args, ok := request.Params.Arguments.(map[string]any); ok {
-			if fb, ok := args["full_rebuild"]; ok {
-				switch val := fb.(type) {
-				case bool:
-					fullRebuild = val
-				case string:
-					fullRebuild = val == "true"
-				}
-			}
-		}
-	}
-
-	postprocess := "full"
-	if args, ok := request.Params.Arguments.(map[string]any); ok {
-		if pp, ok := args["postprocess"].(string); ok && pp != "" {
-			postprocess = pp
-		}
-	}
+	fullRebuild := request.GetBool("full_rebuild", true)
+	postprocess := request.GetString("postprocess", "full")
 
 	log.Info("build_or_update_graph called", "path", dirPath, "full_rebuild", fullRebuild, "postprocess", postprocess)
 
@@ -558,9 +537,9 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	log := h.logger()
 
-	doFlows := getBool(request, "flows", true)
-	doCommunities := getBool(request, "communities", true)
-	doFTS := getBool(request, "fts", true)
+	doFlows := request.GetBool("flows", true)
+	doCommunities := request.GetBool("communities", true)
+	doFTS := request.GetBool("fts", true)
 	communityDepth := request.GetInt("community_depth", 2)
 
 	log.Info("run_postprocess called", "flows", doFlows, "communities", doCommunities, "fts", doFTS)
@@ -1144,7 +1123,7 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 	if communityID == 0 {
 		return mcp.NewToolResultError("missing parameter: community_id"), nil
 	}
-	includeMembers := getBool(request, "include_members", false)
+	includeMembers := request.GetBool("include_members", false)
 
 	log.Info("get_community called", "community_id", communityID, "include_members", includeMembers)
 
@@ -1313,26 +1292,12 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 	log.Info("find_dead_code called")
 
 	opts := deadcode.Options{}
-	var pathPrefix string
-	var kinds []string
-
-	// kinds 파라미터 처리
-	if args, ok := request.Params.Arguments.(map[string]any); ok {
-		if kindsRaw, ok := args["kinds"]; ok {
-			if kindsArr, ok := kindsRaw.([]any); ok {
-				for _, k := range kindsArr {
-					if ks, ok := k.(string); ok {
-						opts.Kinds = append(opts.Kinds, model.NodeKind(ks))
-						kinds = append(kinds, ks)
-					}
-				}
-			}
-		}
-		if fp, ok := args["path"].(string); ok {
-			opts.FilePattern = fp
-			pathPrefix = fp
-		}
+	kinds := request.GetStringSlice("kinds", nil)
+	for _, k := range kinds {
+		opts.Kinds = append(opts.Kinds, model.NodeKind(k))
 	}
+	pathPrefix := request.GetString("path", "")
+	opts.FilePattern = pathPrefix
 
 	key := "find_dead_code:" + mustJSON(map[string]any{"path": pathPrefix, "kinds": kinds})
 	if h.cache != nil {
@@ -1541,18 +1506,4 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 		h.cache.Set(key, resultStr)
 	}
 	return mcp.NewToolResultText(resultStr), nil
-}
-
-func getBool(request mcp.CallToolRequest, name string, defaultVal bool) bool {
-	if args, ok := request.Params.Arguments.(map[string]any); ok {
-		if v, ok := args[name]; ok {
-			switch val := v.(type) {
-			case bool:
-				return val
-			case string:
-				return val == "true"
-			}
-		}
-	}
-	return defaultVal
 }

@@ -31,6 +31,8 @@ var queriesFS embed.FS
 type Walker struct {
 	spec   *LangSpec
 	logger *slog.Logger
+	parser *sitter.Parser // 언어별 1회 초기화 후 재사용
+	query  *sitter.Query  // tags.scm 쿼리 1회 컴파일 후 재사용 (nil이면 쿼리 없음)
 }
 
 type interfaceInfo struct {
@@ -54,6 +56,25 @@ func NewWalker(spec *LangSpec, opts ...WalkerOption) *Walker {
 	if w.logger == nil {
 		w.logger = slog.Default()
 	}
+
+	// parser와 query를 1회 초기화하여 파일마다 CGO 할당 오버헤드를 제거한다.
+	if lang, err := w.getLanguage(); err == nil {
+		p := sitter.NewParser()
+		p.SetLanguage(lang)
+		w.parser = p
+
+		qPath := fmt.Sprintf("queries/%s/tags.scm", spec.Name)
+		if qContent, err := queriesFS.ReadFile(qPath); err == nil {
+			if q, err := sitter.NewQuery(qContent, lang); err == nil {
+				w.query = q
+			} else {
+				w.logger.Debug("failed to compile query", "language", spec.Name, "error", err)
+			}
+		} else {
+			w.logger.Debug("no tags.scm found for language", "language", spec.Name)
+		}
+	}
+
 	return w
 }
 
@@ -67,30 +88,20 @@ func (w *Walker) Parse(filePath string, content []byte) ([]model.Node, []model.E
 }
 
 func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []CommentBlock, error) {
-	lang, err := w.getLanguage()
-	if err != nil {
-		w.logger.Error("unsupported language", "language", w.spec.Name, "file", filePath, "error", err)
-		return nil, nil, nil, err
+	if w.parser == nil {
+		w.logger.Error("unsupported language", "language", w.spec.Name, "file", filePath)
+		return nil, nil, nil, fmt.Errorf("unsupported language: %s", w.spec.Name)
 	}
 
 	w.logger.Debug("parsing file", "file", filePath, "language", w.spec.Name)
 
-	parser := sitter.NewParser()
-	parser.SetLanguage(lang)
-
-	tree, err := parser.ParseCtx(ctx, nil, content)
+	tree, err := w.parser.ParseCtx(ctx, nil, content)
 	if err != nil {
 		w.logger.Error("tree-sitter parse error", "file", filePath, "error", err)
 		return nil, nil, nil, fmt.Errorf("parse error: %w", err)
 	}
 
 	root := tree.RootNode()
-
-	queryContent, err := queriesFS.ReadFile(fmt.Sprintf("queries/%s/tags.scm", w.spec.Name))
-	if err != nil {
-		w.logger.Debug("no query file found for language", "language", w.spec.Name)
-		queryContent = []byte{}
-	}
 
 	var nodes []model.Node
 	var edges []model.Edge
@@ -110,8 +121,8 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 
 	var pkgName string
 
-	if len(queryContent) > 0 {
-		nodes, edges, pkgName, interfaces, err = w.executeQueries(queryContent, lang, root, content, filePath, nodes, edges)
+	if w.query != nil {
+		nodes, edges, pkgName, interfaces, err = w.executeQueries(root, content, filePath, nodes, edges)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -139,14 +150,11 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 	return nodes, edges, comments, nil
 }
 
-func (w *Walker) executeQueries(queryContent []byte, lang *sitter.Language, root *sitter.Node, content []byte, filePath string, nodes []model.Node, edges []model.Edge) ([]model.Node, []model.Edge, string, []interfaceInfo, error) {
-	q, err := sitter.NewQuery(queryContent, lang)
-	if err != nil {
-		return nil, nil, "", nil, fmt.Errorf("invalid query: %w", err)
-	}
-
+func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath string, nodes []model.Node, edges []model.Edge) ([]model.Node, []model.Edge, string, []interfaceInfo, error) {
+	// w.query는 NewWalker에서 이미 컴파일됨 (불변이므로 공유 안전)
+	// QueryCursor는 스레드 안전하지 않아 매번 새로 생성한다.
 	qc := sitter.NewQueryCursor()
-	qc.Exec(q, root)
+	qc.Exec(w.query, root)
 
 	var pkgName string
 	var interfaces []interfaceInfo
@@ -163,7 +171,7 @@ func (w *Walker) executeQueries(queryContent []byte, lang *sitter.Language, root
 		var defType string
 
 		for _, c := range m.Captures {
-			capName := q.CaptureNameForId(c.Index)
+			capName := w.query.CaptureNameForId(c.Index)
 			if strings.HasPrefix(capName, "definition.") {
 				defNode = c.Node
 				defType = strings.TrimPrefix(capName, "definition.")
@@ -243,7 +251,7 @@ func (w *Walker) executeQueries(queryContent []byte, lang *sitter.Language, root
 					break
 				}
 			}
-			
+
 			if !exists {
 				nodes = append(nodes, model.Node{
 					QualifiedName: qName,
@@ -255,7 +263,7 @@ func (w *Walker) executeQueries(queryContent []byte, lang *sitter.Language, root
 					Language:      w.spec.Name,
 				})
 			}
-			
+
 			if implementsNode != nil {
 				traitName := implementsNode.Content(content)
 				edges = append(edges, model.Edge{
@@ -283,7 +291,7 @@ func (w *Walker) executeQueries(queryContent []byte, lang *sitter.Language, root
 			importPath := importNode.Content(content)
 			importPath = strings.Trim(importPath, "\"'`")
 			line := int(importNode.StartPoint().Row) + 1
-			
+
 			exists := false
 			for _, e := range edges {
 				if e.Kind == model.EdgeKindImportsFrom && e.Line == line && strings.Contains(e.Fingerprint, importPath) {
@@ -291,7 +299,7 @@ func (w *Walker) executeQueries(queryContent []byte, lang *sitter.Language, root
 					break
 				}
 			}
-			
+
 			if !exists {
 				edges = append(edges, model.Edge{
 					Kind:        model.EdgeKindImportsFrom,
@@ -527,15 +535,11 @@ type CommentBlock struct {
 }
 
 func (w *Walker) ExtractComments(ctx context.Context, filePath string, content []byte) ([]CommentBlock, error) {
-	lang, err := w.getLanguage()
-	if err != nil {
-		return nil, err
+	if w.parser == nil {
+		return nil, fmt.Errorf("unsupported language: %s", w.spec.Name)
 	}
 
-	parser := sitter.NewParser()
-	parser.SetLanguage(lang)
-
-	tree, err := parser.ParseCtx(ctx, nil, content)
+	tree, err := w.parser.ParseCtx(ctx, nil, content)
 	if err != nil {
 		return nil, fmt.Errorf("parse error: %w", err)
 	}

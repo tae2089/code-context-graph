@@ -1618,3 +1618,63 @@ func TestE2E_SearchAcrossLanguages(t *testing.T) {
 		}
 	}
 }
+
+// TestNewWalker_CachesParserAndQuery verifies that NewWalker pre-initializes
+// the parser and query fields to avoid per-file CGO allocation overhead.
+func TestNewWalker_CachesParserAndQuery(t *testing.T) {
+	specs := []*LangSpec{GoSpec, PythonSpec, JavaScriptSpec}
+	for _, spec := range specs {
+		t.Run(spec.Name, func(t *testing.T) {
+			w := NewWalker(spec)
+			if w.parser == nil {
+				t.Errorf("expected parser to be initialized for language %q, got nil", spec.Name)
+			}
+			if w.query == nil {
+				t.Errorf("expected query to be initialized for language %q (tags.scm must exist), got nil", spec.Name)
+			}
+		})
+	}
+}
+
+// TestNewWalker_UnsupportedLang verifies that NewWalker with an unsupported
+// language spec leaves parser and query as nil, and ParseWithComments returns error.
+func TestNewWalker_UnsupportedLang(t *testing.T) {
+	unsupported := &LangSpec{Name: "brainfuck"}
+	w := NewWalker(unsupported)
+	if w.parser != nil {
+		t.Errorf("expected parser to be nil for unsupported language, got non-nil")
+	}
+	_, _, _, err := w.ParseWithComments(context.Background(), "file.bf", []byte("+++"))
+	if err == nil {
+		t.Error("expected error for unsupported language, got nil")
+	}
+}
+
+// TestWalker_ParseWithComments_IdempotentWithCachedParser verifies that parsing
+// the same content twice with the same Walker produces identical results,
+// confirming the cached parser is correctly reset between calls.
+func TestWalker_ParseWithComments_IdempotentWithCachedParser(t *testing.T) {
+	src := []byte(`package main
+
+func hello() {}
+func world() {}
+`)
+	w := NewWalker(GoSpec)
+
+	nodes1, edges1, _, err := w.ParseWithComments(context.Background(), "main.go", src)
+	if err != nil {
+		t.Fatalf("first parse failed: %v", err)
+	}
+
+	nodes2, edges2, _, err := w.ParseWithComments(context.Background(), "main.go", src)
+	if err != nil {
+		t.Fatalf("second parse failed: %v", err)
+	}
+
+	if len(nodes1) != len(nodes2) {
+		t.Errorf("node count mismatch: first=%d second=%d", len(nodes1), len(nodes2))
+	}
+	if len(edges1) != len(edges2) {
+		t.Errorf("edge count mismatch: first=%d second=%d", len(edges1), len(edges2))
+	}
+}
