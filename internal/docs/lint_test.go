@@ -287,6 +287,84 @@ func TestLint_DetectsContradiction(t *testing.T) {
 	}
 }
 
+func TestLint_DetectsDeadRef(t *testing.T) {
+	db := newLintTestDB(t)
+	outDir := t.TempDir()
+
+	node := model.Node{
+		QualifiedName: "pkg/pay.go::Pay",
+		Kind:          model.NodeKindFunction,
+		Name:          "Pay",
+		FilePath:      "pkg/pay.go",
+		StartLine:     1, EndLine: 10,
+		Hash: "h1", Language: "go",
+	}
+	db.Create(&node)
+
+	db.Create(&model.Annotation{
+		NodeID: node.ID,
+		Tags: []model.DocTag{
+			{Kind: model.TagSee, Value: "pkg/removed.go::Gone", Ordinal: 0},
+			{Kind: model.TagIntent, Value: "process payment", Ordinal: 1},
+		},
+	})
+
+	gen := &Generator{DB: db, OutDir: outDir}
+	report, err := gen.Lint()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(report.DeadRefs) != 1 {
+		t.Fatalf("expected 1 dead ref, got %d: %v", len(report.DeadRefs), report.DeadRefs)
+	}
+	if report.DeadRefs[0].SeeTarget != "pkg/removed.go::Gone" {
+		t.Errorf("expected see target 'pkg/removed.go::Gone', got %q", report.DeadRefs[0].SeeTarget)
+	}
+}
+
+func TestLint_ValidRef_NotDeadRef(t *testing.T) {
+	db := newLintTestDB(t)
+	outDir := t.TempDir()
+
+	target := model.Node{
+		QualifiedName: "pkg/util.go::Helper",
+		Kind:          model.NodeKindFunction,
+		Name:          "Helper",
+		FilePath:      "pkg/util.go",
+		StartLine:     1, EndLine: 5,
+		Hash: "h1", Language: "go",
+	}
+	db.Create(&target)
+
+	source := model.Node{
+		QualifiedName: "pkg/pay.go::Pay",
+		Kind:          model.NodeKindFunction,
+		Name:          "Pay",
+		FilePath:      "pkg/pay.go",
+		StartLine:     1, EndLine: 10,
+		Hash: "h2", Language: "go",
+	}
+	db.Create(&source)
+
+	db.Create(&model.Annotation{
+		NodeID: source.ID,
+		Tags: []model.DocTag{
+			{Kind: model.TagSee, Value: "pkg/util.go::Helper", Ordinal: 0},
+		},
+	})
+
+	gen := &Generator{DB: db, OutDir: outDir}
+	report, err := gen.Lint()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(report.DeadRefs) != 0 {
+		t.Errorf("expected 0 dead refs, got %v", report.DeadRefs)
+	}
+}
+
 func TestLint_NoContradiction_WhenAnnotationFresh(t *testing.T) {
 	db := newLintTestDB(t)
 	outDir := t.TempDir()

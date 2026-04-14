@@ -20,13 +20,22 @@ type Contradiction struct {
 	Detail        string
 }
 
+// DeadRef represents an @see tag whose target qualified name does not exist in
+// the graph. This indicates a broken cross-reference that should be updated or
+// removed.
+type DeadRef struct {
+	QualifiedName string // the symbol that contains the @see tag
+	SeeTarget     string // the @see value that could not be resolved
+}
+
 // LintReport contains the results of a documentation lint check.
 type LintReport struct {
-	Orphans        []string       // doc files with no matching source in the graph
-	Missing        []string       // source files in the graph with no doc file
-	Stale          []string       // doc files older than the source's last update
-	Unannotated    []string       // qualified names of symbols with no annotation
+	Orphans        []string        // doc files with no matching source in the graph
+	Missing        []string        // source files in the graph with no doc file
+	Stale          []string        // doc files older than the source's last update
+	Unannotated    []string        // qualified names of symbols with no annotation
 	Contradictions []Contradiction // annotated symbols whose code changed after the annotation
+	DeadRefs       []DeadRef       // @see targets that do not exist in the graph
 }
 
 // Lint checks the documentation directory against the code graph and
@@ -152,8 +161,9 @@ func (g *Generator) Lint() (*LintReport, error) {
 	}
 
 	// 5. Find contradictions: annotation has @param but node was updated after annotation.
+	// Also load annotations for step 6 (dead-ref detection).
+	var anns []model.Annotation
 	if len(ids) > 0 {
-		var anns []model.Annotation
 		if err := g.DB.Where("node_id IN ?", ids).Preload("Tags").Find(&anns).Error; err != nil {
 			return nil, fmt.Errorf("query annotations for contradiction: %w", err)
 		}
@@ -183,6 +193,32 @@ func (g *Generator) Lint() (*LintReport, error) {
 			return report.Contradictions[i].QualifiedName < report.Contradictions[j].QualifiedName
 		})
 	}
+
+	// 6. Find dead refs: @see targets that don't exist in the graph.
+	for _, a := range anns {
+		n := nodeByID[a.NodeID]
+		if n == nil {
+			continue
+		}
+		for _, tag := range a.Tags {
+			if tag.Kind != model.TagSee {
+				continue
+			}
+			var count int64
+			if err := g.DB.Model(&model.Node{}).Where("qualified_name = ?", tag.Value).Count(&count).Error; err != nil {
+				return nil, fmt.Errorf("query dead ref for %q → %q: %w", n.QualifiedName, tag.Value, err)
+			}
+			if count == 0 {
+				report.DeadRefs = append(report.DeadRefs, DeadRef{
+					QualifiedName: n.QualifiedName,
+					SeeTarget:     tag.Value,
+				})
+			}
+		}
+	}
+	sort.Slice(report.DeadRefs, func(i, j int) bool {
+		return report.DeadRefs[i].QualifiedName < report.DeadRefs[j].QualifiedName
+	})
 
 	sort.Strings(report.Orphans)
 	sort.Strings(report.Missing)
