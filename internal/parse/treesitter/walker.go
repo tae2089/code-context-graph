@@ -100,6 +100,7 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 		w.logger.Error("tree-sitter parse error", "file", filePath, "error", err)
 		return nil, nil, nil, fmt.Errorf("parse error: %w", err)
 	}
+	defer tree.Close()
 
 	root := tree.RootNode()
 
@@ -154,6 +155,7 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 	// w.query는 NewWalker에서 이미 컴파일됨 (불변이므로 공유 안전)
 	// QueryCursor는 스레드 안전하지 않아 매번 새로 생성한다.
 	qc := sitter.NewQueryCursor()
+	defer qc.Close()
 	qc.Exec(w.query, root)
 
 	var pkgName string
@@ -543,6 +545,7 @@ func (w *Walker) ExtractComments(ctx context.Context, filePath string, content [
 	if err != nil {
 		return nil, fmt.Errorf("parse error: %w", err)
 	}
+	defer tree.Close()
 
 	var comments []CommentBlock
 	w.collectComments(tree.RootNode(), content, &comments)
