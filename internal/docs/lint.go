@@ -148,53 +148,51 @@ func (g *Generator) Lint() (*LintReport, error) {
 		nodeByID[n.ID] = n
 	}
 
+	// 4a. Load all annotations for symbol nodes (single query with tags).
+	var anns []model.Annotation
+	annotated := map[uint]*model.Annotation{}
 	if len(ids) > 0 {
-		var annotations []model.Annotation
-		g.DB.Select("node_id").Where("node_id IN ?", ids).Find(&annotations)
-		annotated := map[uint]bool{}
-		for _, a := range annotations {
-			annotated[a.NodeID] = true
+		if err := g.DB.Where("node_id IN ?", ids).Preload("Tags").Find(&anns).Error; err != nil {
+			return nil, fmt.Errorf("query annotations: %w", err)
 		}
-		for _, id := range ids {
-			if !annotated[id] {
-				report.Unannotated = append(report.Unannotated, nodeByID[id].QualifiedName)
-			}
+		for i := range anns {
+			annotated[anns[i].NodeID] = &anns[i]
+		}
+	}
+
+	// 4b. Unannotated: symbol nodes with no annotation at all.
+	for _, id := range ids {
+		if _, ok := annotated[id]; !ok {
+			report.Unannotated = append(report.Unannotated, nodeByID[id].QualifiedName)
 		}
 	}
 
 	// 5. Find contradictions: annotation has @param but node was updated after annotation.
-	// Also load annotations for step 6 (dead-ref detection).
-	var anns []model.Annotation
-	if len(ids) > 0 {
-		if err := g.DB.Where("node_id IN ?", ids).Preload("Tags").Find(&anns).Error; err != nil {
-			return nil, fmt.Errorf("query annotations for contradiction: %w", err)
-		}
-		for _, a := range anns {
-			hasParam := false
-			for _, tag := range a.Tags {
-				if tag.Kind == model.TagParam {
-					hasParam = true
-					break
-				}
-			}
-			if !hasParam {
-				continue
-			}
-			n := nodeByID[a.NodeID]
-			if n == nil {
-				continue
-			}
-			if n.UpdatedAt.After(a.UpdatedAt) {
-				report.Contradictions = append(report.Contradictions, Contradiction{
-					QualifiedName: n.QualifiedName,
-					Detail:        "@param exists but node updated since annotation",
-				})
+	for _, a := range anns {
+		hasParam := false
+		for _, tag := range a.Tags {
+			if tag.Kind == model.TagParam {
+				hasParam = true
+				break
 			}
 		}
-		sort.Slice(report.Contradictions, func(i, j int) bool {
-			return report.Contradictions[i].QualifiedName < report.Contradictions[j].QualifiedName
-		})
+		if !hasParam {
+			continue
+		}
+		n := nodeByID[a.NodeID]
+		if n == nil {
+			continue
+		}
+		if n.UpdatedAt.After(a.UpdatedAt) {
+			report.Contradictions = append(report.Contradictions, Contradiction{
+				QualifiedName: n.QualifiedName,
+				Detail:        "@param exists but node updated since annotation",
+			})
+		}
 	}
+	sort.Slice(report.Contradictions, func(i, j int) bool {
+		return report.Contradictions[i].QualifiedName < report.Contradictions[j].QualifiedName
+	})
 
 	// 6. Find dead refs: @see targets that don't exist in the graph.
 	for _, a := range anns {
