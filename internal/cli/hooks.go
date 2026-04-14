@@ -12,11 +12,13 @@ import (
 const hookGuardBegin = "# --- ccg hook begin ---"
 const hookGuardEnd = "# --- ccg hook end ---"
 
-const hookBody = `
-` + hookGuardBegin + `
-ccg build . && ccg docs && ccg lint --strict
-` + hookGuardEnd + `
-`
+func buildHookBody(strict bool) string {
+	lint := "ccg lint"
+	if strict {
+		lint = "ccg lint --strict"
+	}
+	return "\n" + hookGuardBegin + "\nccg build . && ccg docs && " + lint + "\n" + hookGuardEnd + "\n"
+}
 
 func newHooksCmd(_ *Deps) *cobra.Command {
 	hooksCmd := &cobra.Command{
@@ -29,12 +31,14 @@ func newHooksCmd(_ *Deps) *cobra.Command {
 
 func newHooksInstallCmd() *cobra.Command {
 	var gitDir string
+	var lintStrict bool
 
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Install ccg pre-commit git hook",
-		Long: `Install a pre-commit hook that runs "ccg build && ccg docs" on every commit.
+		Long: `Install a pre-commit hook that runs "ccg build && ccg docs && ccg lint".
 
+Use --strict to block commits when lint finds issues.
 If a pre-commit hook already exists, the ccg block is appended (idempotent).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -66,7 +70,7 @@ If a pre-commit hook already exists, the ccg block is appended (idempotent).`,
 				content = "#!/bin/sh\n"
 			}
 
-			content += hookBody
+			content += buildHookBody(lintStrict)
 
 			if err := os.WriteFile(hookPath, []byte(content), 0o755); err != nil {
 				return fmt.Errorf("write pre-commit hook: %w", err)
@@ -78,5 +82,6 @@ If a pre-commit hook already exists, the ccg block is appended (idempotent).`,
 	}
 
 	cmd.Flags().StringVar(&gitDir, "git-dir", "", "Path to the git repository root (default: current directory)")
+	cmd.Flags().BoolVar(&lintStrict, "lint-strict", false, "Include --strict on ccg lint (blocks commit on issues)")
 	return cmd
 }

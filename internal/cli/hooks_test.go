@@ -30,6 +30,10 @@ func TestHooksInstall_CreatesPreCommitHook(t *testing.T) {
 			t.Errorf("expected %q in hook, got:\n%s", want, hook)
 		}
 	}
+	// Without --strict flag, lint should NOT have --strict
+	if strings.Contains(hook, "--strict") {
+		t.Errorf("expected no --strict without flag, got:\n%s", hook)
+	}
 
 	// Hook must be executable
 	info, err := os.Stat(hookPath)
@@ -38,6 +42,29 @@ func TestHooksInstall_CreatesPreCommitHook(t *testing.T) {
 	}
 	if info.Mode()&0o111 == 0 {
 		t.Errorf("expected hook to be executable, mode: %v", info.Mode())
+	}
+}
+
+func TestHooksInstall_StrictFlag(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoDir, ".git", "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	deps, stdout, stderr := newTestDeps()
+	if err := executeCmd(deps, stdout, stderr, "hooks", "install", "--git-dir", repoDir, "--lint-strict"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	hookPath := filepath.Join(repoDir, ".git", "hooks", "pre-commit")
+	content, err := os.ReadFile(hookPath)
+	if err != nil {
+		t.Fatalf("expected pre-commit hook at %s: %v", hookPath, err)
+	}
+
+	hook := string(content)
+	if !strings.Contains(hook, "ccg lint --strict") {
+		t.Errorf("expected 'ccg lint --strict' in hook, got:\n%s", hook)
 	}
 }
 
