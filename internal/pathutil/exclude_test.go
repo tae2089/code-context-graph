@@ -40,6 +40,17 @@ func TestMatchExcludes(t *testing.T) {
 
 		// OS 경로 구분자 (Windows 스타일 입력)
 		{name: "backslash relpath", patterns: []string{"internal/legacy"}, relPath: `internal\legacy\foo.go`, want: true},
+
+		{name: "regex test suffix", patterns: []string{`.*_test\.go$`}, relPath: "pkg/foo_test.go", want: true},
+		{name: "regex test suffix no match", patterns: []string{`.*_test\.go$`}, relPath: "pkg/foo.go", want: false},
+		{name: "regex pb.go suffix", patterns: []string{`.*\.pb\.go$`}, relPath: "internal/foo.pb.go", want: true},
+		{name: "regex pb.go suffix no match", patterns: []string{`.*\.pb\.go$`}, relPath: "internal/foo.go", want: false},
+		{name: "regex vendor prefix", patterns: []string{`vendor/.*`}, relPath: "vendor/pkg/foo.go", want: true},
+		{name: "regex vendor prefix no match", patterns: []string{`vendor/.*`}, relPath: "internal/foo.go", want: false},
+		{name: "regex deep path", patterns: []string{`.*_test\.go$`}, relPath: "a/b/c/foo_test.go", want: true},
+		{name: "regex mixed with glob", patterns: []string{`.*_test\.go$`, "vendor"}, relPath: "vendor/foo.go", want: true},
+		{name: "regex anchored end only", patterns: []string{`_generated\.go$`}, relPath: "internal/foo_generated.go", want: true},
+		{name: "regex anchored end no match", patterns: []string{`_generated\.go$`}, relPath: "internal/foo_generated.go.bak", want: false},
 	}
 
 	for _, tt := range tests {

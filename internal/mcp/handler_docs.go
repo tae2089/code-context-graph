@@ -17,10 +17,13 @@ import (
 // deps.RagIndexDir이 비어 있으면 ".ccg"를 기본값으로 사용한다.
 // @intent 문서 인덱스 파일 위치를 한 곳에서 계산해 docs 도구들이 같은 경로를 사용하게 한다.
 // @return doc-index.json의 실제 파일 경로를 반환한다.
-func (h *handlers) ragIndexPath() string {
+func (h *handlers) ragIndexPath(workspace string) string {
 	dir := h.deps.RagIndexDir
 	if dir == "" {
 		dir = ".ccg"
+	}
+	if workspace != "" {
+		return filepath.Join(dir, workspace, "doc-index.json")
 	}
 	return filepath.Join(dir, "doc-index.json")
 }
@@ -48,6 +51,10 @@ func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolReques
 		indexDir = h.deps.RagIndexDir
 	}
 
+	if workspace != "" && indexDir != "" {
+		indexDir = filepath.Join(indexDir, workspace)
+	}
+
 	b := &ragindex.Builder{
 		DB:          h.deps.DB,
 		OutDir:      outDir,
@@ -73,15 +80,15 @@ func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolReques
 func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	communityID := request.GetString("community_id", "")
 	depth := int(request.GetFloat("depth", 0))
+	workspace := request.GetString("workspace", "")
 
-	// doc-index.json mtime을 캐시 키에 포함
 	var indexMtime int64
-	if stat, statErr := os.Stat(h.ragIndexPath()); statErr == nil {
+	if stat, statErr := os.Stat(h.ragIndexPath(workspace)); statErr == nil {
 		indexMtime = stat.ModTime().UnixNano()
 	}
 
-	return finalizeToolResult(h.cachedExecute("get_rag_tree:", map[string]any{"community_id": communityID, "depth": depth, "mtime": indexMtime}, func() (string, error) {
-		idx, err := ragindex.LoadIndex(h.ragIndexPath())
+	return finalizeToolResult(h.cachedExecute("get_rag_tree:", map[string]any{"community_id": communityID, "depth": depth, "workspace": workspace, "mtime": indexMtime}, func() (string, error) {
+		idx, err := ragindex.LoadIndex(h.ragIndexPath(workspace))
 		if err != nil {
 			return "", newToolResultErr(fmt.Sprintf("load doc-index: %v", err))
 		}
@@ -172,15 +179,15 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 	if limit <= 0 {
 		limit = 10
 	}
+	workspace := request.GetString("workspace", "")
 
-	// doc-index.json mtime을 캐시 키에 포함
 	var indexMtime int64
-	if stat, statErr := os.Stat(h.ragIndexPath()); statErr == nil {
+	if stat, statErr := os.Stat(h.ragIndexPath(workspace)); statErr == nil {
 		indexMtime = stat.ModTime().UnixNano()
 	}
 
-	return finalizeToolResult(h.cachedExecute("search_docs:", map[string]any{"query": query, "limit": limit, "mtime": indexMtime}, func() (string, error) {
-		idx, err := ragindex.LoadIndex(h.ragIndexPath())
+	return finalizeToolResult(h.cachedExecute("search_docs:", map[string]any{"query": query, "limit": limit, "workspace": workspace, "mtime": indexMtime}, func() (string, error) {
+		idx, err := ragindex.LoadIndex(h.ragIndexPath(workspace))
 		if err != nil {
 			return "", newToolResultErr(fmt.Sprintf("load doc-index: %v", err))
 		}

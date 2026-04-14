@@ -3,6 +3,7 @@ package pathutil
 
 import (
 	"path"
+	"regexp"
 	"strings"
 
 	"path/filepath"
@@ -43,6 +44,17 @@ func MatchExcludes(patterns []string, relPath string) bool {
 	for _, pat := range patterns {
 		pat = filepath.ToSlash(strings.TrimSuffix(pat, "/"))
 
+		if IsRegexPattern(pat) {
+			re, err := regexp.Compile(pat)
+			if err != nil {
+				continue
+			}
+			if re.MatchString(slashPath) {
+				return true
+			}
+			continue
+		}
+
 		// 1. Exact match or path prefix match (directory exclusion).
 		if slashPath == pat || strings.HasPrefix(slashPath, pat+"/") {
 			return true
@@ -63,4 +75,11 @@ func MatchExcludes(patterns []string, relPath string) bool {
 	}
 
 	return false
+}
+
+// IsRegexPattern detects whether a pattern uses regex syntax rather than glob.
+// Checks for anchors ($) and escape sequences (\.) that are regex-specific.
+// @intent glob과 정규표현식 패턴을 구분해 적절한 매칭 엔진을 선택한다.
+func IsRegexPattern(pat string) bool {
+	return strings.ContainsAny(pat, "$^+{}|") || strings.Contains(pat, `\.`) || strings.Contains(pat, ".*")
 }

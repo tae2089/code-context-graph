@@ -3,59 +3,6 @@ output:
   per_file: true
   index: true
 
-languages:
-  - name: go
-    extensions: [".go"]
-    queries:
-      functions: |
-        (function_declaration name: (identifier) @name) @function
-        (method_declaration name: (field_identifier) @name) @function
-        (type_spec name: (type_identifier) @name) @function
-      comments: "(comment) @comment"
-
-  - name: java
-    extensions: [".java"]
-    queries:
-      functions: |
-        (method_declaration name: (identifier) @name) @function
-        (constructor_declaration name: (identifier) @name) @function
-        (variable_declarator name: (identifier) @name value: (lambda_expression)) @function
-        (class_declaration name: (identifier) @name) @function
-        (interface_declaration name: (identifier) @name) @function
-      comments: "(block_comment) @comment"
-
-  - name: typescript
-    extensions: [".ts", ".tsx"]
-    queries:
-      functions: |
-        (function_declaration name: (identifier) @name) @function
-        (method_definition name: (property_identifier) @name) @function
-        (variable_declarator name: (identifier) @name value: (arrow_function)) @function
-        (variable_declarator name: (identifier) @name value: (function_expression)) @function
-        (class_declaration name: (type_identifier) @name) @function
-        (interface_declaration name: (type_identifier) @name) @function
-        (type_alias_declaration name: (type_identifier) @name) @function
-      comments: "(comment) @comment"
-
-  - name: python
-    extensions: [".py"]
-    queries:
-      functions: |
-        (function_definition name: (identifier) @name) @function
-        (assignment left: (identifier) @name right: (lambda)) @function
-        (class_definition name: (identifier) @name) @function
-      comments: "(comment) @comment"
-
-  - name: kotlin
-    extensions: [".kt", ".kts"]
-    queries:
-      functions: |
-        (function_declaration (simple_identifier) @name) @function
-        (class_declaration (type_identifier) @name) @function
-        (object_declaration (type_identifier) @name) @function
-        (interface_declaration (simple_identifier) @name) @function
-      comments: "(multiline_comment) @comment\n(line_comment) @comment"
-
 # exclude: regex 패턴 목록. 파일 경로가 매칭되면 파싱에서 제외된다.
 exclude:
   - ".*_test\\.go$"

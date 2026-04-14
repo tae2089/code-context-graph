@@ -2349,3 +2349,100 @@ func TestGetDocContent_WorkspacePathTraversal(t *testing.T) {
 		})
 	}
 }
+
+func TestSearchDocs_WithWorkspace(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = tmpDir
+
+	wsIndexDir := filepath.Join(tmpDir, "my-service")
+	if err := os.MkdirAll(wsIndexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	idx := &ragindex.Index{
+		Root: &ragindex.TreeNode{
+			ID:    "root",
+			Label: "project",
+			Children: []*ragindex.TreeNode{
+				{ID: "community:auth", Label: "auth", Summary: "authentication module"},
+			},
+		},
+	}
+	idxBytes, _ := json.Marshal(idx)
+	if err := os.WriteFile(filepath.Join(wsIndexDir, "doc-index.json"), idxBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := callTool(t, deps, "search_docs", map[string]any{
+		"query":     "auth",
+		"workspace": "my-service",
+	})
+	if result.IsError {
+		t.Fatalf("search_docs with workspace error: %v", getTextContent(result))
+	}
+	got := getTextContent(result)
+	if !strings.Contains(got, "auth") {
+		t.Errorf("expected result containing 'auth', got %q", got)
+	}
+}
+
+func TestGetRagTree_WithWorkspace(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = tmpDir
+
+	wsIndexDir := filepath.Join(tmpDir, "my-service")
+	if err := os.MkdirAll(wsIndexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	idx := &ragindex.Index{
+		Root: &ragindex.TreeNode{
+			ID:    "root",
+			Label: "project",
+			Children: []*ragindex.TreeNode{
+				{ID: "community:payments", Label: "payments", Summary: "payment processing"},
+			},
+		},
+	}
+	idxBytes, _ := json.Marshal(idx)
+	if err := os.WriteFile(filepath.Join(wsIndexDir, "doc-index.json"), idxBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := callTool(t, deps, "get_rag_tree", map[string]any{
+		"workspace": "my-service",
+	})
+	if result.IsError {
+		t.Fatalf("get_rag_tree with workspace error: %v", getTextContent(result))
+	}
+	got := getTextContent(result)
+	if !strings.Contains(got, "payments") {
+		t.Errorf("expected result containing 'payments', got %q", got)
+	}
+}
+
+func TestBuildRagIndex_WritesToWorkspaceIndexDir(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = tmpDir
+
+	wsDir := filepath.Join(tmpDir, "workspaces", "my-service", "docs")
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	deps.WorkspaceRoot = filepath.Join(tmpDir, "workspaces")
+
+	result := callTool(t, deps, "build_rag_index", map[string]any{
+		"workspace": "my-service",
+	})
+	if result.IsError {
+		t.Fatalf("build_rag_index with workspace error: %v", getTextContent(result))
+	}
+
+	wsIndexPath := filepath.Join(tmpDir, "my-service", "doc-index.json")
+	if _, err := os.Stat(wsIndexPath); os.IsNotExist(err) {
+		t.Errorf("expected workspace index at %s, but not found", wsIndexPath)
+	}
+}
