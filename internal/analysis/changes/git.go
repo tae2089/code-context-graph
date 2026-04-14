@@ -52,15 +52,12 @@ func (g *ExecGitClient) DiffHunks(ctx context.Context, repoDir, baseRef string, 
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "+++ b/") {
-			currentFile = strings.TrimPrefix(line, "+++ b/")
+		if after, ok := strings.CutPrefix(line, "+++ b/"); ok {
+			currentFile = after
 		} else if strings.HasPrefix(line, "@@ ") {
 			start, count := parseHunkHeader(line)
 			if start > 0 && currentFile != "" {
-				end := start + count - 1
-				if end < start {
-					end = start
-				}
+				end := max(start+count-1, start)
 				hunks = append(hunks, Hunk{
 					FilePath:  currentFile,
 					StartLine: start,
@@ -77,15 +74,11 @@ func (g *ExecGitClient) DiffHunks(ctx context.Context, repoDir, baseRef string, 
 
 func parseHunkHeader(line string) (start, count int) {
 	// @@ -oldStart,oldCount +newStart,newCount @@
-	plusIdx := strings.Index(line, "+")
-	if plusIdx < 0 {
+	_, after, ok := strings.Cut(line, "+")
+	if !ok {
 		return 0, 0
 	}
-	rest := line[plusIdx+1:]
-	spaceIdx := strings.Index(rest, " ")
-	if spaceIdx > 0 {
-		rest = rest[:spaceIdx]
-	}
+	rest, _, _ := strings.Cut(after, " ")
 	parts := strings.SplitN(rest, ",", 2)
 	s, err := strconv.Atoi(parts[0])
 	if err != nil {
