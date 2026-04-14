@@ -399,3 +399,142 @@ func TestLint_NoContradiction_WhenAnnotationFresh(t *testing.T) {
 		t.Errorf("expected 0 contradictions, got %d: %v", len(report.Contradictions), report.Contradictions)
 	}
 }
+
+func TestLint_DetectsIncomplete(t *testing.T) {
+	db := newLintTestDB(t)
+	outDir := t.TempDir()
+
+	node := model.Node{
+		QualifiedName: "pkg/util.go::Parse",
+		Kind:          model.NodeKindFunction,
+		Name:          "Parse",
+		FilePath:      "pkg/util.go",
+		StartLine:     1, EndLine: 10,
+		Hash: "h1", Language: "go",
+	}
+	db.Create(&node)
+
+	// Annotation exists but has NO @intent tag — only @param
+	db.Create(&model.Annotation{
+		NodeID:  node.ID,
+		Summary: "Parses input",
+		Tags:    []model.DocTag{{Kind: model.TagParam, Name: "s", Value: "input string", Ordinal: 0}},
+	})
+
+	gen := &Generator{DB: db, OutDir: outDir}
+	report, err := gen.Lint()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(report.Incomplete) != 1 {
+		t.Fatalf("expected 1 incomplete, got %d: %v", len(report.Incomplete), report.Incomplete)
+	}
+	if report.Incomplete[0] != "pkg/util.go::Parse" {
+		t.Errorf("expected 'pkg/util.go::Parse', got %q", report.Incomplete[0])
+	}
+}
+
+func TestLint_CompleteAnnotation_NotIncomplete(t *testing.T) {
+	db := newLintTestDB(t)
+	outDir := t.TempDir()
+
+	node := model.Node{
+		QualifiedName: "pkg/util.go::Parse",
+		Kind:          model.NodeKindFunction,
+		Name:          "Parse",
+		FilePath:      "pkg/util.go",
+		StartLine:     1, EndLine: 10,
+		Hash: "h1", Language: "go",
+	}
+	db.Create(&node)
+
+	db.Create(&model.Annotation{
+		NodeID: node.ID,
+		Tags: []model.DocTag{
+			{Kind: model.TagIntent, Value: "parse user input", Ordinal: 0},
+			{Kind: model.TagParam, Name: "s", Value: "input string", Ordinal: 1},
+		},
+	})
+
+	gen := &Generator{DB: db, OutDir: outDir}
+	report, err := gen.Lint()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(report.Incomplete) != 0 {
+		t.Errorf("expected 0 incomplete, got %v", report.Incomplete)
+	}
+}
+
+func TestLint_DetectsDrift(t *testing.T) {
+	db := newLintTestDB(t)
+	outDir := t.TempDir()
+
+	node := model.Node{
+		QualifiedName: "pkg/session.go::Validate",
+		Kind:          model.NodeKindFunction,
+		Name:          "Validate",
+		FilePath:      "pkg/session.go",
+		StartLine:     1, EndLine: 10,
+		Hash: "h1", Language: "go",
+	}
+	db.Create(&node)
+
+	ann := model.Annotation{
+		NodeID: node.ID,
+		Tags:   []model.DocTag{{Kind: model.TagIntent, Value: "validate session", Ordinal: 0}},
+	}
+	db.Create(&ann)
+
+	// Force node UpdatedAt to be AFTER annotation UpdatedAt
+	db.Model(&model.Node{}).Where("id = ?", node.ID).Update("updated_at", time.Now().Add(1*time.Hour))
+
+	gen := &Generator{DB: db, OutDir: outDir}
+	report, err := gen.Lint()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(report.Drifted) != 1 {
+		t.Fatalf("expected 1 drifted, got %d: %v", len(report.Drifted), report.Drifted)
+	}
+	if report.Drifted[0] != "pkg/session.go::Validate" {
+		t.Errorf("expected 'pkg/session.go::Validate', got %q", report.Drifted[0])
+	}
+}
+
+func TestLint_NoDrift_WhenAnnotationFresh(t *testing.T) {
+	db := newLintTestDB(t)
+	outDir := t.TempDir()
+
+	node := model.Node{
+		QualifiedName: "pkg/session.go::Validate",
+		Kind:          model.NodeKindFunction,
+		Name:          "Validate",
+		FilePath:      "pkg/session.go",
+		StartLine:     1, EndLine: 10,
+		Hash: "h1", Language: "go",
+	}
+	db.Create(&node)
+
+	ann := model.Annotation{
+		NodeID: node.ID,
+		Tags:   []model.DocTag{{Kind: model.TagIntent, Value: "validate session", Ordinal: 0}},
+	}
+	db.Create(&ann)
+
+	// Force annotation UpdatedAt to be AFTER node UpdatedAt
+	db.Model(&model.Annotation{}).Where("id = ?", ann.ID).Update("updated_at", time.Now().Add(1*time.Hour))
+
+	gen := &Generator{DB: db, OutDir: outDir}
+	report, err := gen.Lint()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(report.Drifted) != 0 {
+		t.Errorf("expected 0 drifted, got %v", report.Drifted)
+	}
+}

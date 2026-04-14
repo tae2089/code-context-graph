@@ -36,6 +36,8 @@ type LintReport struct {
 	Unannotated    []string        // qualified names of symbols with no annotation
 	Contradictions []Contradiction // annotated symbols whose code changed after the annotation
 	DeadRefs       []DeadRef       // @see targets that do not exist in the graph
+	Incomplete     []string        // annotated symbols with no @intent tag
+	Drifted        []string        // annotated symbols whose node was updated after the annotation
 }
 
 // Lint checks the documentation directory against the code graph and
@@ -219,6 +221,37 @@ func (g *Generator) Lint() (*LintReport, error) {
 	sort.Slice(report.DeadRefs, func(i, j int) bool {
 		return report.DeadRefs[i].QualifiedName < report.DeadRefs[j].QualifiedName
 	})
+
+	// 7. Find incomplete annotations: annotation exists but no @intent tag.
+	for _, a := range anns {
+		n := nodeByID[a.NodeID]
+		if n == nil {
+			continue
+		}
+		hasIntent := false
+		for _, tag := range a.Tags {
+			if tag.Kind == model.TagIntent {
+				hasIntent = true
+				break
+			}
+		}
+		if !hasIntent {
+			report.Incomplete = append(report.Incomplete, n.QualifiedName)
+		}
+	}
+	sort.Strings(report.Incomplete)
+
+	// 8. Find drifted annotations: node updated after annotation.
+	for _, a := range anns {
+		n := nodeByID[a.NodeID]
+		if n == nil {
+			continue
+		}
+		if n.UpdatedAt.After(a.UpdatedAt) {
+			report.Drifted = append(report.Drifted, n.QualifiedName)
+		}
+	}
+	sort.Strings(report.Drifted)
 
 	sort.Strings(report.Orphans)
 	sort.Strings(report.Missing)
