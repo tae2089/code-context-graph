@@ -11,12 +11,22 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/pathutil"
 )
 
+// Contradiction represents a symbol whose annotation is outdated relative to
+// the code: the node was modified after the annotation was last written, and
+// the annotation contains detail tags (e.g. @param) that may no longer be
+// accurate.
+type Contradiction struct {
+	QualifiedName string
+	Detail        string
+}
+
 // LintReport contains the results of a documentation lint check.
 type LintReport struct {
-	Orphans     []string // doc files with no matching source in the graph
-	Missing     []string // source files in the graph with no doc file
-	Stale       []string // doc files older than the source's last update
-	Unannotated []string // qualified names of symbols with no annotation
+	Orphans        []string       // doc files with no matching source in the graph
+	Missing        []string       // source files in the graph with no doc file
+	Stale          []string       // doc files older than the source's last update
+	Unannotated    []string       // qualified names of symbols with no annotation
+	Contradictions []Contradiction // annotated symbols whose code changed after the annotation
 }
 
 // Lint checks the documentation directory against the code graph and
@@ -139,6 +149,43 @@ func (g *Generator) Lint() (*LintReport, error) {
 				report.Unannotated = append(report.Unannotated, nodeByID[id].QualifiedName)
 			}
 		}
+	}
+
+	// 5. Find contradictions: annotation has @param but node was updated after annotation.
+	if len(ids) > 0 {
+		var anns []model.Annotation
+		if err := g.DB.Where("node_id IN ?", ids).Preload("Tags").Find(&anns).Error; err != nil {
+			return nil, fmt.Errorf("query annotations for contradiction: %w", err)
+		}
+		for _, a := range anns {
+			hasParam := false
+			for _, tag := range a.Tags {
+				if tag.Kind == model.TagParam {
+					hasParam = true
+					break
+				}
+			}
+			if !hasParam {
+				continue
+			}
+			n := nodeByID[a.NodeID]
+			if n == nil {
+				continue
+			}
+			var freshNode model.Node
+			if err := g.DB.Select("updated_at").First(&freshNode, n.ID).Error; err != nil {
+				continue
+			}
+			if freshNode.UpdatedAt.After(a.UpdatedAt) {
+				report.Contradictions = append(report.Contradictions, Contradiction{
+					QualifiedName: n.QualifiedName,
+					Detail:        "@param exists but node updated since annotation",
+				})
+			}
+		}
+		sort.Slice(report.Contradictions, func(i, j int) bool {
+			return report.Contradictions[i].QualifiedName < report.Contradictions[j].QualifiedName
+		})
 	}
 
 	sort.Strings(report.Orphans)

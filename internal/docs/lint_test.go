@@ -246,3 +246,78 @@ func TestLint_SkipsTestNodesForUnannotated(t *testing.T) {
 		t.Errorf("test nodes should not be in unannotated list, got: %v", report.Unannotated)
 	}
 }
+
+func TestLint_DetectsContradiction(t *testing.T) {
+	db := newLintTestDB(t)
+	outDir := t.TempDir()
+
+	// Create a node
+	node := model.Node{
+		QualifiedName: "pkg/auth.go::Login",
+		Kind:          model.NodeKindFunction,
+		Name:          "Login",
+		FilePath:      "pkg/auth.go",
+		StartLine:     1, EndLine: 10,
+		Hash: "hash_v1", Language: "go",
+	}
+	db.Create(&node)
+
+	// Create annotation with @param tag
+	ann := model.Annotation{
+		NodeID:  node.ID,
+		Summary: "Handles login",
+		Tags:    []model.DocTag{{Kind: model.TagParam, Name: "ctx", Value: "request context", Ordinal: 0}},
+	}
+	db.Create(&ann)
+
+	// Force node UpdatedAt to be AFTER annotation UpdatedAt
+	db.Model(&model.Node{}).Where("id = ?", node.ID).Update("updated_at", time.Now().Add(1*time.Hour))
+
+	gen := &Generator{DB: db, OutDir: outDir}
+	report, err := gen.Lint()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(report.Contradictions) != 1 {
+		t.Fatalf("expected 1 contradiction, got %d: %v", len(report.Contradictions), report.Contradictions)
+	}
+	if report.Contradictions[0].QualifiedName != "pkg/auth.go::Login" {
+		t.Errorf("expected qualified name 'pkg/auth.go::Login', got %q", report.Contradictions[0].QualifiedName)
+	}
+}
+
+func TestLint_NoContradiction_WhenAnnotationFresh(t *testing.T) {
+	db := newLintTestDB(t)
+	outDir := t.TempDir()
+
+	node := model.Node{
+		QualifiedName: "pkg/auth.go::Login",
+		Kind:          model.NodeKindFunction,
+		Name:          "Login",
+		FilePath:      "pkg/auth.go",
+		StartLine:     1, EndLine: 10,
+		Hash: "hash_v1", Language: "go",
+	}
+	db.Create(&node)
+
+	ann := model.Annotation{
+		NodeID:  node.ID,
+		Summary: "Handles login",
+		Tags:    []model.DocTag{{Kind: model.TagParam, Name: "ctx", Value: "request context", Ordinal: 0}},
+	}
+	db.Create(&ann)
+
+	// Force annotation UpdatedAt to be AFTER node UpdatedAt
+	db.Model(&model.Annotation{}).Where("id = ?", ann.ID).Update("updated_at", time.Now().Add(1*time.Hour))
+
+	gen := &Generator{DB: db, OutDir: outDir}
+	report, err := gen.Lint()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(report.Contradictions) != 0 {
+		t.Errorf("expected 0 contradictions, got %d: %v", len(report.Contradictions), report.Contradictions)
+	}
+}
