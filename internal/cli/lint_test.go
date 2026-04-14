@@ -352,6 +352,102 @@ func TestLintCommand_IgnoreRule_ExcludedFromStrict(t *testing.T) {
 	}
 }
 
+func TestLintCommand_IgnoreRule_RegexPattern(t *testing.T) {
+	deps, stdout, stderr, db := setupLintTest(t)
+
+	// Create two unannotated nodes under pkg/store/
+	db.Create(&model.Node{
+		QualifiedName: "pkg/store/user.go::CreateUser",
+		Kind:          model.NodeKindFunction,
+		Name:          "CreateUser",
+		FilePath:      "pkg/store/user.go",
+		StartLine:     1, EndLine: 5,
+		Hash: "h1", Language: "go",
+	})
+	db.Create(&model.Node{
+		QualifiedName: "pkg/store/order.go::CreateOrder",
+		Kind:          model.NodeKindFunction,
+		Name:          "CreateOrder",
+		FilePath:      "pkg/store/order.go",
+		StartLine:     1, EndLine: 5,
+		Hash: "h2", Language: "go",
+	})
+
+	outDir := t.TempDir()
+	histDir := t.TempDir()
+
+	// Pre-create doc files to avoid "missing" issues
+	docDir := filepath.Join(outDir, "pkg", "store")
+	os.MkdirAll(docDir, 0o755)
+	os.WriteFile(filepath.Join(docDir, "user.go.md"), []byte("# user\n"), 0o644)
+	os.WriteFile(filepath.Join(docDir, "order.go.md"), []byte("# order\n"), 0o644)
+
+	// Regex pattern that matches both qualified names
+	cfgFile := filepath.Join(t.TempDir(), ".ccg.yaml")
+	os.WriteFile(cfgFile, []byte(`rules:
+  - pattern: "pkg/store/.*::Create.*"
+    category: unannotated
+    action: ignore
+    auto: false
+    created: "2026-04-15"
+`), 0o644)
+
+	// --strict should NOT fail because both issues are ignored by regex
+	err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--config", cfgFile, "--strict", "--history-dir", histDir)
+	if err != nil {
+		t.Fatalf("expected no error with --strict when issues matched by regex ignore rule, got: %v", err)
+	}
+}
+
+func TestLintCommand_IgnoreRule_RegexDoesNotOverMatch(t *testing.T) {
+	deps, stdout, stderr, db := setupLintTest(t)
+
+	// Create two nodes: one should match regex, one should NOT
+	db.Create(&model.Node{
+		QualifiedName: "pkg/store/user.go::CreateUser",
+		Kind:          model.NodeKindFunction,
+		Name:          "CreateUser",
+		FilePath:      "pkg/store/user.go",
+		StartLine:     1, EndLine: 5,
+		Hash: "h1", Language: "go",
+	})
+	db.Create(&model.Node{
+		QualifiedName: "pkg/api/handler.go::HandleRequest",
+		Kind:          model.NodeKindFunction,
+		Name:          "HandleRequest",
+		FilePath:      "pkg/api/handler.go",
+		StartLine:     1, EndLine: 5,
+		Hash: "h2", Language: "go",
+	})
+
+	outDir := t.TempDir()
+	histDir := t.TempDir()
+
+	// Pre-create doc files
+	for _, dir := range []string{"pkg/store", "pkg/api"} {
+		d := filepath.Join(outDir, dir)
+		os.MkdirAll(d, 0o755)
+	}
+	os.WriteFile(filepath.Join(outDir, "pkg/store/user.go.md"), []byte("# user\n"), 0o644)
+	os.WriteFile(filepath.Join(outDir, "pkg/api/handler.go.md"), []byte("# handler\n"), 0o644)
+
+	// Regex pattern only matches pkg/store/...
+	cfgFile := filepath.Join(t.TempDir(), ".ccg.yaml")
+	os.WriteFile(cfgFile, []byte(`rules:
+  - pattern: "pkg/store/.*"
+    category: unannotated
+    action: ignore
+    auto: false
+    created: "2026-04-15"
+`), 0o644)
+
+	// --strict SHOULD fail because pkg/api/handler.go::HandleRequest is NOT ignored
+	err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--config", cfgFile, "--strict", "--history-dir", histDir)
+	if err == nil {
+		t.Fatal("expected error with --strict when regex does not cover all issues")
+	}
+}
+
 func TestLintCommand_TwiceRule_TriggersOnSecondRun(t *testing.T) {
 	deps, stdout, stderr, db := setupLintTest(t)
 

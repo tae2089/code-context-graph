@@ -3,12 +3,14 @@ package cli
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/tae2089/trace"
 
 	"github.com/imtaebin/code-context-graph/internal/docs"
+	"github.com/imtaebin/code-context-graph/internal/pathutil"
 )
 
 // countNonIgnored counts lint issues not covered by an ignore rule in .ccg.yaml.
@@ -17,6 +19,7 @@ import (
 func countNonIgnored(report *docs.LintReport) int {
 	rules := viper.Get("rules")
 	ignoreSet := map[string]bool{}
+	var ignoreRegexps []*regexp.Regexp
 
 	if ruleSlice, ok := rules.([]any); ok {
 		for _, r := range ruleSlice {
@@ -24,50 +27,68 @@ func countNonIgnored(report *docs.LintReport) int {
 				action, _ := rm["action"].(string)
 				pattern, _ := rm["pattern"].(string)
 				if action == "ignore" && pattern != "" {
-					ignoreSet[pattern] = true
+					if pathutil.IsRegexPattern(pattern) {
+						if re, err := regexp.Compile(pattern); err == nil {
+							ignoreRegexps = append(ignoreRegexps, re)
+						}
+					} else {
+						ignoreSet[pattern] = true
+					}
 				}
 			}
 		}
 	}
 
+	isIgnored := func(value string) bool {
+		if ignoreSet[value] {
+			return true
+		}
+		for _, re := range ignoreRegexps {
+			if re.MatchString(value) {
+				return true
+			}
+		}
+		return false
+	}
+
 	total := 0
 	for _, v := range report.Orphans {
-		if !ignoreSet[v] {
+		if !isIgnored(v) {
 			total++
 		}
 	}
 	for _, v := range report.Missing {
-		if !ignoreSet[v] {
+		if !isIgnored(v) {
 			total++
 		}
 	}
 	for _, v := range report.Stale {
-		if !ignoreSet[v] {
+		if !isIgnored(v) {
 			total++
 		}
 	}
 	for _, v := range report.Unannotated {
-		if !ignoreSet[v] {
+		if !isIgnored(v) {
 			total++
 		}
 	}
 	for _, c := range report.Contradictions {
-		if !ignoreSet[c.QualifiedName] {
+		if !isIgnored(c.QualifiedName) {
 			total++
 		}
 	}
 	for _, d := range report.DeadRefs {
-		if !ignoreSet[d.QualifiedName] {
+		if !isIgnored(d.QualifiedName) {
 			total++
 		}
 	}
 	for _, v := range report.Incomplete {
-		if !ignoreSet[v] {
+		if !isIgnored(v) {
 			total++
 		}
 	}
 	for _, v := range report.Drifted {
-		if !ignoreSet[v] {
+		if !isIgnored(v) {
 			total++
 		}
 	}

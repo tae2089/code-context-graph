@@ -257,11 +257,24 @@ db:
 
 exclude:
   - vendor
-  - "*.pb.go"
-  - "*_test.go"
+  - ".*\\.pb\\.go$"
+  - ".*_test\\.go$"
 
 docs:
   out: docs
+```
+
+Both `exclude` and `rules` pattern fields support regex. Patterns containing `$`, `^`, `+`, `{}`, `|`, `\.`, or `.*` are auto-detected as regex:
+
+```yaml
+rules:
+  - pattern: "pkg/store/.*"
+    category: unannotated
+    action: ignore
+
+  - pattern: ".*_generated\\.go::.*"
+    category: incomplete
+    action: warn
 ```
 
 Config search order:
@@ -293,9 +306,9 @@ Override with `ccg --config path/to/config.yaml`.
 | `get_architecture_overview` | Architecture summary with coupling |
 | `get_annotation` | Get annotation and doc tags |
 | `build_rag_index` | Build RAG index from docs and communities (supports workspace) |
-| `get_rag_tree` | Navigate RAG document tree |
+| `get_rag_tree` | Navigate RAG document tree (supports workspace) |
 | `get_doc_content` | Get documentation file content (supports workspace) |
-| `search_docs` | Search RAG document tree by keyword |
+| `search_docs` | Search RAG document tree by keyword (supports workspace) |
 | `upload_file` | Upload file to workspace (base64) |
 | `upload_files` | Upload multiple files to workspaces in a single call |
 | `list_workspaces` | List all workspaces |

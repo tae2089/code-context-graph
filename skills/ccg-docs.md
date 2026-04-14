@@ -24,9 +24,9 @@ Generate Markdown documentation from code graphs, build RAG indexes for AI consu
 | Tool | Description |
 |------|-------------|
 | `build_rag_index` | Build RAG index from docs and communities. Supports `workspace` parameter to read docs from a workspace directory. |
-| `get_rag_tree` | Navigate RAG document tree |
+| `get_rag_tree` | Navigate RAG document tree. Supports `workspace` parameter to read workspace-specific doc-index.json. |
 | `get_doc_content` | Get documentation file content. Supports `workspace` parameter to read from a workspace directory. |
-| `search_docs` | Search RAG document tree by keyword |
+| `search_docs` | Search RAG document tree by keyword. Supports `workspace` parameter to search workspace-specific doc-index.json. |
 
 ## Lint Categories (8)
 
@@ -77,6 +77,28 @@ User: "문서 상태 체크해줘"
 ```yaml
 # .github/workflows/docs.yml
 - run: ccg lint --strict  # Fails build on documentation issues
+```
+
+## Lint Rules & Regex Patterns
+
+`.ccg.yaml` rules support regex patterns for `pattern` field. Patterns containing `$`, `^`, `+`, `{}`, `|`, `\.`, or `.*` are auto-detected as regex:
+
+```yaml
+rules:
+  # Exact match (legacy)
+  - pattern: "pkg/auth.go::Login"
+    category: unannotated
+    action: ignore
+
+  # Regex: ignore all symbols under pkg/store/
+  - pattern: "pkg/store/.*"
+    category: unannotated
+    action: ignore
+
+  # Regex: ignore all generated code
+  - pattern: ".*_generated\\.go::.*"
+    category: incomplete
+    action: warn
 ```
 
 ## Prerequisites
