@@ -215,3 +215,101 @@ func TestLintCommand_Strict_PassesWhenClean(t *testing.T) {
 		t.Fatalf("expected no error with --strict when clean, got: %v", err)
 	}
 }
+
+func TestLintCommand_ReportsContradiction(t *testing.T) {
+	deps, stdout, stderr, db := setupLintTest(t)
+
+	node := model.Node{
+		QualifiedName: "pkg/auth.go::Login",
+		Kind:          model.NodeKindFunction,
+		Name:          "Login",
+		FilePath:      "pkg/auth.go",
+		StartLine:     1, EndLine: 10,
+		Hash: "h1", Language: "go",
+	}
+	db.Create(&node)
+
+	ann := model.Annotation{
+		NodeID: node.ID,
+		Tags:   []model.DocTag{{Kind: model.TagParam, Name: "ctx", Value: "context", Ordinal: 0}},
+	}
+	db.Create(&ann)
+	db.Model(&model.Node{}).Where("id = ?", node.ID).Update("updated_at", time.Now().Add(1*time.Hour))
+
+	outDir := t.TempDir()
+	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "Contradiction") {
+		t.Errorf("expected 'Contradiction' in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "pkg/auth.go::Login") {
+		t.Errorf("expected qualified name in output, got:\n%s", out)
+	}
+}
+
+func TestLintCommand_ReportsDeadRef(t *testing.T) {
+	deps, stdout, stderr, db := setupLintTest(t)
+
+	node := model.Node{
+		QualifiedName: "pkg/pay.go::Pay",
+		Kind:          model.NodeKindFunction,
+		Name:          "Pay",
+		FilePath:      "pkg/pay.go",
+		StartLine:     1, EndLine: 10,
+		Hash: "h1", Language: "go",
+	}
+	db.Create(&node)
+	db.Create(&model.Annotation{
+		NodeID: node.ID,
+		Tags: []model.DocTag{
+			{Kind: model.TagSee, Value: "pkg/gone.go::Gone", Ordinal: 0},
+		},
+	})
+
+	outDir := t.TempDir()
+	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "Dead ref") {
+		t.Errorf("expected 'Dead ref' in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "pkg/gone.go::Gone") {
+		t.Errorf("expected see target in output, got:\n%s", out)
+	}
+}
+
+func TestLintCommand_ReportsIncomplete(t *testing.T) {
+	deps, stdout, stderr, db := setupLintTest(t)
+
+	node := model.Node{
+		QualifiedName: "pkg/util.go::Format",
+		Kind:          model.NodeKindFunction,
+		Name:          "Format",
+		FilePath:      "pkg/util.go",
+		StartLine:     1, EndLine: 5,
+		Hash: "h2", Language: "go",
+	}
+	db.Create(&node)
+	db.Create(&model.Annotation{
+		NodeID: node.ID,
+		Tags:   []model.DocTag{{Kind: model.TagReturn, Value: "formatted string", Ordinal: 0}},
+	})
+
+	outDir := t.TempDir()
+	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "Incomplete") {
+		t.Errorf("expected 'Incomplete' in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "pkg/util.go::Format") {
+		t.Errorf("expected qualified name in output, got:\n%s", out)
+	}
+}
