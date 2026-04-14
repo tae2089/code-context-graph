@@ -707,7 +707,7 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 	log := h.logger()
 	log.Info("list_graph_stats called")
 
-	key := "list_graph_stats:{}"
+	key := "list_graph_stats:" + mustJSON(map[string]any{})
 	if h.cache != nil {
 		if cached, ok := h.cache.Get(key); ok {
 			log.Debug("list_graph_stats cache hit")
@@ -1197,7 +1197,7 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 	log := h.logger()
 	log.Info("get_architecture_overview called")
 
-	key := "get_architecture_overview:{}"
+	key := "get_architecture_overview:" + mustJSON(map[string]any{})
 	if h.cache != nil {
 		if cached, ok := h.cache.Get(key); ok {
 			log.Debug("get_architecture_overview cache hit")
@@ -1280,6 +1280,7 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 
 	opts := deadcode.Options{}
 	var pathPrefix string
+	var kinds []string
 
 	// kinds 파라미터 처리
 	if args, ok := request.Params.Arguments.(map[string]any); ok {
@@ -1288,6 +1289,7 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 				for _, k := range kindsArr {
 					if ks, ok := k.(string); ok {
 						opts.Kinds = append(opts.Kinds, model.NodeKind(ks))
+						kinds = append(kinds, ks)
 					}
 				}
 			}
@@ -1298,7 +1300,7 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 		}
 	}
 
-	key := "find_dead_code:" + mustJSON(map[string]any{"path": pathPrefix})
+	key := "find_dead_code:" + mustJSON(map[string]any{"path": pathPrefix, "kinds": kinds})
 	if h.cache != nil {
 		if cached, ok := h.cache.Get(key); ok {
 			log.Debug("find_dead_code cache hit")
