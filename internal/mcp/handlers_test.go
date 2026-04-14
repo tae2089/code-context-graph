@@ -1940,3 +1940,116 @@ func TestGetNode_NoCache(t *testing.T) {
 		t.Fatal("expected error response for missing node without cache")
 	}
 }
+
+func TestBuildOrUpdateGraph_FlushesCache(t *testing.T) {
+	deps := setupTestDeps(t)
+	cache := NewCache(5 * time.Minute)
+	cache.Set(`get_node:{"qualified_name":"pkg.Foo"}`, `{"id":1}`)
+
+	h := &handlers{
+		deps:  deps,
+		cache: cache,
+	}
+
+	dir := t.TempDir()
+	goFile := filepath.Join(dir, "test.go")
+	os.WriteFile(goFile, []byte(`package main
+
+func TestFunc() {
+	return
+}
+`), 0644)
+
+	req := makeToolRequest("build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": true,
+		"postprocess":  "none",
+	})
+
+	_, err := h.buildOrUpdateGraph(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := cache.Get(`get_node:{"qualified_name":"pkg.Foo"}`); ok {
+		t.Fatal("expected cache to be flushed after buildOrUpdateGraph")
+	}
+}
+
+func TestRunPostprocess_FlushesCache(t *testing.T) {
+	deps := setupTestDeps(t)
+	cache := NewCache(5 * time.Minute)
+	cache.Set(`get_node:{"qualified_name":"pkg.Foo"}`, `{"id":1}`)
+
+	h := &handlers{
+		deps:  deps,
+		cache: cache,
+	}
+
+	req := makeToolRequest("run_postprocess", map[string]any{
+		"flows":       false,
+		"communities": false,
+		"fts":         false,
+	})
+
+	_, err := h.runPostprocess(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := cache.Get(`get_node:{"qualified_name":"pkg.Foo"}`); ok {
+		t.Fatal("expected cache to be flushed after runPostprocess")
+	}
+}
+
+func TestBuildRagIndex_ReturnsCount(t *testing.T) {
+	deps := setupTestDeps(t)
+	result := callTool(t, deps, "build_rag_index", map[string]any{})
+	if result.IsError {
+		t.Fatalf("build_rag_index error: %v", result.Content)
+	}
+	content := getTextContent(result)
+	if !strings.Contains(content, "Built doc-index:") {
+		t.Errorf("expected 'Built doc-index:' in output, got: %s", content)
+	}
+}
+
+func TestGetRagTree_AfterBuild(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	// First build the index
+	buildResult := callTool(t, deps, "build_rag_index", map[string]any{})
+	if buildResult.IsError {
+		t.Fatalf("build_rag_index error: %v", buildResult.Content)
+	}
+
+	// Then get the tree (no community_id = full tree)
+	result := callTool(t, deps, "get_rag_tree", map[string]any{})
+	if result.IsError {
+		t.Fatalf("get_rag_tree error: %v", result.Content)
+	}
+	content := getTextContent(result)
+	if content == "" {
+		t.Error("expected non-empty tree result")
+	}
+}
+
+func TestGetDocContent_PathTraversal(t *testing.T) {
+	deps := setupTestDeps(t)
+	result := callTool(t, deps, "get_doc_content", map[string]any{
+		"file_path": "../../etc/passwd",
+	})
+	if !result.IsError {
+		t.Fatal("expected error for path traversal attempt")
+	}
+}
+
+func TestGetDocContent_NotFound(t *testing.T) {
+	deps := setupTestDeps(t)
+	result := callTool(t, deps, "get_doc_content", map[string]any{
+		"file_path": "docs/nonexistent.go.md",
+	})
+	if !result.IsError {
+		t.Fatal("expected error for nonexistent file")
+	}
+}

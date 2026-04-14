@@ -19,6 +19,7 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/analysis/deadcode"
 	"github.com/imtaebin/code-context-graph/internal/analysis/incremental"
 	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/imtaebin/code-context-graph/internal/ragindex"
 )
 
 type handlers struct {
@@ -1339,6 +1340,86 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 	}
 	b, _ := json.Marshal(resp)
 	result := string(b)
+	if h.cache != nil {
+		h.cache.Set(key, result)
+	}
+	return mcp.NewToolResultText(result), nil
+}
+
+func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	b := &ragindex.Builder{
+		DB: h.deps.DB,
+	}
+	communities, files, err := b.Build()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("build rag index: %v", err)), nil
+	}
+	if h.cache != nil {
+		h.cache.Flush()
+	}
+	return mcp.NewToolResultText(fmt.Sprintf("Built doc-index: %d communities, %d files", communities, files)), nil
+}
+
+func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	communityID := request.GetString("community_id", "")
+
+	key := "get_rag_tree:" + mustJSON(map[string]any{"community_id": communityID})
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
+
+	idx, err := ragindex.LoadIndex(".ccg/doc-index.json")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("load doc-index: %v", err)), nil
+	}
+
+	var node *ragindex.TreeNode
+	if communityID == "" {
+		node = idx.Root
+	} else {
+		node = ragindex.FindNode(idx.Root, communityID)
+		if node == nil {
+			return mcp.NewToolResultError(fmt.Sprintf("community_id %q not found", communityID)), nil
+		}
+	}
+
+	b, err := json.Marshal(node)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("marshal tree: %v", err)), nil
+	}
+	result := string(b)
+	if h.cache != nil {
+		h.cache.Set(key, result)
+	}
+	return mcp.NewToolResultText(result), nil
+}
+
+func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	filePath, err := request.RequireString("file_path")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("missing parameter: %v", err)), nil
+	}
+
+	key := "get_doc_content:" + mustJSON(map[string]any{"file_path": filePath})
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
+
+	// Path traversal protection
+	clean := filepath.Clean(filePath)
+	if strings.HasPrefix(clean, "..") {
+		return mcp.NewToolResultError("invalid file_path: path traversal not allowed"), nil
+	}
+
+	content, err := os.ReadFile(clean)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("read file %q: %v", filePath, err)), nil
+	}
+	result := string(content)
 	if h.cache != nil {
 		h.cache.Set(key, result)
 	}

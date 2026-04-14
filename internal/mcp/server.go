@@ -1,4 +1,4 @@
-// @index MCP 서버. 18개 도구와 5개 프롬프트 템플릿을 통해 코드 분석 기능을 AI에게 노출한다.
+// @index MCP 서버. 21개 도구와 5개 프롬프트 템플릿을 통해 코드 분석 기능을 AI에게 노출한다.
 package mcp
 
 import (
@@ -249,9 +249,29 @@ func NewServer(deps *Deps) *server.MCPServer {
 			),
 			Handler: h.findDeadCode,
 		},
+		server.ServerTool{
+			Tool: mcp.NewTool("build_rag_index",
+				mcp.WithDescription("Build Vectorless RAG index from docs/ and community structure. Stores result in .ccg/doc-index.json"),
+			),
+			Handler: h.buildRagIndex,
+		},
+		server.ServerTool{
+			Tool: mcp.NewTool("get_rag_tree",
+				mcp.WithDescription("Get the RAG document tree for agent navigation. Use community_id to get a subtree."),
+				mcp.WithString("community_id", mcp.Description("Community node ID (e.g. 'community:3'). Omit for full tree.")),
+			),
+			Handler: h.getRagTree,
+		},
+		server.ServerTool{
+			Tool: mcp.NewTool("get_doc_content",
+				mcp.WithDescription("Get the content of a documentation file by its path"),
+				mcp.WithString("file_path", mcp.Description("Path to the doc file (e.g. 'docs/internal/mcp/handlers.go.md')"), mcp.Required()),
+			),
+			Handler: h.getDocContent,
+		},
 	)
 
-	log.Info("MCP server created", "name", "code-context-graph", "version", "1.0.0", "tools", 18, "prompts", 5)
+	log.Info("MCP server created", "name", "code-context-graph", "version", "1.0.0", "tools", 21, "prompts", 5)
 
 	p := &promptHandlers{deps: deps}
 	srv.AddPrompts(
