@@ -2,9 +2,11 @@ package docs
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -76,4 +78,54 @@ func (h *History) Save(path string) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+// WriteYamlRules appends Twice-Rule-triggered entries to .ccg.yaml rules section.
+// Idempotent: skips rules whose pattern already exists in the file.
+// Creates the file if it doesn't exist.
+func WriteYamlRules(cfgPath string, triggered []string) error {
+	data, err := os.ReadFile(cfgPath)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	content := string(data)
+
+	// Parse triggered keys ("category:qualified_name")
+	var newRules []string
+	for _, key := range triggered {
+		parts := strings.SplitN(key, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		category, pattern := parts[0], parts[1]
+
+		// Idempotency: skip if pattern already in file
+		if strings.Contains(content, pattern) {
+			continue
+		}
+
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("  - pattern: %q\n", pattern))
+		sb.WriteString(fmt.Sprintf("    category: %s\n", category))
+		sb.WriteString("    action: warn\n")
+		sb.WriteString("    auto: true\n")
+		sb.WriteString(fmt.Sprintf("    created: %q\n", time.Now().Format("2006-01-02")))
+		newRules = append(newRules, sb.String())
+	}
+
+	if len(newRules) == 0 {
+		return nil
+	}
+
+	var out strings.Builder
+	out.WriteString(content)
+	if !strings.Contains(content, "rules:") {
+		out.WriteString("\nrules:\n")
+	}
+	for _, r := range newRules {
+		out.WriteString(r)
+	}
+
+	return os.WriteFile(cfgPath, []byte(out.String()), 0o644)
 }

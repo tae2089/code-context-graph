@@ -1,7 +1,9 @@
 package docs
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -86,5 +88,62 @@ func TestHistory_ResolvedItem_Removed(t *testing.T) {
 
 	if len(h2.Entries) != 0 {
 		t.Errorf("expected empty entries after resolution, got %v", h2.Entries)
+	}
+}
+
+func TestWriteYamlRules_AddsNewRules(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), ".ccg.yaml")
+	os.WriteFile(cfgPath, []byte("exclude:\n  - vendor\n"), 0o644)
+
+	triggered := []string{"unannotated:pkg/a.go::Foo", "dead-ref:pkg/b.go::Bar"}
+	if err := WriteYamlRules(cfgPath, triggered); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, _ := os.ReadFile(cfgPath)
+	content := string(data)
+
+	for _, want := range []string{"pkg/a.go::Foo", "unannotated", "pkg/b.go::Bar", "dead-ref", "auto: true"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("expected %q in yaml, got:\n%s", want, content)
+		}
+	}
+}
+
+func TestWriteYamlRules_Idempotent(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), ".ccg.yaml")
+	os.WriteFile(cfgPath, []byte("exclude:\n  - vendor\n"), 0o644)
+
+	triggered := []string{"unannotated:pkg/a.go::Foo"}
+
+	// Write twice
+	WriteYamlRules(cfgPath, triggered)
+	WriteYamlRules(cfgPath, triggered)
+
+	data, _ := os.ReadFile(cfgPath)
+	content := string(data)
+
+	// Should appear only once
+	count := strings.Count(content, "pkg/a.go::Foo")
+	if count != 1 {
+		t.Errorf("expected pattern once, found %d times in:\n%s", count, content)
+	}
+}
+
+func TestWriteYamlRules_CreatesFileIfMissing(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), ".ccg.yaml")
+	// File does not exist
+
+	triggered := []string{"incomplete:pkg/c.go::Parse"}
+	if err := WriteYamlRules(cfgPath, triggered); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("expected file to be created: %v", err)
+	}
+	if !strings.Contains(string(data), "pkg/c.go::Parse") {
+		t.Errorf("expected rule in yaml, got:\n%s", data)
 	}
 }
