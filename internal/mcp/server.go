@@ -1,4 +1,4 @@
-// @index MCP 서버. 21개 도구와 5개 프롬프트 템플릿을 통해 코드 분석 기능을 AI에게 노출한다.
+// @index MCP 서버. 다수의 도구와 5개 프롬프트 템플릿을 통해 코드 분석 기능을 AI에게 노출한다.
 package mcp
 
 import (
@@ -91,6 +91,9 @@ type Deps struct {
 
 	// Cache — nil이면 캐시 비활성화
 	Cache *Cache
+
+	// RagIndexDir — doc-index.json이 저장되는 디렉토리 (기본: ".ccg")
+	RagIndexDir string
 }
 
 func NewServer(deps *Deps) *server.MCPServer {
@@ -271,7 +274,7 @@ func NewServer(deps *Deps) *server.MCPServer {
 		},
 	)
 
-	log.Info("MCP server created", "name", "code-context-graph", "version", "1.0.0", "tools", 21, "prompts", 5)
+	log.Info("MCP server created", "name", "code-context-graph", "version", "1.0.0", "prompts", 5)
 
 	p := &promptHandlers{deps: deps}
 	srv.AddPrompts(

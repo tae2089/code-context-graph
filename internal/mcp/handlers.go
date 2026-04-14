@@ -1346,9 +1346,20 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 	return mcp.NewToolResultText(result), nil
 }
 
+// ragIndexPath는 doc-index.json의 실효 경로를 반환한다.
+// deps.RagIndexDir이 비어 있으면 ".ccg"를 기본값으로 사용한다.
+func (h *handlers) ragIndexPath() string {
+	dir := h.deps.RagIndexDir
+	if dir == "" {
+		dir = ".ccg"
+	}
+	return filepath.Join(dir, "doc-index.json")
+}
+
 func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	b := &ragindex.Builder{
-		DB: h.deps.DB,
+		DB:       h.deps.DB,
+		IndexDir: h.deps.RagIndexDir,
 	}
 	communities, files, err := b.Build()
 	if err != nil {
@@ -1370,7 +1381,7 @@ func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) 
 		}
 	}
 
-	idx, err := ragindex.LoadIndex(".ccg/doc-index.json")
+	idx, err := ragindex.LoadIndex(h.ragIndexPath())
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("load doc-index: %v", err)), nil
 	}
@@ -1402,22 +1413,28 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 		return mcp.NewToolResultError(fmt.Sprintf("missing parameter: %v", err)), nil
 	}
 
-	key := "get_doc_content:" + mustJSON(map[string]any{"file_path": filePath})
-	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			return mcp.NewToolResultText(cached), nil
-		}
-	}
-
 	// Path traversal protection
 	clean := filepath.Clean(filePath)
 	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
 		return mcp.NewToolResultError("invalid file_path: path traversal not allowed"), nil
 	}
 
+	// Include mtime in cache key to detect file changes
+	var mtime int64
+	if stat, statErr := os.Stat(clean); statErr == nil {
+		mtime = stat.ModTime().UnixNano()
+	}
+
+	key := "get_doc_content:" + mustJSON(map[string]any{"file_path": filePath, "mtime": mtime})
+	if h.cache != nil {
+		if cached, ok := h.cache.Get(key); ok {
+			return mcp.NewToolResultText(cached), nil
+		}
+	}
+
 	content, err := os.ReadFile(clean)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("read file %q: %v", filePath, err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("read file %q: %v. Run 'ccg docs' to generate documentation files.", filePath, err)), nil
 	}
 	result := string(content)
 	if h.cache != nil {

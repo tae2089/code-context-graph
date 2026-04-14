@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/spf13/viper"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -155,6 +156,7 @@ func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 		CommunityBuilder:  community.New(deps.DB),
 		Logger:            deps.Logger,
 		Cache:             cache,
+		RagIndexDir:       viper.GetString("rag.index_dir"),
 	}
 
 	srv := mcpserver.NewServer(mcpDeps)

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -99,7 +100,7 @@ func (b *Builder) Build() (int, int, error) {
 		Children: []*TreeNode{},
 	}
 
-	totalFiles := 0
+	uniqueFiles := make(map[string]struct{})
 
 	// 4. 2-pass: 커뮤니티별 TreeNode 구성
 	for _, comm := range communities {
@@ -133,8 +134,8 @@ func (b *Builder) Build() (int, int, error) {
 					DocPath:  docPath,
 					Children: []*TreeNode{},
 				}
+				uniqueFiles[filePath] = struct{}{}
 				commNode.Children = append(commNode.Children, fileNode)
-				totalFiles++
 			}
 		}
 
@@ -153,8 +154,8 @@ func (b *Builder) Build() (int, int, error) {
 		return 0, 0, fmt.Errorf("writeIndex: %w", err)
 	}
 
-	slog.Debug("ragindex.Builder.Build 완료", "communities", len(communities), "files", totalFiles)
-	return len(communities), totalFiles, nil
+	slog.Debug("ragindex.Builder.Build 완료", "communities", len(communities), "files", len(uniqueFiles))
+	return len(communities), len(uniqueFiles), nil
 }
 
 // batchFileSummaries는 주어진 파일 경로 목록에 대해 filePath → summary 맵을 한 번에 반환한다.
@@ -224,7 +225,11 @@ func (b *Builder) docPath(filePath string) string {
 	if outDir == "" {
 		outDir = "docs"
 	}
-	return filepath.Join(outDir, filePath+".md")
+	rel := filePath
+	if filepath.IsAbs(filePath) {
+		rel = strings.TrimPrefix(filePath, "/")
+	}
+	return filepath.Join(outDir, rel+".md")
 }
 
 // writeIndex는 IndexDir/doc-index.json 파일에 Index를 JSON으로 원자적으로 기록한다.
