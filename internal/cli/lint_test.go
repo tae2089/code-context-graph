@@ -314,6 +314,44 @@ func TestLintCommand_ReportsIncomplete(t *testing.T) {
 	}
 }
 
+func TestLintCommand_IgnoreRule_ExcludedFromStrict(t *testing.T) {
+	deps, stdout, stderr, db := setupLintTest(t)
+
+	// Create unannotated node
+	db.Create(&model.Node{
+		QualifiedName: "pkg/ignored.go::Ignored",
+		Kind:          model.NodeKindFunction,
+		Name:          "Ignored",
+		FilePath:      "pkg/ignored.go",
+		StartLine:     1, EndLine: 5,
+		Hash: "h1", Language: "go",
+	})
+
+	outDir := t.TempDir()
+	histDir := t.TempDir()
+
+	// Pre-create the doc file to avoid a "missing" issue — we only want unannotated.
+	docDir := filepath.Join(outDir, "pkg")
+	os.MkdirAll(docDir, 0o755)
+	os.WriteFile(filepath.Join(docDir, "ignored.go.md"), []byte("# pkg/ignored.go\n"), 0o644)
+
+	// Create a .ccg.yaml with ignore rule for this symbol
+	cfgFile := filepath.Join(t.TempDir(), ".ccg.yaml")
+	os.WriteFile(cfgFile, []byte(`rules:
+  - pattern: "pkg/ignored.go::Ignored"
+    category: unannotated
+    action: ignore
+    auto: true
+    created: "2026-04-14"
+`), 0o644)
+
+	// --strict should NOT fail because the only issue is ignored
+	err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--config", cfgFile, "--strict", "--history-dir", histDir)
+	if err != nil {
+		t.Fatalf("expected no error with --strict when only issue is ignored, got: %v", err)
+	}
+}
+
 func TestLintCommand_TwiceRule_TriggersOnSecondRun(t *testing.T) {
 	deps, stdout, stderr, db := setupLintTest(t)
 

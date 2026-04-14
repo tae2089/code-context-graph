@@ -5,9 +5,71 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"github.com/imtaebin/code-context-graph/internal/docs"
 )
+
+// countNonIgnored counts lint issues not covered by an ignore rule in .ccg.yaml.
+func countNonIgnored(report *docs.LintReport) int {
+	rules := viper.Get("rules")
+	ignoreSet := map[string]bool{}
+
+	if ruleSlice, ok := rules.([]any); ok {
+		for _, r := range ruleSlice {
+			if rm, ok := r.(map[string]any); ok {
+				action, _ := rm["action"].(string)
+				pattern, _ := rm["pattern"].(string)
+				if action == "ignore" && pattern != "" {
+					ignoreSet[pattern] = true
+				}
+			}
+		}
+	}
+
+	total := 0
+	for _, v := range report.Orphans {
+		if !ignoreSet[v] {
+			total++
+		}
+	}
+	for _, v := range report.Missing {
+		if !ignoreSet[v] {
+			total++
+		}
+	}
+	for _, v := range report.Stale {
+		if !ignoreSet[v] {
+			total++
+		}
+	}
+	for _, v := range report.Unannotated {
+		if !ignoreSet[v] {
+			total++
+		}
+	}
+	for _, c := range report.Contradictions {
+		if !ignoreSet[c.QualifiedName] {
+			total++
+		}
+	}
+	for _, d := range report.DeadRefs {
+		if !ignoreSet[d.QualifiedName] {
+			total++
+		}
+	}
+	for _, v := range report.Incomplete {
+		if !ignoreSet[v] {
+			total++
+		}
+	}
+	for _, v := range report.Drifted {
+		if !ignoreSet[v] {
+			total++
+		}
+	}
+	return total
+}
 
 func newLintCmd(deps *Deps) *cobra.Command {
 	var outDir string
@@ -175,8 +237,11 @@ func newLintCmd(deps *Deps) *cobra.Command {
 				}
 			}
 
-			if strict && total > 0 {
-				return fmt.Errorf("lint found %d issues", total)
+			if strict {
+				strictTotal := countNonIgnored(report)
+				if strictTotal > 0 {
+					return fmt.Errorf("lint found %d issues", strictTotal)
+				}
 			}
 
 			return nil
