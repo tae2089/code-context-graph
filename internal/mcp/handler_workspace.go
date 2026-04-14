@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -178,5 +179,97 @@ func (h *handlers) deleteFile(ctx context.Context, request mcp.CallToolRequest) 
 		"file_path": filePath,
 	}
 	jsonStr, _ := marshalJSON(result)
+	return mcp.NewToolResultText(jsonStr), nil
+}
+
+type uploadFileEntry struct {
+	Workspace string `json:"workspace"`
+	FilePath  string `json:"file_path"`
+	Content   string `json:"content"`
+}
+
+func (h *handlers) uploadFiles(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	filesRaw, err := request.RequireString("files")
+	if err != nil {
+		return missingParamResult(err)
+	}
+
+	var entries []uploadFileEntry
+	if err := json.Unmarshal([]byte(filesRaw), &entries); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid files JSON: %v", err)), nil
+	}
+
+	if len(entries) == 0 {
+		return mcp.NewToolResultError("files array must not be empty"), nil
+	}
+
+	var results []map[string]any
+	for i, e := range entries {
+		if e.Workspace == "" || e.FilePath == "" || e.Content == "" {
+			return mcp.NewToolResultError(fmt.Sprintf("entry %d: workspace, file_path, and content are required", i)), nil
+		}
+
+		if err := validateWorkspacePath(e.Workspace, e.FilePath); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("entry %d: %v", i, err)), nil
+		}
+
+		decoded, err := base64.StdEncoding.DecodeString(e.Content)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("entry %d: invalid base64 content: %v", i, err)), nil
+		}
+
+		if len(decoded) > maxUploadSizeBytes {
+			return mcp.NewToolResultError(fmt.Sprintf("entry %d: file exceeds %d MB size limit", i, maxUploadSizeBytes>>20)), nil
+		}
+
+		target := filepath.Join(h.workspaceRoot(), filepath.Clean(e.Workspace), filepath.Clean(e.FilePath))
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("entry %d: create directory: %v", i, err)), nil
+		}
+		if err := os.WriteFile(target, decoded, 0o644); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("entry %d: write file: %v", i, err)), nil
+		}
+
+		results = append(results, map[string]any{
+			"workspace": e.Workspace,
+			"file_path": e.FilePath,
+			"size":      len(decoded),
+		})
+	}
+
+	resp := map[string]any{
+		"status":   "ok",
+		"uploaded": len(results),
+		"files":    results,
+	}
+	jsonStr, _ := marshalJSON(resp)
+	return mcp.NewToolResultText(jsonStr), nil
+}
+
+func (h *handlers) deleteWorkspace(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	workspace, err := request.RequireString("workspace")
+	if err != nil {
+		return missingParamResult(err)
+	}
+
+	if err := validateWorkspacePath(workspace, ""); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	wsDir := filepath.Join(h.workspaceRoot(), filepath.Clean(workspace))
+
+	if _, err := os.Stat(wsDir); os.IsNotExist(err) {
+		return mcp.NewToolResultError(fmt.Sprintf("workspace %q not found", workspace)), nil
+	}
+
+	if err := os.RemoveAll(wsDir); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("delete workspace: %v", err)), nil
+	}
+
+	delResult := map[string]any{
+		"status":    "deleted",
+		"workspace": workspace,
+	}
+	jsonStr, _ := marshalJSON(delResult)
 	return mcp.NewToolResultText(jsonStr), nil
 }

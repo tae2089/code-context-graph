@@ -319,6 +319,20 @@ func NewServer(deps *Deps) *server.MCPServer {
 			),
 			Handler: h.deleteFile,
 		},
+		server.ServerTool{
+			Tool: mcp.NewTool("upload_files",
+				mcp.WithDescription("Upload multiple files to workspaces in a single call. The 'files' parameter is a JSON array of objects with workspace, file_path, and content (base64-encoded) fields."),
+				mcp.WithString("files", mcp.Description("JSON array of file entries: [{\"workspace\":\"...\",\"file_path\":\"...\",\"content\":\"base64...\"}]"), mcp.Required()),
+			),
+			Handler: h.uploadFiles,
+		},
+		server.ServerTool{
+			Tool: mcp.NewTool("delete_workspace",
+				mcp.WithDescription("Delete an entire workspace and all its files"),
+				mcp.WithString("workspace", mcp.Description("Workspace name to delete"), mcp.Required()),
+			),
+			Handler: h.deleteWorkspace,
+		},
 	)
 
 	log.Info("MCP server created", "name", "code-context-graph", "version", "1.0.0", "prompts", 5)

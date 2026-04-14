@@ -1,6 +1,6 @@
 ---
 name: ccg
-description: code-context-graph CLI — build code knowledge graphs, search by annotations, analyze with 26 MCP tools
+description: code-context-graph CLI — build code knowledge graphs, search by annotations, analyze with 28 MCP tools
 user-invocable: true
 ---
 
@@ -115,7 +115,7 @@ func AuthenticateUser(username, password string) (string, error) {
 If `ccg.db` doesn't exist or the user asks to analyze the project, run `ccg build .` first.
 
 ### Use MCP tools for graph analysis
-When the user asks graph-related questions, use the 26 MCP tools via the ccg MCP server:
+When the user asks graph-related questions, use the 28 MCP tools via the ccg MCP server:
 
 | User intent | MCP tool |
 |-------------|----------|
@@ -128,7 +128,9 @@ When the user asks graph-related questions, use the 26 MCP tools via the ccg MCP
 | "Test coverage gaps" | `get_community` (include coverage) |
 | "What changed?" | `detect_changes` |
 | "Upload source files" | `upload_file` (base64 content) |
+| "Upload multiple files" | `upload_files` (JSON array of file entries) |
 | "List workspaces" | `list_workspaces` |
+| "Delete a workspace" | `delete_workspace` |
 | "Health check" | `GET /health` (HTTP mode only) |
 
 ### Annotation-aware search

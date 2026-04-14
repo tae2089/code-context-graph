@@ -1,13 +1,13 @@
 # code-context-graph
 
-Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 12 languages, 18 MCP tools, and custom annotation search.
+Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 12 languages, 28 MCP tools, and custom annotation search.
 
 Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) — a Python-based code analysis tool. This project reimplements and extends the concept in Go with multi-DB support, custom annotation system, and MCP integration for AI-powered code understanding.
 
 ## Features
 
 - **12 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua
-- **26 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, file workspace management, and more
+- **28 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, file workspace management, and more
 - **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context
 - **Multi-DB**: SQLite (local), PostgreSQL
 - **Full-text search**: FTS5 (SQLite), tsvector+GIN (PostgreSQL)
@@ -167,7 +167,7 @@ curl http://localhost:8080/health
 # {"status":"ok"}
 ```
 
-Claude Code automatically connects and gets access to 26 MCP tools.
+Claude Code automatically connects and gets access to 28 MCP tools.
 
 ### Skill
 
@@ -205,7 +205,7 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
                                         ↓
                                    FTS Search
                                         ↓
-                              MCP Server (26 tools)
+                              MCP Server (28 tools)
                                     ↓         ↓
                               stdio       Streamable HTTP
                                 ↓              ↓
@@ -258,7 +258,7 @@ docs:
 
 Override with `ccg --config path/to/config.yaml`.
 
-## MCP Tools (26)
+## MCP Tools (28)
 
 | Tool | Description |
 |------|-------------|
@@ -285,9 +285,11 @@ Override with `ccg --config path/to/config.yaml`.
 | `get_doc_content` | Get documentation file content |
 | `search_docs` | Search RAG document tree by keyword |
 | `upload_file` | Upload file to workspace (base64) |
+| `upload_files` | Upload multiple files to workspaces in a single call |
 | `list_workspaces` | List all workspaces |
 | `list_files` | List files in a workspace |
 | `delete_file` | Delete file from workspace |
+| `delete_workspace` | Delete an entire workspace and all its files |
 
 ## Development
 

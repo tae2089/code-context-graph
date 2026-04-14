@@ -229,6 +229,170 @@ func TestDeleteFile_PathTraversal(t *testing.T) {
 	assertToolResultIsError(t, result)
 }
 
+func TestUploadFiles_Basic(t *testing.T) {
+	h, root := workspaceHandlers(t)
+
+	file1 := base64.StdEncoding.EncodeToString([]byte("package main"))
+	file2 := base64.StdEncoding.EncodeToString([]byte("package util"))
+
+	filesJSON, _ := json.Marshal([]map[string]string{
+		{"workspace": "svc-a", "file_path": "main.go", "content": file1},
+		{"workspace": "svc-a", "file_path": "util.go", "content": file2},
+	})
+
+	req := makeCallToolRequest(t, map[string]any{
+		"files": string(filesJSON),
+	})
+
+	result, err := h.uploadFiles(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultNotError(t, result)
+
+	text := extractText(result)
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	uploaded := resp["uploaded"].(float64)
+	if uploaded != 2 {
+		t.Errorf("expected 2 uploaded, got %v", uploaded)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, "svc-a", "main.go")); os.IsNotExist(err) {
+		t.Error("main.go not written")
+	}
+	if _, err := os.Stat(filepath.Join(root, "svc-a", "util.go")); os.IsNotExist(err) {
+		t.Error("util.go not written")
+	}
+}
+
+func TestUploadFiles_EmptyArray(t *testing.T) {
+	h, _ := workspaceHandlers(t)
+
+	req := makeCallToolRequest(t, map[string]any{
+		"files": "[]",
+	})
+
+	result, err := h.uploadFiles(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultIsError(t, result)
+}
+
+func TestUploadFiles_InvalidJSON(t *testing.T) {
+	h, _ := workspaceHandlers(t)
+
+	req := makeCallToolRequest(t, map[string]any{
+		"files": "not-json",
+	})
+
+	result, err := h.uploadFiles(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultIsError(t, result)
+}
+
+func TestUploadFiles_PathTraversal(t *testing.T) {
+	h, _ := workspaceHandlers(t)
+
+	file1 := base64.StdEncoding.EncodeToString([]byte("data"))
+	filesJSON, _ := json.Marshal([]map[string]string{
+		{"workspace": "../evil", "file_path": "file.go", "content": file1},
+	})
+
+	req := makeCallToolRequest(t, map[string]any{
+		"files": string(filesJSON),
+	})
+
+	result, err := h.uploadFiles(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultIsError(t, result)
+}
+
+func TestUploadFiles_MultipleWorkspaces(t *testing.T) {
+	h, root := workspaceHandlers(t)
+
+	file1 := base64.StdEncoding.EncodeToString([]byte("package a"))
+	file2 := base64.StdEncoding.EncodeToString([]byte("package b"))
+
+	filesJSON, _ := json.Marshal([]map[string]string{
+		{"workspace": "svc-a", "file_path": "a.go", "content": file1},
+		{"workspace": "svc-b", "file_path": "b.go", "content": file2},
+	})
+
+	req := makeCallToolRequest(t, map[string]any{
+		"files": string(filesJSON),
+	})
+
+	result, err := h.uploadFiles(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultNotError(t, result)
+
+	if _, err := os.Stat(filepath.Join(root, "svc-a", "a.go")); os.IsNotExist(err) {
+		t.Error("svc-a/a.go not written")
+	}
+	if _, err := os.Stat(filepath.Join(root, "svc-b", "b.go")); os.IsNotExist(err) {
+		t.Error("svc-b/b.go not written")
+	}
+}
+
+func TestDeleteWorkspace_Basic(t *testing.T) {
+	h, root := workspaceHandlers(t)
+
+	wsDir := filepath.Join(root, "to-delete")
+	os.MkdirAll(filepath.Join(wsDir, "subdir"), 0o755)
+	os.WriteFile(filepath.Join(wsDir, "file.md"), []byte("content"), 0o644)
+	os.WriteFile(filepath.Join(wsDir, "subdir", "nested.md"), []byte("nested"), 0o644)
+
+	req := makeCallToolRequest(t, map[string]any{
+		"workspace": "to-delete",
+	})
+	result, err := h.deleteWorkspace(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultNotError(t, result)
+
+	if _, err := os.Stat(wsDir); !os.IsNotExist(err) {
+		t.Error("workspace directory should have been deleted")
+	}
+}
+
+func TestDeleteWorkspace_NotFound(t *testing.T) {
+	h, _ := workspaceHandlers(t)
+
+	req := makeCallToolRequest(t, map[string]any{
+		"workspace": "nonexistent",
+	})
+	result, err := h.deleteWorkspace(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultIsError(t, result)
+}
+
+func TestDeleteWorkspace_PathTraversal(t *testing.T) {
+	h, _ := workspaceHandlers(t)
+
+	req := makeCallToolRequest(t, map[string]any{
+		"workspace": "../evil",
+	})
+	result, err := h.deleteWorkspace(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultIsError(t, result)
+}
+
 func makeCallToolRequest(t *testing.T, args map[string]any) mcp.CallToolRequest {
 	t.Helper()
 	req := mcp.CallToolRequest{}
