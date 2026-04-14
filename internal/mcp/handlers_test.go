@@ -177,22 +177,23 @@ func getTextContent(result *mcp.CallToolResult) string {
 	return tc.Text
 }
 
-func TestMustJSON(t *testing.T) {
+func TestMarshalJSON(t *testing.T) {
 	data := map[string]any{"key": "value", "num": 42}
-	result := mustJSON(data)
+	result, err := marshalJSON(data)
+	if err != nil {
+		t.Fatalf("marshalJSON returned error: %v", err)
+	}
 	var out map[string]any
 	if err := json.Unmarshal([]byte(result), &out); err != nil {
-		t.Fatalf("mustJSON produced invalid JSON: %v", err)
+		t.Fatalf("marshalJSON produced invalid JSON: %v", err)
 	}
 }
 
-func TestMustJSONPanicsOnUnserializable(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("mustJSON should panic on unserializable value")
-		}
-	}()
-	mustJSON(make(chan int)) // channel은 json.Marshal 불가
+func TestMarshalJSON_ErrorOnUnserializable(t *testing.T) {
+	_, err := marshalJSON(make(chan int)) // channel은 json.Marshal 불가
+	if err == nil {
+		t.Fatal("marshalJSON should return error on unserializable value")
+	}
 }
 
 func TestHandler_ParseProject(t *testing.T) {

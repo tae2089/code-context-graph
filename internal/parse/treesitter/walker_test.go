@@ -26,11 +26,16 @@ func TestParseWithContext_RespectsContextCancellation(t *testing.T) {
 	content := []byte(`package main
 func Foo() {}`)
 
-	// 취소된 context가 전달되면 에러 반환해야 함
+	// 취소된 context가 전달되면 에러를 반환하거나 빈 결과를 돌려야 함
 	// (tree-sitter ParseCtx는 ctx를 체크함)
-	_, _, err := w.ParseWithContext(ctx, "test.go", content)
-	// 에러가 발생할 수도, 아닐 수도 있음 - 최소한 panic 없어야 함
-	_ = err
+	nodes, edges, err := w.ParseWithContext(ctx, "test.go", content)
+	if err != nil {
+		// 취소된 context → 에러 반환은 올바른 동작
+		t.Logf("ParseWithContext returned expected error: %v", err)
+	} else {
+		// 에러 없이 리턴해도 panic만 안 나면 OK
+		t.Logf("ParseWithContext succeeded despite cancelled ctx: nodes=%d edges=%d", len(nodes), len(edges))
+	}
 }
 
 func TestParseGo_EmptyFile(t *testing.T) {

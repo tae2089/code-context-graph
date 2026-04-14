@@ -28,13 +28,20 @@ type handlers struct {
 	cache *Cache
 }
 
-// mustJSON serializes v to a JSON string for use as a cache key.
-func mustJSON(v any) string {
+func marshalJSON(v any) (string, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
-		panic("mustJSON: " + err.Error())
+		return "", err
 	}
-	return string(b)
+	return string(b), nil
+}
+
+func makeCacheKey(prefix string, v any) (string, error) {
+	key, err := marshalJSON(v)
+	if err != nil {
+		return "", err
+	}
+	return prefix + key, nil
 }
 
 func (h *handlers) logger() *slog.Logger {
@@ -122,11 +129,19 @@ func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*m
 
 	log.Info("get_node called", "qualified_name", qn)
 
-	key := "get_node:" + mustJSON(map[string]any{"qualified_name": qn})
+	key := ""
 	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			log.Debug("get_node cache hit", "qualified_name", qn)
-			return mcp.NewToolResultText(cached), nil
+		cacheKey, cacheErr := makeCacheKey("get_node:", map[string]any{"qualified_name": qn})
+		if cacheErr != nil {
+			log.Warn("failed to marshal cache key", "tool", "get_node", "error", cacheErr)
+		} else {
+			key = cacheKey
+		}
+		if key != "" {
+			if cached, ok := h.cache.Get(key); ok {
+				log.Debug("get_node cache hit", "qualified_name", qn)
+				return mcp.NewToolResultText(cached), nil
+			}
 		}
 	}
 
@@ -150,8 +165,11 @@ func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*m
 		"end_line":       node.EndLine,
 		"language":       node.Language,
 	}
-	result := mustJSON(data)
-	if h.cache != nil {
+	result, err := marshalJSON(data)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result: %w", err)
+	}
+	if h.cache != nil && key != "" {
 		h.cache.Set(key, result)
 	}
 	return mcp.NewToolResultText(result), nil
@@ -168,11 +186,19 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 
 	log.Info("get_impact_radius called", "qualified_name", qn, "depth", depth)
 
-	key := "get_impact_radius:" + mustJSON(map[string]any{"qualified_name": qn, "depth": depth})
+	key := ""
 	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			log.Debug("get_impact_radius cache hit", "qualified_name", qn)
-			return mcp.NewToolResultText(cached), nil
+		cacheKey, cacheErr := makeCacheKey("get_impact_radius:", map[string]any{"qualified_name": qn, "depth": depth})
+		if cacheErr != nil {
+			log.Warn("failed to marshal cache key", "tool", "get_impact_radius", "error", cacheErr)
+		} else {
+			key = cacheKey
+		}
+		if key != "" {
+			if cached, ok := h.cache.Get(key); ok {
+				log.Debug("get_impact_radius cache hit", "qualified_name", qn)
+				return mcp.NewToolResultText(cached), nil
+			}
 		}
 	}
 
@@ -204,8 +230,11 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 			"file_path":      n.FilePath,
 		}
 	}
-	result := mustJSON(impactResult)
-	if h.cache != nil {
+	result, err := marshalJSON(impactResult)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result: %w", err)
+	}
+	if h.cache != nil && key != "" {
 		h.cache.Set(key, result)
 	}
 	return mcp.NewToolResultText(result), nil
@@ -223,11 +252,19 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 
 	log.Info("search called", "query", query, "limit", limit, "path", pathPrefix)
 
-	key := "search:" + mustJSON(map[string]any{"query": query, "limit": limit, "path": pathPrefix})
+	key := ""
 	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			log.Debug("search cache hit", "query", query)
-			return mcp.NewToolResultText(cached), nil
+		cacheKey, cacheErr := makeCacheKey("search:", map[string]any{"query": query, "limit": limit, "path": pathPrefix})
+		if cacheErr != nil {
+			log.Warn("failed to marshal cache key", "tool", "search", "error", cacheErr)
+		} else {
+			key = cacheKey
+		}
+		if key != "" {
+			if cached, ok := h.cache.Get(key); ok {
+				log.Debug("search cache hit", "query", query)
+				return mcp.NewToolResultText(cached), nil
+			}
 		}
 	}
 
@@ -269,8 +306,11 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 			"file_path":      n.FilePath,
 		}
 	}
-	result := mustJSON(searchResult)
-	if h.cache != nil {
+	result, err := marshalJSON(searchResult)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result: %w", err)
+	}
+	if h.cache != nil && key != "" {
 		h.cache.Set(key, result)
 	}
 	return mcp.NewToolResultText(result), nil
@@ -286,11 +326,19 @@ func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolReques
 
 	log.Info("get_annotation called", "qualified_name", qn)
 
-	key := "get_annotation:" + mustJSON(map[string]any{"qualified_name": qn})
+	key := ""
 	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			log.Debug("get_annotation cache hit", "qualified_name", qn)
-			return mcp.NewToolResultText(cached), nil
+		cacheKey, cacheErr := makeCacheKey("get_annotation:", map[string]any{"qualified_name": qn})
+		if cacheErr != nil {
+			log.Warn("failed to marshal cache key", "tool", "get_annotation", "error", cacheErr)
+		} else {
+			key = cacheKey
+		}
+		if key != "" {
+			if cached, ok := h.cache.Get(key); ok {
+				log.Debug("get_annotation cache hit", "qualified_name", qn)
+				return mcp.NewToolResultText(cached), nil
+			}
 		}
 	}
 
@@ -329,8 +377,11 @@ func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolReques
 		"context": ann.Context,
 		"tags":    tags,
 	}
-	result := mustJSON(data)
-	if h.cache != nil {
+	result, err := marshalJSON(data)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result: %w", err)
+	}
+	if h.cache != nil && key != "" {
 		h.cache.Set(key, result)
 	}
 	return mcp.NewToolResultText(result), nil
@@ -346,11 +397,19 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 
 	log.Info("trace_flow called", "qualified_name", qn)
 
-	key := "trace_flow:" + mustJSON(map[string]any{"qualified_name": qn})
+	key := ""
 	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			log.Debug("trace_flow cache hit", "qualified_name", qn)
-			return mcp.NewToolResultText(cached), nil
+		cacheKey, cacheErr := makeCacheKey("trace_flow:", map[string]any{"qualified_name": qn})
+		if cacheErr != nil {
+			log.Warn("failed to marshal cache key", "tool", "trace_flow", "error", cacheErr)
+		} else {
+			key = cacheKey
+		}
+		if key != "" {
+			if cached, ok := h.cache.Get(key); ok {
+				log.Debug("trace_flow cache hit", "qualified_name", qn)
+				return mcp.NewToolResultText(cached), nil
+			}
 		}
 	}
 
@@ -384,8 +443,11 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 		"name":    flow.Name,
 		"members": members,
 	}
-	result := mustJSON(data)
-	if h.cache != nil {
+	result, err := marshalJSON(data)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result: %w", err)
+	}
+	if h.cache != nil && key != "" {
 		h.cache.Set(key, result)
 	}
 	return mcp.NewToolResultText(result), nil
@@ -534,7 +596,10 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		"edges_created": edgeCount,
 		"elapsed_ms":    elapsed,
 	}
-	jsonStr := mustJSON(result)
+	jsonStr, err := marshalJSON(result)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result: %w", err)
+	}
 	if h.cache != nil {
 		h.cache.Flush()
 	}
@@ -581,7 +646,10 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 		"communities_count": communitiesCount,
 		"fts_indexed":       ftsIndexed,
 	}
-	jsonStr := mustJSON(result)
+	jsonStr, err := marshalJSON(result)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result: %w", err)
+	}
 	if h.cache != nil {
 		h.cache.Flush()
 	}
@@ -602,11 +670,19 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 
 	log.Info("query_graph called", "pattern", pattern, "target", target)
 
-	key := "query_graph:" + mustJSON(map[string]any{"pattern": pattern, "target": target})
+	key := ""
 	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			log.Debug("query_graph cache hit", "pattern", pattern, "target", target)
-			return mcp.NewToolResultText(cached), nil
+		cacheKey, cacheErr := makeCacheKey("query_graph:", map[string]any{"pattern": pattern, "target": target})
+		if cacheErr != nil {
+			log.Warn("failed to marshal cache key", "tool", "query_graph", "error", cacheErr)
+		} else {
+			key = cacheKey
+		}
+		if key != "" {
+			if cached, ok := h.cache.Get(key); ok {
+				log.Debug("query_graph cache hit", "pattern", pattern, "target", target)
+				return mcp.NewToolResultText(cached), nil
+			}
 		}
 	}
 
@@ -634,8 +710,11 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 			"target":  target,
 			"results": summary,
 		}
-		result := mustJSON(fsData)
-		if h.cache != nil {
+		result, err := marshalJSON(fsData)
+		if err != nil {
+			return nil, fmt.Errorf("marshal result: %w", err)
+		}
+		if h.cache != nil && key != "" {
 			h.cache.Set(key, result)
 		}
 		return mcp.NewToolResultText(result), nil
@@ -692,8 +771,11 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 		"target":  target,
 		"results": qgResults,
 	}
-	result := mustJSON(resp)
-	if h.cache != nil {
+	result, err := marshalJSON(resp)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result: %w", err)
+	}
+	if h.cache != nil && key != "" {
 		h.cache.Set(key, result)
 	}
 	return mcp.NewToolResultText(result), nil
@@ -703,11 +785,19 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 	log := h.logger()
 	log.Info("list_graph_stats called")
 
-	key := "list_graph_stats:" + mustJSON(map[string]any{})
+	key := ""
 	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			log.Debug("list_graph_stats cache hit")
-			return mcp.NewToolResultText(cached), nil
+		cacheKey, cacheErr := makeCacheKey("list_graph_stats:", map[string]any{})
+		if cacheErr != nil {
+			log.Warn("failed to marshal cache key", "tool", "list_graph_stats", "error", cacheErr)
+		} else {
+			key = cacheKey
+		}
+		if key != "" {
+			if cached, ok := h.cache.Get(key); ok {
+				log.Debug("list_graph_stats cache hit")
+				return mcp.NewToolResultText(cached), nil
+			}
 		}
 	}
 
@@ -756,8 +846,11 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 		"nodes_by_language": nbl,
 		"edges_by_kind":     ebk,
 	}
-	result := mustJSON(statsData)
-	if h.cache != nil {
+	result, err := marshalJSON(statsData)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result: %w", err)
+	}
+	if h.cache != nil && key != "" {
 		h.cache.Set(key, result)
 	}
 	return mcp.NewToolResultText(result), nil
@@ -772,11 +865,19 @@ func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolR
 
 	log.Info("find_large_functions called", "min_lines", minLines, "limit", limit, "path", pathPrefix)
 
-	key := "find_large_functions:" + mustJSON(map[string]any{"min_lines": minLines, "limit": limit, "path": pathPrefix})
+	key := ""
 	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			log.Debug("find_large_functions cache hit")
-			return mcp.NewToolResultText(cached), nil
+		cacheKey, cacheErr := makeCacheKey("find_large_functions:", map[string]any{"min_lines": minLines, "limit": limit, "path": pathPrefix})
+		if cacheErr != nil {
+			log.Warn("failed to marshal cache key", "tool", "find_large_functions", "error", cacheErr)
+		} else {
+			key = cacheKey
+		}
+		if key != "" {
+			if cached, ok := h.cache.Get(key); ok {
+				log.Debug("find_large_functions cache hit")
+				return mcp.NewToolResultText(cached), nil
+			}
 		}
 	}
 
@@ -817,8 +918,11 @@ func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolR
 		"results": lfResults,
 		"count":   len(lfResults),
 	}
-	result := mustJSON(resp)
-	if h.cache != nil {
+	result, err := marshalJSON(resp)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result: %w", err)
+	}
+	if h.cache != nil && key != "" {
 		h.cache.Set(key, result)
 	}
 	return mcp.NewToolResultText(result), nil
@@ -835,11 +939,19 @@ func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolReques
 
 	log.Info("detect_changes called", "repo_root", repoRoot, "base", base)
 
-	key := "detect_changes:" + mustJSON(map[string]any{"repo_root": repoRoot, "base": base})
+	key := ""
 	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			log.Debug("detect_changes cache hit", "repo_root", repoRoot, "base", base)
-			return mcp.NewToolResultText(cached), nil
+		cacheKey, cacheErr := makeCacheKey("detect_changes:", map[string]any{"repo_root": repoRoot, "base": base})
+		if cacheErr != nil {
+			log.Warn("failed to marshal cache key", "tool", "detect_changes", "error", cacheErr)
+		} else {
+			key = cacheKey
+		}
+		if key != "" {
+			if cached, ok := h.cache.Get(key); ok {
+				log.Debug("detect_changes cache hit", "repo_root", repoRoot, "base", base)
+				return mcp.NewToolResultText(cached), nil
+			}
 		}
 	}
 
@@ -867,8 +979,11 @@ func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolReques
 		"base":    base,
 		"entries": entries,
 	}
-	result := mustJSON(resp)
-	if h.cache != nil {
+	result, err := marshalJSON(resp)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result: %w", err)
+	}
+	if h.cache != nil && key != "" {
 		h.cache.Set(key, result)
 	}
 	return mcp.NewToolResultText(result), nil
@@ -885,11 +1000,19 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 
 	log.Info("get_affected_flows called", "repo_root", repoRoot, "base", base)
 
-	key := "get_affected_flows:" + mustJSON(map[string]any{"repo_root": repoRoot, "base": base})
+	key := ""
 	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			log.Debug("get_affected_flows cache hit", "repo_root", repoRoot, "base", base)
-			return mcp.NewToolResultText(cached), nil
+		cacheKey, cacheErr := makeCacheKey("get_affected_flows:", map[string]any{"repo_root": repoRoot, "base": base})
+		if cacheErr != nil {
+			log.Warn("failed to marshal cache key", "tool", "get_affected_flows", "error", cacheErr)
+		} else {
+			key = cacheKey
+		}
+		if key != "" {
+			if cached, ok := h.cache.Get(key); ok {
+				log.Debug("get_affected_flows cache hit", "repo_root", repoRoot, "base", base)
+				return mcp.NewToolResultText(cached), nil
+			}
 		}
 	}
 
@@ -905,8 +1028,11 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 
 	if len(risks) == 0 {
 		emptyResp := map[string]any{"affected_flows": []any{}}
-		result := mustJSON(emptyResp)
-		if h.cache != nil {
+		result, err := marshalJSON(emptyResp)
+		if err != nil {
+			return nil, fmt.Errorf("marshal result: %w", err)
+		}
+		if h.cache != nil && key != "" {
 			h.cache.Set(key, result)
 		}
 		return mcp.NewToolResultText(result), nil
@@ -930,8 +1056,11 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 
 	if len(flowNodes) == 0 {
 		emptyResp := map[string]any{"affected_flows": []any{}}
-		result := mustJSON(emptyResp)
-		if h.cache != nil {
+		result, err := marshalJSON(emptyResp)
+		if err != nil {
+			return nil, fmt.Errorf("marshal result: %w", err)
+		}
+		if h.cache != nil && key != "" {
 			h.cache.Set(key, result)
 		}
 		return mcp.NewToolResultText(result), nil
@@ -955,8 +1084,11 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 	}
 
 	resp := map[string]any{"affected_flows": affected}
-	result := mustJSON(resp)
-	if h.cache != nil {
+	result, err := marshalJSON(resp)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result: %w", err)
+	}
+	if h.cache != nil && key != "" {
 		h.cache.Set(key, result)
 	}
 	return mcp.NewToolResultText(result), nil
@@ -970,11 +1102,19 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 
 	log.Info("list_flows called", "sort_by", sortBy, "limit", limit)
 
-	key := "list_flows:" + mustJSON(map[string]any{"sort_by": sortBy, "limit": limit})
+	key := ""
 	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			log.Debug("list_flows cache hit")
-			return mcp.NewToolResultText(cached), nil
+		cacheKey, cacheErr := makeCacheKey("list_flows:", map[string]any{"sort_by": sortBy, "limit": limit})
+		if cacheErr != nil {
+			log.Warn("failed to marshal cache key", "tool", "list_flows", "error", cacheErr)
+		} else {
+			key = cacheKey
+		}
+		if key != "" {
+			if cached, ok := h.cache.Get(key); ok {
+				log.Debug("list_flows cache hit")
+				return mcp.NewToolResultText(cached), nil
+			}
 		}
 	}
 
@@ -1031,8 +1171,11 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 	}
 
 	resp := map[string]any{"flows": infos}
-	result := mustJSON(resp)
-	if h.cache != nil {
+	result, err := marshalJSON(resp)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result: %w", err)
+	}
+	if h.cache != nil && key != "" {
 		h.cache.Set(key, result)
 	}
 	return mcp.NewToolResultText(result), nil
@@ -1046,11 +1189,19 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 
 	log.Info("list_communities called", "sort_by", sortBy, "min_size", minSize)
 
-	key := "list_communities:" + mustJSON(map[string]any{"sort_by": sortBy, "min_size": minSize})
+	key := ""
 	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			log.Debug("list_communities cache hit")
-			return mcp.NewToolResultText(cached), nil
+		cacheKey, cacheErr := makeCacheKey("list_communities:", map[string]any{"sort_by": sortBy, "min_size": minSize})
+		if cacheErr != nil {
+			log.Warn("failed to marshal cache key", "tool", "list_communities", "error", cacheErr)
+		} else {
+			key = cacheKey
+		}
+		if key != "" {
+			if cached, ok := h.cache.Get(key); ok {
+				log.Debug("list_communities cache hit")
+				return mcp.NewToolResultText(cached), nil
+			}
 		}
 	}
 
@@ -1106,8 +1257,11 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 	}
 
 	resp := map[string]any{"communities": infos}
-	commResult := mustJSON(resp)
-	if h.cache != nil {
+	commResult, err := marshalJSON(resp)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result: %w", err)
+	}
+	if h.cache != nil && key != "" {
 		h.cache.Set(key, commResult)
 	}
 	return mcp.NewToolResultText(commResult), nil
@@ -1124,11 +1278,19 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 
 	log.Info("get_community called", "community_id", communityID, "include_members", includeMembers)
 
-	key := "get_community:" + mustJSON(map[string]any{"community_id": communityID, "include_members": includeMembers})
+	key := ""
 	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			log.Debug("get_community cache hit", "community_id", communityID)
-			return mcp.NewToolResultText(cached), nil
+		cacheKey, cacheErr := makeCacheKey("get_community:", map[string]any{"community_id": communityID, "include_members": includeMembers})
+		if cacheErr != nil {
+			log.Warn("failed to marshal cache key", "tool", "get_community", "error", cacheErr)
+		} else {
+			key = cacheKey
+		}
+		if key != "" {
+			if cached, ok := h.cache.Get(key); ok {
+				log.Debug("get_community cache hit", "community_id", communityID)
+				return mcp.NewToolResultText(cached), nil
+			}
 		}
 	}
 
@@ -1182,8 +1344,11 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 		gcData["members"] = members
 	}
 
-	result := mustJSON(gcData)
-	if h.cache != nil {
+	result, err := marshalJSON(gcData)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result: %w", err)
+	}
+	if h.cache != nil && key != "" {
 		h.cache.Set(key, result)
 	}
 	return mcp.NewToolResultText(result), nil
@@ -1193,11 +1358,19 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 	log := h.logger()
 	log.Info("get_architecture_overview called")
 
-	key := "get_architecture_overview:" + mustJSON(map[string]any{})
+	key := ""
 	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			log.Debug("get_architecture_overview cache hit")
-			return mcp.NewToolResultText(cached), nil
+		cacheKey, cacheErr := makeCacheKey("get_architecture_overview:", map[string]any{})
+		if cacheErr != nil {
+			log.Warn("failed to marshal cache key", "tool", "get_architecture_overview", "error", cacheErr)
+		} else {
+			key = cacheKey
+		}
+		if key != "" {
+			if cached, ok := h.cache.Get(key); ok {
+				log.Debug("get_architecture_overview cache hit")
+				return mcp.NewToolResultText(cached), nil
+			}
 		}
 	}
 
@@ -1210,8 +1383,11 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 			"coupling":    []any{},
 			"warnings":    []string{"No communities found. Run community rebuild first."},
 		}
-		result := mustJSON(emptyResp)
-		if h.cache != nil {
+		result, err := marshalJSON(emptyResp)
+		if err != nil {
+			return nil, fmt.Errorf("marshal result: %w", err)
+		}
+		if h.cache != nil && key != "" {
 			h.cache.Set(key, result)
 		}
 		return mcp.NewToolResultText(result), nil
@@ -1274,8 +1450,11 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 		"coupling":    couplingPairs,
 		"warnings":    warnings,
 	}
-	result := mustJSON(resp)
-	if h.cache != nil {
+	result, err := marshalJSON(resp)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result: %w", err)
+	}
+	if h.cache != nil && key != "" {
 		h.cache.Set(key, result)
 	}
 	return mcp.NewToolResultText(result), nil
@@ -1293,11 +1472,19 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 	pathPrefix := request.GetString("path", "")
 	opts.FilePattern = pathPrefix
 
-	key := "find_dead_code:" + mustJSON(map[string]any{"path": pathPrefix, "kinds": kinds})
+	key := ""
 	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			log.Debug("find_dead_code cache hit")
-			return mcp.NewToolResultText(cached), nil
+		cacheKey, cacheErr := makeCacheKey("find_dead_code:", map[string]any{"path": pathPrefix, "kinds": kinds})
+		if cacheErr != nil {
+			log.Warn("failed to marshal cache key", "tool", "find_dead_code", "error", cacheErr)
+		} else {
+			key = cacheKey
+		}
+		if key != "" {
+			if cached, ok := h.cache.Get(key); ok {
+				log.Debug("find_dead_code cache hit")
+				return mcp.NewToolResultText(cached), nil
+			}
 		}
 	}
 
@@ -1324,8 +1511,11 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 		"dead_code": dcResults,
 		"count":     len(dcResults),
 	}
-	result := mustJSON(resp)
-	if h.cache != nil {
+	result, err := marshalJSON(resp)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result: %w", err)
+	}
+	if h.cache != nil && key != "" {
 		h.cache.Set(key, result)
 	}
 	return mcp.NewToolResultText(result), nil
@@ -1376,10 +1566,18 @@ func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) 
 		indexMtime = stat.ModTime().UnixNano()
 	}
 
-	key := "get_rag_tree:" + mustJSON(map[string]any{"community_id": communityID, "depth": depth, "mtime": indexMtime})
+	key := ""
 	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			return mcp.NewToolResultText(cached), nil
+		cacheKey, cacheErr := makeCacheKey("get_rag_tree:", map[string]any{"community_id": communityID, "depth": depth, "mtime": indexMtime})
+		if cacheErr != nil {
+			h.logger().Warn("failed to marshal cache key", "tool", "get_rag_tree", "error", cacheErr)
+		} else {
+			key = cacheKey
+		}
+		if key != "" {
+			if cached, ok := h.cache.Get(key); ok {
+				return mcp.NewToolResultText(cached), nil
+			}
 		}
 	}
 
@@ -1407,7 +1605,7 @@ func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) 
 		return mcp.NewToolResultError(fmt.Sprintf("marshal tree: %v", err)), nil
 	}
 	result := string(b)
-	if h.cache != nil {
+	if h.cache != nil && key != "" {
 		h.cache.Set(key, result)
 	}
 	return mcp.NewToolResultText(result), nil
@@ -1436,10 +1634,18 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 		mtime = stat.ModTime().UnixNano()
 	}
 
-	key := "get_doc_content:" + mustJSON(map[string]any{"file_path": filePath, "mtime": mtime})
+	key := ""
 	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			return mcp.NewToolResultText(cached), nil
+		cacheKey, cacheErr := makeCacheKey("get_doc_content:", map[string]any{"file_path": filePath, "mtime": mtime})
+		if cacheErr != nil {
+			h.logger().Warn("failed to marshal cache key", "tool", "get_doc_content", "error", cacheErr)
+		} else {
+			key = cacheKey
+		}
+		if key != "" {
+			if cached, ok := h.cache.Get(key); ok {
+				return mcp.NewToolResultText(cached), nil
+			}
 		}
 	}
 
@@ -1448,7 +1654,7 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 		return mcp.NewToolResultError(fmt.Sprintf("read file %q: %v. Run 'ccg docs' to generate documentation files.", filePath, err)), nil
 	}
 	result := string(content)
-	if h.cache != nil {
+	if h.cache != nil && key != "" {
 		h.cache.Set(key, result)
 	}
 	return mcp.NewToolResultText(result), nil
@@ -1473,10 +1679,18 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 		indexMtime = stat.ModTime().UnixNano()
 	}
 
-	key := "search_docs:" + mustJSON(map[string]any{"query": query, "limit": limit, "mtime": indexMtime})
+	key := ""
 	if h.cache != nil {
-		if cached, ok := h.cache.Get(key); ok {
-			return mcp.NewToolResultText(cached), nil
+		cacheKey, cacheErr := makeCacheKey("search_docs:", map[string]any{"query": query, "limit": limit, "mtime": indexMtime})
+		if cacheErr != nil {
+			h.logger().Warn("failed to marshal cache key", "tool", "search_docs", "error", cacheErr)
+		} else {
+			key = cacheKey
+		}
+		if key != "" {
+			if cached, ok := h.cache.Get(key); ok {
+				return mcp.NewToolResultText(cached), nil
+			}
 		}
 	}
 
@@ -1495,7 +1709,7 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 		return mcp.NewToolResultError(fmt.Sprintf("marshal results: %v", err)), nil
 	}
 	resultStr := string(b)
-	if h.cache != nil {
+	if h.cache != nil && key != "" {
 		h.cache.Set(key, resultStr)
 	}
 	return mcp.NewToolResultText(resultStr), nil

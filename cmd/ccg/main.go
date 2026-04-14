@@ -31,6 +31,18 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/store/search"
 )
 
+var (
+	_ mcpserver.ImpactAnalyzer    = (*impact.Analyzer)(nil)
+	_ mcpserver.FlowTracer        = (*flows.Tracer)(nil)
+	_ mcpserver.QueryService      = (*query.Service)(nil)
+	_ mcpserver.LargefuncAnalyzer = (*largefunc.Service)(nil)
+	_ mcpserver.DeadcodeAnalyzer  = (*deadcode.Service)(nil)
+	_ mcpserver.CouplingAnalyzer  = (*coupling.Service)(nil)
+	_ mcpserver.CoverageAnalyzer  = (*coverage.Service)(nil)
+	_ mcpserver.CommunityBuilder  = (*community.Builder)(nil)
+	_ mcpserver.IncrementalSyncer = (*incremental.Syncer)(nil)
+)
+
 func main() {
 	logger := slog.Default()
 
@@ -39,7 +51,6 @@ func main() {
 	}
 
 	deps.InitFunc = func(driver, dsn string) error {
-		// Initialize the DB ONLY when the command actually runs via PersistentPreRunE
 		db, err := openDB(driver, dsn)
 		if err != nil {
 			return fmt.Errorf("open database: %w", err)
@@ -59,9 +70,6 @@ func main() {
 		}
 
 		walkers := buildWalkers(deps.Logger)
-		// incremental.Syncer에는 별도 Walker 인스턴스를 생성한다.
-		// sitter.Parser는 thread-safe하지 않으므로 walkers[".go"]와 인스턴스를 공유하면
-		// 동시 호출 시 data race가 발생할 수 있다.
 		syncerWalker := treesitter.NewWalker(treesitter.GoSpec, treesitter.WithLogger(deps.Logger))
 		syncer := incremental.New(st, syncerWalker)
 
@@ -70,6 +78,12 @@ func main() {
 		deps.SearchBackend = sb
 		deps.Walkers = walkers
 		deps.Syncer = syncer
+		deps.CleanupFunc = func() {
+			for _, w := range walkers {
+				w.Close()
+			}
+			syncerWalker.Close()
+		}
 
 		return nil
 	}
@@ -82,6 +96,9 @@ func main() {
 	if err := cmd.Execute(); err != nil {
 		slog.Error("command failed", "error", err)
 		os.Exit(1)
+	}
+	if deps.CleanupFunc != nil {
+		deps.CleanupFunc()
 	}
 }
 
@@ -123,6 +140,7 @@ func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 	var cache *mcpserver.Cache
 	if !cfg.NoCache && cfg.CacheTTL > 0 {
 		cache = mcpserver.NewCache(cfg.CacheTTL)
+		defer cache.Close()
 		deps.Logger.Info("MCP cache enabled", "ttl", cfg.CacheTTL)
 	}
 

@@ -25,6 +25,7 @@ type Deps struct {
 	Syncer        *incremental.Syncer
 	ServeFunc     func(cfg ServeConfig) error
 	InitFunc      func(dbDriver, dsn string) error
+	CleanupFunc   func()
 }
 
 // NewRootCmd creates the root cobra command with all subcommands attached.

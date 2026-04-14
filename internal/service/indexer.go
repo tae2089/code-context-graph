@@ -116,9 +116,19 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 				}
 				binder := parse.NewBinder()
 				bindings := binder.Bind(binderComments, nodes, walker.Language())
+
+				qNames := make([]string, len(bindings))
+				for i, b := range bindings {
+					qNames[i] = b.Node.QualifiedName
+				}
+				storedMap, err := txStore.GetNodesByQualifiedNames(ctx, qNames)
+				if err != nil {
+					return fmt.Errorf("batch get nodes for annotations: %w", err)
+				}
+
 				for _, b := range bindings {
-					stored, err := txStore.GetNode(ctx, b.Node.QualifiedName)
-					if err != nil || stored == nil {
+					stored := storedMap[b.Node.QualifiedName]
+					if stored == nil {
 						continue
 					}
 					b.Annotation.NodeID = stored.ID

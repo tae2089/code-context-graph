@@ -78,6 +78,14 @@ func NewWalker(spec *LangSpec, opts ...WalkerOption) *Walker {
 	return w
 }
 
+// Close releases CGo resources held by the underlying tree-sitter parser.
+// It should be called when the Walker is no longer needed.
+func (w *Walker) Close() {
+	if w.parser != nil {
+		w.parser.Close()
+	}
+}
+
 func (w *Walker) Language() string {
 	return w.spec.Name
 }

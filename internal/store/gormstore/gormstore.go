@@ -85,6 +85,21 @@ func (s *Store) GetNodesByIDs(ctx context.Context, ids []uint) ([]model.Node, er
 	return nodes, nil
 }
 
+func (s *Store) GetNodesByQualifiedNames(ctx context.Context, names []string) (map[string]*model.Node, error) {
+	if len(names) == 0 {
+		return map[string]*model.Node{}, nil
+	}
+	var nodes []model.Node
+	if err := s.db.WithContext(ctx).Where("qualified_name IN ?", names).Find(&nodes).Error; err != nil {
+		return nil, err
+	}
+	result := make(map[string]*model.Node, len(nodes))
+	for i := range nodes {
+		result[nodes[i].QualifiedName] = &nodes[i]
+	}
+	return result, nil
+}
+
 func (s *Store) GetNodesByFile(ctx context.Context, filePath string) ([]model.Node, error) {
 	var nodes []model.Node
 	if err := s.db.WithContext(ctx).Where("file_path = ?", filePath).Find(&nodes).Error; err != nil {
