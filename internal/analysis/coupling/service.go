@@ -31,64 +31,63 @@ func New(db *gorm.DB) *Service {
 // @domainRule strength equals edge count divided by maximum edge count across all pairs
 // @domainRule only cross-community edges are counted
 func (s *Service) Analyze(ctx context.Context) ([]CouplingPair, error) {
-	var memberships []model.CommunityMembership
-	if err := s.db.WithContext(ctx).Find(&memberships).Error; err != nil {
+	type pairRow struct {
+		FromCommID uint
+		ToCommID   uint
+		EdgeCount  int64
+	}
+	var rows []pairRow
+	if err := s.db.WithContext(ctx).
+		Model(&model.Edge{}).
+		Select("cm1.community_id as from_comm_id, cm2.community_id as to_comm_id, COUNT(*) as edge_count").
+		Joins("JOIN community_memberships cm1 ON cm1.node_id = edges.from_node_id").
+		Joins("JOIN community_memberships cm2 ON cm2.node_id = edges.to_node_id").
+		Where("cm1.community_id != cm2.community_id").
+		Group("cm1.community_id, cm2.community_id").
+		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 
-	nodeComm := map[uint]uint{}
-	for _, m := range memberships {
-		nodeComm[m.NodeID] = m.CommunityID
-	}
-
-	if len(nodeComm) == 0 {
+	if len(rows) == 0 {
 		return nil, nil
 	}
 
+	commIDs := make([]uint, 0, len(rows)*2)
+	seen := map[uint]struct{}{}
+	for _, r := range rows {
+		if _, ok := seen[r.FromCommID]; !ok {
+			commIDs = append(commIDs, r.FromCommID)
+			seen[r.FromCommID] = struct{}{}
+		}
+		if _, ok := seen[r.ToCommID]; !ok {
+			commIDs = append(commIDs, r.ToCommID)
+			seen[r.ToCommID] = struct{}{}
+		}
+	}
+
 	var communities []model.Community
-	if err := s.db.WithContext(ctx).Find(&communities).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("id IN ?", commIDs).Find(&communities).Error; err != nil {
 		return nil, err
 	}
-	commLabel := map[uint]string{}
+	commLabel := make(map[uint]string, len(communities))
 	for _, c := range communities {
 		commLabel[c.ID] = c.Key
 	}
 
-	var edges []model.Edge
-	if err := s.db.WithContext(ctx).Find(&edges).Error; err != nil {
-		return nil, err
-	}
-
-	type pairKey struct{ from, to uint }
-	counts := map[pairKey]int64{}
-
-	for _, e := range edges {
-		fromComm, fOK := nodeComm[e.FromNodeID]
-		toComm, tOK := nodeComm[e.ToNodeID]
-		if !fOK || !tOK || fromComm == toComm {
-			continue
-		}
-		counts[pairKey{fromComm, toComm}]++
-	}
-
-	if len(counts) == 0 {
-		return nil, nil
-	}
-
 	var maxCount int64
-	for _, c := range counts {
-		if c > maxCount {
-			maxCount = c
+	for _, r := range rows {
+		if r.EdgeCount > maxCount {
+			maxCount = r.EdgeCount
 		}
 	}
 
-	result := make([]CouplingPair, 0, len(counts))
-	for pk, cnt := range counts {
+	result := make([]CouplingPair, 0, len(rows))
+	for _, r := range rows {
 		result = append(result, CouplingPair{
-			FromCommunity: commLabel[pk.from],
-			ToCommunity:   commLabel[pk.to],
-			EdgeCount:     cnt,
-			Strength:      float64(cnt) / float64(maxCount),
+			FromCommunity: commLabel[r.FromCommID],
+			ToCommunity:   commLabel[r.ToCommID],
+			EdgeCount:     r.EdgeCount,
+			Strength:      float64(r.EdgeCount) / float64(maxCount),
 		})
 	}
 

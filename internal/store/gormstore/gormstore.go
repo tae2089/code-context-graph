@@ -92,6 +92,21 @@ func (s *Store) GetNodesByFile(ctx context.Context, filePath string) ([]model.No
 	return nodes, nil
 }
 
+func (s *Store) GetNodesByFiles(ctx context.Context, filePaths []string) (map[string][]model.Node, error) {
+	if len(filePaths) == 0 {
+		return map[string][]model.Node{}, nil
+	}
+	var nodes []model.Node
+	if err := s.db.WithContext(ctx).Where("file_path IN ?", filePaths).Find(&nodes).Error; err != nil {
+		return nil, err
+	}
+	result := make(map[string][]model.Node, len(filePaths))
+	for _, n := range nodes {
+		result[n.FilePath] = append(result[n.FilePath], n)
+	}
+	return result, nil
+}
+
 func (s *Store) DeleteNodesByFile(ctx context.Context, filePath string) error {
 	var nodeIDs []uint
 	if err := s.db.WithContext(ctx).
@@ -104,26 +119,28 @@ func (s *Store) DeleteNodesByFile(ctx context.Context, filePath string) error {
 		return nil
 	}
 
-	if err := s.db.WithContext(ctx).
-		Where("from_node_id IN ? OR to_node_id IN ?", nodeIDs, nodeIDs).
-		Delete(&model.Edge{}).Error; err != nil {
-		return fmt.Errorf("cascade delete edges: %w", err)
-	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.
+			Where("from_node_id IN ? OR to_node_id IN ?", nodeIDs, nodeIDs).
+			Delete(&model.Edge{}).Error; err != nil {
+			return fmt.Errorf("cascade delete edges: %w", err)
+		}
 
-	if err := s.db.WithContext(ctx).
-		Where("annotation_id IN (?)",
-			s.db.Model(&model.Annotation{}).Select("id").Where("node_id IN ?", nodeIDs),
-		).Delete(&model.DocTag{}).Error; err != nil {
-		return fmt.Errorf("cascade delete doc_tags: %w", err)
-	}
+		if err := tx.
+			Where("annotation_id IN (?)",
+				tx.Model(&model.Annotation{}).Select("id").Where("node_id IN ?", nodeIDs),
+			).Delete(&model.DocTag{}).Error; err != nil {
+			return fmt.Errorf("cascade delete doc_tags: %w", err)
+		}
 
-	if err := s.db.WithContext(ctx).
-		Where("node_id IN ?", nodeIDs).
-		Delete(&model.Annotation{}).Error; err != nil {
-		return fmt.Errorf("cascade delete annotations: %w", err)
-	}
+		if err := tx.
+			Where("node_id IN ?", nodeIDs).
+			Delete(&model.Annotation{}).Error; err != nil {
+			return fmt.Errorf("cascade delete annotations: %w", err)
+		}
 
-	return s.db.WithContext(ctx).Where("file_path = ?", filePath).Delete(&model.Node{}).Error
+		return tx.Where("file_path = ?", filePath).Delete(&model.Node{}).Error
+	})
 }
 
 func (s *Store) UpsertEdges(ctx context.Context, edges []model.Edge) error {

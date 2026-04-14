@@ -33,15 +33,17 @@ func (s *SQLiteBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 		return fmt.Errorf("load docs: %w", err)
 	}
 
-	for _, doc := range docs {
-		if err := db.WithContext(ctx).Exec(
-			"INSERT INTO search_fts(node_id, content, language) VALUES (?, ?, ?)",
-			doc.NodeID, doc.Content, doc.Language,
-		).Error; err != nil {
-			return fmt.Errorf("insert fts row: %w", err)
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, doc := range docs {
+			if err := tx.Exec(
+				"INSERT INTO search_fts(node_id, content, language) VALUES (?, ?, ?)",
+				doc.NodeID, doc.Content, doc.Language,
+			).Error; err != nil {
+				return fmt.Errorf("insert fts row: %w", err)
+			}
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error) {

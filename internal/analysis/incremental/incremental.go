@@ -9,6 +9,7 @@ import (
 
 type Store interface {
 	GetNodesByFile(ctx context.Context, filePath string) ([]model.Node, error)
+	GetNodesByFiles(ctx context.Context, filePaths []string) (map[string][]model.Node, error)
 	UpsertNodes(ctx context.Context, nodes []model.Node) error
 	UpsertEdges(ctx context.Context, edges []model.Edge) error
 	DeleteNodesByFile(ctx context.Context, filePath string) error
@@ -64,11 +65,17 @@ func (s *Syncer) SyncWithExisting(ctx context.Context, files map[string]FileInfo
 
 	s.logger.Info("sync started", "file_count", len(files), "existing_count", len(existingFiles))
 
+	filePaths := make([]string, 0, len(files))
+	for fp := range files {
+		filePaths = append(filePaths, fp)
+	}
+	existingByFile, err := s.store.GetNodesByFiles(ctx, filePaths)
+	if err != nil {
+		return nil, err
+	}
+
 	for filePath, info := range files {
-		existing, err := s.store.GetNodesByFile(ctx, filePath)
-		if err != nil {
-			return nil, err
-		}
+		existing := existingByFile[filePath]
 
 		if len(existing) > 0 && existing[0].Hash == info.Hash {
 			s.logger.Debug("file skipped (unchanged)", "file", filePath)

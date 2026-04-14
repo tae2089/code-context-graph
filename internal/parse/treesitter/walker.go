@@ -62,11 +62,11 @@ func (w *Walker) Language() string {
 }
 
 func (w *Walker) Parse(filePath string, content []byte) ([]model.Node, []model.Edge, error) {
-	nodes, edges, _, err := w.ParseWithComments(filePath, content)
+	nodes, edges, _, err := w.ParseWithComments(context.Background(), filePath, content)
 	return nodes, edges, err
 }
 
-func (w *Walker) ParseWithComments(filePath string, content []byte) ([]model.Node, []model.Edge, []CommentBlock, error) {
+func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []CommentBlock, error) {
 	lang, err := w.getLanguage()
 	if err != nil {
 		w.logger.Error("unsupported language", "language", w.spec.Name, "file", filePath, "error", err)
@@ -78,7 +78,7 @@ func (w *Walker) ParseWithComments(filePath string, content []byte) ([]model.Nod
 	parser := sitter.NewParser()
 	parser.SetLanguage(lang)
 
-	tree, err := parser.ParseCtx(context.Background(), nil, content)
+	tree, err := parser.ParseCtx(ctx, nil, content)
 	if err != nil {
 		w.logger.Error("tree-sitter parse error", "file", filePath, "error", err)
 		return nil, nil, nil, fmt.Errorf("parse error: %w", err)
@@ -526,7 +526,7 @@ type CommentBlock struct {
 	Text      string
 }
 
-func (w *Walker) ExtractComments(filePath string, content []byte) ([]CommentBlock, error) {
+func (w *Walker) ExtractComments(ctx context.Context, filePath string, content []byte) ([]CommentBlock, error) {
 	lang, err := w.getLanguage()
 	if err != nil {
 		return nil, err
@@ -535,7 +535,7 @@ func (w *Walker) ExtractComments(filePath string, content []byte) ([]CommentBloc
 	parser := sitter.NewParser()
 	parser.SetLanguage(lang)
 
-	tree, err := parser.ParseCtx(context.Background(), nil, content)
+	tree, err := parser.ParseCtx(ctx, nil, content)
 	if err != nil {
 		return nil, fmt.Errorf("parse error: %w", err)
 	}

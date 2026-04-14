@@ -12,6 +12,7 @@ type GraphStore interface {
 	GetNodeByID(ctx context.Context, id uint) (*model.Node, error)
 	GetNodesByIDs(ctx context.Context, ids []uint) ([]model.Node, error)
 	GetNodesByFile(ctx context.Context, filePath string) ([]model.Node, error)
+	GetNodesByFiles(ctx context.Context, filePaths []string) (map[string][]model.Node, error)
 	DeleteNodesByFile(ctx context.Context, filePath string) error
 
 	UpsertEdges(ctx context.Context, edges []model.Edge) error

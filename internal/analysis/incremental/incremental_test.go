@@ -24,6 +24,20 @@ func (r *recordingStore) GetNodesByFile(_ context.Context, filePath string) ([]m
 	return result, nil
 }
 
+func (r *recordingStore) GetNodesByFiles(_ context.Context, filePaths []string) (map[string][]model.Node, error) {
+	set := make(map[string]struct{}, len(filePaths))
+	for _, fp := range filePaths {
+		set[fp] = struct{}{}
+	}
+	result := make(map[string][]model.Node)
+	for _, n := range r.nodes {
+		if _, ok := set[n.FilePath]; ok {
+			result[n.FilePath] = append(result[n.FilePath], *n)
+		}
+	}
+	return result, nil
+}
+
 func (r *recordingStore) UpsertNodes(_ context.Context, nodes []model.Node) error {
 	for _, n := range nodes {
 		r.upserted = append(r.upserted, n.FilePath)

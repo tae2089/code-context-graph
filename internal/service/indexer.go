@@ -87,7 +87,7 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 			return nil
 		}
 
-		nodes, edges, tsComments, err := walker.ParseWithComments(relPath, content)
+		nodes, edges, tsComments, err := walker.ParseWithComments(ctx, relPath, content)
 		if err != nil {
 			s.Logger.Warn("parse failed", "path", relPath, "error", err)
 			return nil
