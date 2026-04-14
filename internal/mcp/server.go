@@ -299,9 +299,10 @@ func NewServer(deps *Deps) *server.MCPServer {
 		},
 		server.ServerTool{
 			Tool: mcp.NewTool("build_rag_index",
-				mcp.WithDescription("Build Vectorless RAG index from docs/ and community structure. Stores result in .ccg/doc-index.json"),
+				mcp.WithDescription("Build Vectorless RAG index from docs/ and community structure. Stores result in .ccg/doc-index.json. When workspace is specified, reads docs from {workspace_root}/{workspace}/ instead of local docs/."),
 				mcp.WithString("out_dir", mcp.Description("Documentation directory root (default: from config or 'docs')")),
 				mcp.WithString("index_dir", mcp.Description("Directory to write doc-index.json (default: '.ccg')")),
+				mcp.WithString("workspace", mcp.Description("Workspace name. When set, reads docs from the workspace directory instead of local docs/.")),
 			),
 			Handler: h.buildRagIndex,
 		},
@@ -315,8 +316,9 @@ func NewServer(deps *Deps) *server.MCPServer {
 		},
 		server.ServerTool{
 			Tool: mcp.NewTool("get_doc_content",
-				mcp.WithDescription("Get the content of a documentation file by its path"),
+				mcp.WithDescription("Get the content of a documentation file by its path. When workspace is specified, reads from {workspace_root}/{workspace}/{file_path}."),
 				mcp.WithString("file_path", mcp.Description("Path to the doc file (e.g. 'docs/internal/mcp/handlers.go.md')"), mcp.Required()),
+				mcp.WithString("workspace", mcp.Description("Workspace name. When set, reads from the workspace directory.")),
 			),
 			Handler: h.getDocContent,
 		},

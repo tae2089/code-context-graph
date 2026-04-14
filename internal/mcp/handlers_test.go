@@ -2267,3 +2267,85 @@ func TestSearchDocs_NoIndex(t *testing.T) {
 		t.Fatal("expected error when index file missing")
 	}
 }
+
+// TestBuildRagIndex_WithWorkspace: workspace 파라미터가 있으면 OutDir이 {workspaceRoot}/{workspace}로 설정된다.
+func TestBuildRagIndex_WithWorkspace(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.WorkspaceRoot = filepath.Join(tmpDir, "workspaces")
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+
+	wsDocsDir := filepath.Join(tmpDir, "workspaces", "my-service")
+	if err := os.MkdirAll(wsDocsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	result := callTool(t, deps, "build_rag_index", map[string]any{
+		"workspace": "my-service",
+	})
+	if result.IsError {
+		t.Fatalf("build_rag_index with workspace error: %v", getTextContent(result))
+	}
+	content := getTextContent(result)
+	if !strings.Contains(content, "Built doc-index:") {
+		t.Errorf("expected 'Built doc-index:' in output, got: %s", content)
+	}
+}
+
+// TestGetDocContent_WithWorkspace: workspace 파라미터가 있으면 {workspaceRoot}/{workspace}/{file_path}에서 파일을 읽는다.
+func TestGetDocContent_WithWorkspace(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.WorkspaceRoot = filepath.Join(tmpDir, "workspaces")
+
+	wsDir := filepath.Join(tmpDir, "workspaces", "my-service")
+	docsDir := filepath.Join(wsDir, "docs", "internal")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	docContent := "# Handler Docs\nThis is workspace-aware doc content."
+	docPath := filepath.Join(docsDir, "handler.go.md")
+	if err := os.WriteFile(docPath, []byte(docContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := callTool(t, deps, "get_doc_content", map[string]any{
+		"workspace": "my-service",
+		"file_path": "docs/internal/handler.go.md",
+	})
+	if result.IsError {
+		t.Fatalf("get_doc_content with workspace error: %v", getTextContent(result))
+	}
+	got := getTextContent(result)
+	if got != docContent {
+		t.Errorf("want %q, got %q", docContent, got)
+	}
+}
+
+// TestGetDocContent_WorkspacePathTraversal: workspace에 경로 순회 시도 시 에러 반환.
+func TestGetDocContent_WorkspacePathTraversal(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.WorkspaceRoot = filepath.Join(tmpDir, "workspaces")
+
+	cases := []struct {
+		name      string
+		workspace string
+		filePath  string
+	}{
+		{"workspace traversal", "../evil", "file.md"},
+		{"file_path traversal", "my-service", "../../etc/passwd"},
+		{"absolute workspace", "/etc", "passwd"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := callTool(t, deps, "get_doc_content", map[string]any{
+				"workspace": tc.workspace,
+				"file_path": tc.filePath,
+			})
+			if !result.IsError {
+				t.Fatalf("expected error for workspace=%q file_path=%q", tc.workspace, tc.filePath)
+			}
+		})
+	}
+}

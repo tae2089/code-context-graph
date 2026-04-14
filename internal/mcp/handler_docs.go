@@ -35,16 +35,23 @@ func (h *handlers) ragIndexPath() string {
 func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	outDir := request.GetString("out_dir", "")
 	indexDir := request.GetString("index_dir", "")
+	workspace := request.GetString("workspace", "")
 
-	// Fall back to deps defaults
+	if workspace != "" {
+		if err := validateWorkspacePath(workspace, ""); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		outDir = filepath.Join(h.workspaceRoot(), workspace)
+	}
+
 	if indexDir == "" {
 		indexDir = h.deps.RagIndexDir
 	}
 
 	b := &ragindex.Builder{
 		DB:          h.deps.DB,
-		OutDir:      outDir,   // empty string → Builder uses "docs" default
-		IndexDir:    indexDir, // empty string → Builder uses ".ccg" default
+		OutDir:      outDir,
+		IndexDir:    indexDir,
 		ProjectDesc: h.deps.RagProjectDesc,
 	}
 	communities, files, err := b.Build(ctx)
@@ -111,26 +118,35 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 	if err != nil {
 		return missingParamResult(err)
 	}
+	workspace := request.GetString("workspace", "")
 
-	// Path traversal protection
 	clean := filepath.Clean(filePath)
 	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
 		return mcp.NewToolResultError("invalid file_path: path traversal not allowed"), nil
 	}
 
+	var resolvedPath string
+	if workspace != "" {
+		if err := validateWorkspacePath(workspace, filePath); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		resolvedPath = filepath.Join(h.workspaceRoot(), filepath.Clean(workspace), clean)
+	} else {
+		resolvedPath = clean
+	}
+
 	const maxDocFileSizeBytes = 1 << 20 // 1 MB
 
-	// Include mtime in cache key to detect file changes; also enforce size limit
 	var mtime int64
-	if stat, statErr := os.Stat(clean); statErr == nil {
+	if stat, statErr := os.Stat(resolvedPath); statErr == nil {
 		if stat.Size() > maxDocFileSizeBytes {
 			return mcp.NewToolResultError(fmt.Sprintf("file %q exceeds 1 MB size limit (%d bytes)", filePath, stat.Size())), nil
 		}
 		mtime = stat.ModTime().UnixNano()
 	}
 
-	return finalizeToolResult(h.cachedExecute("get_doc_content:", map[string]any{"file_path": filePath, "mtime": mtime}, func() (string, error) {
-		content, err := os.ReadFile(clean)
+	return finalizeToolResult(h.cachedExecute("get_doc_content:", map[string]any{"file_path": filePath, "workspace": workspace, "mtime": mtime}, func() (string, error) {
+		content, err := os.ReadFile(resolvedPath)
 		if err != nil {
 			return "", newToolResultErr(fmt.Sprintf("read file %q: %v. Run 'ccg docs' to generate documentation files.", filePath, err))
 		}
