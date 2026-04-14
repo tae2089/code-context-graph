@@ -1,6 +1,6 @@
 # code-context-graph
 
-Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 16 languages, 18 MCP tools, custom annotation search, and pgvector semantic search.
+Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 16 languages, 18 MCP tools, and custom annotation search.
 
 Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) — a Python-based code analysis tool. This project reimplements and extends the concept in Go with multi-DB support, custom annotation system, and MCP integration for AI-powered code understanding.
 
@@ -9,9 +9,8 @@ Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) 
 - **16 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, C#, Kotlin, PHP, Swift, Scala, Lua, Bash
 - **18 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, and more
 - **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context
-- **pgvector**: semantic similarity search via PostgreSQL pgvector extension
-- **Multi-DB**: SQLite (local), PostgreSQL, MySQL
-- **Full-text search**: FTS5 (SQLite), tsvector+GIN (PostgreSQL), FULLTEXT (MySQL)
+- **Multi-DB**: SQLite (local), PostgreSQL
+- **Full-text search**: FTS5 (SQLite), tsvector+GIN (PostgreSQL)
 
 ## Installation
 
@@ -131,23 +130,6 @@ func AuthenticateUser(username, password string) (string, error) {
 | `@return` | Return description | `@return JWT token on success` |
 | `@see` | Related function | `@see SessionManager.Create` |
 
-## PostgreSQL + pgvector (Semantic Search)
-
-### Setup
-
-```bash
-docker compose up pgvector -d
-```
-
-### Build with pgvector sync
-
-```bash
-PG_DSN="host=127.0.0.1 port=5455 dbname=ccg user=ccg password=ccg sslmode=disable" \
-  ccg build --graph .
-```
-
-This stores nodes, edges, and annotation content in PostgreSQL with pgvector, enabling semantic similarity search via the pgvector MCP server.
-
 ## Claude Code Integration
 
 ### MCP Server
@@ -160,19 +142,12 @@ Add `.mcp.json` to your project:
     "ccg": {
       "command": "ccg",
       "args": ["serve", "--db", "sqlite", "--dsn", "ccg.db"]
-    },
-    "pgvector": {
-      "command": "npx",
-      "args": ["-y", "mcp-pgvector-server"],
-      "env": {
-        "DATABASE_URL": "postgresql://ccg:ccg@localhost:5455/ccg"
-      }
     }
   }
 }
 ```
 
-Claude Code automatically connects and gets access to 18 MCP tools + pgvector semantic search.
+Claude Code automatically connects and gets access to 18 MCP tools.
 
 ### Skill
 
@@ -207,9 +182,9 @@ Claude: reads code → generates @intent, @domainRule, @sideEffect, @mutates
 Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
                                         ↓
                               SQLite / PostgreSQL (GORM)
-                                   ↓              ↓
-                            FTS Search      pgvector (semantic)
-                                   ↓
+                                        ↓
+                                   FTS Search
+                                        ↓
                               MCP Server (18 tools)
                                         ↓
                                   Claude Code
@@ -220,7 +195,6 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
 | Command | Description |
 |---------|-------------|
 | `ccg build [dir]` | Parse and build code graph |
-| `ccg build --graph [dir]` | Build + sync to PostgreSQL + pgvector |
 | `ccg build --exclude <pat>` | Exclude files/paths (repeatable) |
 | `ccg build --no-recursive [dir]` | Only parse top-level directory |
 | `ccg update [dir]` | Incremental sync |
@@ -244,7 +218,7 @@ Project-level defaults loaded automatically from the current directory:
 
 ```yaml
 db:
-  driver: sqlite   # sqlite | postgres | mysql
+  driver: sqlite   # sqlite | postgres
   dsn: ccg.db
 
 exclude:
@@ -290,7 +264,7 @@ CGO_ENABLED=1 go test -tags "fts5" ./... -count=1
 # Build
 CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/
 
-# Docker (PostgreSQL + pgvector + MySQL)
+# Docker (PostgreSQL)
 docker compose up -d
 ```
 

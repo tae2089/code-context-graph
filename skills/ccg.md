@@ -1,6 +1,6 @@
 ---
 name: ccg
-description: code-context-graph CLI — build code knowledge graphs, search by annotations, generate documentation
+description: code-context-graph CLI — build code knowledge graphs, search by annotations, analyze with 18 MCP tools
 user-invocable: true
 ---
 
@@ -13,23 +13,11 @@ A local code analysis tool that parses codebases via Tree-sitter into a knowledg
 | Command | Description | Example |
 |---------|-------------|---------|
 | `build [dir]` | Parse directory, build graph + search index | `ccg build .` |
-| `build --graph [dir]` | Build + sync to PostgreSQL + pgvector | `ccg build --graph .` |
 | `build --exclude <pat>` | Exclude files/paths (repeatable) | `ccg build --exclude vendor` |
 | `build --no-recursive [dir]` | Only parse top-level directory | `ccg build --no-recursive .` |
 | `update [dir]` | Incremental sync (changed files only) | `ccg update .` |
 | `status` | Show graph statistics (nodes/edges/files) | `ccg status` |
 | `search <query>` | FTS keyword search (includes @annotations) | `ccg search "authentication"` |
-| `search --path <prefix> <query>` | Scope search to file path prefix | `ccg search --path internal/auth "login"` |
-| `docs [--out dir]` | Generate Markdown documentation | `ccg docs --out docs/` |
-| `docs --exclude <pat>` | Exclude paths from docs (repeatable) | `ccg docs --exclude vendor` |
-| `index [--out dir]` | Regenerate index.md only | `ccg index --out docs/` |
-| `languages` | List all supported languages + extensions | `ccg languages` |
-| `example [language]` | Show annotation example for a language | `ccg example go` |
-| `tags` | Show all @tag reference with descriptions | `ccg tags` |
-| `hooks install` | Install pre-commit git hook | `ccg hooks install` |
-| `hooks install --lint-strict` | Install hook that blocks commit on lint issues | `ccg hooks install --lint-strict` |
-| `lint [--out dir]` | 8-category lint: orphan, missing, stale, unannotated, contradiction, dead-ref, incomplete, drift | `ccg lint --out docs/` |
-| `lint --strict` | Exit 1 on issues; ignore rules with `action: ignore` excluded from count | `ccg lint --strict` |
 | `annotate [file\|dir]` | AI-generate annotations for code | `ccg annotate internal/analysis/` |
 
 ## Execution
@@ -52,39 +40,12 @@ Show available commands:
 
 ```
 Available ccg commands:
-  ccg build [dir]            — Build code knowledge graph
-  ccg update [dir]           — Incremental update
-  ccg status                 — Graph statistics
-  ccg search <query>         — Full-text search (annotations included)
-  ccg docs [--out dir]       — Generate Markdown documentation
-  ccg index [--out dir]      — Regenerate index.md only
-  ccg languages              — List supported languages
-  ccg example [language]     — Annotation writing example
-  ccg tags                   — Annotation tag reference
-  ccg hooks install          — Install pre-commit git hook
-  ccg lint [--out dir]       — Detect orphan, missing, stale, unannotated
-  ccg lint --strict          — Same as lint, exit 1 on issues (CI/hooks)
-  ccg annotate [file|dir]    — AI-generate @annotations for code
+  ccg build [dir]           — Build code knowledge graph
+  ccg update [dir]          — Incremental update
+  ccg status                — Graph statistics
+  ccg search <query>        — Full-text search (annotations included)
+  ccg annotate [file|dir]   — AI-generate @annotations for code
 ```
-
-## Config File (.ccg.yaml)
-
-Project-level defaults loaded automatically from the working directory:
-
-```yaml
-db:
-  driver: sqlite   # sqlite | postgres | mysql
-  dsn: ccg.db
-
-exclude:
-  - vendor
-  - "*.pb.go"
-
-docs:
-  out: docs
-```
-
-Override with `ccg --config path/to/.ccg.yaml`.
 
 ## Annotate Command
 
@@ -153,26 +114,19 @@ func AuthenticateUser(username, password string) (string, error) {
 ### Auto-rebuild when stale
 If `ccg.db` doesn't exist or the user asks to analyze the project, run `ccg build .` first.
 
-### Suggest Cypher queries
-When the user asks graph-related questions, suggest and execute appropriate Cypher:
+### Use MCP tools for graph analysis
+When the user asks graph-related questions, use the 18 MCP tools via the ccg MCP server:
 
-| User intent | Suggested Cypher |
-|-------------|------------------|
-| "What calls this function?" | `MATCH (a)-[:CALLS]->(b {name: 'X'}) RETURN a.qualified_name` |
-| "Impact of changing X" | `MATCH ({name: 'X'})-[*1..3]-(affected) RETURN DISTINCT affected.qualified_name` |
-| "Path from A to B" | `MATCH path = (a {name: 'A'})-[:CALLS*]->(b {name: 'B'}) RETURN path` |
-| "Dead code" | `MATCH (n:Function) WHERE NOT ()-[:CALLS]->(n) RETURN n.qualified_name` |
-| "Most called functions" | `MATCH ()-[:CALLS]->(n) RETURN n.name, count(*) AS c ORDER BY c DESC LIMIT 10` |
-| "Module dependencies" | `MATCH (a)-[:CALLS]->(b) WHERE a.file_path STARTS WITH 'X' RETURN DISTINCT b.file_path` |
-
-### Token-efficient search
-Use `--path` to scope results to a module, reducing token load:
-
-```bash
-ccg search --path internal/auth "login"     # auth 모듈만
-ccg search --path internal/payment "charge" # payment 모듈만
-ccg search --path cmd/ "main"               # CLI 진입점만
-```
+| User intent | MCP tool |
+|-------------|----------|
+| "What calls this function?" | `query_graph` (pattern: callers_of) |
+| "Impact of changing X" | `get_impact_radius` (depth: 3) |
+| "Dead code" | `find_dead_code` |
+| "Large functions" | `find_large_functions` |
+| "Module structure" | `list_communities` |
+| "Architecture overview" | `get_architecture_overview` |
+| "Test coverage gaps" | `get_community` (include coverage) |
+| "What changed?" | `detect_changes` |
 
 ### Annotation-aware search
 When the user asks about business concepts, use FTS search which includes annotation content:
@@ -184,23 +138,12 @@ When the user asks about business concepts, use FTS search which includes annota
 
 Example: user asks "결제 관련 코드" → `ccg search "결제"` finds functions annotated with payment-related @intent/@domainRule.
 
-### Multi-column Cypher
-When RETURN has multiple values, use `--columns N`:
-
-```bash
-ccg query "MATCH (a)-[:CALLS]->(b) RETURN a.name, b.name" --columns 2
-```
-
 ## Graph Schema
 
-Vertex labels: `Function`, `Class`, `Type`, `Test`, `File`
+Node kinds: `function`, `class`, `type`, `test`, `file`
 
-Edge labels: `CALLS`, `IMPORTS_FROM`, `INHERITS`, `IMPLEMENTS`, `CONTAINS`, `TESTED_BY`, `DEPENDS_ON`, `REFERENCES`
+Edge kinds: `calls`, `imports_from`, `inherits`, `implements`, `contains`, `tested_by`, `depends_on`, `references`
 
-Vertex properties: `node_id`, `qualified_name`, `name`, `kind`, `file_path`, `language`, `start_line`, `end_line`
-
-## Supported Languages (16)
+## Supported Languages (15)
 
 Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, C#, Kotlin, PHP, Swift, Scala, Lua, Bash
-
-Run `ccg languages` for the full list with extensions.

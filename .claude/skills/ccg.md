@@ -6,14 +6,15 @@ user-invocable: true
 
 # code-context-graph CLI Skill
 
-A local code analysis tool that parses codebases via Tree-sitter into a knowledge graph with 15 language support, annotation-powered search, and pgvector semantic search.
+A local code analysis tool that parses codebases via Tree-sitter into a knowledge graph with 16 language support and annotation-powered search.
 
 ## Subcommands
 
 | Command | Description | Example |
 |---------|-------------|---------|
 | `build [dir]` | Parse directory, build graph + search index | `ccg build .` |
-| `build --graph [dir]` | Build + sync to PostgreSQL + pgvector | `ccg build --graph .` |
+| `build --exclude <pat>` | Exclude files/paths (repeatable) | `ccg build --exclude vendor` |
+| `build --no-recursive [dir]` | Only parse top-level directory | `ccg build --no-recursive .` |
 | `update [dir]` | Incremental sync (changed files only) | `ccg update .` |
 | `status` | Show graph statistics (nodes/edges/files) | `ccg status` |
 | `search <query>` | FTS keyword search (includes @annotations) | `ccg search "authentication"` |
@@ -136,9 +137,6 @@ When the user asks about business concepts, use FTS search which includes annota
 - `@index` — file/package level description
 
 Example: user asks "결제 관련 코드" → `ccg search "결제"` finds functions annotated with payment-related @intent/@domainRule.
-
-### Semantic search via pgvector MCP
-When FTS keyword search is insufficient (cross-language, fuzzy matching), use the pgvector MCP server for semantic similarity search. This requires PostgreSQL mode (`ccg build --graph`).
 
 ## Graph Schema
 
