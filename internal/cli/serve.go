@@ -2,13 +2,15 @@ package cli
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 )
 
 // ServeConfig holds parsed flags for the serve subcommand.
 type ServeConfig struct {
-	// Global db configs are now read from viper via PersistentPreRunE
+	CacheTTL time.Duration
+	NoCache  bool
 }
 
 func newServeCmd(deps *Deps) *cobra.Command {
@@ -25,6 +27,9 @@ func newServeCmd(deps *Deps) *cobra.Command {
 			return fmt.Errorf("ServeFunc not configured")
 		},
 	}
+
+	cmd.Flags().DurationVar(&cfg.CacheTTL, "cache-ttl", 5*time.Minute, "TTL for MCP serve session cache (0 or --no-cache to disable)")
+	cmd.Flags().BoolVar(&cfg.NoCache, "no-cache", false, "Disable in-memory cache for MCP serve session")
 
 	return cmd
 }

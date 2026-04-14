@@ -82,7 +82,7 @@ func main() {
 	}
 
 	deps.ServeFunc = func(cfg cli.ServeConfig) error {
-		return runServe(deps)
+		return runServe(deps, cfg)
 	}
 
 	cmd := cli.NewRootCmd(deps)
@@ -128,10 +128,16 @@ func buildWalkers(logger *slog.Logger) map[string]*treesitter.Walker {
 	return walkers
 }
 
-func runServe(deps *cli.Deps) error {
+func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 	deps.Logger.Info("starting code-context-graph MCP server")
 
 	walker := treesitter.NewWalker(treesitter.GoSpec, treesitter.WithLogger(deps.Logger))
+
+	var cache *mcpserver.Cache
+	if !cfg.NoCache && cfg.CacheTTL > 0 {
+		cache = mcpserver.NewCache(cfg.CacheTTL)
+		deps.Logger.Info("MCP cache enabled", "ttl", cfg.CacheTTL)
+	}
 
 	mcpDeps := &mcpserver.Deps{
 		Store:             deps.Store,
@@ -148,6 +154,7 @@ func runServe(deps *cli.Deps) error {
 		CoverageAnalyzer:  coverage.New(deps.DB),
 		CommunityBuilder:  community.New(deps.DB),
 		Logger:            deps.Logger,
+		Cache:             cache,
 	}
 
 	srv := mcpserver.NewServer(mcpDeps)
