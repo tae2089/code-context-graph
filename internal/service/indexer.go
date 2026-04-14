@@ -122,7 +122,9 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 						continue
 					}
 					b.Annotation.NodeID = stored.ID
-					txStore.UpsertAnnotation(ctx, b.Annotation)
+					if err := txStore.UpsertAnnotation(ctx, b.Annotation); err != nil {
+						return fmt.Errorf("upsert annotation for %s: %w", stored.QualifiedName, err)
+					}
 				}
 			}
 			return nil
@@ -142,64 +144,70 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		return stats, fmt.Errorf("walk directory: %w", err)
 	}
 
-	// Batch load all nodes and annotations for indexing
-	var indexNodes []model.Node
-	annByNode := map[uint]*model.Annotation{}
-	if s.DB != nil {
-		if err := s.DB.Where("kind IN ?", []string{"function", "class", "type", "test", "file"}).Find(&indexNodes).Error; err != nil {
-			return stats, fmt.Errorf("load index nodes: %w", err)
-		}
-		nodeIDs := make([]uint, len(indexNodes))
-		for i, n := range indexNodes {
-			nodeIDs[i] = n.ID
-		}
-		if len(nodeIDs) > 0 {
-			var annotations []model.Annotation
-			if err := s.DB.Where("node_id IN ?", nodeIDs).Preload("Tags").Find(&annotations).Error; err != nil {
-				return stats, fmt.Errorf("load annotations: %w", err)
-			}
-			for i := range annotations {
-				annByNode[annotations[i].NodeID] = &annotations[i]
-			}
-		}
-	}
-
-	buildContent := func(n model.Node) string {
-		var sb strings.Builder
-		sb.WriteString(n.Name)
-		sb.WriteByte(' ')
-		sb.WriteString(n.QualifiedName)
-		sb.WriteByte(' ')
-		sb.WriteString(string(n.Kind))
-		if ann := annByNode[n.ID]; ann != nil {
-			if ann.Summary != "" {
-				sb.WriteByte(' ')
-				sb.WriteString(ann.Summary)
-			}
-			if ann.Context != "" {
-				sb.WriteByte(' ')
-				sb.WriteString(ann.Context)
-			}
-			for _, tag := range ann.Tags {
-				sb.WriteByte(' ')
-				sb.WriteString(tag.Value)
-			}
-		}
-		return sb.String()
-	}
-
 	if s.SearchBackend != nil && s.DB != nil {
 		if err := s.DB.Where("1 = 1").Delete(&model.SearchDocument{}).Error; err != nil {
 			return stats, fmt.Errorf("clear search documents: %w", err)
 		}
-		docs := make([]model.SearchDocument, 0, len(indexNodes))
-		for _, n := range indexNodes {
-			docs = append(docs, model.SearchDocument{
-				NodeID:   n.ID,
-				Content:  buildContent(n),
-				Language: n.Language,
-			})
+
+		var docs []model.SearchDocument
+		annByNode := map[uint]*model.Annotation{}
+
+		buildContent := func(n model.Node) string {
+			var sb strings.Builder
+			sb.WriteString(n.Name)
+			sb.WriteByte(' ')
+			sb.WriteString(n.QualifiedName)
+			sb.WriteByte(' ')
+			sb.WriteString(string(n.Kind))
+			if ann := annByNode[n.ID]; ann != nil {
+				if ann.Summary != "" {
+					sb.WriteByte(' ')
+					sb.WriteString(ann.Summary)
+				}
+				if ann.Context != "" {
+					sb.WriteByte(' ')
+					sb.WriteString(ann.Context)
+				}
+				for _, tag := range ann.Tags {
+					sb.WriteByte(' ')
+					sb.WriteString(tag.Value)
+				}
+			}
+			return sb.String()
 		}
+
+		// FindInBatches로 노드를 500개씩 처리하여 대규모 IN 절 및 전체 메모리 로드 방지
+		var batchNodes []model.Node
+		result := s.DB.Where("kind IN ?", []string{"function", "class", "type", "test", "file"}).
+			FindInBatches(&batchNodes, 500, func(tx *gorm.DB, batch int) error {
+				nodeIDs := make([]uint, len(batchNodes))
+				for i, n := range batchNodes {
+					nodeIDs[i] = n.ID
+				}
+				var annotations []model.Annotation
+				if err := s.DB.Where("node_id IN ?", nodeIDs).Preload("Tags").Find(&annotations).Error; err != nil {
+					return fmt.Errorf("load annotations batch %d: %w", batch, err)
+				}
+				for i := range annotations {
+					annByNode[annotations[i].NodeID] = &annotations[i]
+				}
+				for _, n := range batchNodes {
+					docs = append(docs, model.SearchDocument{
+						NodeID:   n.ID,
+						Content:  buildContent(n),
+						Language: n.Language,
+					})
+				}
+				// 배치 처리 완료 후 annByNode 초기화로 메모리 반환
+				for _, n := range batchNodes {
+					delete(annByNode, n.ID)
+				}
+				return nil
+			})
+		if result.Error != nil {
+			return stats, fmt.Errorf("load index nodes: %w", result.Error)
+		}
+
 		if len(docs) > 0 {
 			if err := s.DB.CreateInBatches(docs, 100).Error; err != nil {
 				return stats, fmt.Errorf("batch insert search documents: %w", err)
