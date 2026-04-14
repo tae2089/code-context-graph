@@ -221,6 +221,9 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
 
 | Command | Description |
 |---------|-------------|
+| `ccg init` | Generate default .ccg.yaml in current directory |
+| `ccg init --project` | Generate .ccg.yaml in current directory (explicit) |
+| `ccg init --user` | Generate .ccg.yaml in ~/.config/ccg/ (global) |
 | `ccg build [dir]` | Parse and build code graph |
 | `ccg build --exclude <pat>` | Exclude files/paths (repeatable) |
 | `ccg build --no-recursive [dir]` | Only parse top-level directory |
@@ -245,7 +248,7 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
 
 ### Config file (`.ccg.yaml`)
 
-Project-level defaults loaded automatically from the current directory:
+Project-level defaults loaded automatically from the current directory, with a global fallback at `~/.config/ccg/.ccg.yaml`:
 
 ```yaml
 db:
@@ -260,6 +263,10 @@ exclude:
 docs:
   out: docs
 ```
+
+Config search order:
+1. `./.ccg.yaml` (project-local, highest priority)
+2. `~/.config/ccg/.ccg.yaml` (global fallback)
 
 Override with `ccg --config path/to/config.yaml`.
 

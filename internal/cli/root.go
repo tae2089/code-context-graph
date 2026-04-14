@@ -4,6 +4,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -75,7 +76,10 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			} else {
 				viper.SetConfigName(".ccg")
 				viper.SetConfigType("yaml")
-				viper.AddConfigPath(".")
+				viper.AddConfigPath(".") // project-local (highest priority)
+				if home, err := os.UserHomeDir(); err == nil {
+					viper.AddConfigPath(filepath.Join(home, ".config", "ccg")) // global fallback
+				}
 			}
 			// Silently ignore missing config file; all settings have defaults.
 			_ = viper.ReadInConfig()
@@ -95,7 +99,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "Log level: debug, info, warn, error")
 	rootCmd.PersistentFlags().BoolVar(&logJSON, "log-json", false, "Output logs in JSON format")
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "Config file (default: .ccg.yaml in current directory)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "Config file (default: .ccg.yaml in ./ then ~/.config/ccg/)")
 
 	// Global database configuration flags
 	rootCmd.PersistentFlags().String("db-driver", "sqlite", "Database driver (sqlite, postgres)")
@@ -110,6 +114,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	viper.BindEnv("db.dsn", "CCG_DB_DSN")
 
 	rootCmd.AddCommand(
+		newInitCmd(deps),
 		newBuildCmd(deps),
 		newUpdateCmd(deps),
 		newStatusCmd(deps),
