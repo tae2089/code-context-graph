@@ -84,6 +84,17 @@ After uploading files, build the graph and search:
 3. search(query: "payment")  — see /ccg skill
 ```
 
+## E2E Pipeline: Upload Docs → RAG Index → Search → Read
+
+Upload documentation files to a workspace, then build and query the RAG index:
+
+```
+1. upload_file(workspace: "my-service", file_path: "docs/internal/handler.go.md", content: "<base64>")
+2. build_rag_index(workspace: "my-service")  — see /ccg-docs skill
+3. search_docs(query: "handler")
+4. get_doc_content(workspace: "my-service", file_path: "docs/internal/handler.go.md")
+```
+
 ## Security
 
 - Path traversal attacks are blocked (`../` in workspace or file_path)

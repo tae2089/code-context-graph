@@ -292,9 +292,9 @@ Override with `ccg --config path/to/config.yaml`.
 | `get_community` | Community details + coverage |
 | `get_architecture_overview` | Architecture summary with coupling |
 | `get_annotation` | Get annotation and doc tags |
-| `build_rag_index` | Build RAG index from docs and communities |
+| `build_rag_index` | Build RAG index from docs and communities (supports workspace) |
 | `get_rag_tree` | Navigate RAG document tree |
-| `get_doc_content` | Get documentation file content |
+| `get_doc_content` | Get documentation file content (supports workspace) |
 | `search_docs` | Search RAG document tree by keyword |
 | `upload_file` | Upload file to workspace (base64) |
 | `upload_files` | Upload multiple files to workspaces in a single call |
