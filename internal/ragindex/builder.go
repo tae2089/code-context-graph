@@ -177,7 +177,7 @@ func (b *Builder) batchFileSummaries(filePaths []string) (map[string]string, err
 		Joins("JOIN annotations ON annotations.id = doc_tags.annotation_id").
 		Joins("JOIN nodes ON nodes.id = annotations.node_id").
 		Where("nodes.file_path IN ? AND doc_tags.kind = ?", filePaths, string(model.TagIndex)).
-		Order("doc_tags.ordinal ASC").
+		Order("doc_tags.ordinal ASC, doc_tags.id ASC").
 		Scan(&indexRows).Error; err != nil {
 		return nil, fmt.Errorf("batch index tags: %w", err)
 	}
@@ -201,7 +201,7 @@ func (b *Builder) batchFileSummaries(filePaths []string) (map[string]string, err
 			Joins("JOIN annotations ON annotations.id = doc_tags.annotation_id").
 			Joins("JOIN nodes ON nodes.id = annotations.node_id").
 			Where("nodes.file_path IN ? AND doc_tags.kind = ?", missing, string(model.TagIntent)).
-			Order("doc_tags.ordinal ASC").
+			Order("doc_tags.ordinal ASC, doc_tags.id ASC").
 			Scan(&intentRows).Error; err != nil {
 			return nil, fmt.Errorf("batch intent tags: %w", err)
 		}
