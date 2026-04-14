@@ -1411,7 +1411,7 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 
 	// Path traversal protection
 	clean := filepath.Clean(filePath)
-	if strings.HasPrefix(clean, "..") {
+	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
 		return mcp.NewToolResultError("invalid file_path: path traversal not allowed"), nil
 	}
 

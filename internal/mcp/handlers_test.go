@@ -2036,11 +2036,23 @@ func TestGetRagTree_AfterBuild(t *testing.T) {
 
 func TestGetDocContent_PathTraversal(t *testing.T) {
 	deps := setupTestDeps(t)
-	result := callTool(t, deps, "get_doc_content", map[string]any{
-		"file_path": "../../etc/passwd",
-	})
-	if !result.IsError {
-		t.Fatal("expected error for path traversal attempt")
+
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"relative traversal", "../../etc/passwd"},
+		{"absolute path", "/etc/passwd"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := callTool(t, deps, "get_doc_content", map[string]any{
+				"file_path": tc.path,
+			})
+			if !result.IsError {
+				t.Fatalf("expected error for path %q, got success", tc.path)
+			}
+		})
 	}
 }
 
@@ -2051,5 +2063,50 @@ func TestGetDocContent_NotFound(t *testing.T) {
 	})
 	if !result.IsError {
 		t.Fatal("expected error for nonexistent file")
+	}
+}
+
+func TestGetDocContent_HappyPath(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	// Create a temp file with known content
+	tmpFile, err := os.CreateTemp(".", "test-doc-*.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+	content := "# Test Doc\nHello world"
+	if _, err := tmpFile.WriteString(content); err != nil {
+		t.Fatal(err)
+	}
+	tmpFile.Close()
+
+	result := callTool(t, deps, "get_doc_content", map[string]any{
+		"file_path": tmpFile.Name(), // relative name since created in "."
+	})
+	if result.IsError {
+		t.Fatalf("unexpected error: %v", result.Content)
+	}
+	got := getTextContent(result)
+	if got != content {
+		t.Errorf("want %q, got %q", content, got)
+	}
+}
+
+func TestGetRagTree_InvalidCommunityID(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	// Build index first
+	buildResult := callTool(t, deps, "build_rag_index", map[string]any{})
+	if buildResult.IsError {
+		t.Fatalf("build_rag_index error: %v", buildResult.Content)
+	}
+
+	// Request nonexistent community
+	result := callTool(t, deps, "get_rag_tree", map[string]any{
+		"community_id": "community:99999",
+	})
+	if !result.IsError {
+		t.Fatal("expected error for nonexistent community_id")
 	}
 }
