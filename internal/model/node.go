@@ -2,6 +2,8 @@ package model
 
 import "time"
 
+// NodeKind는 그래프 노드의 선언 분류를 나타낸다.
+// @intent 파싱된 선언을 검색과 분석에 필요한 종류로 구분한다.
 type NodeKind string
 
 const (
@@ -12,6 +14,8 @@ const (
 	NodeKindTest     NodeKind = "test"
 )
 
+// Node는 코드 그래프의 단일 선언 엔티티를 저장한다.
+// @intent 파일 내 선언의 정체성과 위치 정보를 영속화한다.
 type Node struct {
 	ID            uint     `gorm:"primaryKey"`
 	QualifiedName string   `gorm:"uniqueIndex;size:512;not null"`

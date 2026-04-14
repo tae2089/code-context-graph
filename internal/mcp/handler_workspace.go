@@ -14,6 +14,9 @@ import (
 
 const maxUploadSizeBytes = 10 << 20 // 10 MB
 
+// workspaceRoot returns the filesystem root used for workspace storage.
+// @intent 파일 업로드 도구들이 동일한 작업공간 루트를 사용하게 한다.
+// @return 설정값이 없으면 기본 workspaces 디렉터리를 반환한다.
 func (h *handlers) workspaceRoot() string {
 	root := h.deps.WorkspaceRoot
 	if root == "" {
@@ -22,6 +25,11 @@ func (h *handlers) workspaceRoot() string {
 	return root
 }
 
+// validateWorkspacePath validates workspace and file paths against traversal.
+// @intent 작업공간 파일 조작 도구에서 경로 순회 공격을 차단한다.
+// @param workspace 작업공간 이름 또는 상대 경로 세그먼트다.
+// @param filePath 작업공간 내부 상대 파일 경로다.
+// @domainRule workspace와 file_path는 절대 경로나 상위 디렉터리 이동을 포함할 수 없다.
 func validateWorkspacePath(workspace, filePath string) error {
 	if workspace == "" {
 		return fmt.Errorf("workspace must not be empty")
@@ -40,6 +48,13 @@ func validateWorkspacePath(workspace, filePath string) error {
 	return nil
 }
 
+// uploadFile writes one base64-encoded file into a workspace.
+// @intent 단일 파일을 서버 작업공간에 업로드해 후속 분석 또는 문서 작업에 활용하게 한다.
+// @param request content는 base64 인코딩된 파일 바이트다.
+// @requires workspace와 file_path는 안전한 상대 경로여야 한다.
+// @ensures 성공 시 저장된 파일 경로와 크기를 반환한다.
+// @domainRule 업로드 파일은 10MB를 초과할 수 없다.
+// @sideEffect 디렉터리 생성과 파일 쓰기를 수행한다.
 func (h *handlers) uploadFile(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	workspace, err := request.RequireString("workspace")
 	if err != nil {
@@ -85,6 +100,10 @@ func (h *handlers) uploadFile(ctx context.Context, request mcp.CallToolRequest) 
 	return mcp.NewToolResultText(jsonStr), nil
 }
 
+// listWorkspaces lists available workspace directories.
+// @intent 서버에 존재하는 작업공간 이름을 조회해 업로드 대상을 선택하게 한다.
+// @ensures 성공 시 작업공간 이름 배열을 반환한다.
+// @sideEffect 파일 시스템 디렉터리 읽기를 수행한다.
 func (h *handlers) listWorkspaces(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	root := h.workspaceRoot()
 
@@ -111,6 +130,12 @@ func (h *handlers) listWorkspaces(ctx context.Context, request mcp.CallToolReque
 	return mcp.NewToolResultText(jsonStr), nil
 }
 
+// listFiles lists all files stored inside a workspace.
+// @intent 특정 작업공간의 현재 파일 구성을 확인하게 한다.
+// @param request workspace는 조회할 작업공간 이름이다.
+// @requires workspace는 안전한 상대 경로여야 한다.
+// @ensures 성공 시 작업공간 내부 상대 파일 경로 배열을 반환한다.
+// @sideEffect 파일 시스템 순회를 수행한다.
 func (h *handlers) listFiles(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	workspace, err := request.RequireString("workspace")
 	if err != nil {
@@ -149,6 +174,12 @@ func (h *handlers) listFiles(ctx context.Context, request mcp.CallToolRequest) (
 	return mcp.NewToolResultText(jsonStr), nil
 }
 
+// deleteFile removes one file from a workspace.
+// @intent 더 이상 필요 없는 작업공간 파일을 개별적으로 정리할 수 있게 한다.
+// @param request workspace와 file_path로 삭제 대상을 지정한다.
+// @requires 대상 파일이 해당 작업공간에 존재해야 한다.
+// @ensures 성공 시 삭제된 파일 정보를 반환한다.
+// @sideEffect 파일 시스템에서 실제 파일을 삭제한다.
 func (h *handlers) deleteFile(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	workspace, err := request.RequireString("workspace")
 	if err != nil {
@@ -182,12 +213,21 @@ func (h *handlers) deleteFile(ctx context.Context, request mcp.CallToolRequest) 
 	return mcp.NewToolResultText(jsonStr), nil
 }
 
+// uploadFileEntry describes one file payload for bulk workspace uploads.
+// @intent 다중 파일 업로드 요청의 각 항목을 역직렬화한다.
 type uploadFileEntry struct {
 	Workspace string `json:"workspace"`
 	FilePath  string `json:"file_path"`
 	Content   string `json:"content"`
 }
 
+// uploadFiles writes multiple base64-encoded files in one request.
+// @intent 여러 작업공간 파일을 한 번의 MCP 호출로 업로드해 왕복 비용을 줄인다.
+// @param request files는 uploadFileEntry 배열을 담은 JSON 문자열이다.
+// @requires files 배열은 비어 있지 않아야 하며 각 항목이 유효해야 한다.
+// @ensures 성공 시 업로드된 파일 수와 각 파일 정보를 반환한다.
+// @domainRule 각 파일은 10MB를 초과할 수 없고 모든 경로는 안전해야 한다.
+// @sideEffect 디렉터리 생성과 다중 파일 쓰기를 수행한다.
 func (h *handlers) uploadFiles(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	filesRaw, err := request.RequireString("files")
 	if err != nil {
@@ -246,6 +286,12 @@ func (h *handlers) uploadFiles(ctx context.Context, request mcp.CallToolRequest)
 	return mcp.NewToolResultText(jsonStr), nil
 }
 
+// deleteWorkspace removes an entire workspace directory tree.
+// @intent 작업공간 단위로 업로드된 파일 집합을 한 번에 정리하게 한다.
+// @param request workspace는 삭제할 작업공간 이름이다.
+// @requires workspace는 안전한 상대 경로이며 실제로 존재해야 한다.
+// @ensures 성공 시 삭제된 작업공간 이름을 반환한다.
+// @sideEffect 파일 시스템에서 작업공간 디렉터리를 재귀 삭제한다.
 func (h *handlers) deleteWorkspace(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	workspace, err := request.RequireString("workspace")
 	if err != nil {

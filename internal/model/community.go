@@ -2,6 +2,8 @@ package model
 
 import "time"
 
+// Community는 커뮤니티 분석 결과의 그룹 메타데이터를 저장한다.
+// @intent 연관된 노드 집합을 전략별 커뮤니티 단위로 표현한다.
 type Community struct {
 	ID          uint   `gorm:"primaryKey"`
 	Key         string `gorm:"uniqueIndex;size:512;not null"`
@@ -14,6 +16,8 @@ type Community struct {
 	Members []CommunityMembership `gorm:"foreignKey:CommunityID"`
 }
 
+// CommunityMembership는 노드와 커뮤니티의 소속 관계를 저장한다.
+// @intent 특정 노드가 어떤 커뮤니티에 속하는지 연결한다.
 type CommunityMembership struct {
 	ID          uint `gorm:"primaryKey"`
 	CommunityID uint `gorm:"not null;uniqueIndex:idx_community_node"`

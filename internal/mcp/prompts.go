@@ -17,10 +17,16 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
 
+// promptHandlers groups dependencies for MCP prompt generation.
+// @intent 프롬프트 핸들러가 공유 DB와 분석기를 재사용하도록 의존성을 묶는다.
 type promptHandlers struct {
 	deps *Deps
 }
 
+// promptResult wraps plain text in the MCP prompt result shape.
+// @intent 프롬프트 핸들러가 문자열만으로 일관된 사용자 메시지 응답을 생성하게 한다.
+// @param text 프롬프트 본문으로 반환할 사용자 메시지다.
+// @return 단일 user text message를 포함한 GetPromptResult를 반환한다.
 func promptResult(text string) *mcp.GetPromptResult {
 	return &mcp.GetPromptResult{
 		Messages: []mcp.PromptMessage{
@@ -35,6 +41,13 @@ func promptResult(text string) *mcp.GetPromptResult {
 	}
 }
 
+// reviewChanges builds a prompt summarizing change risk and coverage gaps.
+// @intent 변경 리뷰 전에 리스크 높은 함수와 테스트 빈틈을 한 번에 보여준다.
+// @param request repo_root와 base 인자로 Git 비교 범위를 정한다.
+// @requires ChangesGitClient가 구성되어 있어야 실제 변경 분석을 수행할 수 있다.
+// @ensures 성공 시 리스크 분석과 커버리지 요약이 포함된 프롬프트를 반환한다.
+// @sideEffect Git diff 조회와 DB 기반 커버리지 조회를 수행한다.
+// @see mcp.promptHandlers.preMergeCheck
 func (p *promptHandlers) reviewChanges(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	args := request.Params.Arguments
 	repoRoot := args["repo_root"]
@@ -91,6 +104,10 @@ func (p *promptHandlers) reviewChanges(ctx context.Context, request mcp.GetPromp
 	return promptResult(sb.String()), nil
 }
 
+// architectureMap builds a prompt summarizing communities and coupling.
+// @intent 온전한 아키텍처 개요를 자연어 프롬프트로 제공해 모듈 구조 이해를 돕는다.
+// @ensures 성공 시 커뮤니티와 모듈 간 결합도 목록을 포함한 프롬프트를 반환한다.
+// @sideEffect DB에서 커뮤니티와 결합도 정보를 조회한다.
 func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	var communities []model.Community
 	if err := p.deps.DB.WithContext(ctx).Find(&communities).Error; err != nil {
@@ -136,6 +153,12 @@ func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPro
 	return promptResult(sb.String()), nil
 }
 
+// debugIssue builds a prompt with related code search results and call graph hints.
+// @intent 이슈 설명과 관련된 코드 후보와 호출 관계를 모아 디버깅 출발점을 만든다.
+// @param request description은 검색에 사용할 이슈 서술이다.
+// @requires SearchBackend와 DB가 구성되어 있어야 한다.
+// @ensures 성공 시 관련 코드 목록과 호출 그래프 섹션이 포함된 프롬프트를 반환한다.
+// @sideEffect 검색 인덱스 조회와 그래프 질의를 수행한다.
 func (p *promptHandlers) debugIssue(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	args := request.Params.Arguments
 	description := args["description"]
@@ -202,6 +225,10 @@ func (p *promptHandlers) debugIssue(ctx context.Context, request mcp.GetPromptRe
 	return promptResult(sb.String()), nil
 }
 
+// onboardDeveloper builds a prompt introducing project scale and structure.
+// @intent 신규 개발자가 그래프 규모, 언어 분포, 커뮤니티, 대형 함수를 빠르게 파악하게 한다.
+// @ensures 성공 시 온보딩용 통계와 구조 요약 프롬프트를 반환한다.
+// @sideEffect DB에서 통계, 커뮤니티, 대형 함수 정보를 조회한다.
 func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	log := p.deps.Logger
 	var nodeCount int64
@@ -218,6 +245,8 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 		log.Warn("count edges failed", trace.SlogError(err))
 	}
 
+	// langStat stores grouped node counts by language.
+	// @intent 온보딩 프롬프트의 언어 분포 섹션을 만들기 위한 집계 결과를 담는다.
 	type langStat struct {
 		Language string
 		Count    int64
@@ -273,6 +302,13 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 	return promptResult(sb.String()), nil
 }
 
+// preMergeCheck builds a prompt covering merge-time risk, coverage, dead code, and large functions.
+// @intent 머지 직전 점검 항목을 한 프롬프트에 모아 릴리스 전 확인을 돕는다.
+// @param request repo_root와 base 인자로 변경 분석 범위를 지정한다.
+// @requires ChangesGitClient가 구성되어 있어야 변경 기반 체크가 가능하다.
+// @ensures 성공 시 리스크, 커버리지, 미사용 코드, 대형 함수 섹션을 포함한 프롬프트를 반환한다.
+// @sideEffect Git diff 조회와 다수의 DB 기반 분석 조회를 수행한다.
+// @see mcp.promptHandlers.reviewChanges
 func (p *promptHandlers) preMergeCheck(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	log := p.deps.Logger
 	args := request.Params.Arguments

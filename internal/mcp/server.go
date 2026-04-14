@@ -22,19 +22,31 @@ import (
 	storesearch "github.com/imtaebin/code-context-graph/internal/store/search"
 )
 
+// Parser defines the source parser contract used by MCP graph builds.
+// @intent 추상 파서를 주입해 파일 확장자별 파싱 구현을 서버에서 조합한다.
+// @see mcp.Deps
 type Parser interface {
 	Parse(filePath string, content []byte) ([]model.Node, []model.Edge, error)
 	ParseWithContext(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, error)
 }
 
+// ImpactAnalyzer defines the blast-radius analysis contract for graph nodes.
+// @intent 노드 변경 영향 범위를 계산하는 분석기를 서버 핸들러에 주입한다.
+// @see mcp.handlers.getImpactRadius
 type ImpactAnalyzer interface {
 	ImpactRadius(ctx context.Context, nodeID uint, depth int) ([]model.Node, error)
 }
 
+// FlowTracer defines the call-flow tracing contract for graph nodes.
+// @intent 시작 노드 기준 호출 흐름을 복원하는 분석기를 서버에 연결한다.
+// @see mcp.handlers.traceFlow
 type FlowTracer interface {
 	TraceFlow(ctx context.Context, startNodeID uint) (*model.Flow, error)
 }
 
+// QueryService defines predefined graph query operations exposed over MCP.
+// @intent 표준 그래프 질의를 한 서비스 인터페이스로 추상화해 핸들러를 단순화한다.
+// @see mcp.handlers.queryGraph
 type QueryService interface {
 	CallersOf(ctx context.Context, nodeID uint) ([]model.Node, error)
 	CalleesOf(ctx context.Context, nodeID uint) ([]model.Node, error)
@@ -46,31 +58,52 @@ type QueryService interface {
 	FileSummaryOf(ctx context.Context, filePath string) (*query.FileSummary, error)
 }
 
+// LargefuncAnalyzer defines the oversized-function detection contract.
+// @intent 유지보수 비용이 높은 대형 함수를 탐지하는 분석기를 주입한다.
+// @see mcp.handlers.findLargeFunctions
 type LargefuncAnalyzer interface {
 	Find(ctx context.Context, threshold int) ([]model.Node, error)
 }
 
+// DeadcodeAnalyzer defines the unused-code detection contract.
+// @intent 참조되지 않는 노드를 탐지해 정리 후보를 찾는 분석기를 주입한다.
+// @see mcp.handlers.findDeadCode
 type DeadcodeAnalyzer interface {
 	Find(ctx context.Context, opts deadcode.Options) ([]model.Node, error)
 }
 
+// CouplingAnalyzer defines the inter-community coupling analysis contract.
+// @intent 아키텍처 경계 간 결합도를 계산하는 분석기를 서버에 연결한다.
+// @see mcp.handlers.getArchitectureOverview
 type CouplingAnalyzer interface {
 	Analyze(ctx context.Context) ([]coupling.CouplingPair, error)
 }
 
+// CoverageAnalyzer defines file and community coverage lookup operations.
+// @intent 리스크 요약과 커뮤니티 상세 응답에 테스트 커버리지 정보를 제공한다.
+// @see mcp.handlers.getCommunity
+// @see mcp.promptHandlers.reviewChanges
 type CoverageAnalyzer interface {
 	ByFile(ctx context.Context, filePath string) (*coverage.FileCoverage, error)
 	ByCommunity(ctx context.Context, communityID uint) (*coverage.CommunityCoverage, error)
 }
 
+// CommunityBuilder defines the community rebuild contract.
+// @intent 그래프 후처리에서 모듈 커뮤니티를 재계산하는 구현을 주입한다.
+// @see mcp.handlers.runPostprocess
 type CommunityBuilder interface {
 	Rebuild(ctx context.Context, cfg community.Config) ([]community.Stats, error)
 }
 
+// IncrementalSyncer defines the incremental graph synchronization contract.
+// @intent 전체 재파싱 없이 변경 파일만 그래프에 반영하는 동기화기를 주입한다.
+// @see mcp.handlers.buildOrUpdateGraph
 type IncrementalSyncer interface {
 	Sync(ctx context.Context, files map[string]incremental.FileInfo) (*incremental.SyncStats, error)
 }
 
+// Deps collects the services and stores required by MCP handlers.
+// @intent MCP 서버 구성요소를 한 번에 주입해 도구와 프롬프트 핸들러를 조립한다.
 type Deps struct {
 	Store            store.GraphStore
 	DB               *gorm.DB
@@ -102,6 +135,12 @@ type Deps struct {
 	WorkspaceRoot string
 }
 
+// NewServer creates and configures the MCP server with all tools and prompts.
+// @intent 코드 그래프 기능을 MCP 도구와 프롬프트로 노출하는 서버 인스턴스를 구성한다.
+// @requires deps != nil
+// @ensures 반환 서버에는 MCP 도구와 프롬프트가 등록된다.
+// @sideEffect 서버 메타데이터를 로거에 기록한다.
+// @see mcp.Deps
 func NewServer(deps *Deps) *server.MCPServer {
 	log := deps.Logger
 	if log == nil {

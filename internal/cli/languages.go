@@ -10,6 +10,9 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/parse/treesitter"
 )
 
+// newLanguagesCmd creates the supported-languages listing command.
+// @intent 등록된 Tree-sitter 워커를 언어별 확장자 표로 보여준다.
+// @sideEffect 지원 언어 목록을 표준 출력으로 기록한다.
 func newLanguagesCmd(deps *Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "languages",
@@ -33,11 +36,16 @@ func newLanguagesCmd(deps *Deps) *cobra.Command {
 	}
 }
 
+// langInfo groups one language with all registered file extensions.
+// @intent 출력 단계에서 언어 이름과 확장자 목록을 함께 다루기 쉽게 만든다.
 type langInfo struct {
 	Name string
 	Exts []string
 }
 
+// collectLanguages collapses walkers into language rows sorted by name.
+// @intent 확장자별 워커 맵을 사람이 읽기 쉬운 언어 단위 목록으로 정규화한다.
+// @return 동일 언어의 확장자가 합쳐진 정렬된 목록을 반환한다.
 func collectLanguages(walkers map[string]*treesitter.Walker) []langInfo {
 	byName := map[string]*langInfo{}
 	for ext, w := range walkers {

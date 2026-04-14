@@ -11,6 +11,11 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
 
+// listFlows lists stored flows with optional sorting and truncation.
+// @intent 저장된 호출 흐름을 요약 형태로 노출해 탐색과 우선순위 판단을 돕는다.
+// @param request sort_by와 limit로 정렬 방식과 최대 개수를 제어한다.
+// @ensures 성공 시 flow id, 이름, 설명, 멤버 수를 포함한 목록을 반환한다.
+// @see mcp.handlers.traceFlow
 func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	log := h.logger()
 
@@ -19,6 +24,8 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 
 	log.Info("list_flows called", "sort_by", sortBy, "limit", limit)
 
+	// flowCount stores aggregated membership counts per flow.
+	// @intent flow_id별 멤버 수 집계 결과를 스캔하기 위한 임시 구조체다.
 	type flowCount struct {
 		FlowID uint
 		Count  int
@@ -44,6 +51,8 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 			return "", trace.Wrap(err, "find flows")
 		}
 
+		// flowInfo represents a summarized flow response entry.
+		// @intent MCP 응답에서 각 flow의 핵심 정보만 직렬화한다.
 		type flowInfo struct {
 			ID          uint   `json:"id"`
 			Name        string `json:"name"`
@@ -84,6 +93,11 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 	}))
 }
 
+// listCommunities lists communities with size-based filtering and sorting.
+// @intent 커뮤니티 구조를 크기 기준으로 훑어볼 수 있게 요약 목록을 제공한다.
+// @param request sort_by와 min_size로 응답 필터링 방식을 제어한다.
+// @ensures 성공 시 커뮤니티 id, 라벨, 노드 수를 포함한 목록을 반환한다.
+// @see mcp.handlers.getCommunity
 func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	log := h.logger()
 
@@ -92,6 +106,8 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 
 	log.Info("list_communities called", "sort_by", sortBy, "min_size", minSize)
 
+	// commCount stores aggregated membership counts per community.
+	// @intent community_id별 멤버 수 집계 결과를 스캔하기 위한 임시 구조체다.
 	type commCount struct {
 		CommunityID uint
 		Count       int
@@ -117,6 +133,8 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 			return "", trace.Wrap(err, "find communities")
 		}
 
+		// commInfo represents a summarized community response entry.
+		// @intent MCP 응답에서 커뮤니티의 핵심 메타데이터만 직렬화한다.
 		type commInfo struct {
 			ID        uint    `json:"id"`
 			Label     string  `json:"label"`
@@ -156,6 +174,12 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 	}))
 }
 
+// getCommunity returns community metadata with optional members and coverage.
+// @intent 특정 커뮤니티의 규모와 구성원을 상세 조회할 수 있게 한다.
+// @param request community_id는 필수이며 include_members가 멤버 포함 여부를 제어한다.
+// @requires request.community_id가 존재하는 커뮤니티를 가리켜야 한다.
+// @ensures 성공 시 커뮤니티 기본 정보와 선택적 coverage/members를 반환한다.
+// @see mcp.handlers.listCommunities
 func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	log := h.logger()
 
@@ -225,6 +249,11 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 	}))
 }
 
+// getArchitectureOverview summarizes communities, coupling, and architecture warnings.
+// @intent 코드베이스의 모듈 경계와 강결합 구간을 한 응답으로 요약한다.
+// @ensures 성공 시 커뮤니티 목록, 결합도 쌍, 경고 메시지를 반환한다.
+// @domainRule 결합 강도 0.8 초과 쌍은 경고로 표기한다.
+// @see mcp.handlers.listCommunities
 func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	log := h.logger()
 	log.Info("get_architecture_overview called")
@@ -247,6 +276,8 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 			return result, nil
 		}
 
+		// archCommCount stores aggregated membership counts for overview output.
+		// @intent 아키텍처 개요에서 community별 노드 수를 계산하기 위한 임시 구조체다.
 		type archCommCount struct {
 			CommunityID uint
 			Count       int

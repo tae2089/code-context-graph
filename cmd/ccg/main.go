@@ -50,6 +50,9 @@ var (
 	_ mcpserver.IncrementalSyncer = (*incremental.Syncer)(nil)
 )
 
+// main wires CLI dependencies and executes the root command.
+// @intent 애플리케이션 시작 시 DB, 워커, MCP 실행 의존성을 구성해 CLI를 실행한다.
+// @sideEffect 시그널 핸들러를 등록하고 명령 실행 중 필요한 리소스를 초기화한다.
 func main() {
 	logger := slog.Default()
 
@@ -132,6 +135,8 @@ func main() {
 }
 
 // buildWalkers creates a Walker for each supported language extension.
+// @intent 지원 언어별 Tree-sitter 워커를 확장자 맵으로 등록한다.
+// @return 파일 확장자에서 재사용 가능한 워커로 매핑된 테이블을 반환한다.
 func buildWalkers(logger *slog.Logger) map[string]*treesitter.Walker {
 	type langEntry struct {
 		spec *treesitter.LangSpec
@@ -163,6 +168,9 @@ func buildWalkers(logger *slog.Logger) map[string]*treesitter.Walker {
 	return walkers
 }
 
+// runServe starts the MCP server with the configured transport.
+// @intent CLI 의존성을 MCP 서버 의존성으로 변환해 실제 서버 실행을 위임한다.
+// @sideEffect 캐시를 생성하고 stdio 또는 HTTP 서버를 시작한다.
 func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 	deps.Logger.Info("starting code-context-graph MCP server")
 
@@ -214,6 +222,9 @@ func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 	}
 }
 
+// serveStreamableHTTP serves the MCP server over streamable HTTP.
+// @intent 원격 MCP 클라이언트를 위한 HTTP 엔드포인트와 헬스체크를 노출한다.
+// @sideEffect HTTP 리스너를 열고 종료 시 graceful shutdown을 수행한다.
 func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeConfig) error {
 	deps.Logger.Info("serving MCP over streamable-http", "addr", cfg.HTTPAddr, "stateless", cfg.Stateless)
 
@@ -259,6 +270,10 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 	}
 }
 
+// handleHealth responds to HTTP health checks.
+// @intent HTTP 전송 모드에서 프로세스 생존 여부를 단순 JSON으로 확인시킨다.
+// @domainRule GET 이외 메서드는 405로 거부한다.
+// @sideEffect HTTP 응답 헤더와 바디를 기록한다.
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -269,6 +284,10 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status":"ok"}`))
 }
 
+// openDB opens a GORM connection for the configured driver.
+// @intent 실행 환경에 맞는 SQLite 또는 PostgreSQL 연결을 생성한다.
+// @requires driver는 sqlite 또는 postgres여야 한다.
+// @return 초기화된 GORM DB 핸들을 반환한다.
 func openDB(driver, dsn string) (*gorm.DB, error) {
 	cfg := &gorm.Config{
 		Logger:                 gormlogger.Discard,
@@ -285,6 +304,9 @@ func openDB(driver, dsn string) (*gorm.DB, error) {
 	}
 }
 
+// newSearchBackend selects the search backend for a database driver.
+// @intent DB 종류에 맞는 전문 검색 구현을 선택해 일관된 인터페이스로 노출한다.
+// @return postgres면 PostgresBackend, 그 외에는 SQLiteBackend를 반환한다.
 func newSearchBackend(driver string) search.Backend {
 	switch driver {
 	case "postgres":

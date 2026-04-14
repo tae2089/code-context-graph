@@ -20,8 +20,12 @@ var knownTags = map[string]model.TagKind{
 	"index":      model.TagIndex,
 }
 
+// Parser parses normalized comment text into structured annotation metadata.
+// @intent convert stripped documentation text into model.Annotation values
 type Parser struct{}
 
+// NewParser creates a Parser.
+// @intent provide a reusable annotation parser instance for binding pipelines
 func NewParser() *Parser {
 	return &Parser{}
 }
@@ -38,6 +42,9 @@ func NewParser() *Parser {
 // Parse extracts structured annotations from normalized comment text.
 // Returns the annotation and a slice of unrecognized tag names (e.g. ["domainrule"] for a typo).
 // Callers that do not need warnings can discard the second return value.
+// @ensures returned Annotation.RawText preserves the input text
+// @return second value lists unknown tag names in encounter order
+// @see annotation.Parser.parseTagLine
 func (p *Parser) Parse(text string) (*model.Annotation, []string) {
 	ann := &model.Annotation{RawText: text}
 
@@ -111,6 +118,10 @@ func (p *Parser) Parse(text string) (*model.Annotation, []string) {
 
 // parseTagLine parses a single @tag line.
 // Returns (tag, "") on success, (nil, tagName) when the tag is unknown.
+// @intent decode one normalized tag line into a DocTag with ordinal tracking
+// @mutates ordinals increments the counter for each recognized tag kind
+// @requires line starts with @tag syntax
+// @return second value contains the unknown tag name when parsing cannot map it
 func (p *Parser) parseTagLine(line string, ordinals map[model.TagKind]int) (*model.DocTag, string) {
 	rest := line[1:]
 	parts := strings.SplitN(rest, " ", 2)

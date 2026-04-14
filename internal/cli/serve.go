@@ -8,6 +8,7 @@ import (
 )
 
 // ServeConfig holds parsed flags for the serve subcommand.
+// @intent MCP 서버 실행에 필요한 전송 방식과 세션 관련 옵션을 전달한다.
 type ServeConfig struct {
 	CacheTTL      time.Duration
 	NoCache       bool
@@ -17,6 +18,10 @@ type ServeConfig struct {
 	WorkspaceRoot string // root directory for file workspaces (default "workspaces")
 }
 
+// newServeCmd creates the MCP server command.
+// @intent CLI에서 stdio 또는 HTTP 기반 MCP 서버를 시작할 수 있게 한다.
+// @requires deps.ServeFunc가 설정되어 있어야 한다.
+// @sideEffect 실행 시 장시간 서버 프로세스를 시작한다.
 func newServeCmd(deps *Deps) *cobra.Command {
 	var cfg ServeConfig
 

@@ -22,6 +22,11 @@ docs:
   out: docs
 `
 
+// newInitCmd creates the default config scaffolding command.
+// @intent 프로젝트 또는 사용자 범위에 기본 .ccg 설정 파일을 생성한다.
+// @domainRule --project와 --user는 동시에 사용할 수 없다.
+// @sideEffect 설정 디렉터리를 만들고 .ccg.yaml 파일을 기록한다.
+// @ensures 기존 설정 파일이 있으면 덮어쓰지 않는다.
 func newInitCmd(_ *Deps) *cobra.Command {
 	var (
 		project    bool
@@ -68,6 +73,10 @@ func newInitCmd(_ *Deps) *cobra.Command {
 	return cmd
 }
 
+// resolveInitDest resolves the output path for ccg init.
+// @intent init 명령이 어느 위치에 설정 파일을 만들어야 하는지 결정한다.
+// @param configHome 테스트에서 사용자 홈 경로를 대체할 때만 사용한다.
+// @return 생성 대상 .ccg.yaml 절대 또는 사용자 설정 경로를 반환한다.
 func resolveInitDest(user bool, configHome string) (string, error) {
 	if !user {
 		return filepath.Abs(".ccg.yaml")

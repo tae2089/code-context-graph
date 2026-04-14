@@ -12,6 +12,8 @@ import (
 )
 
 // countNonIgnored counts lint issues not covered by an ignore rule in .ccg.yaml.
+// @intent strict 모드에서 실제 실패로 간주할 lint 항목만 다시 집계한다.
+// @domainRule action: ignore로 선언된 규칙은 strict 실패 수에서 제외한다.
 func countNonIgnored(report *docs.LintReport) int {
 	rules := viper.Get("rules")
 	ignoreSet := map[string]bool{}
@@ -72,6 +74,12 @@ func countNonIgnored(report *docs.LintReport) int {
 	return total
 }
 
+// newLintCmd creates the docs lint command.
+// @intent 문서 품질 점검과 Twice Rule 자동 기록을 하나의 CLI 흐름으로 제공한다.
+// @domainRule 같은 이슈가 두 번 연속 발견되면 warn 규칙 후보로 승격한다.
+// @requires deps.DB가 초기화되어 있어야 한다.
+// @sideEffect lint 이력 파일과 .ccg.yaml 규칙을 갱신할 수 있다.
+// @mutates lint history 파일, .ccg.yaml rules 섹션
 func newLintCmd(deps *Deps) *cobra.Command {
 	var outDir string
 	var excludePatterns []string

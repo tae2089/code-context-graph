@@ -11,6 +11,8 @@ import (
 	"gorm.io/gorm"
 )
 
+// FileCoverage holds coverage metrics for one source file.
+// @intent report how many functions in a file are exercised by tests
 type FileCoverage struct {
 	FilePath string
 	Total    int
@@ -18,6 +20,8 @@ type FileCoverage struct {
 	Ratio    float64
 }
 
+// CommunityCoverage holds aggregated coverage metrics for one community.
+// @intent report test coverage across all functions assigned to a community
 type CommunityCoverage struct {
 	CommunityID uint
 	Label       string
@@ -26,10 +30,14 @@ type CommunityCoverage struct {
 	Ratio       float64
 }
 
+// Service calculates test coverage metrics from graph relationships.
+// @intent summarize tested_by coverage for files and communities
 type Service struct {
 	db *gorm.DB
 }
 
+// New creates a coverage analysis service.
+// @intent construct a reusable service for coverage queries
 func New(db *gorm.DB) *Service {
 	return &Service{db: db}
 }
@@ -77,6 +85,13 @@ func (s *Service) ByFile(ctx context.Context, filePath string) (*FileCoverage, e
 	return cov, nil
 }
 
+// ByCommunity calculates test coverage ratio for one community.
+// @intent measure how thoroughly a detected module is exercised by tests
+// @param communityID persisted community identifier to analyze
+// @return coverage ratio of community functions with tested_by edges
+// @domainRule coverage ratio equals tested functions divided by total functions
+// @domainRule missing communities return a domain error instead of empty coverage
+// @ensures successful results preserve the resolved community label
 func (s *Service) ByCommunity(ctx context.Context, communityID uint) (*CommunityCoverage, error) {
 	var comm model.Community
 	if err := s.db.WithContext(ctx).First(&comm, communityID).Error; err != nil {

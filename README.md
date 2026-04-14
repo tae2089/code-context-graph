@@ -303,6 +303,45 @@ Override with `ccg --config path/to/config.yaml`.
 | `delete_file` | Delete file from workspace |
 | `delete_workspace` | Delete an entire workspace and all its files |
 
+## Docker
+
+### Build image
+
+```bash
+docker build -t ccg .
+```
+
+### Run as MCP server
+
+```bash
+# Mount your project and serve over HTTP
+docker run -d -p 8080:8080 -v $(pwd):/workspace --entrypoint sh ccg \
+  -c "ccg build /workspace && ccg serve --transport streamable-http --http-addr :8080"
+```
+
+Then connect from `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "ccg": {
+      "type": "streamable-http",
+      "url": "http://localhost:8080/mcp"
+    }
+  }
+}
+```
+
+### Run with PostgreSQL
+
+```bash
+docker run -d -p 8080:8080 \
+  -e CCG_DB_DRIVER=postgres \
+  -e CCG_DB_DSN="host=db user=ccg password=ccg dbname=ccg sslmode=disable" \
+  -v $(pwd):/workspace --entrypoint sh ccg \
+  -c "ccg build /workspace && ccg serve --transport streamable-http --http-addr :8080"
+```
+
 ## Development
 
 ```bash

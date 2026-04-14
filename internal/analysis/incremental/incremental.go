@@ -7,6 +7,8 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
 
+// Store defines persistence operations needed for incremental sync.
+// @intent abstract graph storage so changed files can be reparsed and upserted
 type Store interface {
 	GetNodesByFile(ctx context.Context, filePath string) ([]model.Node, error)
 	GetNodesByFiles(ctx context.Context, filePaths []string) (map[string][]model.Node, error)
@@ -15,15 +17,21 @@ type Store interface {
 	DeleteNodesByFile(ctx context.Context, filePath string) error
 }
 
+// Parser parses one file into graph nodes and edges.
+// @intent decouple incremental sync from language-specific parsing logic
 type Parser interface {
 	Parse(filePath string, content []byte) ([]model.Node, []model.Edge, error)
 }
 
+// FileInfo holds change-tracking data for one file.
+// @intent carry file content and hash so sync can detect modifications cheaply
 type FileInfo struct {
 	Hash    string
 	Content []byte
 }
 
+// SyncStats summarizes one incremental sync run.
+// @intent report how many files were added, modified, skipped, or deleted
 type SyncStats struct {
 	Added    int
 	Modified int
@@ -31,20 +39,30 @@ type SyncStats struct {
 	Deleted  int
 }
 
+// Syncer incrementally updates graph data for changed files.
+// @intent avoid full rebuilds by reparsing only files whose content hash changed
 type Syncer struct {
 	store  Store
 	parser Parser
 	logger *slog.Logger
 }
 
+// SyncerOption configures a Syncer instance.
+// @intent customize incremental sync behavior without expanding the constructor signature
 type SyncerOption func(*Syncer)
 
+// WithLogger sets the logger used during sync.
+// @intent allow callers to observe incremental sync progress through structured logs
+// @mutates Syncer.logger
 func WithLogger(l *slog.Logger) SyncerOption {
 	return func(s *Syncer) {
 		s.logger = l
 	}
 }
 
+// New creates an incremental syncer.
+// @intent wire storage, parser, and optional configuration into a sync coordinator
+// @ensures returned syncer always has a non-nil logger
 func New(store Store, parser Parser, opts ...SyncerOption) *Syncer {
 	s := &Syncer{store: store, parser: parser}
 	for _, opt := range opts {
@@ -56,10 +74,23 @@ func New(store Store, parser Parser, opts ...SyncerOption) *Syncer {
 	return s
 }
 
+// Sync updates graph data using only the provided file snapshot.
+// @intent run incremental parsing when only current files are known
+// @param files current file snapshot keyed by repository-relative path
+// @see incremental.Syncer.SyncWithExisting
 func (s *Syncer) Sync(ctx context.Context, files map[string]FileInfo) (*SyncStats, error) {
 	return s.SyncWithExisting(ctx, files, nil)
 }
 
+// SyncWithExisting updates graph data and removes files no longer present.
+// @intent reconcile parsed graph state with the latest changed-file snapshot
+// @param files current file snapshot keyed by repository-relative path
+// @param existingFiles previously known file paths used to detect deletions
+// @return counts of added, modified, skipped, and deleted files
+// @sideEffect writes structured logs during sync execution
+// @domainRule unchanged files are skipped when the stored hash matches the incoming hash
+// @mutates graph storage by deleting stale nodes and upserting parsed nodes and edges
+// @ensures deleted files are removed from storage when absent from files
 func (s *Syncer) SyncWithExisting(ctx context.Context, files map[string]FileInfo, existingFiles []string) (*SyncStats, error) {
 	stats := &SyncStats{}
 

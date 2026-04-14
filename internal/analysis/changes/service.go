@@ -8,28 +8,38 @@ import (
 	"gorm.io/gorm"
 )
 
+// GitClient provides git diff data needed for change analysis.
+// @intent abstract git operations so risk analysis can consume changed files and hunks
 type GitClient interface {
 	ChangedFiles(ctx context.Context, repoDir, baseRef string) ([]string, error)
 	DiffHunks(ctx context.Context, repoDir, baseRef string, paths []string) ([]Hunk, error)
 }
 
+// Hunk describes a changed line range within one file.
+// @intent represent a diff segment that can be matched against graph nodes
 type Hunk struct {
 	FilePath  string
 	StartLine int
 	EndLine   int
 }
 
+// RiskEntry captures risk metrics for one changed node.
+// @intent return the changed node together with overlap count and computed risk
 type RiskEntry struct {
 	Node      model.Node
 	HunkCount int
 	RiskScore float64
 }
 
+// Service coordinates git-based change detection and graph-backed scoring.
+// @intent identify changed nodes and score how risky they are to modify
 type Service struct {
 	db  *gorm.DB
 	git GitClient
 }
 
+// New creates a change analysis service.
+// @intent wire database and git dependencies into a reusable analyzer
 func New(db *gorm.DB, git GitClient) *Service {
 	return &Service{db: db, git: git}
 }

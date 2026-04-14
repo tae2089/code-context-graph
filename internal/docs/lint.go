@@ -15,6 +15,7 @@ import (
 // the code: the node was modified after the annotation was last written, and
 // the annotation contains detail tags (e.g. @param) that may no longer be
 // accurate.
+// @intent 코드 변경으로 세부 어노테이션 신뢰성이 깨진 심볼을 보고한다.
 type Contradiction struct {
 	QualifiedName string
 	Detail        string
@@ -23,12 +24,14 @@ type Contradiction struct {
 // DeadRef represents an @see tag whose target qualified name does not exist in
 // the graph. This indicates a broken cross-reference that should be updated or
 // removed.
+// @intent 해석되지 않는 @see 참조를 수집해 문서 링크 정합성을 점검한다.
 type DeadRef struct {
 	QualifiedName string // the symbol that contains the @see tag
 	SeeTarget     string // the @see value that could not be resolved
 }
 
 // LintReport contains the results of a documentation lint check.
+// @intent 문서 생성물과 어노테이션 품질 점검 결과를 카테고리별로 반환한다.
 type LintReport struct {
 	Orphans        []string        // doc files with no matching source in the graph
 	Missing        []string        // source files in the graph with no doc file
@@ -42,6 +45,8 @@ type LintReport struct {
 
 // Lint checks the documentation directory against the code graph and
 // returns a report of orphan, missing, and stale documentation files.
+// @intent 문서 파일, 그래프 노드, 어노테이션을 교차 검증해 문서 건강 상태를 계산한다.
+// @sideEffect 출력 디렉터리와 데이터베이스를 읽는다.
 func (g *Generator) Lint() (*LintReport, error) {
 	report := &LintReport{}
 

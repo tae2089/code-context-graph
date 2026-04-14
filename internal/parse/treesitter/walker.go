@@ -32,6 +32,9 @@ var queriesFS embed.FS
 
 var errUnsupportedLanguage = trace.New("unsupported language")
 
+// Walker parses source files with Tree-sitter and emits graph nodes, edges, and comments.
+// @intent turn language-specific ASTs into the project's normalized code graph representation
+// @mutates parser and query during one-time initialization in NewWalker
 type Walker struct {
 	mu     sync.Mutex
 	spec   *LangSpec
@@ -40,19 +43,31 @@ type Walker struct {
 	query  *sitter.Query  // tags.scm 쿼리 1회 컴파일 후 재사용 (nil이면 쿼리 없음)
 }
 
+// interfaceInfo captures interface method names for later implementation inference.
+// @intent hold the minimum data needed to derive implicit implements edges
 type interfaceInfo struct {
 	name    string
 	methods []string
 }
 
+// WalkerOption configures optional Walker behavior during construction.
+// @intent allow caller-supplied dependencies such as logging without expanding constructor arguments
 type WalkerOption func(*Walker)
 
+// WithLogger installs a logger on a Walker.
+// @intent let callers route parser diagnostics through their preferred slog.Logger
+// @mutates Walker.logger
 func WithLogger(l *slog.Logger) WalkerOption {
 	return func(w *Walker) {
 		w.logger = l
 	}
 }
 
+// NewWalker creates a Walker and initializes reusable Tree-sitter resources for one language.
+// @intent amortize parser and query compilation cost across many file parses
+// @mutates Walker.parser, Walker.query, Walker.logger
+// @requires spec is non-nil and names a supported language
+// @ensures returned Walker reuses one parser and optional compiled tags query
 func NewWalker(spec *LangSpec, opts ...WalkerOption) *Walker {
 	w := &Walker{spec: spec}
 	for _, opt := range opts {
@@ -85,27 +100,42 @@ func NewWalker(spec *LangSpec, opts ...WalkerOption) *Walker {
 
 // Close releases CGo resources held by the underlying tree-sitter parser.
 // It should be called when the Walker is no longer needed.
+// @intent free parser-side native resources once file parsing is complete
+// @sideEffect releases CGo resources owned by the underlying parser
 func (w *Walker) Close() {
 	if w.parser != nil {
 		w.parser.Close()
 	}
 }
 
+// Language returns the Walker language name.
+// @intent expose the language handled by this Walker for downstream coordination
 func (w *Walker) Language() string {
 	return w.spec.Name
 }
 
+// Parse parses a file and returns graph nodes and edges.
+// @intent provide the basic parsing entry point when callers do not need comments or custom context
+// @see treesitter.Walker.ParseWithComments
 func (w *Walker) Parse(filePath string, content []byte) ([]model.Node, []model.Edge, error) {
 	nodes, edges, _, err := w.ParseWithComments(context.Background(), filePath, content)
 	return nodes, edges, err
 }
 
 // ParseWithContext parses filePath with the given context, allowing cancellation.
+// @intent let callers cancel Tree-sitter parsing through context propagation
+// @see treesitter.Walker.ParseWithComments
 func (w *Walker) ParseWithContext(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, error) {
 	nodes, edges, _, err := w.ParseWithComments(ctx, filePath, content)
 	return nodes, edges, err
 }
 
+// ParseWithComments parses a file and also extracts raw comment blocks.
+// @intent produce the full parse result needed for graph building and annotation binding
+// @mutates edges by appending contains, implements, and tested_by relationships
+// @requires Walker parser is initialized for the language
+// @ensures returned nodes always include a file node for filePath
+// @see treesitter.Walker.executeQueries
 func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []CommentBlock, error) {
 	if w.parser == nil {
 		w.logger.Error("unsupported language", "language", w.spec.Name, "file", filePath)
@@ -173,6 +203,11 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 	return nodes, edges, comments, nil
 }
 
+// executeQueries runs the compiled tags query and converts captures into nodes and edges.
+// @intent map Tree-sitter query captures into normalized graph entities for one file
+// @mutates nodes and edges slices through appended parse results
+// @requires w.query is compiled for w.spec.Name
+// @return pkgName is the detected package/module name when the grammar exposes one
 func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath string, nodes []model.Node, edges []model.Edge) ([]model.Node, []model.Edge, string, []interfaceInfo, error) {
 	// w.query는 NewWalker에서 이미 컴파일됨 (불변이므로 공유 안전)
 	// QueryCursor는 스레드 안전하지 않아 매번 새로 생성한다.
@@ -338,6 +373,8 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 	return nodes, edges, pkgName, interfaces, nil
 }
 
+// extractTypeNode returns the underlying type node from a declaration capture.
+// @intent normalize Go type declarations so downstream extractors see the concrete type form
 func (w *Walker) extractTypeNode(defNode *sitter.Node) *sitter.Node {
 	if defNode.Type() == "type_declaration" {
 		for i := 0; i < int(defNode.ChildCount()); i++ {
@@ -350,6 +387,8 @@ func (w *Walker) extractTypeNode(defNode *sitter.Node) *sitter.Node {
 	return defNode.ChildByFieldName("type")
 }
 
+// extractCallName extracts the callable expression text from a call node.
+// @intent derive stable callee names for call edge fingerprints across grammars
 func (w *Walker) extractCallName(callNode *sitter.Node, content []byte) string {
 	if callNode.Type() == "call_expression" || callNode.Type() == "call" {
 		fnNode := callNode.ChildByFieldName("function")
@@ -360,6 +399,9 @@ func (w *Walker) extractCallName(callNode *sitter.Node, content []byte) string {
 	return callNode.Content(content)
 }
 
+// extractInterfaceMethods lists method names declared by an interface node.
+// @intent gather interface contracts for later structural implementation matching
+// @return method names declared directly on the interface node
 func (w *Walker) extractInterfaceMethods(ifaceNode *sitter.Node, content []byte) []string {
 	var methods []string
 	for i := 0; i < int(ifaceNode.ChildCount()); i++ {
@@ -385,6 +427,9 @@ func (w *Walker) extractInterfaceMethods(ifaceNode *sitter.Node, content []byte)
 	return methods
 }
 
+// extractEmbeddings builds inherits edges for embedded Go struct fields.
+// @intent capture composition-style inheritance encoded by anonymous embedded fields
+// @return edges representing embedded type relationships for the struct
 func (w *Walker) extractEmbeddings(structNode *sitter.Node, content []byte, filePath, pkgName, structName string) []model.Edge {
 	var edges []model.Edge
 	for i := 0; i < int(structNode.ChildCount()); i++ {
@@ -430,6 +475,10 @@ func (w *Walker) extractEmbeddings(structNode *sitter.Node, content []byte, file
 	return edges
 }
 
+// resolveImplements infers implements edges by matching receiver methods to interface method sets.
+// @intent recover implicit Go implementation relationships that are not explicit in syntax
+// @domainRule a receiver implements an interface only when it defines every interface method
+// @mutates edges appends inferred implements relationships
 func (w *Walker) resolveImplements(nodes []model.Node, ifaces []interfaceInfo, filePath string, edges *[]model.Edge) {
 	methodsByReceiver := make(map[string]map[string]bool)
 	for _, n := range nodes {
@@ -470,12 +519,17 @@ func (w *Walker) resolveImplements(nodes []model.Node, ifaces []interfaceInfo, f
 	}
 }
 
+// extractReceiverStr normalizes receiver text for qualified-name construction.
+// @intent remove pointer syntax noise from method receiver identifiers
 func (w *Walker) extractReceiverStr(node *sitter.Node, content []byte) string {
 	res := node.Content(content)
 	res = strings.TrimPrefix(res, "*")
 	return res
 }
 
+// mapDefTypeToNodeKind maps query definition labels to internal node kinds.
+// @intent keep language query captures aligned with graph node categorization
+// @domainRule declarations matching the configured test prefix become test nodes
 func (w *Walker) mapDefTypeToNodeKind(defType string, name string) model.NodeKind {
 	if w.spec.TestPrefix != "" && strings.HasPrefix(name, w.spec.TestPrefix) {
 		return model.NodeKindTest
@@ -493,6 +547,8 @@ func (w *Walker) mapDefTypeToNodeKind(defType string, name string) model.NodeKin
 	}
 }
 
+// buildQualifiedName joins package, receiver, and declaration name into a stable identifier.
+// @intent generate graph keys that distinguish methods from package-level declarations
 func (w *Walker) buildQualifiedName(pkg, receiver, name string) string {
 	var parts []string
 	if pkg != "" {
@@ -505,6 +561,10 @@ func (w *Walker) buildQualifiedName(pkg, receiver, name string) string {
 	return strings.Join(parts, ".")
 }
 
+// resolveTestedBy infers tested_by edges from calls made inside discovered test nodes.
+// @intent connect production functions to enclosing tests without language-specific test frameworks
+// @domainRule only calls inside test node line ranges create tested_by edges
+// @mutates edges appends inferred tested_by relationships
 func (w *Walker) resolveTestedBy(nodes []model.Node, edges *[]model.Edge, filePath string, pkgName string) {
 	if w.spec.TestPrefix == "" {
 		return
@@ -552,12 +612,18 @@ func (w *Walker) resolveTestedBy(nodes []model.Node, edges *[]model.Edge, filePa
 	}
 }
 
+// CommentBlock records one contiguous comment region discovered in source.
+// @intent preserve raw comment text with source line bounds for later annotation binding
 type CommentBlock struct {
 	StartLine int
 	EndLine   int
 	Text      string
 }
 
+// ExtractComments parses a file and returns merged comment blocks.
+// @intent expose comment extraction without forcing callers to build nodes and edges
+// @requires Walker parser is initialized for the language
+// @see treesitter.Walker.collectComments
 func (w *Walker) ExtractComments(ctx context.Context, filePath string, content []byte) ([]CommentBlock, error) {
 	if w.parser == nil {
 		return nil, trace.Wrap(errUnsupportedLanguage, w.spec.Name)
@@ -577,6 +643,9 @@ func (w *Walker) ExtractComments(ctx context.Context, filePath string, content [
 	return comments, nil
 }
 
+// collectComments walks the AST and merges adjacent comment nodes into comment blocks.
+// @intent keep documentation comments together so binders can attach them as a single unit
+// @mutates comments appends or extends contiguous comment ranges in traversal order
 func (w *Walker) collectComments(node *sitter.Node, content []byte, comments *[]CommentBlock) {
 	nodeType := node.Type()
 
@@ -610,6 +679,9 @@ func (w *Walker) collectComments(node *sitter.Node, content []byte, comments *[]
 	}
 }
 
+// getLanguage resolves the Tree-sitter language handle for the Walker spec.
+// @intent bind configured language names to the concrete parser implementation
+// @return error when the configured language is not supported by this binary
 func (w *Walker) getLanguage() (*sitter.Language, error) {
 	switch w.spec.Name {
 	case "go":

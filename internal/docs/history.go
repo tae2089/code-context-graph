@@ -11,12 +11,15 @@ import (
 )
 
 // History tracks lint results across runs for the Twice Rule.
+// @intent 반복적으로 발생하는 문서 이슈를 누적 추적해 자동 규칙 승격에 활용한다.
 type History struct {
 	Timestamp time.Time      `json:"timestamp"`
 	Entries   map[string]int `json:"entries"` // "category:qualified_name" → consecutive count
 }
 
 // LoadHistory reads the history file. Returns empty history if file doesn't exist.
+// @intent 이전 lint 실행 이력을 복원해 연속 발생 여부를 판단할 수 있게 한다.
+// @return 파일이 없으면 비어 있는 History를 반환한다.
 func LoadHistory(path string) (*History, error) {
 	h := &History{Entries: map[string]int{}}
 
@@ -40,6 +43,9 @@ func LoadHistory(path string) (*History, error) {
 // Update compares current lint keys against stored history.
 // Returns keys that reached count >= 2 (Twice Rule triggered).
 // Mutates h.Entries in place.
+// @intent 현재 이슈 집합으로 연속 발생 카운트를 갱신한다.
+// @domainRule 같은 키가 두 번 이상 연속 관측되면 Twice Rule 대상으로 간주한다.
+// @mutates h.Entries, h.Timestamp
 func (h *History) Update(currentKeys []string) []string {
 	currentSet := map[string]bool{}
 	for _, k := range currentKeys {
@@ -69,6 +75,8 @@ func (h *History) Update(currentKeys []string) []string {
 }
 
 // Save writes the history to the given path, creating parent dirs if needed.
+// @intent 다음 lint 실행이 이전 상태를 참조할 수 있도록 이력을 영속화한다.
+// @sideEffect 대상 경로의 부모 디렉터리를 만들고 JSON 파일을 기록한다.
 func (h *History) Save(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -83,6 +91,9 @@ func (h *History) Save(path string) error {
 // WriteYamlRules appends Twice-Rule-triggered entries to .ccg.yaml rules section.
 // Idempotent: skips rules whose pattern already exists in the file.
 // Creates the file if it doesn't exist.
+// @intent 반복 발생 이슈를 설정 파일의 warn 규칙으로 반영한다.
+// @domainRule 이미 존재하는 pattern은 중복 규칙으로 다시 추가하지 않는다.
+// @sideEffect .ccg.yaml 파일을 읽고 rules 섹션을 갱신한다.
 func WriteYamlRules(cfgPath string, triggered []string) error {
 	data, err := os.ReadFile(cfgPath)
 	if err != nil && !os.IsNotExist(err) {

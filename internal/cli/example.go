@@ -9,6 +9,7 @@ import (
 )
 
 // exampleEntry holds annotation example snippets for a language.
+// @intent 언어별 예시를 출력할 때 필요한 주석 문법과 샘플 본문을 묶는다.
 type exampleEntry struct {
 	commentPrefix string // e.g. "//" or "#"
 	funcSnippet   string // a realistic function snippet
@@ -327,6 +328,10 @@ deploy() {
 	},
 }
 
+// newExampleCmd creates the annotation example command.
+// @intent 사용자가 언어별 어노테이션 작성 스타일을 바로 참고할 수 있게 한다.
+// @domainRule 언어 인자를 생략하면 기본값으로 go 예시를 사용한다.
+// @sideEffect 선택한 예시 스니펫을 표준 출력으로 기록한다.
 func newExampleCmd(_ *Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "example [language]",

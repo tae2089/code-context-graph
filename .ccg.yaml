@@ -83,3 +83,1805 @@ comment_tags:
     - mutates
     - requires
     - ensures
+
+rules:
+  - pattern: "annotation.Normalizer.Normalize"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.CoverageAnalyzer"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "agestore.New"
+    category: incomplete
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "agestore.Store"
+    category: incomplete
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "agestore.Store.ClearGraph"
+    category: incomplete
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "agestore.Store.Close"
+    category: incomplete
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "agestore.Store.ExecuteCypher"
+    category: incomplete
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "agestore.Store.ExecuteCypherJSON"
+    category: incomplete
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "agestore.Store.Init"
+    category: incomplete
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "agestore.Store.SyncEdges"
+    category: incomplete
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "agestore.Store.SyncNodes"
+    category: incomplete
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "cli.setupIntegrationDeps"
+    category: incomplete
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "docs.fileEntry"
+    category: incomplete
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.simpleGoParser"
+    category: incomplete
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "ragindex_test.setupDB"
+    category: incomplete
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "cmd/ccg/health_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/changes/git.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/changes/git_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/changes/service.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/changes/service_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/community/service.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/community/service_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/coupling/service.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/coupling/service_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/coverage/service.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/coverage/service_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/deadcode/service.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/deadcode/service_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/flows/flows.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/flows/flows_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/impact/impact.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/impact/impact_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/incremental/incremental.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/incremental/incremental_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/largefunc/service.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/largefunc/service_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/query/service.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/analysis/query/service_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/annotation/normalizer.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/annotation/normalizer_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/annotation/parser.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/annotation/parser_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/build.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/build_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/config_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/docs.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/docs_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/example.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/example_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/hooks.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/hooks_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/index.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/index_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/init.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/init_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/integration_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/languages.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/languages_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/lint.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/lint_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/query.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/ragindex.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/ragindex_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/root_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/search.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/search_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/serve.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/serve_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/status.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/status_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/tags.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/tags_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/update.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/cli/update_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/docs/generator.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/docs/generator_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/docs/history.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/docs/history_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/docs/lint.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/docs/lint_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/docs/template.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/mcp/cache.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/mcp/cache_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/mcp/e2e_http_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/mcp/e2e_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/mcp/handler_analysis.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/mcp/handler_docs.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/mcp/handler_graph.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/mcp/handler_parse.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/mcp/handler_query.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/mcp/handler_workspace.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/mcp/handler_workspace_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/mcp/handlers.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/mcp/handlers_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/mcp/prompts.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/mcp/prompts_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/mcp/server.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/mcp/server_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/model/annotation.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/model/community.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/model/edge.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/model/flow.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/model/node.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/model/search.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/parse/binder.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/parse/binder_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/parse/registry.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/parse/registry_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/parse/treesitter/langspec.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/parse/treesitter/walker.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/parse/treesitter/walker_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/pathutil/exclude.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/pathutil/exclude_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/ragindex/builder.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/ragindex/builder_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/service/indexer.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/store/agestore/agestore.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/store/gormstore/gormstore.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/store/gormstore/gormstore_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/store/search/backend.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/store/search/mysql.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/store/search/mysql_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/store/search/postgres.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/store/search/postgres_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/store/search/sqlite.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/store/search/sqlite_test.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "internal/store/store.go"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "npm/install.js"
+    category: missing
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "archive/PYTHON_PROJECT_FEATURE_INVENTORY"
+    category: orphan
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "archive/phase-age-spec"
+    category: orphan
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "archive/phase11-mcp-tools-spec"
+    category: orphan
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "archive/phase12-language-expansion-spec"
+    category: orphan
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "archive/plan"
+    category: orphan
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "superpowers/plans/2026-04-13-ccg-docs"
+    category: orphan
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "superpowers/plans/2026-04-14-lint-v2"
+    category: orphan
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "superpowers/plans/2026-04-14-mcp-cache"
+    category: orphan
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "superpowers/plans/2026-04-14-rag-index"
+    category: orphan
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "superpowers/specs/2026-04-13-ccg-docs-design"
+    category: orphan
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "superpowers/specs/2026-04-14-lint-v2-design"
+    category: orphan
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "superpowers/specs/2026-04-14-mcp-cache-design"
+    category: orphan
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "superpowers/specs/2026-04-14-rag-design"
+    category: orphan
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "agestore.Store.ensureAGE"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "agestore.Store.execCypher"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "agestore.esc"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "agestore.labelFor"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "changes.gitCommit"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "changes.hitInfo"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "changes.initTestRepo"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "changes.mockGit"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "changes.mockGit.ChangedFiles"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "changes.mockGit.DiffHunks"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "changes.outCount"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "changes.run"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "changes.seedEdge"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "changes.seedNode"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "changes.setupDB"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "changes.writeFile"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "cli.executeCmd"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "cli.findSubCmd"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "cli.joinRow"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "cli.newQueryCmd"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "cli.newTestDeps"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "cli.seedSearchData"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "cli.setupBuildTest"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "cli.setupDocsTest"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "cli.setupIndexTest"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "cli.setupLintTest"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "cli.setupRagIndexTestDeps"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "cli.setupSearchTest"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "cli.setupStatusTest"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "cli.setupUpdateTest"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "cli.writeGoFile"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "cli.writeGoFileForUpdate"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "community.edgeCounts"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "community.seedEdge"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "community.seedNode"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "community.setupDB"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "coupling.findPair"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "coupling.pairKey"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "coupling.pairRow"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "coupling.seedCommunity"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "coupling.seedEdge"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "coupling.seedNode"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "coupling.setupDB"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "coverage.seedCommunity"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "coverage.seedEdge"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "coverage.seedNode"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "coverage.setupDB"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "deadcode.seedEdge"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "deadcode.seedNode"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "deadcode.setupDB"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "docs.newGenerator"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "docs.newLintTestDB"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "docs.newTestDB"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "download"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "flows.callEdge"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "flows.mockStore"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "flows.mockStore.GetEdgesFrom"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "flows.mockStore.GetNodeByID"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "flows.newNode"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "follow"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "getBinaryName"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "getDownloadUrl"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "getPlatformKey"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "gormstore.setupTestDB"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "impact.edge"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "impact.mockStore"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "impact.mockStore.GetEdgesFrom"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "impact.mockStore.GetEdgesFromNodes"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "impact.mockStore.GetEdgesTo"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "impact.mockStore.GetEdgesToNodes"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "impact.mockStore.GetNodeByID"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "impact.mockStore.GetNodesByIDs"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "impact.newNode"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "incremental.newStore"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "incremental.parseResult"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "incremental.recordingStore"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "incremental.recordingStore.DeleteNodesByFile"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "incremental.recordingStore.GetNodesByFile"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "incremental.recordingStore.GetNodesByFiles"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "incremental.recordingStore.UpsertEdges"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "incremental.recordingStore.UpsertNodes"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "incremental.staticParser"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "incremental.staticParser.Parse"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "install"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "largefunc.seedNode"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "largefunc.setupDB"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.assertToolResultIsError"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.assertToolResultNotError"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.callPrompt"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.callTool"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.extractText"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.getBool"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.getPromptText"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.getTextContent"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.handlers.executeCypher"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.makeCallToolRequest"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.makeToolRequest"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockCommunityBuilder"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockCommunityBuilder.Rebuild"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockCouplingAnalyzer"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockCouplingAnalyzer.Analyze"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockCoverageAnalyzer"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockCoverageAnalyzer.ByCommunity"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockCoverageAnalyzer.ByFile"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockDeadcodeAnalyzer"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockDeadcodeAnalyzer.Find"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockGitClient"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockGitClient.ChangedFiles"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockGitClient.DiffHunks"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockIncrementalSyncer"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockIncrementalSyncer.Sync"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockLargefuncAnalyzer"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockLargefuncAnalyzer.Find"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockQueryService"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockQueryService.CalleesOf"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockQueryService.CallersOf"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockQueryService.ChildrenOf"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockQueryService.FileSummaryOf"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockQueryService.ImportersOf"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockQueryService.ImportsOf"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.mockQueryService.InheritorsOf"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.newHTTPTestClient"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.openTestDB"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.setupE2EDeps"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.setupPromptTestDeps"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.setupTestDeps"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.simpleGoParser.Parse"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.simpleGoParser.ParseWithContext"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.workspaceHandlers"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.writeGoFile"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "parse.LanguageSpec"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "parse.NewRegistry"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "parse.Registry"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "parse.Registry.Lookup"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "parse.Registry.LookupByExtension"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "parse.Registry.Register"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "query.seedEdge"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "query.seedNode"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "query.setupDB"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "ragindex.intentRow"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "ragindex.row"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "search.MySQLBackend"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "search.MySQLBackend.Migrate"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "search.MySQLBackend.Query"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "search.MySQLBackend.Rebuild"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "search.NewMySQLBackend"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "search.ftsRow"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "search.resultRow"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "search.seedMySQLNodes"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "search.seedNodes"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "search.seedPostgresNodes"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "search.setupMySQLDB"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "search.setupPostgresDB"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "search.setupTestDB"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.collectImportSpecs"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.extractCall"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.extractCalleeFromChildren"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.extractClassGeneric"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.extractExtensionTypeName"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.extractFunction"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.extractImplFunctions"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.extractImportPath"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.extractImports"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.extractPackageName"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.extractReceiver"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.extractRustImplInfo"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.extractTypeDecl"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.isCallType"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.isClassType"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.isExtensionType"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.isFunctionType"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.isImplType"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.isImportType"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.isInterfaceType"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.isSwiftExtension"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.processImplBlock"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.walkNode"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.containsSubstring"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.filterByKind"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.filterEdgesByKind"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.findSubstring"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "annotation.Parser.Parse"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "incremental.Syncer.Sync"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.CommunityBuilder"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.CouplingAnalyzer"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.DeadcodeAnalyzer"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.FlowTracer"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.ImpactAnalyzer"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.IncrementalSyncer"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.LargefuncAnalyzer"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.NewServer"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.Parser"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.QueryService"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.handlers.buildRagIndex"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.handlers.detectChanges"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.handlers.getAffectedFlows"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.handlers.getAnnotation"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.handlers.getArchitectureOverview"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.handlers.getCommunity"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.handlers.getImpactRadius"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.handlers.getNode"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.handlers.getRagTree"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.handlers.listCommunities"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.handlers.listFlows"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.handlers.queryGraph"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.handlers.search"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.handlers.searchDocs"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.handlers.traceFlow"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.makeCacheKey"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.promptHandlers.preMergeCheck"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.promptHandlers.reviewChanges"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "mcp.toolResultErr"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "parse.Binder.Bind"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "query.Service.CalleesOf"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "query.Service.CallersOf"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.ExtractComments"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.Parse"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.ParseWithComments"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"
+  - pattern: "treesitter.Walker.ParseWithContext"
+    category: dead-ref
+    action: warn
+    auto: true
+    created: "2026-04-15"

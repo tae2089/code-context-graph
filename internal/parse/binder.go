@@ -5,22 +5,30 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
 
+// CommentBlock records a contiguous source comment range for later binding.
+// @intent preserve comment text with source line bounds during parse-to-annotation binding
 type CommentBlock struct {
 	StartLine int
 	EndLine   int
 	Text      string
 }
 
+// Binding connects a parsed node with its resolved annotation payload.
+// @intent represent the result of associating one comment block with one graph node
 type Binding struct {
 	Node       model.Node
 	Annotation *model.Annotation
 }
 
+// Binder matches nearby comments to parsed graph nodes.
+// @intent attach normalized and parsed annotations to nodes based on source proximity
 type Binder struct {
 	normalizer *annotation.Normalizer
 	parser     *annotation.Parser
 }
 
+// NewBinder creates a Binder.
+// @intent compose the normalizer and parser used during comment-to-node binding
 func NewBinder() *Binder {
 	return &Binder{
 		normalizer: annotation.NewNormalizer(),
@@ -30,6 +38,11 @@ func NewBinder() *Binder {
 
 const maxGap = 1
 
+// Bind associates comment blocks with nodes when they appear immediately above declarations.
+// @intent build node-to-annotation bindings from parsed comments and node positions
+// @domainRule only comments within maxGap lines above a declaration are attached
+// @ensures file nodes bind only the first leading comment block when present
+// @see parse.hasContent
 func (b *Binder) Bind(comments []CommentBlock, nodes []model.Node, language string) []Binding {
 	var bindings []Binding
 
@@ -70,6 +83,8 @@ func (b *Binder) Bind(comments []CommentBlock, nodes []model.Node, language stri
 	return bindings
 }
 
+// hasContent reports whether an annotation contains any indexable text or tags.
+// @intent skip empty annotation payloads before they are bound to nodes
 func hasContent(ann *model.Annotation) bool {
 	return ann.Summary != "" || ann.Context != "" || len(ann.Tags) > 0
 }

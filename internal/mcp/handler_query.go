@@ -11,6 +11,12 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
 
+// getNode returns detailed metadata for a graph node by qualified name.
+// @intent 정규화 이름으로 노드를 조회해 위치와 종류 등 기본 식별 정보를 제공한다.
+// @param request qualified_name은 조회할 노드의 전체 이름이다.
+// @requires 대상 노드가 그래프 저장소에 존재해야 한다.
+// @ensures 성공 시 노드 메타데이터를 JSON으로 반환한다.
+// @see mcp.handlers.getAnnotation
 func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	log := h.logger()
 
@@ -50,6 +56,12 @@ func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*m
 	}))
 }
 
+// search performs full-text search over indexed graph nodes.
+// @intent 키워드와 경로 접두사로 코드 그래프 노드를 효율적으로 탐색하게 한다.
+// @param request path가 주어지면 결과를 해당 파일 경로 접두사로 후처리 필터링한다.
+// @requires SearchBackend가 구성되어 있어야 한다.
+// @ensures 성공 시 최대 limit개의 노드 요약 목록을 반환한다.
+// @see mcp.handlers.getNode
 func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	log := h.logger()
 
@@ -107,6 +119,12 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 	}))
 }
 
+// getAnnotation returns stored annotation metadata for a graph node.
+// @intent 노드에 연결된 요약과 태그를 조회해 비즈니스 문맥 검색 결과를 보강한다.
+// @param request qualified_name은 주석을 조회할 노드의 전체 이름이다.
+// @requires 대상 노드와 annotation 레코드가 존재해야 한다.
+// @ensures 성공 시 summary, context, tags를 포함한 응답을 반환한다.
+// @see mcp.handlers.getNode
 func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	log := h.logger()
 
@@ -161,6 +179,13 @@ func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolReques
 	}))
 }
 
+// queryGraph runs one of the predefined graph traversal patterns.
+// @intent 반복 사용되는 그래프 질의를 패턴 기반 단일 도구로 제공한다.
+// @param request pattern은 허용된 질의 종류여야 하고 target은 노드명 또는 파일 경로다.
+// @domainRule pattern은 미리 정의된 질의 집합 안에 있어야 한다.
+// @requires QueryService가 구성되어 있어야 한다.
+// @ensures 성공 시 pattern, target, results를 포함한 응답을 반환한다.
+// @see mcp.QueryService
 func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	log := h.logger()
 
@@ -260,6 +285,9 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 	}))
 }
 
+// listGraphStats returns aggregate node and edge statistics for the graph.
+// @intent 현재 그래프 적재 상태를 종류·언어별 분포와 함께 요약한다.
+// @ensures 성공 시 총 노드/엣지 수와 kind/language별 집계를 반환한다.
 func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	log := h.logger()
 	log.Info("list_graph_stats called")
@@ -273,6 +301,8 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 			return "", trace.Wrap(err, "count edges")
 		}
 
+		// kindCount stores grouped count results from aggregate queries.
+		// @intent kind 또는 language별 집계 결과를 GORM 스캔 대상으로 사용한다.
 		type kindCount struct {
 			Kind  string
 			Count int64
@@ -328,6 +358,12 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 	}))
 }
 
+// findLargeFunctions returns functions whose line counts exceed a threshold.
+// @intent 장문의 함수 후보를 찾아 리팩터링 또는 리뷰 우선순위를 정하게 한다.
+// @param request min_lines는 길이 기준이고 path는 파일 경로 접두사 필터다.
+// @requires LargefuncAnalyzer가 구성되어 있어야 한다.
+// @ensures 성공 시 길이 기준을 넘는 함수 목록과 개수를 반환한다.
+// @domainRule 함수 길이는 end_line-start_line+1로 계산한다.
 func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	log := h.logger()
 

@@ -10,6 +10,10 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/docs"
 )
 
+// newDocsCmd creates the documentation generation command.
+// @intent 그래프 데이터를 파일별 Markdown 문서와 인덱스로 변환하는 명령을 노출한다.
+// @requires deps.DB가 초기화되어 있어야 한다.
+// @sideEffect docs.Generator를 통해 문서 디렉터리에 파일을 기록한다.
 func newDocsCmd(deps *Deps) *cobra.Command {
 	var outDir string
 	var excludePatterns []string

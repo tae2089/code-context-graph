@@ -14,6 +14,10 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/ragindex"
 )
 
+// newRagIndexCmd creates the doc-index build command.
+// @intent 문서 트리와 커뮤니티 구조를 묶은 vectorless RAG 인덱스를 생성한다.
+// @requires deps.DB가 초기화되어 있어야 한다.
+// @sideEffect ragindex.Builder를 통해 doc-index.json을 기록하고 문서 상태 경고를 출력한다.
 func newRagIndexCmd(deps *Deps) *cobra.Command {
 	var outDir string
 	var indexDir string
@@ -69,6 +73,9 @@ func newRagIndexCmd(deps *Deps) *cobra.Command {
 	return cmd
 }
 
+// countMDFiles counts generated per-file markdown docs under dir.
+// @intent 문서 인덱싱 결과와 실제 Markdown 산출물 수를 비교하기 위한 기준값을 만든다.
+// @sideEffect 디렉터리를 순회하고 읽기 실패 항목을 로그로 남길 수 있다.
 func countMDFiles(dir string) int {
 	count := 0
 	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {

@@ -10,6 +10,10 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/docs"
 )
 
+// newIndexCmd creates the index-only docs regeneration command.
+// @intent 개별 문서는 건드리지 않고 index.md만 다시 만들어 빠른 재색인을 지원한다.
+// @requires deps.DB가 초기화되어 있어야 한다.
+// @sideEffect docs 디렉터리의 index.md를 다시 기록한다.
 func newIndexCmd(deps *Deps) *cobra.Command {
 	var outDir string
 	var excludePatterns []string

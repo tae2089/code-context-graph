@@ -9,11 +9,17 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
 
+// kindCount holds grouped count rows for graph statistics queries.
+// @intent 노드/엣지 kind별 집계 결과를 GORM 스캔 대상으로 담는다.
 type kindCount struct {
 	Kind  string
 	Count int64
 }
 
+// newStatusCmd creates the graph status command.
+// @intent 저장된 코드 그래프의 전체 규모와 kind 분포를 확인할 수 있게 한다.
+// @requires deps.DB가 초기화되어 있어야 한다.
+// @sideEffect 데이터베이스를 조회하고 통계를 출력한다.
 func newStatusCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",

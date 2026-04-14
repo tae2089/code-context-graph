@@ -4,11 +4,15 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
 
+// NodeTypeMapping maps a Tree-sitter node type to an internal graph node kind.
+// @intent describe how grammar-specific node names translate into model semantics
 type NodeTypeMapping struct {
 	ASTType  string
 	NodeKind model.NodeKind
 }
 
+// LangSpec describes the Tree-sitter grammar shapes used to extract graph data for one language.
+// @intent centralize language-specific AST node names, test conventions, and extraction hints
 type LangSpec struct {
 	Name            string
 	FunctionTypes   []string
@@ -139,4 +143,3 @@ var LuaSpec = &LangSpec{
 	CallTypes:     []string{"function_call"},
 	TestPrefix:    "test_",
 }
-

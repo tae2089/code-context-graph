@@ -10,6 +10,8 @@ import (
 
 // ShouldSkipDir는 디렉토리 이름이 기본 제외 대상인지 반환한다.
 // .git, vendor, node_modules, 그리고 "."으로 시작하는 숨김 디렉토리를 제외한다.
+// @intent 공통적으로 분석 대상에서 빼야 하는 디렉터리를 빠르게 걸러낸다.
+// @domainRule 숨김 디렉터리는 현재 디렉터리 표기 "."를 제외하고 모두 스킵한다.
 func ShouldSkipDir(name string) bool {
 	switch name {
 	case ".git", "vendor", "node_modules":
@@ -28,6 +30,8 @@ func ShouldSkipDir(name string) bool {
 //
 // relPath should be relative to the project root. OS-specific separators are
 // normalized to forward slashes before matching.
+// @intent 설정과 CLI에서 받은 제외 패턴을 상대 경로에 일관되게 적용한다.
+// @domainRule 슬래시가 없는 패턴은 파일 basename에만 매칭한다.
 func MatchExcludes(patterns []string, relPath string) bool {
 	if len(patterns) == 0 {
 		return false

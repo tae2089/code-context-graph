@@ -8,6 +8,8 @@ import (
 	"gorm.io/gorm"
 )
 
+// CouplingPair represents coupling strength between two communities.
+// @intent expose cross-community dependency counts in a normalized form
 type CouplingPair struct {
 	FromCommunity string
 	ToCommunity   string
@@ -15,10 +17,14 @@ type CouplingPair struct {
 	Strength      float64
 }
 
+// Service analyzes architectural coupling from graph edges.
+// @intent measure dependency strength between detected communities
 type Service struct {
 	db *gorm.DB
 }
 
+// New creates a coupling analysis service.
+// @intent construct a service for cross-community dependency queries
 func New(db *gorm.DB) *Service {
 	return &Service{db: db}
 }

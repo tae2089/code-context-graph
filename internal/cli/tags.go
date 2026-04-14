@@ -6,6 +6,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// tagDoc describes one annotation tag for reference output.
+// @intent 태그 설명, 적용 범위, 예시를 함께 보관해 help 출력을 단순화한다.
 type tagDoc struct {
 	tag     string
 	scope   string
@@ -76,6 +78,9 @@ var annotationTags = []tagDoc{
 	},
 }
 
+// newTagsCmd creates the annotation tag reference command.
+// @intent 지원하는 CCG 태그의 의미와 사용 예시를 CLI에서 바로 보여준다.
+// @sideEffect 태그 레퍼런스를 표준 출력으로 기록한다.
 func newTagsCmd(_ *Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "tags",

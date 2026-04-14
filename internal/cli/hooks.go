@@ -13,6 +13,9 @@ import (
 const hookGuardBegin = "# --- ccg hook begin ---"
 const hookGuardEnd = "# --- ccg hook end ---"
 
+// buildHookBody builds the guarded ccg pre-commit hook block.
+// @intent 설치된 훅 안에 ccg 전용 블록을 일관된 형태로 삽입한다.
+// @domainRule strict 모드에서는 lint 단계가 반드시 --strict로 실행된다.
 func buildHookBody(strict bool) string {
 	lint := "ccg lint"
 	if strict {
@@ -21,6 +24,8 @@ func buildHookBody(strict bool) string {
 	return "\n" + hookGuardBegin + "\nccg build . && ccg docs && " + lint + "\n" + hookGuardEnd + "\n"
 }
 
+// newHooksCmd creates the top-level hooks command group.
+// @intent git hook 관리 하위 명령을 하나의 네임스페이스 아래로 묶는다.
 func newHooksCmd(_ *Deps) *cobra.Command {
 	hooksCmd := &cobra.Command{
 		Use:   "hooks",
@@ -30,6 +35,10 @@ func newHooksCmd(_ *Deps) *cobra.Command {
 	return hooksCmd
 }
 
+// newHooksInstallCmd creates the pre-commit hook installer command.
+// @intent 커밋 전에 그래프 빌드·문서 생성·lint를 자동 실행하는 훅을 설치한다.
+// @sideEffect .git/hooks/pre-commit 파일을 읽고 필요하면 생성 또는 갱신한다.
+// @ensures 동일한 ccg 훅 블록이 중복 삽입되지 않는다.
 func newHooksInstallCmd() *cobra.Command {
 	var gitDir string
 	var lintStrict bool

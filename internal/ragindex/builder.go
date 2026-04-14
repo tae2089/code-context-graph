@@ -19,6 +19,7 @@ import (
 )
 
 // TreeNode는 doc-index.json의 단일 노드이다.
+// @intent RAG 탐색 트리에서 커뮤니티, 파일, 심볼 노드를 동일 구조로 표현한다.
 type TreeNode struct {
 	ID       string      `json:"id"`
 	Label    string      `json:"label"`
@@ -28,6 +29,7 @@ type TreeNode struct {
 }
 
 // Index는 .ccg/doc-index.json 전체 포맷이다.
+// @intent 디스크에 저장되는 문서 인덱스 루트 페이로드를 정의한다.
 type Index struct {
 	Version int       `json:"version"`
 	BuiltAt time.Time `json:"built_at"`
@@ -35,6 +37,7 @@ type Index struct {
 }
 
 // Builder는 DB에서 인덱스를 빌드하는 구조체이다.
+// @intent 그래프 DB와 문서 출력 경로를 연결해 doc-index.json 생성을 조율한다.
 type Builder struct {
 	DB          *gorm.DB
 	OutDir      string // docs 디렉토리 (기본: "docs")
@@ -43,6 +46,7 @@ type Builder struct {
 }
 
 // indexDir는 IndexDir 필드의 기본값을 반환한다.
+// @intent 인덱스 출력 디렉터리가 비어 있을 때 기본 경로를 일관되게 제공한다.
 func (b *Builder) indexDir() string {
 	if b.IndexDir == "" {
 		return ".ccg"
@@ -51,6 +55,7 @@ func (b *Builder) indexDir() string {
 }
 
 // nodeInfo는 Builder 내부에서 노드의 파일 정보를 담는 구조체이다.
+// @intent 커뮤니티 멤버를 파일 및 심볼 메타데이터로 역조회할 때 필요한 최소 정보를 담는다.
 type nodeInfo struct {
 	FilePath      string
 	Name          string
@@ -59,6 +64,9 @@ type nodeInfo struct {
 
 // Build는 DB에서 커뮤니티와 멤버 노드를 읽어 doc-index.json을 생성한다.
 // 반환값: (커뮤니티 수, 파일 수, 에러)
+// @intent 커뮤니티 구조와 문서 요약을 트리 형태 인덱스로 합성한다.
+// @sideEffect 데이터베이스를 읽고 doc-index.json 파일을 기록한다.
+// @ensures 성공 시 반환된 파일 수는 인덱스에 포함된 고유 파일 수와 같다.
 func (b *Builder) Build(ctx context.Context) (int, int, error) {
 	slog.Debug("ragindex.Builder.Build 시작", "outDir", b.OutDir, "indexDir", b.IndexDir)
 
@@ -182,12 +190,15 @@ func (b *Builder) Build(ctx context.Context) (int, int, error) {
 
 // batchFileSummaries는 주어진 파일 경로 목록에 대해 filePath → summary 맵을 한 번에 반환한다.
 // @index 태그를 우선하고, 없으면 @intent 태그로 폴백한다. 둘 다 없으면 빈 문자열이다.
+// @intent 파일 문서 노드에 붙일 요약문을 태그 우선순위대로 조회한다.
+// @domainRule 파일 요약은 @index를 우선하고 없을 때만 @intent로 대체한다.
 func (b *Builder) batchFileSummaries(ctx context.Context, filePaths []string) (map[string]string, error) {
 	result := make(map[string]string, len(filePaths))
 	if len(filePaths) == 0 {
 		return result, nil
 	}
 
+	// @intent 파일별 첫 번째 index 또는 intent 태그 값을 담는 배치 조회 결과다.
 	type row struct {
 		FilePath string
 		Value    string
@@ -240,12 +251,15 @@ func (b *Builder) batchFileSummaries(ctx context.Context, filePaths []string) (m
 
 // batchSymbolNodes는 @intent 태그를 가진 노드를 filePath → []*TreeNode 맵으로 반환한다.
 // 노드당 첫 번째 @intent 값만 summary로 사용한다.
+// @intent 파일별 심볼 하위 노드를 인덱스 트리에 붙일 수 있게 준비한다.
+// @domainRule 각 심볼은 첫 번째 @intent 태그만 summary로 사용한다.
 func (b *Builder) batchSymbolNodes(ctx context.Context, nodeIDs []uint) (map[string][]*TreeNode, error) {
 	result := make(map[string][]*TreeNode)
 	if len(nodeIDs) == 0 {
 		return result, nil
 	}
 
+	// @intent 심볼 노드와 첫 번째 intent 태그 값을 함께 담는 배치 조회 결과다.
 	type intentRow struct {
 		NodeID        uint
 		QualifiedName string
@@ -288,6 +302,8 @@ func (b *Builder) batchSymbolNodes(ctx context.Context, nodeIDs []uint) (map[str
 // docPath는 파일 경로를 기반으로 docs 디렉토리 내의 문서 경로를 반환한다.
 // 전체 상대 경로 구조를 유지하여 basename 충돌을 방지한다.
 // 예: "internal/mcp/handlers.go" → "docs/internal/mcp/handlers.go.md"
+// @intent 인덱스 노드가 실제 Markdown 문서를 안정적으로 가리키는 경로를 계산한다.
+// @domainRule 원본 상대 경로 구조를 유지해 동명 파일 충돌을 피한다.
 func (b *Builder) docPath(filePath string) string {
 	outDir := b.OutDir
 	if outDir == "" {
@@ -302,6 +318,8 @@ func (b *Builder) docPath(filePath string) string {
 
 // writeIndex는 IndexDir/doc-index.json 파일에 Index를 JSON으로 원자적으로 기록한다.
 // 임시 파일에 먼저 쓴 후 rename하여 중간에 프로세스가 중단되어도 파일이 손상되지 않는다.
+// @intent RAG 인덱스를 중간 손상 없이 안전하게 디스크에 저장한다.
+// @sideEffect 인덱스 디렉터리를 만들고 임시 파일 작성 후 최종 파일로 rename한다.
 func (b *Builder) writeIndex(idx *Index) error {
 	dir := b.indexDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -339,6 +357,8 @@ func (b *Builder) writeIndex(idx *Index) error {
 }
 
 // LoadIndex는 주어진 경로에서 doc-index.json을 읽어 Index를 반환한다.
+// @intent 저장된 RAG 인덱스를 도구나 서버가 다시 로드할 수 있게 한다.
+// @sideEffect 대상 JSON 파일을 읽는다.
 func LoadIndex(path string) (*Index, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -354,6 +374,7 @@ func LoadIndex(path string) (*Index, error) {
 }
 
 // SearchResult는 Search 함수가 반환하는 단일 매칭 결과이다.
+// @intent 검색 UI나 MCP 응답에서 표시할 최소 결과 정보를 담는다.
 type SearchResult struct {
 	ID      string   `json:"id"`
 	Label   string   `json:"label"`
@@ -365,6 +386,8 @@ type SearchResult struct {
 // Search는 root 트리를 DFS로 순회하며 query를 Label과 Summary에서
 // case-insensitive 검색하여 최대 maxResults개의 결과를 반환한다.
 // root 노드 자체는 결과에 포함하지 않는다.
+// @intent 문서 인덱스 트리에서 제목과 요약 기반 키워드 탐색을 제공한다.
+// @requires query가 비어 있지 않아야 의미 있는 결과가 나온다.
 func Search(root *TreeNode, query string, maxResults int) []SearchResult {
 	if root == nil || query == "" {
 		return nil
@@ -375,6 +398,9 @@ func Search(root *TreeNode, query string, maxResults int) []SearchResult {
 	return results
 }
 
+// searchNode traverses descendants and appends matches to results.
+// @intent DFS 탐색의 재귀 단위를 담당해 검색 결과 수 제한을 지킨다.
+// @mutates results
 func searchNode(n *TreeNode, query string, path []string, results *[]SearchResult, maxResults int) {
 	for _, child := range n.Children {
 		if len(*results) >= maxResults {
@@ -401,6 +427,7 @@ func searchNode(n *TreeNode, query string, path []string, results *[]SearchResul
 
 // FindNode는 root 트리에서 id와 일치하는 TreeNode를 재귀적으로 찾아 반환한다.
 // 없으면 nil을 반환한다.
+// @intent 인덱스 트리에서 특정 노드를 ID로 직접 찾을 수 있게 한다.
 func FindNode(root *TreeNode, id string) *TreeNode {
 	if root == nil {
 		return nil
@@ -419,6 +446,8 @@ func FindNode(root *TreeNode, id string) *TreeNode {
 // PruneTree는 root 트리를 maxDepth 깊이까지만 포함한 새 트리를 반환한다.
 // maxDepth <= 0이면 전체 트리를 반환한다. 원본 트리는 변경하지 않는다.
 // depth 계산: root는 depth 0, root의 직계 자식은 depth 1.
+// @intent 대형 인덱스를 요약 응답에 맞게 깊이 제한된 복사본으로 축약한다.
+// @ensures 원본 트리는 수정되지 않는다.
 func PruneTree(root *TreeNode, maxDepth int) *TreeNode {
 	if root == nil {
 		return nil
@@ -426,6 +455,9 @@ func PruneTree(root *TreeNode, maxDepth int) *TreeNode {
 	return pruneNode(root, 0, maxDepth)
 }
 
+// pruneNode copies one subtree while enforcing the depth limit.
+// @intent PruneTree의 재귀 복사 작업을 깊이 기준으로 수행한다.
+// @return 자식이 제한된 새로운 TreeNode 복사본을 반환한다.
 func pruneNode(n *TreeNode, currentDepth, maxDepth int) *TreeNode {
 	copied := &TreeNode{
 		ID:      n.ID,

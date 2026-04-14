@@ -11,12 +11,20 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
 
+// PostgresBackend는 PostgreSQL tsvector 기반 검색 백엔드다.
+// @intent PostgreSQL 환경에서 전문 검색 색인 구축과 질의를 처리한다.
 type PostgresBackend struct{}
 
+// NewPostgresBackend는 PostgreSQL 검색 백엔드를 생성한다.
+// @intent PostgreSQL 전용 Backend 구현체를 제공한다.
 func NewPostgresBackend() *PostgresBackend {
 	return &PostgresBackend{}
 }
 
+// Migrate는 PostgreSQL 전문 검색 스키마를 준비한다.
+// @intent search_documents 테이블에 tsvector 기반 검색 인프라를 구성한다.
+// @sideEffect 컬럼, 인덱스, 트리거 함수, 트리거를 생성 또는 교체한다.
+// @ensures search_documents 변경 시 tsv가 자동으로 갱신된다.
 func (p *PostgresBackend) Migrate(db *gorm.DB) error {
 	if err := db.Exec(`
 		ALTER TABLE search_documents
@@ -60,6 +68,9 @@ func (p *PostgresBackend) Migrate(db *gorm.DB) error {
 	return nil
 }
 
+// Rebuild는 모든 검색 문서의 tsvector를 다시 계산한다.
+// @intent 기존 search_documents 행의 전문 검색 색인을 일괄 재생성한다.
+// @sideEffect search_documents.tsv 값을 갱신한다.
 func (p *PostgresBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 	return db.WithContext(ctx).Exec(`
 		UPDATE search_documents
@@ -67,6 +78,10 @@ func (p *PostgresBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 	`).Error
 }
 
+// Query는 PostgreSQL tsquery로 관련 노드를 검색한다.
+// @intent 사용자 검색어를 prefix tsquery로 변환해 관련 노드를 찾는다.
+// @requires limit는 0보다 커야 의미 있는 결과를 얻는다.
+// @return ts_rank 기준 정렬 순서를 유지한 노드 목록을 반환한다.
 func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error) {
 	tokens := strings.Fields(query)
 	for i, tok := range tokens {

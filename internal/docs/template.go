@@ -12,6 +12,7 @@ import (
 )
 
 // nodeGroup holds everything needed to render a single file's doc.
+// @intent 한 소스 파일의 문서 렌더링에 필요한 노드·어노테이션·엣지를 묶는다.
 type nodeGroup struct {
 	FilePath  string
 	FileAnn   *model.Annotation
@@ -20,6 +21,9 @@ type nodeGroup struct {
 	EdgesByID map[uint][]model.Edge
 }
 
+// groupByFile groups graph nodes into per-file render units.
+// @intent 문서 렌더러가 파일 단위로 반복할 수 있게 입력 데이터를 재구성한다.
+// @return 파일 경로 기준으로 정렬된 nodeGroup 목록을 반환한다.
 func groupByFile(nodes []model.Node, annByID map[uint]*model.Annotation, edgesByFromID map[uint][]model.Edge) []nodeGroup {
 	fileAnns := map[string]*model.Annotation{}
 	fileNodeMap := map[string][]model.Node{}
@@ -51,6 +55,9 @@ func groupByFile(nodes []model.Node, annByID map[uint]*model.Annotation, edgesBy
 	return groups
 }
 
+// writeFileDoc writes one rendered markdown document.
+// @intent 단일 소스 파일 문서를 실제 산출물로 저장한다.
+// @sideEffect 출력 디렉터리를 만들고 해당 .md 파일을 기록한다.
 func (g *Generator) writeFileDoc(grp nodeGroup) error {
 	content := renderFileDoc(grp)
 	outPath := filepath.Join(g.OutDir, filepath.FromSlash(grp.FilePath+".md"))
@@ -60,6 +67,9 @@ func (g *Generator) writeFileDoc(grp nodeGroup) error {
 	return os.WriteFile(outPath, []byte(content), 0644)
 }
 
+// writeIndex writes the aggregated markdown index.
+// @intent 전체 파일 문서에 대한 탐색용 index.md를 저장한다.
+// @sideEffect 출력 디렉터리를 만들고 index.md를 기록한다.
 func (g *Generator) writeIndex(groups []nodeGroup) error {
 	content := renderIndex(groups)
 	if err := os.MkdirAll(g.OutDir, 0755); err != nil {
@@ -68,6 +78,9 @@ func (g *Generator) writeIndex(groups []nodeGroup) error {
 	return os.WriteFile(filepath.Join(g.OutDir, "index.md"), []byte(content), 0644)
 }
 
+// renderFileDoc renders one file documentation page as markdown.
+// @intent 파일 수준 어노테이션과 심볼 정보를 사람이 읽는 Markdown으로 직렬화한다.
+// @return 파일 문서의 전체 Markdown 문자열을 반환한다.
 func renderFileDoc(grp nodeGroup) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n", grp.FilePath)
@@ -111,6 +124,9 @@ func renderFileDoc(grp nodeGroup) string {
 	return b.String()
 }
 
+// renderSymbol renders a single symbol section into the builder.
+// @intent 심볼의 메타데이터와 태그를 문서 섹션으로 풀어쓴다.
+// @param edges 호출 및 import 관계 표시에 사용할 엣지 목록이다.
 func renderSymbol(b *strings.Builder, n model.Node, ann *model.Annotation, edges []model.Edge) {
 	fmt.Fprintf(b, "\n### %s\n", n.Name)
 	fmt.Fprintf(b, "- **Lines:** %d\u2013%d\n", n.StartLine, n.EndLine)
@@ -180,6 +196,9 @@ func renderSymbol(b *strings.Builder, n model.Node, ann *model.Annotation, edges
 	}
 }
 
+// renderIndex renders the top-level documentation index.
+// @intent 생성된 모든 파일 문서와 심볼에 대한 탐색용 표를 만든다.
+// @return index.md에 기록할 Markdown 문자열을 반환한다.
 func renderIndex(groups []nodeGroup) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Code Context Index\n\nGenerated: %s\n\n## Files\n\n", time.Now().Format("2006-01-02 15:04"))
@@ -230,6 +249,7 @@ func renderIndex(groups []nodeGroup) string {
 
 // markdownAnchor converts a symbol name to a GitHub-flavored Markdown anchor:
 // lowercase, spaces to hyphens, non-alphanumeric/hyphen/underscore stripped.
+// @intent 심볼 이름을 GitHub Markdown 헤더 링크 형식으로 정규화한다.
 func markdownAnchor(name string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(name) {
@@ -243,6 +263,8 @@ func markdownAnchor(name string) string {
 	return b.String()
 }
 
+// kindIdx returns the display order index for a node kind.
+// @intent 심볼 표를 미리 정의한 kind 순서대로 정렬할 기준값을 준다.
 func kindIdx(order []model.NodeKind, k model.NodeKind) int {
 	for i, o := range order {
 		if o == k {
@@ -252,6 +274,8 @@ func kindIdx(order []model.NodeKind, k model.NodeKind) int {
 	return len(order)
 }
 
+// tagValue returns the first tag value for a kind.
+// @intent 단일값 태그를 렌더링할 때 첫 번째 항목만 간단히 조회한다.
 func tagValue(ann *model.Annotation, kind model.TagKind) string {
 	for _, t := range ann.Tags {
 		if t.Kind == kind {
@@ -261,6 +285,8 @@ func tagValue(ann *model.Annotation, kind model.TagKind) string {
 	return ""
 }
 
+// tagValues returns all tag values for a kind.
+// @intent 다중 허용 태그를 순서대로 렌더링할 수 있게 값을 모은다.
 func tagValues(ann *model.Annotation, kind model.TagKind) []string {
 	var vals []string
 	for _, t := range ann.Tags {
@@ -271,6 +297,8 @@ func tagValues(ann *model.Annotation, kind model.TagKind) []string {
 	return vals
 }
 
+// tagsWithName returns named tags of a specific kind.
+// @intent @param 같이 이름과 값을 함께 출력해야 하는 태그를 보존해 전달한다.
 func tagsWithName(ann *model.Annotation, kind model.TagKind) []model.DocTag {
 	var tags []model.DocTag
 	for _, t := range ann.Tags {

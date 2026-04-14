@@ -4,12 +4,22 @@ import (
 	"strings"
 )
 
+// Normalizer strips language-specific comment syntax from raw documentation blocks.
+// @intent normalize comment text before annotation parsing across supported languages
 type Normalizer struct{}
 
+// NewNormalizer creates a Normalizer.
+// @intent provide a reusable comment normalizer for annotation extraction
 func NewNormalizer() *Normalizer {
 	return &Normalizer{}
 }
 
+// Normalize removes comment delimiters and line prefixes from raw comment text.
+// @intent turn raw source comments into plain text consumable by the annotation parser
+// @requires language matches the source file language for correct delimiter handling
+// @ensures returned text has no leading comment markers and no trailing blank lines
+// @see annotation.stripBlockDelimiters
+// @see annotation.stripLinePrefix
 func (n *Normalizer) Normalize(text string, language string) string {
 	if text == "" {
 		return ""
@@ -35,6 +45,8 @@ func (n *Normalizer) Normalize(text string, language string) string {
 	return strings.Join(result, "\n")
 }
 
+// stripBlockDelimiters removes outer block-comment wrappers for the given language.
+// @intent keep only the inner documentation payload from block-style comments
 func stripBlockDelimiters(text string, language string) string {
 	switch language {
 	case "go", "java", "cpp", "c", "csharp", "typescript", "javascript", "kotlin", "swift", "scala":
@@ -57,6 +69,8 @@ func stripBlockDelimiters(text string, language string) string {
 	return text
 }
 
+// stripLinePrefix removes one line-level comment marker from a comment line.
+// @intent normalize individual documentation lines across language comment syntaxes
 func stripLinePrefix(line string, language string) string {
 	trimmed := strings.TrimLeft(line, " \t")
 

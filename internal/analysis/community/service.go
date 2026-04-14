@@ -10,11 +10,15 @@ import (
 	"gorm.io/gorm"
 )
 
+// Config controls directory-based community grouping.
+// @intent define how file paths are collapsed into module community keys
 type Config struct {
 	BaseDir string
 	Depth   int
 }
 
+// Stats summarizes one rebuilt community.
+// @intent report membership and cohesion metrics for a detected community
 type Stats struct {
 	Community     model.Community
 	NodeCount     int64
@@ -23,10 +27,14 @@ type Stats struct {
 	Cohesion      float64
 }
 
+// Builder rebuilds communities from graph data.
+// @intent persist directory-based module boundaries into community tables
 type Builder struct {
 	db *gorm.DB
 }
 
+// New creates a community builder.
+// @intent construct a builder that writes detected communities to the database
 func New(db *gorm.DB) *Builder {
 	return &Builder{db: db}
 }
@@ -181,6 +189,12 @@ func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 	return result, err
 }
 
+// directoryKey derives a community key from a file path.
+// @intent normalize file paths into stable directory group identifiers
+// @param filePath repository-relative source file path
+// @param depth maximum number of directory segments to keep
+// @return grouped directory prefix used as the community key
+// @ensures returned key contains at most depth path segments
 func directoryKey(filePath string, depth int) string {
 	dir := path.Dir(filePath)
 	parts := strings.Split(dir, "/")

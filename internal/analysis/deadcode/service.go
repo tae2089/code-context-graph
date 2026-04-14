@@ -8,15 +8,21 @@ import (
 	"gorm.io/gorm"
 )
 
+// Options controls dead code filtering.
+// @intent narrow dead code detection by node kind and file scope
 type Options struct {
 	Kinds       []model.NodeKind
 	FilePattern string
 }
 
+// Service finds unreachable graph nodes.
+// @intent surface code elements that have no incoming references
 type Service struct {
 	db *gorm.DB
 }
 
+// New creates a dead code analysis service.
+// @intent construct a service for querying unused graph nodes
 func New(db *gorm.DB) *Service {
 	return &Service{db: db}
 }

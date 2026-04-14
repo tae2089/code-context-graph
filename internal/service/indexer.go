@@ -20,6 +20,8 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/store/search"
 )
 
+// GraphService orchestrates graph building and search document refresh.
+// @intent 파싱 결과 저장과 검색 인덱스 재구성을 하나의 서비스로 묶는다.
 type GraphService struct {
 	Store         store.GraphStore
 	DB            *gorm.DB
@@ -28,18 +30,27 @@ type GraphService struct {
 	Logger        *slog.Logger
 }
 
+// BuildOptions configures one graph build run.
+// @intent 빌드 대상 경로와 탐색 범위를 호출자에서 제어하게 한다.
 type BuildOptions struct {
 	Dir             string
 	NoRecursive     bool
 	ExcludePatterns []string
 }
 
+// BuildStats reports how much content a build processed.
+// @intent CLI와 호출자가 빌드 결과 규모를 사용자에게 보여줄 수 있게 한다.
 type BuildStats struct {
 	TotalFiles int
 	TotalNodes int
 	TotalEdges int
 }
 
+// Build walks source files, stores parsed graph data, and rebuilds search docs.
+// @intent 지원 언어 소스를 그래프와 검색 문서로 일괄 동기화한다.
+// @sideEffect 파일 시스템을 읽고 그래프 저장소·DB·검색 인덱스를 갱신한다.
+// @requires s.Store, s.Walkers가 초기화되어 있어야 한다.
+// @mutates 그래프 노드/엣지/어노테이션, search_documents
 func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats, error) {
 	var stats BuildStats
 

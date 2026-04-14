@@ -9,6 +9,10 @@ import (
 	"github.com/tae2089/trace"
 )
 
+// newSearchCmd creates the full-text search command.
+// @intent 그래프 검색 결과를 빠르게 조회하고 필요 시 경로 접두사로 후처리 필터링한다.
+// @requires deps.SearchBackend와 deps.DB가 초기화되어 있어야 한다.
+// @sideEffect 검색 결과를 표준 출력으로 기록한다.
 func newSearchCmd(deps *Deps) *cobra.Command {
 	var limit int
 	var pathPrefix string

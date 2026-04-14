@@ -7,6 +7,8 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
 
+// EdgeReader exposes graph queries required for impact analysis.
+// @intent abstract bidirectional edge and node lookups for blast-radius traversal
 type EdgeReader interface {
 	GetEdgesFrom(ctx context.Context, nodeID uint) ([]model.Edge, error)
 	GetEdgesFromNodes(ctx context.Context, nodeIDs []uint) ([]model.Edge, error)
@@ -16,10 +18,14 @@ type EdgeReader interface {
 	GetNodesByIDs(ctx context.Context, ids []uint) ([]model.Node, error)
 }
 
+// Analyzer computes impact radius over the graph.
+// @intent estimate which nodes may be affected by a change
 type Analyzer struct {
 	store EdgeReader
 }
 
+// New creates an impact analyzer.
+// @intent construct a blast-radius analyzer around a graph reader
 func New(store EdgeReader) *Analyzer {
 	return &Analyzer{store: store}
 }
