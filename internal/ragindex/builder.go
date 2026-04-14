@@ -47,6 +47,13 @@ func (b *Builder) indexDir() string {
 	return b.IndexDir
 }
 
+// nodeInfo는 Builder 내부에서 노드의 파일 정보를 담는 구조체이다.
+type nodeInfo struct {
+	FilePath      string
+	Name          string
+	QualifiedName string
+}
+
 // Build는 DB에서 커뮤니티와 멤버 노드를 읽어 doc-index.json을 생성한다.
 // 반환값: (커뮤니티 수, 파일 수, 에러)
 func (b *Builder) Build() (int, int, error) {
@@ -59,7 +66,7 @@ func (b *Builder) Build() (int, int, error) {
 	}
 	slog.Debug("커뮤니티 로드 완료", "count", len(communities))
 
-	// 2. 1-pass: 모든 커뮤니티의 고유 파일 경로 수집
+	// 2. 1-pass: 모든 커뮤니티의 고유 node ID 수집
 	allNodeIDs := make([]uint, 0)
 	for _, comm := range communities {
 		for _, m := range comm.Members {
@@ -67,22 +74,26 @@ func (b *Builder) Build() (int, int, error) {
 		}
 	}
 
-	// 노드 ID → 파일 경로 매핑
-	nodeFileMap := make(map[uint]string)
+	// 노드 ID → nodeInfo 매핑
+	nodeInfoMap := make(map[uint]nodeInfo)
 	if len(allNodeIDs) > 0 {
 		var nodes []model.Node
 		if err := b.DB.Where("id IN ?", allNodeIDs).Find(&nodes).Error; err != nil {
 			return 0, 0, fmt.Errorf("load all nodes: %w", err)
 		}
 		for _, n := range nodes {
-			nodeFileMap[n.ID] = n.FilePath
+			nodeInfoMap[n.ID] = nodeInfo{
+				FilePath:      n.FilePath,
+				Name:          n.Name,
+				QualifiedName: n.QualifiedName,
+			}
 		}
 	}
 
 	// 고유 파일 경로 목록 수집
 	filePathSet := make(map[string]struct{})
-	for _, fp := range nodeFileMap {
-		filePathSet[fp] = struct{}{}
+	for _, info := range nodeInfoMap {
+		filePathSet[info.FilePath] = struct{}{}
 	}
 	allFilePaths := make([]string, 0, len(filePathSet))
 	for fp := range filePathSet {
@@ -95,6 +106,12 @@ func (b *Builder) Build() (int, int, error) {
 		return 0, 0, fmt.Errorf("batchFileSummaries: %w", err)
 	}
 
+	// 4. @intent 태그를 가진 symbol 노드 배치 조회
+	symbolsByFile, err := b.batchSymbolNodes(allNodeIDs, nodeInfoMap)
+	if err != nil {
+		return 0, 0, fmt.Errorf("batchSymbolNodes: %w", err)
+	}
+
 	root := &TreeNode{
 		ID:       "root",
 		Label:    "Root",
@@ -104,7 +121,7 @@ func (b *Builder) Build() (int, int, error) {
 
 	uniqueFiles := make(map[string]struct{})
 
-	// 4. 2-pass: 커뮤니티별 TreeNode 구성
+	// 5. 2-pass: 커뮤니티별 TreeNode 구성
 	for _, comm := range communities {
 		slog.Debug("커뮤니티 처리 중", "key", comm.Key, "members", len(comm.Members))
 
@@ -119,8 +136,8 @@ func (b *Builder) Build() (int, int, error) {
 			// 이 커뮤니티의 고유 파일 경로 수집
 			commFilePathSet := make(map[string]struct{})
 			for _, m := range comm.Members {
-				if fp, ok := nodeFileMap[m.NodeID]; ok {
-					commFilePathSet[fp] = struct{}{}
+				if info, ok := nodeInfoMap[m.NodeID]; ok {
+					commFilePathSet[info.FilePath] = struct{}{}
 				}
 			}
 			slog.Debug("파일 경로 그룹 완료", "community", comm.Key, "files", len(commFilePathSet))
@@ -134,7 +151,7 @@ func (b *Builder) Build() (int, int, error) {
 					Label:    filepath.Base(filePath),
 					Summary:  summary,
 					DocPath:  docPath,
-					Children: []*TreeNode{},
+					Children: symbolsByFile[filePath],
 				}
 				uniqueFiles[filePath] = struct{}{}
 				commNode.Children = append(commNode.Children, fileNode)
@@ -144,14 +161,14 @@ func (b *Builder) Build() (int, int, error) {
 		root.Children = append(root.Children, commNode)
 	}
 
-	// 5. Index 구조체 구성
+	// 6. Index 구조체 구성
 	idx := &Index{
 		Version: 1,
 		BuiltAt: time.Now().UTC(),
 		Root:    root,
 	}
 
-	// 6. doc-index.json 파일 기록 (원자적 쓰기)
+	// 7. doc-index.json 파일 기록 (원자적 쓰기)
 	if err := b.writeIndex(idx); err != nil {
 		return 0, 0, fmt.Errorf("writeIndex: %w", err)
 	}
@@ -218,6 +235,53 @@ func (b *Builder) batchFileSummaries(filePaths []string) (map[string]string, err
 	return result, nil
 }
 
+
+// batchSymbolNodes는 @intent 태그를 가진 노드를 filePath → []*TreeNode 맵으로 반환한다.
+// 노드당 첫 번째 @intent 값만 summary로 사용한다.
+func (b *Builder) batchSymbolNodes(nodeIDs []uint, infoMap map[uint]nodeInfo) (map[string][]*TreeNode, error) {
+	result := make(map[string][]*TreeNode)
+	if len(nodeIDs) == 0 {
+		return result, nil
+	}
+
+	type intentRow struct {
+		NodeID        uint
+		QualifiedName string
+		Name          string
+		FilePath      string
+		Value         string
+	}
+
+	var rows []intentRow
+	if err := b.DB.Table("nodes").
+		Select("nodes.id as node_id, nodes.qualified_name, nodes.name, nodes.file_path, doc_tags.value").
+		Joins("JOIN annotations ON annotations.node_id = nodes.id").
+		Joins("JOIN doc_tags ON doc_tags.annotation_id = annotations.id").
+		Where("nodes.id IN ? AND doc_tags.kind = ?", nodeIDs, string(model.TagIntent)).
+		Order("nodes.file_path ASC, doc_tags.ordinal ASC, doc_tags.id ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("batch symbol nodes: %w", err)
+	}
+
+	// 첫 번째 @intent 태그만 사용 (node_id 기준 deduplicate)
+	seen := make(map[uint]struct{})
+	for _, r := range rows {
+		if _, ok := seen[r.NodeID]; ok {
+			continue
+		}
+		seen[r.NodeID] = struct{}{}
+
+		symNode := &TreeNode{
+			ID:       fmt.Sprintf("symbol:%s", r.QualifiedName),
+			Label:    r.Name,
+			Summary:  r.Value,
+			Children: []*TreeNode{},
+		}
+		result[r.FilePath] = append(result[r.FilePath], symNode)
+	}
+
+	return result, nil
+}
 
 // docPath는 파일 경로를 기반으로 docs 디렉토리 내의 문서 경로를 반환한다.
 // 전체 상대 경로 구조를 유지하여 basename 충돌을 방지한다.

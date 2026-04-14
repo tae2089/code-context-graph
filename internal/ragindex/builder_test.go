@@ -385,6 +385,120 @@ func TestPruneTree_NilRoot(t *testing.T) {
 	}
 }
 
+// TestBuilder_SymbolNodes: @intent 태그를 가진 노드가 file 하위에 symbol 노드로 나타남을 검증한다.
+func TestBuilder_SymbolNodes(t *testing.T) {
+	db := setupDB(t)
+	tmpDir := t.TempDir()
+
+	// community 생성
+	comm := model.Community{Key: "auth", Label: "Auth Service", Description: "인증"}
+	if err := db.Create(&comm).Error; err != nil {
+		t.Fatalf("create community: %v", err)
+	}
+
+	// file 노드 생성 (community 멤버)
+	fileNode := model.Node{
+		QualifiedName: "internal/auth/handler.go",
+		Kind:          model.NodeKindFile,
+		Name:          "handler.go",
+		FilePath:      "internal/auth/handler.go",
+		StartLine:     1, EndLine: 100,
+		Language: "go",
+	}
+	if err := db.Create(&fileNode).Error; err != nil {
+		t.Fatalf("create file node: %v", err)
+	}
+	db.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: fileNode.ID})
+
+	// function 노드 (같은 파일, community 멤버, @intent 태그 있음)
+	funcNode := model.Node{
+		QualifiedName: "internal/auth/handler.go/HandleLogin",
+		Kind:          model.NodeKindFunction,
+		Name:          "HandleLogin",
+		FilePath:      "internal/auth/handler.go",
+		StartLine:     10, EndLine: 30,
+		Language: "go",
+	}
+	if err := db.Create(&funcNode).Error; err != nil {
+		t.Fatalf("create func node: %v", err)
+	}
+	db.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: funcNode.ID})
+
+	// @intent annotation + tag 생성
+	ann := model.Annotation{NodeID: funcNode.ID, Summary: "로그인 핸들러"}
+	db.Create(&ann)
+	db.Create(&model.DocTag{AnnotationID: ann.ID, Kind: model.TagIntent, Value: "로그인 요청을 처리하고 JWT를 반환한다", Ordinal: 0})
+
+	b := &ragindex.Builder{
+		DB:       db,
+		OutDir:   filepath.Join(tmpDir, "docs"),
+		IndexDir: tmpDir,
+	}
+	_, _, err := b.Build()
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	idx, err := ragindex.LoadIndex(filepath.Join(tmpDir, "doc-index.json"))
+	if err != nil {
+		t.Fatalf("LoadIndex: %v", err)
+	}
+
+	// root → community → file → symbol 계층 확인
+	if len(idx.Root.Children) == 0 {
+		t.Fatal("expected community children")
+	}
+	commNode := idx.Root.Children[0]
+	if len(commNode.Children) == 0 {
+		t.Fatal("expected file children")
+	}
+	fileTreeNode := commNode.Children[0]
+	if len(fileTreeNode.Children) == 0 {
+		t.Fatal("expected symbol children under file node")
+	}
+	sym := fileTreeNode.Children[0]
+	if sym.ID != "symbol:internal/auth/handler.go/HandleLogin" {
+		t.Errorf("symbol ID = %q, want %q", sym.ID, "symbol:internal/auth/handler.go/HandleLogin")
+	}
+	if sym.Label != "HandleLogin" {
+		t.Errorf("symbol Label = %q, want %q", sym.Label, "HandleLogin")
+	}
+	if sym.Summary != "로그인 요청을 처리하고 JWT를 반환한다" {
+		t.Errorf("symbol Summary = %q", sym.Summary)
+	}
+	if sym.DocPath != "" {
+		t.Errorf("symbol DocPath should be empty, got %q", sym.DocPath)
+	}
+}
+
+// TestBuilder_NoSymbolsWithoutIntent: @intent 태그 없는 노드는 symbol 노드로 추가되지 않는다.
+func TestBuilder_NoSymbolsWithoutIntent(t *testing.T) {
+	db := setupDB(t)
+	tmpDir := t.TempDir()
+
+	comm := model.Community{Key: "core", Label: "Core"}
+	db.Create(&comm)
+	node := model.Node{QualifiedName: "core/utils.go/helper", Kind: model.NodeKindFunction, Name: "helper",
+		FilePath: "core/utils.go", StartLine: 1, EndLine: 5, Language: "go"}
+	db.Create(&node)
+	db.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: node.ID})
+	// annotation 없음 → @intent 없음
+
+	b := &ragindex.Builder{DB: db, OutDir: filepath.Join(tmpDir, "docs"), IndexDir: tmpDir}
+	if _, _, err := b.Build(); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	idx, _ := ragindex.LoadIndex(filepath.Join(tmpDir, "doc-index.json"))
+	if len(idx.Root.Children) == 0 || len(idx.Root.Children[0].Children) == 0 {
+		t.Fatal("expected file node")
+	}
+	fileNode := idx.Root.Children[0].Children[0]
+	if len(fileNode.Children) != 0 {
+		t.Errorf("expected 0 symbol children, got %d", len(fileNode.Children))
+	}
+}
+
 // TestFindNode: FindNode가 재귀적으로 트리에서 노드를 찾는지 검증한다.
 func TestFindNode(t *testing.T) {
 	root := &ragindex.TreeNode{
