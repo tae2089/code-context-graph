@@ -408,7 +408,9 @@ func TestBuilder_SymbolNodes(t *testing.T) {
 	if err := db.Create(&fileNode).Error; err != nil {
 		t.Fatalf("create file node: %v", err)
 	}
-	db.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: fileNode.ID})
+	if err := db.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: fileNode.ID}).Error; err != nil {
+		t.Fatalf("create membership: %v", err)
+	}
 
 	// function 노드 (같은 파일, community 멤버, @intent 태그 있음)
 	funcNode := model.Node{
@@ -422,12 +424,18 @@ func TestBuilder_SymbolNodes(t *testing.T) {
 	if err := db.Create(&funcNode).Error; err != nil {
 		t.Fatalf("create func node: %v", err)
 	}
-	db.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: funcNode.ID})
+	if err := db.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: funcNode.ID}).Error; err != nil {
+		t.Fatalf("create membership: %v", err)
+	}
 
 	// @intent annotation + tag 생성
 	ann := model.Annotation{NodeID: funcNode.ID, Summary: "로그인 핸들러"}
-	db.Create(&ann)
-	db.Create(&model.DocTag{AnnotationID: ann.ID, Kind: model.TagIntent, Value: "로그인 요청을 처리하고 JWT를 반환한다", Ordinal: 0})
+	if err := db.Create(&ann).Error; err != nil {
+		t.Fatalf("create annotation: %v", err)
+	}
+	if err := db.Create(&model.DocTag{AnnotationID: ann.ID, Kind: model.TagIntent, Value: "로그인 요청을 처리하고 JWT를 반환한다", Ordinal: 0}).Error; err != nil {
+		t.Fatalf("create doc tag: %v", err)
+	}
 
 	b := &ragindex.Builder{
 		DB:       db,
@@ -489,7 +497,10 @@ func TestBuilder_NoSymbolsWithoutIntent(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 
-	idx, _ := ragindex.LoadIndex(filepath.Join(tmpDir, "doc-index.json"))
+	idx, err := ragindex.LoadIndex(filepath.Join(tmpDir, "doc-index.json"))
+	if err != nil {
+		t.Fatalf("LoadIndex: %v", err)
+	}
 	if len(idx.Root.Children) == 0 || len(idx.Root.Children[0].Children) == 0 {
 		t.Fatal("expected file node")
 	}

@@ -107,7 +107,7 @@ func (b *Builder) Build() (int, int, error) {
 	}
 
 	// 4. @intent 태그를 가진 symbol 노드 배치 조회
-	symbolsByFile, err := b.batchSymbolNodes(allNodeIDs, nodeInfoMap)
+	symbolsByFile, err := b.batchSymbolNodes(allNodeIDs)
 	if err != nil {
 		return 0, 0, fmt.Errorf("batchSymbolNodes: %w", err)
 	}
@@ -238,7 +238,7 @@ func (b *Builder) batchFileSummaries(filePaths []string) (map[string]string, err
 
 // batchSymbolNodes는 @intent 태그를 가진 노드를 filePath → []*TreeNode 맵으로 반환한다.
 // 노드당 첫 번째 @intent 값만 summary로 사용한다.
-func (b *Builder) batchSymbolNodes(nodeIDs []uint, infoMap map[uint]nodeInfo) (map[string][]*TreeNode, error) {
+func (b *Builder) batchSymbolNodes(nodeIDs []uint) (map[string][]*TreeNode, error) {
 	result := make(map[string][]*TreeNode)
 	if len(nodeIDs) == 0 {
 		return result, nil
