@@ -145,7 +145,7 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 	}
 
 	if s.SearchBackend != nil && s.DB != nil {
-		if err := s.DB.Where("1 = 1").Delete(&model.SearchDocument{}).Error; err != nil {
+		if err := s.DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&model.SearchDocument{}).Error; err != nil {
 			return stats, fmt.Errorf("clear search documents: %w", err)
 		}
 

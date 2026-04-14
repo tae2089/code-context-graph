@@ -44,10 +44,10 @@ func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 	var result []Stats
 
 	err := b.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("1 = 1").Delete(&model.CommunityMembership{}).Error; err != nil {
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&model.CommunityMembership{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("1 = 1").Delete(&model.Community{}).Error; err != nil {
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&model.Community{}).Error; err != nil {
 			return err
 		}
 
@@ -89,11 +89,6 @@ func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 			}
 		}
 
-		var edges []model.Edge
-		if err := tx.Find(&edges).Error; err != nil {
-			return err
-		}
-
 		type edgeCounts struct {
 			internal int64
 			external int64
@@ -103,17 +98,23 @@ func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 			counts[key] = &edgeCounts{}
 		}
 
-		for _, e := range edges {
-			fromKey, fromOK := nodeComm[e.FromNodeID]
-			toKey, toOK := nodeComm[e.ToNodeID]
-			if !fromOK || !toOK {
-				continue
+		var batchEdges []model.Edge
+		if err := tx.FindInBatches(&batchEdges, 500, func(tx *gorm.DB, batch int) error {
+			for _, e := range batchEdges {
+				fromKey, fromOK := nodeComm[e.FromNodeID]
+				toKey, toOK := nodeComm[e.ToNodeID]
+				if !fromOK || !toOK {
+					continue
+				}
+				if fromKey == toKey {
+					counts[fromKey].internal++
+				} else {
+					counts[fromKey].external++
+				}
 			}
-			if fromKey == toKey {
-				counts[fromKey].internal++
-			} else {
-				counts[fromKey].external++
-			}
+			return nil
+		}).Error; err != nil {
+			return err
 		}
 
 		// Aggregate @index annotations from File nodes into community description
@@ -161,8 +162,8 @@ func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 			if len(descriptions) > 0 {
 				c.Description = strings.Join(descriptions, "; ")
 				if err := tx.Save(c).Error; err != nil {
-				return err
-			}
+					return err
+				}
 			}
 
 			result = append(result, Stats{
