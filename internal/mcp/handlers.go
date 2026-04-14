@@ -543,6 +543,9 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		"elapsed_ms":    elapsed,
 	}
 	b, _ := json.Marshal(result)
+	if h.cache != nil {
+		h.cache.Flush()
+	}
 	return mcp.NewToolResultText(string(b)), nil
 }
 
@@ -587,6 +590,9 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 		"fts_indexed":       ftsIndexed,
 	}
 	b, _ := json.Marshal(result)
+	if h.cache != nil {
+		h.cache.Flush()
+	}
 	return mcp.NewToolResultText(string(b)), nil
 }
 
