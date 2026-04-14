@@ -88,6 +88,9 @@ type Deps struct {
 	CoverageAnalyzer  CoverageAnalyzer
 	CommunityBuilder  CommunityBuilder
 	Incremental       IncrementalSyncer
+
+	// Cache — nil이면 캐시 비활성화
+	Cache *Cache
 }
 
 func NewServer(deps *Deps) *server.MCPServer {
@@ -103,7 +106,7 @@ func NewServer(deps *Deps) *server.MCPServer {
 		server.WithPromptCapabilities(true),
 	)
 
-	h := &handlers{deps: deps}
+	h := &handlers{deps: deps, cache: deps.Cache}
 
 	srv.AddTools(
 		server.ServerTool{

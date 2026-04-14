@@ -22,7 +22,8 @@ import (
 )
 
 type handlers struct {
-	deps *Deps
+	deps  *Deps
+	cache *Cache
 }
 
 func (h *handlers) logger() *slog.Logger {
