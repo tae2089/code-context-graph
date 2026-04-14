@@ -39,7 +39,7 @@ func newLintCmd(deps *Deps) *cobra.Command {
 			}
 
 			out := stdout(cmd)
-			total := len(report.Orphans) + len(report.Missing) + len(report.Stale)
+			total := len(report.Orphans) + len(report.Missing) + len(report.Stale) + len(report.Unannotated)
 
 			if len(report.Orphans) > 0 {
 				fmt.Fprintf(out, "Orphan docs (%d) — no matching source in graph:\n", len(report.Orphans))
@@ -65,11 +65,19 @@ func newLintCmd(deps *Deps) *cobra.Command {
 				fmt.Fprintln(out)
 			}
 
+			if len(report.Unannotated) > 0 {
+				fmt.Fprintf(out, "Unannotated symbols (%d) — no @intent or other annotations:\n", len(report.Unannotated))
+				for _, qn := range report.Unannotated {
+					fmt.Fprintf(out, "  %s\n", qn)
+				}
+				fmt.Fprintln(out)
+			}
+
 			if total == 0 {
 				fmt.Fprintln(out, "All docs are clean — 0 issues found.")
 			} else {
-				fmt.Fprintf(out, "Summary: %d orphan, %d missing, %d stale\n",
-					len(report.Orphans), len(report.Missing), len(report.Stale))
+				fmt.Fprintf(out, "Summary: %d orphan, %d missing, %d stale, %d unannotated\n",
+					len(report.Orphans), len(report.Missing), len(report.Stale), len(report.Unannotated))
 			}
 
 			return nil

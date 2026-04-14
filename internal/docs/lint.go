@@ -13,9 +13,10 @@ import (
 
 // LintReport contains the results of a documentation lint check.
 type LintReport struct {
-	Orphans []string // doc files with no matching source in the graph
-	Missing []string // source files in the graph with no doc file
-	Stale   []string // doc files older than the source's last update
+	Orphans     []string // doc files with no matching source in the graph
+	Missing     []string // source files in the graph with no doc file
+	Stale       []string // doc files older than the source's last update
+	Unannotated []string // qualified names of symbols with no annotation
 }
 
 // Lint checks the documentation directory against the code graph and
@@ -103,9 +104,47 @@ func (g *Generator) Lint() (*LintReport, error) {
 		}
 	}
 
+	// 4. Find unannotated symbols (functions, classes, types — skip tests).
+	var symbolNodes []model.Node
+	if err := g.DB.Select("id, qualified_name, kind, file_path").
+		Where("kind IN ?", []string{
+			string(model.NodeKindFunction),
+			string(model.NodeKindClass),
+			string(model.NodeKindType),
+		}).Find(&symbolNodes).Error; err != nil {
+		return nil, fmt.Errorf("query symbol nodes: %w", err)
+	}
+
+	// Collect IDs to batch-query annotations.
+	ids := make([]uint, 0, len(symbolNodes))
+	nodeByID := map[uint]*model.Node{}
+	for i := range symbolNodes {
+		n := &symbolNodes[i]
+		if len(g.Exclude) > 0 && pathutil.MatchExcludes(g.Exclude, n.FilePath) {
+			continue
+		}
+		ids = append(ids, n.ID)
+		nodeByID[n.ID] = n
+	}
+
+	if len(ids) > 0 {
+		var annotations []model.Annotation
+		g.DB.Select("node_id").Where("node_id IN ?", ids).Find(&annotations)
+		annotated := map[uint]bool{}
+		for _, a := range annotations {
+			annotated[a.NodeID] = true
+		}
+		for _, id := range ids {
+			if !annotated[id] {
+				report.Unannotated = append(report.Unannotated, nodeByID[id].QualifiedName)
+			}
+		}
+	}
+
 	sort.Strings(report.Orphans)
 	sort.Strings(report.Missing)
 	sort.Strings(report.Stale)
+	sort.Strings(report.Unannotated)
 
 	return report, nil
 }

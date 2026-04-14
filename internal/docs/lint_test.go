@@ -164,3 +164,85 @@ func TestLint_EmptyDB_EmptyDir(t *testing.T) {
 			len(report.Orphans), len(report.Missing), len(report.Stale))
 	}
 }
+
+func TestLint_DetectsUnannotated(t *testing.T) {
+	db := newLintTestDB(t)
+	outDir := t.TempDir()
+
+	// Function WITH annotation
+	annotated := model.Node{
+		QualifiedName: "pkg/a.go::Annotated",
+		Kind:          model.NodeKindFunction,
+		Name:          "Annotated",
+		FilePath:      "pkg/a.go",
+		StartLine:     1, EndLine: 10,
+		Hash: "h1", Language: "go",
+	}
+	db.Create(&annotated)
+	db.Create(&model.Annotation{
+		NodeID: annotated.ID,
+		Tags:   []model.DocTag{{Kind: model.TagIntent, Value: "does something", Ordinal: 0}},
+	})
+
+	// Function WITHOUT annotation
+	db.Create(&model.Node{
+		QualifiedName: "pkg/b.go::Bare",
+		Kind:          model.NodeKindFunction,
+		Name:          "Bare",
+		FilePath:      "pkg/b.go",
+		StartLine:     1, EndLine: 10,
+		Hash: "h2", Language: "go",
+	})
+
+	// Type WITHOUT annotation
+	db.Create(&model.Node{
+		QualifiedName: "pkg/b.go::Config",
+		Kind:          model.NodeKindType,
+		Name:          "Config",
+		FilePath:      "pkg/b.go",
+		StartLine:     12, EndLine: 20,
+		Hash: "h3", Language: "go",
+	})
+
+	gen := &Generator{DB: db, OutDir: outDir}
+	report, err := gen.Lint()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(report.Unannotated) != 2 {
+		t.Fatalf("expected 2 unannotated, got %d: %v", len(report.Unannotated), report.Unannotated)
+	}
+
+	// Should NOT include the annotated function
+	for _, u := range report.Unannotated {
+		if u == "pkg/a.go::Annotated" {
+			t.Error("annotated function should not appear in unannotated list")
+		}
+	}
+}
+
+func TestLint_SkipsTestNodesForUnannotated(t *testing.T) {
+	db := newLintTestDB(t)
+	outDir := t.TempDir()
+
+	// Test function — should not be reported as unannotated
+	db.Create(&model.Node{
+		QualifiedName: "pkg/a_test.go::TestFoo",
+		Kind:          model.NodeKindTest,
+		Name:          "TestFoo",
+		FilePath:      "pkg/a_test.go",
+		StartLine:     1, EndLine: 10,
+		Hash: "h1", Language: "go",
+	})
+
+	gen := &Generator{DB: db, OutDir: outDir}
+	report, err := gen.Lint()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(report.Unannotated) != 0 {
+		t.Errorf("test nodes should not be in unannotated list, got: %v", report.Unannotated)
+	}
+}

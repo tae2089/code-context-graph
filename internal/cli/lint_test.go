@@ -110,13 +110,18 @@ func TestLintCommand_ReportsStale(t *testing.T) {
 func TestLintCommand_CleanReport(t *testing.T) {
 	deps, stdout, stderr, db := setupLintTest(t)
 
-	db.Create(&model.Node{
+	fn := model.Node{
 		QualifiedName: "pkg/ok.go::Fn",
 		Kind:          model.NodeKindFunction,
 		Name:          "Fn",
 		FilePath:      "pkg/ok.go",
 		StartLine:     1, EndLine: 5,
 		Hash: "h1", Language: "go",
+	}
+	db.Create(&fn)
+	db.Create(&model.Annotation{
+		NodeID: fn.ID,
+		Tags:   []model.DocTag{{Kind: model.TagIntent, Value: "does something", Ordinal: 0}},
 	})
 
 	// Generate docs so everything is fresh
@@ -133,5 +138,31 @@ func TestLintCommand_CleanReport(t *testing.T) {
 	out := stdout.String()
 	if !strings.Contains(out, "clean") && !strings.Contains(out, "0 issues") {
 		t.Errorf("expected clean report, got:\n%s", out)
+	}
+}
+
+func TestLintCommand_ReportsUnannotated(t *testing.T) {
+	deps, stdout, stderr, db := setupLintTest(t)
+
+	db.Create(&model.Node{
+		QualifiedName: "pkg/svc.go::Handle",
+		Kind:          model.NodeKindFunction,
+		Name:          "Handle",
+		FilePath:      "pkg/svc.go",
+		StartLine:     1, EndLine: 10,
+		Hash: "h1", Language: "go",
+	})
+
+	outDir := t.TempDir()
+	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "pkg/svc.go::Handle") {
+		t.Errorf("expected unannotated 'pkg/svc.go::Handle' in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "unannotated") || !strings.Contains(out, "Unannotated") {
+		t.Errorf("expected 'unannotated' label in output, got:\n%s", out)
 	}
 }
