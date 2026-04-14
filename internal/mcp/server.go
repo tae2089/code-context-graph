@@ -98,6 +98,8 @@ type Deps struct {
 	RagIndexDir string
 	// RagProjectDesc — root 노드 summary에 사용되는 프로젝트 설명
 	RagProjectDesc string
+
+	WorkspaceRoot string
 }
 
 func NewServer(deps *Deps) *server.MCPServer {
@@ -286,6 +288,36 @@ func NewServer(deps *Deps) *server.MCPServer {
 				mcp.WithNumber("limit", mcp.Description("Maximum number of results (default: 10)")),
 			),
 			Handler: h.searchDocs,
+		},
+		server.ServerTool{
+			Tool: mcp.NewTool("upload_file",
+				mcp.WithDescription("Upload a file to a workspace. Content must be base64-encoded. Creates {workspace}/{file_path} on the server."),
+				mcp.WithString("workspace", mcp.Description("Workspace name (e.g. service name)"), mcp.Required()),
+				mcp.WithString("file_path", mcp.Description("Relative file path within workspace (e.g. docs/readme.md)"), mcp.Required()),
+				mcp.WithString("content", mcp.Description("Base64-encoded file content"), mcp.Required()),
+			),
+			Handler: h.uploadFile,
+		},
+		server.ServerTool{
+			Tool: mcp.NewTool("list_workspaces",
+				mcp.WithDescription("List all available workspaces"),
+			),
+			Handler: h.listWorkspaces,
+		},
+		server.ServerTool{
+			Tool: mcp.NewTool("list_files",
+				mcp.WithDescription("List all files in a workspace"),
+				mcp.WithString("workspace", mcp.Description("Workspace name"), mcp.Required()),
+			),
+			Handler: h.listFiles,
+		},
+		server.ServerTool{
+			Tool: mcp.NewTool("delete_file",
+				mcp.WithDescription("Delete a file from a workspace"),
+				mcp.WithString("workspace", mcp.Description("Workspace name"), mcp.Required()),
+				mcp.WithString("file_path", mcp.Description("Relative file path within workspace"), mcp.Required()),
+			),
+			Handler: h.deleteFile,
 		},
 	)
 

@@ -2,10 +2,10 @@ package treesitter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -1569,8 +1569,8 @@ func TestE2E_SearchAcrossLanguages(t *testing.T) {
 	}
 	sb := search.NewSQLiteBackend()
 	if err := sb.Migrate(db); err != nil {
-		if strings.Contains(err.Error(), "no such module: fts5") {
-			t.Skip("fts5 module not available in this sqlite build, skipping test")
+		if errors.Is(err, search.ErrFTS5NotAvailable) {
+			t.Skip("fts5 module not available, skipping test")
 		}
 		t.Fatal(err)
 	}

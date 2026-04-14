@@ -1,6 +1,7 @@
 package ragindex_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -51,7 +52,7 @@ func TestBuilder_EmptyDB(t *testing.T) {
 		IndexDir: indexDir,
 	}
 
-	communities, files, err := b.Build()
+	communities, files, err := b.Build(context.Background())
 	if err != nil {
 		t.Fatalf("Build() error: %v", err)
 	}
@@ -99,7 +100,7 @@ func TestBuilder_WithCommunities(t *testing.T) {
 		IndexDir: filepath.Join(tmpDir, ".ccg"),
 	}
 
-	count, files, err := b.Build()
+	count, files, err := b.Build(context.Background())
 	if err != nil {
 		t.Fatalf("Build() error: %v", err)
 	}
@@ -168,7 +169,7 @@ func TestBuilder_FileSummary_IndexTag(t *testing.T) {
 		IndexDir: filepath.Join(tmpDir, ".ccg"),
 	}
 
-	_, _, err := b.Build()
+	_, _, err := b.Build(context.Background())
 	if err != nil {
 		t.Fatalf("Build() error: %v", err)
 	}
@@ -241,7 +242,7 @@ func TestBuilder_FileSummary_Fallback(t *testing.T) {
 		IndexDir: filepath.Join(tmpDir, ".ccg"),
 	}
 
-	_, _, err := b.Build()
+	_, _, err := b.Build(context.Background())
 	if err != nil {
 		t.Fatalf("Build() error: %v", err)
 	}
@@ -277,7 +278,7 @@ func TestBuilder_WritesJSON(t *testing.T) {
 		IndexDir: filepath.Join(tmpDir, ".ccg"),
 	}
 
-	_, _, err := b.Build()
+	_, _, err := b.Build(context.Background())
 	if err != nil {
 		t.Fatalf("Build() error: %v", err)
 	}
@@ -312,7 +313,7 @@ func TestBuilder_ProjectDesc(t *testing.T) {
 		ProjectDesc: "테스트 프로젝트 설명",
 	}
 
-	_, _, err := b.Build()
+	_, _, err := b.Build(context.Background())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -442,7 +443,7 @@ func TestBuilder_SymbolNodes(t *testing.T) {
 		OutDir:   filepath.Join(tmpDir, "docs"),
 		IndexDir: tmpDir,
 	}
-	_, _, err := b.Build()
+	_, _, err := b.Build(context.Background())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -499,7 +500,7 @@ func TestBuilder_NoSymbolsWithoutIntent(t *testing.T) {
 	// annotation 없음 → @intent 없음
 
 	b := &ragindex.Builder{DB: db, OutDir: filepath.Join(tmpDir, "docs"), IndexDir: tmpDir}
-	if _, _, err := b.Build(); err != nil {
+	if _, _, err := b.Build(context.Background()); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 

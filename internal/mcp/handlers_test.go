@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -112,7 +113,7 @@ func setupTestDeps(t *testing.T) *Deps {
 	}
 	sb := search.NewSQLiteBackend()
 	if err := sb.Migrate(db); err != nil {
-		if strings.Contains(err.Error(), "no such module: fts5") {
+		if errors.Is(err, search.ErrFTS5NotAvailable) {
 			t.Skip("fts5 module not available, skipping test")
 		}
 		t.Fatal(err)
@@ -2177,7 +2178,7 @@ func TestGetRagTree_DepthLimitsChildren(t *testing.T) {
 		OutDir:   filepath.Join(tmpDir, "docs"),
 		IndexDir: deps.RagIndexDir,
 	}
-	if _, _, err := b.Build(); err != nil {
+	if _, _, err := b.Build(context.Background()); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 
@@ -2230,7 +2231,7 @@ func TestSearchDocs_ReturnsMatches(t *testing.T) {
 	}
 
 	b := &ragindex.Builder{DB: deps.DB, IndexDir: tmpDir, OutDir: filepath.Join(tmpDir, "docs")}
-	if _, _, err := b.Build(); err != nil {
+	if _, _, err := b.Build(context.Background()); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 

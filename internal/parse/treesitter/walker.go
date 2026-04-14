@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/c"
@@ -21,6 +22,7 @@ import (
 	"github.com/smacker/go-tree-sitter/ruby"
 	"github.com/smacker/go-tree-sitter/rust"
 	"github.com/smacker/go-tree-sitter/typescript/typescript"
+	"github.com/tae2089/trace"
 
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
@@ -28,7 +30,10 @@ import (
 //go:embed queries/*/*.scm
 var queriesFS embed.FS
 
+var errUnsupportedLanguage = trace.New("unsupported language")
+
 type Walker struct {
+	mu     sync.Mutex
 	spec   *LangSpec
 	logger *slog.Logger
 	parser *sitter.Parser // 언어별 1회 초기화 후 재사용
@@ -104,15 +109,18 @@ func (w *Walker) ParseWithContext(ctx context.Context, filePath string, content 
 func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []CommentBlock, error) {
 	if w.parser == nil {
 		w.logger.Error("unsupported language", "language", w.spec.Name, "file", filePath)
-		return nil, nil, nil, fmt.Errorf("unsupported language: %s", w.spec.Name)
+		return nil, nil, nil, trace.Wrap(errUnsupportedLanguage, w.spec.Name)
 	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
 	w.logger.Debug("parsing file", "file", filePath, "language", w.spec.Name)
 
 	tree, err := w.parser.ParseCtx(ctx, nil, content)
 	if err != nil {
 		w.logger.Error("tree-sitter parse error", "file", filePath, "error", err)
-		return nil, nil, nil, fmt.Errorf("parse error: %w", err)
+		return nil, nil, nil, trace.Wrap(err, "parse error")
 	}
 	defer tree.Close()
 
@@ -552,12 +560,15 @@ type CommentBlock struct {
 
 func (w *Walker) ExtractComments(ctx context.Context, filePath string, content []byte) ([]CommentBlock, error) {
 	if w.parser == nil {
-		return nil, fmt.Errorf("unsupported language: %s", w.spec.Name)
+		return nil, trace.Wrap(errUnsupportedLanguage, w.spec.Name)
 	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
 	tree, err := w.parser.ParseCtx(ctx, nil, content)
 	if err != nil {
-		return nil, fmt.Errorf("parse error: %w", err)
+		return nil, trace.Wrap(err, "parse error")
 	}
 	defer tree.Close()
 
@@ -626,6 +637,6 @@ func (w *Walker) getLanguage() (*sitter.Language, error) {
 	case "lua":
 		return lua.GetLanguage(), nil
 	default:
-		return nil, fmt.Errorf("unsupported language: %s", w.spec.Name)
+		return nil, trace.Wrap(errUnsupportedLanguage, w.spec.Name)
 	}
 }

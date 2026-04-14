@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/tae2089/trace"
+
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"gorm.io/gorm"
 )
@@ -79,7 +81,7 @@ func (s *Service) ByCommunity(ctx context.Context, communityID uint) (*Community
 	var comm model.Community
 	if err := s.db.WithContext(ctx).First(&comm, communityID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("community not found")
+			return nil, trace.New("community not found")
 		}
 		return nil, err
 	}

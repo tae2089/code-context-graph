@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/tae2089/trace"
 
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
@@ -21,10 +22,10 @@ func newStatusCmd(deps *Deps) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var nodeCount, edgeCount int64
 			if err := deps.DB.Model(&model.Node{}).Count(&nodeCount).Error; err != nil {
-				return fmt.Errorf("count nodes: %w", err)
+				return trace.Wrap(err, "count nodes")
 			}
 			if err := deps.DB.Model(&model.Edge{}).Count(&edgeCount).Error; err != nil {
-				return fmt.Errorf("count edges: %w", err)
+				return trace.Wrap(err, "count edges")
 			}
 
 			var fileCount int64

@@ -3,11 +3,13 @@ package cli
 import (
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/tae2089/trace"
 
 	"github.com/imtaebin/code-context-graph/internal/ragindex"
 )
@@ -23,7 +25,7 @@ func newRagIndexCmd(deps *Deps) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if deps.DB == nil {
-				return fmt.Errorf("database not initialized")
+				return errDBNotInitialized
 			}
 
 			// --desc 플래그가 없으면 viper config에서 읽음
@@ -38,9 +40,9 @@ func newRagIndexCmd(deps *Deps) *cobra.Command {
 				ProjectDesc: projectDesc,
 			}
 
-			communities, files, err := b.Build()
+			communities, files, err := b.Build(cmd.Context())
 			if err != nil {
-				return fmt.Errorf("build rag index: %w", err)
+				return trace.Wrap(err, "build rag index")
 			}
 
 			fmt.Fprintf(stdout(cmd), "Built doc-index: %d communities, %d files\n", communities, files)
@@ -70,7 +72,11 @@ func newRagIndexCmd(deps *Deps) *cobra.Command {
 func countMDFiles(dir string) int {
 	count := 0
 	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
+			slog.Warn("failed to walk directory entry", "path", path, trace.SlogError(err))
+			return nil
+		}
+		if d.IsDir() {
 			return nil
 		}
 		if strings.HasSuffix(path, ".md") && filepath.Base(path) != "index.md" {

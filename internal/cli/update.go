@@ -9,15 +9,11 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/tae2089/trace"
 
 	"github.com/imtaebin/code-context-graph/internal/analysis/incremental"
+	"github.com/imtaebin/code-context-graph/internal/pathutil"
 )
-
-var skipDirs = map[string]bool{
-	".git":         true,
-	"vendor":       true,
-	"node_modules": true,
-}
 
 func newUpdateCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
@@ -32,7 +28,7 @@ func newUpdateCmd(deps *Deps) *cobra.Command {
 
 			absDir, err := filepath.Abs(dir)
 			if err != nil {
-				return fmt.Errorf("resolve path: %w", err)
+				return trace.Wrap(err, "resolve path")
 			}
 
 			deps.Logger.Info("incremental update", "dir", absDir)
@@ -43,7 +39,7 @@ func newUpdateCmd(deps *Deps) *cobra.Command {
 					return err
 				}
 				if info.IsDir() {
-					if skipDirs[info.Name()] {
+					if pathutil.ShouldSkipDir(info.Name()) {
 						return filepath.SkipDir
 					}
 					return nil
@@ -67,13 +63,13 @@ func newUpdateCmd(deps *Deps) *cobra.Command {
 				return nil
 			})
 			if err != nil {
-				return fmt.Errorf("walk directory: %w", err)
+				return trace.Wrap(err, "walk directory")
 			}
 
 			ctx := context.Background()
 			stats, err := deps.Syncer.Sync(ctx, files)
 			if err != nil {
-				return fmt.Errorf("incremental sync: %w", err)
+				return trace.Wrap(err, "incremental sync")
 			}
 
 			fmt.Fprintf(stdout(cmd), "Update complete: added=%d modified=%d skipped=%d deleted=%d\n",

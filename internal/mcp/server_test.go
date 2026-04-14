@@ -34,6 +34,10 @@ func TestMCPServer_ListTools(t *testing.T) {
 		"get_rag_tree",
 		"get_doc_content",
 		"search_docs",
+		"upload_file",
+		"list_workspaces",
+		"list_files",
+		"delete_file",
 	}
 
 	if len(tools) != len(expected) {
@@ -63,8 +67,8 @@ func TestMCPServer_ListTools_18(t *testing.T) {
 	srv := NewServer(deps)
 	tools := srv.ListTools()
 
-	if len(tools) != 22 {
-		t.Fatalf("expected 22 tools, got %d", len(tools))
+	if len(tools) != 26 {
+		t.Fatalf("expected 26 tools, got %d", len(tools))
 	}
 }
 

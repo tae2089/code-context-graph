@@ -2,10 +2,11 @@ package search
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"gorm.io/gorm"
+
+	"github.com/tae2089/trace"
 
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
@@ -21,14 +22,14 @@ func (p *PostgresBackend) Migrate(db *gorm.DB) error {
 		ALTER TABLE search_documents
 		ADD COLUMN IF NOT EXISTS tsv tsvector
 	`).Error; err != nil {
-		return fmt.Errorf("add tsv column: %w", err)
+		return trace.Wrap(err, "add tsv column")
 	}
 
 	if err := db.Exec(`
 		CREATE INDEX IF NOT EXISTS idx_search_documents_tsv
 		ON search_documents USING gin(tsv)
 	`).Error; err != nil {
-		return fmt.Errorf("create gin index: %w", err)
+		return trace.Wrap(err, "create gin index")
 	}
 
 	if err := db.Exec(`
@@ -39,13 +40,13 @@ func (p *PostgresBackend) Migrate(db *gorm.DB) error {
 		END
 		$$ LANGUAGE plpgsql
 	`).Error; err != nil {
-		return fmt.Errorf("create trigger function: %w", err)
+		return trace.Wrap(err, "create trigger function")
 	}
 
 	if err := db.Exec(`
 		DROP TRIGGER IF EXISTS trg_search_documents_tsv ON search_documents
 	`).Error; err != nil {
-		return fmt.Errorf("drop old trigger: %w", err)
+		return trace.Wrap(err, "drop old trigger")
 	}
 
 	if err := db.Exec(`
@@ -53,7 +54,7 @@ func (p *PostgresBackend) Migrate(db *gorm.DB) error {
 		BEFORE INSERT OR UPDATE ON search_documents
 		FOR EACH ROW EXECUTE FUNCTION search_documents_tsv_trigger()
 	`).Error; err != nil {
-		return fmt.Errorf("create trigger: %w", err)
+		return trace.Wrap(err, "create trigger")
 	}
 
 	return nil
@@ -85,7 +86,7 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 		ORDER BY ts_rank(sd.tsv, to_tsquery('simple', ?)) DESC
 		LIMIT ?
 	`, tsQuery, tsQuery, limit).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("ts_query: %w", err)
+		return nil, trace.Wrap(err, "ts_query")
 	}
 
 	if len(rows) == 0 {
@@ -99,7 +100,7 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 
 	var nodes []model.Node
 	if err := db.WithContext(ctx).Where("id IN ?", nodeIDs).Find(&nodes).Error; err != nil {
-		return nil, fmt.Errorf("load nodes: %w", err)
+		return nil, trace.Wrap(err, "load nodes")
 	}
 
 	idxMap := make(map[uint]int, len(nodeIDs))

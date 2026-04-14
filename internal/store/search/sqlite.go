@@ -2,10 +2,11 @@ package search
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"gorm.io/gorm"
+
+	"github.com/tae2089/trace"
 
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
@@ -17,20 +18,26 @@ func NewSQLiteBackend() *SQLiteBackend {
 }
 
 func (s *SQLiteBackend) Migrate(db *gorm.DB) error {
-	return db.Exec(`
+	if err := db.Exec(`
 		CREATE VIRTUAL TABLE IF NOT EXISTS search_fts
 		USING fts5(node_id, content, language)
-	`).Error
+	`).Error; err != nil {
+		if strings.Contains(err.Error(), "no such module: fts5") {
+			return trace.Wrap(ErrFTS5NotAvailable, err.Error())
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *SQLiteBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 	if err := db.WithContext(ctx).Exec("DELETE FROM search_fts").Error; err != nil {
-		return fmt.Errorf("clear fts: %w", err)
+		return trace.Wrap(err, "clear fts")
 	}
 
 	var docs []model.SearchDocument
 	if err := db.WithContext(ctx).Find(&docs).Error; err != nil {
-		return fmt.Errorf("load docs: %w", err)
+		return trace.Wrap(err, "load docs")
 	}
 
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -39,7 +46,7 @@ func (s *SQLiteBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 				"INSERT INTO search_fts(node_id, content, language) VALUES (?, ?, ?)",
 				doc.NodeID, doc.Content, doc.Language,
 			).Error; err != nil {
-				return fmt.Errorf("insert fts row: %w", err)
+				return trace.Wrap(err, "insert fts row")
 			}
 		}
 		return nil
@@ -68,7 +75,7 @@ func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, li
 		 LIMIT ?`,
 		ftsQuery, limit,
 	).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("fts query: %w", err)
+		return nil, trace.Wrap(err, "fts query")
 	}
 
 	if len(rows) == 0 {
@@ -82,7 +89,7 @@ func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, li
 
 	var nodes []model.Node
 	if err := db.WithContext(ctx).Where("id IN ?", nodeIDs).Find(&nodes).Error; err != nil {
-		return nil, fmt.Errorf("load nodes: %w", err)
+		return nil, trace.Wrap(err, "load nodes")
 	}
 
 	idxMap := make(map[uint]int, len(nodeIDs))

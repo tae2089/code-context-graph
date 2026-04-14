@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -34,7 +35,7 @@ func setupSearchTest(t *testing.T) (*Deps, *bytes.Buffer, *bytes.Buffer, *gorm.D
 
 	sb := search.NewSQLiteBackend()
 	if err := sb.Migrate(db); err != nil {
-		if strings.Contains(err.Error(), "no such module: fts5") {
+		if errors.Is(err, search.ErrFTS5NotAvailable) {
 			t.Skip("fts5 module not available, skipping test")
 		}
 		t.Fatal(err)

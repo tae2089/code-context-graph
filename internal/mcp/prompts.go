@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/tae2089/trace"
 
 	"github.com/imtaebin/code-context-graph/internal/analysis/changes"
 	"github.com/imtaebin/code-context-graph/internal/analysis/coupling"
@@ -49,7 +50,7 @@ func (p *promptHandlers) reviewChanges(ctx context.Context, request mcp.GetPromp
 	chSvc := changes.New(p.deps.DB, p.deps.ChangesGitClient)
 	risks, err := chSvc.Analyze(ctx, repoRoot, base)
 	if err != nil {
-		return nil, fmt.Errorf("changes analyze: %w", err)
+		return nil, trace.Wrap(err, "changes analyze")
 	}
 
 	if len(risks) == 0 {
@@ -93,7 +94,7 @@ func (p *promptHandlers) reviewChanges(ctx context.Context, request mcp.GetPromp
 func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	var communities []model.Community
 	if err := p.deps.DB.WithContext(ctx).Find(&communities).Error; err != nil {
-		return nil, fmt.Errorf("query communities: %w", err)
+		return nil, trace.Wrap(err, "query communities")
 	}
 
 	if len(communities) == 0 {
@@ -103,10 +104,13 @@ func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPro
 	var sb strings.Builder
 	sb.WriteString("## 아키텍처 맵\n\n### 커뮤니티 목록\n\n")
 
+	log := p.deps.Logger
 	for _, c := range communities {
 		var memberCount int64
-		p.deps.DB.WithContext(ctx).Model(&model.CommunityMembership{}).
-			Where("community_id = ?", c.ID).Count(&memberCount)
+		if err := p.deps.DB.WithContext(ctx).Model(&model.CommunityMembership{}).
+			Where("community_id = ?", c.ID).Count(&memberCount).Error; err != nil {
+			log.Warn("count community members failed", "community", c.ID, trace.SlogError(err))
+		}
 		sb.WriteString(fmt.Sprintf("- **%s** (전략: %s, 멤버: %d)\n", c.Label, c.Strategy, memberCount))
 	}
 
@@ -118,7 +122,7 @@ func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPro
 	}
 	pairs, err := coupAnalyzer.Analyze(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("coupling analyze: %w", err)
+		return nil, trace.Wrap(err, "coupling analyze")
 	}
 
 	if len(pairs) > 0 {
@@ -142,18 +146,15 @@ func (p *promptHandlers) debugIssue(ctx context.Context, request mcp.GetPromptRe
 
 	nodes, err := p.deps.SearchBackend.Query(ctx, p.deps.DB, description, 10)
 	if err != nil {
-		return nil, fmt.Errorf("search: %w", err)
+		return nil, trace.Wrap(err, "search")
 	}
 
 	if len(nodes) == 0 {
+		seen := map[uint]bool{}
 		for _, token := range strings.Fields(description) {
 			tokenNodes, err := p.deps.SearchBackend.Query(ctx, p.deps.DB, token, 10)
 			if err != nil {
 				continue
-			}
-			seen := map[uint]bool{}
-			for _, n := range nodes {
-				seen[n.ID] = true
 			}
 			for _, n := range tokenNodes {
 				if !seen[n.ID] {
@@ -202,9 +203,10 @@ func (p *promptHandlers) debugIssue(ctx context.Context, request mcp.GetPromptRe
 }
 
 func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	log := p.deps.Logger
 	var nodeCount int64
 	if err := p.deps.DB.WithContext(ctx).Model(&model.Node{}).Count(&nodeCount).Error; err != nil {
-		return nil, fmt.Errorf("count nodes: %w", err)
+		return nil, trace.Wrap(err, "count nodes")
 	}
 
 	if nodeCount == 0 {
@@ -212,18 +214,22 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 	}
 
 	var edgeCount int64
-	p.deps.DB.WithContext(ctx).Model(&model.Edge{}).Count(&edgeCount)
+	if err := p.deps.DB.WithContext(ctx).Model(&model.Edge{}).Count(&edgeCount).Error; err != nil {
+		log.Warn("count edges failed", trace.SlogError(err))
+	}
 
 	type langStat struct {
 		Language string
 		Count    int64
 	}
 	var langs []langStat
-	p.deps.DB.WithContext(ctx).Model(&model.Node{}).
+	if err := p.deps.DB.WithContext(ctx).Model(&model.Node{}).
 		Select("language, COUNT(*) as count").
 		Group("language").
 		Having("language != ''").
-		Scan(&langs)
+		Scan(&langs).Error; err != nil {
+		log.Warn("scan language stats failed", trace.SlogError(err))
+	}
 
 	var sb strings.Builder
 	sb.WriteString("## 프로젝트 온보딩 가이드\n\n### 기본 통계\n\n")
@@ -235,7 +241,9 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 	}
 
 	var communities []model.Community
-	p.deps.DB.WithContext(ctx).Find(&communities)
+	if err := p.deps.DB.WithContext(ctx).Find(&communities).Error; err != nil {
+		log.Warn("find communities failed", trace.SlogError(err))
+	}
 	if len(communities) > 0 {
 		sb.WriteString("\n### 커뮤니티 구조\n\n")
 		for _, c := range communities {
@@ -249,7 +257,10 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 	} else {
 		lfAnalyzer = largefunc.New(p.deps.DB)
 	}
-	largeFuncs, _ := lfAnalyzer.Find(ctx, 50)
+	largeFuncs, err := lfAnalyzer.Find(ctx, 50)
+	if err != nil {
+		log.Warn("find large functions failed", trace.SlogError(err))
+	}
 	if len(largeFuncs) > 0 {
 		sb.WriteString("\n### 대형 함수 (50줄 초과)\n\n")
 		for _, f := range largeFuncs {
@@ -263,6 +274,7 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 }
 
 func (p *promptHandlers) preMergeCheck(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	log := p.deps.Logger
 	args := request.Params.Arguments
 	repoRoot := args["repo_root"]
 	base := args["base"]
@@ -277,7 +289,7 @@ func (p *promptHandlers) preMergeCheck(ctx context.Context, request mcp.GetPromp
 	chSvc := changes.New(p.deps.DB, p.deps.ChangesGitClient)
 	risks, err := chSvc.Analyze(ctx, repoRoot, base)
 	if err != nil {
-		return nil, fmt.Errorf("changes analyze: %w", err)
+		return nil, trace.Wrap(err, "changes analyze")
 	}
 
 	var sb strings.Builder
@@ -323,7 +335,10 @@ func (p *promptHandlers) preMergeCheck(ctx context.Context, request mcp.GetPromp
 	} else {
 		dcAnalyzer = deadcode.New(p.deps.DB)
 	}
-	deadNodes, _ := dcAnalyzer.Find(ctx, deadcode.Options{})
+	deadNodes, err := dcAnalyzer.Find(ctx, deadcode.Options{})
+	if err != nil {
+		log.Warn("find dead code failed", trace.SlogError(err))
+	}
 	if len(deadNodes) > 0 {
 		for _, n := range deadNodes {
 			sb.WriteString(fmt.Sprintf("- 미사용: %s (%s)\n", n.QualifiedName, n.FilePath))
@@ -339,7 +354,11 @@ func (p *promptHandlers) preMergeCheck(ctx context.Context, request mcp.GetPromp
 	} else {
 		lfAnalyzer2 = largefunc.New(p.deps.DB)
 	}
-	largeFuncs, _ := lfAnalyzer2.Find(ctx, 50)
+	var largeFuncs []model.Node
+	largeFuncs, err = lfAnalyzer2.Find(ctx, 50)
+	if err != nil {
+		log.Warn("find large functions failed", trace.SlogError(err))
+	}
 	if len(largeFuncs) > 0 {
 		for _, f := range largeFuncs {
 			lines := f.EndLine - f.StartLine + 1

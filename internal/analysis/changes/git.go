@@ -3,10 +3,11 @@ package changes
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/tae2089/trace"
 )
 
 type ExecGitClient struct{}
@@ -20,7 +21,7 @@ func (g *ExecGitClient) ChangedFiles(ctx context.Context, repoDir, baseRef strin
 	cmd.Dir = repoDir
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("git diff --name-only: %w", err)
+		return nil, trace.Wrap(err, "git diff --name-only")
 	}
 
 	var files []string
@@ -32,7 +33,7 @@ func (g *ExecGitClient) ChangedFiles(ctx context.Context, repoDir, baseRef strin
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scan git output: %w", err)
+		return nil, trace.Wrap(err, "scan git output")
 	}
 	return files, nil
 }
@@ -44,7 +45,7 @@ func (g *ExecGitClient) DiffHunks(ctx context.Context, repoDir, baseRef string, 
 	cmd.Dir = repoDir
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("git diff -U0: %w", err)
+		return nil, trace.Wrap(err, "git diff -U0")
 	}
 
 	var hunks []Hunk
@@ -67,7 +68,7 @@ func (g *ExecGitClient) DiffHunks(ctx context.Context, repoDir, baseRef string, 
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scan git diff output: %w", err)
+		return nil, trace.Wrap(err, "scan git diff output")
 	}
 	return hunks, nil
 }

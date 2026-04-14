@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/tae2089/trace"
 )
 
 func newSearchCmd(deps *Deps) *cobra.Command {
@@ -27,7 +28,7 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 
 			nodes, err := deps.SearchBackend.Query(ctx, deps.DB, query, fetchLimit)
 			if err != nil {
-				return fmt.Errorf("search: %w", err)
+				return trace.Wrap(err, "search")
 			}
 
 			out := stdout(cmd)

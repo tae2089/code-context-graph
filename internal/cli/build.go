@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/tae2089/trace"
 
 	"github.com/imtaebin/code-context-graph/internal/service"
 )
@@ -42,7 +43,7 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 			ctx := context.Background()
 			stats, err := svc.Build(ctx, opts)
 			if err != nil {
-				return err
+				return trace.Wrap(err, "build project")
 			}
 
 			fmt.Fprintf(stdout(cmd), "Build complete: %d files, %d nodes, %d edges\n", stats.TotalFiles, stats.TotalNodes, stats.TotalEdges)

@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/tae2089/trace"
 
 	"github.com/imtaebin/code-context-graph/internal/docs"
 )
@@ -83,12 +84,12 @@ func newLintCmd(deps *Deps) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if deps.DB == nil {
-				return fmt.Errorf("database not initialized")
+				return errDBNotInitialized
 			}
 
 			absOut, err := filepath.Abs(resolveOutDir(outDir))
 			if err != nil {
-				return fmt.Errorf("resolve out path: %w", err)
+				return trace.Wrap(err, "resolve out path")
 			}
 
 			gen := &docs.Generator{
@@ -99,7 +100,7 @@ func newLintCmd(deps *Deps) *cobra.Command {
 
 			report, err := gen.Lint()
 			if err != nil {
-				return fmt.Errorf("lint: %w", err)
+				return trace.Wrap(err, "lint")
 			}
 
 			out := stdout(cmd)
@@ -240,7 +241,7 @@ func newLintCmd(deps *Deps) *cobra.Command {
 			if strict {
 				strictTotal := countNonIgnored(report)
 				if strictTotal > 0 {
-					return fmt.Errorf("lint found %d issues", strictTotal)
+					return trace.New(fmt.Sprintf("lint found %d issues", strictTotal))
 				}
 			}
 

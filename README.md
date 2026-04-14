@@ -7,7 +7,7 @@ Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) 
 ## Features
 
 - **12 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua
-- **18 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, and more
+- **26 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, file workspace management, and more
 - **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context
 - **Multi-DB**: SQLite (local), PostgreSQL
 - **Full-text search**: FTS5 (SQLite), tsvector+GIN (PostgreSQL)
@@ -147,7 +147,27 @@ Add `.mcp.json` to your project:
 }
 ```
 
-Claude Code automatically connects and gets access to 18 MCP tools.
+For remote HTTP mode:
+
+```json
+{
+  "mcpServers": {
+    "ccg": {
+      "type": "streamable-http",
+      "url": "http://your-server:8080/mcp"
+    }
+  }
+}
+```
+
+Health check endpoint (HTTP mode only):
+
+```bash
+curl http://localhost:8080/health
+# {"status":"ok"}
+```
+
+Claude Code automatically connects and gets access to 26 MCP tools.
 
 ### Skill
 
@@ -185,9 +205,11 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
                                         ↓
                                    FTS Search
                                         ↓
-                              MCP Server (18 tools)
-                                        ↓
-                                  Claude Code
+                              MCP Server (26 tools)
+                                    ↓         ↓
+                              stdio       Streamable HTTP
+                                ↓              ↓
+                           Claude Code    Remote Clients
 ```
 
 ## CLI Commands
@@ -210,7 +232,11 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
 | `ccg hooks install --lint-strict` | Install hook that blocks commit on issues |
 | `ccg lint [--out dir]` | 8-category docs lint (orphan, missing, stale, unannotated, contradiction, dead-ref, incomplete, drift) |
 | `ccg lint --strict` | Exit 1 on issues (for CI/pre-commit); ignores rules with `action: ignore` |
-| `ccg serve` | Start MCP server (stdio) |
+| `ccg serve` | Start MCP server (stdio by default) |
+| `ccg serve --transport streamable-http` | Start MCP server over HTTP |
+| `ccg serve --http-addr :9090` | Custom HTTP listen address (default `:8080`) |
+| `ccg serve --stateless` | Stateless session mode (multi-instance deployments) |
+| `ccg serve --workspace-root <dir>` | Root directory for file workspaces (default `workspaces`) |
 
 ### Config file (`.ccg.yaml`)
 
@@ -232,7 +258,7 @@ docs:
 
 Override with `ccg --config path/to/config.yaml`.
 
-## MCP Tools (18)
+## MCP Tools (26)
 
 | Tool | Description |
 |------|-------------|
@@ -254,6 +280,14 @@ Override with `ccg --config path/to/config.yaml`.
 | `get_community` | Community details + coverage |
 | `get_architecture_overview` | Architecture summary with coupling |
 | `get_annotation` | Get annotation and doc tags |
+| `build_rag_index` | Build RAG index from docs and communities |
+| `get_rag_tree` | Navigate RAG document tree |
+| `get_doc_content` | Get documentation file content |
+| `search_docs` | Search RAG document tree by keyword |
+| `upload_file` | Upload file to workspace (base64) |
+| `list_workspaces` | List all workspaces |
+| `list_files` | List files in a workspace |
+| `delete_file` | Delete file from workspace |
 
 ## Development
 

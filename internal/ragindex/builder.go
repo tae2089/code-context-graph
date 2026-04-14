@@ -2,6 +2,7 @@
 package ragindex
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"github.com/tae2089/trace"
 
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
@@ -56,13 +59,13 @@ type nodeInfo struct {
 
 // Build는 DB에서 커뮤니티와 멤버 노드를 읽어 doc-index.json을 생성한다.
 // 반환값: (커뮤니티 수, 파일 수, 에러)
-func (b *Builder) Build() (int, int, error) {
+func (b *Builder) Build(ctx context.Context) (int, int, error) {
 	slog.Debug("ragindex.Builder.Build 시작", "outDir", b.OutDir, "indexDir", b.IndexDir)
 
 	// 1. 모든 커뮤니티와 멤버 로드
 	var communities []model.Community
-	if err := b.DB.Preload("Members").Find(&communities).Error; err != nil {
-		return 0, 0, fmt.Errorf("load communities: %w", err)
+	if err := b.DB.WithContext(ctx).Preload("Members").Find(&communities).Error; err != nil {
+		return 0, 0, trace.Wrap(err, "load communities")
 	}
 	slog.Debug("커뮤니티 로드 완료", "count", len(communities))
 
@@ -78,8 +81,8 @@ func (b *Builder) Build() (int, int, error) {
 	nodeInfoMap := make(map[uint]nodeInfo)
 	if len(allNodeIDs) > 0 {
 		var nodes []model.Node
-		if err := b.DB.Where("id IN ?", allNodeIDs).Find(&nodes).Error; err != nil {
-			return 0, 0, fmt.Errorf("load all nodes: %w", err)
+		if err := b.DB.WithContext(ctx).Where("id IN ?", allNodeIDs).Find(&nodes).Error; err != nil {
+			return 0, 0, trace.Wrap(err, "load all nodes")
 		}
 		for _, n := range nodes {
 			nodeInfoMap[n.ID] = nodeInfo{
@@ -101,15 +104,15 @@ func (b *Builder) Build() (int, int, error) {
 	}
 
 	// 3. 배치 fileSummary 조회
-	summaries, err := b.batchFileSummaries(allFilePaths)
+	summaries, err := b.batchFileSummaries(ctx, allFilePaths)
 	if err != nil {
-		return 0, 0, fmt.Errorf("batchFileSummaries: %w", err)
+		return 0, 0, trace.Wrap(err, "batchFileSummaries")
 	}
 
 	// 4. @intent 태그를 가진 symbol 노드 배치 조회
-	symbolsByFile, err := b.batchSymbolNodes(allNodeIDs)
+	symbolsByFile, err := b.batchSymbolNodes(ctx, allNodeIDs)
 	if err != nil {
-		return 0, 0, fmt.Errorf("batchSymbolNodes: %w", err)
+		return 0, 0, trace.Wrap(err, "batchSymbolNodes")
 	}
 
 	root := &TreeNode{
@@ -170,7 +173,7 @@ func (b *Builder) Build() (int, int, error) {
 
 	// 7. doc-index.json 파일 기록 (원자적 쓰기)
 	if err := b.writeIndex(idx); err != nil {
-		return 0, 0, fmt.Errorf("writeIndex: %w", err)
+		return 0, 0, trace.Wrap(err, "writeIndex")
 	}
 
 	slog.Debug("ragindex.Builder.Build 완료", "communities", len(communities), "files", len(uniqueFiles))
@@ -179,7 +182,7 @@ func (b *Builder) Build() (int, int, error) {
 
 // batchFileSummaries는 주어진 파일 경로 목록에 대해 filePath → summary 맵을 한 번에 반환한다.
 // @index 태그를 우선하고, 없으면 @intent 태그로 폴백한다. 둘 다 없으면 빈 문자열이다.
-func (b *Builder) batchFileSummaries(filePaths []string) (map[string]string, error) {
+func (b *Builder) batchFileSummaries(ctx context.Context, filePaths []string) (map[string]string, error) {
 	result := make(map[string]string, len(filePaths))
 	if len(filePaths) == 0 {
 		return result, nil
@@ -192,14 +195,14 @@ func (b *Builder) batchFileSummaries(filePaths []string) (map[string]string, err
 
 	// @index 태그를 파일 경로별로 일괄 조회
 	var indexRows []row
-	if err := b.DB.Table("doc_tags").
+	if err := b.DB.WithContext(ctx).Table("doc_tags").
 		Select("nodes.file_path, doc_tags.value").
 		Joins("JOIN annotations ON annotations.id = doc_tags.annotation_id").
 		Joins("JOIN nodes ON nodes.id = annotations.node_id").
 		Where("nodes.file_path IN ? AND doc_tags.kind = ?", filePaths, string(model.TagIndex)).
 		Order("doc_tags.ordinal ASC, doc_tags.id ASC").
 		Scan(&indexRows).Error; err != nil {
-		return nil, fmt.Errorf("batch index tags: %w", err)
+		return nil, trace.Wrap(err, "batch index tags")
 	}
 	for _, r := range indexRows {
 		if _, exists := result[r.FilePath]; !exists {
@@ -216,14 +219,14 @@ func (b *Builder) batchFileSummaries(filePaths []string) (map[string]string, err
 	}
 	if len(missing) > 0 {
 		var intentRows []row
-		if err := b.DB.Table("doc_tags").
+		if err := b.DB.WithContext(ctx).Table("doc_tags").
 			Select("nodes.file_path, doc_tags.value").
 			Joins("JOIN annotations ON annotations.id = doc_tags.annotation_id").
 			Joins("JOIN nodes ON nodes.id = annotations.node_id").
 			Where("nodes.file_path IN ? AND doc_tags.kind = ?", missing, string(model.TagIntent)).
 			Order("doc_tags.ordinal ASC, doc_tags.id ASC").
 			Scan(&intentRows).Error; err != nil {
-			return nil, fmt.Errorf("batch intent tags: %w", err)
+			return nil, trace.Wrap(err, "batch intent tags")
 		}
 		for _, r := range intentRows {
 			if result[r.FilePath] == "" {
@@ -235,10 +238,9 @@ func (b *Builder) batchFileSummaries(filePaths []string) (map[string]string, err
 	return result, nil
 }
 
-
 // batchSymbolNodes는 @intent 태그를 가진 노드를 filePath → []*TreeNode 맵으로 반환한다.
 // 노드당 첫 번째 @intent 값만 summary로 사용한다.
-func (b *Builder) batchSymbolNodes(nodeIDs []uint) (map[string][]*TreeNode, error) {
+func (b *Builder) batchSymbolNodes(ctx context.Context, nodeIDs []uint) (map[string][]*TreeNode, error) {
 	result := make(map[string][]*TreeNode)
 	if len(nodeIDs) == 0 {
 		return result, nil
@@ -253,14 +255,14 @@ func (b *Builder) batchSymbolNodes(nodeIDs []uint) (map[string][]*TreeNode, erro
 	}
 
 	var rows []intentRow
-	if err := b.DB.Table("nodes").
+	if err := b.DB.WithContext(ctx).Table("nodes").
 		Select("nodes.id as node_id, nodes.qualified_name, nodes.name, nodes.file_path, doc_tags.value").
 		Joins("JOIN annotations ON annotations.node_id = nodes.id").
 		Joins("JOIN doc_tags ON doc_tags.annotation_id = annotations.id").
 		Where("nodes.id IN ? AND doc_tags.kind = ?", nodeIDs, string(model.TagIntent)).
 		Order("nodes.file_path ASC, doc_tags.ordinal ASC, doc_tags.id ASC").
 		Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("batch symbol nodes: %w", err)
+		return nil, trace.Wrap(err, "batch symbol nodes")
 	}
 
 	// 첫 번째 @intent 태그만 사용 (node_id 기준 deduplicate)
@@ -303,7 +305,7 @@ func (b *Builder) docPath(filePath string) string {
 func (b *Builder) writeIndex(idx *Index) error {
 	dir := b.indexDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create index dir: %w", err)
+		return trace.Wrap(err, "create index dir")
 	}
 
 	target := filepath.Join(dir, "doc-index.json")
@@ -311,7 +313,7 @@ func (b *Builder) writeIndex(idx *Index) error {
 
 	f, err := os.Create(tmp)
 	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
+		return trace.Wrap(err, "create temp file")
 	}
 
 	enc := json.NewEncoder(f)
@@ -319,17 +321,17 @@ func (b *Builder) writeIndex(idx *Index) error {
 	if err := enc.Encode(idx); err != nil {
 		f.Close()
 		os.Remove(tmp)
-		return fmt.Errorf("encode index: %w", err)
+		return trace.Wrap(err, "encode index")
 	}
 
 	if err := f.Close(); err != nil {
 		os.Remove(tmp)
-		return fmt.Errorf("close temp file: %w", err)
+		return trace.Wrap(err, "close temp file")
 	}
 
 	if err := os.Rename(tmp, target); err != nil {
 		os.Remove(tmp)
-		return fmt.Errorf("rename to doc-index.json: %w", err)
+		return trace.Wrap(err, "rename to doc-index.json")
 	}
 
 	slog.Debug("doc-index.json 기록 완료", "path", target)
@@ -340,13 +342,13 @@ func (b *Builder) writeIndex(idx *Index) error {
 func LoadIndex(path string) (*Index, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("LoadIndex open %s: %w", path, err)
+		return nil, trace.Wrap(err, "LoadIndex open "+path)
 	}
 	defer f.Close()
 
 	var idx Index
 	if err := json.NewDecoder(f).Decode(&idx); err != nil {
-		return nil, fmt.Errorf("LoadIndex decode: %w", err)
+		return nil, trace.Wrap(err, "LoadIndex decode")
 	}
 	return &idx, nil
 }

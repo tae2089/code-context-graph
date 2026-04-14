@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/tae2089/trace"
 	"gorm.io/gorm"
 
 	"github.com/imtaebin/code-context-graph/internal/analysis/incremental"
@@ -14,6 +15,10 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/store"
 	"github.com/imtaebin/code-context-graph/internal/store/search"
 )
+
+// errDBNotInitialized is returned when a subcommand requires a database
+// connection but Deps.DB is nil.
+var errDBNotInitialized = trace.New("database not initialized")
 
 // Deps holds shared dependencies injected into all subcommands.
 type Deps struct {
@@ -80,7 +85,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 				driver := viper.GetString("db.driver")
 				dsn := viper.GetString("db.dsn")
 				if err := deps.InitFunc(driver, dsn); err != nil {
-					return err
+					return trace.Wrap(err, "initialize database")
 				}
 			}
 

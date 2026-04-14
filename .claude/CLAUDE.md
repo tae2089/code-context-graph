@@ -4,13 +4,18 @@
 
 ## MCP 서버
 
-`.mcp.json`에 등록된 ccg MCP 서버가 19개 도구를 제공합니다:
-- `parse_project`, `get_node`, `search`, `get_impact_radius`, `trace_flow`
-- `query_graph`, `list_graph_stats`, `find_large_functions`, `find_dead_code`
+`.mcp.json`에 등록된 ccg MCP 서버가 26개 도구를 제공합니다:
+- `parse_project`, `build_or_update_graph`, `run_postprocess`
+- `get_node`, `search`, `query_graph`, `list_graph_stats`
+- `get_impact_radius`, `trace_flow`
+- `find_large_functions`, `find_dead_code`
 - `detect_changes`, `get_affected_flows`, `list_flows`
 - `list_communities`, `get_community`, `get_architecture_overview`
-- `build_or_update_graph`, `run_postprocess`
 - `get_annotation`
+- `build_rag_index`, `get_rag_tree`, `get_doc_content`, `search_docs`
+- `upload_file`, `list_workspaces`, `list_files`, `delete_file`
+
+HTTP 모드 (`--transport streamable-http`)에서는 `/health` 엔드포인트도 제공합니다.
 
 ## CLI Skill
 

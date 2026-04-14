@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/tae2089/trace"
 )
 
 // exampleEntry holds annotation example snippets for a language.
@@ -345,7 +346,7 @@ lua, php, python, ruby, rust, scala, swift, typescript`,
 
 			entry, ok := languageExamples[lang]
 			if !ok {
-				return fmt.Errorf("unsupported language: %q (run 'ccg languages' for a list)", lang)
+				return trace.New(fmt.Sprintf("unsupported language: %q (run 'ccg languages' for a list)", lang))
 			}
 
 			out := stdout(cmd)

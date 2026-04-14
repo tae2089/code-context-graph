@@ -4,10 +4,11 @@ package gormstore
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+
+	"github.com/tae2089/trace"
 
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"github.com/imtaebin/code-context-graph/internal/store"
@@ -45,7 +46,7 @@ func (s *Store) UpsertNodes(ctx context.Context, nodes []model.Node) error {
 		}).
 		CreateInBatches(nodes, 100).Error
 	if err != nil {
-		return fmt.Errorf("batch upsert nodes: %w", err)
+		return trace.Wrap(err, "batch upsert nodes")
 	}
 	return nil
 }
@@ -129,7 +130,7 @@ func (s *Store) DeleteNodesByFile(ctx context.Context, filePath string) error {
 		Model(&model.Node{}).
 		Where("file_path = ?", filePath).
 		Pluck("id", &nodeIDs).Error; err != nil {
-		return fmt.Errorf("pluck node ids: %w", err)
+		return trace.Wrap(err, "pluck node ids")
 	}
 	if len(nodeIDs) == 0 {
 		return nil
@@ -139,20 +140,20 @@ func (s *Store) DeleteNodesByFile(ctx context.Context, filePath string) error {
 		if err := tx.
 			Where("from_node_id IN ? OR to_node_id IN ?", nodeIDs, nodeIDs).
 			Delete(&model.Edge{}).Error; err != nil {
-			return fmt.Errorf("cascade delete edges: %w", err)
+			return trace.Wrap(err, "cascade delete edges")
 		}
 
 		if err := tx.
 			Where("annotation_id IN (?)",
 				tx.Model(&model.Annotation{}).Select("id").Where("node_id IN ?", nodeIDs),
 			).Delete(&model.DocTag{}).Error; err != nil {
-			return fmt.Errorf("cascade delete doc_tags: %w", err)
+			return trace.Wrap(err, "cascade delete doc_tags")
 		}
 
 		if err := tx.
 			Where("node_id IN ?", nodeIDs).
 			Delete(&model.Annotation{}).Error; err != nil {
-			return fmt.Errorf("cascade delete annotations: %w", err)
+			return trace.Wrap(err, "cascade delete annotations")
 		}
 
 		return tx.Where("file_path = ?", filePath).Delete(&model.Node{}).Error
@@ -169,7 +170,7 @@ func (s *Store) UpsertEdges(ctx context.Context, edges []model.Edge) error {
 			DoNothing: true,
 		}).
 		CreateInBatches(edges, 500).Error; err != nil {
-		return fmt.Errorf("upsert edge batch: %w", err)
+		return trace.Wrap(err, "upsert edge batch")
 	}
 	return nil
 }
@@ -229,7 +230,7 @@ func (s *Store) UpsertAnnotation(ctx context.Context, ann *model.Annotation) err
 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("annotation_id = ?", existing.ID).Delete(&model.DocTag{}).Error; err != nil {
-			return fmt.Errorf("delete doc tags: %w", err)
+			return trace.Wrap(err, "delete doc tags")
 		}
 		ann.ID = existing.ID
 		return tx.Save(ann).Error

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/tae2089/trace"
 )
 
 const hookGuardBegin = "# --- ccg hook begin ---"
@@ -48,14 +49,14 @@ If a pre-commit hook already exists, the ccg block is appended (idempotent).`,
 
 			hooksDir := filepath.Join(gitDir, ".git", "hooks")
 			if _, err := os.Stat(hooksDir); os.IsNotExist(err) {
-				return fmt.Errorf(".git/hooks directory not found in %q; is this a git repository?", gitDir)
+				return trace.New(fmt.Sprintf(".git/hooks directory not found in %q; is this a git repository?", gitDir))
 			}
 
 			hookPath := filepath.Join(hooksDir, "pre-commit")
 
 			existing, err := os.ReadFile(hookPath)
 			if err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("read pre-commit hook: %w", err)
+				return trace.Wrap(err, "read pre-commit hook")
 			}
 
 			content := string(existing)
@@ -73,7 +74,7 @@ If a pre-commit hook already exists, the ccg block is appended (idempotent).`,
 			content += buildHookBody(lintStrict)
 
 			if err := os.WriteFile(hookPath, []byte(content), 0o755); err != nil {
-				return fmt.Errorf("write pre-commit hook: %w", err)
+				return trace.Wrap(err, "write pre-commit hook")
 			}
 
 			fmt.Fprintf(stdout(cmd), "Installed ccg pre-commit hook: %s\n", hookPath)

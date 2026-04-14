@@ -2,13 +2,15 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"gorm.io/gorm"
+
+	"github.com/tae2089/trace"
 
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"github.com/imtaebin/code-context-graph/internal/parse"
@@ -17,12 +19,6 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/store"
 	"github.com/imtaebin/code-context-graph/internal/store/search"
 )
-
-var skipDirs = map[string]bool{
-	".git":         true,
-	"vendor":       true,
-	"node_modules": true,
-}
 
 type GraphService struct {
 	Store         store.GraphStore
@@ -49,7 +45,7 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 
 	absDir, err := filepath.Abs(opts.Dir)
 	if err != nil {
-		return stats, fmt.Errorf("resolve path: %w", err)
+		return stats, trace.Wrap(err, "resolve path")
 	}
 
 	s.Logger.Info("building graph", "dir", absDir)
@@ -65,7 +61,7 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 			if path != absDir && opts.NoRecursive {
 				return filepath.SkipDir
 			}
-			if skipDirs[info.Name()] || pathutil.MatchExcludes(opts.ExcludePatterns, relPath) {
+			if pathutil.ShouldSkipDir(info.Name()) || pathutil.MatchExcludes(opts.ExcludePatterns, relPath) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -83,25 +79,25 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 
 		content, err := os.ReadFile(path)
 		if err != nil {
-			s.Logger.Warn("skip unreadable file", "path", path, "error", err)
+			s.Logger.Warn("skip unreadable file", "path", path, trace.SlogError(err))
 			return nil
 		}
 
 		nodes, edges, tsComments, err := walker.ParseWithComments(ctx, relPath, content)
 		if err != nil {
-			s.Logger.Warn("parse failed", "path", relPath, "error", err)
+			s.Logger.Warn("parse failed", "path", relPath, trace.SlogError(err))
 			return nil
 		}
 
 		err = s.Store.WithTx(ctx, func(txStore store.GraphStore) error {
 			if len(nodes) > 0 {
 				if err := txStore.UpsertNodes(ctx, nodes); err != nil {
-					return fmt.Errorf("upsert nodes for %s: %w", relPath, err)
+					return trace.Wrap(err, "upsert nodes for "+relPath)
 				}
 			}
 			if len(edges) > 0 {
 				if err := txStore.UpsertEdges(ctx, edges); err != nil {
-					return fmt.Errorf("upsert edges for %s: %w", relPath, err)
+					return trace.Wrap(err, "upsert edges for "+relPath)
 				}
 			}
 
@@ -123,7 +119,7 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 				}
 				storedMap, err := txStore.GetNodesByQualifiedNames(ctx, qNames)
 				if err != nil {
-					return fmt.Errorf("batch get nodes for annotations: %w", err)
+					return trace.Wrap(err, "batch get nodes for annotations")
 				}
 
 				for _, b := range bindings {
@@ -133,7 +129,7 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 					}
 					b.Annotation.NodeID = stored.ID
 					if err := txStore.UpsertAnnotation(ctx, b.Annotation); err != nil {
-						return fmt.Errorf("upsert annotation for %s: %w", stored.QualifiedName, err)
+						return trace.Wrap(err, "upsert annotation for "+stored.QualifiedName)
 					}
 				}
 			}
@@ -141,7 +137,7 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		})
 
 		if err != nil {
-			return fmt.Errorf("transaction failed for %s: %w", relPath, err)
+			return trace.Wrap(err, "transaction failed for "+relPath)
 		}
 
 		stats.TotalFiles++
@@ -151,12 +147,12 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		return nil
 	})
 	if err != nil {
-		return stats, fmt.Errorf("walk directory: %w", err)
+		return stats, trace.Wrap(err, "walk directory")
 	}
 
 	if s.SearchBackend != nil && s.DB != nil {
 		if err := s.DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&model.SearchDocument{}).Error; err != nil {
-			return stats, fmt.Errorf("clear search documents: %w", err)
+			return stats, trace.Wrap(err, "clear search documents")
 		}
 
 		var docs []model.SearchDocument
@@ -196,7 +192,7 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 				}
 				var annotations []model.Annotation
 				if err := s.DB.Where("node_id IN ?", nodeIDs).Preload("Tags").Find(&annotations).Error; err != nil {
-					return fmt.Errorf("load annotations batch %d: %w", batch, err)
+					return trace.Wrap(err, "load annotations batch "+strconv.Itoa(batch))
 				}
 				for i := range annotations {
 					annByNode[annotations[i].NodeID] = &annotations[i]
@@ -215,16 +211,16 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 				return nil
 			})
 		if result.Error != nil {
-			return stats, fmt.Errorf("load index nodes: %w", result.Error)
+			return stats, trace.Wrap(result.Error, "load index nodes")
 		}
 
 		if len(docs) > 0 {
 			if err := s.DB.CreateInBatches(docs, 100).Error; err != nil {
-				return stats, fmt.Errorf("batch insert search documents: %w", err)
+				return stats, trace.Wrap(err, "batch insert search documents")
 			}
 		}
 		if err := s.SearchBackend.Rebuild(ctx, s.DB); err != nil {
-			s.Logger.Warn("search index rebuild failed", "error", err)
+			s.Logger.Warn("search index rebuild failed", trace.SlogError(err))
 		} else {
 			s.Logger.Info("search index rebuilt", "documents", len(docs))
 		}

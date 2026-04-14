@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/tae2089/trace"
 
 	"github.com/imtaebin/code-context-graph/internal/docs"
 )
@@ -19,12 +20,12 @@ func newIndexCmd(deps *Deps) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if deps.DB == nil {
-				return fmt.Errorf("database not initialized")
+				return errDBNotInitialized
 			}
 
 			absOut, err := filepath.Abs(resolveOutDir(outDir))
 			if err != nil {
-				return fmt.Errorf("resolve out path: %w", err)
+				return trace.Wrap(err, "resolve out path")
 			}
 
 			gen := &docs.Generator{
@@ -34,7 +35,7 @@ func newIndexCmd(deps *Deps) *cobra.Command {
 			}
 
 			if err := gen.RunIndex(); err != nil {
-				return fmt.Errorf("generate index: %w", err)
+				return trace.Wrap(err, "generate index")
 			}
 
 			fmt.Fprintf(stdout(cmd), "Index written to %s\n", absOut)

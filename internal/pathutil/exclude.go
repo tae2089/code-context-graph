@@ -8,6 +8,16 @@ import (
 	"path/filepath"
 )
 
+// ShouldSkipDir는 디렉토리 이름이 기본 제외 대상인지 반환한다.
+// .git, vendor, node_modules, 그리고 "."으로 시작하는 숨김 디렉토리를 제외한다.
+func ShouldSkipDir(name string) bool {
+	switch name {
+	case ".git", "vendor", "node_modules":
+		return true
+	}
+	return name != "." && strings.HasPrefix(name, ".")
+}
+
 // MatchExcludes reports whether relPath matches any of the given exclude patterns.
 //
 // Pattern forms:

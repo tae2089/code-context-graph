@@ -44,15 +44,15 @@ func (c *Cache) Get(key string) (string, bool) {
 // Set stores the value under key with the cache's configured TTL.
 func (c *Cache) Set(key string, value string) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.entries[key] = entry{value: value, expiresAt: time.Now().Add(c.ttl)}
-	c.mu.Unlock()
 }
 
 // Flush removes all entries from the cache.
 func (c *Cache) Flush() {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.entries = make(map[string]entry)
-	c.mu.Unlock()
 }
 
 // Close stops the background cleanup goroutine.
