@@ -12,6 +12,7 @@ import (
 func newLintCmd(deps *Deps) *cobra.Command {
 	var outDir string
 	var excludePatterns []string
+	var strict bool
 
 	cmd := &cobra.Command{
 		Use:   "lint",
@@ -80,11 +81,16 @@ func newLintCmd(deps *Deps) *cobra.Command {
 					len(report.Orphans), len(report.Missing), len(report.Stale), len(report.Unannotated))
 			}
 
+			if strict && total > 0 {
+				return fmt.Errorf("lint found %d issues", total)
+			}
+
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&outDir, "out", "docs", "Documentation directory to lint")
 	cmd.Flags().StringArrayVar(&excludePatterns, "exclude", nil, "Exclude files/paths matching pattern (repeatable)")
+	cmd.Flags().BoolVar(&strict, "strict", false, "Exit with error if any issues are found (useful for CI/pre-commit)")
 	return cmd
 }

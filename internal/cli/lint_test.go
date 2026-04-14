@@ -166,3 +166,52 @@ func TestLintCommand_ReportsUnannotated(t *testing.T) {
 		t.Errorf("expected 'unannotated' label in output, got:\n%s", out)
 	}
 }
+
+func TestLintCommand_Strict_FailsOnIssues(t *testing.T) {
+	deps, stdout, stderr, db := setupLintTest(t)
+
+	db.Create(&model.Node{
+		QualifiedName: "pkg/bare.go::Bare",
+		Kind:          model.NodeKindFunction,
+		Name:          "Bare",
+		FilePath:      "pkg/bare.go",
+		StartLine:     1, EndLine: 5,
+		Hash: "h1", Language: "go",
+	})
+
+	outDir := t.TempDir()
+	err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--strict")
+	if err == nil {
+		t.Fatal("expected error with --strict when issues exist")
+	}
+}
+
+func TestLintCommand_Strict_PassesWhenClean(t *testing.T) {
+	deps, stdout, stderr, db := setupLintTest(t)
+
+	fn := model.Node{
+		QualifiedName: "pkg/ok.go::Ok",
+		Kind:          model.NodeKindFunction,
+		Name:          "Ok",
+		FilePath:      "pkg/ok.go",
+		StartLine:     1, EndLine: 5,
+		Hash: "h1", Language: "go",
+	}
+	db.Create(&fn)
+	db.Create(&model.Annotation{
+		NodeID: fn.ID,
+		Tags:   []model.DocTag{{Kind: model.TagIntent, Value: "ok", Ordinal: 0}},
+	})
+
+	outDir := t.TempDir()
+	// Generate docs first
+	if err := executeCmd(deps, stdout, stderr, "docs", "--out", outDir); err != nil {
+		t.Fatalf("docs: %v", err)
+	}
+
+	stdout.Reset()
+	err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--strict")
+	if err != nil {
+		t.Fatalf("expected no error with --strict when clean, got: %v", err)
+	}
+}

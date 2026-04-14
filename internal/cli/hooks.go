@@ -14,7 +14,7 @@ const hookGuardEnd = "# --- ccg hook end ---"
 
 const hookBody = `
 ` + hookGuardBegin + `
-ccg build . && ccg docs && ccg lint
+ccg build . && ccg docs && ccg lint --strict
 ` + hookGuardEnd + `
 `
 
