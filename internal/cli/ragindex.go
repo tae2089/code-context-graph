@@ -14,6 +14,7 @@ import (
 func newRagIndexCmd(deps *Deps) *cobra.Command {
 	var outDir string
 	var indexDir string
+	var projectDesc string
 
 	cmd := &cobra.Command{
 		Use:   "rag-index",
@@ -25,9 +26,10 @@ func newRagIndexCmd(deps *Deps) *cobra.Command {
 			}
 
 			b := &ragindex.Builder{
-				DB:       deps.DB,
-				OutDir:   resolveOutDir(outDir),
-				IndexDir: indexDir,
+				DB:          deps.DB,
+				OutDir:      resolveOutDir(outDir),
+				IndexDir:    indexDir,
+				ProjectDesc: projectDesc,
 			}
 
 			communities, files, err := b.Build()
@@ -54,6 +56,7 @@ func newRagIndexCmd(deps *Deps) *cobra.Command {
 
 	cmd.Flags().StringVar(&outDir, "out", "docs", "Documentation directory")
 	cmd.Flags().StringVar(&indexDir, "index-dir", ".ccg", "Directory for doc-index.json output")
+	cmd.Flags().StringVar(&projectDesc, "desc", "", "Project description for root node summary")
 
 	return cmd
 }

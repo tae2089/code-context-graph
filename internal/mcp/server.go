@@ -94,6 +94,8 @@ type Deps struct {
 
 	// RagIndexDir — doc-index.json이 저장되는 디렉토리 (기본: ".ccg")
 	RagIndexDir string
+	// RagProjectDesc — root 노드 summary에 사용되는 프로젝트 설명
+	RagProjectDesc string
 }
 
 func NewServer(deps *Deps) *server.MCPServer {

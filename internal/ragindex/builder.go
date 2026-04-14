@@ -33,9 +33,10 @@ type Index struct {
 
 // Builder는 DB에서 인덱스를 빌드하는 구조체이다.
 type Builder struct {
-	DB       *gorm.DB
-	OutDir   string // docs 디렉토리 (기본: "docs")
-	IndexDir string // .ccg 디렉토리 (기본: ".ccg")
+	DB          *gorm.DB
+	OutDir      string // docs 디렉토리 (기본: "docs")
+	IndexDir    string // .ccg 디렉토리 (기본: ".ccg")
+	ProjectDesc string // root 노드 summary (기본: "")
 }
 
 // indexDir는 IndexDir 필드의 기본값을 반환한다.
@@ -97,6 +98,7 @@ func (b *Builder) Build() (int, int, error) {
 	root := &TreeNode{
 		ID:       "root",
 		Label:    "Root",
+		Summary:  b.ProjectDesc,
 		Children: []*TreeNode{},
 	}
 

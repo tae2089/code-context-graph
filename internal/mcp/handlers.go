@@ -1366,9 +1366,10 @@ func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolReques
 	}
 
 	b := &ragindex.Builder{
-		DB:       h.deps.DB,
-		OutDir:   outDir,   // empty string → Builder uses "docs" default
-		IndexDir: indexDir, // empty string → Builder uses ".ccg" default
+		DB:          h.deps.DB,
+		OutDir:      outDir,   // empty string → Builder uses "docs" default
+		IndexDir:    indexDir, // empty string → Builder uses ".ccg" default
+		ProjectDesc: h.deps.RagProjectDesc,
 	}
 	communities, files, err := b.Build()
 	if err != nil {

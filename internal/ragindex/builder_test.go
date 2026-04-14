@@ -300,6 +300,34 @@ func TestBuilder_WritesJSON(t *testing.T) {
 	}
 }
 
+// TestBuilder_ProjectDesc: ProjectDesc 설정 시 root.Summary에 반영됨을 검증한다.
+func TestBuilder_ProjectDesc(t *testing.T) {
+	db := setupDB(t)
+	tmpDir := t.TempDir()
+
+	b := &ragindex.Builder{
+		DB:          db,
+		OutDir:      filepath.Join(tmpDir, "docs"),
+		IndexDir:    filepath.Join(tmpDir, ".ccg"),
+		ProjectDesc: "테스트 프로젝트 설명",
+	}
+
+	_, _, err := b.Build()
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	idxPath := filepath.Join(tmpDir, ".ccg", "doc-index.json")
+	idx, err := ragindex.LoadIndex(idxPath)
+	if err != nil {
+		t.Fatalf("LoadIndex: %v", err)
+	}
+
+	if idx.Root.Summary != "테스트 프로젝트 설명" {
+		t.Errorf("root.Summary = %q, want %q", idx.Root.Summary, "테스트 프로젝트 설명")
+	}
+}
+
 // TestFindNode: FindNode가 재귀적으로 트리에서 노드를 찾는지 검증한다.
 func TestFindNode(t *testing.T) {
 	root := &ragindex.TreeNode{
