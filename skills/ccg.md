@@ -28,8 +28,8 @@ A local code analysis tool that parses codebases via Tree-sitter into a knowledg
 | `tags` | Show all @tag reference with descriptions | `ccg tags` |
 | `hooks install` | Install pre-commit git hook | `ccg hooks install` |
 | `hooks install --lint-strict` | Install hook that blocks commit on lint issues | `ccg hooks install --lint-strict` |
-| `lint [--out dir]` | Detect orphan, missing, stale, unannotated | `ccg lint --out docs/` |
-| `lint --strict` | Same as lint but exit 1 on issues (for CI) | `ccg lint --strict` |
+| `lint [--out dir]` | 8-category lint: orphan, missing, stale, unannotated, contradiction, dead-ref, incomplete, drift | `ccg lint --out docs/` |
+| `lint --strict` | Exit 1 on issues; ignore rules with `action: ignore` excluded from count | `ccg lint --strict` |
 | `annotate [file\|dir]` | AI-generate annotations for code | `ccg annotate internal/analysis/` |
 
 ## Execution

@@ -234,8 +234,8 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
 | `ccg tags` | Show all annotation tag reference |
 | `ccg hooks install` | Install pre-commit git hook |
 | `ccg hooks install --lint-strict` | Install hook that blocks commit on issues |
-| `ccg lint [--out dir]` | Detect orphan, missing, stale, unannotated |
-| `ccg lint --strict` | Exit 1 on issues (for CI/pre-commit) |
+| `ccg lint [--out dir]` | 8-category docs lint (orphan, missing, stale, unannotated, contradiction, dead-ref, incomplete, drift) |
+| `ccg lint --strict` | Exit 1 on issues (for CI/pre-commit); ignores rules with `action: ignore` |
 | `ccg serve` | Start MCP server (stdio) |
 
 ### Config file (`.ccg.yaml`)
@@ -293,6 +293,12 @@ CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/
 # Docker (PostgreSQL + pgvector + MySQL)
 docker compose up -d
 ```
+
+## Future Work
+
+- **Contradiction precise mode**: Tree-sitter re-parse to extract function parameter names and compare 1:1 with @param tag names (currently detects signature changes via node hash + timestamp only)
+- **`ccg lint --fix`**: Auto-fix stale (re-run docs), orphan (delete doc), dead-ref (remove @see tag)
+- **Severity levels**: Per-category default severity (info/warn/error) configurable in .ccg.yaml
 
 ## License
 
