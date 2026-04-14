@@ -313,3 +313,37 @@ func TestLintCommand_ReportsIncomplete(t *testing.T) {
 		t.Errorf("expected qualified name in output, got:\n%s", out)
 	}
 }
+
+func TestLintCommand_TwiceRule_TriggersOnSecondRun(t *testing.T) {
+	deps, stdout, stderr, db := setupLintTest(t)
+
+	// Create an unannotated node
+	db.Create(&model.Node{
+		QualifiedName: "pkg/bare.go::Bare",
+		Kind:          model.NodeKindFunction,
+		Name:          "Bare",
+		FilePath:      "pkg/bare.go",
+		StartLine:     1, EndLine: 5,
+		Hash: "h1", Language: "go",
+	})
+
+	histDir := t.TempDir()
+	outDir := t.TempDir()
+
+	// First run
+	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--history-dir", histDir); err != nil {
+		t.Fatalf("first run unexpected error: %v", err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+
+	// Second run — same issue persists
+	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--history-dir", histDir); err != nil {
+		t.Fatalf("second run unexpected error: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "Twice Rule") {
+		t.Errorf("expected 'Twice Rule' in output on second run, got:\n%s", out)
+	}
+}

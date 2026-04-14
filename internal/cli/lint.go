@@ -13,6 +13,7 @@ func newLintCmd(deps *Deps) *cobra.Command {
 	var outDir string
 	var excludePatterns []string
 	var strict bool
+	var historyDir string
 
 	cmd := &cobra.Command{
 		Use:   "lint",
@@ -115,6 +116,65 @@ func newLintCmd(deps *Deps) *cobra.Command {
 					len(report.Contradictions), len(report.DeadRefs), len(report.Incomplete), len(report.Drifted))
 			}
 
+			// Twice Rule: compare with previous run history
+			{
+				hDir := historyDir
+				if hDir == "" {
+					hDir = ".ccg"
+				}
+				histPath := filepath.Join(hDir, "lint-history.json")
+
+				history, err := docs.LoadHistory(histPath)
+				if err != nil {
+					deps.Logger.Warn("load lint history failed", "error", err)
+				} else {
+					// Build current keys as "category:value"
+					var currentKeys []string
+					for _, v := range report.Orphans {
+						currentKeys = append(currentKeys, "orphan:"+v)
+					}
+					for _, v := range report.Missing {
+						currentKeys = append(currentKeys, "missing:"+v)
+					}
+					for _, v := range report.Stale {
+						currentKeys = append(currentKeys, "stale:"+v)
+					}
+					for _, v := range report.Unannotated {
+						currentKeys = append(currentKeys, "unannotated:"+v)
+					}
+					for _, c := range report.Contradictions {
+						currentKeys = append(currentKeys, "contradiction:"+c.QualifiedName)
+					}
+					for _, d := range report.DeadRefs {
+						currentKeys = append(currentKeys, "dead-ref:"+d.QualifiedName)
+					}
+					for _, v := range report.Incomplete {
+						currentKeys = append(currentKeys, "incomplete:"+v)
+					}
+					for _, v := range report.Drifted {
+						currentKeys = append(currentKeys, "drift:"+v)
+					}
+
+					triggered := history.Update(currentKeys)
+					if saveErr := history.Save(histPath); saveErr != nil {
+						deps.Logger.Warn("save lint history failed", "error", saveErr)
+					}
+
+					if len(triggered) > 0 {
+						fmt.Fprintf(out, "Twice Rule triggered (%d):\n", len(triggered))
+						for _, key := range triggered {
+							fmt.Fprintf(out, "  %s → added to .ccg.yaml rules (warn)\n", key)
+						}
+						fmt.Fprintln(out)
+
+						cfgPath := ".ccg.yaml"
+						if writeErr := docs.WriteYamlRules(cfgPath, triggered); writeErr != nil {
+							deps.Logger.Warn("write yaml rules failed", "error", writeErr)
+						}
+					}
+				}
+			}
+
 			if strict && total > 0 {
 				return fmt.Errorf("lint found %d issues", total)
 			}
@@ -126,5 +186,6 @@ func newLintCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().StringVar(&outDir, "out", "docs", "Documentation directory to lint")
 	cmd.Flags().StringArrayVar(&excludePatterns, "exclude", nil, "Exclude files/paths matching pattern (repeatable)")
 	cmd.Flags().BoolVar(&strict, "strict", false, "Exit with error if any issues are found (useful for CI/pre-commit)")
+	cmd.Flags().StringVar(&historyDir, "history-dir", "", "Directory for lint history (default: .ccg)")
 	return cmd
 }
