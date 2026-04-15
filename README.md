@@ -375,6 +375,20 @@ CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/
 docker compose up -d
 ```
 
+### Integration Test (Gitea + PostgreSQL + ccg)
+
+Full-stack test: Gitea push → webhook → ccg clone → build → PostgreSQL.
+
+```bash
+# Run (starts containers, creates repo, pushes code, verifies build)
+./scripts/integration-test.sh
+
+# Manual setup
+docker compose -f docker-compose.integration.yml up -d --build
+# ... run tests ...
+docker compose -f docker-compose.integration.yml down -v
+```
+
 ## Future Work
 
 - **Contradiction precise mode**: Tree-sitter re-parse to extract function parameter names and compare 1:1 with @param tag names (currently detects signature changes via node hash + timestamp only)

@@ -1,0 +1,85 @@
+# Full-stack integration test: Gitea + PostgreSQL + ccg
+# Usage: docker compose -f docker-compose.integration.yml up -d
+#        ./scripts/integration-test.sh
+#        docker compose -f docker-compose.integration.yml down -v
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ccg
+      POSTGRES_PASSWORD: ccg
+      POSTGRES_DB: ccg_integration
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ccg -d ccg_integration"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+    networks:
+      - integration
+
+  gitea:
+    image: gitea/gitea:1.23-rootless
+    environment:
+      # Skip installation wizard
+      - GITEA__security__INSTALL_LOCK=true
+      - GITEA__security__SECRET_KEY=integration-test-secret-key-1234567890
+      # Database — use SQLite internally (Gitea's own DB, not ours)
+      - GITEA__database__DB_TYPE=sqlite3
+      # Server
+      - GITEA__server__ROOT_URL=http://gitea:3000
+      - GITEA__server__HTTP_PORT=3000
+      - GITEA__server__DOMAIN=gitea
+      - GITEA__server__OFFLINE_MODE=true
+      # Disable registration, allow API access
+      - GITEA__service__DISABLE_REGISTRATION=false
+      - GITEA__service__REQUIRE_SIGNIN_VIEW=false
+      # Webhook — allow calling ccg container
+      - GITEA__webhook__ALLOWED_HOST_LIST=ccg
+      - GITEA__webhook__SKIP_TLS_VERIFY=true
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/api/v1/version"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks:
+      - integration
+
+  ccg:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - CCG_DB_DRIVER=postgres
+      - CCG_DB_DSN=host=postgres user=ccg password=ccg dbname=ccg_integration port=5432 sslmode=disable
+    command:
+      - serve
+      - --transport=streamable-http
+      - --http-addr=:8080
+      - --db-driver=postgres
+      - --db-dsn=host=postgres user=ccg password=ccg dbname=ccg_integration port=5432 sslmode=disable
+      - --allow-repo=*/*
+      - --webhook-secret=test-webhook-secret
+      - --repo-root=/repos
+    ports:
+      - "18080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - integration
+
+networks:
+  integration:
+    driver: bridge

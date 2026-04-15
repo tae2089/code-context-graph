@@ -34,6 +34,7 @@ import (
 	mcpserver "github.com/imtaebin/code-context-graph/internal/mcp"
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"github.com/imtaebin/code-context-graph/internal/parse/treesitter"
+	"github.com/imtaebin/code-context-graph/internal/service"
 	"github.com/imtaebin/code-context-graph/internal/store/gormstore"
 	"github.com/imtaebin/code-context-graph/internal/store/search"
 	"github.com/imtaebin/code-context-graph/internal/webhook"
@@ -255,7 +256,24 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 				deps.Logger.Error("webhook clone/pull failed", "repo", repoFullName, "error", err)
 				return
 			}
-			deps.Logger.Info("webhook sync completed", "repo", repoFullName, "namespace", ns)
+
+			repoDir := webhook.RepoDir(cfg.RepoRoot, ns)
+			graphSvc := &service.GraphService{
+				Store:         deps.Store,
+				DB:            deps.DB,
+				SearchBackend: deps.SearchBackend,
+				Walkers:       deps.Walkers,
+				Logger:        deps.Logger,
+			}
+			buildCtx, buildCancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer buildCancel()
+			stats, err := graphSvc.Build(buildCtx, service.BuildOptions{Dir: repoDir})
+			if err != nil {
+				deps.Logger.Error("webhook build failed", "repo", repoFullName, "error", err)
+				return
+			}
+			deps.Logger.Info("webhook sync completed", "repo", repoFullName, "namespace", ns,
+				"files", stats.TotalFiles, "nodes", stats.TotalNodes, "edges", stats.TotalEdges)
 		}
 		syncQueue = webhook.NewSyncQueue(4, syncHandler)
 		mux.Handle("/webhook", webhook.NewWebhookHandler(secret, allowlist, syncQueue.Add))

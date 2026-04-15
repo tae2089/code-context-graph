@@ -50,7 +50,11 @@ func (a *RepoAllowlist) IsAllowed(repoFullName string) bool {
 func (r *allowRule) match(repoFullName string) bool {
 	if r.wildcard {
 		parts := strings.SplitN(repoFullName, "/", 2)
-		return len(parts) == 2 && parts[0] == r.prefix
+		if len(parts) != 2 {
+			return false
+		}
+		// "*" prefix matches any org (e.g. "*/*" allows all repos)
+		return r.prefix == "*" || parts[0] == r.prefix
 	}
 	return repoFullName == r.pattern
 }

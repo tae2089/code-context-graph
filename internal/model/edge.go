@@ -21,14 +21,14 @@ const (
 // @intent 코드 그래프에서 선언 간 연결과 그 출처를 영속화한다.
 type Edge struct {
 	ID          uint     `gorm:"primaryKey"`
-	FromNodeID  uint     `gorm:"not null;index"`
-	ToNodeID    uint     `gorm:"not null;index"`
+	FromNodeID  uint     `gorm:"index"`
+	ToNodeID    uint     `gorm:"index"`
 	Kind        EdgeKind `gorm:"size:32;not null;index"`
 	FilePath    string   `gorm:"size:1024;index"`
 	Line        int
 	Fingerprint string `gorm:"uniqueIndex;size:128;not null"`
 	CreatedAt   time.Time
 
-	FromNode Node `gorm:"foreignKey:FromNodeID"`
-	ToNode   Node `gorm:"foreignKey:ToNodeID"`
+	FromNode Node `gorm:"foreignKey:FromNodeID;constraint:-"`
+	ToNode   Node `gorm:"foreignKey:ToNodeID;constraint:-"`
 }

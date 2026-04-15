@@ -172,3 +172,57 @@ func TestExtractNamespace(t *testing.T) {
 		}
 	}
 }
+
+func TestWebhookHandler_GiteaEventHeader(t *testing.T) {
+	secret := []byte("test-secret")
+	al := NewRepoAllowlist([]string{"org/*"})
+
+	var syncedRepo string
+	onSync := func(repo, url string) { syncedRepo = repo }
+	h := NewWebhookHandler(secret, al, onSync)
+
+	payload := makePushEvent("refs/heads/main", "org/svc", "https://gitea.local/org/svc.git")
+	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
+	req.Header.Set("X-Hub-Signature-256", signPayload(secret, payload))
+	req.Header.Set("X-Gitea-Event", "push")
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if syncedRepo != "org/svc" {
+		t.Errorf("syncedRepo = %q, want %q", syncedRepo, "org/svc")
+	}
+}
+
+func signPayloadRaw(secret, payload []byte) string {
+	mac := hmac.New(sha256.New, secret)
+	mac.Write(payload)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func TestWebhookHandler_GiteaSignatureHeader(t *testing.T) {
+	secret := []byte("test-secret")
+	al := NewRepoAllowlist([]string{"org/*"})
+
+	var syncedRepo string
+	onSync := func(repo, url string) { syncedRepo = repo }
+	h := NewWebhookHandler(secret, al, onSync)
+
+	payload := makePushEvent("refs/heads/main", "org/svc", "https://gitea.local/org/svc.git")
+	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
+	req.Header.Set("X-Gitea-Signature", signPayloadRaw(secret, payload))
+	req.Header.Set("X-Gitea-Event", "push")
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if syncedRepo != "org/svc" {
+		t.Errorf("syncedRepo = %q, want %q", syncedRepo, "org/svc")
+	}
+}

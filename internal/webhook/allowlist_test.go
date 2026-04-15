@@ -78,3 +78,28 @@ func TestRepoAllowlist_MultipleRules(t *testing.T) {
 		t.Error("expected random/repo to be denied")
 	}
 }
+
+func TestRepoAllowlist_GlobalWildcard(t *testing.T) {
+	al := NewRepoAllowlist([]string{"*/*"})
+
+	if !al.IsAllowed("any-org/any-repo") {
+		t.Error("expected any-org/any-repo to be allowed with */*")
+	}
+	if !al.IsAllowed("testadmin/sample-go") {
+		t.Error("expected testadmin/sample-go to be allowed with */*")
+	}
+	if al.IsAllowed("no-slash") {
+		t.Error("expected repo without org prefix to be denied")
+	}
+}
+
+func TestRepoAllowlist_GlobalWildcardWithNegation(t *testing.T) {
+	al := NewRepoAllowlist([]string{"*/*", "!secret/private"})
+
+	if !al.IsAllowed("org/repo") {
+		t.Error("expected org/repo to be allowed")
+	}
+	if al.IsAllowed("secret/private") {
+		t.Error("expected secret/private to be denied by negation")
+	}
+}

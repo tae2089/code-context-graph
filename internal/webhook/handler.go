@@ -42,12 +42,19 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.verifySignature(body, r.Header.Get("X-Hub-Signature-256")) {
+	sig := r.Header.Get("X-Hub-Signature-256")
+	if sig == "" {
+		sig = r.Header.Get("X-Gitea-Signature")
+	}
+	if !h.verifySignature(body, sig) {
 		http.Error(w, "invalid signature", http.StatusForbidden)
 		return
 	}
 
 	eventType := r.Header.Get("X-GitHub-Event")
+	if eventType == "" {
+		eventType = r.Header.Get("X-Gitea-Event")
+	}
 	if eventType != "push" {
 		slog.Info("skipping non-push event", "event", eventType)
 		w.WriteHeader(http.StatusOK)
@@ -81,11 +88,17 @@ func (h *WebhookHandler) verifySignature(payload []byte, signature string) bool 
 	if len(h.secret) == 0 {
 		return true
 	}
+	if signature == "" {
+		return false
+	}
 
 	mac := hmac.New(sha256.New, h.secret)
 	mac.Write(payload)
-	expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
-	return hmac.Equal([]byte(expected), []byte(signature))
+	expectedHex := hex.EncodeToString(mac.Sum(nil))
+
+	// GitHub: "sha256=<hex>", Gitea: "<hex>"
+	sig := strings.TrimPrefix(signature, "sha256=")
+	return hmac.Equal([]byte(expectedHex), []byte(sig))
 }
 
 func isMainBranch(ref string) bool {

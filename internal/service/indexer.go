@@ -61,6 +61,12 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 
 	s.Logger.Info("building graph", "dir", absDir)
 
+	type deferredEdges struct {
+		relPath string
+		edges   []model.Edge
+	}
+	var allDeferred []deferredEdges
+
 	err = filepath.Walk(absDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -106,11 +112,6 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 					return trace.Wrap(err, "upsert nodes for "+relPath)
 				}
 			}
-			if len(edges) > 0 {
-				if err := txStore.UpsertEdges(ctx, edges); err != nil {
-					return trace.Wrap(err, "upsert edges for "+relPath)
-				}
-			}
 
 			if len(tsComments) > 0 {
 				binderComments := make([]parse.CommentBlock, len(tsComments))
@@ -151,6 +152,10 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 			return trace.Wrap(err, "transaction failed for "+relPath)
 		}
 
+		if len(edges) > 0 {
+			allDeferred = append(allDeferred, deferredEdges{relPath: relPath, edges: edges})
+		}
+
 		stats.TotalFiles++
 		stats.TotalNodes += len(nodes)
 		stats.TotalEdges += len(edges)
@@ -159,6 +164,14 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 	})
 	if err != nil {
 		return stats, trace.Wrap(err, "walk directory")
+	}
+
+	for _, d := range allDeferred {
+		if err := s.Store.WithTx(ctx, func(txStore store.GraphStore) error {
+			return txStore.UpsertEdges(ctx, d.edges)
+		}); err != nil {
+			return stats, trace.Wrap(err, "upsert deferred edges for "+d.relPath)
+		}
 	}
 
 	if s.SearchBackend != nil && s.DB != nil {
