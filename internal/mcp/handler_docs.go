@@ -45,13 +45,17 @@ func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolReques
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		outDir = filepath.Join(h.workspaceRoot(), workspace)
+		ctx = h.applyWorkspace(ctx, request)
 	}
 
 	if indexDir == "" {
 		indexDir = h.deps.RagIndexDir
+		if indexDir == "" {
+			indexDir = ".ccg"
+		}
 	}
 
-	if workspace != "" && indexDir != "" {
+	if workspace != "" {
 		indexDir = filepath.Join(indexDir, workspace)
 	}
 

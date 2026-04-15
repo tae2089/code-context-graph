@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"github.com/imtaebin/code-context-graph/internal/ragindex"
 	"github.com/imtaebin/code-context-graph/internal/store/gormstore"
@@ -606,6 +607,146 @@ func TestSearch_NoMatch(t *testing.T) {
 	results := ragindex.Search(root, "zzznomatch", 10)
 	if len(results) != 0 {
 		t.Fatalf("expected 0 results, got %d", len(results))
+	}
+}
+
+// TestBuilder_NamespaceFilter: namespace가 설정된 context로 Build 호출 시
+// 해당 namespace의 데이터만 인덱스에 포함되는지 검증한다.
+func TestBuilder_NamespaceFilter(t *testing.T) {
+	db := setupDB(t)
+	tmpDir := t.TempDir()
+
+	// repo-a namespace의 노드와 커뮤니티
+	nodeA := model.Node{
+		Namespace:     "repo-a",
+		QualifiedName: "repo-a/handler.go/Login",
+		Kind:          model.NodeKindFunction,
+		Name:          "Login",
+		FilePath:      "handler.go",
+		StartLine:     1, EndLine: 10,
+		Language: "go",
+	}
+	if err := db.Create(&nodeA).Error; err != nil {
+		t.Fatalf("create nodeA: %v", err)
+	}
+	commA := model.Community{Key: "auth-a", Label: "Auth A", Strategy: "auto", Description: "repo-a auth"}
+	if err := db.Create(&commA).Error; err != nil {
+		t.Fatalf("create commA: %v", err)
+	}
+	if err := db.Create(&model.CommunityMembership{CommunityID: commA.ID, NodeID: nodeA.ID}).Error; err != nil {
+		t.Fatalf("create membership A: %v", err)
+	}
+	annA := model.Annotation{NodeID: nodeA.ID}
+	if err := db.Create(&annA).Error; err != nil {
+		t.Fatalf("create annA: %v", err)
+	}
+	if err := db.Create(&model.DocTag{AnnotationID: annA.ID, Kind: model.TagIntent, Value: "repo-a 로그인", Ordinal: 0}).Error; err != nil {
+		t.Fatalf("create tagA: %v", err)
+	}
+
+	// repo-b namespace의 노드와 커뮤니티
+	nodeB := model.Node{
+		Namespace:     "repo-b",
+		QualifiedName: "repo-b/service.go/Pay",
+		Kind:          model.NodeKindFunction,
+		Name:          "Pay",
+		FilePath:      "service.go",
+		StartLine:     1, EndLine: 20,
+		Language: "go",
+	}
+	if err := db.Create(&nodeB).Error; err != nil {
+		t.Fatalf("create nodeB: %v", err)
+	}
+	commB := model.Community{Key: "pay-b", Label: "Payment B", Strategy: "auto", Description: "repo-b payment"}
+	if err := db.Create(&commB).Error; err != nil {
+		t.Fatalf("create commB: %v", err)
+	}
+	if err := db.Create(&model.CommunityMembership{CommunityID: commB.ID, NodeID: nodeB.ID}).Error; err != nil {
+		t.Fatalf("create membership B: %v", err)
+	}
+	annB := model.Annotation{NodeID: nodeB.ID}
+	if err := db.Create(&annB).Error; err != nil {
+		t.Fatalf("create annB: %v", err)
+	}
+	if err := db.Create(&model.DocTag{AnnotationID: annB.ID, Kind: model.TagIntent, Value: "repo-b 결제", Ordinal: 0}).Error; err != nil {
+		t.Fatalf("create tagB: %v", err)
+	}
+
+	// repo-a namespace context로 빌드
+	ctx := ctxns.WithNamespace(context.Background(), "repo-a")
+	b := &ragindex.Builder{
+		DB:       db,
+		OutDir:   filepath.Join(tmpDir, "docs"),
+		IndexDir: filepath.Join(tmpDir, ".ccg"),
+	}
+
+	communities, files, err := b.Build(ctx)
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+
+	// repo-a에 속한 커뮤니티만 (commA만) 나와야 한다
+	if communities != 1 {
+		t.Errorf("communities = %d, want 1 (only repo-a)", communities)
+	}
+	if files != 1 {
+		t.Errorf("files = %d, want 1 (only handler.go)", files)
+	}
+
+	indexPath := filepath.Join(tmpDir, ".ccg", "doc-index.json")
+	idx, err := ragindex.LoadIndex(indexPath)
+	if err != nil {
+		t.Fatalf("LoadIndex() error: %v", err)
+	}
+
+	// root children에 repo-b 커뮤니티가 없어야 함
+	for _, child := range idx.Root.Children {
+		if child.Label == "Payment B" {
+			t.Error("repo-b community should not appear in repo-a namespace build")
+		}
+	}
+
+	// repo-a 커뮤니티에 repo-b 파일이 없어야 함
+	for _, comm := range idx.Root.Children {
+		for _, file := range comm.Children {
+			if file.Label == "service.go" {
+				t.Error("repo-b file (service.go) should not appear in repo-a namespace build")
+			}
+		}
+	}
+}
+
+// TestBuilder_NamespaceFilter_EmptyNS: namespace 비어있으면 전체 데이터 반환 (기존 동작 유지).
+func TestBuilder_NamespaceFilter_EmptyNS(t *testing.T) {
+	db := setupDB(t)
+	tmpDir := t.TempDir()
+
+	// 두 namespace에 데이터 생성
+	for _, ns := range []string{"ns-1", "ns-2"} {
+		node := model.Node{
+			Namespace: ns, QualifiedName: ns + "/func", Kind: model.NodeKindFunction,
+			Name: "Func", FilePath: ns + "/main.go", StartLine: 1, EndLine: 5, Language: "go",
+		}
+		if err := db.Create(&node).Error; err != nil {
+			t.Fatalf("create node %s: %v", ns, err)
+		}
+		comm := model.Community{Key: ns, Label: ns, Strategy: "auto"}
+		if err := db.Create(&comm).Error; err != nil {
+			t.Fatalf("create comm %s: %v", ns, err)
+		}
+		if err := db.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: node.ID}).Error; err != nil {
+			t.Fatalf("create membership %s: %v", ns, err)
+		}
+	}
+
+	// namespace 없는 context → 전체 반환
+	b := &ragindex.Builder{DB: db, OutDir: filepath.Join(tmpDir, "docs"), IndexDir: filepath.Join(tmpDir, ".ccg")}
+	communities, _, err := b.Build(context.Background())
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+	if communities != 2 {
+		t.Errorf("communities = %d, want 2 (all namespaces)", communities)
 	}
 }
 

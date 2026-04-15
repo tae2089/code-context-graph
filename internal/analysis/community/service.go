@@ -51,9 +51,10 @@ func New(db *gorm.DB) *Builder {
 // @mutates Community CommunityMembership tables
 func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 	var result []Stats
+	ns := ctxns.FromContext(ctx)
 
 	err := b.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := deleteAllCommunities(tx); err != nil {
+		if err := deleteCommunities(tx, ns); err != nil {
 			return err
 		}
 
@@ -62,7 +63,7 @@ func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 			return err
 		}
 
-		communityMap, nodeComm, err := createCommunitiesAndMemberships(tx, groups)
+		communityMap, nodeComm, err := createCommunitiesAndMemberships(tx, groups, ns)
 		if err != nil {
 			return err
 		}
@@ -83,16 +84,34 @@ func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 	return result, err
 }
 
-func deleteAllCommunities(tx *gorm.DB) error {
-	if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&model.CommunityMembership{}).Error; err != nil {
+func deleteCommunities(tx *gorm.DB, ns string) error {
+	if ns == "" {
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&model.CommunityMembership{}).Error; err != nil {
+			return err
+		}
+		return tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&model.Community{}).Error
+	}
+	var ids []uint
+	if err := tx.Table("community_memberships").
+		Select("DISTINCT community_id").
+		Joins("JOIN nodes ON nodes.id = community_memberships.node_id").
+		Where("nodes.namespace = ?", ns).
+		Pluck("community_id", &ids).Error; err != nil {
 		return err
 	}
-	return tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&model.Community{}).Error
+	if len(ids) == 0 {
+		return nil
+	}
+	if err := tx.Where("community_id IN ?", ids).Delete(&model.CommunityMembership{}).Error; err != nil {
+		return err
+	}
+	return tx.Where("id IN ?", ids).Delete(&model.Community{}).Error
 }
 
 func groupNodesByDirectory(tx *gorm.DB, ctx context.Context, depth int) (map[string][]model.Node, error) {
 	var nodes []model.Node
-	if err := tx.Where("namespace = ?", ctxns.FromContext(ctx)).Find(&nodes).Error; err != nil {
+	ns := ctxns.FromContext(ctx)
+	if err := tx.Where("namespace = ?", ns).Find(&nodes).Error; err != nil {
 		return nil, err
 	}
 
@@ -104,13 +123,14 @@ func groupNodesByDirectory(tx *gorm.DB, ctx context.Context, depth int) (map[str
 	return groups, nil
 }
 
-func createCommunitiesAndMemberships(tx *gorm.DB, groups map[string][]model.Node) (map[string]*model.Community, map[uint]string, error) {
+func createCommunitiesAndMemberships(tx *gorm.DB, groups map[string][]model.Node, ns string) (map[string]*model.Community, map[uint]string, error) {
 	communityMap := map[string]*model.Community{}
 	for key := range groups {
 		c := model.Community{
-			Key:      key,
-			Label:    key,
-			Strategy: "directory",
+			Namespace: ns,
+			Key:       key,
+			Label:     key,
+			Strategy:  "directory",
 		}
 		if err := tx.Create(&c).Error; err != nil {
 			return nil, nil, err

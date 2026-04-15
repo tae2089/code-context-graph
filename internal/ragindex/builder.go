@@ -15,6 +15,7 @@ import (
 
 	"github.com/tae2089/trace"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
 
@@ -70,9 +71,20 @@ type nodeInfo struct {
 func (b *Builder) Build(ctx context.Context) (int, int, error) {
 	slog.Debug("ragindex.Builder.Build 시작", "outDir", b.OutDir, "indexDir", b.IndexDir)
 
+	ns := ctxns.FromContext(ctx)
+
 	// 1. 모든 커뮤니티와 멤버 로드
 	var communities []model.Community
-	if err := b.DB.WithContext(ctx).Preload("Members").Find(&communities).Error; err != nil {
+	q := b.DB.WithContext(ctx).Preload("Members")
+	if ns != "" {
+		q = q.Where("id IN (?)",
+			b.DB.Table("community_memberships").
+				Select("DISTINCT community_id").
+				Joins("JOIN nodes ON nodes.id = community_memberships.node_id").
+				Where("nodes.namespace = ?", ns),
+		)
+	}
+	if err := q.Find(&communities).Error; err != nil {
 		return 0, 0, trace.Wrap(err, "load communities")
 	}
 	slog.Debug("커뮤니티 로드 완료", "count", len(communities))
@@ -89,7 +101,11 @@ func (b *Builder) Build(ctx context.Context) (int, int, error) {
 	nodeInfoMap := make(map[uint]nodeInfo)
 	if len(allNodeIDs) > 0 {
 		var nodes []model.Node
-		if err := b.DB.WithContext(ctx).Where("id IN ?", allNodeIDs).Find(&nodes).Error; err != nil {
+		nq := b.DB.WithContext(ctx).Where("id IN ?", allNodeIDs)
+		if ns != "" {
+			nq = nq.Where("namespace = ?", ns)
+		}
+		if err := nq.Find(&nodes).Error; err != nil {
 			return 0, 0, trace.Wrap(err, "load all nodes")
 		}
 		for _, n := range nodes {
@@ -198,6 +214,8 @@ func (b *Builder) batchFileSummaries(ctx context.Context, filePaths []string) (m
 		return result, nil
 	}
 
+	ns := ctxns.FromContext(ctx)
+
 	// @intent 파일별 첫 번째 index 또는 intent 태그 값을 담는 배치 조회 결과다.
 	type row struct {
 		FilePath string
@@ -206,12 +224,15 @@ func (b *Builder) batchFileSummaries(ctx context.Context, filePaths []string) (m
 
 	// @index 태그를 파일 경로별로 일괄 조회
 	var indexRows []row
-	if err := b.DB.WithContext(ctx).Table("doc_tags").
+	iq := b.DB.WithContext(ctx).Table("doc_tags").
 		Select("nodes.file_path, doc_tags.value").
 		Joins("JOIN annotations ON annotations.id = doc_tags.annotation_id").
 		Joins("JOIN nodes ON nodes.id = annotations.node_id").
-		Where("nodes.file_path IN ? AND doc_tags.kind = ?", filePaths, string(model.TagIndex)).
-		Order("doc_tags.ordinal ASC, doc_tags.id ASC").
+		Where("nodes.file_path IN ? AND doc_tags.kind = ?", filePaths, string(model.TagIndex))
+	if ns != "" {
+		iq = iq.Where("nodes.namespace = ?", ns)
+	}
+	if err := iq.Order("doc_tags.ordinal ASC, doc_tags.id ASC").
 		Scan(&indexRows).Error; err != nil {
 		return nil, trace.Wrap(err, "batch index tags")
 	}
@@ -230,12 +251,15 @@ func (b *Builder) batchFileSummaries(ctx context.Context, filePaths []string) (m
 	}
 	if len(missing) > 0 {
 		var intentRows []row
-		if err := b.DB.WithContext(ctx).Table("doc_tags").
+		fq := b.DB.WithContext(ctx).Table("doc_tags").
 			Select("nodes.file_path, doc_tags.value").
 			Joins("JOIN annotations ON annotations.id = doc_tags.annotation_id").
 			Joins("JOIN nodes ON nodes.id = annotations.node_id").
-			Where("nodes.file_path IN ? AND doc_tags.kind = ?", missing, string(model.TagIntent)).
-			Order("doc_tags.ordinal ASC, doc_tags.id ASC").
+			Where("nodes.file_path IN ? AND doc_tags.kind = ?", missing, string(model.TagIntent))
+		if ns != "" {
+			fq = fq.Where("nodes.namespace = ?", ns)
+		}
+		if err := fq.Order("doc_tags.ordinal ASC, doc_tags.id ASC").
 			Scan(&intentRows).Error; err != nil {
 			return nil, trace.Wrap(err, "batch intent tags")
 		}
@@ -259,6 +283,8 @@ func (b *Builder) batchSymbolNodes(ctx context.Context, nodeIDs []uint) (map[str
 		return result, nil
 	}
 
+	ns := ctxns.FromContext(ctx)
+
 	// @intent 심볼 노드와 첫 번째 intent 태그 값을 함께 담는 배치 조회 결과다.
 	type intentRow struct {
 		NodeID        uint
@@ -269,12 +295,15 @@ func (b *Builder) batchSymbolNodes(ctx context.Context, nodeIDs []uint) (map[str
 	}
 
 	var rows []intentRow
-	if err := b.DB.WithContext(ctx).Table("nodes").
+	sq := b.DB.WithContext(ctx).Table("nodes").
 		Select("nodes.id as node_id, nodes.qualified_name, nodes.name, nodes.file_path, doc_tags.value").
 		Joins("JOIN annotations ON annotations.node_id = nodes.id").
 		Joins("JOIN doc_tags ON doc_tags.annotation_id = annotations.id").
-		Where("nodes.id IN ? AND doc_tags.kind = ?", nodeIDs, string(model.TagIntent)).
-		Order("nodes.file_path ASC, doc_tags.ordinal ASC, doc_tags.id ASC").
+		Where("nodes.id IN ? AND doc_tags.kind = ?", nodeIDs, string(model.TagIntent))
+	if ns != "" {
+		sq = sq.Where("nodes.namespace = ?", ns)
+	}
+	if err := sq.Order("nodes.file_path ASC, doc_tags.ordinal ASC, doc_tags.id ASC").
 		Scan(&rows).Error; err != nil {
 		return nil, trace.Wrap(err, "batch symbol nodes")
 	}

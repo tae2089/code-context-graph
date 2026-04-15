@@ -31,6 +31,7 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/analysis/largefunc"
 	"github.com/imtaebin/code-context-graph/internal/analysis/query"
 	"github.com/imtaebin/code-context-graph/internal/cli"
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	mcpserver "github.com/imtaebin/code-context-graph/internal/mcp"
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"github.com/imtaebin/code-context-graph/internal/parse/treesitter"
@@ -274,6 +275,7 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 			}
 			buildCtx, buildCancel := context.WithTimeout(ctx, 10*time.Minute)
 			defer buildCancel()
+			buildCtx = ctxns.WithNamespace(buildCtx, ns)
 			stats, err := graphSvc.Build(buildCtx, service.BuildOptions{Dir: repoDir})
 			if err != nil {
 				deps.Logger.Error("webhook build failed", "repo", repoFullName, "error", err)

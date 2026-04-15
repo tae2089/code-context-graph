@@ -6,7 +6,8 @@ import "time"
 // @intent 연관된 노드 집합을 전략별 커뮤니티 단위로 표현한다.
 type Community struct {
 	ID          uint   `gorm:"primaryKey"`
-	Key         string `gorm:"uniqueIndex;size:512;not null"`
+	Namespace   string `gorm:"size:256;not null;default:'';uniqueIndex:idx_community_ns_key"`
+	Key         string `gorm:"size:512;not null;uniqueIndex:idx_community_ns_key"`
 	Label       string `gorm:"size:256;not null"`
 	Strategy    string `gorm:"size:32;not null;index"`
 	Description string `gorm:"type:text"`
