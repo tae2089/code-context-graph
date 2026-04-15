@@ -17,15 +17,15 @@ func TestE2E_WebhookToRAG(t *testing.T) {
 	repoRoot := t.TempDir()
 	secret := []byte("e2e-secret")
 
-	allowlist := NewRepoAllowlist([]string{"myorg/*"})
+	allowlist := NewRepoFilter([]string{"myorg/*"})
 
 	var mu sync.Mutex
 	var clonedNS string
 	var cloneErr error
 	done := make(chan struct{})
 
-	onSync := func(repoFullName, cloneURL string) {
-		defer close(done)
+	onSync := func(_ context.Context, repoFullName, cloneURL string) {
+	defer close(done)
 		ns := ExtractNamespace(repoFullName)
 		mu.Lock()
 		clonedNS = ns
@@ -35,7 +35,7 @@ func TestE2E_WebhookToRAG(t *testing.T) {
 		mu.Lock()
 		cloneErr = err
 		mu.Unlock()
-	}
+}
 
 	handler := NewWebhookHandler(secret, allowlist, onSync)
 
@@ -83,7 +83,7 @@ func TestE2E_MultiRepoIsolation(t *testing.T) {
 	repoRoot := t.TempDir()
 	secret := []byte("e2e-secret")
 
-	allowlist := NewRepoAllowlist([]string{"myorg/*"})
+	allowlist := NewRepoFilter([]string{"myorg/*"})
 
 	var mu sync.Mutex
 	var results []struct {
@@ -92,8 +92,8 @@ func TestE2E_MultiRepoIsolation(t *testing.T) {
 	}
 	var wg sync.WaitGroup
 
-	onSync := func(repoFullName, cloneURL string) {
-		defer wg.Done()
+	onSync := func(_ context.Context, repoFullName, cloneURL string) {
+	defer wg.Done()
 		ns := ExtractNamespace(repoFullName)
 		err := CloneOrPull(context.Background(), cloneURL, repoRoot, ns, nil)
 		mu.Lock()
@@ -102,7 +102,7 @@ func TestE2E_MultiRepoIsolation(t *testing.T) {
 			err error
 		}{ns: ns, err: err})
 		mu.Unlock()
-	}
+}
 
 	handler := NewWebhookHandler(secret, allowlist, onSync)
 
@@ -180,14 +180,14 @@ func TestE2E_SyncQueueDedup(t *testing.T) {
 	repoRoot := t.TempDir()
 	secret := []byte("e2e-secret")
 
-	allowlist := NewRepoAllowlist([]string{"myorg/*"})
+	allowlist := NewRepoFilter([]string{"myorg/*"})
 
 	var callCount int32
 	var mu sync.Mutex
 	done := make(chan struct{}, 1)
 
-	syncHandler := func(repoFullName, cloneURL string) {
-		ns := ExtractNamespace(repoFullName)
+	syncHandler := func(_ context.Context, repoFullName, cloneURL string) {
+	ns := ExtractNamespace(repoFullName)
 		_ = CloneOrPull(context.Background(), cloneURL, repoRoot, ns, nil)
 		mu.Lock()
 		callCount++
@@ -199,7 +199,7 @@ func TestE2E_SyncQueueDedup(t *testing.T) {
 			default:
 			}
 		}
-	}
+}
 
 	q := NewSyncQueue(2, syncHandler)
 	defer q.Shutdown()
@@ -248,14 +248,14 @@ func TestE2E_SyncQueueMultiRepoParallel(t *testing.T) {
 	repoRoot := t.TempDir()
 	secret := []byte("e2e-secret")
 
-	allowlist := NewRepoAllowlist([]string{"myorg/*"})
+	allowlist := NewRepoFilter([]string{"myorg/*"})
 
 	var mu sync.Mutex
 	synced := make(map[string]bool)
 	allDone := make(chan struct{})
 
-	syncHandler := func(repoFullName, cloneURL string) {
-		ns := ExtractNamespace(repoFullName)
+	syncHandler := func(_ context.Context, repoFullName, cloneURL string) {
+	ns := ExtractNamespace(repoFullName)
 		_ = CloneOrPull(context.Background(), cloneURL, repoRoot, ns, nil)
 		mu.Lock()
 		synced[ns] = true
@@ -266,7 +266,7 @@ func TestE2E_SyncQueueMultiRepoParallel(t *testing.T) {
 			}
 		}
 		mu.Unlock()
-	}
+}
 
 	q := NewSyncQueue(2, syncHandler)
 	defer q.Shutdown()

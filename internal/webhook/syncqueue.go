@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"context"
 	"log/slog"
 	"sync"
 	"time"
@@ -12,6 +13,7 @@ type syncPayload struct {
 }
 
 type SyncQueue struct {
+	ctx        context.Context
 	handler    SyncFunc
 	mu         sync.Mutex
 	queue      []string
@@ -24,7 +26,12 @@ type SyncQueue struct {
 }
 
 func NewSyncQueue(workers int, handler SyncFunc) *SyncQueue {
+	return NewSyncQueueWithContext(context.Background(), workers, handler)
+}
+
+func NewSyncQueueWithContext(ctx context.Context, workers int, handler SyncFunc) *SyncQueue {
 	q := &SyncQueue{
+		ctx:        ctx,
 		handler:    handler,
 		dirty:      make(map[string]bool),
 		processing: make(map[string]bool),
@@ -40,7 +47,7 @@ func NewSyncQueue(workers int, handler SyncFunc) *SyncQueue {
 	return q
 }
 
-func (q *SyncQueue) Add(repoFullName, cloneURL string) {
+func (q *SyncQueue) Add(_ context.Context, repoFullName, cloneURL string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -102,7 +109,7 @@ func (q *SyncQueue) safeHandle(repo string, payload syncPayload) {
 			slog.Error("sync handler panicked", "repo", repo, "panic", r)
 		}
 	}()
-	q.handler(payload.repoFullName, payload.cloneURL)
+	q.handler(q.ctx, payload.repoFullName, payload.cloneURL)
 }
 
 func (q *SyncQueue) get() (string, syncPayload, bool) {

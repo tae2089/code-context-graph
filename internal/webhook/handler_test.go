@@ -2,6 +2,7 @@ package webhook
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -32,16 +33,16 @@ func makePushEvent(ref, repoFullName, cloneURL string) []byte {
 
 func TestWebhookHandler_ValidPushEvent(t *testing.T) {
 	secret := []byte("test-secret")
-	al := NewRepoAllowlist([]string{"org/*"})
+	al := NewRepoFilter([]string{"org/*"})
 
 	var mu sync.Mutex
 	var syncedRepo, syncedURL string
-	onSync := func(repo, url string) {
-		mu.Lock()
+	onSync := func(_ context.Context, repo, url string) {
+	mu.Lock()
 		defer mu.Unlock()
 		syncedRepo = repo
 		syncedURL = url
-	}
+}
 
 	h := NewWebhookHandler(secret, al, onSync)
 
@@ -69,9 +70,9 @@ func TestWebhookHandler_ValidPushEvent(t *testing.T) {
 
 func TestWebhookHandler_InvalidSignature(t *testing.T) {
 	secret := []byte("test-secret")
-	al := NewRepoAllowlist([]string{"org/*"})
+	al := NewRepoFilter([]string{"org/*"})
 
-	h := NewWebhookHandler(secret, al, func(string, string) {})
+	h := NewWebhookHandler(secret, al, func(context.Context, string, string) {})
 
 	payload := makePushEvent("refs/heads/main", "org/svc", "https://github.com/org/svc.git")
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
@@ -88,10 +89,10 @@ func TestWebhookHandler_InvalidSignature(t *testing.T) {
 
 func TestWebhookHandler_NonMainBranch(t *testing.T) {
 	secret := []byte("test-secret")
-	al := NewRepoAllowlist([]string{"org/*"})
+	al := NewRepoFilter([]string{"org/*"})
 
 	synced := false
-	h := NewWebhookHandler(secret, al, func(string, string) { synced = true })
+	h := NewWebhookHandler(secret, al, func(context.Context, string, string) { synced = true })
 
 	payload := makePushEvent("refs/heads/develop", "org/svc", "https://github.com/org/svc.git")
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
@@ -111,10 +112,10 @@ func TestWebhookHandler_NonMainBranch(t *testing.T) {
 
 func TestWebhookHandler_DisallowedRepo(t *testing.T) {
 	secret := []byte("test-secret")
-	al := NewRepoAllowlist([]string{"org/*"})
+	al := NewRepoFilter([]string{"org/*"})
 
 	synced := false
-	h := NewWebhookHandler(secret, al, func(string, string) { synced = true })
+	h := NewWebhookHandler(secret, al, func(context.Context, string, string) { synced = true })
 
 	payload := makePushEvent("refs/heads/main", "other/svc", "https://github.com/other/svc.git")
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
@@ -134,10 +135,10 @@ func TestWebhookHandler_DisallowedRepo(t *testing.T) {
 
 func TestWebhookHandler_NonPushEvent(t *testing.T) {
 	secret := []byte("test-secret")
-	al := NewRepoAllowlist([]string{"org/*"})
+	al := NewRepoFilter([]string{"org/*"})
 
 	synced := false
-	h := NewWebhookHandler(secret, al, func(string, string) { synced = true })
+	h := NewWebhookHandler(secret, al, func(context.Context, string, string) { synced = true })
 
 	payload := []byte(`{"action":"opened"}`)
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
@@ -175,10 +176,12 @@ func TestExtractNamespace(t *testing.T) {
 
 func TestWebhookHandler_GiteaEventHeader(t *testing.T) {
 	secret := []byte("test-secret")
-	al := NewRepoAllowlist([]string{"org/*"})
+	al := NewRepoFilter([]string{"org/*"})
 
 	var syncedRepo string
-	onSync := func(repo, url string) { syncedRepo = repo }
+	onSync := func(_ context.Context, repo, url string) {
+	syncedRepo = repo
+}
 	h := NewWebhookHandler(secret, al, onSync)
 
 	payload := makePushEvent("refs/heads/main", "org/svc", "https://gitea.local/org/svc.git")
@@ -205,10 +208,12 @@ func signPayloadRaw(secret, payload []byte) string {
 
 func TestWebhookHandler_GiteaSignatureHeader(t *testing.T) {
 	secret := []byte("test-secret")
-	al := NewRepoAllowlist([]string{"org/*"})
+	al := NewRepoFilter([]string{"org/*"})
 
 	var syncedRepo string
-	onSync := func(repo, url string) { syncedRepo = repo }
+	onSync := func(_ context.Context, repo, url string) {
+	syncedRepo = repo
+}
 	h := NewWebhookHandler(secret, al, onSync)
 
 	payload := makePushEvent("refs/heads/main", "org/svc", "https://gitea.local/org/svc.git")

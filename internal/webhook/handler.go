@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,16 +12,16 @@ import (
 	"strings"
 )
 
-type SyncFunc func(repoFullName, cloneURL string)
+type SyncFunc func(ctx context.Context, repoFullName, cloneURL string)
 
 type WebhookHandler struct {
-	secret    []byte
-	allowlist *RepoAllowlist
-	onSync    SyncFunc
+	secret []byte
+	filter *RepoFilter
+	onSync SyncFunc
 }
 
-func NewWebhookHandler(secret []byte, allowlist *RepoAllowlist, onSync SyncFunc) *WebhookHandler {
-	return &WebhookHandler{secret: secret, allowlist: allowlist, onSync: onSync}
+func NewWebhookHandler(secret []byte, filter *RepoFilter, onSync SyncFunc) *WebhookHandler {
+	return &WebhookHandler{secret: secret, filter: filter, onSync: onSync}
 }
 
 type pushEvent struct {
@@ -67,20 +68,14 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !isMainBranch(event.Ref) {
-		slog.Info("skipping non-main branch", "ref", event.Ref)
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	if !h.allowlist.IsAllowed(event.Repository.FullName) {
-		slog.Info("skipping disallowed repo", "repo", event.Repository.FullName)
+	if !h.filter.IsAllowedRef(event.Repository.FullName, event.Ref) {
+		slog.Info("skipping disallowed repo or branch", "repo", event.Repository.FullName, "ref", event.Ref)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
 	slog.Info("processing push event", "repo", event.Repository.FullName, "ref", event.Ref)
-	h.onSync(event.Repository.FullName, event.Repository.CloneURL)
+	h.onSync(r.Context(), event.Repository.FullName, event.Repository.CloneURL)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -99,10 +94,6 @@ func (h *WebhookHandler) verifySignature(payload []byte, signature string) bool 
 	// GitHub: "sha256=<hex>", Gitea: "<hex>"
 	sig := strings.TrimPrefix(signature, "sha256=")
 	return hmac.Equal([]byte(expectedHex), []byte(sig))
-}
-
-func isMainBranch(ref string) bool {
-	return ref == "refs/heads/main" || ref == "refs/heads/master"
 }
 
 func ExtractNamespace(repoFullName string) string {

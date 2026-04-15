@@ -244,13 +244,20 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 	mux.HandleFunc("/health", handleHealth)
 
 	var syncQueue *webhook.SyncQueue
+	syncCtx, syncCancel := context.WithCancel(context.Background())
+	defer syncCancel()
+
 	if len(cfg.AllowRepo) > 0 {
-		allowlist := webhook.NewRepoAllowlist(cfg.AllowRepo)
+		rules := make([]webhook.RepoRule, 0, len(cfg.AllowRepo))
+		for _, s := range cfg.AllowRepo {
+			rules = append(rules, webhook.ParseRepoRule(s))
+		}
+		filter := webhook.NewRepoFilterFromRules(rules)
 		secret := []byte(cfg.WebhookSecret)
-		syncHandler := func(repoFullName, cloneURL string) {
+		syncHandler := func(ctx context.Context, repoFullName, cloneURL string) {
 			ns := webhook.ExtractNamespace(repoFullName)
 			deps.Logger.Info("webhook sync started", "repo", repoFullName, "namespace", ns)
-			cloneCtx, cloneCancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			cloneCtx, cloneCancel := context.WithTimeout(ctx, 10*time.Minute)
 			defer cloneCancel()
 			if err := webhook.CloneOrPull(cloneCtx, cloneURL, cfg.RepoRoot, ns, nil); err != nil {
 				deps.Logger.Error("webhook clone/pull failed", "repo", repoFullName, "error", err)
@@ -265,7 +272,7 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 				Walkers:       deps.Walkers,
 				Logger:        deps.Logger,
 			}
-			buildCtx, buildCancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			buildCtx, buildCancel := context.WithTimeout(ctx, 10*time.Minute)
 			defer buildCancel()
 			stats, err := graphSvc.Build(buildCtx, service.BuildOptions{Dir: repoDir})
 			if err != nil {
@@ -275,8 +282,8 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 			deps.Logger.Info("webhook sync completed", "repo", repoFullName, "namespace", ns,
 				"files", stats.TotalFiles, "nodes", stats.TotalNodes, "edges", stats.TotalEdges)
 		}
-		syncQueue = webhook.NewSyncQueue(4, syncHandler)
-		mux.Handle("/webhook", webhook.NewWebhookHandler(secret, allowlist, syncQueue.Add))
+		syncQueue = webhook.NewSyncQueueWithContext(syncCtx, 4, syncHandler)
+		mux.Handle("/webhook", webhook.NewWebhookHandler(secret, filter, syncQueue.Add))
 		deps.Logger.Info("webhook endpoint registered", "path", "/webhook", "allowedRepos", cfg.AllowRepo)
 	}
 
@@ -310,7 +317,8 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 			return trace.Wrap(err, "HTTP server shutdown")
 		}
 		if syncQueue != nil {
-			deps.Logger.Info("draining sync queue workers")
+			deps.Logger.Info("cancelling sync context and draining workers")
+			syncCancel()
 			syncQueue.Shutdown()
 		}
 		return nil
