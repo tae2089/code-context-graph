@@ -156,23 +156,37 @@ while [ $SECONDS -lt $DEADLINE ]; do
 done
 $BUILD_OK || fail "Timed out waiting for webhook sync"
 
-# ── Phase 7: Verify graph data via MCP ──
-info "Verifying graph data in DB..."
-STATS_RESP=$(curl -fsS -X POST "${CCG_URL}/mcp" \
+# ── Phase 7: Verify graph data via MCP (initialize → tools/call) ──
+info "Initializing MCP session..."
+INIT_RESP=$(curl -sS -D - -X POST "${CCG_URL}/mcp" \
     -H "Content-Type: application/json" \
-    -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_graph_stats","arguments":{}}}' 2>/dev/null || echo "MCP_FAILED")
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"integration-test","version":"1.0.0"}}}' 2>/dev/null) || INIT_RESP=""
 
-if echo "$STATS_RESP" | grep -q "MCP_FAILED"; then
-    warn "MCP call failed — falling back to log-based verification"
+MCP_SESSION=$(echo "$INIT_RESP" | grep -i "mcp-session-id" | tr -d '\r' | awk '{print $2}')
+
+if [ -z "$MCP_SESSION" ]; then
+    warn "MCP session init failed — falling back to log-based verification"
     LOGS=$(docker compose -f "$COMPOSE_FILE" logs ccg 2>/dev/null)
-    if echo "$LOGS" | grep -q "nodes="; then
-        NODE_COUNT=$(echo "$LOGS" | grep "webhook sync completed" | grep -o 'nodes=[0-9]*' | tail -1 | cut -d= -f2)
-        info "Build reported nodes=${NODE_COUNT}"
-        [ "${NODE_COUNT:-0}" -gt 0 ] || fail "Expected nodes > 0"
-    fi
+    NODE_COUNT=$(echo "$LOGS" | grep "webhook sync completed" | grep -o 'nodes=[0-9]*' | tail -1 | cut -d= -f2)
+    info "Build reported nodes=${NODE_COUNT:-0}"
+    [ "${NODE_COUNT:-0}" -gt 0 ] || fail "Expected nodes > 0"
 else
-    info "MCP stats response received"
+    info "MCP session: ${MCP_SESSION:0:16}..."
+    STATS_RESP=$(curl -fsS -X POST "${CCG_URL}/mcp" \
+        -H "Content-Type: application/json" \
+        -H "Mcp-Session-Id: ${MCP_SESSION}" \
+        -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_graph_stats","arguments":{}}}' 2>/dev/null) || STATS_RESP=""
+
+    if [ -z "$STATS_RESP" ]; then
+        fail "MCP tools/call returned empty response"
+    fi
+
+    info "MCP list_graph_stats response:"
     echo "$STATS_RESP" | python3 -m json.tool 2>/dev/null || echo "$STATS_RESP"
+
+    TOTAL_NODES=$(echo "$STATS_RESP" | python3 -c "import sys,json; r=json.load(sys.stdin); d=json.loads(r['result']['content'][0]['text']); print(d.get('total_nodes',0))" 2>/dev/null) || TOTAL_NODES=0
+    [ "${TOTAL_NODES:-0}" -gt 0 ] || fail "Expected total_nodes > 0, got ${TOTAL_NODES:-0}"
+    info "Verified via MCP: total_nodes=${TOTAL_NODES}"
 fi
 
 # ── Phase 8: Check webhook delivery status (best-effort) ──
