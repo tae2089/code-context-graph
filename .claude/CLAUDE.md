@@ -17,8 +17,10 @@
 
 HTTP 모드 (`--transport streamable-http`)에서는 `/health` 및 `/webhook` 엔드포인트도 제공합니다.
 Webhook은 `--allow-repo` 플래그로 허용 리포지토리를 설정하면 활성화됩니다.
+레포별 브랜치 필터링: `--allow-repo "org/api:main,develop"` (glob 패턴, 미지정 시 main/master 기본).
 GitHub (`X-Hub-Signature-256`) 및 Gitea (`X-Gitea-Signature`, `X-Gitea-Event`) 호환.
 Push 이벤트 수신 → 자동 clone/pull → 그래프 빌드 → DB 저장 파이프라인.
+Graceful shutdown: SIGINT/SIGTERM 시 진행 중인 clone/build에 context cancel 전파.
 
 ## CLI Skills (5개)
 
