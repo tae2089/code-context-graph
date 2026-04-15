@@ -1,13 +1,13 @@
 # code-context-graph
 
-Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 12 languages, 28 MCP tools, and custom annotation search.
+Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 12 languages, 29 MCP tools, and custom annotation search.
 
 Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) — a Python-based code analysis tool. This project reimplements and extends the concept in Go with multi-DB support, custom annotation system, and MCP integration for AI-powered code understanding.
 
 ## Features
 
 - **12 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua
-- **28 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, file workspace management, and more
+- **29 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, file workspace management, and more
 - **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context ([details](guide/annotations.md))
 - **Webhook sync**: GitHub / Gitea push events → auto clone + build with per-repo branch filtering ([details](guide/webhook.md))
 - **Multi-DB**: SQLite (local), PostgreSQL
@@ -80,7 +80,7 @@ For remote HTTP mode:
 }
 ```
 
-Claude Code automatically connects and gets access to 28 MCP tools. See [MCP Tools Reference](guide/mcp-tools.md) for the full list.
+Claude Code automatically connects and gets access to 29 MCP tools. See [MCP Tools Reference](guide/mcp-tools.md) for the full list.
 
 ## Architecture
 
@@ -91,7 +91,7 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
                                         ↓
                                    FTS Search
                                         ↓
-                              MCP Server (28 tools)
+                              MCP Server (29 tools)
                                     ↓         ↓
                               stdio       Streamable HTTP
                                 ↓              ↓
@@ -108,7 +108,7 @@ See [Architecture Details](guide/architecture.md) for component breakdown and DB
 | Guide | Description |
 |-------|-------------|
 | [CLI Reference](guide/cli-reference.md) | All commands, flags, and config file (`.ccg.yaml`) |
-| [MCP Tools](guide/mcp-tools.md) | 28 MCP tools, Skills, AI-Driven Annotation |
+| [MCP Tools](guide/mcp-tools.md) | 29 MCP tools, Skills, AI-Driven Annotation |
 | [Annotations](guide/annotations.md) | Annotation system — tags, examples, search |
 | [Webhook](guide/webhook.md) | Webhook sync, branch filtering, HMAC, graceful shutdown |
 | [Docker](guide/docker.md) | Docker build, MCP server, PostgreSQL deployment |

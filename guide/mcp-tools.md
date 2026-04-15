@@ -1,6 +1,6 @@
 # MCP Tools
 
-code-context-graph는 28개 MCP 도구를 제공합니다. Claude Code에서 `.mcp.json` 설정 후 자동 연결됩니다.
+code-context-graph는 29개 MCP 도구를 제공합니다. Claude Code에서 `.mcp.json` 설정 후 자동 연결됩니다.
 
 ## Setup
 
@@ -30,7 +30,7 @@ code-context-graph는 28개 MCP 도구를 제공합니다. Claude Code에서 `.m
 }
 ```
 
-## Tools (28)
+## Tools (29)
 
 ### Core
 
@@ -43,6 +43,7 @@ code-context-graph는 28개 MCP 도구를 제공합니다. Claude Code에서 `.m
 | `search` | Full-text search |
 | `query_graph` | Predefined graph queries (callers, callees, imports, etc.) |
 | `list_graph_stats` | Node/edge/file counts |
+| `get_minimal_context` | Lightweight summary (~100 tokens) for AI agent entry point — graph stats, risk, top communities/flows, tool suggestions |
 
 ### Analysis
 

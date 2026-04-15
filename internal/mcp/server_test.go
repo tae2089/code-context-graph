@@ -40,6 +40,7 @@ func TestMCPServer_ListTools(t *testing.T) {
 		"delete_file",
 		"upload_files",
 		"delete_workspace",
+		"get_minimal_context",
 	}
 
 	if len(tools) != len(expected) {
@@ -69,8 +70,8 @@ func TestMCPServer_ListTools_18(t *testing.T) {
 	srv := NewServer(deps)
 	tools := srv.ListTools()
 
-	if len(tools) != 28 {
-		t.Fatalf("expected 28 tools, got %d", len(tools))
+	if len(tools) != 29 {
+		t.Fatalf("expected 29 tools, got %d", len(tools))
 	}
 }
 

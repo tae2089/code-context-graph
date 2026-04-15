@@ -4,9 +4,9 @@
 
 ## MCP 서버
 
-`.mcp.json`에 등록된 ccg MCP 서버가 28개 도구를 제공합니다:
+`.mcp.json`에 등록된 ccg MCP 서버가 29개 도구를 제공합니다:
 - `parse_project`, `build_or_update_graph`, `run_postprocess`
-- `get_node`, `search`, `query_graph`, `list_graph_stats`
+- `get_node`, `search`, `query_graph`, `list_graph_stats`, `get_minimal_context`
 - `get_impact_radius`, `trace_flow`
 - `find_large_functions`, `find_dead_code`
 - `detect_changes`, `get_affected_flows`, `list_flows`
@@ -45,7 +45,7 @@ Graceful shutdown: SIGINT/SIGTERM 시 진행 중인 clone/build에 context cance
 
 상세 문서는 `guide/` 디렉토리를 참조하세요:
 - [CLI Reference](guide/cli-reference.md) — 전체 명령어, 플래그, 설정 파일
-- [MCP Tools](guide/mcp-tools.md) — 28개 MCP 도구, Skills, AI-Driven Annotation
+- [MCP Tools](guide/mcp-tools.md) — 29개 MCP 도구, Skills, AI-Driven Annotation
 - [Annotations](guide/annotations.md) — 어노테이션 태그, 예시, 검색
 - [Webhook](guide/webhook.md) — Webhook sync, 브랜치 필터링, HMAC, graceful shutdown
 - [Docker](guide/docker.md) — Docker 빌드, MCP 서버, PostgreSQL 배포
