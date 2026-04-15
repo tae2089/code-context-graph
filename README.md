@@ -8,8 +8,8 @@ Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) 
 
 - **12 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua
 - **28 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, file workspace management, and more
-- **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context
-- **Webhook sync**: GitHub / Gitea push events → auto clone + build (HMAC-verified)
+- **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context ([details](guide/annotations.md))
+- **Webhook sync**: GitHub / Gitea push events → auto clone + build with per-repo branch filtering ([details](guide/webhook.md))
 - **Multi-DB**: SQLite (local), PostgreSQL
 - **Full-text search**: FTS5 (SQLite), tsvector+GIN (PostgreSQL)
 
@@ -37,103 +37,22 @@ CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/
 
 ## Quick Start
 
-### Parse your project
-
 ```bash
+# Parse your project
 ccg build .
-```
+# Build complete: 70 files, 749 nodes, 7387 edges
 
-```
-Build complete: 70 files, 749 nodes, 7387 edges
-```
-
-### Search
-
-```bash
-# Keyword search (includes annotations)
+# Search (includes annotations)
 ccg search "authentication"
 
 # Search by business context
 ccg search "결제"       # finds functions with @intent/@domainRule about payments
-ccg search "dead code"  # finds deadcode.Find via @intent annotation
 
-# Scope to a specific path prefix (token-efficient)
-ccg search --path internal/auth "login"
-ccg search --path internal/payment "handle" --limit 5
-```
-
-### Status
-
-```bash
+# Graph statistics
 ccg status
 ```
 
-```
-Nodes: 747
-Edges: 6780
-Files: 70
-
-Node kinds:
-  function: 238
-  test: 339
-  class: 83
-  type: 17
-  file: 70
-
-Edge kinds:
-  calls: 5124
-  contains: 679
-  tested_by: 543
-  imports_from: 434
-```
-
-## Custom Annotations
-
-Add structured metadata to your code. These are indexed and searchable.
-
-### File-level
-
-```go
-// @index User authentication and session management service.
-package auth
-```
-
-### Function-level
-
-```go
-// AuthenticateUser validates credentials and creates a session.
-// Called from login API handler.
-//
-// @param username user login ID
-// @param password plaintext password
-// @return JWT token on success
-// @intent verify user identity before granting system access
-// @domainRule lock account after 5 consecutive failed attempts
-// @sideEffect writes login attempt to audit_log table
-// @mutates user.FailedAttempts, user.LockedUntil
-// @requires user.IsActive == true
-// @ensures err == nil implies valid JWT with 24h expiry
-func AuthenticateUser(username, password string) (string, error) {
-```
-
-### Available Tags
-
-| Tag | Purpose | Example |
-|-----|---------|---------|
-| `@index` | File/package description | `@index Payment processing service` |
-| `@intent` | Why this function exists | `@intent verify credentials before session creation` |
-| `@domainRule` | Business rule | `@domainRule lock account after 5 failures` |
-| `@sideEffect` | Side effects | `@sideEffect sends notification email` |
-| `@mutates` | State changes | `@mutates user.FailedAttempts, session.Token` |
-| `@requires` | Precondition | `@requires user.IsActive == true` |
-| `@ensures` | Postcondition | `@ensures session != nil` |
-| `@param` | Parameter description | `@param username the login ID` |
-| `@return` | Return description | `@return JWT token on success` |
-| `@see` | Related function | `@see SessionManager.Create` |
-
-## Claude Code Integration
-
-### MCP Server
+## MCP Server
 
 Add `.mcp.json` to your project:
 
@@ -161,53 +80,7 @@ For remote HTTP mode:
 }
 ```
 
-HTTP-only endpoints:
-
-```bash
-curl http://localhost:8080/health
-# {"status":"ok"}
-
-# Webhook (GitHub / Gitea push events, when --allow-repo is configured)
-# POST /webhook — receives push events and triggers auto clone + build
-# Supports: X-Hub-Signature-256 (GitHub), X-Gitea-Signature (Gitea)
-# Per-repo branch filtering: --allow-repo "org/api:main,develop" (glob patterns)
-# Default target branches: main, master (when branch not specified)
-# Graceful shutdown: SIGINT/SIGTERM cancels in-progress clone/build via context
-```
-
-Claude Code automatically connects and gets access to 28 MCP tools.
-
-### Skills (5)
-
-| Skill | Description |
-|-------|-------------|
-| `/ccg` | Core build & search — parse, build graph, query, search |
-| `/ccg-analyze` | Code analysis — impact radius, flow tracing, dead code, architecture |
-| `/ccg-annotate` | Annotation system — AI-driven annotation workflow, tag reference |
-| `/ccg-docs` | Documentation — generate docs, RAG indexing, lint |
-| `/ccg-workspace` | File workspace — upload, list, delete files and workspaces |
-
-```
-/ccg build .                    — Build code graph
-/ccg status                     — Graph statistics
-/ccg search "query"             — Full-text search
-/ccg-docs docs                  — Generate documentation
-/ccg-docs lint                  — Check docs health + annotation coverage
-/ccg languages                  — List supported languages
-/ccg-annotate annotate internal/— AI-generate annotations
-/ccg-workspace                  — Manage file workspaces
-```
-
-### AI-Driven Annotation
-
-Claude can auto-generate annotations for your codebase:
-
-```
-You: "이 프로젝트에 어노테이션 달아줘"
-Claude: reads code → generates @intent, @domainRule, @sideEffect, @mutates
-      → writes annotations → rebuilds index
-      → now searchable by business context
-```
+Claude Code automatically connects and gets access to 28 MCP tools. See [MCP Tools Reference](guide/mcp-tools.md) for the full list.
 
 ## Architecture
 
@@ -228,189 +101,19 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
                                     push → clone → build → DB
 ```
 
-## CLI Commands
+See [Architecture Details](guide/architecture.md) for component breakdown and DB schema.
 
-| Command | Description |
-|---------|-------------|
-| `ccg init` | Generate default .ccg.yaml in current directory |
-| `ccg init --project` | Generate .ccg.yaml in current directory (explicit) |
-| `ccg init --user` | Generate .ccg.yaml in ~/.config/ccg/ (global) |
-| `ccg build [dir]` | Parse and build code graph |
-| `ccg build --exclude <pat>` | Exclude files/paths (repeatable) |
-| `ccg build --no-recursive [dir]` | Only parse top-level directory |
-| `ccg update [dir]` | Incremental sync |
-| `ccg status` | Graph statistics |
-| `ccg search <query>` | Full-text search |
-| `ccg search --path <prefix> <query>` | Scoped search by path prefix |
-| `ccg docs [--out dir]` | Generate Markdown documentation |
-| `ccg index [--out dir]` | Regenerate index.md only |
-| `ccg languages` | List supported languages and extensions |
-| `ccg example [language]` | Show annotation writing example |
-| `ccg tags` | Show all annotation tag reference |
-| `ccg hooks install` | Install pre-commit git hook |
-| `ccg hooks install --lint-strict` | Install hook that blocks commit on issues |
-| `ccg lint [--out dir]` | 8-category docs lint (orphan, missing, stale, unannotated, contradiction, dead-ref, incomplete, drift) |
-| `ccg lint --strict` | Exit 1 on issues (for CI/pre-commit); ignores rules with `action: ignore` |
-| `ccg serve` | Start MCP server (stdio by default) |
-| `ccg serve --transport streamable-http` | Start MCP server over HTTP |
-| `ccg serve --http-addr :9090` | Custom HTTP listen address (default `:8080`) |
-| `ccg serve --stateless` | Stateless session mode (multi-instance deployments) |
-| `ccg serve --workspace-root <dir>` | Root directory for file workspaces (default `workspaces`) |
-| `ccg serve --allow-repo <pat>` | Allowed repo patterns for webhook sync (repeatable, e.g. `org/*`, `org/api:main,develop`) |
-| `ccg serve --webhook-secret <s>` | HMAC secret for webhook signature verification (GitHub / Gitea) |
-| `ccg serve --repo-root <dir>` | Root directory for cloned repositories |
+## Documentation
 
-### Config file (`.ccg.yaml`)
-
-Project-level defaults loaded automatically from the current directory, with a global fallback at `~/.config/ccg/.ccg.yaml`:
-
-```yaml
-db:
-  driver: sqlite   # sqlite | postgres
-  dsn: ccg.db
-
-exclude:
-  - vendor
-  - ".*\\.pb\\.go$"
-  - ".*_test\\.go$"
-
-docs:
-  out: docs
-```
-
-Both `exclude` and `rules` pattern fields support regex. Patterns containing `$`, `^`, `+`, `{}`, `|`, `\.`, or `.*` are auto-detected as regex:
-
-```yaml
-rules:
-  - pattern: "pkg/store/.*"
-    category: unannotated
-    action: ignore
-
-  - pattern: ".*_generated\\.go::.*"
-    category: incomplete
-    action: warn
-```
-
-Config search order:
-1. `./.ccg.yaml` (project-local, highest priority)
-2. `~/.config/ccg/.ccg.yaml` (global fallback)
-
-Override with `ccg --config path/to/config.yaml`.
-
-## MCP Tools (28)
-
-| Tool | Description |
-|------|-------------|
-| `parse_project` | Parse source files |
-| `build_or_update_graph` | Full/incremental build with postprocessing |
-| `run_postprocess` | Run flows/communities/search rebuild |
-| `get_node` | Get node by qualified name |
-| `search` | Full-text search |
-| `query_graph` | Predefined graph queries (callers, callees, imports, etc.) |
-| `list_graph_stats` | Node/edge/file counts |
-| `get_impact_radius` | BFS blast-radius analysis |
-| `trace_flow` | Call-chain flow tracing |
-| `find_large_functions` | Functions exceeding line threshold |
-| `find_dead_code` | Unused code detection |
-| `detect_changes` | Git diff risk scoring |
-| `get_affected_flows` | Flows affected by changes |
-| `list_flows` | List all traced flows |
-| `list_communities` | List module communities |
-| `get_community` | Community details + coverage |
-| `get_architecture_overview` | Architecture summary with coupling |
-| `get_annotation` | Get annotation and doc tags |
-| `build_rag_index` | Build RAG index from docs and communities (supports workspace) |
-| `get_rag_tree` | Navigate RAG document tree (supports workspace) |
-| `get_doc_content` | Get documentation file content (supports workspace) |
-| `search_docs` | Search RAG document tree by keyword (supports workspace) |
-| `upload_file` | Upload file to workspace (base64) |
-| `upload_files` | Upload multiple files to workspaces in a single call |
-| `list_workspaces` | List all workspaces |
-| `list_files` | List files in a workspace |
-| `delete_file` | Delete file from workspace |
-| `delete_workspace` | Delete an entire workspace and all its files |
-
-## Docker
-
-### Build image
-
-```bash
-docker build -t ccg .
-```
-
-### Run as MCP server
-
-```bash
-# Mount your project and serve over HTTP
-docker run -d -p 8080:8080 -v $(pwd):/workspace --entrypoint sh ccg \
-  -c "ccg build /workspace && ccg serve --transport streamable-http --http-addr :8080"
-```
-
-Then connect from `.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "ccg": {
-      "type": "streamable-http",
-      "url": "http://localhost:8080/mcp"
-    }
-  }
-}
-```
-
-### Run with PostgreSQL
-
-```bash
-docker run -d -p 8080:8080 \
-  -e CCG_DB_DRIVER=postgres \
-  -e CCG_DB_DSN="host=db user=ccg password=ccg dbname=ccg sslmode=disable" \
-  -v $(pwd):/workspace --entrypoint sh ccg \
-  -c "ccg build /workspace && ccg serve --transport streamable-http --http-addr :8080"
-```
-
-## Development
-
-```bash
-# Run tests
-CGO_ENABLED=1 go test -tags "fts5" ./... -count=1
-
-# Build
-CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/
-
-# Docker (PostgreSQL)
-docker compose up -d
-```
-
-### Integration Test (Gitea + PostgreSQL + ccg)
-
-Full-stack pipeline test: Gitea push → webhook → ccg clone → build → PostgreSQL → MCP verification.
-
-```bash
-./scripts/integration-test.sh
-```
-
-What it does:
-1. Starts 3 containers (Gitea, PostgreSQL, ccg) via Docker Compose
-2. Creates a Gitea admin user and API token
-3. Creates a repository with sample Go code
-4. Registers a webhook pointing to ccg
-5. Pushes code to Gitea (triggers webhook)
-6. Waits for ccg to clone, parse, and build the graph
-7. Verifies graph data via MCP protocol (initialize → tools/call)
-8. Cleans up all containers
-
-```bash
-# Manual container management
-docker compose -f docker-compose.integration.yml up -d --build
-docker compose -f docker-compose.integration.yml down -v
-```
-
-## Future Work
-
-- **Contradiction precise mode**: Tree-sitter re-parse to extract function parameter names and compare 1:1 with @param tag names (currently detects signature changes via node hash + timestamp only)
-- **`ccg lint --fix`**: Auto-fix stale (re-run docs), orphan (delete doc), dead-ref (remove @see tag)
-- **Severity levels**: Per-category default severity (info/warn/error) configurable in .ccg.yaml
+| Guide | Description |
+|-------|-------------|
+| [CLI Reference](guide/cli-reference.md) | All commands, flags, and config file (`.ccg.yaml`) |
+| [MCP Tools](guide/mcp-tools.md) | 28 MCP tools, Skills, AI-Driven Annotation |
+| [Annotations](guide/annotations.md) | Annotation system — tags, examples, search |
+| [Webhook](guide/webhook.md) | Webhook sync, branch filtering, HMAC, graceful shutdown |
+| [Docker](guide/docker.md) | Docker build, MCP server, PostgreSQL deployment |
+| [Development](guide/development.md) | Dev guide, integration test, project structure |
+| [Architecture](guide/architecture.md) | Data flow, components, DB schema |
 
 ## License
 

@@ -41,16 +41,16 @@ Graceful shutdown: SIGINT/SIGTERM 시 진행 중인 clone/build에 context cance
 
 `.ccg.yaml`로 exclude 패턴, DB 설정 등을 프로젝트 기본값으로 관리할 수 있습니다.
 
-## 어노테이션 시스템
+## 문서
 
-코드에 다음 태그를 사용하여 AI/비즈니스 컨텍스트를 기록합니다:
-- `@index` — 파일/패키지 수준 설명
-- `@intent` — 함수의 목적/의도
-- `@domainRule` — 비즈니스 규칙
-- `@sideEffect` — 부작용
-- `@mutates` — 변경 대상
-- `@requires` / `@ensures` — 사전/사후 조건
-- `@param`, `@return`, `@see` — 표준 태그
+상세 문서는 `guide/` 디렉토리를 참조하세요:
+- [CLI Reference](guide/cli-reference.md) — 전체 명령어, 플래그, 설정 파일
+- [MCP Tools](guide/mcp-tools.md) — 28개 MCP 도구, Skills, AI-Driven Annotation
+- [Annotations](guide/annotations.md) — 어노테이션 태그, 예시, 검색
+- [Webhook](guide/webhook.md) — Webhook sync, 브랜치 필터링, HMAC, graceful shutdown
+- [Docker](guide/docker.md) — Docker 빌드, MCP 서버, PostgreSQL 배포
+- [Development](guide/development.md) — 개발 가이드, Integration test, 프로젝트 구조
+- [Architecture](guide/architecture.md) — 데이터 흐름, 컴포넌트, DB 스키마
 
 ## 개발 규칙
 
