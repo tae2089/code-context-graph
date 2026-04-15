@@ -24,7 +24,7 @@ type Edge struct {
 	FromNodeID  uint     `gorm:"not null;index"`
 	ToNodeID    uint     `gorm:"not null;index"`
 	Kind        EdgeKind `gorm:"size:32;not null;index"`
-	FilePath    string   `gorm:"size:1024"`
+	FilePath    string   `gorm:"size:1024;index"`
 	Line        int
 	Fingerprint string `gorm:"uniqueIndex;size:128;not null"`
 	CreatedAt   time.Time

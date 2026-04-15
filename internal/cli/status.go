@@ -26,6 +26,10 @@ func newStatusCmd(deps *Deps) *cobra.Command {
 		Short: "Show graph statistics",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if deps.DB == nil {
+				return errDBNotInitialized
+			}
+
 			var nodeCount, edgeCount int64
 			if err := deps.DB.Model(&model.Node{}).Count(&nodeCount).Error; err != nil {
 				return trace.Wrap(err, "count nodes")

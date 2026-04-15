@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -27,9 +28,15 @@ func setupDB(t *testing.T) *gorm.DB {
 
 func seedNode(t *testing.T, db *gorm.DB, id uint, name string, file string) {
 	t.Helper()
+	seedNodeNS(t, db, id, name, file, "")
+}
+
+func seedNodeNS(t *testing.T, db *gorm.DB, id uint, name string, file string, ns string) {
+	t.Helper()
 	n := model.Node{
 		ID:            id,
 		QualifiedName: fmt.Sprintf("%s::%s", file, name),
+		Namespace:     ns,
 		Kind:          model.NodeKindFunction,
 		Name:          name,
 		FilePath:      file,
@@ -215,5 +222,31 @@ func TestRebuild_MembershipLinks(t *testing.T) {
 	}
 	if nodeComm[1] == nodeComm[3] {
 		t.Error("nodes 1 and 3 should be in different communities")
+	}
+}
+
+func TestRebuild_RespectsNamespace(t *testing.T) {
+	db := setupDB(t)
+	seedNodeNS(t, db, 1, "A1", "a/a1.go", "ns-a")
+	seedNodeNS(t, db, 2, "A2", "a/a2.go", "ns-a")
+	seedNodeNS(t, db, 3, "B1", "b/b1.go", "ns-b")
+
+	b := New(db)
+
+	ctxA := ctxns.WithNamespace(context.Background(), "ns-a")
+	stats, err := b.Rebuild(ctxA, Config{Depth: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 community for ns-a, got %d", len(stats))
+	}
+
+	var totalNodes int64
+	for _, s := range stats {
+		totalNodes += s.NodeCount
+	}
+	if totalNodes != 2 {
+		t.Errorf("expected 2 nodes in ns-a communities, got %d", totalNodes)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/trace"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
 
@@ -17,6 +18,7 @@ import (
 // @ensures 성공 시 flow id, 이름, 설명, 멤버 수를 포함한 목록을 반환한다.
 // @see mcp.handlers.traceFlow
 func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 
 	sortBy := request.GetString("sort_by", "name")
@@ -31,7 +33,7 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 		Count  int
 	}
 
-	return finalizeToolResult(h.cachedExecute("list_flows:", map[string]any{"sort_by": sortBy, "limit": limit}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute("list_flows:", map[string]any{"sort_by": sortBy, "limit": limit, "workspace": request.GetString("workspace", "")}, func() (string, error) {
 		var fcRows []flowCount
 		if err := h.deps.DB.WithContext(ctx).
 			Model(&model.FlowMembership{}).
@@ -99,6 +101,7 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 // @ensures 성공 시 커뮤니티 id, 라벨, 노드 수를 포함한 목록을 반환한다.
 // @see mcp.handlers.getCommunity
 func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 
 	sortBy := request.GetString("sort_by", "size")
@@ -113,7 +116,7 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 		Count       int
 	}
 
-	return finalizeToolResult(h.cachedExecute("list_communities:", map[string]any{"sort_by": sortBy, "min_size": minSize}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute("list_communities:", map[string]any{"sort_by": sortBy, "min_size": minSize, "workspace": request.GetString("workspace", "")}, func() (string, error) {
 		var ccRows []commCount
 		if err := h.deps.DB.WithContext(ctx).
 			Model(&model.CommunityMembership{}).
@@ -181,6 +184,7 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 // @ensures 성공 시 커뮤니티 기본 정보와 선택적 coverage/members를 반환한다.
 // @see mcp.handlers.listCommunities
 func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 
 	communityID := request.GetInt("community_id", 0)
@@ -196,7 +200,7 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 		return mcp.NewToolResultError(fmt.Sprintf("community %d not found", communityID)), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute("get_community:", map[string]any{"community_id": communityID, "include_members": includeMembers}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute("get_community:", map[string]any{"community_id": communityID, "include_members": includeMembers, "workspace": request.GetString("workspace", "")}, func() (string, error) {
 		var memberCount int64
 		if err := h.deps.DB.WithContext(ctx).Model(&model.CommunityMembership{}).
 			Where("community_id = ?", comm.ID).Count(&memberCount).Error; err != nil {
@@ -229,7 +233,11 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 
 			var nodes []model.Node
 			if len(nodeIDs) > 0 {
-				if err := h.deps.DB.WithContext(ctx).Where("id IN ?", nodeIDs).Find(&nodes).Error; err != nil {
+				nodesQ := h.deps.DB.WithContext(ctx).Where("id IN ?", nodeIDs)
+				if ns := ctxns.FromContext(ctx); ns != "" {
+					nodesQ = nodesQ.Where("namespace = ?", ns)
+				}
+				if err := nodesQ.Find(&nodes).Error; err != nil {
 					return "", trace.Wrap(err, "find community nodes")
 				}
 			}
@@ -255,10 +263,11 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 // @domainRule 결합 강도 0.8 초과 쌍은 경고로 표기한다.
 // @see mcp.handlers.listCommunities
 func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 	log.Info("get_architecture_overview called")
 
-	return finalizeToolResult(h.cachedExecute("get_architecture_overview:", map[string]any{}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute("get_architecture_overview:", map[string]any{"workspace": request.GetString("workspace", "")}, func() (string, error) {
 		var communities []model.Community
 		if err := h.deps.DB.WithContext(ctx).Find(&communities).Error; err != nil {
 			return "", trace.Wrap(err, "find communities for architecture overview")

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -8,6 +9,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/trace"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
 
@@ -52,6 +54,13 @@ func (h *handlers) logger() *slog.Logger {
 		return h.deps.Logger
 	}
 	return slog.Default()
+}
+
+func (h *handlers) applyWorkspace(ctx context.Context, request mcp.CallToolRequest) context.Context {
+	if ws := request.GetString("workspace", ""); ws != "" {
+		return ctxns.WithNamespace(ctx, ws)
+	}
+	return ctx
 }
 
 // toolResultErr carries an MCP tool result alongside an error value.

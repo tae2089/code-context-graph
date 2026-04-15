@@ -7,6 +7,7 @@ import (
 
 	"github.com/tae2089/trace"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"gorm.io/gorm"
 )
@@ -53,7 +54,7 @@ func New(db *gorm.DB) *Service {
 func (s *Service) ByFile(ctx context.Context, filePath string) (*FileCoverage, error) {
 	var functions []model.Node
 	if err := s.db.WithContext(ctx).
-		Where("file_path = ? AND kind = ?", filePath, model.NodeKindFunction).
+		Where("namespace = ? AND file_path = ? AND kind = ?", ctxns.FromContext(ctx), filePath, model.NodeKindFunction).
 		Find(&functions).Error; err != nil {
 		return nil, err
 	}
@@ -106,7 +107,7 @@ func (s *Service) ByCommunity(ctx context.Context, communityID uint) (*Community
 		Model(&model.Node{}).
 		Select("nodes.id").
 		Joins("JOIN community_memberships ON community_memberships.node_id = nodes.id").
-		Where("community_memberships.community_id = ? AND nodes.kind = ?", communityID, model.NodeKindFunction).
+		Where("community_memberships.community_id = ? AND nodes.kind = ? AND nodes.namespace = ?", communityID, model.NodeKindFunction, ctxns.FromContext(ctx)).
 		Pluck("nodes.id", &funcIDs).Error
 	if err != nil {
 		return nil, err

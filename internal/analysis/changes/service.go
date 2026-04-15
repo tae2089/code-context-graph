@@ -4,6 +4,7 @@ package changes
 import (
 	"context"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"gorm.io/gorm"
 )
@@ -55,38 +56,59 @@ func New(db *gorm.DB, git GitClient) *Service {
 // @sideEffect executes git diff via GitClient
 // @see impact.Analyzer.ImpactRadius
 func (s *Service) Analyze(ctx context.Context, repoDir, baseRef string) ([]RiskEntry, error) {
-	files, err := s.git.ChangedFiles(ctx, repoDir, baseRef)
-	if err != nil {
+	hunksByFile, files, err := s.collectDiffHunks(ctx, repoDir, baseRef)
+	if err != nil || hunksByFile == nil {
 		return nil, err
 	}
+
+	hits, err := matchHunksToNodes(s.db, ctx, files, hunksByFile)
+	if err != nil || len(hits) == 0 {
+		return nil, err
+	}
+
+	return computeRiskScores(s.db, ctx, hits)
+}
+
+// collectDiffHunks retrieves changed files and their diff hunks from git,
+// returning hunks grouped by file path.
+func (s *Service) collectDiffHunks(ctx context.Context, repoDir, baseRef string) (map[string][]Hunk, []string, error) {
+	files, err := s.git.ChangedFiles(ctx, repoDir, baseRef)
+	if err != nil {
+		return nil, nil, err
+	}
 	if len(files) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	hunks, err := s.git.DiffHunks(ctx, repoDir, baseRef, files)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(hunks) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	hunksByFile := map[string][]Hunk{}
 	for _, h := range hunks {
 		hunksByFile[h.FilePath] = append(hunksByFile[h.FilePath], h)
 	}
+	return hunksByFile, files, nil
+}
 
+// hitInfo pairs a graph node with the number of overlapping diff hunks.
+type hitInfo struct {
+	node      model.Node
+	hunkCount int
+}
+
+// matchHunksToNodes finds graph nodes whose line ranges overlap with diff hunks.
+func matchHunksToNodes(db *gorm.DB, ctx context.Context, files []string, hunksByFile map[string][]Hunk) (map[uint]*hitInfo, error) {
 	var allNodes []model.Node
-	if err := s.db.WithContext(ctx).Where("file_path IN ?", files).Find(&allNodes).Error; err != nil {
+	if err := db.WithContext(ctx).Where("namespace = ? AND file_path IN ?", ctxns.FromContext(ctx), files).Find(&allNodes).Error; err != nil {
 		return nil, err
 	}
 
-	type hitInfo struct {
-		node      model.Node
-		hunkCount int
-	}
 	hits := map[uint]*hitInfo{}
-
 	for _, n := range allNodes {
 		fileHunks := hunksByFile[n.FilePath]
 		count := 0
@@ -99,11 +121,11 @@ func (s *Service) Analyze(ctx context.Context, repoDir, baseRef string) ([]RiskE
 			hits[n.ID] = &hitInfo{node: n, hunkCount: count}
 		}
 	}
+	return hits, nil
+}
 
-	if len(hits) == 0 {
-		return nil, nil
-	}
-
+// computeRiskScores calculates risk for each hit node based on outgoing edge count.
+func computeRiskScores(db *gorm.DB, ctx context.Context, hits map[uint]*hitInfo) ([]RiskEntry, error) {
 	nodeIDs := make([]uint, 0, len(hits))
 	for id := range hits {
 		nodeIDs = append(nodeIDs, id)
@@ -114,12 +136,14 @@ func (s *Service) Analyze(ctx context.Context, repoDir, baseRef string) ([]RiskE
 		Count      int64
 	}
 	var outCounts []outCount
-	s.db.WithContext(ctx).
+	if err := db.WithContext(ctx).
 		Model(&model.Edge{}).
 		Select("from_node_id, COUNT(*) as count").
 		Where("from_node_id IN ?", nodeIDs).
 		Group("from_node_id").
-		Scan(&outCounts)
+		Scan(&outCounts).Error; err != nil {
+		return nil, err
+	}
 
 	outMap := map[uint]int64{}
 	for _, oc := range outCounts {
@@ -135,6 +159,5 @@ func (s *Service) Analyze(ctx context.Context, repoDir, baseRef string) ([]RiskE
 			RiskScore: float64(info.hunkCount) * float64(outEdges+1),
 		})
 	}
-
 	return result, nil
 }

@@ -97,6 +97,7 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string) (walkParseS
 // @ensures 성공 시 파싱된 파일 수와 오류 수를 JSON으로 반환한다.
 // @sideEffect 파일 시스템 읽기, 그래프 저장소 쓰기, 로그 기록을 수행한다.
 func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 
 	dirPath, err := request.RequireString("path")
@@ -124,6 +125,7 @@ func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest
 // @sideEffect 파일 시스템 읽기, 그래프 저장소 갱신, 검색 인덱스/커뮤니티 재빌드를 수행할 수 있다.
 // @mutates graph store state, search index state, community state, h.cache
 func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 
 	dirPath, err := request.RequireString("path")
@@ -241,6 +243,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 // @sideEffect 커뮤니티 재계산, 검색 인덱스 재생성, 캐시 비우기를 수행할 수 있다.
 // @mutates community state, search index state, h.cache
 func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 
 	doFlows := request.GetBool("flows", true)

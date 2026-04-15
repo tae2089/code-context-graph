@@ -36,6 +36,7 @@ import (
 	"github.com/imtaebin/code-context-graph/internal/parse/treesitter"
 	"github.com/imtaebin/code-context-graph/internal/store/gormstore"
 	"github.com/imtaebin/code-context-graph/internal/store/search"
+	"github.com/imtaebin/code-context-graph/internal/webhook"
 )
 
 var (
@@ -241,9 +242,33 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 	mux.Handle("/mcp", httpSrv)
 	mux.HandleFunc("/health", handleHealth)
 
+	var syncQueue *webhook.SyncQueue
+	if len(cfg.AllowRepo) > 0 {
+		allowlist := webhook.NewRepoAllowlist(cfg.AllowRepo)
+		secret := []byte(cfg.WebhookSecret)
+		syncHandler := func(repoFullName, cloneURL string) {
+			ns := webhook.ExtractNamespace(repoFullName)
+			deps.Logger.Info("webhook sync started", "repo", repoFullName, "namespace", ns)
+			cloneCtx, cloneCancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cloneCancel()
+			if err := webhook.CloneOrPull(cloneCtx, cloneURL, cfg.RepoRoot, ns, nil); err != nil {
+				deps.Logger.Error("webhook clone/pull failed", "repo", repoFullName, "error", err)
+				return
+			}
+			deps.Logger.Info("webhook sync completed", "repo", repoFullName, "namespace", ns)
+		}
+		syncQueue = webhook.NewSyncQueue(4, syncHandler)
+		mux.Handle("/webhook", webhook.NewWebhookHandler(secret, allowlist, syncQueue.Add))
+		deps.Logger.Info("webhook endpoint registered", "path", "/webhook", "allowedRepos", cfg.AllowRepo)
+	}
+
 	httpServer := &http.Server{
-		Addr:    cfg.HTTPAddr,
-		Handler: mux,
+		Addr:              cfg.HTTPAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	signal.Reset(syscall.SIGINT, syscall.SIGTERM)
@@ -266,6 +291,10 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			return trace.Wrap(err, "HTTP server shutdown")
 		}
+		if syncQueue != nil {
+			deps.Logger.Info("draining sync queue workers")
+			syncQueue.Shutdown()
+		}
 		return nil
 	}
 }
@@ -281,7 +310,7 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ok"}`))
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
 
 // openDB opens a GORM connection for the configured driver.
@@ -294,14 +323,41 @@ func openDB(driver, dsn string) (*gorm.DB, error) {
 		SkipDefaultTransaction: true,
 	}
 
+	var db *gorm.DB
+	var err error
+
 	switch driver {
 	case "sqlite":
-		return gorm.Open(sqlite.Open(dsn), cfg)
+		db, err = gorm.Open(sqlite.Open(dsn), cfg)
+		if err != nil {
+			return nil, err
+		}
+		// Enable WAL mode for concurrent read/write support.
+		if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
+			return nil, trace.Wrap(err, "enable WAL mode")
+		}
+		if err := db.Exec("PRAGMA busy_timeout=5000").Error; err != nil {
+			return nil, trace.Wrap(err, "set busy timeout")
+		}
 	case "postgres":
-		return gorm.Open(postgres.Open(dsn), cfg)
+		db, err = gorm.Open(postgres.Open(dsn), cfg)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, trace.New(fmt.Sprintf("unsupported database driver: %s", driver))
 	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, trace.Wrap(err, "get underlying sql.DB")
+	}
+	sqlDB.SetMaxOpenConns(25)
+	sqlDB.SetMaxIdleConns(5)
+	sqlDB.SetConnMaxLifetime(5 * time.Minute)
+	sqlDB.SetConnMaxIdleTime(5 * time.Minute)
+
+	return db, nil
 }
 
 // newSearchBackend selects the search backend for a database driver.

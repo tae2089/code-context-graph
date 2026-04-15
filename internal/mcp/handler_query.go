@@ -8,6 +8,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/trace"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
 
@@ -18,6 +19,7 @@ import (
 // @ensures 성공 시 노드 메타데이터를 JSON으로 반환한다.
 // @see mcp.handlers.getAnnotation
 func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 
 	qn, err := request.RequireString("qualified_name")
@@ -27,7 +29,7 @@ func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*m
 
 	log.Info("get_node called", "qualified_name", qn)
 
-	return finalizeToolResult(h.cachedExecute("get_node:", map[string]any{"qualified_name": qn}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute("get_node:", map[string]any{"qualified_name": qn, "workspace": request.GetString("workspace", "")}, func() (string, error) {
 		node, err := h.deps.Store.GetNode(ctx, qn)
 		if err != nil {
 			log.Error("store error", "tool", "get_node", trace.SlogError(err))
@@ -63,6 +65,7 @@ func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*m
 // @ensures 성공 시 최대 limit개의 노드 요약 목록을 반환한다.
 // @see mcp.handlers.getNode
 func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 
 	query, err := request.RequireString("query")
@@ -78,7 +81,7 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 		return mcp.NewToolResultError("SearchBackend not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute("search:", map[string]any{"query": query, "limit": limit, "path": pathPrefix}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute("search:", map[string]any{"query": query, "limit": limit, "path": pathPrefix, "workspace": request.GetString("workspace", "")}, func() (string, error) {
 		// When path filtering is active, fetch more results from FTS so
 		// that after filtering we still have up to 'limit' results.
 		fetchLimit := limit
@@ -126,6 +129,7 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 // @ensures 성공 시 summary, context, tags를 포함한 응답을 반환한다.
 // @see mcp.handlers.getNode
 func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 
 	qn, err := request.RequireString("qualified_name")
@@ -135,7 +139,7 @@ func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolReques
 
 	log.Info("get_annotation called", "qualified_name", qn)
 
-	return finalizeToolResult(h.cachedExecute("get_annotation:", map[string]any{"qualified_name": qn}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute("get_annotation:", map[string]any{"qualified_name": qn, "workspace": request.GetString("workspace", "")}, func() (string, error) {
 		node, err := h.deps.Store.GetNode(ctx, qn)
 		if err != nil {
 			log.Error("store error", "tool", "get_annotation", trace.SlogError(err))
@@ -187,6 +191,7 @@ func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolReques
 // @ensures 성공 시 pattern, target, results를 포함한 응답을 반환한다.
 // @see mcp.QueryService
 func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 
 	pattern, err := request.RequireString("pattern")
@@ -210,7 +215,7 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 		return mcp.NewToolResultError(fmt.Sprintf("unknown pattern: %q", pattern)), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute("query_graph:", map[string]any{"pattern": pattern, "target": target}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute("query_graph:", map[string]any{"pattern": pattern, "target": target, "workspace": request.GetString("workspace", "")}, func() (string, error) {
 		// file_summary는 노드 조회가 불필요
 		if pattern == "file_summary" {
 			if h.deps.QueryService == nil {
@@ -289,12 +294,20 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 // @intent 현재 그래프 적재 상태를 종류·언어별 분포와 함께 요약한다.
 // @ensures 성공 시 총 노드/엣지 수와 kind/language별 집계를 반환한다.
 func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 	log.Info("list_graph_stats called")
 
-	return finalizeToolResult(h.cachedExecute("list_graph_stats:", map[string]any{}, func() (string, error) {
+	ws := request.GetString("workspace", "")
+	return finalizeToolResult(h.cachedExecute("list_graph_stats:", map[string]any{"workspace": ws}, func() (string, error) {
+		ns := ctxns.FromContext(ctx)
+		nodeQ := h.deps.DB.WithContext(ctx).Model(&model.Node{})
+		if ns != "" {
+			nodeQ = nodeQ.Where("namespace = ?", ns)
+		}
+
 		var nodeCount, edgeCount int64
-		if err := h.deps.DB.WithContext(ctx).Model(&model.Node{}).Count(&nodeCount).Error; err != nil {
+		if err := nodeQ.Count(&nodeCount).Error; err != nil {
 			return "", trace.Wrap(err, "count nodes")
 		}
 		if err := h.deps.DB.WithContext(ctx).Model(&model.Edge{}).Count(&edgeCount).Error; err != nil {
@@ -308,15 +321,23 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 			Count int64
 		}
 
+		nodesByKindQ := h.deps.DB.WithContext(ctx).Model(&model.Node{})
+		if ns != "" {
+			nodesByKindQ = nodesByKindQ.Where("namespace = ?", ns)
+		}
 		var nodesByKind []kindCount
-		if err := h.deps.DB.WithContext(ctx).Model(&model.Node{}).
+		if err := nodesByKindQ.
 			Select("kind, COUNT(*) as count").
 			Group("kind").Scan(&nodesByKind).Error; err != nil {
 			return "", trace.Wrap(err, "group nodes by kind")
 		}
 
+		nodesByLangQ := h.deps.DB.WithContext(ctx).Model(&model.Node{})
+		if ns != "" {
+			nodesByLangQ = nodesByLangQ.Where("namespace = ?", ns)
+		}
 		var nodesByLang []kindCount
-		if err := h.deps.DB.WithContext(ctx).Model(&model.Node{}).
+		if err := nodesByLangQ.
 			Select("language as kind, COUNT(*) as count").
 			Where("language != ''").
 			Group("language").Scan(&nodesByLang).Error; err != nil {
@@ -365,6 +386,7 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 // @ensures 성공 시 길이 기준을 넘는 함수 목록과 개수를 반환한다.
 // @domainRule 함수 길이는 end_line-start_line+1로 계산한다.
 func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 
 	minLines := request.GetInt("min_lines", 50)
@@ -377,7 +399,7 @@ func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolR
 		return mcp.NewToolResultError("LargefuncAnalyzer not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute("find_large_functions:", map[string]any{"min_lines": minLines, "limit": limit, "path": pathPrefix}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute("find_large_functions:", map[string]any{"min_lines": minLines, "limit": limit, "path": pathPrefix, "workspace": request.GetString("workspace", "")}, func() (string, error) {
 		nodes, err := h.deps.LargefuncAnalyzer.Find(ctx, minLines)
 		if err != nil {
 			return "", trace.Wrap(err, "largefunc error")

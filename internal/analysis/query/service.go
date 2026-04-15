@@ -4,6 +4,7 @@ package query
 import (
 	"context"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"gorm.io/gorm"
 )
@@ -40,13 +41,16 @@ func New(db *gorm.DB) *Service {
 func (s *Service) nodesByEdge(ctx context.Context, nodeID uint, kind model.EdgeKind, direction string) ([]model.Node, error) {
 	var nodes []model.Node
 	var q *gorm.DB
+	ns := ctxns.FromContext(ctx)
 	switch direction {
 	case "incoming":
 		q = s.db.WithContext(ctx).
+			Where("nodes.namespace = ?", ns).
 			Joins("JOIN edges ON edges.from_node_id = nodes.id").
 			Where("edges.to_node_id = ? AND edges.kind = ?", nodeID, kind)
 	default:
 		q = s.db.WithContext(ctx).
+			Where("nodes.namespace = ?", ns).
 			Joins("JOIN edges ON edges.to_node_id = nodes.id").
 			Where("edges.from_node_id = ? AND edges.kind = ?", nodeID, kind)
 	}
@@ -106,7 +110,7 @@ func (s *Service) InheritorsOf(ctx context.Context, nodeID uint) ([]model.Node, 
 // @return per-kind node counts and total node count for the file
 func (s *Service) FileSummaryOf(ctx context.Context, filePath string) (*FileSummary, error) {
 	var nodes []model.Node
-	if err := s.db.WithContext(ctx).Where("file_path = ?", filePath).Find(&nodes).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("namespace = ? AND file_path = ?", ctxns.FromContext(ctx), filePath).Find(&nodes).Error; err != nil {
 		return nil, err
 	}
 

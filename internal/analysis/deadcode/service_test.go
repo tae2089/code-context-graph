@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -27,9 +28,15 @@ func setupDB(t *testing.T) *gorm.DB {
 
 func seedNode(t *testing.T, db *gorm.DB, id uint, name string, kind model.NodeKind, file string) {
 	t.Helper()
+	seedNodeNS(t, db, id, name, kind, file, "")
+}
+
+func seedNodeNS(t *testing.T, db *gorm.DB, id uint, name string, kind model.NodeKind, file string, ns string) {
+	t.Helper()
 	n := model.Node{
 		ID:            id,
 		QualifiedName: fmt.Sprintf("%s::%s", file, name),
+		Namespace:     ns,
 		Kind:          kind,
 		Name:          name,
 		FilePath:      file,
@@ -165,5 +172,37 @@ func TestFind_ExcludesTestNodes(t *testing.T) {
 	}
 	if len(got) != 1 {
 		t.Fatalf("expected 1, got %d", len(got))
+	}
+}
+
+func TestFind_RespectsNamespace(t *testing.T) {
+	db := setupDB(t)
+	seedNodeNS(t, db, 1, "UnusedA", model.NodeKindFunction, "a.go", "ns-a")
+	seedNodeNS(t, db, 2, "UnusedB", model.NodeKindFunction, "b.go", "ns-b")
+
+	svc := New(db)
+
+	ctxA := ctxns.WithNamespace(context.Background(), "ns-a")
+	got, err := svc.Find(ctxA, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 node for ns-a, got %d", len(got))
+	}
+	if got[0].Name != "UnusedA" {
+		t.Errorf("expected UnusedA, got %s", got[0].Name)
+	}
+
+	ctxB := ctxns.WithNamespace(context.Background(), "ns-b")
+	got, err = svc.Find(ctxB, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 node for ns-b, got %d", len(got))
+	}
+	if got[0].Name != "UnusedB" {
+		t.Errorf("expected UnusedB, got %s", got[0].Name)
 	}
 }

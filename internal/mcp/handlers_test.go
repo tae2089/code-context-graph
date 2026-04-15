@@ -2423,6 +2423,199 @@ func TestGetRagTree_WithWorkspace(t *testing.T) {
 	}
 }
 
+// --- Step 4: Namespace (workspace) integration tests ---
+
+// seedNodeWithNamespace inserts a node with the given namespace directly via DB.
+func seedNodeWithNamespace(t *testing.T, db *gorm.DB, ns, qn, kind, filePath string) {
+	t.Helper()
+	node := model.Node{
+		Namespace:     ns,
+		QualifiedName: qn,
+		Kind:          model.NodeKind(kind),
+		Name:          qn,
+		FilePath:      filePath,
+		StartLine:     1,
+		EndLine:       10,
+		Language:      "go",
+	}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatalf("seedNodeWithNamespace: %v", err)
+	}
+}
+
+func TestMCPHandler_WorkspaceToNamespace(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	// Seed nodes in two namespaces with the same qualified name
+	seedNodeWithNamespace(t, deps.DB, "ns-a", "pkg.Foo", "function", "a/foo.go")
+	seedNodeWithNamespace(t, deps.DB, "ns-b", "pkg.Foo", "function", "b/foo.go")
+
+	// get_node with workspace "ns-a" should find the ns-a node
+	result := callTool(t, deps, "get_node", map[string]any{
+		"qualified_name": "pkg.Foo",
+		"workspace":      "ns-a",
+	})
+	if result.IsError {
+		t.Fatalf("get_node with workspace ns-a returned error: %v", getTextContent(result))
+	}
+	text := getTextContent(result)
+	if !strings.Contains(text, "a/foo.go") {
+		t.Errorf("expected file_path 'a/foo.go' for ns-a, got: %s", text)
+	}
+	if strings.Contains(text, "b/foo.go") {
+		t.Errorf("should not contain ns-b file_path 'b/foo.go', got: %s", text)
+	}
+
+	// get_node with workspace "ns-b" should find the ns-b node
+	result2 := callTool(t, deps, "get_node", map[string]any{
+		"qualified_name": "pkg.Foo",
+		"workspace":      "ns-b",
+	})
+	if result2.IsError {
+		t.Fatalf("get_node with workspace ns-b returned error: %v", getTextContent(result2))
+	}
+	text2 := getTextContent(result2)
+	if !strings.Contains(text2, "b/foo.go") {
+		t.Errorf("expected file_path 'b/foo.go' for ns-b, got: %s", text2)
+	}
+
+	// get_node without workspace should find neither (namespace="")
+	result3 := callTool(t, deps, "get_node", map[string]any{
+		"qualified_name": "pkg.Foo",
+	})
+	if !result3.IsError {
+		// With namespace filtering, empty namespace shouldn't match ns-a or ns-b nodes
+		text3 := getTextContent(result3)
+		if strings.Contains(text3, "a/foo.go") || strings.Contains(text3, "b/foo.go") {
+			t.Errorf("get_node without workspace should not find namespaced nodes, got: %s", text3)
+		}
+	}
+}
+
+func TestMCPHandler_SearchWithNamespace(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	// Seed nodes in two namespaces
+	seedNodeWithNamespace(t, deps.DB, "ns-a", "pkg.SearchMe", "function", "a/search.go")
+	seedNodeWithNamespace(t, deps.DB, "ns-b", "pkg.SearchMe", "function", "b/search.go")
+
+	// Build search index — needs SearchDocument rows and FTS rebuild
+	for _, ns := range []string{"ns-a", "ns-b"} {
+		var node model.Node
+		deps.DB.Where("namespace = ? AND qualified_name = ?", ns, "pkg.SearchMe").First(&node)
+		doc := model.SearchDocument{
+			NodeID:   node.ID,
+			Content:  "SearchMe function implementation",
+			Language: "go",
+		}
+		if err := deps.DB.Create(&doc).Error; err != nil {
+			t.Fatalf("create SearchDocument for %s: %v", ns, err)
+		}
+	}
+	if err := deps.SearchBackend.Rebuild(context.Background(), deps.DB); err != nil {
+		t.Fatalf("rebuild search index: %v", err)
+	}
+
+	// Search with workspace "ns-a" should only return ns-a node
+	result := callTool(t, deps, "search", map[string]any{
+		"query":     "SearchMe",
+		"workspace": "ns-a",
+	})
+	if result.IsError {
+		t.Fatalf("search with workspace ns-a returned error: %v", getTextContent(result))
+	}
+	text := getTextContent(result)
+	if !strings.Contains(text, "a/search.go") {
+		t.Errorf("expected ns-a result 'a/search.go', got: %s", text)
+	}
+	if strings.Contains(text, "b/search.go") {
+		t.Errorf("should not contain ns-b result 'b/search.go', got: %s", text)
+	}
+}
+
+func TestMCPHandler_GraphWithNamespace(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	// Seed nodes in two namespaces
+	seedNodeWithNamespace(t, deps.DB, "ns-a", "pkg.Alpha", "function", "a/alpha.go")
+	seedNodeWithNamespace(t, deps.DB, "ns-a", "pkg.Beta", "function", "a/beta.go")
+	seedNodeWithNamespace(t, deps.DB, "ns-b", "pkg.Gamma", "function", "b/gamma.go")
+
+	// list_graph_stats with workspace "ns-a" should count only 2 nodes
+	result := callTool(t, deps, "list_graph_stats", map[string]any{
+		"workspace": "ns-a",
+	})
+	if result.IsError {
+		t.Fatalf("list_graph_stats with workspace ns-a returned error: %v", getTextContent(result))
+	}
+	text := getTextContent(result)
+
+	var stats map[string]any
+	if err := json.Unmarshal([]byte(text), &stats); err != nil {
+		t.Fatalf("unmarshal stats: %v", err)
+	}
+	totalNodes, ok := stats["total_nodes"].(float64)
+	if !ok {
+		t.Fatalf("total_nodes not a number: %v", stats["total_nodes"])
+	}
+	if int(totalNodes) != 2 {
+		t.Errorf("expected 2 nodes for ns-a, got %d", int(totalNodes))
+	}
+}
+
+func TestMCPHandler_QueryWithNamespace(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.QueryService = query.New(deps.DB)
+
+	// Seed caller and callee in ns-a
+	seedNodeWithNamespace(t, deps.DB, "ns-a", "pkg.Caller", "function", "a/caller.go")
+	seedNodeWithNamespace(t, deps.DB, "ns-a", "pkg.Callee", "function", "a/callee.go")
+	// Seed same-name node in ns-b
+	seedNodeWithNamespace(t, deps.DB, "ns-b", "pkg.Caller", "function", "b/caller.go")
+
+	// Create edge: ns-a Caller → ns-a Callee
+	var callerA, calleeA model.Node
+	deps.DB.Where("namespace = ? AND qualified_name = ?", "ns-a", "pkg.Caller").First(&callerA)
+	deps.DB.Where("namespace = ? AND qualified_name = ?", "ns-a", "pkg.Callee").First(&calleeA)
+	edge := model.Edge{
+		FromNodeID:  callerA.ID,
+		ToNodeID:    calleeA.ID,
+		Kind:        "calls",
+		Fingerprint: fmt.Sprintf("calls:%d:%d", callerA.ID, calleeA.ID),
+	}
+	if err := deps.DB.Create(&edge).Error; err != nil {
+		t.Fatalf("create edge: %v", err)
+	}
+
+	// query_graph callers_of pkg.Callee with workspace "ns-a" should find pkg.Caller from ns-a
+	result := callTool(t, deps, "query_graph", map[string]any{
+		"pattern":   "callees_of",
+		"target":    "pkg.Caller",
+		"workspace": "ns-a",
+	})
+	if result.IsError {
+		t.Fatalf("query_graph with workspace ns-a returned error: %v", getTextContent(result))
+	}
+	text := getTextContent(result)
+	if !strings.Contains(text, "pkg.Callee") {
+		t.Errorf("expected callee 'pkg.Callee' in ns-a results, got: %s", text)
+	}
+
+	// query_graph with workspace "ns-b" for same target should not find the callee
+	result2 := callTool(t, deps, "query_graph", map[string]any{
+		"pattern":   "callees_of",
+		"target":    "pkg.Caller",
+		"workspace": "ns-b",
+	})
+	// ns-b's pkg.Caller has no edges, so results should be empty
+	if !result2.IsError {
+		text2 := getTextContent(result2)
+		if strings.Contains(text2, "pkg.Callee") {
+			t.Errorf("ns-b should not see ns-a's callee, got: %s", text2)
+		}
+	}
+}
+
 func TestBuildRagIndex_WritesToWorkspaceIndexDir(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()

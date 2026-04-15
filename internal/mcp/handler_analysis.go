@@ -18,6 +18,7 @@ import (
 // @ensures 성공 시 영향 범위 노드 목록을 반환한다.
 // @see mcp.handlers.getNode
 func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 
 	qn, err := request.RequireString("qualified_name")
@@ -32,7 +33,7 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 		return mcp.NewToolResultError("ImpactAnalyzer not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute("get_impact_radius:", map[string]any{"qualified_name": qn, "depth": depth}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute("get_impact_radius:", map[string]any{"qualified_name": qn, "depth": depth, "workspace": request.GetString("workspace", "")}, func() (string, error) {
 		node, err := h.deps.Store.GetNode(ctx, qn)
 		if err != nil {
 			log.Error("store error", "tool", "get_impact_radius", trace.SlogError(err))
@@ -70,6 +71,7 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 // @ensures 성공 시 flow 이름과 멤버 순서를 반환한다.
 // @see mcp.handlers.listFlows
 func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 
 	qn, err := request.RequireString("qualified_name")
@@ -83,7 +85,7 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 		return mcp.NewToolResultError("FlowTracer not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute("trace_flow:", map[string]any{"qualified_name": qn}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute("trace_flow:", map[string]any{"qualified_name": qn, "workspace": request.GetString("workspace", "")}, func() (string, error) {
 		node, err := h.deps.Store.GetNode(ctx, qn)
 		if err != nil {
 			log.Error("store error", "tool", "trace_flow", trace.SlogError(err))
@@ -130,6 +132,7 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 // @sideEffect Git diff 조회를 수행한다.
 // @see mcp.handlers.getAffectedFlows
 func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 
 	repoRoot, err := request.RequireString("repo_root")
@@ -144,7 +147,7 @@ func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolReques
 		return mcp.NewToolResultError("ChangesGitClient not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute("detect_changes:", map[string]any{"repo_root": repoRoot, "base": base}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute("detect_changes:", map[string]any{"repo_root": repoRoot, "base": base, "workspace": request.GetString("workspace", "")}, func() (string, error) {
 		chSvc := changes.New(h.deps.DB, h.deps.ChangesGitClient)
 		risks, err := chSvc.Analyze(ctx, repoRoot, base)
 		if err != nil {
@@ -181,6 +184,7 @@ func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolReques
 // @sideEffect Git diff 조회를 수행한다.
 // @see mcp.handlers.detectChanges
 func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 
 	repoRoot, err := request.RequireString("repo_root")
@@ -195,7 +199,7 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 		return mcp.NewToolResultError("ChangesGitClient not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute("get_affected_flows:", map[string]any{"repo_root": repoRoot, "base": base}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute("get_affected_flows:", map[string]any{"repo_root": repoRoot, "base": base, "workspace": request.GetString("workspace", "")}, func() (string, error) {
 		chSvc := changes.New(h.deps.DB, h.deps.ChangesGitClient)
 		risks, err := chSvc.Analyze(ctx, repoRoot, base)
 		if err != nil {
@@ -267,6 +271,7 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 // @ensures 성공 시 dead_code 목록과 개수를 반환한다.
 // @domainRule incoming edge가 없는 노드만 미사용 코드 후보로 간주한다.
 func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 	log.Info("find_dead_code called")
 
@@ -282,7 +287,7 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 		return mcp.NewToolResultError("DeadcodeAnalyzer not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute("find_dead_code:", map[string]any{"path": pathPrefix, "kinds": kinds}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute("find_dead_code:", map[string]any{"path": pathPrefix, "kinds": kinds, "workspace": request.GetString("workspace", "")}, func() (string, error) {
 		nodes, err := h.deps.DeadcodeAnalyzer.Find(ctx, opts)
 		if err != nil {
 			return "", trace.Wrap(err, "deadcode error")

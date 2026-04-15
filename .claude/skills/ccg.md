@@ -26,6 +26,9 @@ Local code analysis tool that parses codebases via Tree-sitter into a knowledge 
 | `serve --transport streamable-http` | Start MCP server over HTTP | `ccg serve --transport streamable-http` |
 | `serve --http-addr :9090` | Custom HTTP listen address | `ccg serve --http-addr :9090` |
 | `serve --stateless` | Stateless session mode | `ccg serve --stateless` |
+| `serve --allow-repo <pat>` | Allowed repos for webhook sync (repeatable) | `ccg serve --allow-repo "org/*"` |
+| `serve --webhook-secret <s>` | HMAC secret for webhook verification | `ccg serve --webhook-secret mysecret` |
+| `serve --repo-root <dir>` | Root dir for cloned repos | `ccg serve --repo-root /data/repos` |
 
 ## Execution
 
@@ -104,3 +107,4 @@ Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua
 |----------|--------|-------------|
 | `/mcp` | POST/GET/DELETE | MCP protocol endpoint |
 | `/health` | GET | Health check — returns `{"status":"ok"}` |
+| `/webhook` | POST | GitHub webhook receiver (when `--allow-repo` configured) |

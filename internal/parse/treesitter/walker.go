@@ -103,6 +103,9 @@ func NewWalker(spec *LangSpec, opts ...WalkerOption) *Walker {
 // @intent free parser-side native resources once file parsing is complete
 // @sideEffect releases CGo resources owned by the underlying parser
 func (w *Walker) Close() {
+	if w.query != nil {
+		w.query.Close()
+	}
 	if w.parser != nil {
 		w.parser.Close()
 	}
@@ -218,6 +221,20 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 	var pkgName string
 	var interfaces []interfaceInfo
 
+	// nodeKey → index in nodes slice for O(1) dedup lookup
+	type nodeKey struct {
+		name      string
+		startLine int
+		endLine   int
+	}
+	nodeIndex := make(map[nodeKey]int)
+	for i, n := range nodes {
+		nodeIndex[nodeKey{n.Name, n.StartLine, n.EndLine}] = i
+	}
+
+	// import dedup: "importPath:line" → true
+	importSeen := make(map[string]bool)
+
 	for {
 		m, ok := qc.NextMatch()
 		if !ok {
@@ -294,24 +311,19 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 				}
 			}
 
-			// For deduplication. Queries can match multiple times if overlapping
-			exists := false
-			for i, n := range nodes {
-				if n.Name == name && n.StartLine == startLine && n.EndLine == endLine {
-					// Keep the one with a receiver if we get both
-					if receiver != "" && !strings.Contains(nodes[i].QualifiedName, receiver) {
-						nodes[i].QualifiedName = qName
-					}
-					// Upgrade less specific kinds
-					if n.Kind == model.NodeKindType && kind == model.NodeKindClass {
-						nodes[i].Kind = kind
-					}
-					exists = true
-					break
+			// O(1) dedup via map. Queries can match multiple times if overlapping.
+			key := nodeKey{name, startLine, endLine}
+			if idx, exists := nodeIndex[key]; exists {
+				// Keep the one with a receiver if we get both
+				if receiver != "" && !strings.Contains(nodes[idx].QualifiedName, receiver) {
+					nodes[idx].QualifiedName = qName
 				}
-			}
-
-			if !exists {
+				// Upgrade less specific kinds
+				if nodes[idx].Kind == model.NodeKindType && kind == model.NodeKindClass {
+					nodes[idx].Kind = kind
+				}
+			} else {
+				nodeIndex[key] = len(nodes)
 				nodes = append(nodes, model.Node{
 					QualifiedName: qName,
 					Kind:          kind,
@@ -351,15 +363,9 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 			importPath = strings.Trim(importPath, "\"'`")
 			line := int(importNode.StartPoint().Row) + 1
 
-			exists := false
-			for _, e := range edges {
-				if e.Kind == model.EdgeKindImportsFrom && e.Line == line && strings.Contains(e.Fingerprint, importPath) {
-					exists = true
-					break
-				}
-			}
-
-			if !exists {
+			importKey := fmt.Sprintf("%s:%d", importPath, line)
+			if !importSeen[importKey] {
+				importSeen[importKey] = true
 				edges = append(edges, model.Edge{
 					Kind:        model.EdgeKindImportsFrom,
 					FilePath:    filePath,

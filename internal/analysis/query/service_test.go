@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -27,9 +28,15 @@ func setupDB(t *testing.T) *gorm.DB {
 
 func seedNode(t *testing.T, db *gorm.DB, id uint, name string, kind model.NodeKind, file string) model.Node {
 	t.Helper()
+	return seedNodeNS(t, db, id, name, kind, file, "")
+}
+
+func seedNodeNS(t *testing.T, db *gorm.DB, id uint, name string, kind model.NodeKind, file string, ns string) model.Node {
+	t.Helper()
 	n := model.Node{
 		ID:            id,
 		QualifiedName: fmt.Sprintf("%s::%s", file, name),
+		Namespace:     ns,
 		Kind:          kind,
 		Name:          name,
 		FilePath:      file,
@@ -264,5 +271,49 @@ func TestFileSummary_FileNotFound(t *testing.T) {
 	}
 	if got.Total != 0 {
 		t.Errorf("expected 0 total for missing file, got %d", got.Total)
+	}
+}
+
+func TestFileSummaryOf_RespectsNamespace(t *testing.T) {
+	db := setupDB(t)
+	seedNodeNS(t, db, 1, "FooA", model.NodeKindFunction, "pkg.go", "ns-a")
+	seedNodeNS(t, db, 2, "FooB", model.NodeKindFunction, "pkg.go", "ns-b")
+
+	svc := New(db)
+
+	ctxA := ctxns.WithNamespace(context.Background(), "ns-a")
+	got, err := svc.FileSummaryOf(ctxA, "pkg.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Total != 1 {
+		t.Errorf("expected total=1 for ns-a, got %d", got.Total)
+	}
+	if got.Functions != 1 {
+		t.Errorf("expected functions=1 for ns-a, got %d", got.Functions)
+	}
+}
+
+func TestNodesByEdge_RespectsNamespace(t *testing.T) {
+	db := setupDB(t)
+	seedNodeNS(t, db, 1, "CallerA", model.NodeKindFunction, "a.go", "ns-a")
+	seedNodeNS(t, db, 2, "CalleeA", model.NodeKindFunction, "a.go", "ns-a")
+	seedNodeNS(t, db, 3, "CallerB", model.NodeKindFunction, "b.go", "ns-b")
+	seedNodeNS(t, db, 4, "CalleeB", model.NodeKindFunction, "b.go", "ns-b")
+	seedEdge(t, db, 1, 2, model.EdgeKindCalls)
+	seedEdge(t, db, 3, 4, model.EdgeKindCalls)
+
+	svc := New(db)
+
+	ctxA := ctxns.WithNamespace(context.Background(), "ns-a")
+	got, err := svc.CalleesOf(ctxA, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 callee for ns-a, got %d", len(got))
+	}
+	if got[0].Name != "CalleeA" {
+		t.Errorf("expected CalleeA, got %s", got[0].Name)
 	}
 }

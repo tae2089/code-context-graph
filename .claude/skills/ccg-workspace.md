@@ -91,8 +91,9 @@ Upload documentation files to a workspace, then build and query the RAG index:
 ```
 1. upload_file(workspace: "my-service", file_path: "docs/internal/handler.go.md", content: "<base64>")
 2. build_rag_index(workspace: "my-service")  — see /ccg-docs skill
-3. search_docs(query: "handler")
-4. get_doc_content(workspace: "my-service", file_path: "docs/internal/handler.go.md")
+3. search_docs(query: "handler", workspace: "my-service")
+4. get_rag_tree(workspace: "my-service")
+5. get_doc_content(workspace: "my-service", file_path: "docs/internal/handler.go.md")
 ```
 
 ## Security

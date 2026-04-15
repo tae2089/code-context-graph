@@ -6,6 +6,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"gorm.io/gorm"
 )
@@ -52,141 +53,187 @@ func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 	var result []Stats
 
 	err := b.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&model.CommunityMembership{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&model.Community{}).Error; err != nil {
+		if err := deleteAllCommunities(tx); err != nil {
 			return err
 		}
 
-		var nodes []model.Node
-		if err := tx.Find(&nodes).Error; err != nil {
+		groups, err := groupNodesByDirectory(tx, ctx, cfg.Depth)
+		if err != nil {
 			return err
 		}
 
-		groups := map[string][]model.Node{}
-		for _, n := range nodes {
-			key := directoryKey(n.FilePath, cfg.Depth)
-			groups[key] = append(groups[key], n)
-		}
-
-		communityMap := map[string]*model.Community{}
-		for key := range groups {
-			c := model.Community{
-				Key:      key,
-				Label:    key,
-				Strategy: "directory",
-			}
-			if err := tx.Create(&c).Error; err != nil {
-				return err
-			}
-			communityMap[key] = &c
-		}
-
-		nodeComm := map[uint]string{}
-		for key, ns := range groups {
-			for _, n := range ns {
-				m := model.CommunityMembership{
-					CommunityID: communityMap[key].ID,
-					NodeID:      n.ID,
-				}
-				if err := tx.Create(&m).Error; err != nil {
-					return err
-				}
-				nodeComm[n.ID] = key
-			}
-		}
-
-		type edgeCounts struct {
-			internal int64
-			external int64
-		}
-		counts := map[string]*edgeCounts{}
-		for key := range groups {
-			counts[key] = &edgeCounts{}
-		}
-
-		var batchEdges []model.Edge
-		if err := tx.FindInBatches(&batchEdges, 500, func(tx *gorm.DB, batch int) error {
-			for _, e := range batchEdges {
-				fromKey, fromOK := nodeComm[e.FromNodeID]
-				toKey, toOK := nodeComm[e.ToNodeID]
-				if !fromOK || !toOK {
-					continue
-				}
-				if fromKey == toKey {
-					counts[fromKey].internal++
-				} else {
-					counts[fromKey].external++
-				}
-			}
-			return nil
-		}).Error; err != nil {
+		communityMap, nodeComm, err := createCommunitiesAndMemberships(tx, groups)
+		if err != nil {
 			return err
 		}
 
-		// Aggregate @index annotations from File nodes into community description
-		fileNodeIDs := []uint{}
-		for _, ns := range groups {
-			for _, n := range ns {
-				if n.Kind == model.NodeKindFile {
-					fileNodeIDs = append(fileNodeIDs, n.ID)
-				}
-			}
-		}
-		annByNode := map[uint]*model.Annotation{}
-		if len(fileNodeIDs) > 0 {
-			var annotations []model.Annotation
-			if err := tx.Where("node_id IN ?", fileNodeIDs).Preload("Tags").Find(&annotations).Error; err != nil {
-				return err
-			}
-			for i := range annotations {
-				annByNode[annotations[i].NodeID] = &annotations[i]
-			}
+		counts, err := countEdgesByCommunity(tx, groups, nodeComm)
+		if err != nil {
+			return err
 		}
 
-		for key, c := range communityMap {
-			ec := counts[key]
-			var cohesion float64
-			total := ec.internal + ec.external
-			if total > 0 {
-				cohesion = float64(ec.internal) / float64(total)
-			}
-
-			// Build description from member File @index tags
-			var descriptions []string
-			for _, n := range groups[key] {
-				if n.Kind != model.NodeKindFile {
-					continue
-				}
-				if ann := annByNode[n.ID]; ann != nil {
-					for _, tag := range ann.Tags {
-						if tag.Kind == model.TagIndex {
-							descriptions = append(descriptions, tag.Value)
-						}
-					}
-				}
-			}
-			if len(descriptions) > 0 {
-				c.Description = strings.Join(descriptions, "; ")
-				if err := tx.Save(c).Error; err != nil {
-					return err
-				}
-			}
-
-			result = append(result, Stats{
-				Community:     *c,
-				NodeCount:     int64(len(groups[key])),
-				InternalEdges: ec.internal,
-				ExternalEdges: ec.external,
-				Cohesion:      cohesion,
-			})
+		if err := aggregateDescriptions(tx, groups, communityMap); err != nil {
+			return err
 		}
 
+		result = buildStats(groups, communityMap, counts)
 		return nil
 	})
 
 	return result, err
+}
+
+func deleteAllCommunities(tx *gorm.DB) error {
+	if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&model.CommunityMembership{}).Error; err != nil {
+		return err
+	}
+	return tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&model.Community{}).Error
+}
+
+func groupNodesByDirectory(tx *gorm.DB, ctx context.Context, depth int) (map[string][]model.Node, error) {
+	var nodes []model.Node
+	if err := tx.Where("namespace = ?", ctxns.FromContext(ctx)).Find(&nodes).Error; err != nil {
+		return nil, err
+	}
+
+	groups := map[string][]model.Node{}
+	for _, n := range nodes {
+		key := directoryKey(n.FilePath, depth)
+		groups[key] = append(groups[key], n)
+	}
+	return groups, nil
+}
+
+func createCommunitiesAndMemberships(tx *gorm.DB, groups map[string][]model.Node) (map[string]*model.Community, map[uint]string, error) {
+	communityMap := map[string]*model.Community{}
+	for key := range groups {
+		c := model.Community{
+			Key:      key,
+			Label:    key,
+			Strategy: "directory",
+		}
+		if err := tx.Create(&c).Error; err != nil {
+			return nil, nil, err
+		}
+		communityMap[key] = &c
+	}
+
+	nodeComm := map[uint]string{}
+	for key, ns := range groups {
+		for _, n := range ns {
+			m := model.CommunityMembership{
+				CommunityID: communityMap[key].ID,
+				NodeID:      n.ID,
+			}
+			if err := tx.Create(&m).Error; err != nil {
+				return nil, nil, err
+			}
+			nodeComm[n.ID] = key
+		}
+	}
+
+	return communityMap, nodeComm, nil
+}
+
+type edgeCounts struct {
+	internal int64
+	external int64
+}
+
+func countEdgesByCommunity(tx *gorm.DB, groups map[string][]model.Node, nodeComm map[uint]string) (map[string]*edgeCounts, error) {
+	counts := map[string]*edgeCounts{}
+	for key := range groups {
+		counts[key] = &edgeCounts{}
+	}
+
+	var batchEdges []model.Edge
+	if err := tx.FindInBatches(&batchEdges, 500, func(tx *gorm.DB, batch int) error {
+		for _, e := range batchEdges {
+			fromKey, fromOK := nodeComm[e.FromNodeID]
+			toKey, toOK := nodeComm[e.ToNodeID]
+			if !fromOK || !toOK {
+				continue
+			}
+			if fromKey == toKey {
+				counts[fromKey].internal++
+			} else {
+				counts[fromKey].external++
+			}
+		}
+		return nil
+	}).Error; err != nil {
+		return nil, err
+	}
+
+	return counts, nil
+}
+
+func aggregateDescriptions(tx *gorm.DB, groups map[string][]model.Node, communityMap map[string]*model.Community) error {
+	fileNodeIDs := []uint{}
+	for _, ns := range groups {
+		for _, n := range ns {
+			if n.Kind == model.NodeKindFile {
+				fileNodeIDs = append(fileNodeIDs, n.ID)
+			}
+		}
+	}
+	if len(fileNodeIDs) == 0 {
+		return nil
+	}
+
+	annByNode := map[uint]*model.Annotation{}
+	var annotations []model.Annotation
+	if err := tx.Where("node_id IN ?", fileNodeIDs).Preload("Tags").Find(&annotations).Error; err != nil {
+		return err
+	}
+	for i := range annotations {
+		annByNode[annotations[i].NodeID] = &annotations[i]
+	}
+
+	for key, c := range communityMap {
+		var descriptions []string
+		for _, n := range groups[key] {
+			if n.Kind != model.NodeKindFile {
+				continue
+			}
+			if ann := annByNode[n.ID]; ann != nil {
+				for _, tag := range ann.Tags {
+					if tag.Kind == model.TagIndex {
+						descriptions = append(descriptions, tag.Value)
+					}
+				}
+			}
+		}
+		if len(descriptions) > 0 {
+			c.Description = strings.Join(descriptions, "; ")
+			if err := tx.Save(c).Error; err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func buildStats(groups map[string][]model.Node, communityMap map[string]*model.Community, counts map[string]*edgeCounts) []Stats {
+	var result []Stats
+	for key, c := range communityMap {
+		ec := counts[key]
+		var cohesion float64
+		total := ec.internal + ec.external
+		if total > 0 {
+			cohesion = float64(ec.internal) / float64(total)
+		}
+
+		result = append(result, Stats{
+			Community:     *c,
+			NodeCount:     int64(len(groups[key])),
+			InternalEdges: ec.internal,
+			ExternalEdges: ec.external,
+			Cohesion:      cohesion,
+		})
+	}
+	return result
 }
 
 // directoryKey derives a community key from a file path.

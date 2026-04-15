@@ -4,6 +4,7 @@ package deadcode
 import (
 	"context"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"gorm.io/gorm"
 )
@@ -36,6 +37,7 @@ func New(db *gorm.DB) *Service {
 // @domainRule supports filtering by node kind and file path pattern
 func (s *Service) Find(ctx context.Context, opts Options) ([]model.Node, error) {
 	q := s.db.WithContext(ctx).
+		Where("namespace = ?", ctxns.FromContext(ctx)).
 		Where("kind NOT IN ?", []model.NodeKind{model.NodeKindFile, model.NodeKindTest}).
 		Where("id NOT IN (?)",
 			s.db.Model(&model.Edge{}).Select("to_node_id"),

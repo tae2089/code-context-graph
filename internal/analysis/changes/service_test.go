@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -40,9 +41,15 @@ func setupDB(t *testing.T) *gorm.DB {
 
 func seedNode(t *testing.T, db *gorm.DB, id uint, name string, file string, start, end int) {
 	t.Helper()
+	seedNodeNS(t, db, id, name, file, start, end, "")
+}
+
+func seedNodeNS(t *testing.T, db *gorm.DB, id uint, name string, file string, start, end int, ns string) {
+	t.Helper()
 	n := model.Node{
 		ID:            id,
 		QualifiedName: fmt.Sprintf("%s::%s", file, name),
+		Namespace:     ns,
 		Kind:          model.NodeKindFunction,
 		Name:          name,
 		FilePath:      file,
@@ -171,5 +178,29 @@ func TestAnalyze_EmptyDiff(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("expected 0, got %d", len(got))
+	}
+}
+
+func TestAnalyze_RespectsNamespace(t *testing.T) {
+	db := setupDB(t)
+	seedNodeNS(t, db, 1, "FooA", "a.go", 10, 30, "ns-a")
+	seedNodeNS(t, db, 2, "FooB", "a.go", 10, 30, "ns-b")
+
+	git := &mockGit{
+		files: []string{"a.go"},
+		hunks: []Hunk{{FilePath: "a.go", StartLine: 15, EndLine: 20}},
+	}
+	svc := New(db, git)
+
+	ctxA := ctxns.WithNamespace(context.Background(), "ns-a")
+	got, err := svc.Analyze(ctxA, ".", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 risk entry for ns-a, got %d", len(got))
+	}
+	if got[0].Node.Name != "FooA" {
+		t.Errorf("expected FooA, got %s", got[0].Node.Name)
 	}
 }

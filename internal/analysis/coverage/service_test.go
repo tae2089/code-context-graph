@@ -6,6 +6,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -28,9 +29,15 @@ func setupDB(t *testing.T) *gorm.DB {
 
 func seedNode(t *testing.T, db *gorm.DB, id uint, name string, kind model.NodeKind, file string) {
 	t.Helper()
+	seedNodeNS(t, db, id, name, kind, file, "")
+}
+
+func seedNodeNS(t *testing.T, db *gorm.DB, id uint, name string, kind model.NodeKind, file string, ns string) {
+	t.Helper()
 	n := model.Node{
 		ID:            id,
 		QualifiedName: fmt.Sprintf("%s::%s", file, name),
+		Namespace:     ns,
 		Kind:          kind,
 		Name:          name,
 		FilePath:      file,
@@ -182,5 +189,22 @@ func TestByCommunity_InvalidID(t *testing.T) {
 	_, err := svc.ByCommunity(context.Background(), 999)
 	if err == nil {
 		t.Fatal("expected error for invalid community ID")
+	}
+}
+
+func TestByFile_RespectsNamespace(t *testing.T) {
+	db := setupDB(t)
+	seedNodeNS(t, db, 1, "FooA", model.NodeKindFunction, "a.go", "ns-a")
+	seedNodeNS(t, db, 2, "FooB", model.NodeKindFunction, "a.go", "ns-b")
+
+	svc := New(db)
+
+	ctxA := ctxns.WithNamespace(context.Background(), "ns-a")
+	got, err := svc.ByFile(ctxA, "a.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Total != 1 {
+		t.Errorf("expected total=1 for ns-a, got %d", got.Total)
 	}
 }

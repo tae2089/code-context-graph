@@ -10,6 +10,7 @@ import (
 
 	"github.com/tae2089/trace"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"github.com/imtaebin/code-context-graph/internal/store"
 )
@@ -49,9 +50,13 @@ func (s *Store) UpsertNodes(ctx context.Context, nodes []model.Node) error {
 	if len(nodes) == 0 {
 		return nil
 	}
+	ns := ctxns.FromContext(ctx)
+	for i := range nodes {
+		nodes[i].Namespace = ns
+	}
 	err := s.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "qualified_name"}},
+			Columns: []clause.Column{{Name: "namespace"}, {Name: "qualified_name"}},
 			DoUpdates: clause.AssignmentColumns([]string{
 				"kind", "name", "file_path", "start_line", "end_line", "hash", "language",
 			}),
@@ -68,12 +73,13 @@ func (s *Store) UpsertNodes(ctx context.Context, nodes []model.Node) error {
 // @return 노드가 없으면 nil을 반환한다.
 func (s *Store) GetNode(ctx context.Context, qualifiedName string) (*model.Node, error) {
 	var node model.Node
-	result := s.db.WithContext(ctx).Where("qualified_name = ?", qualifiedName).First(&node)
+	ns := ctxns.FromContext(ctx)
+	result := s.db.WithContext(ctx).Where("namespace = ? AND qualified_name = ?", ns, qualifiedName).First(&node)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
 	if result.Error != nil {
-		return nil, result.Error
+		return nil, trace.Wrap(result.Error, "get node by qualified name")
 	}
 	return &node, nil
 }
@@ -88,7 +94,7 @@ func (s *Store) GetNodeByID(ctx context.Context, id uint) (*model.Node, error) {
 		return nil, nil
 	}
 	if result.Error != nil {
-		return nil, result.Error
+		return nil, trace.Wrap(result.Error, "get node by id")
 	}
 	return &node, nil
 }
@@ -114,8 +120,9 @@ func (s *Store) GetNodesByQualifiedNames(ctx context.Context, names []string) (m
 	if len(names) == 0 {
 		return map[string]*model.Node{}, nil
 	}
+	ns := ctxns.FromContext(ctx)
 	var nodes []model.Node
-	if err := s.db.WithContext(ctx).Where("qualified_name IN ?", names).Find(&nodes).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("namespace = ? AND qualified_name IN ?", ns, names).Find(&nodes).Error; err != nil {
 		return nil, err
 	}
 	result := make(map[string]*model.Node, len(nodes))
@@ -128,8 +135,9 @@ func (s *Store) GetNodesByQualifiedNames(ctx context.Context, names []string) (m
 // GetNodesByFile는 파일 경로에 속한 노드를 조회한다.
 // @intent 특정 소스 파일에서 파싱된 선언들을 불러온다.
 func (s *Store) GetNodesByFile(ctx context.Context, filePath string) ([]model.Node, error) {
+	ns := ctxns.FromContext(ctx)
 	var nodes []model.Node
-	if err := s.db.WithContext(ctx).Where("file_path = ?", filePath).Find(&nodes).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("namespace = ? AND file_path = ?", ns, filePath).Find(&nodes).Error; err != nil {
 		return nil, err
 	}
 	return nodes, nil
@@ -142,8 +150,9 @@ func (s *Store) GetNodesByFiles(ctx context.Context, filePaths []string) (map[st
 	if len(filePaths) == 0 {
 		return map[string][]model.Node{}, nil
 	}
+	ns := ctxns.FromContext(ctx)
 	var nodes []model.Node
-	if err := s.db.WithContext(ctx).Where("file_path IN ?", filePaths).Find(&nodes).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("namespace = ? AND file_path IN ?", ns, filePaths).Find(&nodes).Error; err != nil {
 		return nil, err
 	}
 	result := make(map[string][]model.Node, len(filePaths))
@@ -158,10 +167,11 @@ func (s *Store) GetNodesByFiles(ctx context.Context, filePaths []string) (map[st
 // @sideEffect nodes, edges, annotations, doc_tags 테이블에서 관련 레코드를 삭제한다.
 // @domainRule 파일 삭제 시 연결된 엣지와 어노테이션도 함께 제거되어야 한다.
 func (s *Store) DeleteNodesByFile(ctx context.Context, filePath string) error {
+	ns := ctxns.FromContext(ctx)
 	var nodeIDs []uint
 	if err := s.db.WithContext(ctx).
 		Model(&model.Node{}).
-		Where("file_path = ?", filePath).
+		Where("namespace = ? AND file_path = ?", ns, filePath).
 		Pluck("id", &nodeIDs).Error; err != nil {
 		return trace.Wrap(err, "pluck node ids")
 	}
@@ -189,7 +199,7 @@ func (s *Store) DeleteNodesByFile(ctx context.Context, filePath string) error {
 			return trace.Wrap(err, "cascade delete annotations")
 		}
 
-		return tx.Where("file_path = ?", filePath).Delete(&model.Node{}).Error
+		return tx.Where("id IN ?", nodeIDs).Delete(&model.Node{}).Error
 	})
 }
 
@@ -305,7 +315,7 @@ func (s *Store) GetAnnotation(ctx context.Context, nodeID uint) (*model.Annotati
 		return nil, nil
 	}
 	if result.Error != nil {
-		return nil, result.Error
+		return nil, trace.Wrap(result.Error, "get annotation")
 	}
 	return &ann, nil
 }

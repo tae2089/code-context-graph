@@ -15,7 +15,8 @@
 - `build_rag_index`, `get_rag_tree`, `get_doc_content`, `search_docs`
 - `upload_file`, `upload_files`, `list_workspaces`, `list_files`, `delete_file`, `delete_workspace`
 
-HTTP 모드 (`--transport streamable-http`)에서는 `/health` 엔드포인트도 제공합니다.
+HTTP 모드 (`--transport streamable-http`)에서는 `/health` 및 `/webhook` 엔드포인트도 제공합니다.
+Webhook은 `--allow-repo` 플래그로 허용 리포지토리를 설정하면 활성화됩니다.
 
 ## CLI Skills (5개)
 

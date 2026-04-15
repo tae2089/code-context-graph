@@ -8,6 +8,7 @@ import (
 
 	"github.com/tae2089/trace"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 )
 
@@ -114,7 +115,11 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 	}
 
 	var nodes []model.Node
-	if err := db.WithContext(ctx).Where("id IN ?", nodeIDs).Find(&nodes).Error; err != nil {
+	nodesQ := db.WithContext(ctx).Where("id IN ?", nodeIDs)
+	if ns := ctxns.FromContext(ctx); ns != "" {
+		nodesQ = nodesQ.Where("namespace = ?", ns)
+	}
+	if err := nodesQ.Find(&nodes).Error; err != nil {
 		return nil, trace.Wrap(err, "load nodes")
 	}
 

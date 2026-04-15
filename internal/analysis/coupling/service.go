@@ -4,6 +4,7 @@ package coupling
 import (
 	"context"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"gorm.io/gorm"
 )
@@ -37,19 +38,25 @@ func New(db *gorm.DB) *Service {
 // @domainRule strength equals edge count divided by maximum edge count across all pairs
 // @domainRule only cross-community edges are counted
 func (s *Service) Analyze(ctx context.Context) ([]CouplingPair, error) {
+	ns := ctxns.FromContext(ctx)
+
 	type pairRow struct {
 		FromCommID uint
 		ToCommID   uint
 		EdgeCount  int64
 	}
 	var rows []pairRow
-	if err := s.db.WithContext(ctx).
+	q := s.db.WithContext(ctx).
 		Model(&model.Edge{}).
 		Select("cm1.community_id as from_comm_id, cm2.community_id as to_comm_id, COUNT(*) as edge_count").
 		Joins("JOIN community_memberships cm1 ON cm1.node_id = edges.from_node_id").
 		Joins("JOIN community_memberships cm2 ON cm2.node_id = edges.to_node_id").
-		Where("cm1.community_id != cm2.community_id").
-		Group("cm1.community_id, cm2.community_id").
+		Where("cm1.community_id != cm2.community_id")
+	if ns != "" {
+		q = q.Joins("JOIN nodes n1 ON n1.id = edges.from_node_id").
+			Where("n1.namespace = ?", ns)
+	}
+	if err := q.Group("cm1.community_id, cm2.community_id").
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}

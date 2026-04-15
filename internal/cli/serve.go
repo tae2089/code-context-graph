@@ -16,6 +16,9 @@ type ServeConfig struct {
 	HTTPAddr      string // listen address for HTTP transport (default ":8080")
 	Stateless     bool   // stateless session management for multi-instance deployments
 	WorkspaceRoot string // root directory for file workspaces (default "workspaces")
+	AllowRepo     []string
+	WebhookSecret string
+	RepoRoot      string
 }
 
 // newServeCmd creates the MCP server command.
@@ -43,6 +46,9 @@ func newServeCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().StringVar(&cfg.HTTPAddr, "http-addr", ":8080", "Listen address for HTTP transport")
 	cmd.Flags().BoolVar(&cfg.Stateless, "stateless", false, "Stateless session management (for multi-instance deployments)")
 	cmd.Flags().StringVar(&cfg.WorkspaceRoot, "workspace-root", "workspaces", "Root directory for file workspaces")
+	cmd.Flags().StringSliceVar(&cfg.AllowRepo, "allow-repo", nil, "Allowed repo patterns for webhook sync (repeatable, e.g. org/*, !org/private)")
+	cmd.Flags().StringVar(&cfg.WebhookSecret, "webhook-secret", "", "HMAC secret for GitHub webhook signature verification")
+	cmd.Flags().StringVar(&cfg.RepoRoot, "repo-root", "", "Root directory for cloned repositories")
 
 	return cmd
 }

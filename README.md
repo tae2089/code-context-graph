@@ -160,11 +160,15 @@ For remote HTTP mode:
 }
 ```
 
-Health check endpoint (HTTP mode only):
+HTTP-only endpoints:
 
 ```bash
+# Health check
 curl http://localhost:8080/health
 # {"status":"ok"}
+
+# GitHub webhook (when --allow-repo is configured)
+# POST /webhook — receives push events and triggers auto-sync
 ```
 
 Claude Code automatically connects and gets access to 28 MCP tools.
@@ -212,7 +216,7 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
                                         ↓
                               MCP Server (28 tools)
                                     ↓         ↓
-                              stdio       Streamable HTTP
+                              stdio       Streamable HTTP ← GitHub Webhook
                                 ↓              ↓
                            Claude Code    Remote Clients
 ```
@@ -245,6 +249,9 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
 | `ccg serve --http-addr :9090` | Custom HTTP listen address (default `:8080`) |
 | `ccg serve --stateless` | Stateless session mode (multi-instance deployments) |
 | `ccg serve --workspace-root <dir>` | Root directory for file workspaces (default `workspaces`) |
+| `ccg serve --allow-repo <pat>` | Allowed repo patterns for webhook sync (repeatable, e.g. `org/*`, `!org/private`) |
+| `ccg serve --webhook-secret <s>` | HMAC secret for GitHub webhook signature verification |
+| `ccg serve --repo-root <dir>` | Root directory for cloned repositories |
 
 ### Config file (`.ccg.yaml`)
 

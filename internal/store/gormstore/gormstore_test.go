@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"github.com/imtaebin/code-context-graph/internal/store"
 )
@@ -500,6 +501,74 @@ func TestDeleteNode_CascadeEdges(t *testing.T) {
 	}
 }
 
+func TestNode_NamespaceField(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := ctxns.WithNamespace(context.Background(), "svc")
+
+	nodes := []model.Node{
+		{QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "A", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"},
+	}
+	if err := s.UpsertNodes(ctx, nodes); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+
+	got, err := s.GetNode(ctx, "pkg.A")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected node, got nil")
+	}
+	if got.Namespace != "svc" {
+		t.Errorf("Namespace = %q, want %q", got.Namespace, "svc")
+	}
+}
+
+func TestNode_UniqueIndex_NamespaceQualifiedName(t *testing.T) {
+	s := setupTestDB(t)
+
+	ctxA := ctxns.WithNamespace(context.Background(), "a")
+	ctxB := ctxns.WithNamespace(context.Background(), "b")
+
+	s.UpsertNodes(ctxA, []model.Node{
+		{QualifiedName: "pkg.F", Kind: model.NodeKindFunction, Name: "F", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"},
+	})
+	s.UpsertNodes(ctxB, []model.Node{
+		{QualifiedName: "pkg.F", Kind: model.NodeKindFunction, Name: "F", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"},
+	})
+
+	var count int64
+	s.db.Model(&model.Node{}).Where("qualified_name = ?", "pkg.F").Count(&count)
+	if count != 2 {
+		t.Errorf("expected 2 nodes with same QN in different namespaces, got %d", count)
+	}
+}
+
+func TestNode_UniqueIndex_DuplicateWithinNamespace(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := ctxns.WithNamespace(context.Background(), "a")
+
+	node1 := []model.Node{
+		{QualifiedName: "pkg.F", Kind: model.NodeKindFunction, Name: "F", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"},
+	}
+	if err := s.UpsertNodes(ctx, node1); err != nil {
+		t.Fatalf("first UpsertNodes: %v", err)
+	}
+
+	node2 := []model.Node{
+		{QualifiedName: "pkg.F", Kind: model.NodeKindFunction, Name: "F_updated", FilePath: "a.go", StartLine: 1, EndLine: 5, Language: "go"},
+	}
+	if err := s.UpsertNodes(ctx, node2); err != nil {
+		t.Fatalf("second UpsertNodes: %v", err)
+	}
+
+	var count int64
+	s.db.Model(&model.Node{}).Where("namespace = ? AND qualified_name = ?", "a", "pkg.F").Count(&count)
+	if count != 1 {
+		t.Errorf("expected 1 node after upsert within same namespace, got %d", count)
+	}
+}
+
 func TestDeleteNode_CascadeAnnotation(t *testing.T) {
 	s := setupTestDB(t)
 	ctx := context.Background()
@@ -520,5 +589,187 @@ func TestDeleteNode_CascadeAnnotation(t *testing.T) {
 	ann, _ := s.GetAnnotation(ctx, node.ID)
 	if ann != nil {
 		t.Error("expected annotation to be cascade deleted")
+	}
+}
+
+func TestUpsertNodes_SetsNamespaceFromContext(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := ctxns.WithNamespace(context.Background(), "pay")
+
+	nodes := []model.Node{
+		{QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "A", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"},
+	}
+	if err := s.UpsertNodes(ctx, nodes); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+
+	var got model.Node
+	s.db.First(&got, "qualified_name = ?", "pkg.A")
+	if got.Namespace != "pay" {
+		t.Errorf("Namespace = %q, want %q", got.Namespace, "pay")
+	}
+}
+
+func TestUpsertNodes_EmptyNamespace_BackwardCompatible(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := context.Background()
+
+	nodes := []model.Node{
+		{QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "A", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"},
+	}
+	if err := s.UpsertNodes(ctx, nodes); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+
+	var got model.Node
+	s.db.First(&got, "qualified_name = ?", "pkg.A")
+	if got.Namespace != "" {
+		t.Errorf("Namespace = %q, want empty string", got.Namespace)
+	}
+}
+
+func TestGetNode_FiltersByNamespace(t *testing.T) {
+	s := setupTestDB(t)
+
+	ctxA := ctxns.WithNamespace(context.Background(), "a")
+	ctxB := ctxns.WithNamespace(context.Background(), "b")
+
+	s.UpsertNodes(ctxA, []model.Node{
+		{QualifiedName: "pkg.F", Kind: model.NodeKindFunction, Name: "F", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"},
+	})
+
+	got, err := s.GetNode(ctxB, "pkg.F")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil for different namespace, got %v", got)
+	}
+
+	got, err = s.GetNode(ctxA, "pkg.F")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected node in namespace a, got nil")
+	}
+}
+
+func TestGetNode_EmptyNamespace_FindsLegacyNodes(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := context.Background()
+
+	s.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.F", Kind: model.NodeKindFunction, Name: "F", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"},
+	})
+
+	got, err := s.GetNode(ctx, "pkg.F")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected legacy node with empty namespace, got nil")
+	}
+}
+
+func TestGetNodesByFile_FiltersByNamespace(t *testing.T) {
+	s := setupTestDB(t)
+
+	ctxA := ctxns.WithNamespace(context.Background(), "a")
+	ctxB := ctxns.WithNamespace(context.Background(), "b")
+
+	s.UpsertNodes(ctxA, []model.Node{
+		{QualifiedName: "a.F1", Kind: model.NodeKindFunction, Name: "F1", FilePath: "shared.go", StartLine: 1, EndLine: 2, Language: "go"},
+	})
+	s.UpsertNodes(ctxB, []model.Node{
+		{QualifiedName: "b.F1", Kind: model.NodeKindFunction, Name: "F1", FilePath: "shared.go", StartLine: 1, EndLine: 2, Language: "go"},
+	})
+
+	got, err := s.GetNodesByFile(ctxA, "shared.go")
+	if err != nil {
+		t.Fatalf("GetNodesByFile: %v", err)
+	}
+	if len(got) != 1 {
+		t.Errorf("expected 1 node in namespace a, got %d", len(got))
+	}
+	if len(got) > 0 && got[0].Namespace != "a" {
+		t.Errorf("Namespace = %q, want %q", got[0].Namespace, "a")
+	}
+}
+
+func TestGetNodesByQualifiedNames_FiltersByNamespace(t *testing.T) {
+	s := setupTestDB(t)
+
+	ctxA := ctxns.WithNamespace(context.Background(), "a")
+	ctxB := ctxns.WithNamespace(context.Background(), "b")
+
+	s.UpsertNodes(ctxA, []model.Node{
+		{QualifiedName: "pkg.F", Kind: model.NodeKindFunction, Name: "F", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"},
+	})
+	s.UpsertNodes(ctxB, []model.Node{
+		{QualifiedName: "pkg.F", Kind: model.NodeKindFunction, Name: "F", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"},
+	})
+
+	got, err := s.GetNodesByQualifiedNames(ctxA, []string{"pkg.F"})
+	if err != nil {
+		t.Fatalf("GetNodesByQualifiedNames: %v", err)
+	}
+	if len(got) != 1 {
+		t.Errorf("expected 1 node in namespace a, got %d", len(got))
+	}
+	if n, ok := got["pkg.F"]; ok && n.Namespace != "a" {
+		t.Errorf("Namespace = %q, want %q", n.Namespace, "a")
+	}
+}
+
+func TestDeleteNodesByFile_FiltersByNamespace(t *testing.T) {
+	s := setupTestDB(t)
+
+	ctxA := ctxns.WithNamespace(context.Background(), "a")
+	ctxB := ctxns.WithNamespace(context.Background(), "b")
+
+	s.UpsertNodes(ctxA, []model.Node{
+		{QualifiedName: "a.F", Kind: model.NodeKindFunction, Name: "F", FilePath: "shared.go", StartLine: 1, EndLine: 2, Language: "go"},
+	})
+	s.UpsertNodes(ctxB, []model.Node{
+		{QualifiedName: "b.F", Kind: model.NodeKindFunction, Name: "F", FilePath: "shared.go", StartLine: 1, EndLine: 2, Language: "go"},
+	})
+
+	if err := s.DeleteNodesByFile(ctxA, "shared.go"); err != nil {
+		t.Fatalf("DeleteNodesByFile: %v", err)
+	}
+
+	got, _ := s.GetNode(ctxA, "a.F")
+	if got != nil {
+		t.Error("expected namespace a node to be deleted")
+	}
+
+	got, _ = s.GetNode(ctxB, "b.F")
+	if got == nil {
+		t.Error("expected namespace b node to still exist")
+	}
+}
+
+func TestUpsertNodes_ConflictWithinSameNamespace(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := ctxns.WithNamespace(context.Background(), "ns")
+
+	s.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.F", Kind: model.NodeKindFunction, Name: "F", FilePath: "a.go", StartLine: 1, EndLine: 2, Hash: "aaa", Language: "go"},
+	})
+
+	s.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.F", Kind: model.NodeKindFunction, Name: "F", FilePath: "a.go", StartLine: 1, EndLine: 5, Hash: "bbb", Language: "go"},
+	})
+
+	got, _ := s.GetNode(ctx, "pkg.F")
+	if got == nil {
+		t.Fatal("expected node, got nil")
+	}
+	if got.Hash != "bbb" {
+		t.Errorf("Hash = %q, want %q (should be updated)", got.Hash, "bbb")
+	}
+	if got.EndLine != 5 {
+		t.Errorf("EndLine = %d, want 5", got.EndLine)
 	}
 }
