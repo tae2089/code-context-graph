@@ -2031,6 +2031,7 @@ func TestRunPostprocess_FlushesCache(t *testing.T) {
 
 func TestBuildRagIndex_ReturnsCount(t *testing.T) {
 	deps := setupTestDeps(t)
+	deps.RagIndexDir = t.TempDir()
 	result := callTool(t, deps, "build_rag_index", map[string]any{})
 	if result.IsError {
 		t.Fatalf("build_rag_index error: %v", result.Content)
@@ -2043,6 +2044,7 @@ func TestBuildRagIndex_ReturnsCount(t *testing.T) {
 
 func TestGetRagTree_AfterBuild(t *testing.T) {
 	deps := setupTestDeps(t)
+	deps.RagIndexDir = t.TempDir()
 
 	// First build the index
 	buildResult := callTool(t, deps, "build_rag_index", map[string]any{})
@@ -2122,6 +2124,7 @@ func TestGetDocContent_HappyPath(t *testing.T) {
 
 func TestGetRagTree_InvalidCommunityID(t *testing.T) {
 	deps := setupTestDeps(t)
+	deps.RagIndexDir = t.TempDir()
 
 	// Build index first
 	buildResult := callTool(t, deps, "build_rag_index", map[string]any{})

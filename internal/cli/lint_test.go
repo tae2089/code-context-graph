@@ -41,7 +41,8 @@ func TestLintCommand_ReportsOrphan(t *testing.T) {
 	os.MkdirAll(orphanDir, 0o755)
 	os.WriteFile(filepath.Join(orphanDir, "gone.go.md"), []byte("# pkg/gone.go\n"), 0o644)
 
-	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir); err != nil {
+	histDir := t.TempDir()
+	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--history-dir", histDir); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -67,7 +68,8 @@ func TestLintCommand_ReportsMissing(t *testing.T) {
 	})
 
 	outDir := t.TempDir()
-	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir); err != nil {
+	histDir := t.TempDir()
+	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--history-dir", histDir); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -97,7 +99,7 @@ func TestLintCommand_ReportsStale(t *testing.T) {
 	oldTime := time.Now().Add(-24 * time.Hour)
 	os.Chtimes(docPath, oldTime, oldTime)
 
-	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir); err != nil {
+	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--history-dir", t.TempDir()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -131,7 +133,8 @@ func TestLintCommand_CleanReport(t *testing.T) {
 	}
 
 	stdout.Reset()
-	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir); err != nil {
+	histDir := t.TempDir()
+	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--history-dir", histDir); err != nil {
 		t.Fatalf("lint: %v", err)
 	}
 
@@ -154,7 +157,8 @@ func TestLintCommand_ReportsUnannotated(t *testing.T) {
 	})
 
 	outDir := t.TempDir()
-	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir); err != nil {
+	histDir := t.TempDir()
+	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--history-dir", histDir); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -180,7 +184,8 @@ func TestLintCommand_Strict_FailsOnIssues(t *testing.T) {
 	})
 
 	outDir := t.TempDir()
-	err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--strict")
+	histDir := t.TempDir()
+	err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--strict", "--history-dir", histDir)
 	if err == nil {
 		t.Fatal("expected error with --strict when issues exist")
 	}
@@ -210,7 +215,8 @@ func TestLintCommand_Strict_PassesWhenClean(t *testing.T) {
 	}
 
 	stdout.Reset()
-	err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--strict")
+	histDir := t.TempDir()
+	err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--strict", "--history-dir", histDir)
 	if err != nil {
 		t.Fatalf("expected no error with --strict when clean, got: %v", err)
 	}
@@ -237,7 +243,8 @@ func TestLintCommand_ReportsContradiction(t *testing.T) {
 	db.Model(&model.Node{}).Where("id = ?", node.ID).Update("updated_at", time.Now().Add(1*time.Hour))
 
 	outDir := t.TempDir()
-	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir); err != nil {
+	histDir := t.TempDir()
+	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--history-dir", histDir); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -270,7 +277,8 @@ func TestLintCommand_ReportsDeadRef(t *testing.T) {
 	})
 
 	outDir := t.TempDir()
-	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir); err != nil {
+	histDir := t.TempDir()
+	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--history-dir", histDir); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -301,7 +309,8 @@ func TestLintCommand_ReportsIncomplete(t *testing.T) {
 	})
 
 	outDir := t.TempDir()
-	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir); err != nil {
+	histDir := t.TempDir()
+	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--history-dir", histDir); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
