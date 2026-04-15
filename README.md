@@ -9,6 +9,7 @@ Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) 
 - **12 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua
 - **28 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, file workspace management, and more
 - **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context
+- **Webhook sync**: GitHub / Gitea push events → auto clone + build (HMAC-verified)
 - **Multi-DB**: SQLite (local), PostgreSQL
 - **Full-text search**: FTS5 (SQLite), tsvector+GIN (PostgreSQL)
 
@@ -163,12 +164,12 @@ For remote HTTP mode:
 HTTP-only endpoints:
 
 ```bash
-# Health check
 curl http://localhost:8080/health
 # {"status":"ok"}
 
-# GitHub webhook (when --allow-repo is configured)
-# POST /webhook — receives push events and triggers auto-sync
+# Webhook (GitHub / Gitea push events, when --allow-repo is configured)
+# POST /webhook — receives push events and triggers auto clone + build
+# Supports: X-Hub-Signature-256 (GitHub), X-Gitea-Signature (Gitea)
 ```
 
 Claude Code automatically connects and gets access to 28 MCP tools.
@@ -216,9 +217,12 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
                                         ↓
                               MCP Server (28 tools)
                                     ↓         ↓
-                              stdio       Streamable HTTP ← GitHub Webhook
+                              stdio       Streamable HTTP
                                 ↓              ↓
                            Claude Code    Remote Clients
+                                               ↑
+                                GitHub / Gitea Webhook
+                                    push → clone → build → DB
 ```
 
 ## CLI Commands
@@ -249,8 +253,8 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
 | `ccg serve --http-addr :9090` | Custom HTTP listen address (default `:8080`) |
 | `ccg serve --stateless` | Stateless session mode (multi-instance deployments) |
 | `ccg serve --workspace-root <dir>` | Root directory for file workspaces (default `workspaces`) |
-| `ccg serve --allow-repo <pat>` | Allowed repo patterns for webhook sync (repeatable, e.g. `org/*`, `!org/private`) |
-| `ccg serve --webhook-secret <s>` | HMAC secret for GitHub webhook signature verification |
+| `ccg serve --allow-repo <pat>` | Allowed repo patterns for webhook sync (repeatable, e.g. `org/*`, `*/*`) |
+| `ccg serve --webhook-secret <s>` | HMAC secret for webhook signature verification (GitHub / Gitea) |
 | `ccg serve --repo-root <dir>` | Root directory for cloned repositories |
 
 ### Config file (`.ccg.yaml`)
@@ -377,15 +381,25 @@ docker compose up -d
 
 ### Integration Test (Gitea + PostgreSQL + ccg)
 
-Full-stack test: Gitea push → webhook → ccg clone → build → PostgreSQL.
+Full-stack pipeline test: Gitea push → webhook → ccg clone → build → PostgreSQL → MCP verification.
 
 ```bash
-# Run (starts containers, creates repo, pushes code, verifies build)
 ./scripts/integration-test.sh
+```
 
-# Manual setup
+What it does:
+1. Starts 3 containers (Gitea, PostgreSQL, ccg) via Docker Compose
+2. Creates a Gitea admin user and API token
+3. Creates a repository with sample Go code
+4. Registers a webhook pointing to ccg
+5. Pushes code to Gitea (triggers webhook)
+6. Waits for ccg to clone, parse, and build the graph
+7. Verifies graph data via MCP protocol (initialize → tools/call)
+8. Cleans up all containers
+
+```bash
+# Manual container management
 docker compose -f docker-compose.integration.yml up -d --build
-# ... run tests ...
 docker compose -f docker-compose.integration.yml down -v
 ```
 
