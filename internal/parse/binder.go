@@ -36,7 +36,7 @@ func NewBinder() *Binder {
 	}
 }
 
-const maxGap = 1
+const maxGap = 2
 
 // Bind associates comment blocks with nodes when they appear immediately above declarations.
 // @intent build node-to-annotation bindings from parsed comments and node positions
