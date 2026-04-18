@@ -1,7 +1,6 @@
 ---
 name: ccg
 description: code-context-graph — build code knowledge graphs and search. Core entry point for parsing, building, and querying code graphs.
-user-invocable: true
 ---
 
 # code-context-graph — Core Build & Search

@@ -1,7 +1,6 @@
 ---
 name: ccg-workspace
 description: code-context-graph — file workspace management. Upload, list, and delete files in isolated workspaces for MSA source management.
-user-invocable: true
 ---
 
 # code-context-graph — File Workspace Management

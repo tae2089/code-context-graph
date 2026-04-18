@@ -1,7 +1,6 @@
 ---
 name: ccg-analyze
 description: code-context-graph — code analysis & architecture. Impact analysis, flow tracing, dead code detection, community structure.
-user-invocable: true
 ---
 
 # code-context-graph — Code Analysis & Architecture

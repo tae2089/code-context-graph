@@ -1,7 +1,6 @@
 ---
 name: ccg-annotate
 description: code-context-graph — annotation system. AI-driven annotation workflow, tag reference, and annotation search.
-user-invocable: true
 ---
 
 # code-context-graph — Annotation System

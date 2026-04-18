@@ -1,7 +1,6 @@
 ---
 name: ccg-docs
 description: code-context-graph — documentation generation, RAG indexing, and docs quality linting.
-user-invocable: true
 ---
 
 # code-context-graph — Documentation & RAG Indexing

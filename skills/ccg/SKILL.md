@@ -1,7 +1,6 @@
 ---
 name: ccg
 description: code-context-graph — build code knowledge graphs and search. Core entry point for parsing, building, and querying code graphs.
-user-invocable: true
 ---
 
 # code-context-graph — Core Build & Search
@@ -105,6 +104,6 @@ Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/mcp` | POST/GET/DELETE | MCP protocol endpoint |
+| `/mcp` | POST/GET/DELETE | MCP protocol endpoint (session-based) |
 | `/health` | GET | Health check — returns `{"status":"ok"}` |
-| `/webhook` | POST | GitHub webhook receiver (when `--allow-repo` configured) |
+| `/webhook` | POST | GitHub / Gitea webhook receiver (when `--allow-repo` configured). Supports `X-Hub-Signature-256` and `X-Gitea-Signature` HMAC verification. |
