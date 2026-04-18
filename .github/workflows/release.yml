@@ -55,6 +55,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 1
+        shell: bash
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
           COMMIT=${GITHUB_SHA::7}
