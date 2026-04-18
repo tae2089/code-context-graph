@@ -53,6 +53,12 @@ var (
 	_ mcpserver.IncrementalSyncer = (*incremental.Syncer)(nil)
 )
 
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
+)
+
 // main wires CLI dependencies and executes the root command.
 // @intent 애플리케이션 시작 시 DB, 워커, MCP 실행 의존성을 구성해 CLI를 실행한다.
 // @sideEffect 시그널 핸들러를 등록하고 명령 실행 중 필요한 리소스를 초기화한다.
@@ -61,6 +67,11 @@ func main() {
 
 	deps := &cli.Deps{
 		Logger: logger,
+		Version: cli.VersionInfo{
+			Version: version,
+			Commit:  commit,
+			Date:    date,
+		},
 	}
 
 	deps.InitFunc = func(driver, dsn string) error {
@@ -158,7 +169,7 @@ func buildWalkers(logger *slog.Logger) map[string]*treesitter.Walker {
 		{treesitter.RustSpec, []string{".rs"}},
 		{treesitter.KotlinSpec, []string{".kt", ".kts"}},
 		{treesitter.PHPSpec, []string{".php"}},
-		{treesitter.LuaSpec, []string{".lua"}},
+		{treesitter.LuaSpec, []string{".lua", ".luau"}},
 	}
 
 	walkers := make(map[string]*treesitter.Walker)

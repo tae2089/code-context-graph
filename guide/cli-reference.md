@@ -1,5 +1,32 @@
 # CLI Reference
 
+## Global Flags
+
+| Flag | Description |
+|------|-------------|
+| `--namespace <name>` | Namespace for data isolation (e.g. `--namespace backend`) |
+| `--db-driver <driver>` | Database driver: `sqlite`, `postgres` (default `sqlite`) |
+| `--db-dsn <dsn>` | Database connection string (default `ccg.db`) |
+| `--log-level <level>` | Log level: `debug`, `info`, `warn`, `error` (default `info`) |
+| `--log-json` | Output logs in JSON format |
+| `--config <path>` | Config file path (default: `.ccg.yaml` in `./` then `~/.config/ccg/`) |
+
+### Namespace
+
+MSA 환경에서 서비스별 코드 그래프를 하나의 DB에 격리 저장할 수 있습니다.
+
+```bash
+# 서비스별 빌드
+ccg build ./backend --namespace backend
+ccg build ./frontend --namespace frontend
+
+# 특정 namespace 내에서만 검색
+ccg search --namespace backend "auth"
+
+# 증분 업데이트도 namespace 적용
+ccg update ./backend --namespace backend
+```
+
 ## Commands
 
 | Command | Description |
@@ -23,6 +50,7 @@
 | `ccg hooks install --lint-strict` | Install hook that blocks commit on issues |
 | `ccg lint [--out dir]` | 8-category docs lint |
 | `ccg lint --strict` | Exit 1 on issues (for CI/pre-commit) |
+| `ccg version` | Print build version, commit, date |
 
 ### Serve
 

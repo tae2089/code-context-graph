@@ -33,6 +33,9 @@ go install github.com/tae2089/code-context-graph/cmd/ccg@latest
 
 ```bash
 CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/
+
+# Or use Makefile (injects version from git tag automatically)
+make build
 ```
 
 ## Quick Start
@@ -50,6 +53,13 @@ ccg search "결제"       # finds functions with @intent/@domainRule about payme
 
 # Graph statistics
 ccg status
+
+# Version info
+ccg version
+
+# Namespace isolation (MSA)
+ccg build ./backend --namespace backend
+ccg search --namespace backend "auth"
 ```
 
 ## MCP Server

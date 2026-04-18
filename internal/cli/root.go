@@ -33,6 +33,7 @@ type Deps struct {
 	ServeFunc     func(cfg ServeConfig) error
 	InitFunc      func(dbDriver, dsn string) error
 	CleanupFunc   func()
+	Version       VersionInfo
 }
 
 // NewRootCmd creates the root cobra command with all subcommands attached.
@@ -108,6 +109,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	// Global database configuration flags
 	rootCmd.PersistentFlags().String("db-driver", "sqlite", "Database driver (sqlite, postgres)")
 	rootCmd.PersistentFlags().String("db-dsn", "ccg.db", "Database connection string")
+	rootCmd.PersistentFlags().String("namespace", "", "Namespace for data isolation (e.g. --namespace backend)")
 
 	// Bind flags to viper
 	_ = viper.BindPFlag("db.driver", rootCmd.PersistentFlags().Lookup("db-driver"))
@@ -132,6 +134,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		newIndexCmd(deps),
 		newLintCmd(deps),
 		newRagIndexCmd(deps),
+		newVersionCmd(deps),
 	)
 
 	return rootCmd

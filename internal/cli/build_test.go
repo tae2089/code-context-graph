@@ -191,6 +191,32 @@ func Beta() {}
 	_ = ctx
 }
 
+func TestBuildCommand_Namespace_StoresWithNamespace(t *testing.T) {
+	deps, stdout, stderr, db := setupBuildTest(t)
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "hello.go", `package hello
+func Hello() {}
+`)
+
+	err := executeCmd(deps, stdout, stderr, "build", "--namespace", "backend", dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var nodes []model.Node
+	db.Where("namespace = ?", "backend").Find(&nodes)
+	if len(nodes) == 0 {
+		t.Fatal("expected nodes with namespace 'backend'")
+	}
+
+	for _, n := range nodes {
+		if n.Namespace != "backend" {
+			t.Errorf("expected namespace 'backend', got %q", n.Namespace)
+		}
+	}
+}
+
 func TestBuildCommand_NoRecursive_SkipsSubdirs(t *testing.T) {
 	deps, stdout, stderr, db := setupBuildTest(t)
 

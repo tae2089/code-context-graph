@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tae2089/trace"
 
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/service"
 )
 
@@ -45,6 +46,9 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 			}
 
 			ctx := context.Background()
+			if ns, _ := cmd.Flags().GetString("namespace"); ns != "" {
+				ctx = ctxns.WithNamespace(ctx, ns)
+			}
 			stats, err := svc.Build(ctx, opts)
 			if err != nil {
 				return trace.Wrap(err, "build project")

@@ -12,6 +12,7 @@ import (
 	"github.com/tae2089/trace"
 
 	"github.com/imtaebin/code-context-graph/internal/analysis/incremental"
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 	"github.com/imtaebin/code-context-graph/internal/pathutil"
 )
 
@@ -71,6 +72,9 @@ func newUpdateCmd(deps *Deps) *cobra.Command {
 			}
 
 			ctx := context.Background()
+			if ns, _ := cmd.Flags().GetString("namespace"); ns != "" {
+				ctx = ctxns.WithNamespace(ctx, ns)
+			}
 			stats, err := deps.Syncer.Sync(ctx, files)
 			if err != nil {
 				return trace.Wrap(err, "incremental sync")

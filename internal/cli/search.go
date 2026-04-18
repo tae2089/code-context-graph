@@ -7,6 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/tae2089/trace"
+
+	"github.com/imtaebin/code-context-graph/internal/ctxns"
 )
 
 // newSearchCmd creates the full-text search command.
@@ -24,6 +26,9 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := args[0]
 			ctx := context.Background()
+			if ns, _ := cmd.Flags().GetString("namespace"); ns != "" {
+				ctx = ctxns.WithNamespace(ctx, ns)
+			}
 
 			fetchLimit := limit
 			if pathPrefix != "" {
