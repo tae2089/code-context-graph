@@ -51,6 +51,7 @@ ccg update ./backend --namespace backend
 | `ccg lint [--out dir]` | 8-category docs lint |
 | `ccg lint --strict` | Exit 1 on issues (for CI/pre-commit) |
 | `ccg version` | Print build version, commit, date |
+| `ccg benchmark token-bench` | Measure token reduction: naive vs graph search (no LLM) |
 
 ### Serve
 
@@ -64,6 +65,51 @@ ccg update ./backend --namespace backend
 | `ccg serve --allow-repo <pat>` | Allowed repo patterns for webhook sync (e.g. `org/*`, `org/api:main,develop`) |
 | `ccg serve --webhook-secret <s>` | HMAC secret for webhook signature verification |
 | `ccg serve --repo-root <dir>` | Root directory for cloned repositories |
+
+### Benchmark
+
+토큰 절감 효과를 LLM 없이 직접 측정합니다. naive(전체 파일 읽기) 대비 CCG 그래프 검색의 토큰 수를 비교하고 정답률(recall)을 함께 측정합니다.
+
+| Command | Description |
+|---------|-------------|
+| `ccg benchmark token-bench` | 토큰 절감 + recall 측정 |
+| `ccg benchmark token-bench --corpus <path>` | corpus YAML 파일 경로 (기본: `testdata/benchmark/queries.yaml`) |
+| `ccg benchmark token-bench --repo <dir>` | naive 토큰 계산 대상 레포 루트 (기본: `.`) |
+| `ccg benchmark token-bench --exts .go,.ts` | 집계할 소스 파일 확장자 (기본: `.go`) |
+| `ccg benchmark token-bench --limit 30` | 쿼리당 총 결과 예산 — 단어 수에 반비례해 단어당 limit 자동 조정 (기본: `30`) |
+| `ccg benchmark token-bench --out result.json` | 결과를 JSON 파일로 저장 |
+| `ccg benchmark init` | `testdata/benchmark/queries.yaml` 템플릿 생성 |
+| `ccg benchmark validate --corpus <path>` | corpus YAML 유효성 검사 |
+
+**출력 필드:**
+
+| 필드 | 설명 |
+|------|------|
+| `naive_tokens` | 전체 소스 파일 토큰 합계 (worst-case baseline) |
+| `graph_tokens` | CCG 검색 결과 토큰 수 (1-hop 확장 포함) |
+| `ratio` | `naive_tokens / graph_tokens` |
+| `recall` | `(files_hit + symbols_hit) / (files_total + symbols_total)` |
+| `files_hit` / `files_total` | expected_files 중 결과에 포함된 수 |
+| `symbols_hit` / `symbols_total` | expected_symbols 중 결과에 포함된 수 |
+| `search_elapsed_ms` | 검색 소요 시간 (ms) |
+
+**corpus YAML 형식:**
+
+```yaml
+version: "1"
+queries:
+  - id: router-01
+    description: "HTTP 라우터 트리 구조와 경로 등록 방식"
+    expected_files:
+      - gin.go
+      - tree.go
+    expected_symbols:
+      - Engine
+      - addRoute
+    difficulty: hard
+```
+
+> **참고:** `description`의 ASCII 단어만 FTS 검색에 사용됩니다. `expected_symbols`는 검색 쿼리가 아닌 recall 계산에만 사용됩니다.
 
 ### Eval
 

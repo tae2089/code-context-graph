@@ -63,6 +63,7 @@ internal/
   cli/                — CLI 커맨드 정의
   ctxns/              — Context namespace
   docs/               — 문서 생성
+  benchmark/          — 토큰 절감 벤치마크 (naive vs graph, recall 측정)
   eval/               — 파서/검색 품질 평가 (golden corpus 기반 P/R/F1, P@K, MRR, nDCG)
   mcp/                — MCP 서버 (29 tools)
   model/              — DB 모델
@@ -78,6 +79,47 @@ docs/                 — 자동 생성 문서 (ccg docs)
 testdata/eval/        — Eval golden corpus (12개 언어 소스 + golden JSON)
 scripts/              — 스크립트 (integration test 등)
 ```
+
+## Token Benchmark
+
+CCG가 LLM에 전달하는 컨텍스트 토큰을 naive 방식 대비 얼마나 줄이는지 측정합니다.
+
+```bash
+ccg benchmark token-bench \
+  --db-dsn ./ccg.db \
+  --corpus testdata/benchmark/queries.yaml \
+  --repo /path/to/target-repo \
+  --exts .go \
+  --limit 30
+```
+
+### 측정 방식
+
+| 항목 | 설명 |
+|------|------|
+| `naive_tokens` | 레포 전체 소스 파일의 토큰 합계 (`len(text)/4` 추정) |
+| `graph_tokens` | description → FTS 검색 → 1-hop 확장 후 수집된 노드 토큰 합계 |
+| `ratio` | `naive / graph` |
+| `recall` | expected_files + expected_symbols 히트율 (0~1) |
+
+### 설계 원칙
+
+- **검색은 description 사용**: `expected_symbols`를 직접 검색 쿼리로 쓰는 것은 oracle cheating. 자연어 description의 ASCII 단어만 추출해 FTS에 사용한다.
+- **단어당 limit 자동 조정**: `limitPerTerm = max(3, limit / len(terms))` — 단어 수가 많아도 총 결과 예산을 유지한다.
+- **1-hop 확장 포함**: gormstore expander를 통해 검색 노드의 이웃 노드와 어노테이션을 포함한 현실적인 graph_tokens를 측정한다.
+- **recall 없는 ratio는 무의미**: recall < 0.5인 쿼리는 graph_tokens가 작더라도 신뢰할 수 없다.
+
+### gin-gonic 기준 측정 결과 (limit=30)
+
+| query | ratio | recall |
+|-------|-------|--------|
+| router | ~54x | 0.6 |
+| context | ~54x | 0.5 |
+| middleware | ~79x | 1.0 |
+| binding | ~35x | 0.75 |
+| recovery | ~46x | 1.0 |
+
+code-review-graph 논문 기준치 49x와 비교해 정직한 측정 기반으로 동등 이상.
 
 ## Conventions
 
