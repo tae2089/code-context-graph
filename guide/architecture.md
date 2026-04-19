@@ -9,7 +9,7 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
                                         ↓
                                    FTS Search
                                         ↓
-                              MCP Server (28 tools)
+                              MCP Server (29 tools)
                                     ↓         ↓
                               stdio       Streamable HTTP
                                 ↓              ↓
@@ -59,9 +59,18 @@ DB별 전문 검색 백엔드:
 | `query` | 그래프 쿼리 (callers, callees, imports) |
 | `incremental` | 증분 업데이트 |
 
+### Eval (`internal/eval/`)
+
+Golden corpus 기반 파서 정확도 및 검색 품질 평가 프레임워크.
+
+- **Parser eval**: 12개 언어 소스 파일을 파싱하고 golden JSON과 비교하여 Node/Edge P/R/F1 산출
+- **Search eval**: 쿼리 corpus에 대해 P@K, MRR, nDCG 메트릭 산출
+- **Golden update**: `--update` 모드로 현재 파서 출력을 golden 파일로 저장
+- **Corpus**: `testdata/eval/` 디렉토리에 언어별 소스 + golden JSON + queries.json
+
 ### MCP Server (`internal/mcp/`)
 
-28개 도구를 MCP 프로토콜로 노출. stdio와 Streamable HTTP 두 가지 전송 모드 지원.
+29개 도구를 MCP 프로토콜로 노출. stdio와 Streamable HTTP 두 가지 전송 모드 지원.
 
 ### Reliability
 

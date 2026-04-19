@@ -12,6 +12,21 @@ CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/
 CGO_ENABLED=1 go test -tags "fts5" ./... -count=1
 ```
 
+### Eval Test
+
+파서 정확도 평가 (12개 언어 golden corpus 비교):
+
+```bash
+# Golden 파일 업데이트 (파서 변경 후)
+ccg eval --suite parser --update
+
+# 정확도 비교
+ccg eval --suite parser
+
+# JSON 포맷 출력
+ccg eval --format json
+```
+
 ## Integration Test
 
 Gitea push → webhook → ccg clone → build → PostgreSQL → MCP 검증의 full-stack 파이프라인 테스트:
@@ -48,6 +63,7 @@ internal/
   cli/                — CLI 커맨드 정의
   ctxns/              — Context namespace
   docs/               — 문서 생성
+  eval/               — 파서/검색 품질 평가 (golden corpus 기반 P/R/F1, P@K, MRR, nDCG)
   mcp/                — MCP 서버 (29 tools)
   model/              — DB 모델
   parse/treesitter/   — Tree-sitter 파서 (12 languages, Lua/Luau 포함)
@@ -59,6 +75,7 @@ internal/
 skills/               — Claude Code 스킬 파일
 guide/                — 프로젝트 문서
 docs/                 — 자동 생성 문서 (ccg docs)
+testdata/eval/        — Eval golden corpus (12개 언어 소스 + golden JSON)
 scripts/              — 스크립트 (integration test 등)
 ```
 

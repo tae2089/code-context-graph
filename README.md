@@ -10,6 +10,7 @@ Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) 
 - **29 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, file workspace management, and more
 - **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context ([details](guide/annotations.md))
 - **Webhook sync**: GitHub / Gitea push events → auto clone + build with per-repo branch filtering and `.ccg.yaml` `include_paths` auto-loading ([details](guide/webhook.md))
+- **Eval**: Golden corpus 기반 파서 정확도(P/R/F1) 및 검색 품질(P@K, MRR, nDCG) 평가 ([details](guide/cli-reference.md#eval))
 - **Multi-DB**: SQLite (local), PostgreSQL
 - **Full-text search**: FTS5 (SQLite), tsvector+GIN (PostgreSQL)
 
@@ -60,6 +61,12 @@ ccg version
 # Namespace isolation (MSA)
 ccg build ./backend --namespace backend
 ccg search --namespace backend "auth"
+
+# Evaluate parser accuracy (12 languages)
+ccg eval --suite parser
+
+# Update golden corpus
+ccg eval --suite parser --update
 ```
 
 ## MCP Server
