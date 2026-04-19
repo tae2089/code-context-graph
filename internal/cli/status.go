@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tae2089/trace"
 
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 // kindCount holds grouped count rows for graph statistics queries.

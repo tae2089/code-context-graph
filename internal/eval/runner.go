@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/imtaebin/code-context-graph/internal/model"
-	"github.com/imtaebin/code-context-graph/internal/parse/treesitter"
+	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 )
 
 type RunOptions struct {

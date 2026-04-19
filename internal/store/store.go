@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 // NodeReader는 노드 조회 기능을 정의한다.

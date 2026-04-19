@@ -7,7 +7,7 @@ import (
 
 	"github.com/tae2089/trace"
 
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 // ErrFTS5NotAvailable indicates the SQLite build lacks the fts5 extension.

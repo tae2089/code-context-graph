@@ -1,7 +1,7 @@
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE     ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-PKG       = github.com/imtaebin/code-context-graph/cmd/ccg
+PKG       = github.com/tae2089/code-context-graph/cmd/ccg
 LDFLAGS   = -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
 .PHONY: build install test clean

@@ -1,4 +1,4 @@
-module github.com/imtaebin/code-context-graph
+module github.com/tae2089/code-context-graph
 
 go 1.25.5
 

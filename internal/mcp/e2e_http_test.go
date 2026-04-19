@@ -12,7 +12,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 func newHTTPTestClient(t *testing.T, srv *server.MCPServer) (*client.Client, func()) {

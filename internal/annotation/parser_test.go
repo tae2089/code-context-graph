@@ -3,7 +3,7 @@ package annotation
 import (
 	"testing"
 
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 func TestParse_EmptyString(t *testing.T) {

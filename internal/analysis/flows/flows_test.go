@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 type mockStore struct {

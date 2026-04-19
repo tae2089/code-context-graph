@@ -10,7 +10,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/imtaebin/code-context-graph/internal/ragindex"
+	"github.com/tae2089/code-context-graph/internal/ragindex"
 )
 
 // ragIndexPath는 doc-index.json의 실효 경로를 반환한다.

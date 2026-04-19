@@ -10,16 +10,16 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/imtaebin/code-context-graph/internal/analysis/changes"
-	"github.com/imtaebin/code-context-graph/internal/analysis/community"
-	"github.com/imtaebin/code-context-graph/internal/analysis/coupling"
-	"github.com/imtaebin/code-context-graph/internal/analysis/coverage"
-	"github.com/imtaebin/code-context-graph/internal/analysis/deadcode"
-	"github.com/imtaebin/code-context-graph/internal/analysis/incremental"
-	"github.com/imtaebin/code-context-graph/internal/analysis/query"
-	"github.com/imtaebin/code-context-graph/internal/model"
-	"github.com/imtaebin/code-context-graph/internal/store"
-	storesearch "github.com/imtaebin/code-context-graph/internal/store/search"
+	"github.com/tae2089/code-context-graph/internal/analysis/changes"
+	"github.com/tae2089/code-context-graph/internal/analysis/community"
+	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
+	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
+	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
+	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
+	"github.com/tae2089/code-context-graph/internal/analysis/query"
+	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/store"
+	storesearch "github.com/tae2089/code-context-graph/internal/store/search"
 )
 
 // Parser defines the source parser contract used by MCP graph builds.

@@ -7,8 +7,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tae2089/trace"
 
-	"github.com/imtaebin/code-context-graph/internal/ctxns"
-	"github.com/imtaebin/code-context-graph/internal/service"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/service"
 )
 
 // newBuildCmd creates the full graph build command.

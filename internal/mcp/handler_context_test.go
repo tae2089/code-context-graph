@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/imtaebin/code-context-graph/internal/analysis/changes"
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/analysis/changes"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 func TestGetMinimalContext_EmptyGraph(t *testing.T) {

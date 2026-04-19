@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/imtaebin/code-context-graph/internal/parse/treesitter"
+	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 )
 
 // newLanguagesCmd creates the supported-languages listing command.

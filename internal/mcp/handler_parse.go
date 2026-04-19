@@ -13,9 +13,9 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/trace"
 
-	"github.com/imtaebin/code-context-graph/internal/analysis/community"
-	"github.com/imtaebin/code-context-graph/internal/analysis/incremental"
-	"github.com/imtaebin/code-context-graph/internal/pathutil"
+	"github.com/tae2089/code-context-graph/internal/analysis/community"
+	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
+	"github.com/tae2089/code-context-graph/internal/pathutil"
 )
 
 // walkParseStats accumulates file parsing progress for build handlers.

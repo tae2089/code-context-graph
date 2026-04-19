@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tae2089/trace"
 
-	"github.com/imtaebin/code-context-graph/internal/docs"
+	"github.com/tae2089/code-context-graph/internal/docs"
 )
 
 // newDocsCmd creates the documentation generation command.

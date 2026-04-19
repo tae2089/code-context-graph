@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 // EdgeReader exposes graph traversal primitives needed for flow tracing.

@@ -9,9 +9,9 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/trace"
 
-	"github.com/imtaebin/code-context-graph/internal/analysis/changes"
-	"github.com/imtaebin/code-context-graph/internal/ctxns"
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/analysis/changes"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

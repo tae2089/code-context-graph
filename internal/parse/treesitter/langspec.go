@@ -1,7 +1,7 @@
 package treesitter
 
 import (
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 // NodeTypeMapping maps a Tree-sitter node type to an internal graph node kind.

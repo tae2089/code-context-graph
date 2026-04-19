@@ -3,7 +3,7 @@ package parse
 import (
 	"testing"
 
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 func TestBinder_FunctionWithPrecedingComment(t *testing.T) {

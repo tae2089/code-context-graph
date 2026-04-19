@@ -4,7 +4,7 @@ package annotation
 import (
 	"strings"
 
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 var knownTags = map[string]model.TagKind{

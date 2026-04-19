@@ -24,7 +24,7 @@ import (
 	"github.com/smacker/go-tree-sitter/typescript/typescript"
 	"github.com/tae2089/trace"
 
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 //go:embed queries/*/*.scm

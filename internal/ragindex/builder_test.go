@@ -12,10 +12,10 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/imtaebin/code-context-graph/internal/ctxns"
-	"github.com/imtaebin/code-context-graph/internal/model"
-	"github.com/imtaebin/code-context-graph/internal/ragindex"
-	"github.com/imtaebin/code-context-graph/internal/store/gormstore"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/ragindex"
+	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 )
 
 // setupDB는 테스트마다 고유한 인메모리 SQLite DB를 생성한다.

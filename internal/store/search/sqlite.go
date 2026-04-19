@@ -8,8 +8,8 @@ import (
 
 	"github.com/tae2089/trace"
 
-	"github.com/imtaebin/code-context-graph/internal/ctxns"
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 // SQLiteBackend는 SQLite FTS5 기반 검색 백엔드다.

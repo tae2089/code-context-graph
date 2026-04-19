@@ -4,7 +4,7 @@ package impact
 import (
 	"context"
 
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 // EdgeReader exposes graph queries required for impact analysis.

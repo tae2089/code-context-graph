@@ -11,9 +11,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tae2089/trace"
 
-	"github.com/imtaebin/code-context-graph/internal/analysis/incremental"
-	"github.com/imtaebin/code-context-graph/internal/ctxns"
-	"github.com/imtaebin/code-context-graph/internal/pathutil"
+	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/pathutil"
 )
 
 // newUpdateCmd creates the incremental graph sync command.

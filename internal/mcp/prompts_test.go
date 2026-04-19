@@ -15,10 +15,10 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
-	"github.com/imtaebin/code-context-graph/internal/analysis/changes"
-	"github.com/imtaebin/code-context-graph/internal/model"
-	"github.com/imtaebin/code-context-graph/internal/store/gormstore"
-	"github.com/imtaebin/code-context-graph/internal/store/search"
+	"github.com/tae2089/code-context-graph/internal/analysis/changes"
+	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/store/gormstore"
+	"github.com/tae2089/code-context-graph/internal/store/search"
 )
 
 var promptTestDBSeq atomic.Int64

@@ -9,8 +9,8 @@ import (
 	"github.com/spf13/viper"
 	"github.com/tae2089/trace"
 
-	"github.com/imtaebin/code-context-graph/internal/docs"
-	"github.com/imtaebin/code-context-graph/internal/pathutil"
+	"github.com/tae2089/code-context-graph/internal/docs"
+	"github.com/tae2089/code-context-graph/internal/pathutil"
 )
 
 // countNonIgnored counts lint issues not covered by an ignore rule in .ccg.yaml.

@@ -18,19 +18,19 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/imtaebin/code-context-graph/internal/analysis/changes"
-	"github.com/imtaebin/code-context-graph/internal/analysis/community"
-	"github.com/imtaebin/code-context-graph/internal/analysis/coupling"
-	"github.com/imtaebin/code-context-graph/internal/analysis/coverage"
-	"github.com/imtaebin/code-context-graph/internal/analysis/deadcode"
-	"github.com/imtaebin/code-context-graph/internal/analysis/flows"
-	"github.com/imtaebin/code-context-graph/internal/analysis/impact"
-	"github.com/imtaebin/code-context-graph/internal/analysis/incremental"
-	"github.com/imtaebin/code-context-graph/internal/analysis/query"
-	"github.com/imtaebin/code-context-graph/internal/model"
-	"github.com/imtaebin/code-context-graph/internal/ragindex"
-	"github.com/imtaebin/code-context-graph/internal/store/gormstore"
-	"github.com/imtaebin/code-context-graph/internal/store/search"
+	"github.com/tae2089/code-context-graph/internal/analysis/changes"
+	"github.com/tae2089/code-context-graph/internal/analysis/community"
+	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
+	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
+	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
+	"github.com/tae2089/code-context-graph/internal/analysis/flows"
+	"github.com/tae2089/code-context-graph/internal/analysis/impact"
+	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
+	"github.com/tae2089/code-context-graph/internal/analysis/query"
+	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/ragindex"
+	"github.com/tae2089/code-context-graph/internal/store/gormstore"
+	"github.com/tae2089/code-context-graph/internal/store/search"
 )
 
 // simpleGoParser is a minimal Go parser for testing. It extracts package-level

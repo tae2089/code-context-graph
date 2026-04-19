@@ -11,8 +11,8 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
-	"github.com/imtaebin/code-context-graph/internal/parse/treesitter"
-	"github.com/imtaebin/code-context-graph/internal/store/gormstore"
+	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
+	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 )
 
 // setupIntegrationDeps creates a full deps set suitable for end-to-end tests.

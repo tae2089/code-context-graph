@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/imtaebin/code-context-graph/internal/pathutil"
+	"github.com/tae2089/code-context-graph/internal/pathutil"
 )
 
 func TestLoadIncludePathsFromConfig_WithFile(t *testing.T) {

@@ -7,9 +7,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tae2089/trace"
 
-	"github.com/imtaebin/code-context-graph/internal/eval"
-	"github.com/imtaebin/code-context-graph/internal/model"
-	"github.com/imtaebin/code-context-graph/internal/parse/treesitter"
+	"github.com/tae2089/code-context-graph/internal/eval"
+	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 )
 
 func newEvalCmd(deps *Deps) *cobra.Command {

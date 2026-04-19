@@ -6,8 +6,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/imtaebin/code-context-graph/internal/ctxns"
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/model"
 	"gorm.io/gorm"
 )
 

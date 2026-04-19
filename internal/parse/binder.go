@@ -1,8 +1,8 @@
 package parse
 
 import (
-	"github.com/imtaebin/code-context-graph/internal/annotation"
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/annotation"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 // CommentBlock records a contiguous source comment range for later binding.

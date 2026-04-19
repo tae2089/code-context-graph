@@ -6,9 +6,9 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/trace"
 
-	"github.com/imtaebin/code-context-graph/internal/analysis/changes"
-	"github.com/imtaebin/code-context-graph/internal/analysis/deadcode"
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/analysis/changes"
+	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 // getImpactRadius returns nodes reachable within a bounded dependency radius.

@@ -8,13 +8,13 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/trace"
 
-	"github.com/imtaebin/code-context-graph/internal/analysis/changes"
-	"github.com/imtaebin/code-context-graph/internal/analysis/coupling"
-	"github.com/imtaebin/code-context-graph/internal/analysis/coverage"
-	"github.com/imtaebin/code-context-graph/internal/analysis/deadcode"
-	"github.com/imtaebin/code-context-graph/internal/analysis/largefunc"
-	"github.com/imtaebin/code-context-graph/internal/analysis/query"
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/analysis/changes"
+	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
+	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
+	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
+	"github.com/tae2089/code-context-graph/internal/analysis/largefunc"
+	"github.com/tae2089/code-context-graph/internal/analysis/query"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 // promptHandlers groups dependencies for MCP prompt generation.

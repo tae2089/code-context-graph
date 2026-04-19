@@ -12,12 +12,12 @@ import (
 
 	"github.com/tae2089/trace"
 
-	"github.com/imtaebin/code-context-graph/internal/model"
-	"github.com/imtaebin/code-context-graph/internal/parse"
-	"github.com/imtaebin/code-context-graph/internal/parse/treesitter"
-	"github.com/imtaebin/code-context-graph/internal/pathutil"
-	"github.com/imtaebin/code-context-graph/internal/store"
-	"github.com/imtaebin/code-context-graph/internal/store/search"
+	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/parse"
+	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
+	"github.com/tae2089/code-context-graph/internal/pathutil"
+	"github.com/tae2089/code-context-graph/internal/store"
+	"github.com/tae2089/code-context-graph/internal/store/search"
 )
 
 // GraphService orchestrates graph building and search document refresh.

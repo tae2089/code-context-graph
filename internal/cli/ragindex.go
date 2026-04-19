@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/tae2089/trace"
 
-	"github.com/imtaebin/code-context-graph/internal/ragindex"
+	"github.com/tae2089/code-context-graph/internal/ragindex"
 )
 
 // newRagIndexCmd creates the doc-index build command.

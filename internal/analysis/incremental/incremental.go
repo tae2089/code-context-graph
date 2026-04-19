@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 // Store defines persistence operations needed for incremental sync.

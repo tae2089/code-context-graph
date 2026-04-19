@@ -11,10 +11,10 @@ import (
 	"github.com/tae2089/trace"
 	"gorm.io/gorm"
 
-	"github.com/imtaebin/code-context-graph/internal/analysis/incremental"
-	"github.com/imtaebin/code-context-graph/internal/parse/treesitter"
-	"github.com/imtaebin/code-context-graph/internal/store"
-	"github.com/imtaebin/code-context-graph/internal/store/search"
+	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
+	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
+	"github.com/tae2089/code-context-graph/internal/store"
+	"github.com/tae2089/code-context-graph/internal/store/search"
 )
 
 // errDBNotInitialized is returned when a subcommand requires a database
