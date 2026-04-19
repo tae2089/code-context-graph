@@ -6,8 +6,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/imtaebin/code-context-graph/internal/model"
-	"github.com/imtaebin/code-context-graph/internal/pathutil"
+	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/pathutil"
 )
 
 // Generator reads the SQLite graph and writes markdown documentation.

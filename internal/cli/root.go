@@ -136,6 +136,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		newRagIndexCmd(deps),
 		newEvalCmd(deps),
 		newVersionCmd(deps),
+		newBenchmarkCmd(deps),
 	)
 
 	return rootCmd

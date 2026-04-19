@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imtaebin/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 // nodeGroup holds everything needed to render a single file's doc.

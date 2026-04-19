@@ -10,8 +10,8 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
-	"github.com/imtaebin/code-context-graph/internal/model"
-	"github.com/imtaebin/code-context-graph/internal/store/gormstore"
+	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 )
 
 func newTestDB(t *testing.T) *gorm.DB {

@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/imtaebin/code-context-graph/internal/model"
-	"github.com/imtaebin/code-context-graph/internal/pathutil"
+	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/pathutil"
 )
 
 // Contradiction represents a symbol whose annotation is outdated relative to

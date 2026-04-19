@@ -1,0 +1,106 @@
+version: "1"
+queries:
+  - id: q-intent-01
+    description: "webhook push 수신 후 자동 그래프 업데이트 흐름"
+    expected_files:
+      - internal/webhook/handler.go
+      - internal/webhook/syncqueue.go
+      - internal/service/indexer.go
+    expected_symbols:
+      - WebhookHandler
+      - SyncQueue
+      - onSync
+    difficulty: medium
+
+  - id: q-impact-01
+    description: "SyncQueue를 변경하면 영향받는 컴포넌트는 무엇인가"
+    expected_files:
+      - internal/webhook/syncqueue.go
+      - internal/webhook/handler.go
+      - cmd/ccg/main.go
+    expected_symbols:
+      - SyncQueue
+      - Add
+      - Shutdown
+    difficulty: hard
+
+  - id: q-sideeffect-01
+    description: "DB에 쓰기 부작용(sideEffect)이 있는 MCP 핸들러 함수"
+    expected_files:
+      - internal/mcp/handler_parse.go
+      - internal/mcp/handler_graph.go
+    expected_symbols:
+      - handleBuildOrUpdateGraph
+      - handleRunPostprocess
+    difficulty: medium
+
+  - id: q-cross-01
+    description: "namespace 필터를 적용하는 모든 GORM 쿼리 위치"
+    expected_files:
+      - internal/store/gormstore/gormstore.go
+      - internal/ctxns/namespace.go
+    expected_symbols:
+      - FromContext
+      - UpsertNodes
+      - GetNode
+    difficulty: hard
+
+  - id: q-rule-01
+    description: "repo allow-list 정책 구현 위치와 규칙"
+    expected_files:
+      - internal/webhook/allowlist.go
+    expected_symbols:
+      - RepoAllowlist
+      - IsAllowed
+    difficulty: easy
+
+  - id: q-intent-02
+    description: "exponential backoff 재시도 로직이 어디에 구현되어 있는가"
+    expected_files:
+      - internal/webhook/syncqueue.go
+    expected_symbols:
+      - SyncQueue
+      - retry
+    difficulty: medium
+
+  - id: q-impact-02
+    description: "Node.Namespace 필드를 변경하면 어떤 파일들이 영향받는가"
+    expected_files:
+      - internal/model/node.go
+      - internal/store/gormstore/gormstore.go
+      - internal/ctxns/namespace.go
+    expected_symbols:
+      - Node
+      - Namespace
+    difficulty: hard
+
+  - id: q-sideeffect-02
+    description: "git clone 또는 pull 작업을 수행하는 함수"
+    expected_files:
+      - internal/webhook/gitops.go
+    expected_symbols:
+      - CloneOrPull
+      - GitOps
+    difficulty: easy
+
+  - id: q-cross-02
+    description: "context.Context를 첫 번째 인자로 받는 분석 서비스 메서드"
+    expected_files:
+      - internal/analysis/deadcode/service.go
+      - internal/analysis/coverage/service.go
+      - internal/analysis/community/service.go
+      - internal/analysis/query/service.go
+    expected_symbols:
+      - Find
+      - ByFile
+      - Rebuild
+    difficulty: medium
+
+  - id: q-rule-02
+    description: "HMAC 서명 검증 로직이 어디에 구현되어 있는가"
+    expected_files:
+      - internal/webhook/handler.go
+    expected_symbols:
+      - validateHMAC
+      - X-Hub-Signature-256
+    difficulty: easy
