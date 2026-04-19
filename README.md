@@ -69,6 +69,82 @@ ccg eval --suite parser
 ccg eval --suite parser --update
 ```
 
+## Demo
+
+CCG가 자기 자신의 코드베이스를 파싱한 실제 출력입니다.
+
+### 1. 코드베이스 파싱
+
+```
+$ ccg build .
+Build complete: 127 files, 1220 nodes, 12222 edges
+```
+
+### 2. 그래프 통계
+
+```
+$ ccg status
+Nodes: 1220
+Edges: 12222
+Files: 127
+
+Node kinds:
+  class:    124
+  file:     127
+  function: 405
+  test:     543
+  type:      21
+
+Edge kinds:
+  calls:        9245
+  contains:     1097
+  imports_from: 1128
+  inherits:        1
+  tested_by:     751
+```
+
+### 3. 코드 검색
+
+```
+$ ccg search "impact analysis"
+internal/analysis/impact/impact_test.go  file      internal/analysis/impact/impact_test.go:1
+internal/analysis/impact/impact.go       file      internal/analysis/impact/impact.go:1
+mcp.ImpactAnalyzer                       type      internal/mcp/server.go:36
+impact.EdgeReader                        type      internal/analysis/impact/impact.go:12
+impact.Analyzer.ImpactRadius             function  internal/analysis/impact/impact.go:42
+internal/mcp/handler_analysis.go         file      internal/mcp/handler_analysis.go:1
+
+$ ccg search "dead code"
+deadcode.Options          class     internal/analysis/deadcode/service.go:14
+deadcode.Service.Find     function  internal/analysis/deadcode/service.go:38
+mcp.handlers.findDeadCode function  internal/mcp/handler_analysis.go:273
+```
+
+### 4. MCP를 통한 Claude 연동 예시
+
+`.mcp.json` 설정 후 Claude Code에서 바로 질문할 수 있습니다:
+
+> **"이 프로젝트의 webhook sync 흐름을 설명해줘"**
+
+Claude가 CCG MCP 도구를 호출해 그래프에서 직접 답변:
+
+```
+ccg_trace_flow("webhook.WebhookHandler.ServeHTTP")
+→ WebhookHandler.ServeHTTP
+  → SyncQueue.Enqueue
+    → safeHandle (retry loop: max 3회, exponential backoff 1s→30s)
+      → clone (git clone, 15분 timeout)
+      → build (ccg build, 동일 context)
+```
+
+> **"인증 관련 코드가 어디 있어?"**
+
+```
+ccg_search("authentication")
+→ internal/webhook/handler.go  (HMAC signature validation)
+→ cmd/ccg/main.go              (--webhook-secret flag)
+```
+
 ## MCP Server
 
 Add `.mcp.json` to your project:
