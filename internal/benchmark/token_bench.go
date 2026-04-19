@@ -120,6 +120,9 @@ func searchAndCollect(
 		return nil, "", 0, nil
 	}
 
+	// 단어 수에 반비례해 단어당 limit을 조정한다 (총 결과 예산 유지).
+	limitPerTerm := max(3, limit/len(terms))
+
 	var sb strings.Builder
 	writeNode := func(n model.Node) {
 		nodes = append(nodes, n)
@@ -134,7 +137,7 @@ func searchAndCollect(
 	// 각 단어를 개별 검색해 FTS5 AND 제약을 피하고 결과를 누적한다.
 	for _, term := range terms {
 		start := time.Now()
-		found, qerr := backend.Query(ctx, db, term, limit)
+		found, qerr := backend.Query(ctx, db, term, limitPerTerm)
 		elapsedMs += time.Since(start).Milliseconds()
 		if qerr != nil {
 			return nil, "", elapsedMs, qerr
@@ -234,7 +237,8 @@ func computeRecall(filesHit, filesTotal, symbolsHit, symbolsTotal int) float64 {
 
 // RunTokenBench는 corpus의 각 쿼리에 대해 naive/graph 토큰과 recall을 비교한다.
 // 검색은 항상 Description을 사용하며, expected_symbols/files는 정답 매칭에만 사용한다.
-func RunTokenBench(ctx context.Context, db *gorm.DB, backend SearchBackend, expander NodeExpander, corpus *Corpus, repoRoot string, exts []string) ([]TokenBenchResult, error) {
+// limit은 쿼리당 총 결과 예산이며 단어 수에 반비례해 단어당 limit이 자동 조정된다.
+func RunTokenBench(ctx context.Context, db *gorm.DB, backend SearchBackend, expander NodeExpander, corpus *Corpus, repoRoot string, exts []string, limit int) ([]TokenBenchResult, error) {
 	naive, err := NaiveTokens(repoRoot, exts)
 	if err != nil {
 		return nil, err
@@ -242,7 +246,7 @@ func RunTokenBench(ctx context.Context, db *gorm.DB, backend SearchBackend, expa
 
 	results := make([]TokenBenchResult, 0, len(corpus.Queries))
 	for _, q := range corpus.Queries {
-		nodes, text, elapsed, qerr := searchAndCollect(ctx, db, backend, expander, q.Description, repoRoot, 10, nil)
+		nodes, text, elapsed, qerr := searchAndCollect(ctx, db, backend, expander, q.Description, repoRoot, limit, nil)
 		if qerr != nil {
 			return nil, qerr
 		}

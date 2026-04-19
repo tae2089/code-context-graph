@@ -163,7 +163,7 @@ func TestRunTokenBench_RatioCalculated(t *testing.T) {
 		},
 	}
 
-	results, err := RunTokenBench(context.Background(), nil, backend, nil, corpus, dir, []string{".go"})
+	results, err := RunTokenBench(context.Background(), nil, backend, nil, corpus, dir, []string{".go"}, 10)
 	if err != nil {
 		t.Fatal(err)
 	}

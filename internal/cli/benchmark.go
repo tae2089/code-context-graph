@@ -255,6 +255,7 @@ func loadBenchmarkRun(path string) (*benchmark.BenchmarkRun, error) {
 func newBenchmarkTokenBenchCmd(deps *Deps) *cobra.Command {
 	var corpusPath, repoRoot, outPath string
 	var exts []string
+	var limit int
 	cmd := &cobra.Command{
 		Use:   "token-bench",
 		Short: "Measure token reduction: naive file reading vs CCG graph query (no LLM)",
@@ -267,7 +268,7 @@ func newBenchmarkTokenBenchCmd(deps *Deps) *cobra.Command {
 				return trace.Wrap(err, "load corpus")
 			}
 			backend := storesearch.NewSQLiteBackend()
-			results, err := benchmark.RunTokenBench(cmd.Context(), deps.DB, backend, gormstore.New(deps.DB), corpus, repoRoot, exts)
+			results, err := benchmark.RunTokenBench(cmd.Context(), deps.DB, backend, gormstore.New(deps.DB), corpus, repoRoot, exts, limit)
 			if err != nil {
 				return trace.Wrap(err, "run token bench")
 			}
@@ -290,6 +291,7 @@ func newBenchmarkTokenBenchCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().StringVar(&repoRoot, "repo", ".", "Repository root to measure naive tokens")
 	cmd.Flags().StringVar(&outPath, "out", "", "Output JSON file; defaults to stdout")
 	cmd.Flags().StringSliceVar(&exts, "exts", []string{".go"}, "Source file extensions to count")
+	cmd.Flags().IntVar(&limit, "limit", 30, "Total result budget per query (auto-split across terms)")
 	return cmd
 }
 
