@@ -1,0 +1,54 @@
+{
+  "language": "c",
+  "file": "sample.c",
+  "nodes": [
+    {
+      "id": "get_user",
+      "kind": "function",
+      "name": "get_user",
+      "file": "sample.c",
+      "start_line": 8,
+      "end_line": 10
+    },
+    {
+      "id": "handle_request",
+      "kind": "function",
+      "name": "handle_request",
+      "file": "sample.c",
+      "start_line": 12,
+      "end_line": 16
+    }
+  ],
+  "edges": [
+    {
+      "kind": "imports_from",
+      "from": "handle_request",
+      "to": "handle_request"
+    },
+    {
+      "kind": "imports_from",
+      "from": "handle_request",
+      "to": "handle_request"
+    },
+    {
+      "kind": "calls",
+      "from": "handle_request",
+      "to": "handle_request"
+    },
+    {
+      "kind": "calls",
+      "from": "handle_request",
+      "to": "handle_request"
+    },
+    {
+      "kind": "contains",
+      "from": "handle_request",
+      "to": "handle_request"
+    },
+    {
+      "kind": "contains",
+      "from": "handle_request",
+      "to": "handle_request"
+    }
+  ]
+}

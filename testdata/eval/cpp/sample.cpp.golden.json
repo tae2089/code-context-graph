@@ -1,0 +1,67 @@
+{
+  "language": "cpp",
+  "file": "sample.cpp",
+  "nodes": [
+    {
+      "id": "UserService",
+      "kind": "class",
+      "name": "UserService",
+      "file": "sample.cpp",
+      "start_line": 4,
+      "end_line": 9
+    },
+    {
+      "id": "getUser",
+      "kind": "function",
+      "name": "getUser",
+      "file": "sample.cpp",
+      "start_line": 6,
+      "end_line": 8
+    },
+    {
+      "id": "handleRequest",
+      "kind": "function",
+      "name": "handleRequest",
+      "file": "sample.cpp",
+      "start_line": 11,
+      "end_line": 14
+    }
+  ],
+  "edges": [
+    {
+      "kind": "imports_from",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "imports_from",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "calls",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "calls",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    }
+  ]
+}

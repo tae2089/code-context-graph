@@ -1,0 +1,52 @@
+{
+  "language": "typescript",
+  "file": "sample.ts",
+  "nodes": [
+    {
+      "id": "UserService",
+      "kind": "class",
+      "name": "UserService",
+      "file": "sample.ts",
+      "start_line": 1,
+      "end_line": 5
+    },
+    {
+      "id": "getUser",
+      "kind": "function",
+      "name": "getUser",
+      "file": "sample.ts",
+      "start_line": 2,
+      "end_line": 4
+    },
+    {
+      "id": "handleRequest",
+      "kind": "function",
+      "name": "handleRequest",
+      "file": "sample.ts",
+      "start_line": 7,
+      "end_line": 10
+    }
+  ],
+  "edges": [
+    {
+      "kind": "calls",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    }
+  ]
+}

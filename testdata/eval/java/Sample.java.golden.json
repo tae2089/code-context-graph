@@ -1,0 +1,70 @@
+{
+  "language": "java",
+  "file": "Sample.java",
+  "nodes": [
+    {
+      "id": "UserService",
+      "kind": "class",
+      "name": "UserService",
+      "file": "Sample.java",
+      "start_line": 5,
+      "end_line": 9
+    },
+    {
+      "id": "getUser",
+      "kind": "function",
+      "name": "getUser",
+      "file": "Sample.java",
+      "start_line": 6,
+      "end_line": 8
+    },
+    {
+      "id": "RequestHandler",
+      "kind": "class",
+      "name": "RequestHandler",
+      "file": "Sample.java",
+      "start_line": 11,
+      "end_line": 16
+    },
+    {
+      "id": "handleRequest",
+      "kind": "function",
+      "name": "handleRequest",
+      "file": "Sample.java",
+      "start_line": 12,
+      "end_line": 15
+    }
+  ],
+  "edges": [
+    {
+      "kind": "imports_from",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "calls",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "language": "rust",
+  "file": "sample.rs",
+  "nodes": [
+    {
+      "id": "UserService",
+      "kind": "class",
+      "name": "UserService",
+      "file": "sample.rs",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "id": "UserService",
+      "kind": "class",
+      "name": "UserService",
+      "file": "sample.rs",
+      "start_line": 7,
+      "end_line": 11
+    },
+    {
+      "id": "UserService.get_user",
+      "kind": "function",
+      "name": "get_user",
+      "file": "sample.rs",
+      "start_line": 8,
+      "end_line": 10
+    },
+    {
+      "id": "handle_request",
+      "kind": "function",
+      "name": "handle_request",
+      "file": "sample.rs",
+      "start_line": 13,
+      "end_line": 16
+    }
+  ],
+  "edges": [
+    {
+      "kind": "imports_from",
+      "from": "handle_request",
+      "to": "handle_request"
+    },
+    {
+      "kind": "calls",
+      "from": "handle_request",
+      "to": "handle_request"
+    },
+    {
+      "kind": "contains",
+      "from": "handle_request",
+      "to": "handle_request"
+    },
+    {
+      "kind": "contains",
+      "from": "handle_request",
+      "to": "handle_request"
+    },
+    {
+      "kind": "contains",
+      "from": "handle_request",
+      "to": "handle_request"
+    },
+    {
+      "kind": "contains",
+      "from": "handle_request",
+      "to": "handle_request"
+    }
+  ]
+}

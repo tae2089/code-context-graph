@@ -1,0 +1,62 @@
+{
+  "language": "kotlin",
+  "file": "Sample.kt",
+  "nodes": [
+    {
+      "id": "UserService",
+      "kind": "class",
+      "name": "UserService",
+      "file": "Sample.kt",
+      "start_line": 3,
+      "end_line": 7
+    },
+    {
+      "id": "getUser",
+      "kind": "function",
+      "name": "getUser",
+      "file": "Sample.kt",
+      "start_line": 4,
+      "end_line": 6
+    },
+    {
+      "id": "handleRequest",
+      "kind": "function",
+      "name": "handleRequest",
+      "file": "Sample.kt",
+      "start_line": 9,
+      "end_line": 12
+    }
+  ],
+  "edges": [
+    {
+      "kind": "imports_from",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "calls",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "calls",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    }
+  ]
+}

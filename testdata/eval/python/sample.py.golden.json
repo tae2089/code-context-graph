@@ -1,0 +1,62 @@
+{
+  "language": "python",
+  "file": "sample.py",
+  "nodes": [
+    {
+      "id": "UserService",
+      "kind": "class",
+      "name": "UserService",
+      "file": "sample.py",
+      "start_line": 3,
+      "end_line": 5
+    },
+    {
+      "id": "get_user",
+      "kind": "function",
+      "name": "get_user",
+      "file": "sample.py",
+      "start_line": 4,
+      "end_line": 5
+    },
+    {
+      "id": "handle_request",
+      "kind": "function",
+      "name": "handle_request",
+      "file": "sample.py",
+      "start_line": 7,
+      "end_line": 9
+    }
+  ],
+  "edges": [
+    {
+      "kind": "imports_from",
+      "from": "handle_request",
+      "to": "handle_request"
+    },
+    {
+      "kind": "calls",
+      "from": "handle_request",
+      "to": "handle_request"
+    },
+    {
+      "kind": "calls",
+      "from": "handle_request",
+      "to": "handle_request"
+    },
+    {
+      "kind": "contains",
+      "from": "handle_request",
+      "to": "handle_request"
+    },
+    {
+      "kind": "contains",
+      "from": "handle_request",
+      "to": "handle_request"
+    },
+    {
+      "kind": "contains",
+      "from": "handle_request",
+      "to": "handle_request"
+    }
+  ]
+}

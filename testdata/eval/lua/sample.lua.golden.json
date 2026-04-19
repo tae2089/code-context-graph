@@ -1,0 +1,67 @@
+{
+  "language": "lua",
+  "file": "sample.lua",
+  "nodes": [
+    {
+      "id": "UserService.new",
+      "kind": "function",
+      "name": "UserService.new",
+      "file": "sample.lua",
+      "start_line": 2,
+      "end_line": 7
+    },
+    {
+      "id": "UserService:getUser",
+      "kind": "function",
+      "name": "UserService:getUser",
+      "file": "sample.lua",
+      "start_line": 7,
+      "end_line": 11
+    },
+    {
+      "id": "handleRequest",
+      "kind": "function",
+      "name": "handleRequest",
+      "file": "sample.lua",
+      "start_line": 11,
+      "end_line": 16
+    }
+  ],
+  "edges": [
+    {
+      "kind": "calls",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "calls",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "calls",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "calls",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "handleRequest",
+      "to": "handleRequest"
+    }
+  ]
+}

@@ -65,6 +65,17 @@ ccg update ./backend --namespace backend
 | `ccg serve --webhook-secret <s>` | HMAC secret for webhook signature verification |
 | `ccg serve --repo-root <dir>` | Root directory for cloned repositories |
 
+### Eval
+
+| Command | Description |
+|---------|-------------|
+| `ccg eval` | Evaluate parser accuracy and search quality against golden corpus |
+| `ccg eval --suite parser` | Run parser evaluation only |
+| `ccg eval --suite search` | Run search evaluation only |
+| `ccg eval --update` | Update golden files from current parser output |
+| `ccg eval --corpus <dir>` | Golden corpus directory (default `testdata/eval`) |
+| `ccg eval --format json` | Output in JSON format (default `table`) |
+
 ## Config File (`.ccg.yaml`)
 
 Project-level defaults loaded automatically from the current directory, with a global fallback at `~/.config/ccg/.ccg.yaml`.

@@ -1,0 +1,62 @@
+{
+  "language": "go",
+  "file": "sample.go",
+  "nodes": [
+    {
+      "id": "sample.UserService",
+      "kind": "class",
+      "name": "UserService",
+      "file": "sample.go",
+      "start_line": 5,
+      "end_line": 5
+    },
+    {
+      "id": "sample.UserService.GetUser",
+      "kind": "function",
+      "name": "GetUser",
+      "file": "sample.go",
+      "start_line": 7,
+      "end_line": 9
+    },
+    {
+      "id": "sample.HandleRequest",
+      "kind": "function",
+      "name": "HandleRequest",
+      "file": "sample.go",
+      "start_line": 11,
+      "end_line": 14
+    }
+  ],
+  "edges": [
+    {
+      "kind": "imports_from",
+      "from": "sample.HandleRequest",
+      "to": "sample.HandleRequest"
+    },
+    {
+      "kind": "calls",
+      "from": "sample.HandleRequest",
+      "to": "sample.HandleRequest"
+    },
+    {
+      "kind": "calls",
+      "from": "sample.HandleRequest",
+      "to": "sample.HandleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "sample.HandleRequest",
+      "to": "sample.HandleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "sample.HandleRequest",
+      "to": "sample.HandleRequest"
+    },
+    {
+      "kind": "contains",
+      "from": "sample.HandleRequest",
+      "to": "sample.HandleRequest"
+    }
+  ]
+}

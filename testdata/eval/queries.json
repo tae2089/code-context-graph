@@ -1,0 +1,30 @@
+{
+  "corpus_dir": "testdata/eval",
+  "queries": [
+    {
+      "query": "GetUser",
+      "relevant": ["function:GetUser@sample.go"],
+      "k": 5
+    },
+    {
+      "query": "HandleRequest",
+      "relevant": ["function:HandleRequest@sample.go"],
+      "k": 5
+    },
+    {
+      "query": "UserService",
+      "relevant": ["class:UserService@sample.go"],
+      "k": 5
+    },
+    {
+      "query": "calculate",
+      "relevant": ["function:calculate@sample.py", "function:add@sample.py"],
+      "k": 5
+    },
+    {
+      "query": "greet",
+      "relevant": ["function:greet@sample.ts"],
+      "k": 5
+    }
+  ]
+}

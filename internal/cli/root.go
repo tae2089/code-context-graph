@@ -134,6 +134,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		newIndexCmd(deps),
 		newLintCmd(deps),
 		newRagIndexCmd(deps),
+		newEvalCmd(deps),
 		newVersionCmd(deps),
 	)
 
