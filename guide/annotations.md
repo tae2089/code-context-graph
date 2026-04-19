@@ -1,6 +1,6 @@
 # Custom Annotations
 
-코드에 구조화된 메타데이터를 추가하여 AI와 검색에서 비즈니스 컨텍스트를 활용합니다. 어노테이션은 인덱싱되어 `ccg search`로 검색 가능합니다.
+Add structured metadata to your code so that AI and search can leverage business context. Annotations are indexed and searchable via `ccg search`.
 
 ## File-level
 
@@ -44,10 +44,10 @@ func AuthenticateUser(username, password string) (string, error) {
 
 ## AI-Driven Annotation
 
-Claude Code가 코드베이스를 분석하여 자동으로 어노테이션을 생성할 수 있습니다:
+Claude Code can analyze your codebase and automatically generate annotations:
 
 ```
-You: "이 프로젝트에 어노테이션 달아줘"
+You: "Add annotations to this project"
 Claude: reads code → generates @intent, @domainRule, @sideEffect, @mutates
       → writes annotations → rebuilds index
       → now searchable by business context
@@ -56,17 +56,17 @@ Claude: reads code → generates @intent, @domainRule, @sideEffect, @mutates
 ### CLI
 
 ```bash
-# 어노테이션 예시 보기
+# Show annotation examples
 ccg example go
 ccg example python
 
-# 전체 태그 레퍼런스
+# Full tag reference
 ccg tags
 ```
 
 ### Skill
 
-`/ccg-annotate` 스킬로 Claude Code에서 바로 사용:
+Use directly in Claude Code with the `/ccg-annotate` skill:
 
 ```
 /ccg-annotate annotate internal/   — AI-generate annotations

@@ -45,7 +45,7 @@ docker compose up -d
 
 ### Integration Test (Gitea + PostgreSQL + ccg)
 
-Full-stack 파이프라인 테스트도 Docker Compose로 실행 가능합니다. 자세한 내용은 [Development Guide](development.md#integration-test)를 참고하세요.
+The full-stack pipeline test can also be run with Docker Compose. See the [Development Guide](development.md#integration-test) for details.
 
 ```bash
 docker compose -f docker-compose.integration.yml up -d --build

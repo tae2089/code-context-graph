@@ -1,10 +1,10 @@
 # MCP Tools
 
-code-context-graph는 29개 MCP 도구를 제공합니다. Claude Code에서 `.mcp.json` 설정 후 자동 연결됩니다.
+code-context-graph provides 29 MCP tools. Automatically connects from Claude Code after configuring `.mcp.json`.
 
 ## Setup
 
-### stdio (로컬)
+### stdio (local)
 
 ```json
 {
@@ -17,7 +17,7 @@ code-context-graph는 29개 MCP 도구를 제공합니다. Claude Code에서 `.m
 }
 ```
 
-### Streamable HTTP (원격)
+### Streamable HTTP (remote)
 
 ```json
 {

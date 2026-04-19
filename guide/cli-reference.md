@@ -13,17 +13,17 @@
 
 ### Namespace
 
-MSA 환경에서 서비스별 코드 그래프를 하나의 DB에 격리 저장할 수 있습니다.
+In MSA environments, you can isolate per-service code graphs in a single database.
 
 ```bash
-# 서비스별 빌드
+# Build per service
 ccg build ./backend --namespace backend
 ccg build ./frontend --namespace frontend
 
-# 특정 namespace 내에서만 검색
+# Search within a specific namespace
 ccg search --namespace backend "auth"
 
-# 증분 업데이트도 namespace 적용
+# Incremental update with namespace
 ccg update ./backend --namespace backend
 ```
 
@@ -68,38 +68,38 @@ ccg update ./backend --namespace backend
 
 ### Benchmark
 
-토큰 절감 효과를 LLM 없이 직접 측정합니다. naive(전체 파일 읽기) 대비 CCG 그래프 검색의 토큰 수를 비교하고 정답률(recall)을 함께 측정합니다.
+Measures token reduction directly without an LLM. Compares token counts between naive (full file read) and CCG graph search, and measures recall simultaneously.
 
 | Command | Description |
 |---------|-------------|
-| `ccg benchmark token-bench` | 토큰 절감 + recall 측정 |
-| `ccg benchmark token-bench --corpus <path>` | corpus YAML 파일 경로 (기본: `testdata/benchmark/queries.yaml`) |
-| `ccg benchmark token-bench --repo <dir>` | naive 토큰 계산 대상 레포 루트 (기본: `.`) |
-| `ccg benchmark token-bench --exts .go,.ts` | 집계할 소스 파일 확장자 (기본: `.go`) |
-| `ccg benchmark token-bench --limit 30` | 쿼리당 총 결과 예산 — 단어 수에 반비례해 단어당 limit 자동 조정 (기본: `30`) |
-| `ccg benchmark token-bench --out result.json` | 결과를 JSON 파일로 저장 |
-| `ccg benchmark init` | `testdata/benchmark/queries.yaml` 템플릿 생성 |
-| `ccg benchmark validate --corpus <path>` | corpus YAML 유효성 검사 |
+| `ccg benchmark token-bench` | Measure token reduction + recall |
+| `ccg benchmark token-bench --corpus <path>` | Path to corpus YAML file (default: `testdata/benchmark/queries.yaml`) |
+| `ccg benchmark token-bench --repo <dir>` | Repository root for naive token counting (default: `.`) |
+| `ccg benchmark token-bench --exts .go,.ts` | Source file extensions to count (default: `.go`) |
+| `ccg benchmark token-bench --limit 30` | Total result budget per query — auto-split inversely by term count (default: `30`) |
+| `ccg benchmark token-bench --out result.json` | Save results to JSON file |
+| `ccg benchmark init` | Generate `testdata/benchmark/queries.yaml` template |
+| `ccg benchmark validate --corpus <path>` | Validate corpus YAML |
 
-**출력 필드:**
+**Output fields:**
 
-| 필드 | 설명 |
-|------|------|
-| `naive_tokens` | 전체 소스 파일 토큰 합계 (worst-case baseline) |
-| `graph_tokens` | CCG 검색 결과 토큰 수 (1-hop 확장 포함) |
+| Field | Description |
+|-------|-------------|
+| `naive_tokens` | Total token count of all source files (worst-case baseline) |
+| `graph_tokens` | Token count of CCG search results (including 1-hop expansion) |
 | `ratio` | `naive_tokens / graph_tokens` |
 | `recall` | `(files_hit + symbols_hit) / (files_total + symbols_total)` |
-| `files_hit` / `files_total` | expected_files 중 결과에 포함된 수 |
-| `symbols_hit` / `symbols_total` | expected_symbols 중 결과에 포함된 수 |
-| `search_elapsed_ms` | 검색 소요 시간 (ms) |
+| `files_hit` / `files_total` | Number of expected_files found in results |
+| `symbols_hit` / `symbols_total` | Number of expected_symbols found in results |
+| `search_elapsed_ms` | Search elapsed time (ms) |
 
-**corpus YAML 형식:**
+**Corpus YAML format:**
 
 ```yaml
 version: "1"
 queries:
   - id: router-01
-    description: "HTTP 라우터 트리 구조와 경로 등록 방식"
+    description: "HTTP router tree structure and route registration"
     expected_files:
       - gin.go
       - tree.go
@@ -109,7 +109,7 @@ queries:
     difficulty: hard
 ```
 
-> **참고:** `description`의 ASCII 단어만 FTS 검색에 사용됩니다. `expected_symbols`는 검색 쿼리가 아닌 recall 계산에만 사용됩니다.
+> **Note:** Only ASCII words from `description` are used for FTS search. `expected_symbols` is used only for recall calculation, not as a search query.
 
 ### Eval
 
@@ -146,11 +146,11 @@ docs:
 
 ### `include_paths`
 
-빌드 대상 경로를 제한합니다. 설정 시 지정된 경로 하위만 파싱됩니다.
+Restricts the build target paths. When set, only paths under the specified directories are parsed.
 
-- CLI: `ccg build` 시 `.ccg.yaml`의 `include_paths` 자동 적용
-- Webhook: 레포 clone 후 `.ccg.yaml`의 `include_paths`를 자동 로딩하여 빌드 범위 제한
-- 증분 빌드(`ccg update`): 변경 파일 수집 시 `include_paths` 필터 적용
+- CLI: `.ccg.yaml`'s `include_paths` is automatically applied during `ccg build`
+- Webhook: After cloning a repo, `.ccg.yaml`'s `include_paths` is auto-loaded to limit build scope
+- Incremental build (`ccg update`): `include_paths` filter applied when collecting changed files
 
 ```yaml
 include_paths:
@@ -160,7 +160,7 @@ include_paths:
 
 ### Regex Patterns
 
-`exclude`와 `rules` 패턴 필드는 정규표현식을 지원합니다. `$`, `^`, `+`, `{}`, `|`, `\.`, `.*` 를 포함하는 패턴은 자동으로 regex로 감지됩니다:
+The `exclude` and `rules` pattern fields support regular expressions. Patterns containing `$`, `^`, `+`, `{}`, `|`, `\.`, `.*` are automatically detected as regex:
 
 ```yaml
 rules:
@@ -182,17 +182,17 @@ Override with `ccg --config path/to/config.yaml`.
 
 ### Lint Categories
 
-`ccg lint`는 8개 카테고리를 검사합니다:
+`ccg lint` checks 8 categories:
 
 | Category | Description |
 |----------|-------------|
-| orphan | 코드 없는 문서 파일 |
-| missing | 문서 없는 코드 파일 |
-| stale | 코드 변경 후 업데이트 안 된 문서 |
-| unannotated | 어노테이션 없는 함수/타입 |
-| contradiction | 코드와 문서 불일치 |
-| dead-ref | 존재하지 않는 대상의 `@see` 태그 |
-| incomplete | 불완전한 어노테이션 |
-| drift | 시그니처 변경 후 미반영 태그 |
+| orphan | Documentation file with no corresponding code |
+| missing | Code file with no documentation |
+| stale | Documentation not updated after code change |
+| unannotated | Function/type without annotation |
+| contradiction | Mismatch between code and documentation |
+| dead-ref | `@see` tag pointing to a non-existent target |
+| incomplete | Incomplete annotation |
+| drift | Tag not updated after signature change |
 
-`.ccg.yaml`의 `rules`에서 카테고리별 `action: ignore`로 무시 가능. `--strict` 모드에서는 `action: ignore` 룰이 적용됩니다.
+Per-category `action: ignore` can be set in `.ccg.yaml`'s `rules`. In `--strict` mode, `action: ignore` rules are applied.
