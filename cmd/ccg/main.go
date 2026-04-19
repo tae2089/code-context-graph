@@ -144,6 +144,9 @@ func main() {
 		sig := <-sigCh
 		slog.Info("received signal, shutting down", "signal", sig)
 		cleanup()
+		if sig == syscall.SIGTERM {
+			os.Exit(0)
+		}
 		os.Exit(1)
 	}()
 
@@ -222,6 +225,7 @@ func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 		CouplingAnalyzer:  coupling.New(deps.DB),
 		CoverageAnalyzer:  coverage.New(deps.DB),
 		CommunityBuilder:  community.New(deps.DB),
+		Incremental:       deps.Syncer,
 		Logger:            deps.Logger,
 		Cache:             cache,
 		RagIndexDir:       viper.GetString("rag.index_dir"),

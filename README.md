@@ -78,7 +78,7 @@ Add `.mcp.json` to your project:
   "mcpServers": {
     "ccg": {
       "command": "ccg",
-      "args": ["serve", "--db", "sqlite", "--dsn", "ccg.db"]
+      "args": ["serve", "--db-driver", "sqlite", "--db-dsn", "ccg.db"]
     }
   }
 }
