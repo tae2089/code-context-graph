@@ -192,3 +192,17 @@ func resolveExcludes(flagPatterns []string) []string {
 	combined = append(combined, flagPatterns...)
 	return combined
 }
+
+func resolveIncludePaths(flagPaths []string) []string {
+	cfgPaths := viper.GetStringSlice("include_paths")
+	if len(cfgPaths) == 0 {
+		return flagPaths
+	}
+	if len(flagPaths) == 0 {
+		return cfgPaths
+	}
+	combined := make([]string, 0, len(cfgPaths)+len(flagPaths))
+	combined = append(combined, cfgPaths...)
+	combined = append(combined, flagPaths...)
+	return combined
+}

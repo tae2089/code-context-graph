@@ -124,6 +124,7 @@ See [Architecture Details](guide/architecture.md) for component breakdown and DB
 | [Docker](guide/docker.md) | Docker build, MCP server, PostgreSQL deployment |
 | [Development](guide/development.md) | Dev guide, integration test, project structure |
 | [Architecture](guide/architecture.md) | Data flow, components, DB schema |
+| [CLAUDE.md Guide](guide/claude-md-guide.md) | Template for projects using CCG |
 
 ## License
 

@@ -36,6 +36,7 @@ type BuildOptions struct {
 	Dir             string
 	NoRecursive     bool
 	ExcludePatterns []string
+	IncludePaths    []string
 }
 
 // BuildStats reports how much content a build processed.
@@ -81,10 +82,17 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 			if pathutil.ShouldSkipDir(info.Name()) || pathutil.MatchExcludes(opts.ExcludePatterns, relPath) {
 				return filepath.SkipDir
 			}
+			if len(opts.IncludePaths) > 0 && path != absDir && !pathutil.MatchIncludePaths(relPath, opts.IncludePaths) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
 		if pathutil.MatchExcludes(opts.ExcludePatterns, relPath) {
+			return nil
+		}
+
+		if len(opts.IncludePaths) > 0 && !pathutil.MatchIncludePaths(relPath, opts.IncludePaths) {
 			return nil
 		}
 

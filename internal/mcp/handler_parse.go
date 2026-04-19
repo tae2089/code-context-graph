@@ -34,11 +34,16 @@ type walkParseStats struct {
 // @ensures 반환 통계에는 처리된 파일과 저장된 노드/엣지 수가 반영된다.
 // @sideEffect 파일 시스템 읽기와 그래프 저장소 쓰기를 수행한다.
 // @mutates walkParseStats, graph store state
-func (h *handlers) walkAndParse(ctx context.Context, dirPath string) (walkParseStats, error) {
+func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePaths ...string) (walkParseStats, error) {
 	log := h.logger()
 	var stats walkParseStats
 
-	err := filepath.Walk(dirPath, func(fp string, info os.FileInfo, err error) error {
+	absDir, err := filepath.Abs(dirPath)
+	if err != nil {
+		return stats, trace.Wrap(err, "resolve path")
+	}
+
+	err = filepath.Walk(absDir, func(fp string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -46,7 +51,20 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string) (walkParseS
 			if pathutil.ShouldSkipDir(info.Name()) {
 				return filepath.SkipDir
 			}
+			if len(includePaths) > 0 && fp != absDir {
+				relPath, _ := filepath.Rel(absDir, fp)
+				if !pathutil.MatchIncludePaths(relPath, includePaths) {
+					return filepath.SkipDir
+				}
+			}
 			return nil
+		}
+
+		if len(includePaths) > 0 {
+			relPath, _ := filepath.Rel(absDir, fp)
+			if !pathutil.MatchIncludePaths(relPath, includePaths) {
+				return nil
+			}
 		}
 
 		ext := strings.ToLower(filepath.Ext(fp))
@@ -107,7 +125,8 @@ func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest
 
 	log.Info("parse_project called", "path", dirPath)
 
-	stats, err := h.walkAndParse(ctx, dirPath)
+	includePaths := request.GetStringSlice("include_paths", nil)
+	stats, err := h.walkAndParse(ctx, dirPath, includePaths...)
 	if err != nil {
 		return nil, err
 	}
@@ -135,6 +154,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 
 	fullRebuild := request.GetBool("full_rebuild", true)
 	postprocess := request.GetString("postprocess", "full")
+	includePaths := request.GetStringSlice("include_paths", nil)
 
 	log.Info("build_or_update_graph called", "path", dirPath, "full_rebuild", fullRebuild, "postprocess", postprocess)
 
@@ -142,7 +162,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 	var nodeCount, edgeCount, fileCount int
 
 	if fullRebuild || h.deps.Incremental == nil {
-		stats, err := h.walkAndParse(ctx, dirPath)
+		stats, err := h.walkAndParse(ctx, dirPath, includePaths...)
 		if err != nil {
 			return nil, err
 		}
@@ -151,6 +171,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		fileCount = stats.Files
 	} else {
 		// 증분 빌드
+		absDir, _ := filepath.Abs(dirPath)
 		files := map[string]incremental.FileInfo{}
 		err := filepath.Walk(dirPath, func(fp string, info os.FileInfo, err error) error {
 			if err != nil {
@@ -161,7 +182,19 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 				if pathutil.ShouldSkipDir(name) {
 					return filepath.SkipDir
 				}
+				if len(includePaths) > 0 && fp != dirPath && fp != absDir {
+					relPath, _ := filepath.Rel(absDir, fp)
+					if !pathutil.MatchIncludePaths(relPath, includePaths) {
+						return filepath.SkipDir
+					}
+				}
 				return nil
+			}
+			if len(includePaths) > 0 {
+				relPath, _ := filepath.Rel(absDir, fp)
+				if !pathutil.MatchIncludePaths(relPath, includePaths) {
+					return nil
+				}
 			}
 			ext := strings.ToLower(filepath.Ext(fp))
 			if _, ok := h.deps.Walkers[ext]; !ok {

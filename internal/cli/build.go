@@ -18,6 +18,7 @@ import (
 func newBuildCmd(deps *Deps) *cobra.Command {
 	var excludePatterns []string
 	var noRecursive bool
+	var includePaths []string
 
 	cmd := &cobra.Command{
 		Use:   "build [directory]",
@@ -30,6 +31,7 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 			}
 
 			patterns := resolveExcludes(excludePatterns)
+			paths := resolveIncludePaths(includePaths)
 
 			svc := &service.GraphService{
 				Store:         deps.Store,
@@ -43,6 +45,7 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 				Dir:             dir,
 				NoRecursive:     noRecursive,
 				ExcludePatterns: patterns,
+				IncludePaths:    paths,
 			}
 
 			ctx := context.Background()
@@ -62,6 +65,7 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 
 	cmd.Flags().BoolVar(&noRecursive, "no-recursive", false, "Only parse files in the top-level directory, skip subdirectories")
 	cmd.Flags().StringArrayVar(&excludePatterns, "exclude", nil, "Exclude files/directories matching pattern (repeatable, e.g. --exclude vendor --exclude *.pb.go)")
+	cmd.Flags().StringArrayVar(&includePaths, "path", nil, "Only include specific paths (repeatable, e.g. --path src/api --path src/auth)")
 
 	return cmd
 }

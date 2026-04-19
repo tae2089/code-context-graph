@@ -2,11 +2,14 @@
 package pathutil
 
 import (
+	"os"
 	"path"
 	"regexp"
 	"strings"
 
 	"path/filepath"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // ShouldSkipDir는 디렉토리 이름이 기본 제외 대상인지 반환한다.
@@ -82,4 +85,34 @@ func MatchExcludes(patterns []string, relPath string) bool {
 // @intent glob과 정규표현식 패턴을 구분해 적절한 매칭 엔진을 선택한다.
 func IsRegexPattern(pat string) bool {
 	return strings.ContainsAny(pat, "$^+{}|") || strings.Contains(pat, `\.`) || strings.Contains(pat, ".*")
+}
+
+// LoadIncludePathsFromConfig reads .ccg.yaml from dir and returns the
+// include_paths list. Returns nil if the file doesn't exist or has no
+// include_paths key.
+// @intent webhook 빌드 시 repo별 .ccg.yaml에서 include_paths를 자동으로 읽는다.
+func LoadIncludePathsFromConfig(dir string) []string {
+	data, err := os.ReadFile(filepath.Join(dir, ".ccg.yaml"))
+	if err != nil {
+		return nil
+	}
+	var cfg struct {
+		IncludePaths []string `yaml:"include_paths"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil
+	}
+	if len(cfg.IncludePaths) == 0 {
+		return nil
+	}
+	return cfg.IncludePaths
+}
+
+func MatchIncludePaths(relPath string, includePaths []string) bool {
+	for _, inc := range includePaths {
+		if strings.HasPrefix(relPath, inc) || strings.HasPrefix(inc, relPath) {
+			return true
+		}
+	}
+	return false
 }

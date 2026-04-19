@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -908,6 +909,148 @@ func TestParseLua_Require(t *testing.T) {
 	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
 	if len(callEdges) == 0 {
 		t.Fatal("expected at least 1 CALLS edge for require, got 0")
+	}
+}
+
+func TestParseLua_MethodColon(t *testing.T) {
+	src := `function Foo:bar()
+end
+`
+	w := NewWalker(LuaSpec)
+	nodes, _, err := w.Parse("app.lua", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	funcNodes := filterByKind(nodes, model.NodeKindFunction)
+	if len(funcNodes) != 1 {
+		t.Fatalf("expected 1 function node, got %d", len(funcNodes))
+	}
+	if funcNodes[0].Name != "Foo:bar" {
+		t.Errorf("Name = %q, want %q", funcNodes[0].Name, "Foo:bar")
+	}
+}
+
+func TestParseLua_MethodDot(t *testing.T) {
+	src := `function Foo.baz()
+end
+`
+	w := NewWalker(LuaSpec)
+	nodes, _, err := w.Parse("app.lua", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	funcNodes := filterByKind(nodes, model.NodeKindFunction)
+	if len(funcNodes) != 1 {
+		t.Fatalf("expected 1 function node, got %d", len(funcNodes))
+	}
+	if funcNodes[0].Name != "Foo.baz" {
+		t.Errorf("Name = %q, want %q", funcNodes[0].Name, "Foo.baz")
+	}
+}
+
+func TestParseLua_MethodCall(t *testing.T) {
+	src := `obj:method()
+`
+	w := NewWalker(LuaSpec)
+	_, edges, err := w.Parse("app.lua", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
+	if len(callEdges) == 0 {
+		t.Fatal("expected at least 1 CALLS edge for method call, got 0")
+	}
+}
+
+func TestParseLua_TypedFunction(t *testing.T) {
+	// Luau typed function — tree-sitter error recovery should still capture function name
+	src := `function add(x: number, y: number): number
+    return x + y
+end
+`
+	w := NewWalker(LuaSpec)
+	nodes, _, err := w.Parse("app.lua", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	funcNodes := filterByKind(nodes, model.NodeKindFunction)
+	if len(funcNodes) != 1 {
+		t.Fatalf("expected 1 function node, got %d", len(funcNodes))
+	}
+	if funcNodes[0].Name != "add" {
+		t.Errorf("Name = %q, want %q", funcNodes[0].Name, "add")
+	}
+}
+
+func TestParseLua_TypedLocalFunction(t *testing.T) {
+	src := `local function greet(name: string): string
+    return "hello " .. name
+end
+`
+	w := NewWalker(LuaSpec)
+	nodes, _, err := w.Parse("app.lua", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	funcNodes := filterByKind(nodes, model.NodeKindFunction)
+	if len(funcNodes) != 1 {
+		t.Fatalf("expected 1 function node, got %d", len(funcNodes))
+	}
+	if funcNodes[0].Name != "greet" {
+		t.Errorf("Name = %q, want %q", funcNodes[0].Name, "greet")
+	}
+}
+
+func TestParseLua_Comments(t *testing.T) {
+	src := `-- single line comment
+
+--[[ block comment
+  multi line
+]]
+
+--!strict
+function foo()
+end
+`
+	w := NewWalker(LuaSpec)
+	_, _, comments, err := w.ParseWithComments(context.Background(), "app.lua", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(comments) == 0 {
+		t.Fatal("expected at least 1 comment block, got 0")
+	}
+	found := false
+	for _, c := range comments {
+		if strings.Contains(c.Text, "single line comment") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("single line comment not found in comment blocks")
+	}
+
+	found = false
+	for _, c := range comments {
+		if strings.Contains(c.Text, "block comment") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("block comment not found in comment blocks")
+	}
+
+	found = false
+	for _, c := range comments {
+		if strings.Contains(c.Text, "!strict") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("--!strict comment not found in comment blocks")
 	}
 }
 

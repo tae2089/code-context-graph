@@ -1,17 +1,11 @@
-; Functions
+; Functions — global (name is function_name: "foo", "Foo:bar", "Foo.baz")
 (function_statement
-  name: [
-    (function_name) 
-    (identifier)
-    (method_index_expression)
-  ] @name.function) @definition.function
+  name: (function_name) @name.function) @definition.function
 
-(local_function_statement
+; Functions — local (name is identifier: "bar")
+(function_statement
   name: (identifier) @name.function) @definition.function
 
-; Calls
+; Calls — simple and method calls (prefix is always identifier in this grammar)
 (function_call
-  prefix: [
-    (identifier)
-    (method_index_expression)
-  ] @name.call) @reference.call
+  prefix: (identifier) @name.call) @reference.call

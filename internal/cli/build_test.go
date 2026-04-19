@@ -217,6 +217,61 @@ func Hello() {}
 	}
 }
 
+func TestBuildCommand_Path_OnlyIncludedPathsParsed(t *testing.T) {
+	deps, stdout, stderr, db := setupBuildTest(t)
+
+	dir := t.TempDir()
+
+	apiDir := filepath.Join(dir, "src", "api")
+	os.MkdirAll(apiDir, 0755)
+	writeGoFile(t, apiDir, "handler.go", `package api
+func Handler() {}
+`)
+
+	authDir := filepath.Join(dir, "src", "auth")
+	os.MkdirAll(authDir, 0755)
+	writeGoFile(t, authDir, "auth.go", `package auth
+func Authenticate() {}
+`)
+
+	otherDir := filepath.Join(dir, "src", "other")
+	os.MkdirAll(otherDir, 0755)
+	writeGoFile(t, otherDir, "other.go", `package other
+func Other() {}
+`)
+
+	writeGoFile(t, dir, "root.go", `package root
+func Root() {}
+`)
+
+	err := executeCmd(deps, stdout, stderr, "build", "--path", "src/api", "--path", "src/auth", dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var nodes []model.Node
+	db.Find(&nodes)
+
+	foundHandler := false
+	foundAuth := false
+	for _, n := range nodes {
+		switch n.Name {
+		case "Handler":
+			foundHandler = true
+		case "Authenticate":
+			foundAuth = true
+		case "Other", "Root":
+			t.Errorf("--path should exclude %s, but it was parsed", n.Name)
+		}
+	}
+	if !foundHandler {
+		t.Error("expected Handler function to be parsed (in --path src/api)")
+	}
+	if !foundAuth {
+		t.Error("expected Authenticate function to be parsed (in --path src/auth)")
+	}
+}
+
 func TestBuildCommand_NoRecursive_SkipsSubdirs(t *testing.T) {
 	deps, stdout, stderr, db := setupBuildTest(t)
 

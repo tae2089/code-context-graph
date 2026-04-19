@@ -35,6 +35,7 @@ import (
 	mcpserver "github.com/imtaebin/code-context-graph/internal/mcp"
 	"github.com/imtaebin/code-context-graph/internal/model"
 	"github.com/imtaebin/code-context-graph/internal/parse/treesitter"
+	"github.com/imtaebin/code-context-graph/internal/pathutil"
 	"github.com/imtaebin/code-context-graph/internal/service"
 	"github.com/imtaebin/code-context-graph/internal/store/gormstore"
 	"github.com/imtaebin/code-context-graph/internal/store/search"
@@ -134,6 +135,12 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("signal handler panicked", "panic", r)
+				os.Exit(2)
+			}
+		}()
 		sig := <-sigCh
 		slog.Info("received signal, shutting down", "signal", sig)
 		cleanup()
@@ -287,7 +294,10 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 			buildCtx, buildCancel := context.WithTimeout(ctx, 10*time.Minute)
 			defer buildCancel()
 			buildCtx = ctxns.WithNamespace(buildCtx, ns)
-			stats, err := graphSvc.Build(buildCtx, service.BuildOptions{Dir: repoDir})
+			stats, err := graphSvc.Build(buildCtx, service.BuildOptions{
+				Dir:          repoDir,
+				IncludePaths: pathutil.LoadIncludePathsFromConfig(repoDir),
+			})
 			if err != nil {
 				deps.Logger.Error("webhook build failed", "repo", repoFullName, "error", err)
 				return
@@ -316,6 +326,12 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 
 	errCh := make(chan error, 1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("HTTP server goroutine panicked", "panic", r)
+				errCh <- fmt.Errorf("HTTP server panicked: %v", r)
+			}
+		}()
 		errCh <- httpServer.ListenAndServe()
 	}()
 
@@ -349,7 +365,10 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(`{"status":"ok"}`))
+	_, err := w.Write([]byte(`{"status":"ok"}`))
+	if err != nil {
+		slog.Error("health check write failed", "error", err)
+	}
 }
 
 // openDB opens a GORM connection for the configured driver.

@@ -77,6 +77,11 @@ func (q *SyncQueue) Shutdown() {
 
 	done := make(chan struct{})
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("sync queue shutdown panicked", "panic", r)
+			}
+		}()
 		q.wg.Wait()
 		close(done)
 	}()

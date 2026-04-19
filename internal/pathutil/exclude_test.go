@@ -1,10 +1,52 @@
 package pathutil_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/imtaebin/code-context-graph/internal/pathutil"
 )
+
+func TestLoadIncludePathsFromConfig_WithFile(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte("include_paths:\n  - src/api\n  - src/auth\n")
+	if err := os.WriteFile(filepath.Join(dir, ".ccg.yaml"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := pathutil.LoadIncludePathsFromConfig(dir)
+	want := []string{"src/api", "src/auth"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("got[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestLoadIncludePathsFromConfig_NoFile(t *testing.T) {
+	dir := t.TempDir()
+	got := pathutil.LoadIncludePathsFromConfig(dir)
+	if got != nil {
+		t.Errorf("expected nil, got %v", got)
+	}
+}
+
+func TestLoadIncludePathsFromConfig_NoKey(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte("exclude_patterns:\n  - vendor\n")
+	if err := os.WriteFile(filepath.Join(dir, ".ccg.yaml"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := pathutil.LoadIncludePathsFromConfig(dir)
+	if got != nil {
+		t.Errorf("expected nil, got %v", got)
+	}
+}
 
 func TestMatchExcludes(t *testing.T) {
 	tests := []struct {

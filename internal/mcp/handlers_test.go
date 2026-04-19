@@ -595,6 +595,47 @@ func Add(a, b int) int {
 	}
 }
 
+func TestBuildOrUpdateGraph_IncrementalIncludePaths(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	mockSync := &mockIncrementalSyncer{
+		result: &incremental.SyncStats{Added: 1, Modified: 0, Skipped: 0, Deleted: 0},
+	}
+	deps.Incremental = mockSync
+
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "src", "api"), 0o755)
+	os.MkdirAll(filepath.Join(dir, "src", "other"), 0o755)
+	writeGoFile(t, filepath.Join(dir, "src", "api"), "handler.go", `package api
+func Handler() {}
+`)
+	writeGoFile(t, filepath.Join(dir, "src", "other"), "other.go", `package other
+func Other() {}
+`)
+
+	callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":          dir,
+		"full_rebuild":  false,
+		"postprocess":   "none",
+		"include_paths": []string{"src/api"},
+	})
+
+	if !mockSync.syncCalled {
+		t.Fatal("expected Incremental.Sync to be called")
+	}
+
+	for fp := range mockSync.files {
+		rel, _ := filepath.Rel(dir, fp)
+		if !strings.HasPrefix(rel, filepath.Join("src", "api")) {
+			t.Errorf("incremental sync received file outside include_paths: %s", rel)
+		}
+	}
+
+	if len(mockSync.files) == 0 {
+		t.Error("expected at least 1 file in incremental sync")
+	}
+}
+
 func TestBuildOrUpdateGraph_PostprocessFull(t *testing.T) {
 	deps := setupTestDeps(t)
 
@@ -646,6 +687,80 @@ func Run() {}
 
 	if mockComm.rebuildCalled {
 		t.Error("expected CommunityBuilder.Rebuild NOT to be called for postprocess=none")
+	}
+}
+
+func TestBuildOrUpdateGraph_IncludePaths(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	dir := t.TempDir()
+
+	apiDir := filepath.Join(dir, "src", "api")
+	os.MkdirAll(apiDir, 0755)
+	writeGoFile(t, apiDir, "handler.go", `package api
+func Handler() {}
+`)
+
+	otherDir := filepath.Join(dir, "src", "other")
+	os.MkdirAll(otherDir, 0755)
+	writeGoFile(t, otherDir, "other.go", `package other
+func Other() {}
+`)
+
+	result := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":          dir,
+		"full_rebuild":  true,
+		"postprocess":   "none",
+		"include_paths": []string{"src/api"},
+	})
+	if result.IsError {
+		t.Fatalf("build_or_update_graph error: %s", getTextContent(result))
+	}
+
+	node, err := deps.Store.GetNode(context.Background(), "api.Handler")
+	if err != nil || node == nil {
+		t.Fatal("expected node api.Handler to exist (in include_paths)")
+	}
+
+	otherNode, _ := deps.Store.GetNode(context.Background(), "other.Other")
+	if otherNode != nil {
+		t.Error("expected other.Other NOT to exist (not in include_paths)")
+	}
+}
+
+func TestParseProject_IncludePaths(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	dir := t.TempDir()
+
+	apiDir := filepath.Join(dir, "src", "api")
+	os.MkdirAll(apiDir, 0755)
+	writeGoFile(t, apiDir, "handler.go", `package api
+func Handler() {}
+`)
+
+	otherDir := filepath.Join(dir, "src", "other")
+	os.MkdirAll(otherDir, 0755)
+	writeGoFile(t, otherDir, "other.go", `package other
+func Other() {}
+`)
+
+	result := callTool(t, deps, "parse_project", map[string]any{
+		"path":          dir,
+		"include_paths": []string{"src/api"},
+	})
+	if result.IsError {
+		t.Fatalf("parse_project error: %s", getTextContent(result))
+	}
+
+	node, err := deps.Store.GetNode(context.Background(), "api.Handler")
+	if err != nil || node == nil {
+		t.Fatal("expected node api.Handler to exist (in include_paths)")
+	}
+
+	otherNode, _ := deps.Store.GetNode(context.Background(), "other.Other")
+	if otherNode != nil {
+		t.Error("expected other.Other NOT to exist (not in include_paths)")
 	}
 }
 
@@ -1858,12 +1973,14 @@ func (m *mockCommunityBuilder) Rebuild(ctx context.Context, cfg community.Config
 
 type mockIncrementalSyncer struct {
 	syncCalled bool
+	files      map[string]incremental.FileInfo
 	result     *incremental.SyncStats
 	err        error
 }
 
 func (m *mockIncrementalSyncer) Sync(ctx context.Context, files map[string]incremental.FileInfo) (*incremental.SyncStats, error) {
 	m.syncCalled = true
+	m.files = files
 	return m.result, m.err
 }
 
