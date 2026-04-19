@@ -48,9 +48,9 @@ internal/
   cli/                — CLI 커맨드 정의
   ctxns/              — Context namespace
   docs/               — 문서 생성
-  mcp/                — MCP 서버 (28 tools)
+  mcp/                — MCP 서버 (29 tools)
   model/              — DB 모델
-  parse/treesitter/   — Tree-sitter 파서 (12 languages)
+  parse/treesitter/   — Tree-sitter 파서 (12 languages, Lua/Luau 포함)
   pathutil/           — 경로 유틸리티
   ragindex/           — RAG 인덱스
   service/            — 비즈니스 로직

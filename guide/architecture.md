@@ -25,7 +25,9 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
 
 Tree-sitter 기반 코드 파서. 12개 언어를 지원하며 각 언어별 `LangSpec`으로 함수, 클래스, 타입, 임포트, 호출 관계를 추출합니다.
 
-**지원 언어**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua
+**지원 언어**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua/Luau
+
+> Lua 파서는 Luau(Roblox) 문법도 지원합니다. 타입 어노테이션은 tree-sitter 에러 복구로 무시되며, 함수(global, local, method), 주석(한줄, 블록, `--!strict`)을 모두 추출합니다.
 
 ### Store (`internal/store/gormstore/`)
 
@@ -60,6 +62,15 @@ DB별 전문 검색 백엔드:
 ### MCP Server (`internal/mcp/`)
 
 28개 도구를 MCP 프로토콜로 노출. stdio와 Streamable HTTP 두 가지 전송 모드 지원.
+
+### Reliability
+
+운영 안정성을 위해 모든 goroutine에 panic recovery가 적용되어 있습니다:
+
+- **Signal handler**: panic 시 에러 로깅 후 `os.Exit(2)`
+- **HTTP server**: panic을 에러 채널로 전파하여 정상 종료 흐름 유지
+- **SyncQueue worker**: panic 로깅 후 다른 워커에 영향 없이 계속 동작
+- **SyncQueue shutdown**: shutdown 과정의 panic 격리
 
 ### Webhook (`internal/webhook/`)
 

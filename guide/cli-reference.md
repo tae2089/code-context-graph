@@ -79,8 +79,26 @@ exclude:
   - ".*\\.pb\\.go$"
   - ".*_test\\.go$"
 
+include_paths:
+  - src/
+  - lib/
+
 docs:
   out: docs
+```
+
+### `include_paths`
+
+빌드 대상 경로를 제한합니다. 설정 시 지정된 경로 하위만 파싱됩니다.
+
+- CLI: `ccg build` 시 `.ccg.yaml`의 `include_paths` 자동 적용
+- Webhook: 레포 clone 후 `.ccg.yaml`의 `include_paths`를 자동 로딩하여 빌드 범위 제한
+- 증분 빌드(`ccg update`): 변경 파일 수집 시 `include_paths` 필터 적용
+
+```yaml
+include_paths:
+  - src/backend/
+  - src/shared/
 ```
 
 ### Regex Patterns

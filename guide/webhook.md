@@ -98,3 +98,26 @@ Push Event → HMAC Verify → RepoFilter.IsAllowedRef()
 - 기본 4개 워커
 - 서로 다른 레포는 병렬 처리
 - 같은 레포는 순차 처리 (dirty requeue)
+
+## `.ccg.yaml` include_paths 자동 반영
+
+Webhook 빌드 시 clone된 레포 내 `.ccg.yaml` 파일의 `include_paths` 설정을 자동으로 읽어 빌드 범위를 제한합니다.
+
+```yaml
+# 레포 내 .ccg.yaml
+include_paths:
+  - src/
+  - lib/
+```
+
+- `.ccg.yaml` 파일이 없거나 `include_paths` 키가 없으면 전체 디렉토리를 빌드합니다
+- CLI의 `--config` 플래그와 독립적으로 동작합니다 (viper 미사용, yaml 직접 파싱)
+
+## Panic Recovery
+
+모든 goroutine에 `defer recover()`가 적용되어 있어 개별 워커 panic이 전체 프로세스를 크래시시키지 않습니다:
+
+- Signal handler goroutine
+- HTTP server goroutine
+- SyncQueue worker goroutine
+- SyncQueue shutdown goroutine

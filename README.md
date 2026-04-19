@@ -6,10 +6,10 @@ Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) 
 
 ## Features
 
-- **12 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua
+- **12 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua/Luau
 - **29 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, file workspace management, and more
 - **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context ([details](guide/annotations.md))
-- **Webhook sync**: GitHub / Gitea push events → auto clone + build with per-repo branch filtering ([details](guide/webhook.md))
+- **Webhook sync**: GitHub / Gitea push events → auto clone + build with per-repo branch filtering and `.ccg.yaml` `include_paths` auto-loading ([details](guide/webhook.md))
 - **Multi-DB**: SQLite (local), PostgreSQL
 - **Full-text search**: FTS5 (SQLite), tsvector+GIN (PostgreSQL)
 
