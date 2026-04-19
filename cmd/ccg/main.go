@@ -280,9 +280,11 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 		syncHandler := func(ctx context.Context, repoFullName, cloneURL string) error {
 			ns := webhook.ExtractNamespace(repoFullName)
 			deps.Logger.Info("webhook sync started", "repo", repoFullName, "namespace", ns)
-			cloneCtx, cloneCancel := context.WithTimeout(ctx, 10*time.Minute)
-			defer cloneCancel()
-			if err := webhook.CloneOrPull(cloneCtx, cloneURL, cfg.RepoRoot, ns, nil); err != nil {
+
+			attemptCtx, attemptCancel := context.WithTimeout(ctx, 15*time.Minute)
+			defer attemptCancel()
+
+			if err := webhook.CloneOrPull(attemptCtx, cloneURL, cfg.RepoRoot, ns, nil); err != nil {
 				deps.Logger.Error("webhook clone/pull failed", "repo", repoFullName, "error", err)
 				return err
 			}
@@ -295,9 +297,7 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 				Walkers:       deps.Walkers,
 				Logger:        deps.Logger,
 			}
-			buildCtx, buildCancel := context.WithTimeout(ctx, 10*time.Minute)
-			defer buildCancel()
-			buildCtx = ctxns.WithNamespace(buildCtx, ns)
+			buildCtx := ctxns.WithNamespace(attemptCtx, ns)
 			stats, err := graphSvc.Build(buildCtx, service.BuildOptions{
 				Dir:          repoDir,
 				IncludePaths: pathutil.LoadIncludePathsFromConfig(repoDir),

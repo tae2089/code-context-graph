@@ -109,6 +109,8 @@ Push Event → HMAC Verify → RepoFilter.IsAllowedRef()
 | BaseDelay | 1s | 첫 번째 재시도 대기 시간 |
 | MaxDelay | 30s | 재시도 대기 시간 상한 |
 
+- **시도당 timeout**: clone과 build가 하나의 15분 context를 공유 — 합산 초과 시 해당 시도 실패 후 retry
+- **총 최대 소요 시간**: 3회 × 15분 + backoff(최대 ~30초) ≈ **46분**
 - 지수 증가: 1s → 2s → 4s → ... (MaxDelay 초과 시 MaxDelay로 고정)
 - context 취소(서버 종료) 시 대기 중인 retry 즉시 중단
 - panic도 에러로 처리되어 retry 대상이 됨
