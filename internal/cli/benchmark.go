@@ -14,6 +14,7 @@ import (
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/benchmark"
+	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 	storesearch "github.com/tae2089/code-context-graph/internal/store/search"
 )
 
@@ -266,7 +267,7 @@ func newBenchmarkTokenBenchCmd(deps *Deps) *cobra.Command {
 				return trace.Wrap(err, "load corpus")
 			}
 			backend := storesearch.NewSQLiteBackend()
-			results, err := benchmark.RunTokenBench(cmd.Context(), deps.DB, backend, nil, corpus, repoRoot, exts)
+			results, err := benchmark.RunTokenBench(cmd.Context(), deps.DB, backend, gormstore.New(deps.DB), corpus, repoRoot, exts)
 			if err != nil {
 				return trace.Wrap(err, "run token bench")
 			}

@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode"
 
 	"gorm.io/gorm"
 
@@ -65,19 +64,30 @@ type TokenBenchResult struct {
 	Ratio           float64 `json:"ratio"`
 	SearchElapsedMs int64   `json:"search_elapsed_ms"`
 	ResultCount     int     `json:"result_count"`
+	// Recall: 정답 파일/심볼이 결과에 포함되었는지 측정
+	FilesHit     int     `json:"files_hit"`
+	FilesTotal   int     `json:"files_total"`
+	SymbolsHit   int     `json:"symbols_hit"`
+	SymbolsTotal int     `json:"symbols_total"`
+	Recall       float64 `json:"recall"`
 }
 
-// sanitizeFTSQuery는 FTS5 쿼리에서 특수문자를 공백으로 대체한다.
-func sanitizeFTSQuery(query string) string {
-	var sb strings.Builder
-	for _, r := range query {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == ' ' {
-			sb.WriteRune(r)
-		} else {
-			sb.WriteRune(' ')
+// extractASCIITerms는 텍스트에서 ASCII 영숫자 단어만 추출한다.
+// 한국어 등 비ASCII 문자를 포함한 설명에서 코드 심볼에 해당하는 영어 단어만 반환한다.
+func extractASCIITerms(text string) []string {
+	var terms []string
+	for _, word := range strings.Fields(text) {
+		var clean strings.Builder
+		for _, r := range word {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+				clean.WriteRune(r)
+			}
+		}
+		if clean.Len() > 1 {
+			terms = append(terms, clean.String())
 		}
 	}
-	return strings.TrimSpace(sb.String())
+	return terms
 }
 
 // readLines는 파일에서 startLine~endLine 범위의 텍스트를 반환한다 (1-based).
@@ -95,18 +105,24 @@ func readLines(path string, startLine, endLine int) string {
 	return strings.Join(lines[lo:hi], "\n")
 }
 
-// GraphTokens는 backend.Query 결과와 실제 코드 내용을 합산해 토큰 수, 경과 시간(ms), 결과 수를 반환한다.
-// expander가 nil이 아니면 1-hop 이웃 노드와 어노테이션도 포함한다.
-// repoRoot가 비어있으면 코드 내용은 포함하지 않는다.
-func GraphTokens(ctx context.Context, db *gorm.DB, backend SearchBackend, expander NodeExpander, query, repoRoot string, limit int) (tokens int, elapsedMs int64, count int, err error) {
-	start := time.Now()
-	nodes, err := backend.Query(ctx, db, sanitizeFTSQuery(query), limit)
-	elapsedMs = time.Since(start).Milliseconds()
-	if err != nil {
-		return 0, elapsedMs, 0, err
+// searchAndCollect는 FTS 검색 후 1-hop 확장까지 수행해 노드 목록과 텍스트를 반환한다.
+// seen은 호출 간 중복 제거에 사용되며 nil이면 새로 생성한다.
+func searchAndCollect(
+	ctx context.Context, db *gorm.DB, backend SearchBackend, expander NodeExpander,
+	query, repoRoot string, limit int, seen map[uint]struct{},
+) (nodes []model.Node, text string, elapsedMs int64, err error) {
+	if seen == nil {
+		seen = make(map[uint]struct{})
 	}
+
+	terms := extractASCIITerms(query)
+	if len(terms) == 0 {
+		return nil, "", 0, nil
+	}
+
 	var sb strings.Builder
 	writeNode := func(n model.Node) {
+		nodes = append(nodes, n)
 		fmt.Fprintf(&sb, "%s %s %s\n", n.QualifiedName, n.Kind, n.FilePath)
 		if repoRoot != "" && n.FilePath != "" && n.StartLine > 0 {
 			code := readLines(filepath.Join(repoRoot, n.FilePath), n.StartLine, n.EndLine)
@@ -114,67 +130,23 @@ func GraphTokens(ctx context.Context, db *gorm.DB, backend SearchBackend, expand
 			sb.WriteByte('\n')
 		}
 	}
-	seen := make(map[uint]struct{})
-	for _, n := range nodes {
-		seen[n.ID] = struct{}{}
-		writeNode(n)
-		if expander == nil {
-			continue
-		}
-		// 1-hop 이웃 확장
-		edges, eerr := expander.GetEdgesFrom(ctx, n.ID)
-		if eerr != nil {
-			continue
-		}
-		neighborIDs := make([]uint, 0, len(edges))
-		for _, e := range edges {
-			if _, dup := seen[e.ToNodeID]; !dup {
-				neighborIDs = append(neighborIDs, e.ToNodeID)
-			}
-		}
-		if len(neighborIDs) == 0 {
-			continue
-		}
-		neighbors, nerr := expander.GetNodesByIDs(ctx, neighborIDs)
-		if nerr != nil {
-			continue
-		}
-		for _, nb := range neighbors {
-			seen[nb.ID] = struct{}{}
-			writeNode(nb)
-		}
-		// 어노테이션 포함
-		if ann, aerr := expander.GetAnnotation(ctx, n.ID); aerr == nil && ann != nil {
-			fmt.Fprintf(&sb, "annotation: %s\n", ann.RawText)
-		}
-	}
-	return EstimateTokens(sb.String()), elapsedMs, len(nodes), nil
-}
 
-// graphTokensMulti는 여러 심볼을 개별 검색해 중복 없이 토큰을 합산한다.
-func graphTokensMulti(ctx context.Context, db *gorm.DB, backend SearchBackend, expander NodeExpander, symbols []string, repoRoot string, limitEach int) (tokens int, elapsedMs int64, count int, err error) {
-	seen := make(map[uint]struct{})
-	var sb strings.Builder
-	var totalElapsed int64
-	for _, sym := range symbols {
+	// 각 단어를 개별 검색해 FTS5 AND 제약을 피하고 결과를 누적한다.
+	for _, term := range terms {
 		start := time.Now()
-		nodes, qerr := backend.Query(ctx, db, sanitizeFTSQuery(sym), limitEach)
-		totalElapsed += time.Since(start).Milliseconds()
+		found, qerr := backend.Query(ctx, db, term, limit)
+		elapsedMs += time.Since(start).Milliseconds()
 		if qerr != nil {
-			return 0, totalElapsed, 0, qerr
+			return nil, "", elapsedMs, qerr
 		}
-		for _, n := range nodes {
-			if _, dup := seen[n.ID]; dup {
-				continue
+		for _, n := range found {
+			if n.ID > 0 {
+				if _, dup := seen[n.ID]; dup {
+					continue
+				}
+				seen[n.ID] = struct{}{}
 			}
-			seen[n.ID] = struct{}{}
-			count++
-			fmt.Fprintf(&sb, "%s %s %s\n", n.QualifiedName, n.Kind, n.FilePath)
-			if repoRoot != "" && n.FilePath != "" && n.StartLine > 0 {
-				code := readLines(filepath.Join(repoRoot, n.FilePath), n.StartLine, n.EndLine)
-				sb.WriteString(code)
-				sb.WriteByte('\n')
-			}
+			writeNode(n)
 			if expander == nil {
 				continue
 			}
@@ -197,22 +169,71 @@ func graphTokensMulti(ctx context.Context, db *gorm.DB, backend SearchBackend, e
 			}
 			for _, nb := range neighbors {
 				seen[nb.ID] = struct{}{}
-				fmt.Fprintf(&sb, "%s %s %s\n", nb.QualifiedName, nb.Kind, nb.FilePath)
-				if repoRoot != "" && nb.FilePath != "" && nb.StartLine > 0 {
-					code := readLines(filepath.Join(repoRoot, nb.FilePath), nb.StartLine, nb.EndLine)
-					sb.WriteString(code)
-					sb.WriteByte('\n')
-				}
+				writeNode(nb)
 			}
 			if ann, aerr := expander.GetAnnotation(ctx, n.ID); aerr == nil && ann != nil {
 				fmt.Fprintf(&sb, "annotation: %s\n", ann.RawText)
 			}
 		}
 	}
-	return EstimateTokens(sb.String()), totalElapsed, count, nil
+	return nodes, sb.String(), elapsedMs, nil
 }
 
-// RunTokenBench는 corpus의 각 쿼리에 대해 naive/graph 토큰을 비교한다.
+// GraphTokens는 단일 쿼리로 검색해 토큰 수, 경과 시간(ms), 결과 수를 반환한다.
+func GraphTokens(ctx context.Context, db *gorm.DB, backend SearchBackend, expander NodeExpander, query, repoRoot string, limit int) (tokens int, elapsedMs int64, count int, err error) {
+	nodes, text, elapsedMs, err := searchAndCollect(ctx, db, backend, expander, query, repoRoot, limit, nil)
+	if err != nil {
+		return 0, elapsedMs, 0, err
+	}
+	return EstimateTokens(text), elapsedMs, len(nodes), nil
+}
+
+// countFilesHit는 nodes 중 expectedFiles에 해당하는 FilePath를 가진 노드 수를 반환한다.
+func countFilesHit(nodes []model.Node, expectedFiles []string) int {
+	if len(expectedFiles) == 0 {
+		return 0
+	}
+	found := make(map[string]struct{}, len(nodes))
+	for _, n := range nodes {
+		found[n.FilePath] = struct{}{}
+	}
+	hit := 0
+	for _, f := range expectedFiles {
+		if _, ok := found[f]; ok {
+			hit++
+		}
+	}
+	return hit
+}
+
+// countSymbolsHit는 nodes 중 QualifiedName에 expectedSymbols 심볼명이 포함된 노드 수를 반환한다.
+func countSymbolsHit(nodes []model.Node, expectedSymbols []string) int {
+	if len(expectedSymbols) == 0 {
+		return 0
+	}
+	hit := 0
+	for _, sym := range expectedSymbols {
+		for _, n := range nodes {
+			if strings.Contains(n.QualifiedName, sym) {
+				hit++
+				break
+			}
+		}
+	}
+	return hit
+}
+
+// computeRecall은 파일/심볼 히트율을 0~1로 반환한다.
+func computeRecall(filesHit, filesTotal, symbolsHit, symbolsTotal int) float64 {
+	total := filesTotal + symbolsTotal
+	if total == 0 {
+		return 0
+	}
+	return float64(filesHit+symbolsHit) / float64(total)
+}
+
+// RunTokenBench는 corpus의 각 쿼리에 대해 naive/graph 토큰과 recall을 비교한다.
+// 검색은 항상 Description을 사용하며, expected_symbols/files는 정답 매칭에만 사용한다.
 func RunTokenBench(ctx context.Context, db *gorm.DB, backend SearchBackend, expander NodeExpander, corpus *Corpus, repoRoot string, exts []string) ([]TokenBenchResult, error) {
 	naive, err := NaiveTokens(repoRoot, exts)
 	if err != nil {
@@ -221,19 +242,17 @@ func RunTokenBench(ctx context.Context, db *gorm.DB, backend SearchBackend, expa
 
 	results := make([]TokenBenchResult, 0, len(corpus.Queries))
 	for _, q := range corpus.Queries {
-		var tokens int
-		var elapsed int64
-		var count int
-		var qerr error
-		if len(q.ExpectedSymbols) > 0 {
-			// 심볼별로 개별 검색 후 중복 제거 합산
-			tokens, elapsed, count, qerr = graphTokensMulti(ctx, db, backend, expander, q.ExpectedSymbols, repoRoot, 5)
-		} else {
-			tokens, elapsed, count, qerr = GraphTokens(ctx, db, backend, expander, q.Description, repoRoot, 10)
-		}
+		nodes, text, elapsed, qerr := searchAndCollect(ctx, db, backend, expander, q.Description, repoRoot, 10, nil)
 		if qerr != nil {
 			return nil, qerr
 		}
+		tokens := EstimateTokens(text)
+
+		filesHit := countFilesHit(nodes, q.ExpectedFiles)
+		symbolsHit := countSymbolsHit(nodes, q.ExpectedSymbols)
+		filesTotal := len(q.ExpectedFiles)
+		symbolsTotal := len(q.ExpectedSymbols)
+
 		var ratio float64
 		if tokens > 0 {
 			ratio = float64(naive) / float64(tokens)
@@ -244,7 +263,12 @@ func RunTokenBench(ctx context.Context, db *gorm.DB, backend SearchBackend, expa
 			GraphTokens:     tokens,
 			Ratio:           ratio,
 			SearchElapsedMs: elapsed,
-			ResultCount:     count,
+			ResultCount:     len(nodes),
+			FilesHit:        filesHit,
+			FilesTotal:      filesTotal,
+			SymbolsHit:      symbolsHit,
+			SymbolsTotal:    symbolsTotal,
+			Recall:          computeRecall(filesHit, filesTotal, symbolsHit, symbolsTotal),
 		})
 	}
 	return results, nil
