@@ -10,7 +10,7 @@ Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) 
 - **29 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, file workspace management, and more
 - **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context ([details](guide/annotations.md))
 - **Webhook sync**: GitHub / Gitea push events → auto clone + build with per-repo branch filtering and `.ccg.yaml` `include_paths` auto-loading ([details](guide/webhook.md))
-- **Eval**: Golden corpus 기반 파서 정확도(P/R/F1) 및 검색 품질(P@K, MRR, nDCG) 평가 ([details](guide/cli-reference.md#eval))
+- **Eval**: Golden corpus-based parser accuracy (P/R/F1) and search quality (P@K, MRR, nDCG) evaluation ([details](guide/cli-reference.md#eval))
 - **Multi-DB**: SQLite (local), PostgreSQL
 - **Full-text search**: FTS5 (SQLite), tsvector+GIN (PostgreSQL)
 
@@ -50,7 +50,7 @@ ccg build .
 ccg search "authentication"
 
 # Search by business context
-ccg search "결제"       # finds functions with @intent/@domainRule about payments
+ccg search "payment"    # finds functions with @intent/@domainRule about payments
 
 # Graph statistics
 ccg status
@@ -71,16 +71,16 @@ ccg eval --suite parser --update
 
 ## Demo
 
-CCG가 자기 자신의 코드베이스를 파싱한 실제 출력입니다.
+Actual output from CCG parsing its own codebase.
 
-### 1. 코드베이스 파싱
+### 1. Parse the Codebase
 
 ```
 $ ccg build .
 Build complete: 127 files, 1220 nodes, 12222 edges
 ```
 
-### 2. 그래프 통계
+### 2. Graph Statistics
 
 ```
 $ ccg status
@@ -103,7 +103,7 @@ Edge kinds:
   tested_by:     751
 ```
 
-### 3. 코드 검색
+### 3. Code Search
 
 ```
 $ ccg search "impact analysis"
@@ -120,24 +120,24 @@ deadcode.Service.Find     function  internal/analysis/deadcode/service.go:38
 mcp.handlers.findDeadCode function  internal/mcp/handler_analysis.go:273
 ```
 
-### 4. MCP를 통한 Claude 연동 예시
+### 4. Claude Integration via MCP
 
-`.mcp.json` 설정 후 Claude Code에서 바로 질문할 수 있습니다:
+After configuring `.mcp.json`, you can ask Claude Code directly:
 
-> **"이 프로젝트의 webhook sync 흐름을 설명해줘"**
+> **"Explain the webhook sync flow in this project"**
 
-Claude가 CCG MCP 도구를 호출해 그래프에서 직접 답변:
+Claude calls CCG MCP tools and answers directly from the graph:
 
 ```
 ccg_trace_flow("webhook.WebhookHandler.ServeHTTP")
 → WebhookHandler.ServeHTTP
   → SyncQueue.Enqueue
-    → safeHandle (retry loop: max 3회, exponential backoff 1s→30s)
-      → clone (git clone, 15분 timeout)
-      → build (ccg build, 동일 context)
+    → safeHandle (retry loop: max 3 attempts, exponential backoff 1s→30s)
+      → clone (git clone, 15min timeout)
+      → build (ccg build, same context)
 ```
 
-> **"인증 관련 코드가 어디 있어?"**
+> **"Where is the authentication-related code?"**
 
 ```
 ccg_search("authentication")
