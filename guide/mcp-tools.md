@@ -11,7 +11,7 @@ code-context-graph는 29개 MCP 도구를 제공합니다. Claude Code에서 `.m
   "mcpServers": {
     "ccg": {
       "command": "ccg",
-      "args": ["serve", "--db", "sqlite", "--dsn", "ccg.db"]
+      "args": ["serve", "--db-driver", "sqlite", "--db-dsn", "ccg.db"]
     }
   }
 }
