@@ -2,6 +2,7 @@ package webhook
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -12,12 +13,13 @@ func TestSyncQueue_DeduplicatesRapidPushes(t *testing.T) {
 	var callCount atomic.Int32
 	done := make(chan struct{})
 
-	handler := func(_ context.Context, repoFullName, cloneURL string) {
+	handler := func(_ context.Context, repoFullName, cloneURL string) error {
 		callCount.Add(1)
 		time.Sleep(50 * time.Millisecond)
 		if callCount.Load() == 1 {
 			close(done)
 		}
+		return nil
 	}
 
 	q := NewSyncQueue(2, handler)
@@ -49,7 +51,7 @@ func TestSyncQueue_MultiRepoConcurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	handler := func(_ context.Context, repoFullName, cloneURL string) {
+	handler := func(_ context.Context, repoFullName, cloneURL string) error {
 		mu.Lock()
 		processing[repoFullName] = true
 		if len(processing) > 1 {
@@ -63,6 +65,7 @@ func TestSyncQueue_MultiRepoConcurrent(t *testing.T) {
 		delete(processing, repoFullName)
 		mu.Unlock()
 		wg.Done()
+		return nil
 	}
 
 	q := NewSyncQueue(2, handler)
@@ -82,12 +85,13 @@ func TestSyncQueue_RequeuesOnDirtyDuringProcessing(t *testing.T) {
 	var callCount atomic.Int32
 	calls := make(chan string, 10)
 
-	handler := func(_ context.Context, repoFullName, cloneURL string) {
+	handler := func(_ context.Context, repoFullName, cloneURL string) error {
 		n := callCount.Add(1)
 		calls <- cloneURL
 		if n == 1 {
 			time.Sleep(100 * time.Millisecond)
 		}
+		return nil
 	}
 
 	q := NewSyncQueue(1, handler)
@@ -122,9 +126,10 @@ done:
 func TestSyncQueue_ShutdownDrainsWorkers(t *testing.T) {
 	var completed atomic.Int32
 
-	handler := func(_ context.Context, repoFullName, cloneURL string) {
+	handler := func(_ context.Context, repoFullName, cloneURL string) error {
 		time.Sleep(50 * time.Millisecond)
 		completed.Add(1)
+		return nil
 	}
 
 	q := NewSyncQueue(2, handler)
@@ -144,8 +149,9 @@ func TestSyncQueue_ShutdownDrainsWorkers(t *testing.T) {
 func TestSyncQueue_PayloadUpdatedToLatest(t *testing.T) {
 	calls := make(chan string, 10)
 
-	handler := func(_ context.Context, repoFullName, cloneURL string) {
+	handler := func(_ context.Context, repoFullName, cloneURL string) error {
 		calls <- cloneURL
+		return nil
 	}
 
 	q := NewSyncQueue(1, handler)
@@ -170,7 +176,7 @@ func TestSyncQueue_ContextCancelStopsHandler(t *testing.T) {
 	handlerDone := make(chan struct{})
 	var handlerErr error
 
-	handler := func(ctx context.Context, repoFullName, cloneURL string) {
+	handler := func(ctx context.Context, repoFullName, cloneURL string) error {
 		close(handlerStarted)
 		select {
 		case <-ctx.Done():
@@ -178,9 +184,9 @@ func TestSyncQueue_ContextCancelStopsHandler(t *testing.T) {
 		case <-time.After(10 * time.Second):
 		}
 		close(handlerDone)
+		return handlerErr
 	}
 
-	// Given: queue with cancellable parent context
 	parentCtx, cancel := context.WithCancel(context.Background())
 	q := NewSyncQueueWithContext(parentCtx, 1, handler)
 
@@ -192,10 +198,8 @@ func TestSyncQueue_ContextCancelStopsHandler(t *testing.T) {
 		t.Fatal("timed out waiting for handler to start")
 	}
 
-	// When: parent context is cancelled
 	cancel()
 
-	// Then: handler receives cancellation via its ctx
 	select {
 	case <-handlerDone:
 	case <-time.After(5 * time.Second):
@@ -212,12 +216,12 @@ func TestSyncQueue_ContextCancelStopsHandler(t *testing.T) {
 func TestSyncQueue_ContextCancelDrainsQueue(t *testing.T) {
 	var callCount atomic.Int32
 
-	handler := func(ctx context.Context, repoFullName, cloneURL string) {
+	handler := func(ctx context.Context, repoFullName, cloneURL string) error {
 		callCount.Add(1)
 		<-ctx.Done()
+		return ctx.Err()
 	}
 
-	// Given: queue with one item processing and one queued
 	parentCtx, cancel := context.WithCancel(context.Background())
 	q := NewSyncQueueWithContext(parentCtx, 1, handler)
 
@@ -225,14 +229,97 @@ func TestSyncQueue_ContextCancelDrainsQueue(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	q.Add(context.Background(), "org/b", "url-b")
 
-	// When: parent context is cancelled
 	cancel()
 
-	// Then: queue drains without hanging
 	q.Shutdown()
 
 	got := callCount.Load()
 	if got < 1 {
 		t.Errorf("expected at least 1 handler call, got %d", got)
+	}
+}
+
+func TestSyncQueue_RetriesOnHandlerError(t *testing.T) {
+	var callCount atomic.Int32
+	errOnce := errors.New("transient error")
+
+	handler := func(_ context.Context, repoFullName, cloneURL string) error {
+		n := callCount.Add(1)
+		if n < 3 {
+			return errOnce
+		}
+		return nil
+	}
+
+	q := NewSyncQueueWithOptions(context.Background(), 1, handler, RetryConfig{
+		MaxAttempts: 3,
+		BaseDelay:   1 * time.Millisecond,
+		MaxDelay:    10 * time.Millisecond,
+	})
+	defer q.Shutdown()
+
+	q.Add(context.Background(), "org/svc", "url")
+
+	time.Sleep(200 * time.Millisecond)
+
+	got := callCount.Load()
+	if got != 3 {
+		t.Errorf("handler called %d times, want 3 (2 failures + 1 success)", got)
+	}
+}
+
+func TestSyncQueue_GivesUpAfterMaxAttempts(t *testing.T) {
+	var callCount atomic.Int32
+	alwaysFail := errors.New("always fails")
+
+	handler := func(_ context.Context, repoFullName, cloneURL string) error {
+		callCount.Add(1)
+		return alwaysFail
+	}
+
+	q := NewSyncQueueWithOptions(context.Background(), 1, handler, RetryConfig{
+		MaxAttempts: 3,
+		BaseDelay:   1 * time.Millisecond,
+		MaxDelay:    10 * time.Millisecond,
+	})
+	defer q.Shutdown()
+
+	q.Add(context.Background(), "org/svc", "url")
+
+	time.Sleep(200 * time.Millisecond)
+
+	got := callCount.Load()
+	if got != 3 {
+		t.Errorf("handler called %d times, want exactly 3 (MaxAttempts)", got)
+	}
+}
+
+func TestSyncQueue_RetryCancelledOnContextDone(t *testing.T) {
+	var callCount atomic.Int32
+	alwaysFail := errors.New("always fails")
+
+	handler := func(_ context.Context, repoFullName, cloneURL string) error {
+		callCount.Add(1)
+		return alwaysFail
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	q := NewSyncQueueWithOptions(ctx, 1, handler, RetryConfig{
+		MaxAttempts: 10,
+		BaseDelay:   50 * time.Millisecond,
+		MaxDelay:    100 * time.Millisecond,
+	})
+	defer q.Shutdown()
+
+	q.Add(context.Background(), "org/svc", "url")
+
+	time.Sleep(80 * time.Millisecond)
+	cancel()
+
+	time.Sleep(200 * time.Millisecond)
+
+	got := callCount.Load()
+	if got >= 10 {
+		t.Errorf("handler called %d times — retry was not cancelled by context", got)
 	}
 }

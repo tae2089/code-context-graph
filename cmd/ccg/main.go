@@ -277,14 +277,14 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 		}
 		filter := webhook.NewRepoFilterFromRules(rules)
 		secret := []byte(cfg.WebhookSecret)
-		syncHandler := func(ctx context.Context, repoFullName, cloneURL string) {
+		syncHandler := func(ctx context.Context, repoFullName, cloneURL string) error {
 			ns := webhook.ExtractNamespace(repoFullName)
 			deps.Logger.Info("webhook sync started", "repo", repoFullName, "namespace", ns)
 			cloneCtx, cloneCancel := context.WithTimeout(ctx, 10*time.Minute)
 			defer cloneCancel()
 			if err := webhook.CloneOrPull(cloneCtx, cloneURL, cfg.RepoRoot, ns, nil); err != nil {
 				deps.Logger.Error("webhook clone/pull failed", "repo", repoFullName, "error", err)
-				return
+				return err
 			}
 
 			repoDir := webhook.RepoDir(cfg.RepoRoot, ns)
@@ -304,10 +304,11 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 			})
 			if err != nil {
 				deps.Logger.Error("webhook build failed", "repo", repoFullName, "error", err)
-				return
+				return err
 			}
 			deps.Logger.Info("webhook sync completed", "repo", repoFullName, "namespace", ns,
 				"files", stats.TotalFiles, "nodes", stats.TotalNodes, "edges", stats.TotalEdges)
+			return nil
 		}
 		syncQueue = webhook.NewSyncQueueWithContext(syncCtx, 4, syncHandler)
 		mux.Handle("/webhook", webhook.NewWebhookHandler(secret, filter, syncQueue.Add))

@@ -14,6 +14,8 @@ import (
 
 type SyncFunc func(ctx context.Context, repoFullName, cloneURL string)
 
+type SyncHandlerFunc func(ctx context.Context, repoFullName, cloneURL string) error
+
 type WebhookHandler struct {
 	secret []byte
 	filter *RepoFilter

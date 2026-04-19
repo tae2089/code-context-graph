@@ -99,6 +99,21 @@ Push Event → HMAC Verify → RepoFilter.IsAllowedRef()
 - 서로 다른 레포는 병렬 처리
 - 같은 레포는 순차 처리 (dirty requeue)
 
+### Retry / Backoff
+
+클론 또는 빌드 실패 시 exponential backoff로 자동 재시도합니다:
+
+| 설정 | 기본값 | 설명 |
+|------|--------|------|
+| MaxAttempts | 3 | 최대 시도 횟수 (첫 시도 포함) |
+| BaseDelay | 1s | 첫 번째 재시도 대기 시간 |
+| MaxDelay | 30s | 재시도 대기 시간 상한 |
+
+- 지수 증가: 1s → 2s → 4s → ... (MaxDelay 초과 시 MaxDelay로 고정)
+- context 취소(서버 종료) 시 대기 중인 retry 즉시 중단
+- panic도 에러로 처리되어 retry 대상이 됨
+- MaxAttempts 초과 시 `ERROR` 로그 기록 후 해당 sync 포기 (다음 push 이벤트 시 재시도 가능)
+
 ## `.ccg.yaml` include_paths 자동 반영
 
 Webhook 빌드 시 clone된 레포 내 `.ccg.yaml` 파일의 `include_paths` 설정을 자동으로 읽어 빌드 범위를 제한합니다.

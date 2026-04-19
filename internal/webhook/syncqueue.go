@@ -2,10 +2,29 @@ package webhook
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 )
+
+// RetryConfig configures exponential backoff retry for sync handlers.
+type RetryConfig struct {
+	// MaxAttempts is the total number of attempts (1 = no retry). Default: 3.
+	MaxAttempts int
+	// BaseDelay is the initial backoff duration. Default: 1s.
+	BaseDelay time.Duration
+	// MaxDelay caps the backoff duration. Default: 30s.
+	MaxDelay time.Duration
+}
+
+func defaultRetryConfig() RetryConfig {
+	return RetryConfig{
+		MaxAttempts: 3,
+		BaseDelay:   1 * time.Second,
+		MaxDelay:    30 * time.Second,
+	}
+}
 
 type syncPayload struct {
 	repoFullName string
@@ -13,29 +32,38 @@ type syncPayload struct {
 }
 
 type SyncQueue struct {
-	ctx        context.Context
-	handler    SyncFunc
-	mu         sync.Mutex
-	queue      []string
-	dirty      map[string]bool
-	processing map[string]bool
-	payloads   map[string]syncPayload
-	cond       *sync.Cond
-	shutdown   bool
-	wg         sync.WaitGroup
+	ctx         context.Context
+	handler     SyncHandlerFunc
+	retryConfig RetryConfig
+	mu          sync.Mutex
+	queue       []string
+	dirty       map[string]bool
+	processing  map[string]bool
+	payloads    map[string]syncPayload
+	cond        *sync.Cond
+	shutdown    bool
+	wg          sync.WaitGroup
 }
 
-func NewSyncQueue(workers int, handler SyncFunc) *SyncQueue {
+func NewSyncQueue(workers int, handler SyncHandlerFunc) *SyncQueue {
 	return NewSyncQueueWithContext(context.Background(), workers, handler)
 }
 
-func NewSyncQueueWithContext(ctx context.Context, workers int, handler SyncFunc) *SyncQueue {
+func NewSyncQueueWithContext(ctx context.Context, workers int, handler SyncHandlerFunc) *SyncQueue {
+	return NewSyncQueueWithOptions(ctx, workers, handler, defaultRetryConfig())
+}
+
+func NewSyncQueueWithOptions(ctx context.Context, workers int, handler SyncHandlerFunc, retry RetryConfig) *SyncQueue {
+	if retry.MaxAttempts <= 0 {
+		retry.MaxAttempts = 1
+	}
 	q := &SyncQueue{
-		ctx:        ctx,
-		handler:    handler,
-		dirty:      make(map[string]bool),
-		processing: make(map[string]bool),
-		payloads:   make(map[string]syncPayload),
+		ctx:         ctx,
+		handler:     handler,
+		retryConfig: retry,
+		dirty:       make(map[string]bool),
+		processing:  make(map[string]bool),
+		payloads:    make(map[string]syncPayload),
 	}
 	q.cond = sync.NewCond(&q.mu)
 
@@ -109,12 +137,44 @@ func (q *SyncQueue) worker() {
 }
 
 func (q *SyncQueue) safeHandle(repo string, payload syncPayload) {
+	cfg := q.retryConfig
+	delay := cfg.BaseDelay
+
+	for attempt := 1; attempt <= cfg.MaxAttempts; attempt++ {
+		err := q.tryHandle(repo, payload)
+		if err == nil {
+			return
+		}
+
+		if attempt == cfg.MaxAttempts {
+			slog.Error("sync handler failed, giving up", "repo", repo, "attempts", attempt, "error", err)
+			return
+		}
+
+		slog.Warn("sync handler failed, retrying", "repo", repo, "attempt", attempt, "retryIn", delay, "error", err)
+
+		select {
+		case <-q.ctx.Done():
+			slog.Warn("sync retry cancelled", "repo", repo, "attempt", attempt)
+			return
+		case <-time.After(delay):
+		}
+
+		delay *= 2
+		if delay > cfg.MaxDelay {
+			delay = cfg.MaxDelay
+		}
+	}
+}
+
+func (q *SyncQueue) tryHandle(repo string, payload syncPayload) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("sync handler panicked", "repo", repo, "panic", r)
+			err = fmt.Errorf("panic: %v", r)
 		}
 	}()
-	q.handler(q.ctx, payload.repoFullName, payload.cloneURL)
+	return q.handler(q.ctx, payload.repoFullName, payload.cloneURL)
 }
 
 func (q *SyncQueue) get() (string, syncPayload, bool) {

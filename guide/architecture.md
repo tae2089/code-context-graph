@@ -86,7 +86,7 @@ Golden corpus 기반 파서 정확도 및 검색 품질 평가 프레임워크.
 GitHub/Gitea push 이벤트 수신 → 자동 clone/build 파이프라인.
 
 - **RepoFilter**: 레포별 브랜치 필터링 (`IsAllowedRef`)
-- **SyncQueue**: 중복 제거 + 동시성 제어 워커 큐
+- **SyncQueue**: 중복 제거 + 동시성 제어 워커 큐. 핸들러 실패 시 exponential backoff retry (기본 3회, 1s→2s→4s, 최대 30s)
 - **CloneOrPull**: go-git 기반 clone/pull (SSH key, app token 지원)
 
 ## Database Schema
