@@ -1,14 +1,14 @@
 # Guide
 
-code-context-graph 상세 문서 목차.
+Documentation index for code-context-graph.
 
-| 문서 | 설명 |
-|------|------|
-| [CLI Reference](cli-reference.md) | 전체 CLI 명령어, 옵션, 설정 파일 (`.ccg.yaml`) |
-| [MCP Tools](mcp-tools.md) | 29개 MCP 도구, Claude Code Skills, AI 어노테이션 |
-| [Annotations](annotations.md) | 커스텀 어노테이션 시스템 — 태그, 예시, 검색 |
-| [Webhook](webhook.md) | GitHub / Gitea webhook sync, 브랜치 필터링, graceful shutdown |
-| [Docker](docker.md) | Docker 이미지 빌드, MCP 서버 실행, PostgreSQL 연동 |
-| [Architecture](architecture.md) | 시스템 아키텍처, 데이터 흐름, DB 구조 |
-| [Development](development.md) | 빌드, 테스트, Integration test (Gitea + PostgreSQL) |
-| [CLAUDE.md Guide](claude-md-guide.md) | CCG 사용 프로젝트의 CLAUDE.md 작성 템플릿 |
+| Document | Description |
+|----------|-------------|
+| [CLI Reference](cli-reference.md) | Full CLI commands, options, and configuration file (`.ccg.yaml`) |
+| [MCP Tools](mcp-tools.md) | 29 MCP tools, Claude Code Skills, AI-driven annotation |
+| [Annotations](annotations.md) | Custom annotation system — tags, examples, search |
+| [Webhook](webhook.md) | GitHub / Gitea webhook sync, branch filtering, graceful shutdown |
+| [Docker](docker.md) | Docker image build, MCP server setup, PostgreSQL integration |
+| [Architecture](architecture.md) | System architecture, data flow, DB schema |
+| [Development](development.md) | Build, test, integration test (Gitea + PostgreSQL) |
+| [CLAUDE.md Guide](claude-md-guide.md) | CLAUDE.md template for projects using CCG |
