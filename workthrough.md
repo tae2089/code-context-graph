@@ -300,3 +300,22 @@
 ### 교훈 3
 - **언어별 tree-sitter AST 특성은 단일 계약 테스트에서 drift로 드러난다**. Go/Java 같이 단순한 라인 계산을 기대한 케이스가 Rust/Lua에서 각자 다른 이유로 실패 — 각 grammar의 comment/statement boundary 흡수 규칙을 모른 채 "그냥 되겠지"로 코드를 짜면 회귀가 잠재된다. Cross-lang 계약 테스트는 이런 흡수 규칙의 차이를 수면으로 끌어올린다.
 - **SKIP은 실패의 회피가 아니라 명시적 문서화 수단**. Lua 바인딩이 안 되는 건 walker 버그지만 스코프 밖이므로, 테스트를 지우지 말고 skipReason으로 원인/해결 방향을 박아 두면 미래의 엔지니어(또는 과거의 나)가 바로 원인을 짚어낼 수 있다. "테스트가 왜 없지?" 보다 "SKIP 사유에 뭐라고 적혀 있지?"가 훨씬 빠르다.
+
+### 리뷰 대응 (밤 VI-2)
+
+독립 리뷰: **Blocker 2 + Important 4 + Minor 4** 지적. 그중 MEDIUM 이상을 단일 커밋 `5af7446`로 정리.
+
+- **Blocker #1 (Rust blank-line workaround)** — `///` 뒤에 빈 줄을 둔 Green 케이스는 유지하되, 빈 줄 없는 자연스러운 Rust 주석 패턴을 `expectBound=false` **Red 케이스**로 추가(`Rust_DocComment_Function_NoBlankLine`). walker의 line_comment trailing-newline quirk를 회피하지 않고 "현재 상태로 고정". 구현이 고쳐져 우연히 바인딩되면 Red 위반으로 실패 → 승격 강제.
+  - walker.go를 전역 수정하려 했으나 merge된 comment block의 EndLine까지 줄여 `TestWalkerBinder_RustAttribute_CurrentlyFailsBinding`의 gap=2 계약을 깨뜨림. 전역 보정 대신 테스트 범위에서 명시적 Red로 전환.
+- **Blocker #2 (Lua SKIP 부정확)** — `t.Skip`을 제거하고 `expectBound=false` Red로 승격. skipReason 설명도 "선행 newline 포함/선행 공백 흡수"라는 정확한 quirk 쌍으로 교정.
+- **Important #1 (Kind 미검증)** — `expectedKind model.NodeKind` 필드 추가. 파싱/바인딩 양쪽에서 Name과 Kind를 동시에 매칭. 동명 심볼 false-positive 방지.
+- **Important #3 (진단 불명확)** — 파싱 단계(Phase 1)와 바인딩 단계(Phase 2)를 분리. "심볼 파싱 실패(파서/LangSpec 회귀)"와 "심볼은 파싱됐지만 바인딩 누락(binder/walker 회귀)"의 실패 메시지가 달라 원인 분리가 빠름.
+- **Important #4 (PHP `<?php` 필요성)** — 인라인 주석으로 "태그 없으면 text 노드 취급되어 함수가 심볼로 안 뜬다"는 이유 명시.
+- **Minor #1 (lang 필드 중복)** — `tc.lang` 제거하고 `tc.spec.Name`으로 통일. 진실의 단일 원천.
+
+테스트: 13개 subtest(11 Green + 2 Red) 전부 통과. 전체 parse 스위트 green.
+
+### 교훈 4
+- **전역 보정이 기존 Red 테스트를 깨면, 테스트 스코프에서 명시적 Red로 전환하는 게 더 낫다**. walker.collectComments의 trailing-newline 보정은 single line_comment만을 고쳐야 하는데 merge된 block까지 같이 줄여 gap=2 계약을 위반함. "코드 수정 전에 기존 Red 테스트가 무엇을 고정하고 있는지" 확인하고, 수정 스코프가 겹치면 테스트 레벨 표현(expectBound=false + redReason)로 일단 "현상 고정"한 뒤 나중에 walker 보정과 함께 승격.
+- **SKIP보다 Red 계약이 회귀 탐지력이 높다**. Skip은 "그냥 안 돈다"로 눈에 안 띄지만, Red 계약(expectBound=false)은 구현이 우연히 고쳐져도 즉시 실패 → 엔지니어가 Green 승격을 안 하고 방치하는 실수를 잡는다.
+- **Kind + Name 동시 매칭으로 false-positive를 선제 차단**. 심볼 이름만으로 매칭하면 다른 종류(변수, 타입)가 동명이면 엉뚱한 binding을 잡을 수 있음. LangSpec/grammar가 변경될 때의 예기치 않은 동작을 리뷰어 1회 검토로 끝내지 않고 테스트 구조에 박아 두는 게 안전.

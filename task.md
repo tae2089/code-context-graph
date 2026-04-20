@@ -139,9 +139,13 @@ Red fixture + 통합 테스트 작성: `testdata/binding_gap/{typescript,kotlin,
   - 파일: `internal/parse/treesitter/binding_gap_cross_language_test.go`
   - 테스트: `TestCrossLanguage_IntentBinding_MinimalContract` — 12개 지원 언어 table-driven
   - 각 언어 최소 케이스: 심볼 위 한 줄 `@intent` 주석 + 대상 심볼 + binder 결과에 `@intent` 태그 존재 검증
-  - 결과: 11 PASS (go, python, typescript, java, c, rust, cpp, javascript, ruby, kotlin, php), 1 SKIP (lua)
-  - Lua SKIP 사유: tree-sitter-lua의 `comment`/`function_statement` 노드 range가 선행 공백을 흡수해 gap=0 — walker 보정 필요 (별도 후속 과제)
-  - Rust 참고: `///` line_comment가 trailing newline 포함해 EndLine이 다음 줄로 확장 → 주석과 선언 사이 빈 줄로 gap>=1 확보
+  - 리뷰 후속 정비(커밋 `5af7446`):
+    - 초기 1 SKIP(lua)를 `expectBound=false` **Red 계약**으로 승격 → 회귀 탐지력 확보
+    - Rust 빈 줄 회피 Green 케이스 유지하면서 "빈 줄 없는 Rust" Red 서브케이스 추가 → walker trailing-newline quirk 명시 고정
+    - `expectedKind model.NodeKind` 필드로 Node.Kind 동시 검증, 파싱 실패 vs 바인딩 실패 진단 분리
+    - PHP `<?php` 필요성, `tc.spec.Name` 단일 원천화 등 minor 정리
+  - 최종 결과: **13 PASS** (11 Green + 2 Red 계약)
+  - 후속 과제: Rust `line_comment` / Lua `comment`·`function_statement` range 보정 — walker 레벨 수정 필요하나 기존 gap=2 계약 회귀를 피하려면 단일 주석에 한정된 스코프로 해야 함
 
 ### P4 — 코드 리뷰 후속 조치 (2026-04-20 밤 IV)
 
