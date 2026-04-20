@@ -73,6 +73,44 @@ func TestNormalize_EmptyComment(t *testing.T) {
 	}
 }
 
+func TestNormalize_GoDirectiveSkip(t *testing.T) {
+	n := NewNormalizer()
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "go:generate after intent",
+			input: "// @intent 약 타입 이넘\n//go:generate stringer -type=Pill",
+			want:  "@intent 약 타입 이넘",
+		},
+		{
+			name:  "go:noinline after intent",
+			input: "// @intent 인라인 금지\n//go:noinline",
+			want:  "@intent 인라인 금지",
+		},
+		{
+			name:  "directive between intent and domainRule",
+			input: "// @intent 상태\n//go:generate stringer -type=S\n// @domainRule 완료 불가역",
+			want:  "@intent 상태\n@domainRule 완료 불가역",
+		},
+		{
+			name:  "non-directive // go: phrase is kept",
+			input: "// @intent // go: style discussion",
+			want:  "@intent // go: style discussion",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := n.Normalize(tc.input, "go")
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNormalize_PhpDocComment(t *testing.T) {
 	n := NewNormalizer()
 	tests := []struct {
