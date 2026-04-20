@@ -201,6 +201,14 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 	w.resolveTestedBy(nodes, &edges, filePath, pkgName)
 	w.collectComments(root, content, &comments)
 
+	// Python 전용: docstring을 CommentBlock으로 수집 후 StartLine 오름차순 병합.
+	// docstring은 IsDocstring=true, OwnerStartLine=소속 심볼 StartLine으로 설정되어
+	// binder가 gap 로직 대신 OwnerStartLine 일치로 바인딩한다.
+	if w.spec.Name == "python" {
+		docstrings := w.collectDocstrings(root, content, nodes)
+		comments = mergeCommentBlocks(comments, docstrings)
+	}
+
 	w.logger.Debug("parse completed", "file", filePath, "nodes", len(nodes), "edges", len(edges))
 
 	return nodes, edges, comments, nil
@@ -230,6 +238,16 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 	nodeIndex := make(map[nodeKey]int)
 	for i, n := range nodes {
 		nodeIndex[nodeKey{n.Name, n.StartLine, n.EndLine}] = i
+	}
+
+	// nameIndex: Name → index in nodes slice. 같은 이름의 심볼이 여러 쿼리 패턴에
+	// 의해 중복 매칭될 때(예: decorated_definition + function_definition) StartLine이
+	// 더 작은 쪽(데코레이터 첫 줄)을 우선 보존하기 위한 보조 인덱스.
+	nameIndex := make(map[string]int)
+	for i, n := range nodes {
+		if n.Kind != model.NodeKindFile {
+			nameIndex[n.Name] = i
+		}
 	}
 
 	// import dedup: "importPath:line" → true
@@ -322,8 +340,25 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 				if nodes[idx].Kind == model.NodeKindType && kind == model.NodeKindClass {
 					nodes[idx].Kind = kind
 				}
+			} else if idx, exists := nameIndex[name]; exists {
+				// 같은 이름의 심볼이 이미 등록된 경우: decorated_definition + function_definition처럼
+				// 래퍼 노드와 내부 노드가 같은 함수를 중복 매칭할 때 발생.
+				// StartLine이 더 작은 쪽(래퍼 노드, 데코레이터 첫 줄)을 우선 보존한다.
+				slog.Debug("중복 심볼 감지: 이름 기준 dedup 적용",
+					"name", name, "existing_start", nodes[idx].StartLine, "new_start", startLine)
+				if startLine < nodes[idx].StartLine {
+					// 새 매칭이 더 위에서 시작 → 기존 엔트리를 갱신
+					oldKey := nodeKey{nodes[idx].Name, nodes[idx].StartLine, nodes[idx].EndLine}
+					delete(nodeIndex, oldKey)
+					nodes[idx].StartLine = startLine
+					nodes[idx].EndLine = endLine
+					nodes[idx].QualifiedName = qName
+					nodeIndex[nodeKey{name, startLine, endLine}] = idx
+				}
+				// 새 매칭이 더 아래에서 시작하면(내부 function_definition) 기존 유지, 무시
 			} else {
 				nodeIndex[key] = len(nodes)
+				nameIndex[name] = len(nodes)
 				nodes = append(nodes, model.Node{
 					QualifiedName: qName,
 					Kind:          kind,
@@ -621,9 +656,11 @@ func (w *Walker) resolveTestedBy(nodes []model.Node, edges *[]model.Edge, filePa
 // CommentBlock records one contiguous comment region discovered in source.
 // @intent preserve raw comment text with source line bounds for later annotation binding
 type CommentBlock struct {
-	StartLine int
-	EndLine   int
-	Text      string
+	StartLine      int
+	EndLine        int
+	Text           string
+	IsDocstring    bool // Python docstring 여부 (true이면 OwnerStartLine으로 바인딩)
+	OwnerStartLine int  // docstring이 귀속된 심볼의 StartLine (모듈 docstring은 0)
 }
 
 // ExtractComments parses a file and returns merged comment blocks.
@@ -683,6 +720,203 @@ func (w *Walker) collectComments(node *sitter.Node, content []byte, comments *[]
 			w.collectComments(child, content, comments)
 		}
 	}
+}
+
+// collectDocstrings는 Python AST를 탐색하여 docstring CommentBlock 목록을 반환한다.
+//
+// 수집 조건 (Python PEP 257 기반):
+//   - 노드 타입이 expression_statement이고
+//   - 유일한 named child가 string 타입이며
+//   - 부모가 block 또는 module인 경우:
+//     - block: 부모 체인에 function_definition 또는 class_definition이 있어야 하고
+//       block 내 첫 번째 expression_statement>string만 수집한다.
+//     - module: 모듈 레벨 docstring (OwnerStartLine=0)
+//
+// @intent Python docstring 노드를 CommentBlock으로 승격하여 binder가 처리할 수 있게 준비
+// @sideEffect nodes 슬라이스를 참조하여 심볼 StartLine을 조회함 (변경 없음)
+// @requires w.spec.Name == "python"
+func (w *Walker) collectDocstrings(root *sitter.Node, content []byte, nodes []model.Node) []CommentBlock {
+	// 심볼 StartLine → 노드 인덱스 맵 (OwnerStartLine 결정에 사용)
+	startLineToNode := make(map[int]model.Node, len(nodes))
+	for _, n := range nodes {
+		if n.Kind != model.NodeKindFile {
+			startLineToNode[n.StartLine] = n
+		}
+	}
+
+	var results []CommentBlock
+	w.walkDocstrings(root, content, &results)
+	return results
+}
+
+// walkDocstrings는 AST를 재귀 탐색하며 Python docstring을 수집한다.
+// @intent collectDocstrings의 재귀 탐색 구현
+func (w *Walker) walkDocstrings(node *sitter.Node, content []byte, results *[]CommentBlock) {
+	if node == nil {
+		return
+	}
+
+	nodeType := node.Type()
+
+	// expression_statement 발견 시 docstring 여부 판별
+	if nodeType == "expression_statement" {
+		if cb, ok := w.tryExtractDocstring(node, content); ok {
+			*results = append(*results, cb)
+			// docstring 이후 자식은 탐색할 필요 없음
+			return
+		}
+	}
+
+	// 자식 노드 재귀 탐색
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child != nil {
+			w.walkDocstrings(child, content, results)
+		}
+	}
+}
+
+// tryExtractDocstring은 expression_statement 노드가 docstring 조건을 충족하면
+// CommentBlock을 반환한다. 조건 불충족 시 두 번째 반환값이 false.
+//
+// 조건:
+//  1. named child가 정확히 1개이고 그 타입이 "string"
+//  2. 부모가 "block" 또는 "module"
+//  3. block인 경우: block의 부모가 function_definition 또는 class_definition
+//     (decorated_definition으로 감싸진 경우 decorated_definition.StartLine 사용)
+//  4. block 안에서 첫 번째 expression_statement>string만 수집
+//
+// @intent Python docstring 수집 조건 판별과 CommentBlock 생성을 단일 함수로 캡슐화
+func (w *Walker) tryExtractDocstring(exprStmt *sitter.Node, content []byte) (CommentBlock, bool) {
+	// 조건 1: named child가 정확히 1개이고 타입이 "string"
+	if int(exprStmt.NamedChildCount()) != 1 {
+		return CommentBlock{}, false
+	}
+	stringNode := exprStmt.NamedChild(0)
+	if stringNode == nil || stringNode.Type() != "string" {
+		return CommentBlock{}, false
+	}
+
+	// 조건 2: 부모 타입 확인
+	parent := exprStmt.Parent()
+	if parent == nil {
+		return CommentBlock{}, false
+	}
+	parentType := parent.Type()
+
+	startLine := int(stringNode.StartPoint().Row) + 1
+	endLine := int(stringNode.EndPoint().Row) + 1
+	text := stringNode.Content(content)
+
+	switch parentType {
+	case "module":
+		// 모듈 docstring: OwnerStartLine=0
+		// 모듈 내 첫 번째 expression_statement>string인지 확인
+		if !isFirstStringExprStmt(exprStmt, parent) {
+			return CommentBlock{}, false
+		}
+		w.logger.Debug("Python 모듈 docstring 수집",
+			"startLine", startLine, "endLine", endLine)
+		return CommentBlock{
+			StartLine:      startLine,
+			EndLine:        endLine,
+			Text:           text,
+			IsDocstring:    true,
+			OwnerStartLine: 0,
+		}, true
+
+	case "block":
+		// 조건 3: block의 부모가 function_definition 또는 class_definition
+		blockParent := parent.Parent()
+		if blockParent == nil {
+			return CommentBlock{}, false
+		}
+		blockParentType := blockParent.Type()
+		if blockParentType != "function_definition" && blockParentType != "class_definition" {
+			return CommentBlock{}, false
+		}
+
+		// 조건 4: block 내 첫 번째 expression_statement>string만 수집
+		if !isFirstStringExprStmt(exprStmt, parent) {
+			return CommentBlock{}, false
+		}
+
+		// OwnerStartLine 결정:
+		// function_definition/class_definition의 부모가 decorated_definition이면
+		// decorated_definition의 StartLine을 사용 (결정 A와 일치).
+		ownerNode := blockParent
+		if grandParent := blockParent.Parent(); grandParent != nil &&
+			grandParent.Type() == "decorated_definition" {
+			ownerNode = grandParent
+		}
+		ownerStartLine := int(ownerNode.StartPoint().Row) + 1
+
+		w.logger.Debug("Python 함수/클래스 docstring 수집",
+			"ownerType", blockParentType,
+			"ownerStartLine", ownerStartLine,
+			"startLine", startLine,
+			"endLine", endLine)
+
+		return CommentBlock{
+			StartLine:      startLine,
+			EndLine:        endLine,
+			Text:           text,
+			IsDocstring:    true,
+			OwnerStartLine: ownerStartLine,
+		}, true
+
+	default:
+		return CommentBlock{}, false
+	}
+}
+
+// isFirstStringExprStmt는 exprStmt가 parentNode의 자식 중
+// 첫 번째 expression_statement>string 노드인지 확인한다.
+// @intent block 또는 module 내에서 두 번째 이후 string expression은 docstring이 아님
+func isFirstStringExprStmt(exprStmt *sitter.Node, parentNode *sitter.Node) bool {
+	for i := 0; i < int(parentNode.ChildCount()); i++ {
+		child := parentNode.Child(i)
+		if child == nil {
+			continue
+		}
+		if child.Type() != "expression_statement" {
+			// 비-expression_statement 노드는 건너뜀 (주석, 데코레이터 등)
+			continue
+		}
+		// 첫 번째 expression_statement를 발견했을 때 exprStmt와 동일한지 확인
+		if child.StartPoint().Row == exprStmt.StartPoint().Row &&
+			child.StartPoint().Column == exprStmt.StartPoint().Column {
+			// 이 expression_statement가 string을 유일한 named child로 갖는지도 재확인
+			if int(child.NamedChildCount()) == 1 {
+				nc := child.NamedChild(0)
+				if nc != nil && nc.Type() == "string" {
+					return true
+				}
+			}
+		}
+		// 첫 번째 expression_statement가 string이 아니거나 exprStmt와 다르면 false
+		return false
+	}
+	return false
+}
+
+// mergeCommentBlocks는 기존 comments와 새 docstrings를 StartLine 오름차순으로 병합한다.
+// @intent collectComments 결과와 collectDocstrings 결과를 단일 슬라이스로 합성
+func mergeCommentBlocks(comments, docstrings []CommentBlock) []CommentBlock {
+	merged := make([]CommentBlock, 0, len(comments)+len(docstrings))
+	i, j := 0, 0
+	for i < len(comments) && j < len(docstrings) {
+		if comments[i].StartLine <= docstrings[j].StartLine {
+			merged = append(merged, comments[i])
+			i++
+		} else {
+			merged = append(merged, docstrings[j])
+			j++
+		}
+	}
+	merged = append(merged, comments[i:]...)
+	merged = append(merged, docstrings[j:]...)
+	return merged
 }
 
 // getLanguage resolves the Tree-sitter language handle for the Walker spec.
