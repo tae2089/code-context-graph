@@ -100,6 +100,16 @@ func TestNormalize_GoDirectiveSkip(t *testing.T) {
 			input: "// @intent // go: style discussion",
 			want:  "@intent // go: style discussion",
 		},
+		{
+			name:  "go:build constraint after intent",
+			input: "// @intent 빌드 제약\n//go:build linux",
+			want:  "@intent 빌드 제약",
+		},
+		{
+			name:  "go:embed after intent",
+			input: "// @intent 임베드\n//go:embed assets/*",
+			want:  "@intent 임베드",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
