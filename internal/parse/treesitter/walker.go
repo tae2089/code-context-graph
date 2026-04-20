@@ -692,7 +692,7 @@ func (w *Walker) ExtractComments(ctx context.Context, filePath string, content [
 func (w *Walker) collectComments(node *sitter.Node, content []byte, comments *[]CommentBlock) {
 	nodeType := node.Type()
 
-	if nodeType == "comment" || nodeType == "line_comment" || nodeType == "block_comment" {
+	if nodeType == "comment" || nodeType == "line_comment" || nodeType == "block_comment" || nodeType == "multiline_comment" {
 		startLine := int(node.StartPoint().Row) + 1
 		endLine := int(node.EndPoint().Row) + 1
 		text := node.Content(content)
