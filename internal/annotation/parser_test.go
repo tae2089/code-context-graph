@@ -389,6 +389,87 @@ func TestParse_ReturnAndReturnsAlias_SharedOrdinal(t *testing.T) {
 	}
 }
 
+// P2-b. JSDoc/Javadoc `@throws ExceptionType description` 파싱.
+// Javadoc `@exception`은 `@throws`의 공식 alias.
+// 파싱 규칙: first token → Name(=Exception/Error type), 나머지 → Value(=설명)
+// `@param`과 동일한 name-value 규칙을 따른다.
+func TestParse_Throws_WithType(t *testing.T) {
+	p := NewParser()
+	ann, warnings := p.Parse("@throws IllegalArgumentException 입력이 nil일 때")
+	if len(warnings) != 0 {
+		t.Errorf("no warnings expected, got %v", warnings)
+	}
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	tag := ann.Tags[0]
+	if tag.Kind != model.TagThrows {
+		t.Errorf("Kind = %q, want %q", tag.Kind, model.TagThrows)
+	}
+	if tag.Name != "IllegalArgumentException" {
+		t.Errorf("Name = %q, want IllegalArgumentException", tag.Name)
+	}
+	if tag.Value != "입력이 nil일 때" {
+		t.Errorf("Value = %q", tag.Value)
+	}
+}
+
+func TestParse_Throws_TypeOnly(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@throws NullPointerException")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != model.TagThrows {
+		t.Errorf("Kind = %q", ann.Tags[0].Kind)
+	}
+	if ann.Tags[0].Name != "NullPointerException" {
+		t.Errorf("Name = %q", ann.Tags[0].Name)
+	}
+	if ann.Tags[0].Value != "" {
+		t.Errorf("Value = %q, want empty", ann.Tags[0].Value)
+	}
+}
+
+// Javadoc `@exception`은 `@throws`의 alias.
+func TestParse_Exception_AliasOfThrows(t *testing.T) {
+	p := NewParser()
+	ann, warnings := p.Parse("@exception IOException 파일을 읽지 못할 때")
+	if len(warnings) != 0 {
+		t.Errorf("no warnings expected, got %v", warnings)
+	}
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != model.TagThrows {
+		t.Errorf("Kind = %q, want TagThrows (exception is alias)", ann.Tags[0].Kind)
+	}
+	if ann.Tags[0].Name != "IOException" {
+		t.Errorf("Name = %q", ann.Tags[0].Name)
+	}
+}
+
+// P2-b. JSDoc `@typedef {Type} Name [description]` 파싱.
+// 구조가 param/throws와 달라(타입 위치가 다름) 전체 Value로 보존.
+// 용도상 검색/표시용이므로 세분화 대신 원문 텍스트 유지.
+func TestParse_Typedef(t *testing.T) {
+	p := NewParser()
+	ann, warnings := p.Parse("@typedef {Object} UserProfile 사용자 프로필 구조")
+	if len(warnings) != 0 {
+		t.Errorf("no warnings expected, got %v", warnings)
+	}
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	tag := ann.Tags[0]
+	if tag.Kind != model.TagTypedef {
+		t.Errorf("Kind = %q, want %q", tag.Kind, model.TagTypedef)
+	}
+	if tag.Value != "{Object} UserProfile 사용자 프로필 구조" {
+		t.Errorf("Value = %q", tag.Value)
+	}
+}
+
 func TestParse_RawTextPreserved(t *testing.T) {
 	input := "요약\n@param x 값"
 	p := NewParser()

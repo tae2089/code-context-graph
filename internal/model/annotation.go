@@ -17,6 +17,8 @@ const (
 	TagRequires   TagKind = "requires"
 	TagEnsures    TagKind = "ensures"
 	TagIndex      TagKind = "index"
+	TagThrows     TagKind = "throws"
+	TagTypedef    TagKind = "typedef"
 )
 
 // Annotation은 코드 선언에 연결된 구조화된 주석이다.

@@ -19,6 +19,9 @@ var knownTags = map[string]model.TagKind{
 	"requires":   model.TagRequires,
 	"ensures":    model.TagEnsures,
 	"index":      model.TagIndex,
+	"throws":     model.TagThrows,
+	"exception":  model.TagThrows, // Javadoc alias for @throws
+	"typedef":    model.TagTypedef,
 }
 
 // Parser parses normalized comment text into structured annotation metadata.
@@ -144,7 +147,7 @@ func (p *Parser) parseTagLine(line string, ordinals map[model.TagKind]int) (*mod
 	}
 	ordinals[kind]++
 
-	if kind == model.TagParam {
+	if kind == model.TagParam || kind == model.TagThrows {
 		paramParts := strings.SplitN(value, " ", 2)
 		if paramParts[0] == "" {
 			return nil, ""
