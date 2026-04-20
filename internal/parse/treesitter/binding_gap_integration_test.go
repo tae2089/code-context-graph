@@ -133,7 +133,7 @@ func TestWalkerBinder_PythonDecorator_CurrentlyFailsBinding(t *testing.T) {
 	// Binder 바인딩 시도
 	b := parse.NewBinder()
 	binderComments := binderFromWalkerComments(walkerComments)
-	bindings := b.Bind(binderComments, nodes, "python")
+	bindings := b.Bind(binderComments, nodes, "python", strings.Split(string(content), "\n"))
 
 	// get_user에 대한 바인딩이 있는지 확인
 	var getUserBinding *parse.Binding
@@ -213,7 +213,7 @@ func TestWalkerBinder_JavaAnnotation_CurrentlyFailsBinding(t *testing.T) {
 	// Binder 바인딩 시도
 	b := parse.NewBinder()
 	binderComments := binderFromWalkerComments(walkerComments)
-	bindings := b.Bind(binderComments, nodes, "java")
+	bindings := b.Bind(binderComments, nodes, "java", strings.Split(string(content), "\n"))
 
 	var userServiceBinding *parse.Binding
 	for i := range bindings {
@@ -290,7 +290,7 @@ func TestWalkerBinder_RustAttribute_CurrentlyFailsBinding(t *testing.T) {
 	// Binder 바인딩 시도
 	b := parse.NewBinder()
 	binderComments := binderFromWalkerComments(walkerComments)
-	bindings := b.Bind(binderComments, nodes, "rust")
+	bindings := b.Bind(binderComments, nodes, "rust", strings.Split(string(content), "\n"))
 
 	var mainBinding *parse.Binding
 	for i := range bindings {
@@ -380,7 +380,7 @@ func TestWalkerBinder_CAttribute_CurrentlyFailsBinding(t *testing.T) {
 	// Binder 바인딩 시도
 	b := parse.NewBinder()
 	binderComments := binderFromWalkerComments(walkerComments)
-	bindings := b.Bind(binderComments, nodes, "c")
+	bindings := b.Bind(binderComments, nodes, "c", strings.Split(string(content), "\n"))
 
 	var addBinding *parse.Binding
 	for i := range bindings {
@@ -477,7 +477,7 @@ func TestWalkerBinder_PythonDecoratorHashComment_CurrentlyFailsBinding(t *testin
 	// Binder 바인딩 시도
 	b := parse.NewBinder()
 	binderComments := binderFromWalkerComments(walkerComments)
-	bindings := b.Bind(binderComments, nodes, "python")
+	bindings := b.Bind(binderComments, nodes, "python", strings.Split(string(content), "\n"))
 
 	var getUserBinding *parse.Binding
 	for i := range bindings {
@@ -577,7 +577,7 @@ func TestWalkerBinder_GapDiagnosis_AllLanguages(t *testing.T) {
 			// 실제 Binder 결과
 			b := parse.NewBinder()
 			binderComments := binderFromWalkerComments(walkerComments)
-			bindings := b.Bind(binderComments, nodes, tc.lang)
+			bindings := b.Bind(binderComments, nodes, tc.lang, strings.Split(string(content), "\n"))
 
 			bound := false
 			for _, binding := range bindings {

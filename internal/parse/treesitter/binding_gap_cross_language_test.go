@@ -19,6 +19,7 @@ package treesitter
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -337,10 +338,10 @@ data class User(val name: String)
 			}
 
 			// Phase 2: 바인딩 시도.
-			binder := parse.NewBinder()
-			bindings := binder.Bind(
-				binderFromWalkerComments(walkerComments), nodes, tc.spec.Name,
-			)
+		binder := parse.NewBinder()
+		bindings := binder.Bind(
+			binderFromWalkerComments(walkerComments), nodes, tc.spec.Name, strings.Split(tc.source, "\n"),
+		)
 
 			var target *parse.Binding
 			for i := range bindings {

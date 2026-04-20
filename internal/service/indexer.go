@@ -124,10 +124,11 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 				}
 			}
 
-			if len(tsComments) > 0 {
-				binderComments := toBinderComments(tsComments)
-				binder := parse.NewBinderFromConfig(opts.BinderMaxGap)
-				bindings := binder.Bind(binderComments, nodes, walker.Language())
+		if len(tsComments) > 0 {
+			binderComments := toBinderComments(tsComments)
+			binder := parse.NewBinderFromConfig(opts.BinderMaxGap)
+			sourceLines := strings.Split(string(content), "\n")
+			bindings := binder.Bind(binderComments, nodes, walker.Language(), sourceLines)
 
 				qNames := make([]string, len(bindings))
 				for i, b := range bindings {

@@ -1,6 +1,8 @@
 package parse
 
 import (
+	"strings"
+
 	"github.com/tae2089/code-context-graph/internal/annotation"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
@@ -57,15 +59,10 @@ func NewBinderFromConfig(maxGap int) *Binder {
 
 // Bind associates comment blocks with nodes when they appear immediately above declarations.
 // @intent build node-to-annotation bindings from parsed comments and node positions
-// @domainRule only comments within maxGap lines above a declaration are attached
+// @domainRule gap=1 always binds; gap>1 binds only if all lines between are blank (Look-Between)
 // @ensures file nodes bind only the first leading comment block when present
-// @see parse.hasContent
-func (b *Binder) Bind(comments []CommentBlock, nodes []model.Node, language string) []Binding {
-	maxGap := b.MaxGap
-	if maxGap <= 0 {
-		maxGap = defaultMaxGap
-	}
-
+// @see parse.hasCodeBetween
+func (b *Binder) Bind(comments []CommentBlock, nodes []model.Node, language string, sourceLines []string) []Binding {
 	var bindings []Binding
 
 	for _, node := range nodes {
@@ -106,10 +103,20 @@ func (b *Binder) Bind(comments []CommentBlock, nodes []model.Node, language stri
 				bindings = append(bindings, Binding{Node: node, Annotation: ann})
 				break
 			}
-			// 일반 comment: gap 기반 바인딩
+			// 일반 comment: Look-Between 동적 바인딩
 			gap := node.StartLine - comment.EndLine
-			if gap < 1 || gap > maxGap {
+			if gap < 1 {
 				continue
+			}
+			if gap > 1 {
+				// sourceLines nil → 보수적 폴백: gap=1만 허용
+				if sourceLines == nil {
+					continue
+				}
+				// 사이 구간에 비-공백 라인이 있으면 바인딩 거부
+				if hasCodeBetween(sourceLines, comment.EndLine, node.StartLine) {
+					continue
+				}
 			}
 			normalized := b.normalizer.Normalize(comment.Text, language)
 			ann, _ := b.parser.Parse(normalized)
@@ -119,6 +126,48 @@ func (b *Binder) Bind(comments []CommentBlock, nodes []model.Node, language stri
 	}
 
 	return bindings
+}
+
+// isPassthroughLine reports whether a source line should be ignored during
+// Look-Between binding — blank lines, comments, decorators, and attributes
+// are all considered passthrough and do not block comment-to-node binding.
+// @intent classify a single source line as non-code (passthrough) for binding logic
+func isPassthroughLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return true
+	}
+	// Comments: //, /*, *, */, #, --
+	if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "#") ||
+		strings.HasPrefix(trimmed, "/*") || strings.HasPrefix(trimmed, "*") ||
+		strings.HasPrefix(trimmed, "*/") || strings.HasPrefix(trimmed, "--") {
+		return true
+	}
+	// Decorators/annotations: @something (Python, Java, Kotlin, TS)
+	if strings.HasPrefix(trimmed, "@") {
+		return true
+	}
+	// C/C++ attributes: __attribute__((...)), [[...]]
+	if strings.HasPrefix(trimmed, "__attribute__") || strings.HasPrefix(trimmed, "[[") {
+		return true
+	}
+	return false
+}
+
+// hasCodeBetween checks whether any line between commentEndLine and nodeStartLine
+// contains actual code (not passthrough). Lines are 1-indexed; sourceLines is 0-indexed.
+// @intent determine if real code exists between a comment and declaration for Look-Between binding
+func hasCodeBetween(sourceLines []string, commentEndLine, nodeStartLine int) bool {
+	for lineNum := commentEndLine + 1; lineNum < nodeStartLine; lineNum++ {
+		idx := lineNum - 1
+		if idx < 0 || idx >= len(sourceLines) {
+			continue
+		}
+		if !isPassthroughLine(sourceLines[idx]) {
+			return true
+		}
+	}
+	return false
 }
 
 // hasContent reports whether an annotation contains any indexable text or tags.

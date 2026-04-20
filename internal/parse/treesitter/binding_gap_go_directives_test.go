@@ -68,8 +68,8 @@ func TestWalkerBinder_Go_DirectivePollution(t *testing.T) {
 			t.Log("--- 파싱된 CommentBlock ---")
 			logCommentInfo(t, walkerComments)
 
-			b := parse.NewBinder()
-			bindings := b.Bind(binderFromWalkerComments(walkerComments), nodes, "go")
+		b := parse.NewBinder()
+		bindings := b.Bind(binderFromWalkerComments(walkerComments), nodes, "go", strings.Split(string(content), "\n"))
 
 			var intentValue string
 			var bound bool

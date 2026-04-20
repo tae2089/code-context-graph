@@ -348,7 +348,7 @@ func measureDocstringFixture(
 	// 4) Binder 바인딩 결과 확인
 	b := parse.NewBinder()
 	binderComments := binderFromWalkerComments(walkerComments)
-	bindings := b.Bind(binderComments, nodes, "python")
+	bindings := b.Bind(binderComments, nodes, "python", strings.Split(string(content), "\n"))
 
 	for _, binding := range bindings {
 		var matchName bool
@@ -656,10 +656,10 @@ func TestPythonDocstring_AllVariants_Summary(t *testing.T) {
 				r.lines = "-"
 			}
 
-			// 바인딩 확인
-			b := parse.NewBinder()
-			binderComments := binderFromWalkerComments(walkerComments)
-			bindings := b.Bind(binderComments, nodes, "python")
+		// 바인딩 확인
+		b := parse.NewBinder()
+		binderComments := binderFromWalkerComments(walkerComments)
+		bindings := b.Bind(binderComments, nodes, "python", strings.Split(string(content), "\n"))
 			for _, binding := range bindings {
 				var match bool
 				if tc.symName == "" {

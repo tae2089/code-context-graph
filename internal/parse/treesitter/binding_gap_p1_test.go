@@ -18,6 +18,7 @@ package treesitter
 import (
 	"context"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -82,7 +83,7 @@ func runP1Measurement(t *testing.T, tc p1Case) bool {
 
 	// Binder 결과
 	b := parse.NewBinder()
-	bindings := b.Bind(binderFromWalkerComments(walkerComments), nodes, tc.lang)
+	bindings := b.Bind(binderFromWalkerComments(walkerComments), nodes, tc.lang, strings.Split(string(content), "\n"))
 
 	intentBound := false
 	for _, binding := range bindings {
@@ -251,9 +252,9 @@ func TestWalkerBinder_P1_AllLanguages_Summary(t *testing.T) {
 				}
 			}
 
-			// 바인딩 체크
-			b := parse.NewBinder()
-			bindings := b.Bind(binderFromWalkerComments(walkerComments), nodes, tc.lang)
+		// 바인딩 체크
+		b := parse.NewBinder()
+		bindings := b.Bind(binderFromWalkerComments(walkerComments), nodes, tc.lang, strings.Split(string(content), "\n"))
 			for _, binding := range bindings {
 				if binding.Node.Name != tc.symName || binding.Node.Kind != tc.symKind {
 					continue
