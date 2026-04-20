@@ -164,6 +164,7 @@ func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolReques
 		for i, tag := range ann.Tags {
 			tags[i] = map[string]any{
 				"kind":    tag.Kind,
+				"type":    tag.Type,
 				"name":    tag.Name,
 				"value":   tag.Value,
 				"ordinal": tag.Ordinal,

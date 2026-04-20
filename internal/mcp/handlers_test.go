@@ -389,6 +389,51 @@ func TestHandler_GetAnnotation(t *testing.T) {
 	}
 }
 
+// P2-c 후속: DocTag.Type 필드가 MCP 응답에 포함되는지 검증.
+// 파서는 YARD/JSDoc에서 type을 추출해 저장하지만, MCP 직렬화에서 빠지면
+// 외부 사용자가 type 정보를 받을 수 없다.
+func TestHandler_GetAnnotation_ExposesDocTagTypeField(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+
+	deps.Store.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.Fn", Kind: model.NodeKindFunction, Name: "Fn", FilePath: "f.go", StartLine: 1, EndLine: 3, Language: "go"},
+	})
+	node, _ := deps.Store.GetNode(ctx, "pkg.Fn")
+
+	deps.Store.UpsertAnnotation(ctx, &model.Annotation{
+		NodeID:  node.ID,
+		Summary: "s",
+		Tags: []model.DocTag{
+			{Kind: model.TagParam, Type: "string", Name: "id", Value: "identifier", Ordinal: 0},
+		},
+	})
+
+	result := callTool(t, deps, "get_annotation", map[string]any{"qualified_name": "pkg.Fn"})
+	if result.IsError {
+		t.Fatalf("get_annotation error: %s", getTextContent(result))
+	}
+
+	var ann map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &ann); err != nil {
+		t.Fatalf("expected JSON, got: %s", getTextContent(result))
+	}
+	tags, ok := ann["tags"].([]any)
+	if !ok || len(tags) != 1 {
+		t.Fatalf("expected 1 tag, got: %v", ann["tags"])
+	}
+	tag, ok := tags[0].(map[string]any)
+	if !ok {
+		t.Fatalf("tag not an object: %v", tags[0])
+	}
+	if tag["type"] != "string" {
+		t.Errorf("tag.type = %v, want \"string\" (MCP response must expose DocTag.Type)", tag["type"])
+	}
+	if tag["name"] != "id" {
+		t.Errorf("tag.name = %v", tag["name"])
+	}
+}
+
 // ============================================================
 // 11.0 구조적 변경 (Tidy First)
 // ============================================================
