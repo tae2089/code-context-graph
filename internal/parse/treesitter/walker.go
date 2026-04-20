@@ -175,10 +175,8 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 	}
 	nodes = append(nodes, fileNode)
 
-	var pkgName string
-
 	if w.query != nil {
-		nodes, edges, pkgName, interfaces, err = w.executeQueries(root, content, filePath, nodes, edges)
+		nodes, edges, _, interfaces, err = w.executeQueries(root, content, filePath, nodes, edges)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -198,7 +196,7 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 		})
 	}
 
-	w.resolveTestedBy(nodes, &edges, filePath, pkgName)
+	w.resolveTestedBy(nodes, &edges, filePath)
 	w.collectComments(root, content, &comments)
 
 	// Python 전용: docstring을 CommentBlock으로 수집 후 StartLine 오름차순 병합.
@@ -266,20 +264,20 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 
 		for _, c := range m.Captures {
 			capName := w.query.CaptureNameForId(c.Index)
-			if strings.HasPrefix(capName, "definition.") {
+			if after, ok := strings.CutPrefix(capName, "definition."); ok {
 				defNode = c.Node
-				defType = strings.TrimPrefix(capName, "definition.")
-			} else if strings.HasPrefix(capName, "name.") {
-				subType := strings.TrimPrefix(capName, "name.")
-				if subType == "receiver" {
+				defType = after
+			} else if subType, ok := strings.CutPrefix(capName, "name."); ok {
+				switch subType {
+				case "receiver":
 					receiverNode = c.Node
-				} else if subType == "package" {
+				case "package":
 					packageNode = c.Node
-				} else if subType == "import" {
+				case "import":
 					importNode = c.Node
-				} else if subType == "call" {
+				case "call":
 					callNode = c.Node
-				} else {
+				default:
 					nameNode = c.Node
 				}
 			} else if capName == "reference.call" {
@@ -314,16 +312,17 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 
 			// Handle struct embeddings and interface methods for Go
 			if w.spec.Name == "go" {
-				if defType == "interface" {
+				switch defType {
+				case "interface":
 					typeNode := w.extractTypeNode(defNode)
 					if typeNode != nil && typeNode.Type() == "interface_type" {
 						methods := w.extractInterfaceMethods(typeNode, content)
 						interfaces = append(interfaces, interfaceInfo{name: name, methods: methods})
 					}
-				} else if defType == "class" {
+				case "class":
 					typeNode := w.extractTypeNode(defNode)
 					if typeNode != nil && typeNode.Type() == "struct_type" {
-						embeddedEdges := w.extractEmbeddings(typeNode, content, filePath, pkgName, name)
+						embeddedEdges := w.extractEmbeddings(typeNode, content, filePath, name)
 						edges = append(edges, embeddedEdges...)
 					}
 				}
@@ -474,7 +473,7 @@ func (w *Walker) extractInterfaceMethods(ifaceNode *sitter.Node, content []byte)
 // extractEmbeddings builds inherits edges for embedded Go struct fields.
 // @intent capture composition-style inheritance encoded by anonymous embedded fields
 // @return edges representing embedded type relationships for the struct
-func (w *Walker) extractEmbeddings(structNode *sitter.Node, content []byte, filePath, pkgName, structName string) []model.Edge {
+func (w *Walker) extractEmbeddings(structNode *sitter.Node, content []byte, filePath, structName string) []model.Edge {
 	var edges []model.Edge
 	for i := 0; i < int(structNode.ChildCount()); i++ {
 		child := structNode.Child(i)
@@ -609,7 +608,7 @@ func (w *Walker) buildQualifiedName(pkg, receiver, name string) string {
 // @intent connect production functions to enclosing tests without language-specific test frameworks
 // @domainRule only calls inside test node line ranges create tested_by edges
 // @mutates edges appends inferred tested_by relationships
-func (w *Walker) resolveTestedBy(nodes []model.Node, edges *[]model.Edge, filePath string, pkgName string) {
+func (w *Walker) resolveTestedBy(nodes []model.Node, edges *[]model.Edge, filePath string) {
 	if w.spec.TestPrefix == "" {
 		return
 	}
@@ -618,9 +617,10 @@ func (w *Walker) resolveTestedBy(nodes []model.Node, edges *[]model.Edge, filePa
 	nonTestNames := make(map[string]bool)
 
 	for _, n := range nodes {
-		if n.Kind == model.NodeKindTest {
+		switch n.Kind {
+		case model.NodeKindTest:
 			testNodes[n.QualifiedName] = n
-		} else if n.Kind == model.NodeKindFunction {
+		case model.NodeKindFunction:
 			nonTestNames[n.Name] = true
 		}
 	}
