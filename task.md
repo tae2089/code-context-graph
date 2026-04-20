@@ -91,11 +91,14 @@ Red fixture + 통합 테스트 작성: `testdata/binding_gap/{typescript,kotlin,
   - Red 테스트: `TestWalkerBinder_TypeScript_Decorators_P1Measurement` Green
   - ⚠ 남은 범위: non-export `@Component class Foo` 케이스(데코레이터가 class_declaration과 sibling, export_statement 밖). 현재 fixture 없음 — 필요 시 P2에서 walker 부모 탐색으로 처리
 
-- [ ] **P2-1. Go `//go:generate` 같은 디렉티브가 `@intent` 주석에 섞이는 문제** (낮은 우선순위)
-  - 증상: `//go:generate` 가 바로 윗줄 `// @intent` CommentBlock에 병합되어 태그 Value에 노이즈 삽입
-  - 옵션 1: `collectComments`에서 `//go:` 디렉티브 줄을 별도 블록으로 분리
-  - 옵션 2: normalizer Go 분기에서 `go:<word>` 시작하는 줄 제거
-  - 현재 바인딩은 동작하므로 P2로 미룸
+- [x] **P2-1. Go `//go:generate` 같은 디렉티브가 `@intent` 주석에 섞이는 문제** — 완료
+  - 선택: 옵션 2 — normalizer Go 분기에서 `//go:<word>` 시작 줄 제거
+  - 구현: `internal/annotation/normalizer.go`에 `isGoDirective(line)` 헬퍼 추가. `Normalize()` 라인 루프에서 `language == "go" && isGoDirective(line)`이면 `continue`로 건너뜀
+  - 디렉티브 판별: `//go:` 뒤에 알파벳 또는 `_` 1자 이상. `// go:` (공백 포함)는 일반 주석으로 보존
+  - Red 테스트:
+    - `TestNormalize_GoDirectiveSkip` 4 케이스 (unit) — `go:generate`, `go:noinline`, 중간 낀 디렉티브, 공백 있는 `// go:` 보존
+    - `TestWalkerBinder_Go_DirectivePollution` 2 케이스 (통합) — `go:generate/type`, `go:noinline/func`
+  - Green: 전 회귀 통과
 
 ### P2 — DoodlinDoc 태그 별칭 매핑 (별도 작업)
 

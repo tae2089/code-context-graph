@@ -158,3 +158,33 @@
 ### 교훈
 - 1차 실측에서 "Python docstring은 comment 노드 아님"까지만 확인하고 멈췄던 게 문제. 구조적 gap 음수까지 확인했어야 함
 - "확인했는가?" 한마디 질문이 설계 오류 하나 막아줌 — 사용자 감사
+
+---
+
+## 2026-04-20 (밤 III) — P2-1 Go 디렉티브 오염 Green 완료
+
+### Red 테스트 강화 (구조 커밋)
+- `internal/annotation/normalizer_test.go`에 `TestNormalize_GoDirectiveSkip` 4 케이스 추가
+  - `go:generate`, `go:noinline`, 디렉티브가 `@intent`와 `@domainRule` 사이에 낀 케이스, 공백 있는 `// go:` (비-디렉티브) 보존
+- `internal/parse/treesitter/binding_gap_go_directives_test.go` 테이블 테스트(`TestWalkerBinder_Go_DirectivePollution`)로 확장 — `go:generate/type`, `go:noinline/func` 2 케이스
+- fixture: `testdata/binding_gap/go/directive_gap.go` 복원, `directive_noinline.go` 추가
+- `var_declaration` 미캡처 확인 후 `go:embed` 케이스 제외
+
+### Green (행위 커밋)
+- `internal/annotation/normalizer.go`에 `isGoDirective(line)` 헬퍼 추가
+  - `//go:` 뒤에 알파벳 또는 `_` 1자 이상이면 디렉티브로 간주
+  - `// go:` (공백 포함)는 일반 주석 — 보존
+- `Normalize()` 라인 루프에서 `language == "go" && isGoDirective(line)`이면 `continue`
+- 불필요한 CommentBlock 분리 대신 normalizer 단계에서 조용히 걸러내는 방식 채택 (옵션 2)
+
+### 결과
+- `TestNormalize_GoDirectiveSkip` 4 케이스 Green
+- `TestWalkerBinder_Go_DirectivePollution` 2 케이스 Green
+  - `[go:generate / type] 실측 @intent Value="약 타입 이넘"` ✅
+  - `[go:noinline / func] 실측 @intent Value="인라인 금지 핫 패스"` ✅
+- 전체 회귀(`CGO_ENABLED=1 go test -tags "fts5" ./... -count=1`) 통과
+
+### 교훈
+- **옵션 선택의 기준**: 옵션 1(walker `collectComments` 분리)은 주석 수집 의미론에 영향을 주지만, 옵션 2(normalizer 필터)는 태그 추출 단계 국소 수정으로 끝난다. 영향 범위가 좁은 쪽을 우선.
+- Red를 단위 + 통합 **두 층**에서 잡아두면 fix 대상 경계가 명확해짐 — normalizer 단독 실패 vs 바인더까지 전파된 실패를 분리해 관찰 가능.
+- 디렉티브 판별은 **`//` 바로 뒤에 공백 없이 `go:`**가 오는 정확한 Go 프라그마 문법을 따라야 함. `// go:` 같은 일반 대화형 주석을 먹으면 안 됨 — 엣지 케이스를 Red 테스트로 못 박아둔 게 도움.
