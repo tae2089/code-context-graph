@@ -225,6 +225,86 @@ function greet() return "hi" end
 			expectBound:  false,
 			redReason:    "tree-sitter-lua comment/function_statement range quirk → gap=0",
 		},
+		// --- Class / Interface / Struct 케이스 ---
+		{
+			label:    "Go_LineComment_Struct",
+			spec:     GoSpec,
+			filename: "sample_struct.go",
+			source: `package sample
+
+// @intent user entity holds profile data
+type User struct {
+	Name string
+}
+`,
+			symbolName:     "User",
+			expectedKind:   model.NodeKindClass,
+			expectedIntent: "user entity holds profile data",
+			expectBound:    true,
+		},
+		{
+			label:    "Python_HashComment_Class",
+			spec:     PythonSpec,
+			filename: "sample_class.py",
+			source: `# @intent user entity holds profile data
+class User:
+    pass
+`,
+			symbolName:     "User",
+			expectedKind:   model.NodeKindClass,
+			expectedIntent: "user entity holds profile data",
+			expectBound:    true,
+		},
+		{
+			label:    "Java_Javadoc_Class",
+			spec:     JavaSpec,
+			filename: "SampleClass.java",
+			source: `/** @intent user entity holds profile data */
+public class User {}
+`,
+			symbolName:     "User",
+			expectedKind:   model.NodeKindClass,
+			expectedIntent: "user entity holds profile data",
+			expectBound:    true,
+		},
+		{
+			label:    "Java_Javadoc_Interface",
+			spec:     JavaSpec,
+			filename: "SampleIface.java",
+			source: `/** @intent repository contract for user persistence */
+public interface UserRepository {}
+`,
+			symbolName:     "UserRepository",
+			expectedKind:   model.NodeKindType,
+			expectedIntent: "repository contract for user persistence",
+			expectBound:    true,
+		},
+		{
+			label:    "TypeScript_LineComment_Class",
+			spec:     TypeScriptSpec,
+			filename: "sample_class.ts",
+			source: `// @intent user entity holds profile data
+class User {
+  name: string = "";
+}
+`,
+			symbolName:     "User",
+			expectedKind:   model.NodeKindClass,
+			expectedIntent: "user entity holds profile data",
+			expectBound:    true,
+		},
+		{
+			label:    "Kotlin_Javadoc_Class",
+			spec:     KotlinSpec,
+			filename: "SampleClass.kt",
+			source: `/** @intent user entity holds profile data */
+data class User(val name: String)
+`,
+			symbolName:     "User",
+			expectedKind:   model.NodeKindClass,
+			expectedIntent: "user entity holds profile data",
+			expectBound:    true,
+		},
 	}
 
 	for _, tc := range cases {
