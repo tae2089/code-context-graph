@@ -301,6 +301,7 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 			stats, err := graphSvc.Build(buildCtx, service.BuildOptions{
 				Dir:          repoDir,
 				IncludePaths: pathutil.LoadIncludePathsFromConfig(repoDir),
+				BinderMaxGap: pathutil.LoadBinderMaxGapFromConfig(repoDir),
 			})
 			if err != nil {
 				deps.Logger.Error("webhook build failed", "repo", repoFullName, "error", err)

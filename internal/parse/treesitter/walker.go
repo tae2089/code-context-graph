@@ -698,6 +698,15 @@ func (w *Walker) collectComments(node *sitter.Node, content []byte, comments *[]
 	if nodeType == "comment" || nodeType == "line_comment" || nodeType == "block_comment" || nodeType == "multiline_comment" {
 		startLine := int(node.StartPoint().Row) + 1
 		endLine := int(node.EndPoint().Row) + 1
+		// tree-sitter reports EndPoint.Row as the NEXT row for line_comment nodes that end
+		// exactly at a line boundary (EndPoint.Column == 0).  Normalize to the actual last
+		// line so that gap calculation in the binder is correct.
+		// Example: Rust `///` at source line N → raw EndPoint.Row = N, Column = 0 → endLine
+		// would be N+1 without this correction, causing gap = 0 when the declaration is on
+		// line N+1.
+		if nodeType == "line_comment" && node.EndPoint().Column == 0 && endLine > startLine {
+			endLine--
+		}
 		text := node.Content(content)
 
 		if len(*comments) > 0 {

@@ -116,3 +116,24 @@ func MatchIncludePaths(relPath string, includePaths []string) bool {
 	}
 	return false
 }
+
+// LoadBinderMaxGapFromConfig reads the binder.max_gap value from .ccg.yaml in dir.
+// Returns 0 if the file does not exist, cannot be parsed, or the key is absent,
+// which signals the caller to fall back to the binder's built-in default.
+// @intent .ccg.yaml 의 binder.max_gap 설정을 읽어 호출자에게 전달한다.
+// @domainRule 파일 없거나 키 없으면 0 반환 → 호출자가 defaultMaxGap 사용
+func LoadBinderMaxGapFromConfig(dir string) int {
+	data, err := os.ReadFile(filepath.Join(dir, ".ccg.yaml"))
+	if err != nil {
+		return 0
+	}
+	var cfg struct {
+		Binder struct {
+			MaxGap int `yaml:"max_gap"`
+		} `yaml:"binder"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return 0
+	}
+	return cfg.Binder.MaxGap
+}

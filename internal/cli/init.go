@@ -20,6 +20,15 @@ exclude:
 
 docs:
   out: docs
+
+# binder controls how comment blocks are matched to source declarations.
+# max_gap: maximum number of lines between a comment's last line and the
+# declaration's start line. Increase this when your language uses many
+# decorator / annotation lines between the doc comment and the symbol.
+# Default: 3  (covers up to 2 decorator lines, e.g. Python @app.route + @login_required)
+# Example for Java with 3+ annotations: set to 5 or 6.
+# binder:
+#   max_gap: 3
 `
 
 // newInitCmd creates the default config scaffolding command.

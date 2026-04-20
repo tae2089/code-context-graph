@@ -37,6 +37,9 @@ type BuildOptions struct {
 	NoRecursive     bool
 	ExcludePatterns []string
 	IncludePaths    []string
+	// BinderMaxGap overrides the binder's comment-to-node gap threshold.
+	// 0 means use the binder's built-in default (3).
+	BinderMaxGap int
 }
 
 // BuildStats reports how much content a build processed.
@@ -123,7 +126,7 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 
 			if len(tsComments) > 0 {
 				binderComments := toBinderComments(tsComments)
-				binder := parse.NewBinder()
+				binder := parse.NewBinderFromConfig(opts.BinderMaxGap)
 				bindings := binder.Bind(binderComments, nodes, walker.Language())
 
 				qNames := make([]string, len(bindings))

@@ -22,23 +22,38 @@ type Binding struct {
 	Annotation *model.Annotation
 }
 
+// defaultMaxGap is the fallback maximum gap when no config is provided.
+// 3 accommodates up to two decorator/attribute lines (common in Python, Java, Rust)
+// without creating false bindings for comments that are more than three lines above a symbol.
+const defaultMaxGap = 3
+
 // Binder matches nearby comments to parsed graph nodes.
 // @intent attach normalized and parsed annotations to nodes based on source proximity
 type Binder struct {
 	normalizer *annotation.Normalizer
 	parser     *annotation.Parser
+	MaxGap     int
 }
 
-// NewBinder creates a Binder.
+// NewBinder creates a Binder with the default max gap.
 // @intent compose the normalizer and parser used during comment-to-node binding
 func NewBinder() *Binder {
+	return NewBinderFromConfig(defaultMaxGap)
+}
+
+// NewBinderFromConfig creates a Binder with a caller-supplied max gap value.
+// @intent allow per-project binder configuration via .ccg.yaml
+// @param maxGap maximum line gap between comment end and declaration start
+func NewBinderFromConfig(maxGap int) *Binder {
+	if maxGap <= 0 {
+		maxGap = defaultMaxGap
+	}
 	return &Binder{
 		normalizer: annotation.NewNormalizer(),
 		parser:     annotation.NewParser(),
+		MaxGap:     maxGap,
 	}
 }
-
-const maxGap = 2
 
 // Bind associates comment blocks with nodes when they appear immediately above declarations.
 // @intent build node-to-annotation bindings from parsed comments and node positions
@@ -88,7 +103,7 @@ func (b *Binder) Bind(comments []CommentBlock, nodes []model.Node, language stri
 			}
 			// 일반 comment: gap 기반 바인딩
 			gap := node.StartLine - comment.EndLine
-			if gap < 1 || gap > maxGap {
+			if gap < 1 || gap > b.MaxGap {
 				continue
 			}
 			normalized := b.normalizer.Normalize(comment.Text, language)
