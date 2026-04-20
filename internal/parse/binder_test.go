@@ -292,60 +292,6 @@ func TestBinder_GapWithCodeBetween_NoBinding(t *testing.T) {
 	}
 }
 
-// TestNewBinderFromConfig 는 NewBinderFromConfig 가 MaxGap 을 올바르게 설정함을 검증합니다.
-func TestNewBinderFromConfig(t *testing.T) {
-	tests := []struct {
-		name       string
-		inputGap   int
-		wantMaxGap int
-	}{
-		{"양수 값 적용", 5, 5},
-		{"0 입력 시 기본값 사용", 0, defaultMaxGap},
-		{"음수 입력 시 기본값 사용", -1, defaultMaxGap},
-		{"기본값과 동일", defaultMaxGap, defaultMaxGap},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			b := NewBinderFromConfig(tc.inputGap)
-			if b.MaxGap != tc.wantMaxGap {
-				t.Errorf("MaxGap = %d, want %d", b.MaxGap, tc.wantMaxGap)
-			}
-		})
-	}
-}
-
-// TestNewBinderFromConfig_BindsWithCustomMaxGap 는 MaxGap=5 로 설정한 Binder 가
-// gap=5 짜리 comment-to-node 바인딩을 성공시킴을 검증합니다.
-func TestNewBinderFromConfig_BindsWithCustomMaxGap(t *testing.T) {
-	b := NewBinderFromConfig(5)
-
-	comments := []CommentBlock{
-		{StartLine: 1, EndLine: 2, Text: "@intent 커스텀 갭 테스트"},
-	}
-	nodes := []model.Node{
-		{Name: "MyFunc", Kind: model.NodeKindFunction, StartLine: 7, EndLine: 10},
-	}
-
-	sourceLines := []string{
-		`// @intent 커스텀 갭 테스트`,
-		`// (continued)`,
-		``,
-		``,
-		``,
-		``,
-		`func MyFunc() {`,
-		``,
-		``,
-		`}`,
-	}
-
-	bindings := b.Bind(comments, nodes, "go", sourceLines)
-
-	if len(bindings) != 1 {
-		t.Errorf("MaxGap=5, gap=5 (빈줄만): 바인딩 1개 예상인데 %d개 반환됨", len(bindings))
-	}
-}
 
 // =============================================================================
 // Look-Between 동적 바인딩 테스트

@@ -8,7 +8,6 @@ import (
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
-	"github.com/tae2089/code-context-graph/internal/pathutil"
 	"github.com/tae2089/code-context-graph/internal/service"
 )
 
@@ -47,7 +46,6 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 				NoRecursive:     noRecursive,
 				ExcludePatterns: patterns,
 				IncludePaths:    paths,
-				BinderMaxGap:    pathutil.LoadBinderMaxGapFromConfig(dir),
 			}
 
 			ctx := context.Background()
