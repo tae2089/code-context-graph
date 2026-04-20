@@ -1,0 +1,116 @@
+# Task: 주석-심볼 바인딩 견고성 (데코레이터/어노테이션/속성/매크로 사이에 있을 때)
+
+## 문제 정의
+
+ccg는 소스 주석에서 DoodlinDoc 태그(`@intent`, `@domainRule` 등)를 뽑아 심볼 노드에 바인딩함.
+심볼 위에 데코레이터·어노테이션·속성·매크로가 끼어있을 때 **주석→심볼 바인딩이 깨지는가**가 핵심 관심사.
+
+## 실측 데이터 (2026-04-20)
+
+Red 테스트로 4개 언어 각각 fixture 파싱한 결과 (`internal/parse/treesitter/binding_gap_integration_test.go`):
+
+| 언어 | 심볼 StartLine 위치 | 바인딩 결과 | 원인 |
+|------|---------------------|-------------|------|
+| **Python** `#` 주석 + `@app.route`·`@login_required` + `def get_user` | `def` 줄 (5) | ❌ 실패 | gap=3 > maxGap(2). `function_definition` StartLine이 데코레이터 제외 |
+| **Python** `"""docstring"""` + 데코레이터 + `def` | `def` 줄 | ❌ 실패 | tree-sitter가 `"""..."""`를 `comment` 노드로 인식하지 않음 — 아예 주석 수집에서 누락 |
+| **Java** `/** @intent */` + `@Service @Transactional @RequiredArgsConstructor` + `class` | **첫 어노테이션 줄 (5)** | ✅ 성공 | `class_declaration`이 어노테이션을 자식으로 포함해 StartLine이 어노테이션 줄로 잡힘 (gap=1) |
+| **Rust** `/// @intent` + `#[tokio::main]` + `#[allow(...)]` + `fn main` | `fn` 줄 (5) | ⚠ 부분 실패 | gap=2로 maxGap 이내, 바인딩은 됨. 그러나 `normalizer.go`에 `rust` 케이스 누락 → `///` 접두사 미제거 → `@intent` 태그 파싱 실패 |
+| **C** `/** @intent */` + `__attribute__((...))` + `static inline int add` | **`__attribute__` 줄 (4)** | ✅ 성공 | `function_definition`이 `__attribute__`를 포함 (gap=1) |
+
+**결론**: 원래 진단한 "maxGap 때문에 데코레이터 건너뜀"은 **Python에만** 해당. 언어마다 tree-sitter 노드가 메타 표식을 포함하는지가 달라서 **단일 처방 불가**. 언어별 실측 기반 개별 조치 필요.
+
+또한 Python에서 **2번째 더 큰 문제** 발견: `"""docstring"""`은 comment 노드가 아니라 string 노드 → ccg 주석 수집기가 아예 못 잡음.
+
+---
+
+## 실행 계획 (우선순위 + TDD)
+
+### P0 — 실측으로 확정된 실제 버그
+
+- [x] Red 테스트 작성 (Python/Java/Rust/C)
+  - 파일: `internal/parse/binder_test.go`, `internal/parse/treesitter/binding_gap_integration_test.go`
+  - Fixture: `testdata/binding_gap/{python,java,rust,c}/`
+  - 현재 모두 실패 상태 기록 완료
+
+- [x] **P0-1. Python `function_definition` StartLine** — 완료
+  - 기대: `def` 줄이 아닌 **첫 데코레이터 줄**을 심볼 StartLine으로 (Java/C와 동일 동작)
+  - Green 후보 1: `tags.scm` (Python)에서 `decorated_definition`을 함수 매칭으로 교체
+  - Green 후보 2: walker에서 `function_definition`의 부모가 `decorated_definition`이면 부모 StartLine 사용
+  - Refactor: `class_definition`도 동일 처리 (`@dataclass` 등)
+  - 영향 범위: Python golden.json 재생성 필요
+
+- [x] Python docstring 2차 실측 (6 fixture + `python_docstring_variants_test.go`)
+  - `'''`·`"""`·한 줄·`r/f/b` prefix 모두 동일한 `string` 노드 → prefix 분기 불필요
+  - gap이 **구조적으로 음수** — EndLine 가짜 설정 우회 불가
+  - walker + binder 둘 다 손대야 함
+
+- [x] **P0-2. Python 함수/클래스 docstring 수집** (구조 + 행위, 2 커밋) — 완료
+  - 단계 1 구조: `CommentBlock`에 `IsDocstring bool`·`OwnerStartLine int` 추가, walker에 `collectDocstrings` (조건: `expression_statement.namedChild` 유일 `string` + 부모가 `block`이면 `OwnerStartLine = 부모의 부모.StartLine`)
+  - 단계 2 행위: walker가 `mergeCommentBlocks`로 병합해 반환, binder에 `if cb.IsDocstring { if OwnerStartLine == node.StartLine → 바인딩 }` 경로 추가
+  - Red 테스트: `TestPythonDocstring_FuncDouble`, `FuncSingle`, `OneLine`, `Class` 4개 모두 Green
+
+- [x] **P0-4. Python 모듈 docstring → File 노드 바인딩** (결정 D) — 완료
+  - `collectDocstrings`에서 부모가 `module`이면 `OwnerStartLine=0`
+  - binder의 `NodeKindFile` 경로: 모듈 docstring(`IsDocstring=true && OwnerStartLine==0`) 또는 첫 일반 comment 분기 (첫 매치 후 break)
+  - Red 테스트: `TestPythonDocstring_Module` Green
+
+- [x] **P0-3. Rust normalizer `///` 접두사 제거** — 완료
+  - `internal/annotation/normalizer.go:23-108`의 `stripLinePrefix` 언어별 분기에 `rust` 케이스 누락
+  - Green: `rust` 케이스 추가 — `///` (doc) 와 `//` (일반) 둘 다 제거
+  - 추가 고려: `//!` (inner doc), `/** ... */`, `/*! ... */` 처리
+  - Red 테스트: rust fixture에서 `ann.Tags`에 `@intent`가 들어있어야 통과
+
+### P1 — 실측으로 아직 검증 안 된 언어 (Python/Java/Rust/C 제외)
+
+각각 P0-1과 동일한 Red 테스트 먼저 작성 후 실제 동작 확인. Java/C 같이 이미 잘 될 수도 있음.
+
+- [ ] **TypeScript** `@Component({...})` + `class Foo`
+- [ ] **JavaScript** — 데코레이터는 실험적이라 범위 밖일 수도. JSDoc 파싱 확인 우선
+- [ ] **Kotlin** `@Composable @JvmStatic` + `class` / `fun`
+- [ ] **Ruby** — 데코레이터 문법 없음, YARD 주석만 확인
+- [ ] **PHP** `#[Route('/api')]` + `class` / `function`
+- [ ] **Go** — 데코레이터 없음, `//go:build` 디렉티브가 오작동하는지 확인
+- [ ] **C++** `[[nodiscard]]` / `__declspec` + 함수
+- [ ] **Lua** — 메타 표식 없음, 제외
+
+### P2 — DoodlinDoc 태그 별칭 매핑 (별도 작업)
+
+이 작업은 "바인딩 견고성"과 독립. 필요 시 별도 PR로.
+
+- [ ] JSDoc `@returns` → `@return` 별칭
+- [ ] JSDoc `@typedef`, `@throws` 처리 정책 결정
+- [ ] YARD `@param [Type] name` 타입 부분 파싱
+
+### P3 — 테스트·문서 정비
+
+- [ ] Kotlin `testdata/eval/kotlin/Sample.kt`의 golden.json 배포 (누락 상태)
+- [ ] Cross-language 통합 테스트 (모든 지원 언어에서 `@intent` 바인딩이 동일하게 동작하는지)
+
+---
+
+## 설계 결정 (합의 필요)
+
+### 결정 A. Python `function_definition` StartLine 방식
+- 옵션 1: `tags.scm`에서 `decorated_definition` 매칭 (tree-sitter 쿼리 변경, 가장 깨끗)
+- 옵션 2: walker에서 부모 노드 탐색 후 StartLine 조정 (쿼리 변경 없음, 로직 추가)
+- **추천**: 옵션 1 — golden.json 재생성 부담은 있으나 Java/C 동작과 일관됨
+
+### 결정 B. Python docstring 수집 전략
+- 옵션 1: walker 주석 수집기에 Python 전용 분기 추가 (`function_definition` 첫 자식이 docstring인 경우)
+- 옵션 2: binder에 "심볼 아래 방향" 바인딩 규칙 추가 (Python 한정)
+- **추천**: 옵션 1 — 주석 수집 단계에서 docstring을 `CommentBlock`으로 승격시키면 binder는 기존 로직 그대로 (gap<1 조건 때문에 아래 방향 바인딩은 안 됨 → binder 규칙도 살짝 수정 필요할 수 있음)
+- ⚠ binder `gap < 1` 조건은 Python 전용 규칙 추가 시 재검토 필요
+
+### 결정 C. Rust `///` 주석 종류 처리 범위
+- `///`, `//!`, `/** */`, `/*! */` 전부 지원할지, `///`·`//`만 우선 지원할지
+- **추천**: 이번 P0에서는 `///`·`//`만 처리, inner doc(`//!`)은 P1
+
+---
+
+## 실행 규칙
+
+- TDD: 각 항목 Red → Green → Refactor 엄수 (Red는 이미 작성 완료)
+- Tidy First: 구조적 변경(쿼리 분리, normalizer 리팩터)과 행위 변경은 별도 커밋
+- 테스트: `CGO_ENABLED=1 go test -tags "fts5" ./... -count=1`
+- 한 번에 한 항목만 In Progress
+- Python docstring 이슈(P0-2)는 설계 결정 B 합의 후 착수
