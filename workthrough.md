@@ -71,6 +71,37 @@
 - walker.go의 기존 lint 경고(CutPrefix 단순화, tagged switch 전환, 미사용 pkgName 파라미터) — 별도 구조 리팩토링 커밋으로 처리
 - P1: TypeScript/JS/Kotlin/Ruby/PHP/Go/C++ 각 언어 Red 테스트 먼저 추가해 현 상태 실측
 
+---
+
+## 2026-04-20 (밤) — P1 실측 완료
+
+### 실측 범위
+- 5개 언어 fixture + Red 테스트 추가:
+  - `testdata/binding_gap/{typescript,kotlin,php,cpp,go}/`
+  - `internal/parse/treesitter/binding_gap_p1_test.go` (5 per-lang + summary)
+  - `internal/parse/treesitter/p1_ast_probe_test.go` (AST 노드 타입 탐사)
+
+### 결과 요약 (fail 3 / pass 2)
+
+| 언어 | 심볼 StartLine | @intent 바인딩 | 원인 |
+|------|---------------|---------------|------|
+| TypeScript `@decorator + export class` | class 줄 (4) | ❌ 실패 | `export_statement > decorator + class_declaration` 형제 구조 — class.StartLine이 class 키워드 줄, gap=3 |
+| Kotlin `@Annot + fun` | @어노 줄 (2) | ❌ 실패 | comment 노드가 `multiline_comment` — walker `collectComments` 미인식 |
+| PHP `#[Attr] + function` | 첫 #[ 줄 (3) | ❌ 실패 | gap=1 OK, 그러나 normalizer php 케이스 부재 → `/**` delimiter 미제거 |
+| C++ `[[attr]] + function` | 첫 [[ 줄 (2) | ✅ 성공 | function_definition 자식에 `[[...]]` 포함 |
+| Go `// @intent + //go:generate + type` | type 줄 (5) | ✅/⚠ | 바인딩 성공, 단 @intent 값에 `go:generate ...` 섞임 |
+
+### 핵심 교훈 (2차)
+1. 언어별 tree-sitter 문법이 메타 표식을 심볼 선언에 흡수하는지가 여전히 핵심. C/C++/Java는 흡수, Python/TypeScript는 흡수 안 함.
+2. Kotlin처럼 comment 노드 타입 하나만 어긋나도 기능 전체가 무효화됨 — 언어별 walker 호환성 테이블이 필요하겠다는 느낌
+3. PHP는 normalizer 미지원만으로 바인딩이 실패하는 케이스 — Rust(P0-3)와 동일한 누락 패턴
+
+### 다음
+- P1-3 (PHP normalizer) — 가장 작고 독립적, P0-3 Rust 패턴 그대로 재사용
+- P1-2 (Kotlin multiline_comment) — walker 한 줄 추가
+- P1-1 (TypeScript export_statement/decorator) — 가장 큰 작업, Python decorated_definition 패턴 재사용 검토
+- P2-1 (Go go:generate 오염) — 나중
+
 
 ---
 

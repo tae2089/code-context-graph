@@ -60,18 +60,42 @@ Red 테스트로 4개 언어 각각 fixture 파싱한 결과 (`internal/parse/tr
   - 추가 고려: `//!` (inner doc), `/** ... */`, `/*! ... */` 처리
   - Red 테스트: rust fixture에서 `ann.Tags`에 `@intent`가 들어있어야 통과
 
-### P1 — 실측으로 아직 검증 안 된 언어 (Python/Java/Rust/C 제외)
+### P1 — 실측 결과 (2026-04-20 밤)
 
-각각 P0-1과 동일한 Red 테스트 먼저 작성 후 실제 동작 확인. Java/C 같이 이미 잘 될 수도 있음.
+Red fixture + 통합 테스트 작성: `testdata/binding_gap/{typescript,kotlin,php,cpp,go}/`,
+`internal/parse/treesitter/binding_gap_p1_test.go` + `p1_ast_probe_test.go`.
 
-- [ ] **TypeScript** `@Component({...})` + `class Foo`
-- [ ] **JavaScript** — 데코레이터는 실험적이라 범위 밖일 수도. JSDoc 파싱 확인 우선
-- [ ] **Kotlin** `@Composable @JvmStatic` + `class` / `fun`
-- [ ] **Ruby** — 데코레이터 문법 없음, YARD 주석만 확인
-- [ ] **PHP** `#[Route('/api')]` + `class` / `function`
-- [ ] **Go** — 데코레이터 없음, `//go:build` 디렉티브가 오작동하는지 확인
-- [ ] **C++** `[[nodiscard]]` / `__declspec` + 함수
-- [ ] **Lua** — 메타 표식 없음, 제외
+| 언어 | 심볼 StartLine | @intent 바인딩 | 원인 |
+|------|---------------|---------------|------|
+| **TypeScript** `@Injectable()` + `@Component(...)` + `export class` | `class` 줄 (4) | ❌ 실패 | `export_statement` 밑에 `decorator + class_declaration`이 형제. class_declaration.StartLine이 class 키워드 줄. Python decorated_definition 패턴과 유사 |
+| **Kotlin** `@Composable @JvmStatic` + `fun` | `@Composable` 줄 (2) | ❌ 실패 | comment 노드 타입이 `multiline_comment` — walker `collectComments`가 `comment/line_comment/block_comment`만 인식. 주석 수집 자체가 누락됨 |
+| **PHP** `#[Route(...)]` + `#[IsGranted(...)]` + `function` | `#[Route]` 줄 (3) | ❌ 실패 | StartLine 정상, gap=1 OK. 그러나 normalizer에 `php` 케이스 부재 → `/**` 블록 delimiter 미제거 → `@intent` 태그 파싱 실패 |
+| **C++** `[[nodiscard]] [[deprecated]]` + `inline int divide` | `[[nodiscard]]` 줄 (2) | ✅ 성공 | C와 동일 — `function_definition`이 `[[...]]` 속성 포함. gap=1 |
+| **Go** `// @intent` + `//go:generate` + `type Pill int` | `type Pill` 줄 (5) | ⚠ 부분 성공 | `//@intent`와 `//go:generate`가 동일 CommentBlock으로 병합. gap=1 OK, `@intent` 바인딩 성공. 단 태그 Value에 `go:generate stringer -type=Pill` 섞여 들어감 — 부가 오염 |
+
+### P1-fix — 실측으로 확정된 3개 버그 + 1개 부작용
+
+- [ ] **P1-1. TypeScript `export_statement + decorator + class_declaration` StartLine 보정**
+  - 예상 옵션: tags.scm에서 `(export_statement (decorator)* (class_declaration name: ...))` 패턴 추가
+  - 또는 walker에서 export_statement/decorator 부모 탐색 후 StartLine 조정
+  - `@dataclass` 처리와 유사한 고민 — non-export `@Component class Foo`도 커버해야 함
+  - Red 테스트: `TestWalkerBinder_TypeScript_Decorators_P1Measurement`
+
+- [ ] **P1-2. Kotlin `multiline_comment` 노드 수집**
+  - `walker.go:695`의 `collectComments`에 `multiline_comment` 조건 추가
+  - 추가로 Kotlin tree-sitter가 `line_comment`를 쓰는지 `comment`를 쓰는지 확인
+  - Red 테스트: `TestWalkerBinder_Kotlin_Annotations_P1Measurement`
+
+- [ ] **P1-3. PHP normalizer 케이스 추가**
+  - `stripBlockDelimiters`에 `php` 추가 — `/**`, `/*` 처리
+  - `stripLinePrefix`에 `php` 추가 — `//`, `#` 처리
+  - Red 테스트: `TestWalkerBinder_PHP_Attributes_P1Measurement`
+
+- [ ] **P2-1. Go `//go:generate` 같은 디렉티브가 `@intent` 주석에 섞이는 문제** (낮은 우선순위)
+  - 증상: `//go:generate` 가 바로 윗줄 `// @intent` CommentBlock에 병합되어 태그 Value에 노이즈 삽입
+  - 옵션 1: `collectComments`에서 `//go:` 디렉티브 줄을 별도 블록으로 분리
+  - 옵션 2: normalizer Go 분기에서 `go:<word>` 시작하는 줄 제거
+  - 현재 바인딩은 동작하므로 P2로 미룸
 
 ### P2 — DoodlinDoc 태그 별칭 매핑 (별도 작업)
 
