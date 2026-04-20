@@ -470,6 +470,146 @@ func TestParse_Typedef(t *testing.T) {
 	}
 }
 
+// P2-c. YARD `@param [Type] name description` 타입 prefix 파싱.
+// Ruby 생태계 YARD 문법: `[String]`, `[Array<String>]`, `[Hash<Symbol,String>]`.
+// Type 추출 후 나머지는 기존 name/value 규칙을 그대로 적용.
+func TestParse_Param_YardType(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@param [String] name 사용자 이름")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	tag := ann.Tags[0]
+	if tag.Type != "String" {
+		t.Errorf("Type = %q, want String", tag.Type)
+	}
+	if tag.Name != "name" {
+		t.Errorf("Name = %q, want name", tag.Name)
+	}
+	if tag.Value != "사용자 이름" {
+		t.Errorf("Value = %q", tag.Value)
+	}
+}
+
+// JSDoc `@param {Type} name description` — 중괄호 스타일 타입 prefix.
+func TestParse_Param_JSDocType(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@param {string} name 사용자 이름")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	tag := ann.Tags[0]
+	if tag.Type != "string" {
+		t.Errorf("Type = %q, want string", tag.Type)
+	}
+	if tag.Name != "name" {
+		t.Errorf("Name = %q", tag.Name)
+	}
+	if tag.Value != "사용자 이름" {
+		t.Errorf("Value = %q", tag.Value)
+	}
+}
+
+// JSDoc union type `{string|number}` — 괄호 내부 연산자 포함.
+func TestParse_Param_JSDocUnionType(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@param {string|number} id 식별자")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Type != "string|number" {
+		t.Errorf("Type = %q", ann.Tags[0].Type)
+	}
+	if ann.Tags[0].Name != "id" {
+		t.Errorf("Name = %q", ann.Tags[0].Name)
+	}
+}
+
+// YARD generic type `[Array<String>]` — 꺾쇠 포함.
+func TestParse_Param_YardGenericType(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@param [Array<String>] items 태그 목록")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Type != "Array<String>" {
+		t.Errorf("Type = %q", ann.Tags[0].Type)
+	}
+	if ann.Tags[0].Name != "items" {
+		t.Errorf("Name = %q", ann.Tags[0].Name)
+	}
+	if ann.Tags[0].Value != "태그 목록" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+// 기존 `@param name description` (타입 없음) 동작 유지 — 하위호환 보장.
+func TestParse_Param_PlainStillWorks(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@param username 사용자 ID")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	tag := ann.Tags[0]
+	if tag.Type != "" {
+		t.Errorf("Type = %q, want empty (plain style)", tag.Type)
+	}
+	if tag.Name != "username" {
+		t.Errorf("Name = %q", tag.Name)
+	}
+	if tag.Value != "사용자 ID" {
+		t.Errorf("Value = %q", tag.Value)
+	}
+}
+
+// YARD `@return [Type] description` — return 태그도 동일 규칙 적용.
+func TestParse_Return_YardType(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@return [String] 인증 토큰")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Type != "String" {
+		t.Errorf("Type = %q", ann.Tags[0].Type)
+	}
+	if ann.Tags[0].Value != "인증 토큰" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+// JSDoc `@return {Type} description`.
+func TestParse_Return_JSDocType(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@returns {boolean} 인증 성공 여부")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Type != "boolean" {
+		t.Errorf("Type = %q", ann.Tags[0].Type)
+	}
+	if ann.Tags[0].Kind != model.TagReturn {
+		t.Errorf("Kind = %q, want TagReturn (@returns alias)", ann.Tags[0].Kind)
+	}
+	if ann.Tags[0].Value != "인증 성공 여부" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+// 기존 `@return description` 동작 유지.
+func TestParse_Return_PlainStillWorks(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@return 인증 성공 시 JWT 토큰")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Type != "" {
+		t.Errorf("Type = %q, want empty", ann.Tags[0].Type)
+	}
+	if ann.Tags[0].Value != "인증 성공 시 JWT 토큰" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
 func TestParse_RawTextPreserved(t *testing.T) {
 	input := "요약\n@param x 값"
 	p := NewParser()
