@@ -72,3 +72,41 @@ func TestNormalize_EmptyComment(t *testing.T) {
 		t.Errorf("got %q, want empty", got)
 	}
 }
+
+func TestNormalize_RustDocComment(t *testing.T) {
+	n := NewNormalizer()
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "triple slash with space",
+			input: "/// @intent 설명",
+			want:  "@intent 설명",
+		},
+		{
+			name:  "triple slash without space",
+			input: "///설명",
+			want:  "설명",
+		},
+		{
+			name:  "double slash with space",
+			input: "// 일반 주석",
+			want:  "일반 주석",
+		},
+		{
+			name:  "multiline triple slash block",
+			input: "/// 첫 줄\n/// @intent 의도",
+			want:  "첫 줄\n@intent 의도",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := n.Normalize(tc.input, "rust")
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

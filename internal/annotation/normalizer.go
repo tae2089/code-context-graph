@@ -102,6 +102,19 @@ func stripLinePrefix(line string, language string) string {
                 if strings.HasPrefix(trimmed, "--") {
                         return trimmed[2:]
                 }
+        case "rust":
+                if strings.HasPrefix(trimmed, "/// ") {
+                        return trimmed[4:]
+                }
+                if strings.HasPrefix(trimmed, "///") {
+                        return trimmed[3:]
+                }
+                if strings.HasPrefix(trimmed, "// ") {
+                        return trimmed[3:]
+                }
+                if strings.HasPrefix(trimmed, "//") {
+                        return trimmed[2:]
+                }
         }
 
         return trimmed
