@@ -31,6 +31,9 @@ func (n *Normalizer) Normalize(text string, language string) string {
         var result []string
 
         for _, line := range lines {
+                if language == "go" && isGoDirective(line) {
+                        continue
+                }
                 stripped := stripLinePrefix(line, language)
                 stripped = strings.TrimRight(stripped, " \t")
                 if stripped != "" || len(result) > 0 {
@@ -43,6 +46,21 @@ func (n *Normalizer) Normalize(text string, language string) string {
         }
 
         return strings.Join(result, "\n")
+}
+
+// isGoDirective reports whether a line is a Go compiler pragma like `//go:generate`.
+// @intent exclude `//go:*` pragma lines from annotation normalization so tag values stay clean
+func isGoDirective(line string) bool {
+        trimmed := strings.TrimLeft(line, " \t")
+        if !strings.HasPrefix(trimmed, "//go:") {
+                return false
+        }
+        rest := trimmed[len("//go:"):]
+        if rest == "" {
+                return false
+        }
+        c := rest[0]
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
 }
 
 // stripBlockDelimiters removes outer block-comment wrappers for the given language.
