@@ -68,7 +68,7 @@ func TestBinder_CommentNotAdjacent(t *testing.T) {
 
 	bindings := b.Bind(comments, nodes, "go")
 	if len(bindings) != 0 {
-		t.Errorf("expected 0 bindings (gap > 1), got %d", len(bindings))
+		t.Errorf("expected 0 bindings (gap=4 > maxGap=3), got %d", len(bindings))
 	}
 }
 
@@ -136,9 +136,9 @@ func TestBinder_PythonDecoratorGap_BindsWithinMaxGap(t *testing.T) {
 	}
 }
 
-// TestBinder_JavaAnnotationGap_CurrentlyFails 는 Java 어노테이션 3개가 있을 때
-// Javadoc 끝줄과 class 키워드 StartLine 사이 gap이 maxGap(2)을 초과하므로
-// 현재 바인딩이 실패함을 재현합니다.
+// TestBinder_JavaAnnotationGap_ExceedsMaxGap 는 Java 어노테이션 3개가 있을 때
+// Javadoc 끝줄과 class 키워드 StartLine 사이 gap이 maxGap(3)을 초과하므로
+// 바인딩이 발생하지 않음을 검증합니다 (회귀 감지용).
 //
 // fixture (AnnotationGap.java) 기준:
 //   Line 1-4: /** ... */ Javadoc
@@ -147,8 +147,8 @@ func TestBinder_PythonDecoratorGap_BindsWithinMaxGap(t *testing.T) {
 //   Line 7:   @RequiredArgsConstructor
 //   Line 8:   public class UserService {   ← tree-sitter StartLine 예상
 //
-// gap = 8 - 4 = 4 > maxGap(2) → 바인딩 실패
-func TestBinder_JavaAnnotationGap_CurrentlyFails(t *testing.T) {
+// gap = 8 - 4 = 4 > maxGap(3) → 바인딩 없음
+func TestBinder_JavaAnnotationGap_ExceedsMaxGap(t *testing.T) {
 	b := NewBinder()
 
 	// Javadoc 끝줄=4, 어노테이션 3개 후 class 키워드 줄=8

@@ -95,6 +95,32 @@ func TestLoadBinderMaxGapFromConfig_InvalidYAML(t *testing.T) {
 	}
 }
 
+func TestLoadBinderMaxGapFromConfig_NegativeValue(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte("binder:\n  max_gap: -1\n")
+	if err := os.WriteFile(filepath.Join(dir, ".ccg.yaml"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := pathutil.LoadBinderMaxGapFromConfig(dir)
+	if got != -1 {
+		t.Errorf("expected -1 (raw value; caller clamps via NewBinderFromConfig), got %d", got)
+	}
+}
+
+func TestLoadBinderMaxGapFromConfig_ZeroValue(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte("binder:\n  max_gap: 0\n")
+	if err := os.WriteFile(filepath.Join(dir, ".ccg.yaml"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := pathutil.LoadBinderMaxGapFromConfig(dir)
+	if got != 0 {
+		t.Errorf("expected 0 (raw value; caller clamps via NewBinderFromConfig), got %d", got)
+	}
+}
+
 func TestMatchExcludes(t *testing.T) {
 	tests := []struct {
 		name     string

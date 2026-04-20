@@ -61,6 +61,11 @@ func NewBinderFromConfig(maxGap int) *Binder {
 // @ensures file nodes bind only the first leading comment block when present
 // @see parse.hasContent
 func (b *Binder) Bind(comments []CommentBlock, nodes []model.Node, language string) []Binding {
+	maxGap := b.MaxGap
+	if maxGap <= 0 {
+		maxGap = defaultMaxGap
+	}
+
 	var bindings []Binding
 
 	for _, node := range nodes {
@@ -103,7 +108,7 @@ func (b *Binder) Bind(comments []CommentBlock, nodes []model.Node, language stri
 			}
 			// 일반 comment: gap 기반 바인딩
 			gap := node.StartLine - comment.EndLine
-			if gap < 1 || gap > b.MaxGap {
+			if gap < 1 || gap > maxGap {
 				continue
 			}
 			normalized := b.normalizer.Normalize(comment.Text, language)
