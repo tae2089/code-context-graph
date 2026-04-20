@@ -127,17 +127,19 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 			sourceLines := strings.Split(string(content), "\n")
 			bindings := binder.Bind(binderComments, nodes, walker.Language(), sourceLines)
 
-				qNames := make([]string, len(bindings))
-				for i, b := range bindings {
-					qNames[i] = b.Node.QualifiedName
-				}
-				storedMap, err := txStore.GetNodesByQualifiedNames(ctx, qNames)
+				storedNodes, err := txStore.GetNodesByFile(ctx, relPath)
 				if err != nil {
-					return trace.Wrap(err, "batch get nodes for annotations")
+					return trace.Wrap(err, "get stored nodes for annotations")
+				}
+				storedMap := make(map[string]*model.Node, len(storedNodes))
+				for i := range storedNodes {
+					key := storedNodes[i].QualifiedName + ":" + strconv.Itoa(storedNodes[i].StartLine)
+					storedMap[key] = &storedNodes[i]
 				}
 
 				for _, b := range bindings {
-					stored := storedMap[b.Node.QualifiedName]
+					key := b.Node.QualifiedName + ":" + strconv.Itoa(b.Node.StartLine)
+					stored := storedMap[key]
 					if stored == nil {
 						continue
 					}

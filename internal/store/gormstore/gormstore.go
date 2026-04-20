@@ -56,9 +56,9 @@ func (s *Store) UpsertNodes(ctx context.Context, nodes []model.Node) error {
 	}
 	err := s.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "namespace"}, {Name: "qualified_name"}},
+			Columns: []clause.Column{{Name: "namespace"}, {Name: "qualified_name"}, {Name: "file_path"}, {Name: "start_line"}},
 			DoUpdates: clause.AssignmentColumns([]string{
-				"kind", "name", "file_path", "start_line", "end_line", "hash", "language",
+				"kind", "name", "end_line", "hash", "language",
 			}),
 		}).
 		CreateInBatches(nodes, 100).Error
