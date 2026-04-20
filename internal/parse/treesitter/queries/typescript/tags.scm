@@ -2,6 +2,14 @@
 (class_declaration
   name: (type_identifier) @name.class) @definition.class
 
+; Decorated exported classes: tree-sitter-typescript places decorators as siblings
+; of class_declaration inside export_statement, so class_declaration.StartLine
+; stays at the class keyword line. Match the export_statement wrapper so its
+; StartLine (first decorator line) wins via nameIndex dedup.
+(export_statement
+  (class_declaration
+    name: (type_identifier) @name.class)) @definition.class
+
 ; Interfaces
 (interface_declaration
   name: (type_identifier) @name.interface) @definition.interface
