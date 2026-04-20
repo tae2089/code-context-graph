@@ -126,24 +126,19 @@ fn greet() -> &'static str { "hi" }
 			expectBound:    true,
 		},
 		{
-			// Red 계약: `///` 바로 다음 줄에 fn 이 오는 "자연스러운" Rust 도크 주석 패턴.
-			// 현재 walker 는 `line_comment` 의 EndPoint.Row 를 trailing newline 이 속한
-			// 다음 줄로 보고하고, `function_item` StartPoint.Row 역시 같은 줄이므로
-			// gap = 0 이 되어 binder 의 `gap >= 1` 필터에 걸려 바인딩이 누락된다.
-			//
-			// 후속 과제: walker.collectComments 에서 line_comment/single-line 주석 노드에
-			// 한해 `EndPoint().Column == 0` 일 때 EndRow-- 정규화를 적용해야 한다.
-			// (merge 된 comment block 까지 보정하면 기존 Red 테스트가 깨지므로 scope 제한 필요)
+			// Green 계약: `///` 바로 다음 줄에 fn 이 오는 자연스러운 Rust 도크 주석 패턴.
+			// walker.collectComments 에서 line_comment 노드의 EndPoint.Column == 0 일 때
+			// endLine-- 정규화를 적용해 gap = 1 이 되도록 보정한다.
 			label:    "Rust_DocComment_Function_NoBlankLine",
 			spec:     RustSpec,
 			filename: "sample_noblank.rs",
 			source: `/// @intent greet returns a friendly greeting
 fn greet() -> &'static str { "hi" }
 `,
-			symbolName:   "greet",
-			expectedKind: model.NodeKindFunction,
-			expectBound:  false,
-			redReason:    "tree-sitter-rust line_comment EndRow trailing-newline quirk → gap=0",
+			symbolName:     "greet",
+			expectedKind:   model.NodeKindFunction,
+			expectedIntent: "greet returns a friendly greeting",
+			expectBound:    true,
 		},
 		{
 			label:    "Cpp_BlockComment_Function",
