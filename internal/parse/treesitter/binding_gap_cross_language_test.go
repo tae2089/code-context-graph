@@ -6,15 +6,22 @@
 // 범위: 데코레이터/어노테이션/속성/매크로 등 gap 요소 없이 "주석 + 심볼" 최소 케이스만 검증.
 // gap 관련 동작은 binding_gap_integration_test.go / binding_gap_p1_test.go 에서 별도 검증.
 //
-// Red 테스트 아님 — 이 테스트는 "최소 계약"이므로 모든 언어가 Green 이어야 한다.
-// 하나라도 실패하면 normalizer 케이스 누락 / walker 주석 수집 누락 / binder 규칙 이탈 등의
-// 회귀가 발생한 것이다.
+// 테스트 정책:
+//   - expectBound=true  → Green 계약. 정상 바인딩되어야 하며, 실패 시 회귀(normalizer/walker/binder).
+//   - expectBound=false → Red 계약. 현재 tree-sitter grammar 특성으로 바인딩이 누락됨을
+//                         "명시적으로" 고정. 구현이 개선되어 우연히 바인딩되면 테스트가 실패하므로
+//                         그때 Green으로 승격하고 skipReason과 walker 보정을 함께 정리한다.
+//
+// Helper 함수:
+//   - binderFromWalkerComments, logNodeInfo, logCommentInfo 는
+//     binding_gap_integration_test.go 상단에 정의되어 있음.
 package treesitter
 
 import (
 	"context"
 	"testing"
 
+	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/parse"
 )
 
@@ -22,14 +29,17 @@ import (
 type crossLangIntentCase struct {
 	label          string
 	spec           *LangSpec
-	lang           string
 	filename       string
 	source         string
 	symbolName     string
+	expectedKind   model.NodeKind
 	expectedIntent string
-	// skipReason 이 비어있지 않으면 해당 케이스는 t.Skip 처리된다.
-	// 언어별 tree-sitter AST 특성으로 인한 알려진 한계를 문서화하는 용도.
-	skipReason string
+	// expectBound=false 이면 현재 바인딩이 실패하는 Red 계약으로 다룬다.
+	// 파싱은 성공해야 하지만 @intent 태그가 달리지 않아야 한다.
+	expectBound bool
+	// redReason 은 expectBound=false 케이스에서 "왜 현재 바인딩이 실패하는가"를
+	// 기록한다. grammar quirk를 문서화하고, 향후 walker 보정 시 근거 자료로 쓴다.
+	redReason string
 }
 
 func TestCrossLanguage_IntentBinding_MinimalContract(t *testing.T) {
@@ -37,7 +47,6 @@ func TestCrossLanguage_IntentBinding_MinimalContract(t *testing.T) {
 		{
 			label:    "Go_LineComment_Function",
 			spec:     GoSpec,
-			lang:     "go",
 			filename: "sample.go",
 			source: `package sample
 
@@ -45,35 +54,38 @@ func TestCrossLanguage_IntentBinding_MinimalContract(t *testing.T) {
 func Greet() string { return "hi" }
 `,
 			symbolName:     "Greet",
+			expectedKind:   model.NodeKindFunction,
 			expectedIntent: "greet returns a friendly greeting",
+			expectBound:    true,
 		},
 		{
 			label:    "Python_HashComment_Function",
 			spec:     PythonSpec,
-			lang:     "python",
 			filename: "sample.py",
 			source: `# @intent greet returns a friendly greeting
 def greet():
     return "hi"
 `,
 			symbolName:     "greet",
+			expectedKind:   model.NodeKindFunction,
 			expectedIntent: "greet returns a friendly greeting",
+			expectBound:    true,
 		},
 		{
 			label:    "TypeScript_LineComment_Function",
 			spec:     TypeScriptSpec,
-			lang:     "typescript",
 			filename: "sample.ts",
 			source: `// @intent greet returns a friendly greeting
 function greet(): string { return "hi"; }
 `,
 			symbolName:     "greet",
+			expectedKind:   model.NodeKindFunction,
 			expectedIntent: "greet returns a friendly greeting",
+			expectBound:    true,
 		},
 		{
 			label:    "Java_Javadoc_Method",
 			spec:     JavaSpec,
-			lang:     "java",
 			filename: "Sample.java",
 			source: `public class Sample {
     /** @intent greet returns a friendly greeting */
@@ -81,59 +93,85 @@ function greet(): string { return "hi"; }
 }
 `,
 			symbolName:     "greet",
+			expectedKind:   model.NodeKindFunction,
 			expectedIntent: "greet returns a friendly greeting",
+			expectBound:    true,
 		},
 		{
 			label:    "C_BlockComment_Function",
 			spec:     CSpec,
-			lang:     "c",
 			filename: "sample.c",
 			source: `/** @intent greet returns a friendly greeting */
 int greet(void) { return 0; }
 `,
 			symbolName:     "greet",
+			expectedKind:   model.NodeKindFunction,
 			expectedIntent: "greet returns a friendly greeting",
+			expectBound:    true,
 		},
 		{
-			label:    "Rust_DocComment_Function",
+			// Green 케이스: `///` 뒤에 빈 줄을 두어 trailing-newline quirk를 회피.
+			// walker.collectComments가 Rust `line_comment` 노드의 EndRow를 다음 줄로
+			// 보고하므로, 빈 줄 없이 fn이 바로 오면 gap=0 으로 판정된다 (아래 Red 케이스 참조).
+			label:    "Rust_DocComment_Function_WithBlankLine",
 			spec:     RustSpec,
-			lang:     "rust",
-			filename: "sample.rs",
-			// Rust `///` line_comment는 tree-sitter가 trailing newline을 포함해
-			// EndRow+1을 다음 줄로 보고하므로, 빈 줄을 두어 gap>=1 을 보장.
+			filename: "sample_blank.rs",
 			source: `/// @intent greet returns a friendly greeting
 
 fn greet() -> &'static str { "hi" }
 `,
 			symbolName:     "greet",
+			expectedKind:   model.NodeKindFunction,
 			expectedIntent: "greet returns a friendly greeting",
+			expectBound:    true,
+		},
+		{
+			// Red 계약: `///` 바로 다음 줄에 fn 이 오는 "자연스러운" Rust 도크 주석 패턴.
+			// 현재 walker 는 `line_comment` 의 EndPoint.Row 를 trailing newline 이 속한
+			// 다음 줄로 보고하고, `function_item` StartPoint.Row 역시 같은 줄이므로
+			// gap = 0 이 되어 binder 의 `gap >= 1` 필터에 걸려 바인딩이 누락된다.
+			//
+			// 후속 과제: walker.collectComments 에서 line_comment/single-line 주석 노드에
+			// 한해 `EndPoint().Column == 0` 일 때 EndRow-- 정규화를 적용해야 한다.
+			// (merge 된 comment block 까지 보정하면 기존 Red 테스트가 깨지므로 scope 제한 필요)
+			label:    "Rust_DocComment_Function_NoBlankLine",
+			spec:     RustSpec,
+			filename: "sample_noblank.rs",
+			source: `/// @intent greet returns a friendly greeting
+fn greet() -> &'static str { "hi" }
+`,
+			symbolName:   "greet",
+			expectedKind: model.NodeKindFunction,
+			expectBound:  false,
+			redReason:    "tree-sitter-rust line_comment EndRow trailing-newline quirk → gap=0",
 		},
 		{
 			label:    "Cpp_BlockComment_Function",
 			spec:     CppSpec,
-			lang:     "cpp",
 			filename: "sample.cpp",
 			source: `/** @intent greet returns a friendly greeting */
 int greet() { return 0; }
 `,
 			symbolName:     "greet",
+			expectedKind:   model.NodeKindFunction,
 			expectedIntent: "greet returns a friendly greeting",
+			expectBound:    true,
 		},
 		{
 			label:    "JavaScript_LineComment_Function",
 			spec:     JavaScriptSpec,
-			lang:     "javascript",
 			filename: "sample.js",
 			source: `// @intent greet returns a friendly greeting
 function greet() { return "hi"; }
 `,
 			symbolName:     "greet",
+			expectedKind:   model.NodeKindFunction,
 			expectedIntent: "greet returns a friendly greeting",
+			expectBound:    true,
 		},
 		{
 			label:    "Ruby_HashComment_Method",
 			spec:     RubySpec,
-			lang:     "ruby",
 			filename: "sample.rb",
 			source: `# @intent greet returns a friendly greeting
 def greet
@@ -141,56 +179,61 @@ def greet
 end
 `,
 			symbolName:     "greet",
+			expectedKind:   model.NodeKindFunction,
 			expectedIntent: "greet returns a friendly greeting",
+			expectBound:    true,
 		},
 		{
 			label:    "Kotlin_Javadoc_Function",
 			spec:     KotlinSpec,
-			lang:     "kotlin",
 			filename: "Sample.kt",
 			source: `/** @intent greet returns a friendly greeting */
 fun greet(): String { return "hi" }
 `,
 			symbolName:     "greet",
+			expectedKind:   model.NodeKindFunction,
 			expectedIntent: "greet returns a friendly greeting",
+			expectBound:    true,
 		},
 		{
+			// PHP 소스는 반드시 `<?php` 오프닝 태그로 시작해야 tree-sitter-php 가
+			// 최상위 `function_definition` 을 인식한다. 태그 없이 주석/함수만 있는 파일은
+			// `text` 노드로 취급되어 심볼이 추출되지 않는다.
 			label:    "PHP_LineComment_Function",
 			spec:     PHPSpec,
-			lang:     "php",
 			filename: "sample.php",
 			source: `<?php
 // @intent greet returns a friendly greeting
 function greet() { return "hi"; }
 `,
 			symbolName:     "greet",
+			expectedKind:   model.NodeKindFunction,
 			expectedIntent: "greet returns a friendly greeting",
+			expectBound:    true,
 		},
 		{
+			// Red 계약: tree-sitter-lua 의 두 가지 range quirk가 합쳐진 결과.
+			//   1) comment 노드가 선행 trailing-newline 을 포함 → EndRow가 다음 줄로 잡힘
+			//   2) function_statement 가 선행 공백/주석을 흡수 → StartRow가 같은 줄로 당겨짐
+			// 최종적으로 comment.EndLine == function.StartLine 이 되어 gap=0 → binder 거부.
+			//
+			// 후속 과제: walker 에서 Lua comment/function_statement range 를 실제 토큰 경계로
+			// 보정해야 한다. Green 으로 바뀌면 이 케이스를 expectBound=true 로 승격한다.
 			label:    "Lua_LineComment_Function",
 			spec:     LuaSpec,
-			lang:     "lua",
 			filename: "sample.lua",
 			source: `-- @intent greet returns a friendly greeting
 function greet() return "hi" end
 `,
-			symbolName:     "greet",
-			expectedIntent: "greet returns a friendly greeting",
-			// 알려진 한계: tree-sitter-lua의 comment 노드가 선행 newline을 범위에
-			// 포함시켜 EndLine이 다음 줄까지 확장되고, 동시에 function_statement 도
-			// 선행 공백/주석을 흡수해 StartLine이 같은 줄로 앞당겨져 gap=0이 됨.
-			// 결과적으로 binder의 gap>=1 필터에 걸려 바인딩이 누락된다.
-			// 후속 개선: walker.collectComments에서 Lua comment 노드의 EndLine을
-			// 실제 comment 문자열 끝으로 보정하거나, function_statement range 조정.
-			skipReason: "tree-sitter-lua comment/function_statement range quirk (walker 보정 필요)",
+			symbolName:   "greet",
+			expectedKind: model.NodeKindFunction,
+			expectBound:  false,
+			redReason:    "tree-sitter-lua comment/function_statement range quirk → gap=0",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.label, func(t *testing.T) {
-			if tc.skipReason != "" {
-				t.Skipf("[%s] %s", tc.label, tc.skipReason)
-			}
 			w := NewWalker(tc.spec)
 			nodes, _, walkerComments, err := w.ParseWithComments(
 				context.Background(), tc.filename, []byte(tc.source),
@@ -202,22 +245,58 @@ function greet() return "hi" end
 			t.Logf("[%s] 노드 수=%d, 주석블록 수=%d",
 				tc.label, len(nodes), len(walkerComments))
 
+			// Phase 1: 심볼이 실제로 파싱되었는지 확인 (Kind 포함).
+			//          바인딩 실패인지 파싱 실패인지 구분하기 위한 게이트.
+			var symbol *model.Node
+			for i := range nodes {
+				if nodes[i].Name == tc.symbolName && nodes[i].Kind == tc.expectedKind {
+					symbol = &nodes[i]
+					break
+				}
+			}
+			if symbol == nil {
+				logNodeInfo(t, nodes)
+				logCommentInfo(t, walkerComments)
+				t.Fatalf("[%s] 심볼 파싱 실패: name=%q kind=%q 인 노드를 찾지 못함 (파서/LangSpec 회귀)",
+					tc.label, tc.symbolName, tc.expectedKind)
+			}
+
+			// Phase 2: 바인딩 시도.
 			binder := parse.NewBinder()
 			bindings := binder.Bind(
-				binderFromWalkerComments(walkerComments), nodes, tc.lang,
+				binderFromWalkerComments(walkerComments), nodes, tc.spec.Name,
 			)
 
 			var target *parse.Binding
 			for i := range bindings {
-				if bindings[i].Node.Name == tc.symbolName {
+				if bindings[i].Node.Name == tc.symbolName && bindings[i].Node.Kind == tc.expectedKind {
 					target = &bindings[i]
 					break
 				}
 			}
+
+			// Phase 3: expectBound 분기.
+			if !tc.expectBound {
+				if target == nil {
+					t.Logf("[%s] Red 계약 유지 (%s) — 바인딩 없음, 심볼은 정상 파싱됨",
+						tc.label, tc.redReason)
+					return
+				}
+				// 바인딩이 붙어버린 경우: 구현이 개선됐을 가능성이 높다.
+				// Red → Green 승격을 강제하기 위해 실패로 처리.
+				logNodeInfo(t, nodes)
+				logCommentInfo(t, walkerComments)
+				t.Fatalf("[%s] Red 계약 위반: 바인딩이 발생함. "+
+					"redReason=%q 이 더 이상 유효하지 않으니 케이스를 expectBound=true 로 승격하세요. Tags=%+v",
+					tc.label, tc.redReason, target.Annotation.Tags)
+			}
+
 			if target == nil {
 				logNodeInfo(t, nodes)
 				logCommentInfo(t, walkerComments)
-				t.Fatalf("[%s] 대상 심볼 %q의 바인딩이 없음", tc.label, tc.symbolName)
+				t.Fatalf("[%s] 심볼은 파싱됐지만 @intent 바인딩이 누락됨 (name=%q kind=%q). "+
+					"binder/walker 회귀 가능성",
+					tc.label, tc.symbolName, tc.expectedKind)
 			}
 
 			var intentValue string
