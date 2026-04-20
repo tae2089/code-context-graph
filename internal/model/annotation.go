@@ -37,10 +37,13 @@ type Annotation struct {
 
 // DocTag는 Annotation 내의 개별 태그이다.
 // @intent 어노테이션의 단일 구조화 태그 항목을 표현한다.
+// Type 필드는 YARD `@param [String] name ...` 또는 JSDoc `@param {string} name ...`에서
+// 추출한 타입 문자열을 보관한다 (param/throws/return에서 사용).
 type DocTag struct {
 	ID           uint    `gorm:"primaryKey"`
 	AnnotationID uint    `gorm:"not null;index"`
 	Kind         TagKind `gorm:"size:32;not null;index"`
+	Type         string  `gorm:"size:128"`
 	Name         string  `gorm:"size:128"`
 	Value        string  `gorm:"type:text;not null"`
 	Ordinal      int     `gorm:"not null"`
