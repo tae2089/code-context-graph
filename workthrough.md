@@ -262,3 +262,21 @@
 - **정책 결정이 필요한 항목은 "옵션 분기 + 추천안 + 근거"를 먼저 task.md에 적고 그대로 실행**. P2-b의 "처리 정책 결정"을 새 TagKind로 낙찰시키는 이유(unknown warning 노이즈 + 검색 가능)를 커밋 메시지와 task.md 양쪽에 남기면 나중에 다시 논의할 필요 없음.
 - **호환성 개선은 하위호환 테스트를 "plain 경로 여전히 동작" 형태로 명시적으로 고정**. P2-c `TestParse_Param_PlainStillWorks` / `TestParse_Return_PlainStillWorks`가 바로 이 역할. 미래에 extractTypePrefix가 리팩터되어도 이 두 테스트가 regression 안전망.
 - **Tidy First 실천 포인트**: P2-c에서 `DocTag.Type` 추가(구조)와 `extractTypePrefix` 로직(행위)을 두 커밋으로 분리. 구조 커밋에서 전 테스트 통과를 확인해 "행위 무변경"을 증명한 뒤 행위 커밋을 쌓음. 나중에 bisect 시 원인 분리가 쉬움.
+
+### 리뷰 대응 (밤 V-2)
+
+독립 리뷰 결과 **Blocker 1 + Important 5 + Minor 4** 지적. 주요 대응:
+
+- **Blocker #1 (MCP 노출 누락)** — `internal/mcp/handler_query.go:165-170`의 tag 직렬화에 `"type"` 키 부재. DocTag.Type은 DB에 저장되지만 get_annotation 응답에 실리지 않아 외부 사용 경로 차단. `TestHandler_GetAnnotation_ExposesDocTagTypeField` Red 테스트 추가 → "type" 키 추가로 Green. 커밋 `6dde17b`.
+
+- **Important #2 (사일런트 드롭)** — `@param [Type]` / `@throws [IOException]` 처럼 type만 있고 name이 없을 때 기존 코드가 `return nil, ""`로 조용히 드롭. 디버깅 어려움. `return nil, tagName` 으로 변경해 warning slice에 싣고, 호출자가 unknown 태그 메시지와 동일하게 받아볼 수 있게 함. 커밋 `e77c39c`.
+
+- **Important #5 (컬럼 크기 부족)** — `DocTag.Type`을 `size:128`에서 `type:text`로 완화. TypeScript/JSDoc 복합 타입 수백 바이트 대비. 구조 변경 단독 커밋 `f19478c`로 분리.
+
+- **Important #6 (멀티라인 상호작용 미검증)** — 현재 동작을 명시적으로 테스트로 고정: 첫 줄에 type만 있고 name이 continuation에 있으면 드롭 + warning (파서 설계상 continuation은 Value로만 붙음), 정상 케이스(type+name 첫 줄, description continuation)는 정상 동작. 테스트 2건으로 계약 박음.
+
+- **Minor #7/#8/#10** — extractTypePrefix 주석에 "mixed bracket nesting 비지원" 명시, 중첩 대괄호 `[Hash<Symbol, [String, Integer]>]` 실측 테스트 추가, typedef는 extractTypePrefix를 거치지 않는다는 명시적 assertion 추가.
+
+### 교훈 2
+- **외부 노출 경로를 리뷰 시 함께 체크해야 한다**. 파싱/저장 로직을 추가했을 때 "DB까지 갔는가"가 아니라 "외부 소비자(MCP/CLI/HTTP)에게 전달되는가"를 확인해야 완결. 리뷰가 이걸 잡아내서 Blocker로 격상시킨 게 결정적.
+- **사일런트 드롭은 항상 의심**. 코드에서 `return nil, ""` 같은 형태로 데이터가 버려지는 곳을 찾으면 거의 항상 warning 경로를 추가하는 게 맞다. 특히 사용자 입력(주석 텍스트)을 처리하는 파서는 "왜 이 태그가 안 잡히지?" 의 답을 로그로 줄 수 있어야 한다.
