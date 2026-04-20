@@ -122,16 +122,7 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 			}
 
 			if len(tsComments) > 0 {
-				binderComments := make([]parse.CommentBlock, len(tsComments))
-				for i, c := range tsComments {
-					binderComments[i] = parse.CommentBlock{
-						StartLine:      c.StartLine,
-						EndLine:        c.EndLine,
-						Text:           c.Text,
-						IsDocstring:    c.IsDocstring,
-						OwnerStartLine: c.OwnerStartLine,
-					}
-				}
+				binderComments := toBinderComments(tsComments)
 				binder := parse.NewBinder()
 				bindings := binder.Bind(binderComments, nodes, walker.Language())
 
@@ -263,4 +254,21 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 	s.Logger.Info("build complete", "files", stats.TotalFiles, "nodes", stats.TotalNodes, "edges", stats.TotalEdges)
 
 	return stats, nil
+}
+
+// toBinderComments converts walker comment blocks into binder comment blocks,
+// preserving docstring bookkeeping required by the Python docstring binding path.
+// @intent keep IsDocstring and OwnerStartLine in sync between walker and binder types
+func toBinderComments(tsComments []treesitter.CommentBlock) []parse.CommentBlock {
+	out := make([]parse.CommentBlock, len(tsComments))
+	for i, c := range tsComments {
+		out[i] = parse.CommentBlock{
+			StartLine:      c.StartLine,
+			EndLine:        c.EndLine,
+			Text:           c.Text,
+			IsDocstring:    c.IsDocstring,
+			OwnerStartLine: c.OwnerStartLine,
+		}
+	}
+	return out
 }
