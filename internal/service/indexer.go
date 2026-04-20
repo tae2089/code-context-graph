@@ -125,9 +125,11 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 				binderComments := make([]parse.CommentBlock, len(tsComments))
 				for i, c := range tsComments {
 					binderComments[i] = parse.CommentBlock{
-						StartLine: c.StartLine,
-						EndLine:   c.EndLine,
-						Text:      c.Text,
+						StartLine:      c.StartLine,
+						EndLine:        c.EndLine,
+						Text:           c.Text,
+						IsDocstring:    c.IsDocstring,
+						OwnerStartLine: c.OwnerStartLine,
 					}
 				}
 				binder := parse.NewBinder()
