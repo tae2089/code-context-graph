@@ -610,6 +610,110 @@ func TestParse_Return_PlainStillWorks(t *testing.T) {
 	}
 }
 
+// 리뷰 #8. 중첩 대괄호 YARD 타입 `[Hash<Symbol, [String, Integer]>]`
+// 커밋 메시지에 "중첩 허용"을 명시했으므로 회귀 방지용 실측 테스트 필요.
+func TestParse_Param_YardNestedBracketType(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@param [Hash<Symbol, [String, Integer]>] options 옵션 맵")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Type != "Hash<Symbol, [String, Integer]>" {
+		t.Errorf("Type = %q", ann.Tags[0].Type)
+	}
+	if ann.Tags[0].Name != "options" {
+		t.Errorf("Name = %q", ann.Tags[0].Name)
+	}
+	if ann.Tags[0].Value != "옵션 맵" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+// 리뷰 #10. typedef는 extractTypePrefix를 건너뛰어야 함을 명시적으로 단언.
+// 향후 실수로 typedef도 type 추출 대상에 포함되면 이 테스트로 차단.
+func TestParse_Typedef_KeepsTypeEmpty(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@typedef {Object} UserProfile 사용자 프로필")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Type != "" {
+		t.Errorf("typedef should skip type extraction, Type = %q", ann.Tags[0].Type)
+	}
+	// 원문 전체 보존
+	if ann.Tags[0].Value != "{Object} UserProfile 사용자 프로필" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+// 리뷰 #2. `@param [String]` — Type만 있고 Name이 없을 때 현재 동작은 조용히 드롭.
+// 기대: 경고 1건("param"), tag는 드롭 유지 (Name 필수 규칙 유지).
+func TestParse_Param_TypeOnly_NoName_EmitsWarning(t *testing.T) {
+	p := NewParser()
+	ann, warnings := p.Parse("@param [String]")
+	if len(ann.Tags) != 0 {
+		t.Errorf("expected 0 tags (name missing), got %d", len(ann.Tags))
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("expected 1 warning for name-missing param, got %d: %v", len(warnings), warnings)
+	}
+	if warnings[0] != "param" {
+		t.Errorf("warning = %q, want %q", warnings[0], "param")
+	}
+}
+
+// 리뷰 #2. `@throws [IOException]` — Name 없을 때도 동일 경고.
+func TestParse_Throws_TypeOnly_NoName_EmitsWarning(t *testing.T) {
+	p := NewParser()
+	ann, warnings := p.Parse("@throws [IOException]")
+	if len(ann.Tags) != 0 {
+		t.Errorf("expected 0 tags, got %d", len(ann.Tags))
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d: %v", len(warnings), warnings)
+	}
+	if warnings[0] != "throws" {
+		t.Errorf("warning = %q, want %q", warnings[0], "throws")
+	}
+}
+
+// 리뷰 #6. 멀티라인 태그 — 첫 줄에 type만, 둘째 줄에 name desc.
+// 현재 parseTagLine은 첫 줄에서만 extractTypePrefix 실행되고,
+// continuation 줄(space 들여쓴 줄)은 tag.Value에 "\n..." 로 붙음.
+// 이 테스트는 현재 동작을 명시적으로 고정 — future 변경 시 이 계약을 지켜야 함.
+func TestParse_Param_MultilineTypeDefersNameToContinuation(t *testing.T) {
+	p := NewParser()
+	// 첫 줄: "@param {string}" (type만, name 없음) → warning + drop
+	// 둘째 줄: "  name desc" (continuation이지만 이전 tag가 nil이라 inTag=false → drop)
+	ann, warnings := p.Parse("@param {string}\n  name desc")
+	if len(ann.Tags) != 0 {
+		t.Errorf("expected 0 tags (malformed multiline), got %d: %+v", len(ann.Tags), ann.Tags)
+	}
+	if len(warnings) != 1 || warnings[0] != "param" {
+		t.Errorf("expected [param] warning, got %v", warnings)
+	}
+}
+
+// 리뷰 #6. 정상 멀티라인 — 첫 줄에 type + name, 둘째 줄에 description continuation.
+// continuation은 tag.Value에 "\n description" 으로 붙어야 함.
+func TestParse_Param_MultilineDescriptionContinuation(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@param {string} name 사용자 ID\n  로그인용 식별자")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	tag := ann.Tags[0]
+	if tag.Type != "string" {
+		t.Errorf("Type = %q", tag.Type)
+	}
+	if tag.Name != "name" {
+		t.Errorf("Name = %q", tag.Name)
+	}
+	if tag.Value != "사용자 ID\n로그인용 식별자" {
+		t.Errorf("Value = %q, want continuation joined with \\n", tag.Value)
+	}
+}
+
 func TestParse_RawTextPreserved(t *testing.T) {
 	input := "요약\n@param x 값"
 	p := NewParser()

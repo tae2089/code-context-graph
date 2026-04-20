@@ -122,7 +122,11 @@ func (p *Parser) Parse(text string) (*model.Annotation, []string) {
 
 // extractTypePrefix extracts a leading YARD `[Type]` or JSDoc `{Type}` prefix
 // from a tag value string, returning the inner type text and the remaining rest.
-// Supports nested brackets (e.g. `[Hash<Symbol, [String, Integer]>]`).
+// Supports same-bracket nesting (e.g. `[Hash<Symbol, [String, Integer]>]`,
+// `{Record<string, {a: number}>}`). Mixed bracket nesting is not tracked —
+// `{Array[string]}` is parsed as `Array[string]` because only `{`/`}` are counted.
+// This is intentional: YARD uses only `[...]`, JSDoc uses only `{...}`, and real-world
+// type expressions never mix the two at the outer level.
 // @intent separate type annotation from name/description portion for param/return/throws tags
 func extractTypePrefix(value string) (typeStr, rest string, ok bool) {
 	if len(value) == 0 {
@@ -195,7 +199,10 @@ func (p *Parser) parseTagLine(line string, ordinals map[model.TagKind]int) (*mod
 	if kind == model.TagParam || kind == model.TagThrows {
 		paramParts := strings.SplitN(value, " ", 2)
 		if paramParts[0] == "" {
-			return nil, ""
+			// Name이 필수인 태그에 Name이 없음 — 사일런트 드롭 대신 경고 방출해
+			// 호출자가 진단할 수 있게 한다. YARD `@param [Type]` 단독, Javadoc `@throws`
+			// 단독 등이 여기 걸린다.
+			return nil, tagName
 		}
 		tag.Name = paramParts[0]
 		if len(paramParts) > 1 {
