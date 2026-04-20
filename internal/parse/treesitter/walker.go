@@ -340,9 +340,12 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 				if nodes[idx].Kind == model.NodeKindType && kind == model.NodeKindClass {
 					nodes[idx].Kind = kind
 				}
-			} else if idx, exists := nameIndex[name]; exists {
+			} else if idx, exists := nameIndex[name]; exists && rangesOverlap(nodes[idx].StartLine, nodes[idx].EndLine, startLine, endLine) {
 				// 같은 이름의 심볼이 이미 등록된 경우: decorated_definition + function_definition처럼
 				// 래퍼 노드와 내부 노드가 같은 함수를 중복 매칭할 때 발생.
+				// 범위가 겹치는(overlap) 경우에만 같은 심볼로 간주해 dedup한다.
+				// 겹치지 않으면 같은 이름의 별개 심볼(예: 서로 다른 클래스의 동명 메서드)이므로
+				// 아래 else 분기에서 별도 노드로 추가된다.
 				// StartLine이 더 작은 쪽(래퍼 노드, 데코레이터 첫 줄)을 우선 보존한다.
 				slog.Debug("중복 심볼 감지: 이름 기준 dedup 적용",
 					"name", name, "existing_start", nodes[idx].StartLine, "new_start", startLine)
@@ -951,4 +954,10 @@ func (w *Walker) getLanguage() (*sitter.Language, error) {
 	default:
 		return nil, trace.Wrap(errUnsupportedLanguage, w.spec.Name)
 	}
+}
+
+// rangesOverlap reports whether two inclusive line ranges share at least one line.
+// @intent detect whether two symbol captures refer to overlapping source spans
+func rangesOverlap(aStart, aEnd, bStart, bEnd int) bool {
+	return aStart <= bEnd && bStart <= aEnd
 }
