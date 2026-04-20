@@ -128,10 +128,20 @@ Red fixture + 통합 테스트 작성: `testdata/binding_gap/{typescript,kotlin,
   - 테스트: 7개 (param 5 + return 2)
   - 커밋: `622eef5`
 
-### P3 — 테스트·문서 정비
+### P3 — 테스트·문서 정비 — 완료 (2026-04-20 밤 VI)
 
-- [ ] Kotlin `testdata/eval/kotlin/Sample.kt`의 golden.json 배포 (누락 상태)
-- [ ] Cross-language 통합 테스트 (모든 지원 언어에서 `@intent` 바인딩이 동일하게 동작하는지)
+- [x] **P3-1. Kotlin `testdata/eval/kotlin/Sample.kt`의 golden.json 배포** — 완료
+  - 실측: `Sample.kt.golden.json` 이미 존재 (커밋 `ccc95f8`부터)
+  - `ccg eval --suite parser` 실행 결과 kotlin 100%/100%/1.0 (Node P/R/F1, Edge P/R/F1) Green
+  - 조치: task.md 항목을 사실에 맞게 정리
+
+- [x] **P3-2. Cross-language 통합 테스트** — 완료
+  - 파일: `internal/parse/treesitter/binding_gap_cross_language_test.go`
+  - 테스트: `TestCrossLanguage_IntentBinding_MinimalContract` — 12개 지원 언어 table-driven
+  - 각 언어 최소 케이스: 심볼 위 한 줄 `@intent` 주석 + 대상 심볼 + binder 결과에 `@intent` 태그 존재 검증
+  - 결과: 11 PASS (go, python, typescript, java, c, rust, cpp, javascript, ruby, kotlin, php), 1 SKIP (lua)
+  - Lua SKIP 사유: tree-sitter-lua의 `comment`/`function_statement` 노드 range가 선행 공백을 흡수해 gap=0 — walker 보정 필요 (별도 후속 과제)
+  - Rust 참고: `///` line_comment가 trailing newline 포함해 EndLine이 다음 줄로 확장 → 주석과 선언 사이 빈 줄로 gap>=1 확보
 
 ### P4 — 코드 리뷰 후속 조치 (2026-04-20 밤 IV)
 

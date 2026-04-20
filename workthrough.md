@@ -280,3 +280,23 @@
 ### 교훈 2
 - **외부 노출 경로를 리뷰 시 함께 체크해야 한다**. 파싱/저장 로직을 추가했을 때 "DB까지 갔는가"가 아니라 "외부 소비자(MCP/CLI/HTTP)에게 전달되는가"를 확인해야 완결. 리뷰가 이걸 잡아내서 Blocker로 격상시킨 게 결정적.
 - **사일런트 드롭은 항상 의심**. 코드에서 `return nil, ""` 같은 형태로 데이터가 버려지는 곳을 찾으면 거의 항상 warning 경로를 추가하는 게 맞다. 특히 사용자 입력(주석 텍스트)을 처리하는 파서는 "왜 이 태그가 안 잡히지?" 의 답을 로그로 줄 수 있어야 한다.
+
+## 밤 VI — P3 테스트 정비 (2026-04-20)
+
+### P3-1. Kotlin golden.json 배포 확인
+- task.md에 "누락"으로 기록되어 있었지만 실측 결과 `testdata/eval/kotlin/Sample.kt.golden.json`은 이미 존재(커밋 `ccc95f8`).
+- `ccg eval --suite parser` 실행 → Kotlin 100%/100%/F1=1.0 (Node/Edge) Green 확인.
+- task.md 항목을 "완료 + 실측 결과" 형태로 재기술.
+
+### P3-2. Cross-language @intent 바인딩 계약 테스트
+- 신규 파일: `internal/parse/treesitter/binding_gap_cross_language_test.go`
+- 12개 지원 언어(go/python/typescript/java/c/rust/cpp/javascript/ruby/kotlin/php/lua) 각각에 대해 최소 케이스 "심볼 위 한 줄 @intent 주석 → binding에 @intent 태그 존재"를 table-driven으로 검증.
+- 결과: **11 PASS + 1 SKIP**
+  - PASS: Go/Python/TypeScript/Java/C/Rust/C++/JavaScript/Ruby/Kotlin/PHP
+  - SKIP: Lua — tree-sitter-lua의 `comment`/`function_statement` 노드가 선행 공백/주석을 흡수해 gap이 항상 0으로 계산됨. walker 레벨 보정 필요 (별도 이슈로 분리).
+- Rust 관찰: `///` line_comment가 trailing newline까지 포함해 EndLine이 다음 줄로 확장 → 주석과 선언 사이에 빈 줄을 둬야 gap>=1을 만족. fixture 소스에 주석과 함께 명시.
+- 커밋 대상: test 파일 1개 + task.md 업데이트.
+
+### 교훈 3
+- **언어별 tree-sitter AST 특성은 단일 계약 테스트에서 drift로 드러난다**. Go/Java 같이 단순한 라인 계산을 기대한 케이스가 Rust/Lua에서 각자 다른 이유로 실패 — 각 grammar의 comment/statement boundary 흡수 규칙을 모른 채 "그냥 되겠지"로 코드를 짜면 회귀가 잠재된다. Cross-lang 계약 테스트는 이런 흡수 규칙의 차이를 수면으로 끌어올린다.
+- **SKIP은 실패의 회피가 아니라 명시적 문서화 수단**. Lua 바인딩이 안 되는 건 walker 버그지만 스코프 밖이므로, 테스트를 지우지 말고 skipReason으로 원인/해결 방향을 박아 두면 미래의 엔지니어(또는 과거의 나)가 바로 원인을 짚어낼 수 있다. "테스트가 왜 없지?" 보다 "SKIP 사유에 뭐라고 적혀 있지?"가 훨씬 빠르다.
