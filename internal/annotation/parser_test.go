@@ -350,6 +350,45 @@ func TestParse_FullAnnotation(t *testing.T) {
 	}
 }
 
+// P2-a. JSDoc `@returns`는 `@return`의 공식 alias로 JSDoc 표준에서 양쪽 모두 허용된다.
+// ccg 파서는 `@return`만 인식하고 있어 `@returns`는 unknown warning을 내고 드롭됨.
+// alias로 매핑해 Kind=TagReturn, Ordinal도 @return과 동일 카운터를 공유해야 한다.
+func TestParse_ReturnsAlias(t *testing.T) {
+	p := NewParser()
+	ann, warnings := p.Parse("@returns 인증된 사용자 토큰")
+	if len(warnings) != 0 {
+		t.Errorf("@returns should not produce warnings, got %v", warnings)
+	}
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != model.TagReturn {
+		t.Errorf("Kind = %q, want %q", ann.Tags[0].Kind, model.TagReturn)
+	}
+	if ann.Tags[0].Value != "인증된 사용자 토큰" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+// `@return`과 `@returns`가 섞여 쓰여도 Kind 수준에서는 동일하게 Ordinal이 순차 증가해야 한다.
+// (JSDoc 코드베이스에서 혼용 문서가 흔함.)
+func TestParse_ReturnAndReturnsAlias_SharedOrdinal(t *testing.T) {
+	p := NewParser()
+	ann, warnings := p.Parse("@return first\n@returns second")
+	if len(warnings) != 0 {
+		t.Errorf("no warnings expected, got %v", warnings)
+	}
+	if len(ann.Tags) != 2 {
+		t.Fatalf("expected 2 tags, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != model.TagReturn || ann.Tags[0].Ordinal != 0 {
+		t.Errorf("tag[0]: Kind=%q Ordinal=%d", ann.Tags[0].Kind, ann.Tags[0].Ordinal)
+	}
+	if ann.Tags[1].Kind != model.TagReturn || ann.Tags[1].Ordinal != 1 {
+		t.Errorf("tag[1]: Kind=%q Ordinal=%d (want shared counter)", ann.Tags[1].Kind, ann.Tags[1].Ordinal)
+	}
+}
+
 func TestParse_RawTextPreserved(t *testing.T) {
 	input := "요약\n@param x 값"
 	p := NewParser()

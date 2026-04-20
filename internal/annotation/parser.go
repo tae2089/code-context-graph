@@ -10,6 +10,7 @@ import (
 var knownTags = map[string]model.TagKind{
 	"param":      model.TagParam,
 	"return":     model.TagReturn,
+	"returns":    model.TagReturn, // JSDoc alias for @return
 	"see":        model.TagSee,
 	"intent":     model.TagIntent,
 	"domainRule": model.TagDomainRule,
