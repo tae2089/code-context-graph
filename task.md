@@ -100,13 +100,33 @@ Red fixture + 통합 테스트 작성: `testdata/binding_gap/{typescript,kotlin,
     - `TestWalkerBinder_Go_DirectivePollution` 2 케이스 (통합) — `go:generate/type`, `go:noinline/func`
   - Green: 전 회귀 통과
 
-### P2 — DoodlinDoc 태그 별칭 매핑 (별도 작업)
+### P2 — DoodlinDoc 태그 별칭 매핑 (별도 작업) — 완료 (2026-04-20 밤 V)
 
-이 작업은 "바인딩 견고성"과 독립. 필요 시 별도 PR로.
+이 작업은 "바인딩 견고성"과 독립. 파서 레벨에서 JSDoc/YARD 호환성 확대.
 
-- [ ] JSDoc `@returns` → `@return` 별칭
-- [ ] JSDoc `@typedef`, `@throws` 처리 정책 결정
-- [ ] YARD `@param [Type] name` 타입 부분 파싱
+- [x] **P2-a. JSDoc `@returns` → `@return` 별칭** — 완료
+  - `knownTags["returns"] = TagReturn` 매핑. Ordinal은 @return과 공유 카운터 사용
+  - 테스트: `TestParse_ReturnsAlias`, `TestParse_ReturnAndReturnsAlias_SharedOrdinal`
+  - 커밋: `eade3f0`
+
+- [x] **P2-b. JSDoc `@typedef`, `@throws` 처리 정책 결정** — 완료
+  - 정책: 새 TagKind 2개 추가 — `TagThrows`, `TagTypedef`
+    - `@throws ExceptionType description` → Kind=TagThrows, Name=ExceptionType, Value=description (@param과 동일 규칙)
+    - `@exception` = `@throws` Javadoc 공식 alias
+    - `@typedef {Type} Name desc` → Kind=TagTypedef, Value=원문 보존 (구조 복잡, 검색/표시용)
+  - 변경: `internal/model/annotation.go` 상수 추가 + parser knownTags + parseTagLine param-like 분기 확장
+  - 테스트: `TestParse_Throws_WithType`, `TestParse_Throws_TypeOnly`, `TestParse_Exception_AliasOfThrows`, `TestParse_Typedef`
+  - 커밋: `0591560`
+
+- [x] **P2-c. YARD `@param [Type] name` 타입 부분 파싱** — 완료
+  - 구조 변경: `model.DocTag`에 `Type string` 필드 추가 (별도 커밋 `0ff2511`)
+  - 행위 변경:
+    - `extractTypePrefix()` 헬퍼 — `[...]` / `{...}` balance 기반 분리, 중첩 지원
+    - `parseTagLine`에서 param/return/throws는 value 앞의 type prefix를 먼저 추출 → `DocTag.Type`
+    - 기존 `@param name desc` (type 없음) 하위호환 유지
+  - 지원 문법: YARD `[String]`, `[Array<String>]`; JSDoc `{string}`, `{string|number}`
+  - 테스트: 7개 (param 5 + return 2)
+  - 커밋: `622eef5`
 
 ### P3 — 테스트·문서 정비
 

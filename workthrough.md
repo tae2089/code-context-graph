@@ -222,3 +222,43 @@
 ### 교훈 (리뷰 자체에 대해)
 - **"동작한다"와 "테스트가 통과한다"는 다르다**. 테스트 헬퍼가 production 변환 코드를 우회하면 치명적 버그가 숨을 수 있다 — 이게 HIGH #1의 정체.
 - 리뷰어가 `diff`만 보지 않고 **호출 체인 전체**를 추적해야 테스트 경로 분기를 잡아낼 수 있다. 리뷰 프롬프트에 "production 경로와 테스트 경로를 분리해서 확인"을 명시하는 게 효과적.
+
+---
+
+## 2026-04-20 (밤 V) — P2: JSDoc/YARD 호환 파서 확장
+
+### 촉발
+"task 진행 안된것들 확인" 후 사용자 지시로 P2 세 항목 순차 진행. 바인딩 견고성 파이프라인과는 독립된 파서 레벨 호환성 개선.
+
+### P2-a — @returns JSDoc alias
+- 변경: `knownTags["returns"] = model.TagReturn`. Ordinal 카운터는 `kind` 기준이라 @return과 자동 공유
+- 테스트: `TestParse_ReturnsAlias` + 혼용 시 ordinal 공유 검증 `TestParse_ReturnAndReturnsAlias_SharedOrdinal`
+- 커밋: `eade3f0`
+
+### P2-b — @throws / @typedef 정책 결정
+- **결정**: 새 TagKind 2개(`TagThrows`, `TagTypedef`) 도입. unknown 태그 warning으로 드롭하지 말고 1급 시민으로 저장.
+- `@throws ExceptionType description` → Kind=TagThrows, Name=ExceptionType, Value=description (param과 동일 규칙)
+- `@exception` = `@throws` Javadoc 공식 alias — knownTags에 중복 매핑
+- `@typedef {Type} Name description` → Kind=TagTypedef, Value=전체 보존. JSDoc 전용 구조가 param/throws와 달라 세분화 대신 원문 유지가 실용적.
+- 변경 범위: model 상수 2개 + parser knownTags 3엔트리 + parseTagLine param-like 분기에 `kind == TagThrows` 추가
+- 테스트: 4개 (throws with type / type only / exception alias / typedef)
+- 커밋: `0591560`
+
+### P2-c — YARD/JSDoc 타입 prefix 파싱
+- **구조 변경 먼저**(Tidy First): `model.DocTag`에 `Type string` 컬럼 추가. GORM AutoMigrate가 기존 테이블에 nullable 컬럼 자동 추가. 커밋 `0ff2511` — 단독으로는 행위 변화 없음 확인 후 분리 커밋.
+- **행위 변경**: `extractTypePrefix(value) (typeStr, rest, ok)` 헬퍼 신설. `[...]`/`{...}` balance 기반으로 중첩 허용(`[Hash<Symbol, [String, Integer]>]` 같은 YARD 문법, `{string|number}` 같은 JSDoc union type).
+  - `parseTagLine`에서 kind가 param/return/throws면 value 맨앞 type prefix 먼저 추출 → `tag.Type` 설정 후 남은 문자열에 기존 name/value 로직 적용
+  - 타입 없는 기존 문법 `@param name desc`는 `extractTypePrefix`의 첫 바이트 체크에서 `ok=false` 반환 → 기존 경로 그대로 동작 (하위호환)
+- 테스트: 7개
+  - param: YARD `[String]`, JSDoc `{string}`, union `{string|number}`, generic `[Array<String>]`, plain (type 없음)
+  - return: YARD `[String]`, JSDoc `{boolean}` (with @returns alias), plain
+- 커밋: `622eef5`
+
+### 결과
+- 전 패키지 회귀 통과 (annotation 29 tests, 전체 pkg 27개 ok)
+- DocTag.Type 활용은 추후 검색/표시 UI에서 쓸 수 있도록 저장만 준비 (이번 PR은 파서 단계까지)
+
+### 교훈
+- **정책 결정이 필요한 항목은 "옵션 분기 + 추천안 + 근거"를 먼저 task.md에 적고 그대로 실행**. P2-b의 "처리 정책 결정"을 새 TagKind로 낙찰시키는 이유(unknown warning 노이즈 + 검색 가능)를 커밋 메시지와 task.md 양쪽에 남기면 나중에 다시 논의할 필요 없음.
+- **호환성 개선은 하위호환 테스트를 "plain 경로 여전히 동작" 형태로 명시적으로 고정**. P2-c `TestParse_Param_PlainStillWorks` / `TestParse_Return_PlainStillWorks`가 바로 이 역할. 미래에 extractTypePrefix가 리팩터되어도 이 두 테스트가 regression 안전망.
+- **Tidy First 실천 포인트**: P2-c에서 `DocTag.Type` 추가(구조)와 `extractTypePrefix` 로직(행위)을 두 커밋으로 분리. 구조 커밋에서 전 테스트 통과를 확인해 "행위 무변경"을 증명한 뒤 행위 커밋을 쌓음. 나중에 bisect 시 원인 분리가 쉬움.
