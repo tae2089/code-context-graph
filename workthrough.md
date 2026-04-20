@@ -188,3 +188,37 @@
 - **옵션 선택의 기준**: 옵션 1(walker `collectComments` 분리)은 주석 수집 의미론에 영향을 주지만, 옵션 2(normalizer 필터)는 태그 추출 단계 국소 수정으로 끝난다. 영향 범위가 좁은 쪽을 우선.
 - Red를 단위 + 통합 **두 층**에서 잡아두면 fix 대상 경계가 명확해짐 — normalizer 단독 실패 vs 바인더까지 전파된 실패를 분리해 관찰 가능.
 - 디렉티브 판별은 **`//` 바로 뒤에 공백 없이 `go:`**가 오는 정확한 Go 프라그마 문법을 따라야 함. `// go:` 같은 일반 대화형 주석을 먹으면 안 됨 — 엣지 케이스를 Red 테스트로 못 박아둔 게 도움.
+
+---
+
+## 2026-04-20 (밤 IV) — P4: 코드 리뷰 후속 조치 (HIGH 2건)
+
+### 촉발
+독립 리뷰 에이전트에 P0+P1 전체 범위(10 commits) 재검토 요청 → 리뷰어가 Blocker 0, **HIGH 2건** 발견.
+
+### HIGH #1 — indexer 필드 전파 누락 (P4-1)
+- 증상: `internal/service/indexer.go:127-131`의 walker→binder 변환 루프에 `IsDocstring`/`OwnerStartLine` 미복사. P0-2/P0-4에서 추가한 Python docstring 바인딩이 **프로덕션 경로에선 전혀 실행 안 됨**. 통합 테스트는 `binderFromWalkerComments` 헬퍼로 우회해서 이 버그를 못 잡았음.
+- Fix 흐름:
+  1. `97dfb3b` — 즉시 필드 2개 추가 (행위 fix)
+  2. `efda056` — 인라인 변환 루프를 `toBinderComments()` 헬퍼로 추출 (구조 리팩터, 행위 무변경)
+  3. `72bac2c` — `indexer_test.go` 4 케이스 (basic/docstring/non-docstring/empty) — 재발 방지 단위 테스트
+- 교훈: **production 경로와 test helper 경로가 다른 변환 코드를 각각 갖고 있으면 필드 추가 시 반드시 양쪽 동기화 체크**. 구조 리팩터로 변환 로직을 한 곳으로 모으면 재발 원천 차단.
+
+### HIGH #2 — nameIndex dedup 동명 메서드 오병합 (P4-2)
+- 증상: `walker.go:343`의 `nameIndex`가 `name` 단독 키. 같은 이름의 메서드가 서로 다른 클래스 본문에 있으면 두 번째 매칭이 첫 번째를 덮어써 한 쪽이 소실.
+- 실측 (Red):
+  - Python `Alpha.save`/`Beta.save` fixture — `save` 이름 노드 1개만 수집됨 (Alpha만 살아남음)
+  - TS `Alpha.render`/`Beta.render` fixture — `render` 이름 노드 1개만 수집됨
+- Fix: `rangesOverlap(aStart, aEnd, bStart, bEnd) bool` 헬퍼 추가 후 nameIndex dedup 분기에 가드 삽입. 범위가 겹칠 때만 같은 심볼의 중복 매칭으로 간주해 dedup하고, 겹치지 않으면 else 분기에서 별도 노드로 등록.
+- Green: `TestWalker_NameIndexDedup_{Python,TypeScript}_DupMethods` 2 케이스 통과 (save/render 각각 2개 노드, StartLine 분리)
+- 커밋: `7b0a7b8` (test) / `9e21c05` (fix)
+- 교훈: **nameIndex 같은 느슨한 dedup은 "어떤 조건에서 같은 심볼인가"를 명시적으로 정의해야 한다**. decorated_definition + function_definition 래퍼는 범위가 겹치는데, 동명 메서드는 범위가 겹치지 않는다는 걸 구분 기준으로 삼으면 된다. key에 scope를 붙이지 않고도 overlap 체크만으로 해결.
+
+### 리뷰어 피드백 반영 총괄
+- HIGH 2건 모두 fix + 재발 방지 테스트
+- Medium 1건 (`go:build`/`go:embed` 케이스) — P2-1 단위 테스트에 추가 (`6b57405`)
+- Rust block doc, TS export default 등 low/nit는 현재 fixture 없음 — 추후 실측 시 처리
+
+### 교훈 (리뷰 자체에 대해)
+- **"동작한다"와 "테스트가 통과한다"는 다르다**. 테스트 헬퍼가 production 변환 코드를 우회하면 치명적 버그가 숨을 수 있다 — 이게 HIGH #1의 정체.
+- 리뷰어가 `diff`만 보지 않고 **호출 체인 전체**를 추적해야 테스트 경로 분기를 잡아낼 수 있다. 리뷰 프롬프트에 "production 경로와 테스트 경로를 분리해서 확인"을 명시하는 게 효과적.

@@ -113,6 +113,21 @@ Red fixture + 통합 테스트 작성: `testdata/binding_gap/{typescript,kotlin,
 - [ ] Kotlin `testdata/eval/kotlin/Sample.kt`의 golden.json 배포 (누락 상태)
 - [ ] Cross-language 통합 테스트 (모든 지원 언어에서 `@intent` 바인딩이 동일하게 동작하는지)
 
+### P4 — 코드 리뷰 후속 조치 (2026-04-20 밤 IV)
+
+- [x] **P4-1. indexer.go `IsDocstring`/`OwnerStartLine` 필드 전파 누락** — 완료
+  - 리뷰에서 HIGH로 지적: P0-2 docstring 바인딩이 프로덕션 경로(`internal/service/indexer.go`)에서 미동작
+  - Fix: `internal/service/indexer.go:127-131`의 인라인 변환 루프에 두 필드 추가 → 이후 구조적으로 `toBinderComments(...)` 헬퍼로 추출
+  - 재발 방지: `internal/service/indexer_test.go` 4 케이스 (basic, docstring, non-docstring, empty)
+  - 커밋: `97dfb3b` (fix) / `efda056` (refactor) / `72bac2c` (test)
+
+- [x] **P4-2. `nameIndex` dedup이 동명 메서드를 오병합** — 완료
+  - 리뷰에서 HIGH로 지적: `walker.go:343`의 nameIndex가 `name` 단독 키라서 같은 이름의 다른 클래스 메서드가 서로 소실
+  - 실측: Python `Alpha.save`/`Beta.save` 와 TS `Alpha.render`/`Beta.render` 모두 하나만 수집됨 (Red 확인)
+  - Fix: `rangesOverlap()` 헬퍼 추가 후 nameIndex dedup 분기에 overlap 가드 — 범위가 겹치지 않으면 별개 심볼로 새 노드 추가
+  - Red→Green: `TestWalker_NameIndexDedup_{Python,TypeScript}_DupMethods`
+  - 커밋: `7b0a7b8` (test) / `9e21c05` (fix)
+
 ---
 
 ## 설계 결정 (합의 필요)
