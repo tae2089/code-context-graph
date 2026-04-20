@@ -75,21 +75,21 @@ Red fixture + 통합 테스트 작성: `testdata/binding_gap/{typescript,kotlin,
 
 ### P1-fix — 실측으로 확정된 3개 버그 + 1개 부작용
 
-- [ ] **P1-1. TypeScript `export_statement + decorator + class_declaration` StartLine 보정**
-  - 예상 옵션: tags.scm에서 `(export_statement (decorator)* (class_declaration name: ...))` 패턴 추가
-  - 또는 walker에서 export_statement/decorator 부모 탐색 후 StartLine 조정
-  - `@dataclass` 처리와 유사한 고민 — non-export `@Component class Foo`도 커버해야 함
-  - Red 테스트: `TestWalkerBinder_TypeScript_Decorators_P1Measurement`
+- [x] **P1-3. PHP normalizer 케이스 추가** — 완료
+  - `stripBlockDelimiters` C-family case에 `"php"` 추가, `/**`, `/*` 처리
+  - `stripLinePrefix`에 전용 `case "php"` 추가 — `//`, `#`, `* ` 모두 처리 (PHP는 C-style과 shell-style 주석 모두 지원)
+  - Red 테스트: `TestWalkerBinder_PHP_Attributes_P1Measurement` + `TestNormalize_PhpDocComment` 5 케이스 Green
 
-- [ ] **P1-2. Kotlin `multiline_comment` 노드 수집**
-  - `walker.go:695`의 `collectComments`에 `multiline_comment` 조건 추가
-  - 추가로 Kotlin tree-sitter가 `line_comment`를 쓰는지 `comment`를 쓰는지 확인
-  - Red 테스트: `TestWalkerBinder_Kotlin_Annotations_P1Measurement`
+- [x] **P1-2. Kotlin `multiline_comment` 노드 수집** — 완료
+  - `walker.go:695`의 `collectComments`에 `multiline_comment` 조건 추가 (한 줄)
+  - AST probe 결과: Kotlin `/** ... */`는 `multiline_comment` 노드 타입으로 단일 노드
+  - Red 테스트: `TestWalkerBinder_Kotlin_Annotations_P1Measurement` Green
 
-- [ ] **P1-3. PHP normalizer 케이스 추가**
-  - `stripBlockDelimiters`에 `php` 추가 — `/**`, `/*` 처리
-  - `stripLinePrefix`에 `php` 추가 — `//`, `#` 처리
-  - Red 테스트: `TestWalkerBinder_PHP_Attributes_P1Measurement`
+- [x] **P1-1. TypeScript `export_statement + decorator + class_declaration` StartLine 보정** — 완료
+  - `queries/typescript/tags.scm`에 `(export_statement (class_declaration ...)) @definition.class` wrapper 쿼리 추가
+  - Python `decorated_definition` 처리 때 추가한 `nameIndex` dedup(walker.go:343)이 그대로 동작해 더 작은 StartLine(첫 데코레이터 줄) 보존
+  - Red 테스트: `TestWalkerBinder_TypeScript_Decorators_P1Measurement` Green
+  - ⚠ 남은 범위: non-export `@Component class Foo` 케이스(데코레이터가 class_declaration과 sibling, export_statement 밖). 현재 fixture 없음 — 필요 시 P2에서 walker 부모 탐색으로 처리
 
 - [ ] **P2-1. Go `//go:generate` 같은 디렉티브가 `@intent` 주석에 섞이는 문제** (낮은 우선순위)
   - 증상: `//go:generate` 가 바로 윗줄 `// @intent` CommentBlock에 병합되어 태그 Value에 노이즈 삽입

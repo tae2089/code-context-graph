@@ -105,6 +105,38 @@
 
 ---
 
+## 2026-04-20 (밤 II) — P1 Fix 3종 전체 Green 완료
+
+### 진행 순서 (P1-3 → P1-2 → P1-1)
+
+1. **P1-3 (PHP normalizer)** — TDD 그대로. `TestNormalize_PhpDocComment` Red 5 케이스 작성 → `stripBlockDelimiters` C-family case에 `"php"` 추가, `stripLinePrefix`에 전용 PHP case 추가 (`//`, `#`, `* `) → Red 5 + `TestWalkerBinder_PHP_Attributes_P1Measurement` Green. getUser가 `@intent 사용자 조회 API` 정확히 바인딩.
+2. **P1-2 (Kotlin multiline_comment)** — `walker.go:695`의 `collectComments`에서 `nodeType == "multiline_comment"` 한 조건 추가. AST probe로 확인한 대로 Kotlin `/** ... */`는 단일 `multiline_comment` 노드. Red Green 즉시 전환.
+3. **P1-1 (TypeScript export_statement wrapper)** — `queries/typescript/tags.scm`에 `(export_statement (class_declaration name: ...)) @definition.class` 패턴 추가. Python `decorated_definition` 처리용으로 이미 존재하는 `nameIndex` dedup(walker.go:343)이 그대로 동작 — 더 작은 StartLine을 보존. UserService.StartLine 4→2, gap 3→1, Red Green.
+
+### 결과
+- P1 Red 테스트 3개 모두 Green (TypeScript/Kotlin/PHP)
+- C++/Go는 P1 실측에서 이미 성공 상태 — 손대지 않음
+- 29개 패키지 전체 regression 없음 (`go test -tags fts5 ./... -count=1`)
+
+### 커밋 (Tidy First)
+- `fix(annotation): add php normalizer for //, #, and /** */ comments`
+- `fix(parse): recognize multiline_comment node for Kotlin comment collection`
+- `fix(parse): match export_statement wrapper for decorated TS classes`
+
+3개 모두 pure behavioral fix. 구조 리팩토링은 별개 커밋으로 유지.
+
+### 교훈 (3차)
+1. P0에서 다진 **nameIndex dedup 메커니즘이 재사용 가능한 형태로 남은 게 효과적** — P1-1에서 tags.scm 쿼리 하나만 추가하는 최소 변경으로 해결됨. "언어별 개별 조치"라는 진단이 맞았지만, 공통 인프라(dedup)는 다행히 한 번 만들어둔 게 먹혔다.
+2. **AST probe 테스트(`p1_ast_probe_test.go`)가 설계 시간을 크게 줄임** — Kotlin의 `multiline_comment`, TypeScript의 `export_statement` 구조를 코드 한 줄씩만 찍어 확인. 가설 없이 바로 실측으로 시작.
+3. Kotlin fix는 `collectComments` 한 조건 추가로 끝난 반면, TypeScript는 tree-sitter 쿼리 수정 + 기존 dedup 의존. 같은 범주("노드 인식" vs "노드 통합") 내에서도 언어별 난이도가 다르다 — 한 줄씩 쌓는 게 정답.
+
+### 남은 과제
+- P2-1 Go `//go:generate` 디렉티브가 `@intent` 값에 섞이는 오염 (낮은 우선순위)
+- P2 non-export TypeScript `@Decorator class Foo {}` — 현재 fixture 없음. 필요 시 walker 부모 탐색 추가
+- walker.go 기존 lint 경고 — 별도 구조 리팩토링 커밋
+
+---
+
 ## 2026-04-20 (저녁) — Python docstring 2차 실측
 
 ### 추가 fixture
