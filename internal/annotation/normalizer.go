@@ -49,7 +49,7 @@ func (n *Normalizer) Normalize(text string, language string) string {
 // @intent keep only the inner documentation payload from block-style comments
 func stripBlockDelimiters(text string, language string) string {
         switch language {
-        case "go", "java", "cpp", "c", "csharp", "typescript", "javascript", "kotlin", "swift", "scala":
+        case "go", "java", "cpp", "c", "csharp", "typescript", "javascript", "kotlin", "swift", "scala", "php":
                 if strings.HasPrefix(text, "/**") {
                         text = strings.TrimPrefix(text, "/**")
                         text = strings.TrimSuffix(strings.TrimSpace(text), "*/")
@@ -81,6 +81,25 @@ func stripLinePrefix(line string, language string) string {
                 }
                 if strings.HasPrefix(trimmed, "//") {
                         return trimmed[2:]
+                }
+                if strings.HasPrefix(trimmed, "* ") {
+                        return trimmed[2:]
+                }
+                if trimmed == "*" {
+                        return ""
+                }
+        case "php":
+                if strings.HasPrefix(trimmed, "// ") {
+                        return trimmed[3:]
+                }
+                if strings.HasPrefix(trimmed, "//") {
+                        return trimmed[2:]
+                }
+                if strings.HasPrefix(trimmed, "# ") {
+                        return trimmed[2:]
+                }
+                if strings.HasPrefix(trimmed, "#") {
+                        return trimmed[1:]
                 }
                 if strings.HasPrefix(trimmed, "* ") {
                         return trimmed[2:]

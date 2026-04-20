@@ -73,6 +73,49 @@ func TestNormalize_EmptyComment(t *testing.T) {
 	}
 }
 
+func TestNormalize_PhpDocComment(t *testing.T) {
+	n := NewNormalizer()
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "single line PHPDoc",
+			input: "/** @intent 사용자 조회 API */",
+			want:  "@intent 사용자 조회 API",
+		},
+		{
+			name:  "multiline PHPDoc",
+			input: "/**\n * @intent 사용자 조회\n * @param id 사용자 ID\n */",
+			want:  "@intent 사용자 조회\n@param id 사용자 ID",
+		},
+		{
+			name:  "double slash",
+			input: "// 일반 주석",
+			want:  "일반 주석",
+		},
+		{
+			name:  "hash comment",
+			input: "# 쉘 스타일 주석",
+			want:  "쉘 스타일 주석",
+		},
+		{
+			name:  "multiline double slash",
+			input: "// 첫 줄\n// @intent 의도",
+			want:  "첫 줄\n@intent 의도",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := n.Normalize(tc.input, "php")
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNormalize_RustDocComment(t *testing.T) {
 	n := NewNormalizer()
 	tests := []struct {
