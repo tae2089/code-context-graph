@@ -100,6 +100,7 @@ type CommunityBuilder interface {
 // @see mcp.handlers.buildOrUpdateGraph
 type IncrementalSyncer interface {
 	Sync(ctx context.Context, files map[string]incremental.FileInfo) (*incremental.SyncStats, error)
+	SyncWithExisting(ctx context.Context, files map[string]incremental.FileInfo, existingFiles []string) (*incremental.SyncStats, error)
 }
 
 // Deps collects the services and stores required by MCP handlers.

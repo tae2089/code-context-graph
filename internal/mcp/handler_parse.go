@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/analysis/community"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
+	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/pathutil"
 )
 
@@ -42,14 +44,17 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 	if err != nil {
 		return stats, trace.Wrap(err, "resolve path")
 	}
-
-	if err := h.deps.Store.DeleteGraph(ctx); err != nil {
-		return stats, trace.Wrap(err, "reset graph state before parse")
+	if _, err := os.Stat(absDir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return stats, trace.Wrap(err, "parse root does not exist")
+		}
+		return stats, trace.Wrap(err, "stat parse root")
 	}
 
+	var walkFiles []string
 	err = filepath.Walk(absDir, func(fp string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 		if info.IsDir() {
 			if pathutil.ShouldSkipDir(info.Name()) {
@@ -70,44 +75,51 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 				return nil
 			}
 		}
+		walkFiles = append(walkFiles, fp)
+		return nil
+	})
+	if err != nil {
+		return stats, trace.Wrap(err, "preflight walk dir")
+	}
 
+	if err := h.deps.Store.DeleteGraph(ctx); err != nil {
+		return stats, trace.Wrap(err, "reset graph state before parse")
+	}
+
+	for _, fp := range walkFiles {
 		ext := strings.ToLower(filepath.Ext(fp))
 		walker, ok := h.deps.Walkers[ext]
 		if !ok {
-			return nil
+			continue
 		}
 
 		content, err := os.ReadFile(fp)
 		if err != nil {
 			log.Warn("failed to read file", "file", fp, "error", err)
 			stats.Errors++
-			return nil
+			continue
 		}
 
 		nodes, edges, err := walker.ParseWithContext(ctx, fp, content)
 		if err != nil {
 			log.Warn("failed to parse file", "file", fp, "error", err)
 			stats.Errors++
-			return nil
+			continue
 		}
 
 		if len(nodes) > 0 {
 			if err := h.deps.Store.UpsertNodes(ctx, nodes); err != nil {
-				return trace.Wrap(err, "upsert nodes")
+				return stats, trace.Wrap(err, "upsert nodes")
 			}
 			stats.Nodes += len(nodes)
 		}
 		if len(edges) > 0 {
 			if err := h.deps.Store.UpsertEdges(ctx, edges); err != nil {
-				return trace.Wrap(err, "upsert edges")
+				return stats, trace.Wrap(err, "upsert edges")
 			}
 			stats.Edges += len(edges)
 		}
 		stats.Files++
-		return nil
-	})
-	if err != nil {
-		return stats, trace.Wrap(err, "walk dir")
 	}
 	return stats, nil
 }
@@ -177,9 +189,17 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		// 증분 빌드
 		absDir, _ := filepath.Abs(dirPath)
 		files := map[string]incremental.FileInfo{}
+		existingFiles := []string{}
+		var existingNodes []model.Node
+		if err := h.deps.DB.Model(&model.Node{}).Distinct("file_path").Find(&existingNodes).Error; err != nil {
+			return nil, trace.Wrap(err, "load existing file paths")
+		}
+		for _, n := range existingNodes {
+			existingFiles = append(existingFiles, n.FilePath)
+		}
 		err := filepath.Walk(dirPath, func(fp string, info os.FileInfo, err error) error {
 			if err != nil {
-				return nil
+				return err
 			}
 			if info.IsDir() {
 				name := info.Name()
@@ -219,7 +239,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 			return nil, trace.Wrap(err, "walk error")
 		}
 
-		stats, err := h.deps.Incremental.Sync(ctx, files)
+		stats, err := h.deps.Incremental.SyncWithExisting(ctx, files, existingFiles)
 		if err != nil {
 			return nil, trace.Wrap(err, "incremental sync error")
 		}

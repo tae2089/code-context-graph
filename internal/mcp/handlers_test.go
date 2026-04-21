@@ -636,7 +636,9 @@ func Add(a, b int) int {
 	}
 
 	if !mockSync.syncCalled {
-		t.Error("expected Incremental.Sync to be called for incremental build")
+		if !mockSync.syncWithExisting {
+			t.Error("expected Incremental.SyncWithExisting to be called for incremental build")
+		}
 	}
 }
 
@@ -665,8 +667,8 @@ func Other() {}
 		"include_paths": []string{"src/api"},
 	})
 
-	if !mockSync.syncCalled {
-		t.Fatal("expected Incremental.Sync to be called")
+	if !mockSync.syncWithExisting {
+		t.Fatal("expected Incremental.SyncWithExisting to be called")
 	}
 
 	for fp := range mockSync.files {
@@ -678,6 +680,76 @@ func Other() {}
 
 	if len(mockSync.files) == 0 {
 		t.Error("expected at least 1 file in incremental sync")
+	}
+}
+
+func TestBuildOrUpdateGraph_IncrementalIncludePaths_ReplacesPreviousGraphState(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "src", "api"), 0o755)
+	os.MkdirAll(filepath.Join(dir, "src", "other"), 0o755)
+	writeGoFile(t, filepath.Join(dir, "src", "api"), "handler.go", `package api
+func Handler() {}
+`)
+	writeGoFile(t, filepath.Join(dir, "src", "other"), "other.go", `package other
+func Other() {}
+`)
+
+	result := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": true,
+		"postprocess":  "none",
+	})
+	if result.IsError {
+		t.Fatalf("initial full build error: %s", getTextContent(result))
+	}
+
+	result = callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":          dir,
+		"full_rebuild":  false,
+		"postprocess":   "none",
+		"include_paths": []string{"src/api"},
+	})
+	if result.IsError {
+		t.Fatalf("incremental scoped build error: %s", getTextContent(result))
+	}
+
+	node, err := deps.Store.GetNode(context.Background(), "api.Handler")
+	if err != nil || node == nil {
+		t.Fatal("expected node api.Handler to exist after incremental include_paths build")
+	}
+
+	otherNode, _ := deps.Store.GetNode(context.Background(), "other.Other")
+	if otherNode != nil {
+		t.Error("expected other.Other NOT to exist after incremental include_paths replace semantics")
+	}
+}
+
+func TestParseProject_MissingRoot_DoesNotDeleteExistingGraph(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "calc.go", `package calc
+
+func Add(a, b int) int { return a + b }
+`)
+
+	result := callTool(t, deps, "parse_project", map[string]any{"path": dir})
+	if result.IsError {
+		t.Fatalf("initial parse_project error: %s", getTextContent(result))
+	}
+
+	missingDir := filepath.Join(dir, "missing-root")
+	h := &handlers{deps: deps, cache: NewCache(5 * time.Minute)}
+	_, err := h.parseProject(context.Background(), makeToolRequest("parse_project", map[string]any{"path": missingDir}))
+	if err == nil {
+		t.Fatal("expected parse_project on missing root to fail")
+	}
+
+	node, err := deps.Store.GetNode(context.Background(), "calc.Add")
+	if err != nil || node == nil {
+		t.Fatal("expected existing graph to remain after missing-root parse_project failure")
 	}
 }
 
@@ -2017,15 +2089,24 @@ func (m *mockCommunityBuilder) Rebuild(ctx context.Context, cfg community.Config
 }
 
 type mockIncrementalSyncer struct {
-	syncCalled bool
-	files      map[string]incremental.FileInfo
-	result     *incremental.SyncStats
-	err        error
+	syncCalled       bool
+	syncWithExisting bool
+	files            map[string]incremental.FileInfo
+	existingFiles    []string
+	result           *incremental.SyncStats
+	err              error
 }
 
 func (m *mockIncrementalSyncer) Sync(ctx context.Context, files map[string]incremental.FileInfo) (*incremental.SyncStats, error) {
 	m.syncCalled = true
 	m.files = files
+	return m.result, m.err
+}
+
+func (m *mockIncrementalSyncer) SyncWithExisting(ctx context.Context, files map[string]incremental.FileInfo, existingFiles []string) (*incremental.SyncStats, error) {
+	m.syncWithExisting = true
+	m.files = files
+	m.existingFiles = append([]string(nil), existingFiles...)
 	return m.result, m.err
 }
 
