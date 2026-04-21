@@ -319,3 +319,55 @@
 - **전역 보정이 기존 Red 테스트를 깨면, 테스트 스코프에서 명시적 Red로 전환하는 게 더 낫다**. walker.collectComments의 trailing-newline 보정은 single line_comment만을 고쳐야 하는데 merge된 block까지 같이 줄여 gap=2 계약을 위반함. "코드 수정 전에 기존 Red 테스트가 무엇을 고정하고 있는지" 확인하고, 수정 스코프가 겹치면 테스트 레벨 표현(expectBound=false + redReason)로 일단 "현상 고정"한 뒤 나중에 walker 보정과 함께 승격.
 - **SKIP보다 Red 계약이 회귀 탐지력이 높다**. Skip은 "그냥 안 돈다"로 눈에 안 띄지만, Red 계약(expectBound=false)은 구현이 우연히 고쳐져도 즉시 실패 → 엔지니어가 Green 승격을 안 하고 방치하는 실수를 잡는다.
 - **Kind + Name 동시 매칭으로 false-positive를 선제 차단**. 심볼 이름만으로 매칭하면 다른 종류(변수, 타입)가 동명이면 엉뚱한 binding을 잡을 수 있음. LangSpec/grammar가 변경될 때의 예기치 않은 동작을 리뷰어 1회 검토로 끝내지 않고 테스트 구조에 박아 두는 게 안전.
+
+---
+
+## 2026-04-21 — Python prefix docstring `doc_tags` 회귀
+
+### Red
+- `testdata/binding_gap/python/docstring_prefix.py`를 `r/f/b/rb/fr/u` prefix 케이스까지 확장
+- `internal/annotation/normalizer_test.go`에 prefix normalize Red 테스트 추가
+- `internal/parse/treesitter/python_docstring_prefix_binding_test.go`에 실제 walker→binder 경로 바인딩 Red 테스트 추가
+- 실패 확인:
+  - normalizer가 `r"""..."""` 등 prefix를 제거하지 못함
+  - binder 결과에서 `foo` 함수의 `@intent`가 비어 있음
+
+### Green 설계
+- 원인: docstring 수집은 정상이나 Python `stripBlockDelimiters()`가 따옴표 앞 prefix를 모름
+- 수정: normalizer에 `stripPythonStringPrefix()` 추가 후, delimiter 제거 전에 파싱용 문자열만 prefix 제거
+- 범위 최소화: walker/binder/원본 CommentBlock.Text 불변
+
+---
+
+## 2026-04-21 — incremental rebuild stale node 정리
+
+### 배경
+- 사용자 요청: `internal/service/indexer.go` incremental rebuild 경로에서 `DeleteNodesByFile`을 호출해 stale node를 정리하도록 TDD로 구현.
+
+### 컨텍스트 확인
+- `internal/store/store.go`에 `DeleteNodesByFile(ctx, filePath string) error` 계약이 이미 존재함 확인.
+- `internal/store/gormstore/gormstore.go` 실측 결과 구현도 이미 존재.
+  - namespace/file_path 기준 node id 조회
+  - 관련 edge, doc_tags, annotation, node cascade 삭제
+- 실제 누락 지점은 `GraphService.Build()`의 파일별 트랜잭션이었음. 현재는 `UpsertNodes`만 수행해 삭제된 선언이 영구 잔존.
+
+### Red
+- `internal/service/indexer_test.go`에 `TestBuild_IncrementalRebuild_RemovesStaleNodesBeforeUpsert` 추가.
+- 시나리오:
+  1. `sample.go`에 `Keep`, `Remove` 2개 함수로 1차 빌드
+  2. 같은 파일을 `Keep`만 남기도록 축소 후 2차 빌드
+  3. `GetNodesByFile("sample.go")`의 function 이름이 `Keep`만 남아야 함
+- 실제 Red 결과: 2차 빌드 후도 `got=[Keep Remove]` → stale node 재현 성공.
+
+### Green
+- `internal/service/indexer.go` 파일 처리 트랜잭션 시작 직후 `txStore.DeleteNodesByFile(ctx, relPath)` 호출 추가.
+- 그 다음 `UpsertNodes(ctx, nodes)` 실행하도록 순서 변경.
+- 이유: 파일 재빌드는 merge가 아니라 replace semantics여야 하므로 이전 파일 노드를 먼저 제거해야 함.
+
+### 결과
+- 신규 Red 테스트 Green 전환 확인.
+- 이번 변경으로 gormstore 구현 추가는 불필요했음. 기존 구현 재사용으로 해결.
+
+### 교훈
+- `Upsert`만으로는 절대 "삭제"를 표현할 수 없다. incremental rebuild가 사실상 file-level replace이면 delete-first가 계약이어야 한다.
+- 저장소 계층에 이미 올바른 primitive(`DeleteNodesByFile`)가 있어도 orchestration 계층에서 호출하지 않으면 기능은 없는 것과 같다. 이런 버그는 단위 테스트보다 시나리오 기반 서비스 테스트가 더 잘 잡는다.

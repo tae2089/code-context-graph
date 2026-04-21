@@ -115,10 +115,12 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		}
 
 		err = s.Store.WithTx(ctx, func(txStore store.GraphStore) error {
-			if len(nodes) > 0 {
-				if err := txStore.UpsertNodes(ctx, nodes); err != nil {
-					return trace.Wrap(err, "upsert nodes for "+relPath)
-				}
+			if err := txStore.DeleteNodesByFile(ctx, relPath); err != nil {
+				return trace.Wrap(err, "delete stale nodes for "+relPath)
+			}
+
+			if err := txStore.UpsertNodes(ctx, nodes); err != nil {
+				return trace.Wrap(err, "upsert nodes for "+relPath)
 			}
 
 		if len(tsComments) > 0 {

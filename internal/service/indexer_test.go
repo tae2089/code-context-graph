@@ -14,12 +14,15 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"testing"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
+	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 )
@@ -196,5 +199,88 @@ class Beta:
 	}
 	if betaIntent != "Beta save" {
 		t.Errorf("Beta.save @intent: got %q, want %q", betaIntent, "Beta save")
+	}
+}
+
+func TestBuild_IncrementalRebuild_RemovesStaleNodesBeforeUpsert(t *testing.T) {
+	// Setup: in-memory SQLite + gormstore + Go walker
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		Logger: gormlogger.Discard,
+	})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{
+		Store:   st,
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	goPath := filepath.Join(tmpDir, "sample.go")
+
+	initial := `package sample
+
+func Keep() int {
+	return 1
+}
+
+func Remove() int {
+	return 2
+}
+`
+	if err := os.WriteFile(goPath, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write initial file: %v", err)
+	}
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("first Build: %v", err)
+	}
+
+	assertFunctionNamesByFile(t, st, ctx, "sample.go", []string{"Keep", "Remove"})
+
+	reduced := `package sample
+
+func Keep() int {
+	return 1
+}
+`
+	if err := os.WriteFile(goPath, []byte(reduced), 0o644); err != nil {
+		t.Fatalf("write reduced file: %v", err)
+	}
+
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("second Build: %v", err)
+	}
+
+	assertFunctionNamesByFile(t, st, ctx, "sample.go", []string{"Keep"})
+}
+
+func assertFunctionNamesByFile(t *testing.T, st *gormstore.Store, ctx context.Context, filePath string, want []string) {
+	t.Helper()
+
+	nodes, err := st.GetNodesByFile(ctx, filePath)
+	if err != nil {
+		t.Fatalf("GetNodesByFile(%q): %v", filePath, err)
+	}
+
+	got := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		if node.Kind == model.NodeKindFunction {
+			got = append(got, node.Name)
+		}
+	}
+
+	sort.Strings(got)
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("function names in %s: got=%v want=%v", filePath, got, want)
 	}
 }

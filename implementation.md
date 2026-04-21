@@ -187,3 +187,66 @@ Tidy First + TDD:
 - `internal/parse/treesitter/queries/python/tags.scm` — Python 쿼리
 - `internal/parse/treesitter/queries/rust/tags.scm` — Rust 쿼리
 - `testdata/binding_gap/{python,java,rust,c}/` — P0 fixture
+
+---
+
+## 2026-04-21 — Python prefix docstring `doc_tags` 누락 수정
+
+### 문제 재정의
+
+Python docstring 수집 자체는 이미 동작하지만, `r"""..."""`, `f"""..."""`, `b"""..."""`, `rb"""..."""` 같은 prefix가 붙은 문자열은 `Normalizer.stripBlockDelimiters()`가 앞의 prefix를 제거하지 못해 `@intent`가 문자열 시작에 오지 않는다. 그 결과 annotation parser가 `@tag`로 인식하지 못하고 `doc_tags`가 비게 된다.
+
+### 최소 수정 전략
+
+- walker / binder는 유지
+- Python normalizer에서만 **파싱용 텍스트**에 한해 string prefix를 제거
+- prefix 제거 후 기존 triple-quote delimiter 제거 로직을 재사용
+- 원본 source text(`CommentBlock.Text`)는 변경하지 않음
+
+### 지원 prefix 범위
+
+- 단일: `r`, `f`, `b`, `u`
+- 조합: `rb`, `br`, `rf`, `fr`, `ur`, `ru`
+
+### TDD
+
+1. `internal/annotation/normalizer_test.go`
+   - prefix별 normalize 결과가 `@intent ...` 로 시작하는지 검증
+2. `internal/parse/treesitter/python_docstring_prefix_binding_test.go`
+   - 실제 walker → binder 경로에서 각 함수의 `@intent` 바인딩 검증
+
+---
+
+## 2026-04-21 — incremental rebuild stale node 정리 설계
+
+### 문제
+
+`internal/service/indexer.go`의 파일 처리 루프는 같은 파일을 재빌드할 때 새로 파싱된 노드만 `UpsertNodes` 한다.
+이 경로는 **사라진 선언**을 별도로 지우지 않으므로, 예를 들어 `Remove()` 함수가 파일에서 삭제되어도 이전 빌드의 node가 DB에 남는다.
+
+### 요구 동작
+
+- 파일 단위 incremental rebuild 시 저장 트랜잭션 안에서 기존 파일 노드를 먼저 제거한다.
+- 제거 범위는 해당 파일의 node뿐 아니라 연결 edge / annotation / doc_tags까지 포함해야 한다.
+- 이후 현재 파싱 결과를 `UpsertNodes` 해서 최신 상태만 남긴다.
+
+### 설계
+
+1. `gormstore.DeleteNodesByFile(ctx, filePath)` 재사용
+   - 구현 실측 결과 이미 존재
+   - filePath+namespace 기준으로 node id를 모은 뒤 edge, doc_tags, annotation, node 순으로 cascade delete
+
+2. `GraphService.Build()`의 파일별 트랜잭션 순서 변경
+   - 기존: `UpsertNodes` → annotation binding
+   - 변경: `DeleteNodesByFile` → `UpsertNodes` → annotation binding
+
+3. TDD 계약
+   - 첫 빌드: `sample.go`에 `Keep`, `Remove`
+   - 두 번째 빌드: 동일 파일에서 `Remove` 삭제
+   - 기대: `GetNodesByFile("sample.go")` 결과의 function 이름은 `Keep`만 존재
+
+### 이유
+
+- `UpsertNodes`는 conflict key가 같은 노드만 갱신하므로, **삭제된 심볼**은 절대 없어지지 않는다.
+- 파일 단위 재파싱은 "해당 파일의 선언 집합을 전부 다시 계산"하는 작업이므로 replace semantics가 맞다.
+- 삭제를 같은 트랜잭션 안에서 수행하면 stale 상태가 중간에 노출되지 않는다.

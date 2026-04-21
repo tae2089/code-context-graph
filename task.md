@@ -190,3 +190,32 @@ Red fixture + 통합 테스트 작성: `testdata/binding_gap/{typescript,kotlin,
 - 테스트: `CGO_ENABLED=1 go test -tags "fts5" ./... -count=1`
 - 한 번에 한 항목만 In Progress
 - Python docstring 이슈(P0-2)는 설계 결정 B 합의 후 착수
+
+---
+
+## 2026-04-21 — Python prefix docstring `doc_tags` 파싱 회귀 수정
+
+- [x] Red: prefix docstring(`r/f/b/rb/fr/u`) fixture 확장 및 바인딩/normalizer 테스트 추가
+- [x] Green: Python normalizer가 string prefix를 제거한 뒤 triple-quote delimiter를 제거하도록 수정
+- [ ] Verify: `CGO_ENABLED=1 go test -tags "fts5" ./... -count=1` 전체 통과
+- [ ] Verify: `lsp_diagnostics` clean on changed files
+
+---
+
+## 2026-04-21 — incremental rebuild stale node 정리
+
+- [x] `internal/service/indexer_test.go`에 Red 테스트 추가
+  - `TestBuild_IncrementalRebuild_RemovesStaleNodesBeforeUpsert`
+  - 첫 빌드에서 `Keep`, `Remove` 생성 후 같은 파일을 축소 재빌드했을 때 `Remove`가 남는 실패 재현
+
+- [x] `internal/service/indexer.go` incremental rebuild 경로 수정
+  - 파일 처리 트랜잭션 시작 직후 `DeleteNodesByFile(ctx, relPath)` 호출
+  - 그 다음 `UpsertNodes` 수행하여 stale node/annotation/edge 흔적 제거 후 최신 노드 저장
+
+- [x] `gormstore` 구현 확인
+  - `internal/store/gormstore/gormstore.go`에 `DeleteNodesByFile` 구현이 이미 존재함을 확인
+  - 노드 + 연결 엣지 + annotation/doc_tags cascade 삭제까지 수행 중
+
+- [ ] 최종 검증
+  - `lsp_diagnostics` clean
+  - `CGO_ENABLED=1 go test -tags "fts5" ./... -count=1` 전체 통과
