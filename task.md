@@ -252,3 +252,38 @@ Red fixture + 통합 테스트 작성: `testdata/binding_gap/{typescript,kotlin,
   - `lsp_diagnostics` clean on changed files
   - `CGO_ENABLED=1 go test -tags "fts5" ./... -count=1`
   - CLI/MCP e2e 관련 패키지 테스트 포함 전체 green
+
+---
+
+## 2026-04-21 — 재코드리뷰 후속 3건 동시 수정
+
+- [x] Red: `DeleteGraph()`가 unresolved/file-owned edge를 남기는 회귀 테스트 추가
+  - `internal/store/gormstore/gormstore_test.go`
+
+- [x] Green: `DeleteGraph()`가 node 삭제 전에 namespace file_path 목록을 확보하고 file-owned edge를 먼저 삭제하도록 수정
+  - unresolved edge / zero-node-id edge까지 정리
+
+- [x] Red: `Build()`의 missing root / walk 실패가 기존 graph를 지우는 회귀 테스트 추가
+  - `internal/service/indexer_test.go`
+
+- [x] Green: `Build()`는 preflight walk 성공 이후에만 graph reset 수행
+  - invalid root는 reset 전에 즉시 실패
+  - per-file read/parse 실패는 reset 이후 skip 유지 (기존 정책 유지)
+
+- [x] Red: `parse_project` missing root가 graph를 지우거나 성공처럼 보이는 회귀 테스트 추가
+  - `internal/mcp/handlers_test.go`
+
+- [x] Green: `walkAndParse()`도 root stat + preflight walk 성공 이후에만 reset 수행
+  - missing root는 error 반환, 기존 graph 보존
+
+- [x] Red: MCP incremental + `include_paths`가 replace semantics를 만족하지 않는 통합 테스트 추가
+  - `internal/mcp/handlers_test.go`
+
+- [x] Green: MCP incremental 경로를 `SyncWithExisting()` 기반으로 전환
+  - `include_paths`가 있으면 기존 file set과 비교해 excluded path도 삭제되도록 수정
+  - MCP incremental 인터페이스 확장 (`SyncWithExisting`)
+
+- [ ] Verify
+  - `lsp_diagnostics` clean
+  - `CGO_ENABLED=1 go test -tags "fts5" ./... -count=1`
+  - `CGO_ENABLED=1 go test -tags "fts5" ./internal/cli ./internal/mcp -count=1`

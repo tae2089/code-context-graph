@@ -430,3 +430,65 @@
 1. 코드리뷰 코멘트는 현상 단위로 오기 쉽다. 하지만 기존 테스트 계약까지 다시 읽으면 더 근본적인 설계 불일치를 찾을 수 있다.
 2. `include_paths`는 "부분 업데이트"가 아니라 "남길 입력 집합 제한"이었다. 계약을 테스트에서 다시 읽어내는 것이 중요했다.
 3. docstring 문제는 normalizer만 고쳐선 안 되고, walker 수집 의미와 일치해야 한다. 수집/정규화가 서로 다른 의미를 가지면 다시 회귀한다.
+
+---
+
+## 2026-04-21 — 재코드리뷰 후속 3건 동시 수정
+
+### 배경
+재코드리뷰에서 새로 3개가 잡혔다.
+
+1. `DeleteGraph()`가 unresolved edge를 못 지움
+2. build/parse가 root-level failure 전에 graph를 먼저 지움
+3. MCP incremental + `include_paths`는 아직 replace semantics가 아님
+
+### Red에서 확인한 사실
+
+- `gormstore.DeleteGraph()`는 실제로 `file_path="a.go"`인 unresolved edge 2개를 남겼다.
+- `GraphService.Build()`는 missing root로 실패한 뒤 기존 `sample.go` node를 날렸다.
+- `parse_project`는 missing root에서 에러도 없이 `parsed=0`으로 끝나고 기존 graph도 지웠다.
+- `build_or_update_graph(full_rebuild=false, include_paths=[src/api])`는 기존 `src/other` 노드를 그대로 남겼다.
+
+즉 이번엔 리뷰 코멘트가 전부 실제 버그였다.
+
+### 수정 내용
+
+#### 1) DeleteGraph 순서 수정
+- namespace의 `file_path` 목록을 **삭제 전에** 조회
+- 트랜잭션에서 `file_path IN ?` edge 삭제를 먼저 수행
+- 그 다음 node-id 연결 edge / annotations / doc_tags / nodes 삭제
+
+이걸로 parser가 남긴 zero-id edge까지 reset 시 깨끗하게 비워진다.
+
+#### 2) preflight 후 reset
+- `Build()`는 `os.Stat(absDir)` + preflight `filepath.Walk` 성공 후에만 `DeleteGraph()` 호출
+- `walkAndParse()`도 동일하게 변경
+- root path typo / root-level walk 실패는 **기존 graph 보존 + error 반환**으로 바뀜
+
+다만 개별 파일 read/parse 실패는 이전 정책 그대로 유지했다.
+이건 사용자가 원했던 "관측 가능한 현재 입력 집합으로 수렴"과도 맞다.
+
+#### 3) MCP incremental replace semantics 통일
+- `internal/mcp/server.go`의 `IncrementalSyncer` 인터페이스를 `SyncWithExisting()`까지 확장
+- `build_or_update_graph` incremental 경로에서 DB의 기존 file_path 집합 수집
+- 현재 snapshot + 기존 file set을 함께 넘겨 excluded path도 삭제되게 함
+
+결과적으로 MCP에서도:
+
+- full rebuild + include_paths → replace
+- incremental + include_paths → replace
+
+둘 다 계약이 같아졌다.
+
+### 테스트 조정
+
+- 기존 MCP incremental 테스트는 `Sync()` 호출만 기대하고 있었는데,
+  지금은 `SyncWithExisting()`이 정답이라 기대값을 갱신했다.
+- missing root parse_project는 `callTool()`이 JSON-RPC error에서 바로 `Fatal`하므로,
+  handlers 직접 호출 경로로 바꿔 실제 error를 assert했다.
+
+### 교훈
+
+1. **replace semantics는 "언제 reset하느냐"가 핵심**이다. reset 자체보다 실패 경계가 더 중요했다.
+2. **zero-id / unresolved edge는 별도 정리 경로가 필요**하다. node-id 기반 cascade만 믿으면 안 된다.
+3. 리뷰에서 "계약 mismatch"가 나오면 문서가 아니라 테스트와 호출 인터페이스를 같이 바꿔야 한다. 이번에는 `SyncWithExisting()` 확장이 정확히 그 케이스였다.
