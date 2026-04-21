@@ -389,6 +389,42 @@ func TestBuild_ReadFailure_RemovesPreviousGraphState(t *testing.T) {
 	assertFunctionNamesByFile(t, st, ctx, "sample.go", nil)
 }
 
+func TestBuild_MissingRoot_DoesNotDeleteExistingGraph(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{
+		Store:   st,
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "sample.go"), []byte("package sample\n\nfunc Keep() {}\n"), 0o644); err != nil {
+		t.Fatalf("write initial file: %v", err)
+	}
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("first Build: %v", err)
+	}
+	assertFunctionNamesByFile(t, st, ctx, "sample.go", []string{"Keep"})
+
+	missingDir := filepath.Join(tmpDir, "does-not-exist")
+	if _, err := svc.Build(ctx, BuildOptions{Dir: missingDir}); err == nil {
+		t.Fatal("expected build on missing root to fail")
+	}
+
+	assertFunctionNamesByFile(t, st, ctx, "sample.go", []string{"Keep"})
+}
+
 func assertFunctionNamesByFile(t *testing.T, st *gormstore.Store, ctx context.Context, filePath string, want []string) {
 	t.Helper()
 
