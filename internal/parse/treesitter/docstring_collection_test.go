@@ -114,7 +114,7 @@ func TestWalker_CollectDocstrings_AllFixtures(t *testing.T) {
 		{
 			label:          "prefix(r/f)",
 			filename:       "docstring_prefix.py",
-			wantCount:      2, // foo()의 r"""...""" + bar()의 f"""..."""
+			wantCount:      6, // r/f/b/rb/fr/u prefix 변형
 			wantModuleDs:   false,
 			wantOwnerAbove: true,
 		},

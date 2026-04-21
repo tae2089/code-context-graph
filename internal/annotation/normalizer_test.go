@@ -38,6 +38,31 @@ func TestNormalize_PythonDocstring(t *testing.T) {
 	}
 }
 
+func TestNormalize_PythonDocstringPrefixes(t *testing.T) {
+	n := NewNormalizer()
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "raw", input: "r\"\"\"@intent raw docstring.\"\"\"", want: "@intent raw docstring."},
+		{name: "format", input: "f\"\"\"@intent format docstring.\"\"\"", want: "@intent format docstring."},
+		{name: "bytes", input: "b\"\"\"@intent bytes docstring.\"\"\"", want: "@intent bytes docstring."},
+		{name: "raw bytes", input: "rb\"\"\"@intent raw bytes docstring.\"\"\"", want: "@intent raw bytes docstring."},
+		{name: "format raw", input: "fr\"\"\"@intent format raw docstring.\"\"\"", want: "@intent format raw docstring."},
+		{name: "unicode", input: "u\"\"\"@intent unicode docstring.\"\"\"", want: "@intent unicode docstring."},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := n.Normalize(tc.input, "python")
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNormalize_JavaDocComment(t *testing.T) {
 	n := NewNormalizer()
 	got := n.Normalize("/**\n * 사용자 인증을 수행한다\n * @param username ID\n */", "java")
