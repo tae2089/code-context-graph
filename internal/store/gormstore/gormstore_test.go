@@ -324,6 +324,42 @@ func TestDeleteEdgesByFile(t *testing.T) {
 	}
 }
 
+func TestDeleteGraph_RemovesUnresolvedEdgesByFilePath(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := ctxns.WithNamespace(context.Background(), "ns-a")
+
+	if err := s.UpsertNodes(ctx, []model.Node{{
+		QualifiedName: "pkg.A",
+		Kind:          model.NodeKindFunction,
+		Name:          "A",
+		FilePath:      "a.go",
+		StartLine:     1,
+		EndLine:       2,
+		Language:      "go",
+	}}); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+
+	if err := s.UpsertEdges(ctx, []model.Edge{
+		{Kind: model.EdgeKindCalls, FilePath: "a.go", Line: 1, Fingerprint: "calls:a.go:pkg.B:1"},
+		{Kind: model.EdgeKindContains, FilePath: "a.go", Line: 1, Fingerprint: "contains:a.go:pkg.A"},
+	}); err != nil {
+		t.Fatalf("UpsertEdges: %v", err)
+	}
+
+	if err := s.DeleteGraph(ctx); err != nil {
+		t.Fatalf("DeleteGraph: %v", err)
+	}
+
+	var edgeCount int64
+	if err := s.db.Model(&model.Edge{}).Where("file_path = ?", "a.go").Count(&edgeCount).Error; err != nil {
+		t.Fatalf("count edges: %v", err)
+	}
+	if edgeCount != 0 {
+		t.Fatalf("expected 0 unresolved/file-owned edges after DeleteGraph, got %d", edgeCount)
+	}
+}
+
 func TestUpsertAnnotation_Insert(t *testing.T) {
 	s := setupTestDB(t)
 	ctx := context.Background()

@@ -209,14 +209,30 @@ func (s *Store) DeleteNodesByFile(ctx context.Context, filePath string) error {
 func (s *Store) DeleteGraph(ctx context.Context) error {
 	ns := ctxns.FromContext(ctx)
 	var nodeIDs []uint
+	var filePaths []string
 	if err := s.db.WithContext(ctx).
 		Model(&model.Node{}).
 		Where("namespace = ?", ns).
 		Pluck("id", &nodeIDs).Error; err != nil {
 		return trace.Wrap(err, "pluck namespace node ids")
 	}
+	if err := s.db.WithContext(ctx).
+		Model(&model.Node{}).
+		Where("namespace = ?", ns).
+		Distinct().
+		Pluck("file_path", &filePaths).Error; err != nil {
+		return trace.Wrap(err, "pluck namespace file paths")
+	}
 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if len(filePaths) > 0 {
+			if err := tx.
+				Where("file_path IN ?", filePaths).
+				Delete(&model.Edge{}).Error; err != nil {
+				return trace.Wrap(err, "delete namespace file-owned edges")
+			}
+		}
+
 		if len(nodeIDs) > 0 {
 			if err := tx.
 				Where("annotation_id IN (?)",
@@ -244,9 +260,7 @@ func (s *Store) DeleteGraph(ctx context.Context) error {
 			}
 		}
 
-		return tx.
-			Where("file_path IN (?)", tx.Model(&model.Node{}).Select("file_path").Where("namespace = ?", ns)).
-			Delete(&model.Edge{}).Error
+		return nil
 	})
 }
 
