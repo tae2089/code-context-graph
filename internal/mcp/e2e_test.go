@@ -118,6 +118,63 @@ func DeleteUser(id int) error {
 	}
 }
 
+func TestE2E_BuildOrUpdateGraph_ScopedRebuildReplacesPreviousGraph(t *testing.T) {
+	deps := setupE2EDeps(t)
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	apiDir := filepath.Join(dir, "src", "api")
+	otherDir := filepath.Join(dir, "src", "other")
+	if err := os.MkdirAll(apiDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(otherDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeGoFile(t, apiDir, "handler.go", `package api
+
+func Handler() {}
+`)
+	writeGoFile(t, otherDir, "other.go", `package other
+
+func Other() {}
+`)
+
+	fullResult := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": true,
+		"postprocess":  "none",
+	})
+	if fullResult.IsError {
+		t.Fatalf("build_or_update_graph(full) error: %s", getTextContent(fullResult))
+	}
+
+	scopedResult := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":          dir,
+		"full_rebuild":  true,
+		"postprocess":   "none",
+		"include_paths": []string{"src/api"},
+	})
+	if scopedResult.IsError {
+		t.Fatalf("build_or_update_graph(scoped) error: %s", getTextContent(scopedResult))
+	}
+
+	apiNode, err := deps.Store.GetNode(ctx, filepath.Join(apiDir, "handler.go"))
+	if err != nil || apiNode == nil {
+		apiNode, err = deps.Store.GetNode(ctx, "api.Handler")
+	}
+	if err != nil || apiNode == nil {
+		t.Fatalf("expected api.Handler after scoped rebuild, err=%v", err)
+	}
+	otherNode, err := deps.Store.GetNode(ctx, "other.Other")
+	if err != nil {
+		t.Fatalf("get other.Other error: %v", err)
+	}
+	if otherNode != nil {
+		t.Fatal("expected other.Other to be removed after scoped rebuild")
+	}
+}
+
 func TestE2E_ParseWithAnnotation(t *testing.T) {
 	deps := setupE2EDeps(t)
 	ctx := context.Background()

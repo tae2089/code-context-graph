@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"testing"
 
@@ -263,6 +264,131 @@ func Keep() int {
 	assertFunctionNamesByFile(t, st, ctx, "sample.go", []string{"Keep"})
 }
 
+func TestBuild_IncludePaths_ReplacesPreviousGraphScope(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{
+		Store:   st,
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	apiDir := filepath.Join(tmpDir, "src", "api")
+	otherDir := filepath.Join(tmpDir, "src", "other")
+	if err := os.MkdirAll(apiDir, 0o755); err != nil {
+		t.Fatalf("mkdir api: %v", err)
+	}
+	if err := os.MkdirAll(otherDir, 0o755); err != nil {
+		t.Fatalf("mkdir other: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(apiDir, "handler.go"), []byte("package api\n\nfunc Handler() {\n\tHelper()\n}\n"), 0o644); err != nil {
+		t.Fatalf("write handler: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(otherDir, "helper.go"), []byte("package other\n\nfunc Helper() {}\n"), 0o644); err != nil {
+		t.Fatalf("write helper: %v", err)
+	}
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("first Build: %v", err)
+	}
+
+	handlerNode, err := st.GetNode(ctx, "api.Handler")
+	if err != nil || handlerNode == nil {
+		t.Fatalf("expected api.Handler after full build, err=%v", err)
+	}
+	helperNode, err := st.GetNode(ctx, "other.Helper")
+	if err != nil || helperNode == nil {
+		t.Fatalf("expected other.Helper after full build, err=%v", err)
+	}
+	if err := st.UpsertEdges(ctx, []model.Edge{{
+		FromNodeID:  handlerNode.ID,
+		ToNodeID:    helperNode.ID,
+		Kind:        model.EdgeKindCalls,
+		FilePath:    filepath.Join("src", "api", "handler.go"),
+		Line:        3,
+		Fingerprint: "calls:api.Handler:other.Helper",
+	}}); err != nil {
+		t.Fatalf("seed manual edge: %v", err)
+	}
+
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir, IncludePaths: []string{filepath.Join("src", "api")}}); err != nil {
+		t.Fatalf("second Build with include paths: %v", err)
+	}
+
+	helperNode, err = st.GetNode(ctx, "other.Helper")
+	if err != nil {
+		t.Fatalf("get other.Helper after scoped build: %v", err)
+	}
+	if helperNode != nil {
+		t.Fatal("expected other.Helper to be removed after scoped rebuild")
+	}
+
+	var manualEdges int64
+	if err := db.Model(&model.Edge{}).Where("fingerprint = ?", "calls:api.Handler:other.Helper").Count(&manualEdges).Error; err != nil {
+		t.Fatalf("count manual edges: %v", err)
+	}
+	if manualEdges != 0 {
+		t.Fatalf("expected manual cross-file edge to be removed with excluded file scope, got %d", manualEdges)
+	}
+}
+
+func TestBuild_ReadFailure_RemovesPreviousGraphState(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("broken symlink unreadable path scenario is unix-specific")
+	}
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{
+		Store:   st,
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	goPath := filepath.Join(tmpDir, "sample.go")
+	if err := os.WriteFile(goPath, []byte("package sample\n\nfunc Keep() {}\n"), 0o644); err != nil {
+		t.Fatalf("write initial file: %v", err)
+	}
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("first Build: %v", err)
+	}
+	assertFunctionNamesByFile(t, st, ctx, "sample.go", []string{"Keep"})
+
+	if err := os.Remove(goPath); err != nil {
+		t.Fatalf("remove file: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(tmpDir, "missing.go"), goPath); err != nil {
+		t.Fatalf("create broken symlink: %v", err)
+	}
+
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("second Build: %v", err)
+	}
+
+	assertFunctionNamesByFile(t, st, ctx, "sample.go", nil)
+}
+
 func assertFunctionNamesByFile(t *testing.T, st *gormstore.Store, ctx context.Context, filePath string, want []string) {
 	t.Helper()
 
@@ -279,6 +405,12 @@ func assertFunctionNamesByFile(t *testing.T, st *gormstore.Store, ctx context.Co
 	}
 
 	sort.Strings(got)
+	if got == nil {
+		got = []string{}
+	}
+	if want == nil {
+		want = []string{}
+	}
 	sort.Strings(want)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("function names in %s: got=%v want=%v", filePath, got, want)

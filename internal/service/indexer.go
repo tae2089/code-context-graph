@@ -62,6 +62,10 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 
 	s.Logger.Info("building graph", "dir", absDir)
 
+	if err := s.Store.DeleteGraph(ctx); err != nil {
+		return stats, trace.Wrap(err, "reset graph state before rebuild")
+	}
+
 	type deferredEdges struct {
 		relPath string
 		edges   []model.Edge
@@ -115,19 +119,15 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		}
 
 		err = s.Store.WithTx(ctx, func(txStore store.GraphStore) error {
-			if err := txStore.DeleteNodesByFile(ctx, relPath); err != nil {
-				return trace.Wrap(err, "delete stale nodes for "+relPath)
-			}
-
 			if err := txStore.UpsertNodes(ctx, nodes); err != nil {
 				return trace.Wrap(err, "upsert nodes for "+relPath)
 			}
 
-		if len(tsComments) > 0 {
-			binderComments := toBinderComments(tsComments)
-			binder := parse.NewBinder()
-			sourceLines := strings.Split(string(content), "\n")
-			bindings := binder.Bind(binderComments, nodes, walker.Language(), sourceLines)
+			if len(tsComments) > 0 {
+				binderComments := toBinderComments(tsComments)
+				binder := parse.NewBinder()
+				sourceLines := strings.Split(string(content), "\n")
+				bindings := binder.Bind(binderComments, nodes, walker.Language(), sourceLines)
 
 				storedNodes, err := txStore.GetNodesByFile(ctx, relPath)
 				if err != nil {

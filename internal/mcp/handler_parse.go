@@ -43,6 +43,10 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 		return stats, trace.Wrap(err, "resolve path")
 	}
 
+	if err := h.deps.Store.DeleteGraph(ctx); err != nil {
+		return stats, trace.Wrap(err, "reset graph state before parse")
+	}
+
 	err = filepath.Walk(absDir, func(fp string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
