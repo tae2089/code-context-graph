@@ -740,9 +740,9 @@ func (w *Walker) collectComments(node *sitter.Node, content []byte, comments *[]
 //   - 노드 타입이 expression_statement이고
 //   - 유일한 named child가 string 타입이며
 //   - 부모가 block 또는 module인 경우:
-//     - block: 부모 체인에 function_definition 또는 class_definition이 있어야 하고
-//       block 내 첫 번째 expression_statement>string만 수집한다.
-//     - module: 모듈 레벨 docstring (OwnerStartLine=0)
+//   - block: 부모 체인에 function_definition 또는 class_definition이 있어야 하고
+//     block 내 첫 번째 expression_statement>string만 수집한다.
+//   - module: 모듈 레벨 docstring (OwnerStartLine=0)
 //
 // @intent Python docstring 노드를 CommentBlock으로 승격하여 binder가 처리할 수 있게 준비
 // @sideEffect nodes 슬라이스를 참조하여 심볼 StartLine을 조회함 (변경 없음)
@@ -819,6 +819,9 @@ func (w *Walker) tryExtractDocstring(exprStmt *sitter.Node, content []byte) (Com
 	startLine := int(stringNode.StartPoint().Row) + 1
 	endLine := int(stringNode.EndPoint().Row) + 1
 	text := stringNode.Content(content)
+	if !isSupportedPythonDocstringLiteral(text) {
+		return CommentBlock{}, false
+	}
 
 	switch parentType {
 	case "module":
@@ -880,6 +883,22 @@ func (w *Walker) tryExtractDocstring(exprStmt *sitter.Node, content []byte) (Com
 	default:
 		return CommentBlock{}, false
 	}
+}
+
+func isSupportedPythonDocstringLiteral(text string) bool {
+	lower := strings.ToLower(text)
+	for _, quote := range []string{"\"\"\"", "'''"} {
+		idx := strings.Index(lower, quote)
+		if idx < 0 {
+			continue
+		}
+		prefix := lower[:idx]
+		if prefix == "" || prefix == "r" || prefix == "u" {
+			return true
+		}
+		return false
+	}
+	return false
 }
 
 // isFirstStringExprStmt는 exprStmt가 parentNode의 자식 중

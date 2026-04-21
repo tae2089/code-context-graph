@@ -112,9 +112,9 @@ func TestWalker_CollectDocstrings_AllFixtures(t *testing.T) {
 			wantOwnerAbove: false,
 		},
 		{
-			label:          "prefix(r/f)",
+			label:          "prefix(plain/r/u only)",
 			filename:       "docstring_prefix.py",
-			wantCount:      6, // r/f/b/rb/fr/u prefix 변형
+			wantCount:      2, // r/u prefix만 docstring으로 인정
 			wantModuleDs:   false,
 			wantOwnerAbove: true,
 		},

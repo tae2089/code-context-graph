@@ -219,3 +219,36 @@ Red fixture + 통합 테스트 작성: `testdata/binding_gap/{typescript,kotlin,
 - [ ] 최종 검증
   - `lsp_diagnostics` clean
   - `CGO_ENABLED=1 go test -tags "fts5" ./... -count=1` 전체 통과
+
+---
+
+## 2026-04-21 — 코드리뷰 후속 3건 동시 수정
+
+- [x] Red: `Build()`의 include_paths 부분 재빌드가 이전 그래프 상태를 replace하지 못하는 회귀 테스트 추가
+  - `internal/service/indexer_test.go`
+  - `internal/cli/build_test.go`
+  - `internal/mcp/e2e_test.go`
+
+- [x] Green: `GraphService.Build()`와 MCP `walkAndParse()`를 namespace 단위 replace semantics로 수정
+  - 빌드 시작 시 `DeleteGraph(ctx)`로 현재 namespace 그래프 상태 초기화
+  - include_paths/full rebuild 모두 "선택된 입력만 최종 상태에 남는다" 계약으로 통일
+
+- [x] Red: unreadable/read 실패 파일이 이전 stale state를 남기는 회귀 테스트 추가
+  - `internal/service/indexer_test.go` broken symlink 시나리오
+
+- [x] Green: read/parse 실패 포함 빌드 전체를 replace semantics로 처리
+  - 빌드 시작 시 reset하므로 unreadable/parse failure 파일의 이전 상태가 남지 않음
+
+- [x] Red: Python docstring prefix 범위를 실제 문서화 의미에 맞게 제한하는 positive/negative 테스트 추가
+  - 허용: plain, `r`, `u`
+  - 비허용: `f`, `b`, `rb`, `fr`
+
+- [x] Green: Python docstring 수집/정규화에서 허용 prefix만 docstring으로 처리
+  - `internal/parse/treesitter/walker.go`
+  - `internal/annotation/normalizer.go`
+  - fixture/테스트 기대값 조정
+
+- [ ] Verify
+  - `lsp_diagnostics` clean on changed files
+  - `CGO_ENABLED=1 go test -tags "fts5" ./... -count=1`
+  - CLI/MCP e2e 관련 패키지 테스트 포함 전체 green

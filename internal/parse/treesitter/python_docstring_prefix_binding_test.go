@@ -26,9 +26,15 @@ func TestPythonDocstring_PrefixBinding(t *testing.T) {
 		strings.Split(string(content), "\n"),
 	)
 
-	for _, name := range []string{"foo", "bar", "baz", "qux", "quux", "corge"} {
+	for _, name := range []string{"foo", "corge"} {
 		if !hasIntentBinding(bindings, name, model.NodeKindFunction) {
 			t.Fatalf("%s 함수에 @intent 바인딩이 없음", name)
+		}
+	}
+
+	for _, name := range []string{"bar", "baz", "qux", "quux"} {
+		if hasIntentBinding(bindings, name, model.NodeKindFunction) {
+			t.Fatalf("%s 함수는 Python docstring prefix 규칙상 바인딩되면 안 됨", name)
 		}
 	}
 }

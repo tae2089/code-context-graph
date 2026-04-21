@@ -250,3 +250,53 @@ Python docstring 수집 자체는 이미 동작하지만, `r"""..."""`, `f"""...
 - `UpsertNodes`는 conflict key가 같은 노드만 갱신하므로, **삭제된 심볼**은 절대 없어지지 않는다.
 - 파일 단위 재파싱은 "해당 파일의 선언 집합을 전부 다시 계산"하는 작업이므로 replace semantics가 맞다.
 - 삭제를 같은 트랜잭션 안에서 수행하면 stale 상태가 중간에 노출되지 않는다.
+
+---
+
+## 2026-04-21 — 코드리뷰 후속 설계 수정
+
+### 1. Build/parse의 include_paths 의미 재정의
+
+기존 `Build()`/`walkAndParse()`는 include_paths가 있을 때 **선택된 파일만 추가 파싱**했지만,
+DB에는 이전 빌드의 비선택 파일 상태가 남아 있었다. 이는 기존 CLI/MCP 테스트 계약
+(`include_paths 밖 노드는 존재하면 안 됨`)과도 맞지 않는다.
+
+이번 수정에서는 의미를 다음처럼 고정한다.
+
+- `Build()` / `walkAndParse()`는 항상 **replace semantics**
+- `include_paths`는 "무엇을 남길 것인가"를 제한하는 필터
+- 따라서 빌드 시작 시 현재 namespace 그래프를 먼저 비우고,
+  이번 실행에서 관측된 파일만 다시 적재한다.
+
+이 방식은 코드리뷰에서 지적된 cross-file edge 유실 문제를 edge 보존으로 우회하지 않고,
+**노드/엣지/annotation 전체를 입력 집합 기준 최종 상태로 수렴**시킨다.
+
+### 2. unreadable / parse failure 정책
+
+기존에는 파일 읽기/파싱이 실패하면 해당 파일만 skip하고 이전 그래프 상태를 남겼다.
+하지만 replace semantics 기준에서는 이것이 stale data다.
+
+선택한 정책:
+
+- build start → graph reset
+- 이후 unreadable/parse failure 파일은 단순히 재적재되지 않음
+- 결과적으로 이전 상태는 제거되고, 현재 정상적으로 읽힌 파일만 그래프에 남음
+
+즉, "마지막 정상 상태 유지"가 아니라 **"현재 관측 가능한 상태만 유지"** 정책이다.
+
+### 3. Python docstring prefix 범위 축소
+
+이전 수정은 `f`, `b`, `rb`, `fr`까지 모두 docstring처럼 수집/정규화했다.
+하지만 이는 Python 런타임 의미의 문서화 문자열보다 범위가 넓다.
+
+선택한 정책:
+
+- 허용: plain triple-quoted string, `r`, `u`
+- 비허용: `f`, `b`, `rb`, `fr` 등 실행/bytes 성격 literal
+
+적용 지점:
+
+1. `walker.collectDocstrings()` 단계에서 비허용 prefix는 docstring으로 수집하지 않음
+2. `normalizer.stripPythonDocstringDelimiters()`도 동일한 허용 집합만 처리
+
+이중 방어로 수집/정규화 의미를 일치시킨다.

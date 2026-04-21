@@ -371,3 +371,62 @@
 ### 교훈
 - `Upsert`만으로는 절대 "삭제"를 표현할 수 없다. incremental rebuild가 사실상 file-level replace이면 delete-first가 계약이어야 한다.
 - 저장소 계층에 이미 올바른 primitive(`DeleteNodesByFile`)가 있어도 orchestration 계층에서 호출하지 않으면 기능은 없는 것과 같다. 이런 버그는 단위 테스트보다 시나리오 기반 서비스 테스트가 더 잘 잡는다.
+
+---
+
+## 2026-04-21 — 코드리뷰 후속 3건 동시 수정
+
+### 배경
+독립 코드리뷰에서 3개 리스크가 나왔다.
+
+1. include_paths 부분 재빌드에서 cross-file edge 유실
+2. read/parse 실패 시 stale state 잔존
+3. Python docstring prefix 허용 범위 과확장
+
+처음엔 1번을 "edge만 보존" 쪽으로 고칠 수도 있었지만, 기존 CLI/MCP 테스트를 다시 읽어보니
+이 프로젝트의 `include_paths` 의미는 원래부터 **선택된 경로만 그래프에 남는 replace semantics**였다.
+즉 리뷰 코멘트의 표면 현상은 edge 유실이지만, 더 근본 원인은 빌드가 증분 merge처럼 동작한 데 있었다.
+
+### 실제 수정
+
+- `store.GraphStore`에 `DeleteGraph(ctx)` 추가
+- `gormstore.Store.DeleteGraph()` 구현
+  - namespace 범위의 nodes / annotations / doc_tags / connected edges 전부 제거
+- `GraphService.Build()` 시작 시 `DeleteGraph(ctx)` 호출
+- MCP `walkAndParse()`도 동일하게 시작 시 `DeleteGraph(ctx)` 호출
+
+이렇게 해서:
+
+- full rebuild → 전체 그래프 교체
+- include_paths rebuild → 선택된 경로만 남도록 그래프 교체
+- unreadable/parse failure 파일 → 이전 상태 제거 후 재적재되지 않으므로 stale state 제거
+
+### Python docstring 쪽 수정
+
+리뷰대로 `f`, `b`, `rb`, `fr`까지 docstring처럼 취급하는 건 범위를 넓힌 것이었다.
+
+- `walker.tryExtractDocstring()` 앞단에서 literal prefix 검사 추가
+- 허용: plain / `r` / `u`
+- 비허용: `f` / `b` / `rb` / `fr`
+- `normalizer`도 같은 허용 집합만 delimiter strip 수행
+
+즉, 수집 단계와 정규화 단계의 의미를 맞췄다.
+
+### Red → Green 확인 포인트
+
+- service test:
+  - include_paths scoped rebuild 후 excluded file 노드 제거
+  - broken symlink unreadable file 후 이전 노드 제거
+- cli test:
+  - `build --path src/api` 재실행 시 이전 `src/other` 노드 제거
+- mcp e2e:
+  - `build_or_update_graph(full)` 후 `build_or_update_graph(scoped)` 시 excluded node 제거
+- annotation/treesitter test:
+  - `r`/`u`만 바인딩
+  - `f`/`b`/`rb`/`fr`는 바인딩되지 않음
+
+### 교훈
+
+1. 코드리뷰 코멘트는 현상 단위로 오기 쉽다. 하지만 기존 테스트 계약까지 다시 읽으면 더 근본적인 설계 불일치를 찾을 수 있다.
+2. `include_paths`는 "부분 업데이트"가 아니라 "남길 입력 집합 제한"이었다. 계약을 테스트에서 다시 읽어내는 것이 중요했다.
+3. docstring 문제는 normalizer만 고쳐선 안 되고, walker 수집 의미와 일치해야 한다. 수집/정규화가 서로 다른 의미를 가지면 다시 회귀한다.

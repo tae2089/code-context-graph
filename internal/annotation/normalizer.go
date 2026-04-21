@@ -100,7 +100,7 @@ func stripPythonQuotedString(text string, quote string) (string, bool) {
 	}
 
 	prefix := lower[:idx]
-	if !isPythonStringPrefix(prefix) {
+	if !isSupportedPythonDocstringPrefix(prefix) {
 		return "", false
 	}
 	if !strings.HasSuffix(lower, quote) {
@@ -110,21 +110,11 @@ func stripPythonQuotedString(text string, quote string) (string, bool) {
 	return text[idx+len(quote) : len(text)-len(quote)], true
 }
 
-func isPythonStringPrefix(prefix string) bool {
+func isSupportedPythonDocstringPrefix(prefix string) bool {
 	if prefix == "" {
 		return true
 	}
-	if len(prefix) > 2 {
-		return false
-	}
-	for _, r := range prefix {
-		switch r {
-		case 'r', 'f', 'b', 'u':
-		default:
-			return false
-		}
-	}
-	return true
+	return prefix == "r" || prefix == "u"
 }
 
 // stripLinePrefix removes one line-level comment marker from a comment line.
