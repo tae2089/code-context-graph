@@ -22,6 +22,7 @@ type NodeReader interface {
 type NodeWriter interface {
 	UpsertNodes(ctx context.Context, nodes []model.Node) error
 	DeleteNodesByFile(ctx context.Context, filePath string) error
+	DeleteGraph(ctx context.Context) error
 }
 
 // EdgeStore는 엣지 저장과 조회 기능을 정의한다.

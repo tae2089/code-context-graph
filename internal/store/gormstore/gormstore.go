@@ -203,6 +203,53 @@ func (s *Store) DeleteNodesByFile(ctx context.Context, filePath string) error {
 	})
 }
 
+// DeleteGraph는 현재 namespace의 그래프 상태 전체를 제거한다.
+// @intent full rebuild 또는 include_paths rebuild 전에 namespace 범위 상태를 교체한다.
+// @sideEffect namespace에 속한 nodes, edges, annotations, doc_tags를 모두 삭제한다.
+func (s *Store) DeleteGraph(ctx context.Context) error {
+	ns := ctxns.FromContext(ctx)
+	var nodeIDs []uint
+	if err := s.db.WithContext(ctx).
+		Model(&model.Node{}).
+		Where("namespace = ?", ns).
+		Pluck("id", &nodeIDs).Error; err != nil {
+		return trace.Wrap(err, "pluck namespace node ids")
+	}
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if len(nodeIDs) > 0 {
+			if err := tx.
+				Where("annotation_id IN (?)",
+					tx.Model(&model.Annotation{}).Select("id").Where("node_id IN ?", nodeIDs),
+				).Delete(&model.DocTag{}).Error; err != nil {
+				return trace.Wrap(err, "delete namespace doc_tags")
+			}
+
+			if err := tx.
+				Where("node_id IN ?", nodeIDs).
+				Delete(&model.Annotation{}).Error; err != nil {
+				return trace.Wrap(err, "delete namespace annotations")
+			}
+
+			if err := tx.
+				Where("from_node_id IN ? OR to_node_id IN ?", nodeIDs, nodeIDs).
+				Delete(&model.Edge{}).Error; err != nil {
+				return trace.Wrap(err, "delete namespace connected edges")
+			}
+
+			if err := tx.
+				Where("id IN ?", nodeIDs).
+				Delete(&model.Node{}).Error; err != nil {
+				return trace.Wrap(err, "delete namespace nodes")
+			}
+		}
+
+		return tx.
+			Where("file_path IN (?)", tx.Model(&model.Node{}).Select("file_path").Where("namespace = ?", ns)).
+			Delete(&model.Edge{}).Error
+	})
+}
+
 // UpsertEdges는 엣지 배치를 fingerprint 기준으로 저장한다.
 // @intent 그래프 관계를 중복 없이 일괄 반영한다.
 // @sideEffect edges 테이블에 배치 insert를 수행한다.
