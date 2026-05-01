@@ -16,6 +16,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/analysis/community"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/pathutil"
 )
@@ -191,7 +192,8 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		files := map[string]incremental.FileInfo{}
 		existingFiles := []string{}
 		var existingNodes []model.Node
-		if err := h.deps.DB.Model(&model.Node{}).Distinct("file_path").Find(&existingNodes).Error; err != nil {
+		ns := ctxns.FromContext(ctx)
+		if err := h.deps.DB.Model(&model.Node{}).Where("namespace = ?", ns).Distinct("file_path").Find(&existingNodes).Error; err != nil {
 			return nil, trace.Wrap(err, "load existing file paths")
 		}
 		for _, n := range existingNodes {

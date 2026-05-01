@@ -17,6 +17,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
@@ -1815,5 +1816,52 @@ func TestFindDeadCode_NoDeadCode(t *testing.T) {
 	json.Unmarshal([]byte(text), &resp)
 	if resp["count"].(float64) != 0 {
 		t.Errorf("expected 0 dead code, got %v", resp["count"])
+	}
+}
+
+func TestBuildOrUpdateGraph_Incremental_ExistingFilesNamespaceScoped(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	ctxA := ctxns.WithNamespace(context.Background(), "ns-a")
+	ctxB := ctxns.WithNamespace(context.Background(), "ns-b")
+
+	deps.Store.UpsertNodes(ctxA, []model.Node{
+		{QualifiedName: "a.F", Kind: model.NodeKindFunction, Name: "F", FilePath: "/ns-a-only/file.go", StartLine: 1, EndLine: 2, Language: "go"},
+	})
+	deps.Store.UpsertNodes(ctxB, []model.Node{
+		{QualifiedName: "b.G", Kind: model.NodeKindFunction, Name: "G", FilePath: "/ns-b-only/file.go", StartLine: 1, EndLine: 2, Language: "go"},
+	})
+
+	mockSync := &mockIncrementalSyncer{
+		result: &incremental.SyncStats{},
+	}
+	deps.Incremental = mockSync
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "svc.go", `package svc
+func Svc() {}
+`)
+
+	callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": false,
+		"postprocess":  "none",
+		"workspace":    "ns-a",
+	})
+
+	for _, fp := range mockSync.existingFiles {
+		if fp == "/ns-b-only/file.go" {
+			t.Errorf("existingFiles must not include files from namespace ns-b, got: %s", fp)
+		}
+	}
+
+	found := false
+	for _, fp := range mockSync.existingFiles {
+		if fp == "/ns-a-only/file.go" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("existingFiles must include ns-a file path")
 	}
 }
