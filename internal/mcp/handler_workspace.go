@@ -120,6 +120,27 @@ func (h *handlers) resolveWorkspacePath(workspace, filePath string, allowMissing
 	return ensureNoSymlinkInPath(root, rel, allowMissingLeaf)
 }
 
+func safeWriteFile(path string, data []byte, perm os.FileMode) error {
+	tmpFile, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp.*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmpFile.Name()
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := writeFileNoFollow(tmpPath, data, perm); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
+}
+
 // uploadFile writes one base64-encoded file into a workspace.
 // @intent 단일 파일을 서버 작업공간에 업로드해 후속 분석 또는 문서 작업에 활용하게 한다.
 // @param request content는 base64 인코딩된 파일 바이트다.
@@ -161,7 +182,10 @@ func (h *handlers) uploadFile(ctx context.Context, request mcp.CallToolRequest) 
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("create directory: %v", err)), nil
 	}
-	if err := os.WriteFile(target, decoded, 0o644); err != nil {
+	if _, err := h.resolveWorkspacePath(workspace, filePath, true); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("revalidate workspace path: %v", err)), nil
+	}
+	if err := safeWriteFile(target, decoded, 0o644); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("write file: %v", err)), nil
 	}
 
@@ -360,7 +384,10 @@ func (h *handlers) uploadFiles(ctx context.Context, request mcp.CallToolRequest)
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("entry %d: create directory: %v", i, err)), nil
 		}
-		if err := os.WriteFile(target, decoded, 0o644); err != nil {
+		if _, err := h.resolveWorkspacePath(e.Workspace, e.FilePath, true); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("entry %d: revalidate workspace path: %v", i, err)), nil
+		}
+		if err := safeWriteFile(target, decoded, 0o644); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("entry %d: write file: %v", i, err)), nil
 		}
 
