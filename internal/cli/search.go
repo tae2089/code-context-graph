@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -25,7 +24,10 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := args[0]
-			ctx := context.Background()
+			if limit <= 0 {
+				return fmt.Errorf("limit must be > 0, got %d", limit)
+			}
+			ctx := cmd.Context()
 			if ns, _ := cmd.Flags().GetString("namespace"); ns != "" {
 				ctx = ctxns.WithNamespace(ctx, ns)
 			}

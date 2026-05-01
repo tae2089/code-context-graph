@@ -11,11 +11,24 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
-	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 	"github.com/tae2089/code-context-graph/internal/store/search"
 )
+
+type spySearchBackend struct {
+	queryFn func(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error)
+}
+
+func (s *spySearchBackend) Migrate(db *gorm.DB) error                      { return nil }
+func (s *spySearchBackend) Rebuild(ctx context.Context, db *gorm.DB) error { return nil }
+func (s *spySearchBackend) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error) {
+	if s.queryFn != nil {
+		return s.queryFn(ctx, db, query, limit)
+	}
+	return nil, nil
+}
 
 func setupSearchTest(t *testing.T) (*Deps, *bytes.Buffer, *bytes.Buffer, *gorm.DB) {
 	t.Helper()
@@ -225,5 +238,42 @@ func TestSearchCommand_SpecialCharactersDoNotError(t *testing.T) {
 		if err := executeCmd(deps, stdout, stderr, "search", query); err != nil {
 			t.Fatalf("search %q returned error: %v", query, err)
 		}
+	}
+}
+
+func TestSearchCommand_RejectsNonPositiveLimit(t *testing.T) {
+	for _, limit := range []string{"0", "-5"} {
+		deps, stdout, stderr, _ := setupSearchTest(t)
+		called := false
+		deps.SearchBackend = &spySearchBackend{queryFn: func(ctx context.Context, db *gorm.DB, query string, queryLimit int) ([]model.Node, error) {
+			called = true
+			return nil, nil
+		}}
+
+		err := executeCmd(deps, stdout, stderr, "search", "--limit", limit, "hello")
+		if err == nil || !strings.Contains(err.Error(), "limit must be > 0") {
+			t.Fatalf("expected limit validation error for %s, got %v", limit, err)
+		}
+		if called {
+			t.Fatalf("search backend should not be called for invalid limit %s", limit)
+		}
+	}
+}
+
+func TestSearchCommand_UsesCommandContext(t *testing.T) {
+	deps, stdout, stderr, _ := setupSearchTest(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	deps.SearchBackend = &spySearchBackend{queryFn: func(ctx context.Context, db *gorm.DB, query string, queryLimit int) ([]model.Node, error) {
+		if !errors.Is(ctx.Err(), context.Canceled) {
+			t.Fatalf("expected canceled command context, got %v", ctx.Err())
+		}
+		return nil, ctx.Err()
+	}}
+
+	err := executeCmdWithContext(ctx, deps, stdout, stderr, "search", "hello")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled, got %v", err)
 	}
 }
