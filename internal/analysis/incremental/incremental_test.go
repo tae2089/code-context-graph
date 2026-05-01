@@ -67,6 +67,7 @@ func (r *recordingStore) DeleteNodesByFile(_ context.Context, filePath string) e
 
 type staticParser struct {
 	result map[string]parseResult
+	called []string
 }
 
 type parseResult struct {
@@ -75,6 +76,7 @@ type parseResult struct {
 }
 
 func (p *staticParser) Parse(filePath string, _ []byte) ([]model.Node, []model.Edge, error) {
+	p.called = append(p.called, filePath)
 	r, ok := p.result[filePath]
 	if !ok {
 		return nil, nil, nil
@@ -177,5 +179,76 @@ func TestIncremental_DeletedFile(t *testing.T) {
 	}
 	if len(st.deleted) != 1 || st.deleted[0] != "gone.go" {
 		t.Errorf("expected delete for gone.go, got %v", st.deleted)
+	}
+}
+
+func TestIncremental_DispatchesParserByExtension(t *testing.T) {
+	st := newStore()
+	goParser := &staticParser{result: map[string]parseResult{
+		"a.go": {
+			nodes: []model.Node{{QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "A", FilePath: "a.go", StartLine: 1, EndLine: 2, Hash: "go1", Language: "go"}},
+		},
+	}}
+	pyParser := &staticParser{result: map[string]parseResult{
+		"b.py": {
+			nodes: []model.Node{{QualifiedName: "pkg.b", Kind: model.NodeKindFunction, Name: "b", FilePath: "b.py", StartLine: 1, EndLine: 2, Hash: "py1", Language: "python"}},
+		},
+	}}
+
+	syncer := NewWithRegistry(st, map[string]Parser{
+		".go": goParser,
+		".py": pyParser,
+	})
+
+	files := map[string]FileInfo{
+		"a.go": {Hash: "go1", Content: []byte("package a")},
+		"b.py": {Hash: "py1", Content: []byte("def b(): pass")},
+	}
+
+	stats, err := syncer.Sync(context.Background(), files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Added != 2 {
+		t.Fatalf("expected 2 added, got %d", stats.Added)
+	}
+	if len(goParser.called) != 1 || goParser.called[0] != "a.go" {
+		t.Fatalf("go parser called with %v, want [a.go]", goParser.called)
+	}
+	if len(pyParser.called) != 1 || pyParser.called[0] != "b.py" {
+		t.Fatalf("py parser called with %v, want [b.py]", pyParser.called)
+	}
+	if len(st.upserted) != 2 {
+		t.Fatalf("expected 2 upserts, got %d", len(st.upserted))
+	}
+}
+
+func TestIncremental_UnknownExtensionIsSkipped(t *testing.T) {
+	st := newStore()
+	goParser := &staticParser{result: map[string]parseResult{}}
+
+	syncer := NewWithRegistry(st, map[string]Parser{
+		".go": goParser,
+	})
+
+	files := map[string]FileInfo{
+		"note.txt": {Hash: "txt1", Content: []byte("hello")},
+	}
+
+	stats, err := syncer.Sync(context.Background(), files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Skipped != 1 {
+		t.Fatalf("expected 1 skipped, got %d", stats.Skipped)
+	}
+	if stats.Added != 0 {
+		t.Fatalf("expected 0 added, got %d", stats.Added)
+	}
+	if len(goParser.called) != 0 {
+		t.Fatalf("expected go parser not to be called, got %v", goParser.called)
+	}
+	if len(st.upserted) != 0 {
+		t.Fatalf("expected no upserts, got %v", st.upserted)
 	}
 }

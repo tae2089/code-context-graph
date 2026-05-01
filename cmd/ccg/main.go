@@ -95,8 +95,11 @@ func main() {
 		}
 
 		walkers := buildWalkers(deps.Logger)
-		syncerWalker := treesitter.NewWalker(treesitter.GoSpec, treesitter.WithLogger(deps.Logger))
-		syncer := incremental.New(st, syncerWalker)
+		parsers := make(map[string]incremental.Parser, len(walkers))
+		for ext, walker := range walkers {
+			parsers[ext] = walker
+		}
+		syncer := incremental.NewWithRegistry(st, parsers)
 
 		deps.DB = db
 		deps.Store = st
@@ -107,7 +110,6 @@ func main() {
 			for _, w := range walkers {
 				w.Close()
 			}
-			syncerWalker.Close()
 			if sqlDB, err := db.DB(); err == nil {
 				sqlDB.Close()
 			}

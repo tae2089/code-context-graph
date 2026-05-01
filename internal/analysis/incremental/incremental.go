@@ -2,6 +2,8 @@ package incremental
 
 import (
 	"context"
+	"path/filepath"
+	"strings"
 	"log/slog"
 
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -44,6 +46,7 @@ type SyncStats struct {
 type Syncer struct {
 	store  Store
 	parser Parser
+	parsers map[string]Parser
 	logger *slog.Logger
 }
 
@@ -60,6 +63,14 @@ func WithLogger(l *slog.Logger) SyncerOption {
 	}
 }
 
+// WithParsers sets extension-based parsers used during sync.
+// @intent let incremental sync dispatch parsing per file extension for multi-language projects
+func WithParsers(parsers map[string]Parser) SyncerOption {
+	return func(s *Syncer) {
+		s.parsers = parsers
+	}
+}
+
 // New creates an incremental syncer.
 // @intent wire storage, parser, and optional configuration into a sync coordinator
 // @ensures returned syncer always has a non-nil logger
@@ -72,6 +83,13 @@ func New(store Store, parser Parser, opts ...SyncerOption) *Syncer {
 		s.logger = slog.Default()
 	}
 	return s
+}
+
+// NewWithRegistry creates an incremental syncer with extension-based parser dispatch.
+// @intent support multi-language incremental parsing without breaking the legacy single-parser constructor
+func NewWithRegistry(store Store, parsers map[string]Parser, opts ...SyncerOption) *Syncer {
+	opts = append([]SyncerOption{WithParsers(parsers)}, opts...)
+	return New(store, nil, opts...)
 }
 
 // Sync updates graph data using only the provided file snapshot.
@@ -107,6 +125,12 @@ func (s *Syncer) SyncWithExisting(ctx context.Context, files map[string]FileInfo
 
 	for filePath, info := range files {
 		existing := existingByFile[filePath]
+		parser := s.resolveParser(filePath)
+		if parser == nil {
+			s.logger.Debug("file skipped (no parser)", "file", filePath)
+			stats.Skipped++
+			continue
+		}
 
 		if len(existing) > 0 && existing[0].Hash == info.Hash {
 			s.logger.Debug("file skipped (unchanged)", "file", filePath)
@@ -125,7 +149,7 @@ func (s *Syncer) SyncWithExisting(ctx context.Context, files map[string]FileInfo
 			stats.Added++
 		}
 
-		nodes, edges, err := s.parser.Parse(filePath, info.Content)
+		nodes, edges, err := parser.Parse(filePath, info.Content)
 		if err != nil {
 			return nil, err
 		}
@@ -159,4 +183,14 @@ func (s *Syncer) SyncWithExisting(ctx context.Context, files map[string]FileInfo
 	)
 
 	return stats, nil
+}
+
+func (s *Syncer) resolveParser(filePath string) Parser {
+	if len(s.parsers) > 0 {
+		ext := strings.ToLower(filepath.Ext(filePath))
+		if parser, ok := s.parsers[ext]; ok {
+			return parser
+		}
+	}
+	return s.parser
 }
