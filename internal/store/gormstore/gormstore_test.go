@@ -363,6 +363,90 @@ func TestDeleteGraph_RemovesUnresolvedEdgesByFilePath(t *testing.T) {
 	}
 }
 
+func TestUpsertEdges_AllowsSameFingerprintAcrossNamespaces(t *testing.T) {
+	s := setupTestDB(t)
+
+	ctxA := ctxns.WithNamespace(context.Background(), "ns-a")
+	ctxB := ctxns.WithNamespace(context.Background(), "ns-b")
+
+	if err := s.UpsertEdges(ctxA, []model.Edge{{Kind: model.EdgeKindCalls, FilePath: "shared.go", Line: 1, Fingerprint: "shared-fp"}}); err != nil {
+		t.Fatalf("UpsertEdges ns-a: %v", err)
+	}
+	if err := s.UpsertEdges(ctxB, []model.Edge{{Kind: model.EdgeKindCalls, FilePath: "shared.go", Line: 1, Fingerprint: "shared-fp"}}); err != nil {
+		t.Fatalf("UpsertEdges ns-b: %v", err)
+	}
+
+	var count int64
+	if err := s.db.Model(&model.Edge{}).Where("fingerprint = ?", "shared-fp").Count(&count).Error; err != nil {
+		t.Fatalf("count edges: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 namespaced edges with same fingerprint, got %d", count)
+	}
+}
+
+func TestDeleteEdgesByFile_FiltersByNamespace(t *testing.T) {
+	s := setupTestDB(t)
+
+	ctxA := ctxns.WithNamespace(context.Background(), "ns-a")
+	ctxB := ctxns.WithNamespace(context.Background(), "ns-b")
+
+	if err := s.UpsertEdges(ctxA, []model.Edge{{Kind: model.EdgeKindCalls, FilePath: "shared.go", Line: 1, Fingerprint: "a-fp"}}); err != nil {
+		t.Fatalf("UpsertEdges ns-a: %v", err)
+	}
+	if err := s.UpsertEdges(ctxB, []model.Edge{{Kind: model.EdgeKindCalls, FilePath: "shared.go", Line: 1, Fingerprint: "b-fp"}}); err != nil {
+		t.Fatalf("UpsertEdges ns-b: %v", err)
+	}
+
+	if err := s.DeleteEdgesByFile(ctxA, "shared.go"); err != nil {
+		t.Fatalf("DeleteEdgesByFile: %v", err)
+	}
+
+	var countA, countB int64
+	s.db.Model(&model.Edge{}).Where("namespace = ?", "ns-a").Count(&countA)
+	s.db.Model(&model.Edge{}).Where("namespace = ?", "ns-b").Count(&countB)
+	if countA != 0 {
+		t.Fatalf("expected ns-a edges deleted, got %d", countA)
+	}
+	if countB != 1 {
+		t.Fatalf("expected ns-b edges preserved, got %d", countB)
+	}
+}
+
+func TestDeleteGraph_FiltersUnresolvedEdgesByNamespace(t *testing.T) {
+	s := setupTestDB(t)
+
+	ctxA := ctxns.WithNamespace(context.Background(), "ns-a")
+	ctxB := ctxns.WithNamespace(context.Background(), "ns-b")
+
+	if err := s.UpsertNodes(ctxA, []model.Node{{QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "A", FilePath: "shared.go", StartLine: 1, EndLine: 2, Language: "go"}}); err != nil {
+		t.Fatalf("UpsertNodes ns-a: %v", err)
+	}
+	if err := s.UpsertNodes(ctxB, []model.Node{{QualifiedName: "pkg.B", Kind: model.NodeKindFunction, Name: "B", FilePath: "shared.go", StartLine: 1, EndLine: 2, Language: "go"}}); err != nil {
+		t.Fatalf("UpsertNodes ns-b: %v", err)
+	}
+	if err := s.UpsertEdges(ctxA, []model.Edge{{Kind: model.EdgeKindCalls, FilePath: "shared.go", Line: 1, Fingerprint: "ns-a-edge"}}); err != nil {
+		t.Fatalf("UpsertEdges ns-a: %v", err)
+	}
+	if err := s.UpsertEdges(ctxB, []model.Edge{{Kind: model.EdgeKindCalls, FilePath: "shared.go", Line: 1, Fingerprint: "ns-b-edge"}}); err != nil {
+		t.Fatalf("UpsertEdges ns-b: %v", err)
+	}
+
+	if err := s.DeleteGraph(ctxA); err != nil {
+		t.Fatalf("DeleteGraph ns-a: %v", err)
+	}
+
+	var countA, countB int64
+	s.db.Model(&model.Edge{}).Where("namespace = ?", "ns-a").Count(&countA)
+	s.db.Model(&model.Edge{}).Where("namespace = ?", "ns-b").Count(&countB)
+	if countA != 0 {
+		t.Fatalf("expected ns-a unresolved edges deleted, got %d", countA)
+	}
+	if countB != 1 {
+		t.Fatalf("expected ns-b unresolved edges preserved, got %d", countB)
+	}
+}
+
 func TestUpsertAnnotation_Insert(t *testing.T) {
 	s := setupTestDB(t)
 	ctx := context.Background()

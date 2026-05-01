@@ -31,14 +31,22 @@ func New(db *gorm.DB) *Store {
 // @intent 그래프 저장에 필요한 GORM 모델 테이블을 준비한다.
 // @sideEffect 데이터베이스 스키마를 변경할 수 있다.
 func (s *Store) AutoMigrate() error {
-	return s.db.AutoMigrate(
+	if err := s.db.AutoMigrate(
 		&model.Node{},
 		&model.Edge{},
 		&model.Annotation{},
 		&model.DocTag{},
 		&model.Community{},
 		&model.CommunityMembership{},
-	)
+	); err != nil {
+		return err
+	}
+	if s.db.Migrator().HasIndex(&model.Edge{}, "idx_edges_fingerprint") {
+		if err := s.db.Migrator().DropIndex(&model.Edge{}, "idx_edges_fingerprint"); err != nil {
+			return trace.Wrap(err, "drop legacy edge fingerprint index")
+		}
+	}
+	return nil
 }
 
 // UpsertNodes는 노드 배치를 qualified_name 기준으로 저장한다.
@@ -181,6 +189,12 @@ func (s *Store) DeleteNodesByFile(ctx context.Context, filePath string) error {
 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.
+			Where("namespace = ? AND file_path = ?", ns, filePath).
+			Delete(&model.Edge{}).Error; err != nil {
+			return trace.Wrap(err, "delete file-owned edges")
+		}
+
+		if err := tx.
 			Where("from_node_id IN ? OR to_node_id IN ?", nodeIDs, nodeIDs).
 			Delete(&model.Edge{}).Error; err != nil {
 			return trace.Wrap(err, "cascade delete edges")
@@ -235,7 +249,7 @@ func (s *Store) DeleteGraph(ctx context.Context) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if len(filePaths) > 0 {
 			if err := tx.
-				Where("file_path IN ?", filePaths).
+				Where("namespace = ? AND file_path IN ?", ns, filePaths).
 				Delete(&model.Edge{}).Error; err != nil {
 				return trace.Wrap(err, "delete namespace file-owned edges")
 			}
@@ -288,9 +302,13 @@ func (s *Store) UpsertEdges(ctx context.Context, edges []model.Edge) error {
 	if len(edges) == 0 {
 		return nil
 	}
+	ns := ctxns.FromContext(ctx)
+	for i := range edges {
+		edges[i].Namespace = ns
+	}
 	if err := s.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "fingerprint"}},
+			Columns:   []clause.Column{{Name: "namespace"}, {Name: "fingerprint"}},
 			DoNothing: true,
 		}).
 		CreateInBatches(edges, 500).Error; err != nil {
@@ -303,7 +321,8 @@ func (s *Store) UpsertEdges(ctx context.Context, edges []model.Edge) error {
 // @intent 특정 선언의 outbound 관계를 불러온다.
 func (s *Store) GetEdgesFrom(ctx context.Context, nodeID uint) ([]model.Edge, error) {
 	var edges []model.Edge
-	if err := s.db.WithContext(ctx).Where("from_node_id = ?", nodeID).Find(&edges).Error; err != nil {
+	ns := ctxns.FromContext(ctx)
+	if err := s.db.WithContext(ctx).Where("namespace = ? AND from_node_id = ?", ns, nodeID).Find(&edges).Error; err != nil {
 		return nil, err
 	}
 	return edges, nil
@@ -317,7 +336,8 @@ func (s *Store) GetEdgesFromNodes(ctx context.Context, nodeIDs []uint) ([]model.
 		return nil, nil
 	}
 	var edges []model.Edge
-	if err := s.db.WithContext(ctx).Where("from_node_id IN ?", nodeIDs).Find(&edges).Error; err != nil {
+	ns := ctxns.FromContext(ctx)
+	if err := s.db.WithContext(ctx).Where("namespace = ? AND from_node_id IN ?", ns, nodeIDs).Find(&edges).Error; err != nil {
 		return nil, err
 	}
 	return edges, nil
@@ -327,7 +347,8 @@ func (s *Store) GetEdgesFromNodes(ctx context.Context, nodeIDs []uint) ([]model.
 // @intent 특정 선언의 inbound 관계를 불러온다.
 func (s *Store) GetEdgesTo(ctx context.Context, nodeID uint) ([]model.Edge, error) {
 	var edges []model.Edge
-	if err := s.db.WithContext(ctx).Where("to_node_id = ?", nodeID).Find(&edges).Error; err != nil {
+	ns := ctxns.FromContext(ctx)
+	if err := s.db.WithContext(ctx).Where("namespace = ? AND to_node_id = ?", ns, nodeID).Find(&edges).Error; err != nil {
 		return nil, err
 	}
 	return edges, nil
@@ -341,7 +362,8 @@ func (s *Store) GetEdgesToNodes(ctx context.Context, nodeIDs []uint) ([]model.Ed
 		return nil, nil
 	}
 	var edges []model.Edge
-	if err := s.db.WithContext(ctx).Where("to_node_id IN ?", nodeIDs).Find(&edges).Error; err != nil {
+	ns := ctxns.FromContext(ctx)
+	if err := s.db.WithContext(ctx).Where("namespace = ? AND to_node_id IN ?", ns, nodeIDs).Find(&edges).Error; err != nil {
 		return nil, err
 	}
 	return edges, nil
@@ -351,7 +373,8 @@ func (s *Store) GetEdgesToNodes(ctx context.Context, nodeIDs []uint) ([]model.Ed
 // @intent 파일 단위 갱신 시 기존 관계만 선택적으로 정리한다.
 // @sideEffect edges 테이블에서 해당 file_path 레코드를 삭제한다.
 func (s *Store) DeleteEdgesByFile(ctx context.Context, filePath string) error {
-	return s.db.WithContext(ctx).Where("file_path = ?", filePath).Delete(&model.Edge{}).Error
+	ns := ctxns.FromContext(ctx)
+	return s.db.WithContext(ctx).Where("namespace = ? AND file_path = ?", ns, filePath).Delete(&model.Edge{}).Error
 }
 
 // UpsertAnnotation는 노드의 어노테이션과 태그를 저장한다.
