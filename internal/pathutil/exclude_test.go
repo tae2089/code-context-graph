@@ -15,7 +15,10 @@ func TestLoadIncludePathsFromConfig_WithFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := pathutil.LoadIncludePathsFromConfig(dir)
+	got, err := pathutil.LoadIncludePathsFromConfig(dir)
+	if err != nil {
+		t.Fatalf("LoadIncludePathsFromConfig: %v", err)
+	}
 	want := []string{"src/api", "src/auth"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)
@@ -29,7 +32,10 @@ func TestLoadIncludePathsFromConfig_WithFile(t *testing.T) {
 
 func TestLoadIncludePathsFromConfig_NoFile(t *testing.T) {
 	dir := t.TempDir()
-	got := pathutil.LoadIncludePathsFromConfig(dir)
+	got, err := pathutil.LoadIncludePathsFromConfig(dir)
+	if err != nil {
+		t.Fatalf("LoadIncludePathsFromConfig: %v", err)
+	}
 	if got != nil {
 		t.Errorf("expected nil, got %v", got)
 	}
@@ -42,9 +48,50 @@ func TestLoadIncludePathsFromConfig_NoKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := pathutil.LoadIncludePathsFromConfig(dir)
+	got, err := pathutil.LoadIncludePathsFromConfig(dir)
+	if err != nil {
+		t.Fatalf("LoadIncludePathsFromConfig: %v", err)
+	}
 	if got != nil {
 		t.Errorf("expected nil, got %v", got)
+	}
+}
+
+func TestLoadIncludePathsFromConfig_InvalidYAMLReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte("include_paths: [src/api\n")
+	if err := os.WriteFile(filepath.Join(dir, ".ccg.yaml"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := pathutil.LoadIncludePathsFromConfig(dir)
+	if err == nil {
+		t.Fatal("expected parse error for malformed .ccg.yaml")
+	}
+}
+
+func TestMatchIncludePaths(t *testing.T) {
+	tests := []struct {
+		name         string
+		relPath       string
+		includePaths []string
+		want         bool
+	}{
+		{name: "exact include path", relPath: "src/api", includePaths: []string{"src/api"}, want: true},
+		{name: "child file under include path", relPath: "src/api/handler.go", includePaths: []string{"src/api"}, want: true},
+		{name: "parent dir kept for traversal", relPath: "src", includePaths: []string{"src/api"}, want: true},
+		{name: "sibling path not matched", relPath: "src/api2/handler.go", includePaths: []string{"src/api"}, want: false},
+		{name: "short prefix not matched", relPath: "src/a", includePaths: []string{"src/api"}, want: false},
+		{name: "normalized separators", relPath: `src\\api\\handler.go`, includePaths: []string{"src/api"}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pathutil.MatchIncludePaths(tt.relPath, tt.includePaths)
+			if got != tt.want {
+				t.Errorf("MatchIncludePaths(%q, %v) = %v, want %v", tt.relPath, tt.includePaths, got, tt.want)
+			}
+		})
 	}
 }
 

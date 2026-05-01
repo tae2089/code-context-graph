@@ -2,6 +2,8 @@
 package pathutil
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path"
 	"regexp"
@@ -11,6 +13,8 @@ import (
 
 	"go.yaml.in/yaml/v3"
 )
+
+var errIncludePathsConfig = errors.New("invalid include_paths config")
 
 // ShouldSkipDir는 디렉토리 이름이 기본 제외 대상인지 반환한다.
 // .git, vendor, node_modules, 그리고 "."으로 시작하는 숨김 디렉토리를 제외한다.
@@ -91,28 +95,42 @@ func IsRegexPattern(pat string) bool {
 // include_paths list. Returns nil if the file doesn't exist or has no
 // include_paths key.
 // @intent webhook 빌드 시 repo별 .ccg.yaml에서 include_paths를 자동으로 읽는다.
-func LoadIncludePathsFromConfig(dir string) []string {
+
+func LoadIncludePathsFromConfig(dir string) ([]string, error) {
 	data, err := os.ReadFile(filepath.Join(dir, ".ccg.yaml"))
 	if err != nil {
-		return nil
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
 	}
 	var cfg struct {
 		IncludePaths []string `yaml:"include_paths"`
 	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil
+		return nil, fmt.Errorf("%w: parse .ccg.yaml: %w", errIncludePathsConfig, err)
 	}
 	if len(cfg.IncludePaths) == 0 {
-		return nil
+		return nil, nil
 	}
-	return cfg.IncludePaths
+	return cfg.IncludePaths, nil
 }
 
 func MatchIncludePaths(relPath string, includePaths []string) bool {
+	relPath = normalizeIncludePath(relPath)
 	for _, inc := range includePaths {
-		if strings.HasPrefix(relPath, inc) || strings.HasPrefix(inc, relPath) {
+		inc = normalizeIncludePath(inc)
+		if relPath == inc || strings.HasPrefix(relPath, inc+"/") || strings.HasPrefix(inc, relPath+"/") {
 			return true
 		}
 	}
 	return false
+}
+
+func normalizeIncludePath(p string) string {
+	clean := path.Clean(strings.ReplaceAll(filepath.ToSlash(strings.TrimSpace(p)), `\`, "/"))
+	if clean == "." {
+		return clean
+	}
+	return strings.TrimPrefix(clean, "./")
 }
