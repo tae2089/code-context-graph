@@ -199,6 +199,14 @@ func (s *Store) DeleteNodesByFile(ctx context.Context, filePath string) error {
 			return trace.Wrap(err, "cascade delete annotations")
 		}
 
+		if tx.Migrator().HasTable(&model.SearchDocument{}) {
+			if err := tx.
+				Where("node_id IN ?", nodeIDs).
+				Delete(&model.SearchDocument{}).Error; err != nil {
+				return trace.Wrap(err, "cascade delete search_documents")
+			}
+		}
+
 		return tx.Where("id IN ?", nodeIDs).Delete(&model.Node{}).Error
 	})
 }
@@ -245,6 +253,14 @@ func (s *Store) DeleteGraph(ctx context.Context) error {
 				Where("node_id IN ?", nodeIDs).
 				Delete(&model.Annotation{}).Error; err != nil {
 				return trace.Wrap(err, "delete namespace annotations")
+			}
+
+			if tx.Migrator().HasTable(&model.SearchDocument{}) {
+				if err := tx.
+					Where("node_id IN ?", nodeIDs).
+					Delete(&model.SearchDocument{}).Error; err != nil {
+					return trace.Wrap(err, "delete namespace search_documents")
+				}
 			}
 
 			if err := tx.

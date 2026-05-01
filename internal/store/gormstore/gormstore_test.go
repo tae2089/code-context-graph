@@ -26,6 +26,9 @@ func setupTestDB(t *testing.T) *Store {
 	if err := s.AutoMigrate(); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
+	if err := db.AutoMigrate(&model.SearchDocument{}); err != nil {
+		t.Fatalf("failed to migrate search_documents: %v", err)
+	}
 	return s
 }
 
@@ -875,5 +878,53 @@ func TestUpsertNodes_ConflictWithinSameNamespace(t *testing.T) {
 	}
 	if got.EndLine != 5 {
 		t.Errorf("EndLine = %d, want 5", got.EndLine)
+	}
+}
+
+func TestDeleteNodesByFile_CleansSearchDocuments(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := context.Background()
+
+	s.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "A", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"},
+	})
+	node, _ := s.GetNode(ctx, "pkg.A")
+
+	if err := s.db.Create(&model.SearchDocument{NodeID: node.ID, Content: "pkg.A content", Language: "go"}).Error; err != nil {
+		t.Fatalf("insert search_document: %v", err)
+	}
+
+	if err := s.DeleteNodesByFile(ctx, "a.go"); err != nil {
+		t.Fatalf("DeleteNodesByFile: %v", err)
+	}
+
+	var count int64
+	s.db.Model(&model.SearchDocument{}).Where("node_id = ?", node.ID).Count(&count)
+	if count != 0 {
+		t.Errorf("expected search_documents to be deleted, got %d rows", count)
+	}
+}
+
+func TestDeleteGraph_CleansSearchDocuments(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := ctxns.WithNamespace(context.Background(), "ns-x")
+
+	s.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.B", Kind: model.NodeKindFunction, Name: "B", FilePath: "b.go", StartLine: 1, EndLine: 2, Language: "go"},
+	})
+	node, _ := s.GetNode(ctx, "pkg.B")
+
+	if err := s.db.Create(&model.SearchDocument{NodeID: node.ID, Content: "pkg.B content", Language: "go"}).Error; err != nil {
+		t.Fatalf("insert search_document: %v", err)
+	}
+
+	if err := s.DeleteGraph(ctx); err != nil {
+		t.Fatalf("DeleteGraph: %v", err)
+	}
+
+	var count int64
+	s.db.Model(&model.SearchDocument{}).Where("node_id = ?", node.ID).Count(&count)
+	if count != 0 {
+		t.Errorf("expected search_documents to be deleted after DeleteGraph, got %d rows", count)
 	}
 }
