@@ -14,6 +14,7 @@ import (
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/parse"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 	"github.com/tae2089/code-context-graph/internal/pathutil"
@@ -192,84 +193,129 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 	}
 
 	if s.SearchBackend != nil && s.DB != nil {
-		if err := s.DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&model.SearchDocument{}).Error; err != nil {
-			return stats, trace.Wrap(err, "clear search documents")
-		}
-
-		var docs []model.SearchDocument
-		annByNode := map[uint]*model.Annotation{}
-
-		buildContent := func(n model.Node) string {
-			var sb strings.Builder
-			sb.WriteString(n.Name)
-			sb.WriteByte(' ')
-			sb.WriteString(n.QualifiedName)
-			sb.WriteByte(' ')
-			sb.WriteString(string(n.Kind))
-			if ann := annByNode[n.ID]; ann != nil {
-				if ann.Summary != "" {
-					sb.WriteByte(' ')
-					sb.WriteString(ann.Summary)
-				}
-				if ann.Context != "" {
-					sb.WriteByte(' ')
-					sb.WriteString(ann.Context)
-				}
-				for _, tag := range ann.Tags {
-					sb.WriteByte(' ')
-					sb.WriteString(tag.Value)
-				}
-			}
-			return sb.String()
-		}
-
-		// FindInBatches로 노드를 500개씩 처리하여 대규모 IN 절 및 전체 메모리 로드 방지
-		var batchNodes []model.Node
-		result := s.DB.Where("kind IN ?", []string{"function", "class", "type", "test", "file"}).
-			FindInBatches(&batchNodes, 500, func(tx *gorm.DB, batch int) error {
-				nodeIDs := make([]uint, len(batchNodes))
-				for i, n := range batchNodes {
-					nodeIDs[i] = n.ID
-				}
-				var annotations []model.Annotation
-				if err := s.DB.Where("node_id IN ?", nodeIDs).Preload("Tags").Find(&annotations).Error; err != nil {
-					return trace.Wrap(err, "load annotations batch "+strconv.Itoa(batch))
-				}
-				for i := range annotations {
-					annByNode[annotations[i].NodeID] = &annotations[i]
-				}
-				for _, n := range batchNodes {
-					docs = append(docs, model.SearchDocument{
-						NodeID:   n.ID,
-						Content:  buildContent(n),
-						Language: n.Language,
-					})
-				}
-				// 배치 처리 완료 후 annByNode 초기화로 메모리 반환
-				for _, n := range batchNodes {
-					delete(annByNode, n.ID)
-				}
-				return nil
-			})
-		if result.Error != nil {
-			return stats, trace.Wrap(result.Error, "load index nodes")
-		}
-
-		if len(docs) > 0 {
-			if err := s.DB.CreateInBatches(docs, 100).Error; err != nil {
-				return stats, trace.Wrap(err, "batch insert search documents")
-			}
+		docCount, err := RefreshSearchDocuments(ctx, s.DB)
+		if err != nil {
+			return stats, err
 		}
 		if err := s.SearchBackend.Rebuild(ctx, s.DB); err != nil {
 			s.Logger.Warn("search index rebuild failed", trace.SlogError(err))
 		} else {
-			s.Logger.Info("search index rebuilt", "documents", len(docs))
+			s.Logger.Info("search index rebuilt", "documents", docCount)
 		}
 	}
 
 	s.Logger.Info("build complete", "files", stats.TotalFiles, "nodes", stats.TotalNodes, "edges", stats.TotalEdges)
 
 	return stats, nil
+}
+
+// RefreshSearchDocuments rebuilds namespace-scoped search_documents from current graph nodes.
+// @intent keep derived search documents consistent with graph state before FTS rebuilds
+func RefreshSearchDocuments(ctx context.Context, db *gorm.DB) (int, error) {
+	ns := ctxns.FromContext(ctx)
+	buildContent := func(n model.Node, annByNode map[uint]*model.Annotation) string {
+		var sb strings.Builder
+		sb.WriteString(n.Name)
+		sb.WriteByte(' ')
+		sb.WriteString(n.QualifiedName)
+		sb.WriteByte(' ')
+		sb.WriteString(string(n.Kind))
+		if ann := annByNode[n.ID]; ann != nil {
+			if ann.Summary != "" {
+				sb.WriteByte(' ')
+				sb.WriteString(ann.Summary)
+			}
+			if ann.Context != "" {
+				sb.WriteByte(' ')
+				sb.WriteString(ann.Context)
+			}
+			for _, tag := range ann.Tags {
+				sb.WriteByte(' ')
+				sb.WriteString(tag.Value)
+			}
+		}
+		return sb.String()
+	}
+	count := 0
+	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		docsQ := tx.WithContext(ctx)
+		nodesQ := tx.WithContext(ctx).Where("kind IN ?", []string{"function", "class", "type", "test", "file"})
+		if ns != "" {
+			docsQ = docsQ.Where("namespace = ?", ns)
+			nodesQ = nodesQ.Where("namespace = ?", ns)
+		}
+		if ns == "" {
+			docsQ = docsQ.Session(&gorm.Session{AllowGlobalUpdate: true})
+		}
+		if err := docsQ.Delete(&model.SearchDocument{}).Error; err != nil {
+			return trace.Wrap(err, "clear search documents")
+		}
+
+		var batchNodes []model.Node
+		result := nodesQ.FindInBatches(&batchNodes, 500, func(batchTx *gorm.DB, batch int) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			_ = batchTx
+			nodeIDs := make([]uint, len(batchNodes))
+			for i, n := range batchNodes {
+				nodeIDs[i] = n.ID
+			}
+			annByNode := map[uint]*model.Annotation{}
+			if len(nodeIDs) > 0 {
+				var annotations []model.Annotation
+				annQ := tx.Session(&gorm.Session{NewDB: true}).WithContext(ctx).Model(&model.Annotation{})
+				if err := annQ.Where("node_id IN ?", nodeIDs).Find(&annotations).Error; err != nil {
+					return trace.Wrap(err, "load annotations batch "+strconv.Itoa(batch))
+				}
+				if len(annotations) > 0 {
+					annotationIDs := make([]uint, len(annotations))
+					for i := range annotations {
+						annotationIDs[i] = annotations[i].ID
+					}
+					var tags []model.DocTag
+					tagsQ := tx.Session(&gorm.Session{NewDB: true}).WithContext(ctx).Model(&model.DocTag{})
+					if err := tagsQ.Where("annotation_id IN ?", annotationIDs).Order("annotation_id, ordinal").Find(&tags).Error; err != nil {
+						return trace.Wrap(err, "load annotation tags batch "+strconv.Itoa(batch))
+					}
+					tagsByAnnotation := make(map[uint][]model.DocTag, len(annotations))
+					for _, tag := range tags {
+						tagsByAnnotation[tag.AnnotationID] = append(tagsByAnnotation[tag.AnnotationID], tag)
+					}
+					for i := range annotations {
+						annotations[i].Tags = tagsByAnnotation[annotations[i].ID]
+					}
+				}
+				for i := range annotations {
+					annByNode[annotations[i].NodeID] = &annotations[i]
+				}
+			}
+			docs := make([]model.SearchDocument, 0, len(batchNodes))
+			for _, n := range batchNodes {
+				docs = append(docs, model.SearchDocument{
+					Namespace: n.Namespace,
+					NodeID:    n.ID,
+					Content:   buildContent(n, annByNode),
+					Language:  n.Language,
+				})
+			}
+			if len(docs) > 0 {
+				if err := tx.WithContext(ctx).CreateInBatches(docs, 100).Error; err != nil {
+					return trace.Wrap(err, "batch insert search documents")
+				}
+			}
+			count += len(docs)
+			return nil
+		})
+		if result.Error != nil {
+			return trace.Wrap(result.Error, "load index nodes")
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 // toBinderComments converts walker comment blocks into binder comment blocks,

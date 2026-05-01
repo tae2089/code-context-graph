@@ -11,12 +11,14 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"sort"
+	"strconv"
 	"testing"
 
 	"gorm.io/driver/sqlite"
@@ -24,8 +26,10 @@ import (
 	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
+	storesearch "github.com/tae2089/code-context-graph/internal/store/search"
 )
 
 func TestToBinderComments_PreservesBasicFields(t *testing.T) {
@@ -423,6 +427,145 @@ func TestBuild_MissingRoot_DoesNotDeleteExistingGraph(t *testing.T) {
 	}
 
 	assertFunctionNamesByFile(t, st, ctx, "sample.go", []string{"Keep"})
+}
+
+func TestBuild_DoesNotWipeOtherNamespaceSearchDocuments(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:?_pragma=journal_mode(WAL)"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := db.AutoMigrate(&model.SearchDocument{}); err != nil {
+		t.Fatalf("migrate search docs: %v", err)
+	}
+	backend := storesearch.NewSQLiteBackend()
+	if err := backend.Migrate(db); err != nil {
+		if errors.Is(err, storesearch.ErrFTS5NotAvailable) {
+			t.Skip("fts5 module not available, skipping test")
+		}
+		t.Fatalf("migrate fts: %v", err)
+	}
+
+	otherNode := model.Node{Namespace: "ns-b", QualifiedName: "pkg.Other", Kind: model.NodeKindFunction, Name: "Other", FilePath: "other.go", StartLine: 1, EndLine: 2, Language: "go"}
+	if err := db.Create(&otherNode).Error; err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: "ns-b", NodeID: otherNode.ID, Content: "other namespace doc", Language: "go"}).Error; err != nil {
+		t.Fatalf("seed doc: %v", err)
+	}
+
+	svc := &GraphService{
+		Store:         st,
+		DB:            db,
+		SearchBackend: backend,
+		Walkers:       map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:        slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "sample.go"), []byte("package sample\n\nfunc Keep() {}\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	ctx := ctxns.WithNamespace(context.Background(), "ns-a")
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	var count int64
+	if err := db.Model(&model.SearchDocument{}).Where("namespace = ?", "ns-b").Count(&count).Error; err != nil {
+		t.Fatalf("count docs: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected ns-b search docs preserved, got %d", count)
+	}
+}
+
+func TestRefreshSearchDocuments_TransactionRollsBackOnInsertFailure(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate store: %v", err)
+	}
+	if err := db.AutoMigrate(&model.SearchDocument{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	node := model.Node{QualifiedName: "pkg.TooLong", Kind: model.NodeKindFunction, Name: "TooLong", FilePath: "too_long.go", StartLine: 1, EndLine: 2, Language: "go"}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	seed := model.SearchDocument{Namespace: "", NodeID: 9999, Content: "seed", Language: "go"}
+	if err := db.Create(&seed).Error; err != nil {
+		t.Fatalf("seed search doc: %v", err)
+	}
+	if err := db.Exec("CREATE TRIGGER fail_search_docs_insert BEFORE INSERT ON search_documents BEGIN SELECT RAISE(ABORT, 'boom'); END;").Error; err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+
+	_, err = RefreshSearchDocuments(context.Background(), db)
+	if err == nil {
+		t.Fatal("expected refresh to fail")
+	}
+
+	var count int64
+	if err := db.Model(&model.SearchDocument{}).Where("node_id = ?", seed.NodeID).Count(&count).Error; err != nil {
+		t.Fatalf("count docs: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected original search document to survive rollback, got %d", count)
+	}
+}
+
+func TestRefreshSearchDocuments_RebuildsPerBatchWithoutAccumulatingGlobalSlice(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate store: %v", err)
+	}
+	if err := db.AutoMigrate(&model.SearchDocument{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	for i := 0; i < 550; i++ {
+		node := model.Node{
+			QualifiedName: "pkg.Node" + strconv.Itoa(i),
+			Kind:          model.NodeKindFunction,
+			Name:          "Node" + strconv.Itoa(i),
+			FilePath:      filepath.Join("pkg", "file"+strconv.Itoa(i)+".go"),
+			StartLine:     i + 1,
+			EndLine:       i + 1,
+			Language:      "go",
+		}
+		if err := db.Create(&node).Error; err != nil {
+			t.Fatalf("create node %d: %v", i, err)
+		}
+	}
+
+	count, err := RefreshSearchDocuments(context.Background(), db)
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if count != 550 {
+		t.Fatalf("expected 550 search docs, got %d", count)
+	}
+
+	var persisted int64
+	if err := db.Model(&model.SearchDocument{}).Count(&persisted).Error; err != nil {
+		t.Fatalf("count docs: %v", err)
+	}
+	if persisted != 550 {
+		t.Fatalf("expected 550 persisted search docs, got %d", persisted)
+	}
 }
 
 func assertFunctionNamesByFile(t *testing.T, st *gormstore.Store, ctx context.Context, filePath string, want []string) {
