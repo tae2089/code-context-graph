@@ -138,6 +138,11 @@ func (s *Syncer) SyncWithExisting(ctx context.Context, files map[string]FileInfo
 			continue
 		}
 
+		nodes, edges, err := parser.Parse(filePath, info.Content)
+		if err != nil {
+			return nil, err
+		}
+
 		if len(existing) > 0 {
 			if err := s.store.DeleteNodesByFile(ctx, filePath); err != nil {
 				return nil, err
@@ -149,10 +154,6 @@ func (s *Syncer) SyncWithExisting(ctx context.Context, files map[string]FileInfo
 			stats.Added++
 		}
 
-		nodes, edges, err := parser.Parse(filePath, info.Content)
-		if err != nil {
-			return nil, err
-		}
 		if len(nodes) > 0 {
 			if err := s.store.UpsertNodes(ctx, nodes); err != nil {
 				return nil, err

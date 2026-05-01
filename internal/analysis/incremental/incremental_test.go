@@ -2,6 +2,7 @@ package incremental
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -73,6 +74,7 @@ type staticParser struct {
 type parseResult struct {
 	nodes []model.Node
 	edges []model.Edge
+	err   error
 }
 
 func (p *staticParser) Parse(filePath string, _ []byte) ([]model.Node, []model.Edge, error) {
@@ -80,6 +82,9 @@ func (p *staticParser) Parse(filePath string, _ []byte) ([]model.Node, []model.E
 	r, ok := p.result[filePath]
 	if !ok {
 		return nil, nil, nil
+	}
+	if r.err != nil {
+		return nil, nil, r.err
 	}
 	return r.nodes, r.edges, nil
 }
@@ -157,6 +162,31 @@ func TestIncremental_ModifiedFile(t *testing.T) {
 	}
 	if len(st.deleted) != 1 || st.deleted[0] != "mod.go" {
 		t.Errorf("expected delete for mod.go, got %v", st.deleted)
+	}
+}
+
+func TestIncremental_ModifiedFileParseFailurePreservesExistingNodes(t *testing.T) {
+	st := newStore()
+	st.nodes["pkg.Old"] = &model.Node{QualifiedName: "pkg.Old", Kind: model.NodeKindFunction, Name: "Old", FilePath: "mod.go", Hash: "old_hash", Language: "go"}
+	parseErr := errors.New("parse failed")
+	parser := &staticParser{result: map[string]parseResult{
+		"mod.go": {err: parseErr},
+	}}
+
+	syncer := New(st, parser)
+	files := map[string]FileInfo{
+		"mod.go": {Hash: "new_hash", Content: []byte("package pkg")},
+	}
+
+	_, err := syncer.Sync(context.Background(), files)
+	if !errors.Is(err, parseErr) {
+		t.Fatalf("expected parse error, got %v", err)
+	}
+	if _, ok := st.nodes["pkg.Old"]; !ok {
+		t.Fatalf("expected existing node to be preserved after parse failure")
+	}
+	if len(st.deleted) != 0 {
+		t.Fatalf("expected no delete before successful parse, got %v", st.deleted)
 	}
 }
 
