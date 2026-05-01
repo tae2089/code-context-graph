@@ -74,6 +74,9 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 	}
 	limit := request.GetInt("limit", 10)
 	pathPrefix := request.GetString("path", "")
+	if err := validatePositiveLimit(limit); err != nil {
+		return finalizeToolResult("", err)
+	}
 
 	log.Info("search called", "query", query, "limit", limit, "path", pathPrefix)
 
@@ -311,7 +314,11 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 		if err := nodeQ.Count(&nodeCount).Error; err != nil {
 			return "", trace.Wrap(err, "count nodes")
 		}
-		if err := h.deps.DB.WithContext(ctx).Model(&model.Edge{}).Count(&edgeCount).Error; err != nil {
+		edgeQ := h.deps.DB.WithContext(ctx).Model(&model.Edge{})
+		if ns != "" {
+			edgeQ = edgeQ.Where("namespace = ?", ns)
+		}
+		if err := edgeQ.Count(&edgeCount).Error; err != nil {
 			return "", trace.Wrap(err, "count edges")
 		}
 
@@ -345,8 +352,12 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 			return "", trace.Wrap(err, "group nodes by language")
 		}
 
+		edgesByKindQ := h.deps.DB.WithContext(ctx).Model(&model.Edge{})
+		if ns != "" {
+			edgesByKindQ = edgesByKindQ.Where("namespace = ?", ns)
+		}
 		var edgesByKind []kindCount
-		if err := h.deps.DB.WithContext(ctx).Model(&model.Edge{}).
+		if err := edgesByKindQ.
 			Select("kind, COUNT(*) as count").
 			Group("kind").Scan(&edgesByKind).Error; err != nil {
 			return "", trace.Wrap(err, "group edges by kind")
@@ -393,6 +404,9 @@ func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolR
 	minLines := request.GetInt("min_lines", 50)
 	limit := request.GetInt("limit", 50)
 	pathPrefix := request.GetString("path", "")
+	if err := validatePositiveLimit(limit); err != nil {
+		return finalizeToolResult("", err)
+	}
 
 	log.Info("find_large_functions called", "min_lines", minLines, "limit", limit, "path", pathPrefix)
 

@@ -102,6 +102,13 @@ func nodeNotFoundErr(qn string) error {
 	return newToolResultErr(fmt.Sprintf("node %q not found", qn))
 }
 
+func validatePositiveLimit(limit int) error {
+	if limit <= 0 {
+		return newToolResultErr(fmt.Sprintf("limit must be > 0, got %d", limit))
+	}
+	return nil
+}
+
 // unwrapToolResultErr extracts an embedded MCP tool result from an error.
 // @intent 내부 에러 흐름에 실린 사용자용 MCP 결과를 공통 종료 지점에서 복원한다.
 // @return toolResultErr인 경우 포함된 MCP 결과와 true를 반환한다.

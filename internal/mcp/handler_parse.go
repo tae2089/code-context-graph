@@ -30,6 +30,12 @@ type walkParseStats struct {
 	Errors int
 }
 
+type parsedWalkFile struct {
+	path  string
+	nodes []model.Node
+	edges []model.Edge
+}
+
 // walkAndParse walks a directory, parses supported files, and stores graph data.
 // @intent 프로젝트 디렉터리를 순회하며 지원 언어만 파싱해 그래프 저장소를 채운다.
 // @param dirPath 파싱할 프로젝트 루트 디렉터리다.
@@ -38,7 +44,6 @@ type walkParseStats struct {
 // @sideEffect 파일 시스템 읽기와 그래프 저장소 쓰기를 수행한다.
 // @mutates walkParseStats, graph store state
 func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePaths ...string) (walkParseStats, error) {
-	log := h.logger()
 	var stats walkParseStats
 
 	absDir, err := filepath.Abs(dirPath)
@@ -83,10 +88,7 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 		return stats, trace.Wrap(err, "preflight walk dir")
 	}
 
-	if err := h.deps.Store.DeleteGraph(ctx); err != nil {
-		return stats, trace.Wrap(err, "reset graph state before parse")
-	}
-
+	parsedFiles := make([]parsedWalkFile, 0, len(walkFiles))
 	for _, fp := range walkFiles {
 		ext := strings.ToLower(filepath.Ext(fp))
 		walker, ok := h.deps.Walkers[ext]
@@ -96,31 +98,34 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 
 		content, err := os.ReadFile(fp)
 		if err != nil {
-			log.Warn("failed to read file", "file", fp, "error", err)
-			stats.Errors++
-			continue
+			return stats, trace.Wrap(err, "read parse file "+fp)
 		}
 
 		nodes, edges, err := walker.ParseWithContext(ctx, fp, content)
 		if err != nil {
-			log.Warn("failed to parse file", "file", fp, "error", err)
-			stats.Errors++
-			continue
+			return stats, trace.Wrap(err, "parse file "+fp)
 		}
+		parsedFiles = append(parsedFiles, parsedWalkFile{path: fp, nodes: nodes, edges: edges})
+		stats.Files++
+		stats.Nodes += len(nodes)
+		stats.Edges += len(edges)
+	}
 
-		if len(nodes) > 0 {
-			if err := h.deps.Store.UpsertNodes(ctx, nodes); err != nil {
+	if err := h.deps.Store.DeleteGraph(ctx); err != nil {
+		return stats, trace.Wrap(err, "reset graph state before parse")
+	}
+
+	for _, parsed := range parsedFiles {
+		if len(parsed.nodes) > 0 {
+			if err := h.deps.Store.UpsertNodes(ctx, parsed.nodes); err != nil {
 				return stats, trace.Wrap(err, "upsert nodes")
 			}
-			stats.Nodes += len(nodes)
 		}
-		if len(edges) > 0 {
-			if err := h.deps.Store.UpsertEdges(ctx, edges); err != nil {
+		if len(parsed.edges) > 0 {
+			if err := h.deps.Store.UpsertEdges(ctx, parsed.edges); err != nil {
 				return stats, trace.Wrap(err, "upsert edges")
 			}
-			stats.Edges += len(edges)
 		}
-		stats.Files++
 	}
 	return stats, nil
 }

@@ -596,6 +596,39 @@ func Add(a, b int) int { return a + b }
 	}
 }
 
+func TestParseProject_ReadFailure_PreservesExistingGraph(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "calc.go", `package calc
+
+func Add(a, b int) int { return a + b }
+`)
+
+	result := callTool(t, deps, "parse_project", map[string]any{"path": dir})
+	if result.IsError {
+		t.Fatalf("initial parse_project error: %s", getTextContent(result))
+	}
+
+	if err := os.Remove(filepath.Join(dir, "calc.go")); err != nil {
+		t.Fatalf("remove file: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "missing.go"), filepath.Join(dir, "calc.go")); err != nil {
+		t.Fatalf("create broken symlink: %v", err)
+	}
+
+	h := &handlers{deps: deps, cache: NewCache(5 * time.Minute)}
+	_, err := h.parseProject(context.Background(), makeToolRequest("parse_project", map[string]any{"path": dir}))
+	if err == nil {
+		t.Fatal("expected parse_project to fail on unreadable file")
+	}
+
+	node, err := deps.Store.GetNode(context.Background(), "calc.Add")
+	if err != nil || node == nil {
+		t.Fatal("expected existing graph to remain after read failure")
+	}
+}
+
 func TestBuildOrUpdateGraph_PostprocessFull(t *testing.T) {
 	deps := setupTestDeps(t)
 
@@ -1159,6 +1192,18 @@ func TestFindLargeFunctions_NoResults(t *testing.T) {
 	}
 }
 
+func TestFindLargeFunctions_InvalidLimit(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	result := callTool(t, deps, "find_large_functions", map[string]any{"limit": 0})
+	if !result.IsError {
+		t.Fatal("expected invalid limit to return tool error")
+	}
+	if !strings.Contains(getTextContent(result), "limit must be > 0") {
+		t.Fatalf("unexpected error: %s", getTextContent(result))
+	}
+}
+
 // ============================================================
 // 11.6 detect_changes
 // ============================================================
@@ -1425,6 +1470,18 @@ func TestListFlows_Empty(t *testing.T) {
 	flows := resp["flows"].([]any)
 	if len(flows) != 0 {
 		t.Errorf("expected 0 flows, got %d", len(flows))
+	}
+}
+
+func TestListFlows_InvalidLimit(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	result := callTool(t, deps, "list_flows", map[string]any{"limit": 0})
+	if !result.IsError {
+		t.Fatal("expected invalid limit to return tool error")
+	}
+	if !strings.Contains(getTextContent(result), "limit must be > 0") {
+		t.Fatalf("unexpected error: %s", getTextContent(result))
 	}
 }
 

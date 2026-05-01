@@ -23,6 +23,9 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 
 	sortBy := request.GetString("sort_by", "name")
 	limit := request.GetInt("limit", 50)
+	if err := validatePositiveLimit(limit); err != nil {
+		return finalizeToolResult("", err)
+	}
 
 	log.Info("list_flows called", "sort_by", sortBy, "limit", limit)
 
