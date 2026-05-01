@@ -36,11 +36,12 @@ var errUnsupportedLanguage = trace.New("unsupported language")
 // @intent turn language-specific ASTs into the project's normalized code graph representation
 // @mutates parser and query during one-time initialization in NewWalker
 type Walker struct {
-	mu     sync.Mutex
 	spec   *LangSpec
 	logger *slog.Logger
-	parser *sitter.Parser // 언어별 1회 초기화 후 재사용
+	parser *sitter.Parser // tests/debug helpers inspect this prototype parser
 	query  *sitter.Query  // tags.scm 쿼리 1회 컴파일 후 재사용 (nil이면 쿼리 없음)
+	lang   *sitter.Language
+	pool   sync.Pool
 }
 
 // interfaceInfo captures interface method names for later implementation inference.
@@ -79,9 +80,15 @@ func NewWalker(spec *LangSpec, opts ...WalkerOption) *Walker {
 
 	// parser와 query를 1회 초기화하여 파일마다 CGO 할당 오버헤드를 제거한다.
 	if lang, err := w.getLanguage(); err == nil {
+		w.lang = lang
 		p := sitter.NewParser()
 		p.SetLanguage(lang)
 		w.parser = p
+		w.pool.New = func() any {
+			pooled := sitter.NewParser()
+			pooled.SetLanguage(lang)
+			return pooled
+		}
 
 		qPath := fmt.Sprintf("queries/%s/tags.scm", spec.Name)
 		if qContent, err := queriesFS.ReadFile(qPath); err == nil {
@@ -145,12 +152,12 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 		return nil, nil, nil, trace.Wrap(errUnsupportedLanguage, w.spec.Name)
 	}
 
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
 	w.logger.Debug("parsing file", "file", filePath, "language", w.spec.Name)
 
-	tree, err := w.parser.ParseCtx(ctx, nil, content)
+	parser := w.acquireParser()
+	defer w.releaseParser(parser)
+
+	tree, err := parser.ParseCtx(ctx, nil, content)
 	if err != nil {
 		w.logger.Error("tree-sitter parse error", "file", filePath, "error", err)
 		return nil, nil, nil, trace.Wrap(err, "parse error")
@@ -675,10 +682,10 @@ func (w *Walker) ExtractComments(ctx context.Context, filePath string, content [
 		return nil, trace.Wrap(errUnsupportedLanguage, w.spec.Name)
 	}
 
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	parser := w.acquireParser()
+	defer w.releaseParser(parser)
 
-	tree, err := w.parser.ParseCtx(ctx, nil, content)
+	tree, err := parser.ParseCtx(ctx, nil, content)
 	if err != nil {
 		return nil, trace.Wrap(err, "parse error")
 	}
@@ -948,6 +955,25 @@ func mergeCommentBlocks(comments, docstrings []CommentBlock) []CommentBlock {
 	merged = append(merged, comments[i:]...)
 	merged = append(merged, docstrings[j:]...)
 	return merged
+}
+
+func (w *Walker) acquireParser() *sitter.Parser {
+	if w.lang == nil {
+		return nil
+	}
+	if p, ok := w.pool.Get().(*sitter.Parser); ok && p != nil {
+		return p
+	}
+	p := sitter.NewParser()
+	p.SetLanguage(w.lang)
+	return p
+}
+
+func (w *Walker) releaseParser(p *sitter.Parser) {
+	if p == nil || w.lang == nil {
+		return
+	}
+	w.pool.Put(p)
 }
 
 // getLanguage resolves the Tree-sitter language handle for the Walker spec.

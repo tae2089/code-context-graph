@@ -132,7 +132,9 @@ func parseRawTree(t *testing.T, content []byte) *sitter.Node {
 		t.Fatal("Python 파서 초기화 실패")
 	}
 	// parser를 직접 호출하려면 lock이 필요하나, 테스트 내에서는 단독 사용이므로 안전.
-	tree, err := w.parser.ParseCtx(context.Background(), nil, content)
+	parser := w.acquireParser()
+	defer w.releaseParser(parser)
+	tree, err := parser.ParseCtx(context.Background(), nil, content)
 	if err != nil {
 		t.Fatalf("tree-sitter 파싱 실패: %v", err)
 	}

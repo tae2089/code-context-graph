@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -1839,5 +1840,39 @@ func world() {}
 	}
 	if len(edges1) != len(edges2) {
 		t.Errorf("edge count mismatch: first=%d second=%d", len(edges1), len(edges2))
+	}
+}
+
+func TestWalker_ParseWithComments_ConcurrentUse(t *testing.T) {
+	w := NewWalker(GoSpec)
+	src := []byte(`package main
+
+func hello() {}
+func world() {}
+`)
+
+	const workers = 8
+	var wg sync.WaitGroup
+	errCh := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			nodes, edges, _, err := w.ParseWithComments(context.Background(), "main.go", src)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if len(nodes) == 0 || len(edges) == 0 {
+				errCh <- fmt.Errorf("empty parse result")
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("concurrent parse failed: %v", err)
+		}
 	}
 }

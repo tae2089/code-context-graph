@@ -23,7 +23,9 @@ func collectDocstringsFromContent(t *testing.T, content []byte) []CommentBlock {
 		t.Fatal("Python 파서 초기화 실패")
 	}
 
-	tree, err := w.parser.ParseCtx(context.Background(), nil, content)
+	parser := w.acquireParser()
+	defer w.releaseParser(parser)
+	tree, err := parser.ParseCtx(context.Background(), nil, content)
 	if err != nil {
 		t.Fatalf("tree-sitter 파싱 실패: %v", err)
 	}

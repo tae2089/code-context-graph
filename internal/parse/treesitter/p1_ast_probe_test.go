@@ -69,13 +69,15 @@ func TestP1_AST_NodeTypes(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.label, func(t *testing.T) {
-			content := readFixture(t, tc.lang, tc.filename)
-			w := NewWalker(tc.spec)
-			tree, err := w.parser.ParseCtx(context.Background(), nil, content)
-			if err != nil {
-				t.Fatalf("[%s] 파싱 실패: %v", tc.label, err)
-			}
+			t.Run(tc.label, func(t *testing.T) {
+				content := readFixture(t, tc.lang, tc.filename)
+				w := NewWalker(tc.spec)
+				parser := w.acquireParser()
+				defer w.releaseParser(parser)
+				tree, err := parser.ParseCtx(context.Background(), nil, content)
+				if err != nil {
+					t.Fatalf("[%s] 파싱 실패: %v", tc.label, err)
+				}
 			defer tree.Close()
 			root := tree.RootNode()
 
