@@ -26,6 +26,8 @@ const (
 // @intent SQLite 환경에서 전문 검색 색인 구축과 질의를 처리한다.
 type SQLiteBackend struct{}
 
+var sqliteFTSBatchInserter = insertSQLiteFTSBatch
+
 // NewSQLiteBackend는 SQLite 검색 백엔드를 생성한다.
 // @intent SQLite 전용 Backend 구현체를 제공한다.
 func NewSQLiteBackend() *SQLiteBackend {
@@ -78,29 +80,31 @@ func (s *SQLiteBackend) rebuildTable(ctx context.Context, db *gorm.DB, tableName
 		clearSQL += " WHERE namespace = ?"
 		clearArgs = append(clearArgs, ns)
 	}
-	if err := db.WithContext(ctx).Exec(clearSQL, clearArgs...).Error; err != nil {
-		return trace.Wrap(err, "clear fts")
-	}
-
-	docsQ := db.WithContext(ctx)
-	if ns != "" {
-		docsQ = docsQ.Where("namespace = ?", ns)
-	}
-
-	var batchDocs []model.SearchDocument
-	result := docsQ.FindInBatches(&batchDocs, sqliteFTSRebuildBatchSize, func(tx *gorm.DB, batch int) error {
-		if err := ctx.Err(); err != nil {
-			return err
+	return db.WithContext(ctx).Transaction(func(outerTx *gorm.DB) error {
+		if err := outerTx.Exec(clearSQL, clearArgs...).Error; err != nil {
+			return trace.Wrap(err, "clear fts")
 		}
-		if err := insertSQLiteFTSBatch(ctx, tx, tableName, batchDocs); err != nil {
-			return trace.Wrap(err, "insert fts batch "+strconv.Itoa(batch))
+
+		docsQ := outerTx.WithContext(ctx)
+		if ns != "" {
+			docsQ = docsQ.Where("namespace = ?", ns)
+		}
+
+		var batchDocs []model.SearchDocument
+		result := docsQ.FindInBatches(&batchDocs, sqliteFTSRebuildBatchSize, func(batchTx *gorm.DB, batch int) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := sqliteFTSBatchInserter(ctx, batchTx, tableName, batchDocs); err != nil {
+				return trace.Wrap(err, "insert fts batch "+strconv.Itoa(batch))
+			}
+			return nil
+		})
+		if result.Error != nil {
+			return trace.Wrap(result.Error, "load docs")
 		}
 		return nil
 	})
-	if result.Error != nil {
-		return trace.Wrap(result.Error, "load docs")
-	}
-	return nil
 }
 
 func insertSQLiteFTSBatch(ctx context.Context, tx *gorm.DB, tableName string, docs []model.SearchDocument) error {
@@ -134,6 +138,9 @@ func buildSQLiteFTSInsert(tableName string, docs []model.SearchDocument) (string
 // @requires limit는 0보다 커야 의미 있는 결과를 얻는다.
 // @return FTS 순위 순서를 유지한 노드 목록을 반환한다.
 func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("limit must be > 0, got %d", limit)
+	}
 	ftsQuery := SanitizeFTS5(query)
 	if ftsQuery == "" {
 		return nil, nil

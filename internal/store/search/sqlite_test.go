@@ -4,6 +4,7 @@ package search
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -230,6 +231,18 @@ func TestSQLiteFTS_Query_DefensivelyFiltersNodeNamespace(t *testing.T) {
 	}
 }
 
+func TestSQLiteFTS_Query_RejectsNonPositiveLimit(t *testing.T) {
+	db := setupTestDB(t)
+	backend := NewSQLiteBackend()
+	if err := backend.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := backend.Query(context.Background(), db, "sharedterm", 0); err == nil {
+		t.Fatal("expected query with limit=0 to fail")
+	}
+}
+
 func TestSQLiteFTS_Migrate_PreservesExistingIndexRows(t *testing.T) {
 	db := setupTestDB(t)
 	seedNodes(t, db)
@@ -407,5 +420,99 @@ func TestBuildSQLiteFTSInsert_EmptyBatch(t *testing.T) {
 	}
 	if args != nil {
 		t.Fatalf("expected nil args for empty batch, got %#v", args)
+	}
+}
+
+func TestSQLiteFTS_Rebuild_RollsBackDeleteOnInsertFailure(t *testing.T) {
+	db := setupTestDB(t)
+	backend := NewSQLiteBackend()
+	if err := backend.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+
+	seedNode := model.Node{QualifiedName: "pkg.Seed", Kind: model.NodeKindFunction, Name: "Seed", FilePath: "seed.go", StartLine: 1, EndLine: 1, Language: "go"}
+	if err := db.Create(&seedNode).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.SearchDocument{NodeID: seedNode.ID, Content: "seed term", Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.Rebuild(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	originalInserter := sqliteFTSBatchInserter
+	defer func() { sqliteFTSBatchInserter = originalInserter }()
+	sqliteFTSBatchInserter = func(ctx context.Context, tx *gorm.DB, tableName string, docs []model.SearchDocument) error {
+		return errors.New("boom")
+	}
+
+	err := backend.Rebuild(context.Background(), db)
+	if err == nil {
+		t.Fatal("expected rebuild to fail when insert trigger aborts")
+	}
+
+	var count int64
+	if err := db.Raw("SELECT count(*) FROM search_fts").Scan(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("expected previous FTS rows to survive rollback, got %d", count)
+	}
+}
+
+func TestSQLiteFTS_Rebuild_NamespaceRollbackPreservesOtherRows(t *testing.T) {
+	db := setupTestDB(t)
+	backend := NewSQLiteBackend()
+	if err := backend.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+
+	nodeA := model.Node{Namespace: "ns-a", QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "A", FilePath: "a.go", StartLine: 1, EndLine: 1, Language: "go"}
+	nodeB := model.Node{Namespace: "ns-b", QualifiedName: "pkg.B", Kind: model.NodeKindFunction, Name: "B", FilePath: "b.go", StartLine: 1, EndLine: 1, Language: "go"}
+	if err := db.Create(&nodeA).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&nodeB).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: "ns-a", NodeID: nodeA.ID, Content: "term a", Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: "ns-b", NodeID: nodeB.ID, Content: "term b", Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.Rebuild(ctxns.WithNamespace(context.Background(), "ns-a"), db); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.Rebuild(ctxns.WithNamespace(context.Background(), "ns-b"), db); err != nil {
+		t.Fatal(err)
+	}
+	originalInserter := sqliteFTSBatchInserter
+	defer func() { sqliteFTSBatchInserter = originalInserter }()
+	sqliteFTSBatchInserter = func(ctx context.Context, tx *gorm.DB, tableName string, docs []model.SearchDocument) error {
+		for _, doc := range docs {
+			if doc.Namespace == "ns-a" {
+				return errors.New("boom")
+			}
+		}
+		return originalInserter(ctx, tx, tableName, docs)
+	}
+	err := backend.Rebuild(ctxns.WithNamespace(context.Background(), "ns-a"), db)
+	if err == nil {
+		t.Fatal("expected namespace-scoped rebuild to fail when ns-a insert trigger aborts")
+	}
+
+	var countA, countB int64
+	if err := db.Raw("SELECT count(*) FROM search_fts WHERE namespace = ?", "ns-a").Scan(&countA).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Raw("SELECT count(*) FROM search_fts WHERE namespace = ?", "ns-b").Scan(&countB).Error; err != nil {
+		t.Fatal(err)
+	}
+	if countA != 1 {
+		t.Fatalf("expected ns-a rows to survive rollback, got %d", countA)
+	}
+	if countB != 1 {
+		t.Fatalf("expected ns-b rows to remain untouched, got %d", countB)
 	}
 }
