@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/tae2089/trace"
 
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/ragindex"
 )
 
@@ -44,7 +45,12 @@ func newRagIndexCmd(deps *Deps) *cobra.Command {
 				ProjectDesc: projectDesc,
 			}
 
-			communities, files, err := b.Build(cmd.Context())
+			ctx := cmd.Context()
+			if ns, _ := cmd.Flags().GetString("namespace"); ns != "" {
+				ctx = ctxns.WithNamespace(ctx, ns)
+			}
+
+			communities, files, err := b.Build(ctx)
 			if err != nil {
 				return trace.Wrap(err, "build rag index")
 			}
