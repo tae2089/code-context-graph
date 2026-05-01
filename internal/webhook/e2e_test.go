@@ -24,14 +24,14 @@ func TestE2E_WebhookToRAG(t *testing.T) {
 	var cloneErr error
 	done := make(chan struct{})
 
-	onSync := func(_ context.Context, repoFullName, cloneURL string) error {
+	onSync := func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		defer close(done)
 		ns := ExtractNamespace(repoFullName)
 		mu.Lock()
 		clonedNS = ns
 		mu.Unlock()
 
-		err := CloneOrPull(context.Background(), cloneURL, repoRoot, ns, nil)
+		err := CloneOrPullBranch(context.Background(), cloneURL, repoRoot, ns, branch, nil)
 		mu.Lock()
 		cloneErr = err
 		mu.Unlock()
@@ -93,10 +93,10 @@ func TestE2E_MultiRepoIsolation(t *testing.T) {
 	}
 	var wg sync.WaitGroup
 
-	onSync := func(_ context.Context, repoFullName, cloneURL string) error {
+	onSync := func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		defer wg.Done()
 		ns := ExtractNamespace(repoFullName)
-		err := CloneOrPull(context.Background(), cloneURL, repoRoot, ns, nil)
+		err := CloneOrPullBranch(context.Background(), cloneURL, repoRoot, ns, branch, nil)
 		mu.Lock()
 		results = append(results, struct {
 			ns  string
@@ -121,7 +121,7 @@ func TestE2E_MultiRepoIsolation(t *testing.T) {
 	}
 
 	wg.Add(1)
-	payload2 := makePushEvent("refs/heads/master", "myorg/svc-beta", bareDir2)
+	payload2 := makePushEvent("refs/heads/main", "myorg/svc-beta", bareDir2)
 	req2 := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload2))
 	req2.Header.Set("X-Hub-Signature-256", signPayload(secret, payload2))
 	req2.Header.Set("X-GitHub-Event", "push")
@@ -188,9 +188,9 @@ func TestE2E_SyncQueueDedup(t *testing.T) {
 	var mu sync.Mutex
 	done := make(chan struct{}, 1)
 
-	syncHandler := func(_ context.Context, repoFullName, cloneURL string) error {
+	syncHandler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		ns := ExtractNamespace(repoFullName)
-		_ = CloneOrPull(context.Background(), cloneURL, repoRoot, ns, nil)
+		_ = CloneOrPullBranch(context.Background(), cloneURL, repoRoot, ns, branch, nil)
 		mu.Lock()
 		callCount++
 		c := callCount
@@ -257,9 +257,9 @@ func TestE2E_SyncQueueMultiRepoParallel(t *testing.T) {
 	synced := make(map[string]bool)
 	allDone := make(chan struct{})
 
-	syncHandler := func(_ context.Context, repoFullName, cloneURL string) error {
+	syncHandler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		ns := ExtractNamespace(repoFullName)
-		_ = CloneOrPull(context.Background(), cloneURL, repoRoot, ns, nil)
+		_ = CloneOrPullBranch(context.Background(), cloneURL, repoRoot, ns, branch, nil)
 		mu.Lock()
 		synced[ns] = true
 		if len(synced) == 2 {
@@ -284,7 +284,7 @@ func TestE2E_SyncQueueMultiRepoParallel(t *testing.T) {
 	rr1 := httptest.NewRecorder()
 	handler.ServeHTTP(rr1, req1)
 
-	payload2 := makePushEvent("refs/heads/master", "myorg/svc-beta", bareDir2)
+	payload2 := makePushEvent("refs/heads/main", "myorg/svc-beta", bareDir2)
 	req2 := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload2))
 	req2.Header.Set("X-Hub-Signature-256", signPayload(secret, payload2))
 	req2.Header.Set("X-GitHub-Event", "push")

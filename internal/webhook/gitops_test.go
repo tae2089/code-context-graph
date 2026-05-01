@@ -79,6 +79,36 @@ func addFileToBareRepo(t *testing.T, bareDir, fileName, content string) {
 	runIn(workDir, "push")
 }
 
+func addBranchFileToBareRepo(t *testing.T, bareDir, branch, fileName, content string) {
+	t.Helper()
+	dir := t.TempDir()
+	workDir := filepath.Join(dir, "work")
+
+	runIn := func(d string, args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = d
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v in %s failed: %v\n%s", args, d, err, out)
+		}
+	}
+
+	cmd := exec.Command("git", "clone", bareDir, workDir)
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone failed: %v\n%s", err, out)
+	}
+
+	runIn(workDir, "checkout", "-b", branch)
+	if err := os.WriteFile(filepath.Join(workDir, fileName), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runIn(workDir, "add", ".")
+	runIn(workDir, "commit", "-m", "add "+fileName)
+	runIn(workDir, "push", "origin", branch)
+}
+
 func TestGitOps_RepoDir(t *testing.T) {
 	got := RepoDir("/var/repos", "acme/pay-svc")
 	want := filepath.Join("/var/repos", "acme/pay-svc")
@@ -127,5 +157,57 @@ func TestGitOps_PullUpdates(t *testing.T) {
 	}
 	if string(data) != "new content" {
 		t.Errorf("new.txt content = %q, want %q", string(data), "new content")
+	}
+}
+
+func TestGitOps_CloneOrPullBranchSyncsRequestedBranch(t *testing.T) {
+	bareDir := initBareRepo(t)
+	addBranchFileToBareRepo(t, bareDir, "feature/harden", "feature.txt", "branch content")
+	destRoot := t.TempDir()
+	ns := "test-ns"
+
+	if err := CloneOrPullBranch(context.Background(), bareDir, destRoot, ns, "feature/harden", nil); err != nil {
+		t.Fatalf("CloneOrPullBranch failed: %v", err)
+	}
+
+	dest := RepoDir(destRoot, ns)
+	data, err := os.ReadFile(filepath.Join(dest, "feature.txt"))
+	if err != nil {
+		t.Fatalf("expected feature.txt from requested branch: %v", err)
+	}
+	if string(data) != "branch content" {
+		t.Fatalf("feature.txt = %q, want %q", string(data), "branch content")
+	}
+}
+
+func TestGitOps_CloneOrPullBranchCleansWorktreeDrift(t *testing.T) {
+	bareDir := initBareRepo(t)
+	destRoot := t.TempDir()
+	ns := "test-ns"
+
+	if err := CloneOrPullBranch(context.Background(), bareDir, destRoot, ns, "main", nil); err != nil {
+		t.Fatalf("initial clone failed: %v", err)
+	}
+	dest := RepoDir(destRoot, ns)
+	if err := os.WriteFile(filepath.Join(dest, "hello.txt"), []byte("local drift"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "untracked.txt"), []byte("remove me"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CloneOrPullBranch(context.Background(), bareDir, destRoot, ns, "main", nil); err != nil {
+		t.Fatalf("resync failed: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dest, "hello.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("hello.txt = %q, want remote content", string(data))
+	}
+	if _, err := os.Stat(filepath.Join(dest, "untracked.txt")); !os.IsNotExist(err) {
+		t.Fatalf("untracked drift should be removed, stat err=%v", err)
 	}
 }

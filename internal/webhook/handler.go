@@ -12,9 +12,9 @@ import (
 	"strings"
 )
 
-type SyncFunc func(ctx context.Context, repoFullName, cloneURL string) error
+type SyncFunc func(ctx context.Context, repoFullName, cloneURL, branch string) error
 
-type SyncHandlerFunc func(ctx context.Context, repoFullName, cloneURL string) error
+type SyncHandlerFunc func(ctx context.Context, repoFullName, cloneURL, branch string) error
 
 type WebhookHandler struct {
 	secret []byte
@@ -46,6 +46,8 @@ func NewWebhookHandlerWithConfig(cfg WebhookHandlerConfig) *WebhookHandler {
 
 type pushEvent struct {
 	Ref        string `json:"ref"`
+	After      string `json:"after"`
+	Deleted    bool   `json:"deleted"`
 	Repository struct {
 		FullName string `json:"full_name"`
 		CloneURL string `json:"clone_url"`
@@ -88,7 +90,20 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.filter.IsAllowedRef(event.Repository.FullName, event.Ref) {
+	branch, ok := NormalizeBranchRef(event.Ref)
+	if !ok {
+		slog.Info("skipping non-branch ref", "repo", event.Repository.FullName, "ref", event.Ref)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if isDeletedBranchPush(event) {
+		slog.Info("skipping deleted branch push", "repo", event.Repository.FullName, "ref", event.Ref, "branch", branch)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if !h.filter.IsAllowedBranch(event.Repository.FullName, branch) {
 		slog.Info("skipping disallowed repo or branch", "repo", event.Repository.FullName, "ref", event.Ref)
 		w.WriteHeader(http.StatusOK)
 		return
@@ -100,8 +115,8 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("processing push event", "repo", event.Repository.FullName, "ref", event.Ref)
-	if err := h.onSync(context.WithoutCancel(r.Context()), event.Repository.FullName, cloneURL); err != nil {
+	slog.Info("processing push event", "repo", event.Repository.FullName, "ref", event.Ref, "branch", branch)
+	if err := h.onSync(context.WithoutCancel(r.Context()), event.Repository.FullName, cloneURL, branch); err != nil {
 		if err == ErrSyncQueueFull {
 			http.Error(w, "sync queue full", http.StatusTooManyRequests)
 			return
@@ -110,6 +125,21 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+func NormalizeBranchRef(ref string) (string, bool) {
+	branch, ok := strings.CutPrefix(ref, "refs/heads/")
+	if !ok || branch == "" {
+		return "", false
+	}
+	return branch, true
+}
+
+func isDeletedBranchPush(event pushEvent) bool {
+	if event.Deleted {
+		return true
+	}
+	return event.After != "" && strings.Trim(event.After, "0") == ""
 }
 
 func (h *WebhookHandler) verifySignature(payload []byte, signature string) bool {

@@ -13,7 +13,7 @@ func TestSyncQueue_DeduplicatesRapidPushes(t *testing.T) {
 	var callCount atomic.Int32
 	done := make(chan struct{})
 
-	handler := func(_ context.Context, repoFullName, cloneURL string) error {
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		callCount.Add(1)
 		time.Sleep(50 * time.Millisecond)
 		if callCount.Load() == 1 {
@@ -25,9 +25,9 @@ func TestSyncQueue_DeduplicatesRapidPushes(t *testing.T) {
 	q := NewSyncQueue(2, handler)
 	defer q.Shutdown()
 
-	q.Add(context.Background(), "org/svc", "https://github.com/org/svc.git")
-	q.Add(context.Background(), "org/svc", "https://github.com/org/svc.git")
-	q.Add(context.Background(), "org/svc", "https://github.com/org/svc.git")
+	q.Add(context.Background(), "org/svc", "https://github.com/org/svc.git", "main")
+	q.Add(context.Background(), "org/svc", "https://github.com/org/svc.git", "main")
+	q.Add(context.Background(), "org/svc", "https://github.com/org/svc.git", "main")
 
 	select {
 	case <-done:
@@ -51,7 +51,7 @@ func TestSyncQueue_MultiRepoConcurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	handler := func(_ context.Context, repoFullName, cloneURL string) error {
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		mu.Lock()
 		processing[repoFullName] = true
 		if len(processing) > 1 {
@@ -71,8 +71,8 @@ func TestSyncQueue_MultiRepoConcurrent(t *testing.T) {
 	q := NewSyncQueue(2, handler)
 	defer q.Shutdown()
 
-	q.Add(context.Background(), "org/alpha", "url-a")
-	q.Add(context.Background(), "org/beta", "url-b")
+	q.Add(context.Background(), "org/alpha", "url-a", "main")
+	q.Add(context.Background(), "org/beta", "url-b", "main")
 
 	wg.Wait()
 
@@ -85,7 +85,7 @@ func TestSyncQueue_RequeuesOnDirtyDuringProcessing(t *testing.T) {
 	var callCount atomic.Int32
 	calls := make(chan string, 10)
 
-	handler := func(_ context.Context, repoFullName, cloneURL string) error {
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		n := callCount.Add(1)
 		calls <- cloneURL
 		if n == 1 {
@@ -97,11 +97,11 @@ func TestSyncQueue_RequeuesOnDirtyDuringProcessing(t *testing.T) {
 	q := NewSyncQueue(1, handler)
 	defer q.Shutdown()
 
-	q.Add(context.Background(), "org/svc", "url-v1")
+	q.Add(context.Background(), "org/svc", "url-v1", "main")
 
 	time.Sleep(20 * time.Millisecond)
 
-	q.Add(context.Background(), "org/svc", "url-v2")
+	q.Add(context.Background(), "org/svc", "url-v2", "develop")
 
 	timeout := time.After(5 * time.Second)
 	var urls []string
@@ -126,7 +126,7 @@ done:
 func TestSyncQueue_ShutdownDrainsWorkers(t *testing.T) {
 	var completed atomic.Int32
 
-	handler := func(_ context.Context, repoFullName, cloneURL string) error {
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		time.Sleep(50 * time.Millisecond)
 		completed.Add(1)
 		return nil
@@ -134,8 +134,8 @@ func TestSyncQueue_ShutdownDrainsWorkers(t *testing.T) {
 
 	q := NewSyncQueue(2, handler)
 
-	q.Add(context.Background(), "org/a", "url-a")
-	q.Add(context.Background(), "org/b", "url-b")
+	q.Add(context.Background(), "org/a", "url-a", "main")
+	q.Add(context.Background(), "org/b", "url-b", "main")
 
 	time.Sleep(10 * time.Millisecond)
 	q.Shutdown()
@@ -149,7 +149,7 @@ func TestSyncQueue_ShutdownDrainsWorkers(t *testing.T) {
 func TestSyncQueue_PayloadUpdatedToLatest(t *testing.T) {
 	calls := make(chan string, 10)
 
-	handler := func(_ context.Context, repoFullName, cloneURL string) error {
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		calls <- cloneURL
 		return nil
 	}
@@ -157,9 +157,9 @@ func TestSyncQueue_PayloadUpdatedToLatest(t *testing.T) {
 	q := NewSyncQueue(1, handler)
 	defer q.Shutdown()
 
-	q.Add(context.Background(), "org/svc", "url-v1")
-	q.Add(context.Background(), "org/svc", "url-v2")
-	q.Add(context.Background(), "org/svc", "url-v3")
+	q.Add(context.Background(), "org/svc", "url-v1", "main")
+	q.Add(context.Background(), "org/svc", "url-v2", "main")
+	q.Add(context.Background(), "org/svc", "url-v3", "release")
 
 	select {
 	case got := <-calls:
@@ -171,12 +171,36 @@ func TestSyncQueue_PayloadUpdatedToLatest(t *testing.T) {
 	}
 }
 
+func TestSyncQueue_PassesLatestBranch(t *testing.T) {
+	calls := make(chan string, 10)
+
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
+		calls <- branch
+		return nil
+	}
+
+	q := NewSyncQueue(1, handler)
+	defer q.Shutdown()
+
+	q.Add(context.Background(), "org/svc", "url-v1", "main")
+	q.Add(context.Background(), "org/svc", "url-v2", "feature/harden")
+
+	select {
+	case got := <-calls:
+		if got != "feature/harden" {
+			t.Errorf("handler got branch=%q, want %q (latest payload)", got, "feature/harden")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+}
+
 func TestSyncQueue_ContextCancelStopsHandler(t *testing.T) {
 	handlerStarted := make(chan struct{})
 	handlerDone := make(chan struct{})
 	var handlerErr error
 
-	handler := func(ctx context.Context, repoFullName, cloneURL string) error {
+	handler := func(ctx context.Context, repoFullName, cloneURL, branch string) error {
 		close(handlerStarted)
 		select {
 		case <-ctx.Done():
@@ -190,7 +214,7 @@ func TestSyncQueue_ContextCancelStopsHandler(t *testing.T) {
 	parentCtx, cancel := context.WithCancel(context.Background())
 	q := NewSyncQueueWithContext(parentCtx, 1, handler)
 
-	q.Add(context.Background(), "org/svc", "https://example.com/org/svc.git")
+	q.Add(context.Background(), "org/svc", "https://example.com/org/svc.git", "main")
 
 	select {
 	case <-handlerStarted:
@@ -216,7 +240,7 @@ func TestSyncQueue_ContextCancelStopsHandler(t *testing.T) {
 func TestSyncQueue_ContextCancelDrainsQueue(t *testing.T) {
 	var callCount atomic.Int32
 
-	handler := func(ctx context.Context, repoFullName, cloneURL string) error {
+	handler := func(ctx context.Context, repoFullName, cloneURL, branch string) error {
 		callCount.Add(1)
 		<-ctx.Done()
 		return ctx.Err()
@@ -225,9 +249,9 @@ func TestSyncQueue_ContextCancelDrainsQueue(t *testing.T) {
 	parentCtx, cancel := context.WithCancel(context.Background())
 	q := NewSyncQueueWithContext(parentCtx, 1, handler)
 
-	q.Add(context.Background(), "org/a", "url-a")
+	q.Add(context.Background(), "org/a", "url-a", "main")
 	time.Sleep(20 * time.Millisecond)
-	q.Add(context.Background(), "org/b", "url-b")
+	q.Add(context.Background(), "org/b", "url-b", "main")
 
 	cancel()
 
@@ -243,7 +267,7 @@ func TestSyncQueue_RetriesOnHandlerError(t *testing.T) {
 	var callCount atomic.Int32
 	errOnce := errors.New("transient error")
 
-	handler := func(_ context.Context, repoFullName, cloneURL string) error {
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		n := callCount.Add(1)
 		if n < 3 {
 			return errOnce
@@ -258,7 +282,7 @@ func TestSyncQueue_RetriesOnHandlerError(t *testing.T) {
 	})
 	defer q.Shutdown()
 
-	q.Add(context.Background(), "org/svc", "url")
+	q.Add(context.Background(), "org/svc", "url", "main")
 
 	time.Sleep(200 * time.Millisecond)
 
@@ -272,7 +296,7 @@ func TestSyncQueue_GivesUpAfterMaxAttempts(t *testing.T) {
 	var callCount atomic.Int32
 	alwaysFail := errors.New("always fails")
 
-	handler := func(_ context.Context, repoFullName, cloneURL string) error {
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		callCount.Add(1)
 		return alwaysFail
 	}
@@ -284,7 +308,7 @@ func TestSyncQueue_GivesUpAfterMaxAttempts(t *testing.T) {
 	})
 	defer q.Shutdown()
 
-	q.Add(context.Background(), "org/svc", "url")
+	q.Add(context.Background(), "org/svc", "url", "main")
 
 	time.Sleep(200 * time.Millisecond)
 
@@ -298,7 +322,7 @@ func TestSyncQueue_RetryCancelledOnContextDone(t *testing.T) {
 	var callCount atomic.Int32
 	alwaysFail := errors.New("always fails")
 
-	handler := func(_ context.Context, repoFullName, cloneURL string) error {
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		callCount.Add(1)
 		return alwaysFail
 	}
@@ -311,7 +335,7 @@ func TestSyncQueue_RetryCancelledOnContextDone(t *testing.T) {
 	})
 	defer q.Shutdown()
 
-	q.Add(context.Background(), "org/svc", "url")
+	q.Add(context.Background(), "org/svc", "url", "main")
 
 	time.Sleep(80 * time.Millisecond)
 	cancel()
@@ -326,7 +350,7 @@ func TestSyncQueue_RetryCancelledOnContextDone(t *testing.T) {
 
 func TestSyncQueue_AddHonorsPerCallContextCancel(t *testing.T) {
 	var callCount atomic.Int32
-	handler := func(_ context.Context, repoFullName, cloneURL string) error {
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		callCount.Add(1)
 		return nil
 	}
@@ -336,7 +360,7 @@ func TestSyncQueue_AddHonorsPerCallContextCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	q.Add(ctx, "org/svc", "url")
+	q.Add(ctx, "org/svc", "url", "main")
 
 	time.Sleep(100 * time.Millisecond)
 	if got := callCount.Load(); got != 0 {
@@ -346,7 +370,7 @@ func TestSyncQueue_AddHonorsPerCallContextCancel(t *testing.T) {
 
 func TestSyncQueue_AddPerCallTimeoutPropagates(t *testing.T) {
 	handlerDone := make(chan error, 1)
-	handler := func(ctx context.Context, repoFullName, cloneURL string) error {
+	handler := func(ctx context.Context, repoFullName, cloneURL, branch string) error {
 		<-ctx.Done()
 		handlerDone <- ctx.Err()
 		return ctx.Err()
@@ -357,7 +381,7 @@ func TestSyncQueue_AddPerCallTimeoutPropagates(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	q.Add(ctx, "org/svc", "url")
+	q.Add(ctx, "org/svc", "url", "main")
 
 	select {
 	case err := <-handlerDone:
@@ -371,7 +395,7 @@ func TestSyncQueue_AddPerCallTimeoutPropagates(t *testing.T) {
 
 func TestNewSyncQueueWithOptions_NilContextDefaultsToBackground(t *testing.T) {
 	handlerDone := make(chan error, 1)
-	handler := func(ctx context.Context, repoFullName, cloneURL string) error {
+	handler := func(ctx context.Context, repoFullName, cloneURL, branch string) error {
 		select {
 		case <-ctx.Done():
 			handlerDone <- ctx.Err()
@@ -384,7 +408,7 @@ func TestNewSyncQueueWithOptions_NilContextDefaultsToBackground(t *testing.T) {
 	q := NewSyncQueueWithOptions(nil, 1, handler, RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond})
 	defer q.Shutdown()
 
-	q.Add(context.Background(), "org/svc", "url")
+	q.Add(context.Background(), "org/svc", "url", "main")
 
 	select {
 	case err := <-handlerDone:
@@ -399,7 +423,7 @@ func TestNewSyncQueueWithOptions_NilContextDefaultsToBackground(t *testing.T) {
 func TestSyncQueue_AddRejectsWhenMaxTrackedReposExceeded(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
-	handler := func(_ context.Context, repoFullName, cloneURL string) error {
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		select {
 		case started <- struct{}{}:
 		default:
@@ -414,7 +438,7 @@ func TestSyncQueue_AddRejectsWhenMaxTrackedReposExceeded(t *testing.T) {
 	})
 	defer q.Shutdown()
 
-	if err := q.Add(context.Background(), "org/one", "url-one"); err != nil {
+	if err := q.Add(context.Background(), "org/one", "url-one", "main"); err != nil {
 		t.Fatalf("first Add returned error: %v", err)
 	}
 
@@ -424,7 +448,7 @@ func TestSyncQueue_AddRejectsWhenMaxTrackedReposExceeded(t *testing.T) {
 		t.Fatal("timed out waiting for first repo to start")
 	}
 
-	if err := q.Add(context.Background(), "org/two", "url-two"); !errors.Is(err, ErrSyncQueueFull) {
+	if err := q.Add(context.Background(), "org/two", "url-two", "main"); !errors.Is(err, ErrSyncQueueFull) {
 		t.Fatalf("second Add error = %v, want %v", err, ErrSyncQueueFull)
 	}
 
@@ -435,7 +459,7 @@ func TestSyncQueue_AddAllowsExistingRepoUpdateWhenAtCapacity(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	urls := make(chan string, 2)
-	handler := func(_ context.Context, repoFullName, cloneURL string) error {
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		urls <- cloneURL
 		select {
 		case started <- struct{}{}:
@@ -451,7 +475,7 @@ func TestSyncQueue_AddAllowsExistingRepoUpdateWhenAtCapacity(t *testing.T) {
 	})
 	defer q.Shutdown()
 
-	if err := q.Add(context.Background(), "org/one", "url-one"); err != nil {
+	if err := q.Add(context.Background(), "org/one", "url-one", "main"); err != nil {
 		t.Fatalf("first Add returned error: %v", err)
 	}
 
@@ -461,7 +485,7 @@ func TestSyncQueue_AddAllowsExistingRepoUpdateWhenAtCapacity(t *testing.T) {
 		t.Fatal("timed out waiting for first repo to start")
 	}
 
-	if err := q.Add(context.Background(), "org/one", "url-two"); err != nil {
+	if err := q.Add(context.Background(), "org/one", "url-two", "develop"); err != nil {
 		t.Fatalf("existing repo update returned error: %v", err)
 	}
 

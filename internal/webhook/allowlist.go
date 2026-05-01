@@ -71,6 +71,14 @@ func (f *RepoFilter) IsAllowed(repoFullName string) bool {
 }
 
 func (f *RepoFilter) IsAllowedRef(repoFullName, ref string) bool {
+	branch, ok := NormalizeBranchRef(ref)
+	if !ok {
+		return false
+	}
+	return f.IsAllowedBranch(repoFullName, branch)
+}
+
+func (f *RepoFilter) IsAllowedBranch(repoFullName, branch string) bool {
 	if len(f.rulesFull) == 0 {
 		return false
 	}
@@ -88,13 +96,12 @@ func (f *RepoFilter) IsAllowedRef(repoFullName, ref string) bool {
 		if len(branches) == 0 {
 			branches = defaultBranches
 		}
-		allowed = matchBranchPatterns(ref, branches)
+		allowed = matchBranchPatterns(branch, branches)
 	}
 	return allowed
 }
 
-func matchBranchPatterns(ref string, patterns []string) bool {
-	branch := strings.TrimPrefix(ref, "refs/heads/")
+func matchBranchPatterns(branch string, patterns []string) bool {
 	for _, p := range patterns {
 		if matched, _ := path.Match(p, branch); matched {
 			return true

@@ -213,6 +213,7 @@ func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 		RagIndexDir:       viper.GetString("rag.index_dir"),
 		RagProjectDesc:    viper.GetString("rag.description"),
 		WorkspaceRoot:     cfg.WorkspaceRoot,
+		RepoRoot:          cfg.RepoRoot,
 	}
 
 	srv := mcpserver.NewServer(mcpDeps)
@@ -270,14 +271,14 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 		}
 		filter := webhook.NewRepoFilterFromRules(rules)
 		secret := []byte(cfg.WebhookSecret)
-		syncHandler := func(ctx context.Context, repoFullName, cloneURL string) error {
+		syncHandler := func(ctx context.Context, repoFullName, cloneURL, branch string) error {
 			ns := webhook.ExtractNamespace(repoFullName)
-			deps.Logger.Info("webhook sync started", "repo", repoFullName, "namespace", ns)
+			deps.Logger.Info("webhook sync started", "repo", repoFullName, "namespace", ns, "branch", branch)
 
 			attemptCtx, attemptCancel := context.WithTimeout(ctx, 15*time.Minute)
 			defer attemptCancel()
 
-			if err := webhook.CloneOrPull(attemptCtx, cloneURL, cfg.RepoRoot, ns, nil); err != nil {
+			if err := webhook.CloneOrPullBranch(attemptCtx, cloneURL, cfg.RepoRoot, ns, branch, nil); err != nil {
 				deps.Logger.Error("webhook clone/pull failed", "repo", repoFullName, "error", err)
 				return err
 			}

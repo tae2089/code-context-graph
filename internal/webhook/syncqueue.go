@@ -33,6 +33,7 @@ type syncPayload struct {
 	ctx          context.Context
 	repoFullName string
 	cloneURL     string
+	branch       string
 }
 
 type SyncQueue struct {
@@ -96,7 +97,7 @@ func NewSyncQueueWithConfig(ctx context.Context, workers int, handler SyncHandle
 	return q
 }
 
-func (q *SyncQueue) Add(ctx context.Context, repoFullName, cloneURL string) error {
+func (q *SyncQueue) Add(ctx context.Context, repoFullName, cloneURL, branch string) error {
 	if ctx != nil {
 		select {
 		case <-ctx.Done():
@@ -117,7 +118,7 @@ func (q *SyncQueue) Add(ctx context.Context, repoFullName, cloneURL string) erro
 	if _, exists := q.payloads[repoFullName]; !exists && len(q.payloads) >= q.maxTrackedRepos {
 		return ErrSyncQueueFull
 	}
-	q.payloads[repoFullName] = syncPayload{ctx: ctx, repoFullName: repoFullName, cloneURL: cloneURL}
+	q.payloads[repoFullName] = syncPayload{ctx: ctx, repoFullName: repoFullName, cloneURL: cloneURL, branch: branch}
 
 	if q.dirty[repoFullName] {
 		return nil
@@ -214,7 +215,7 @@ func (q *SyncQueue) tryHandle(repo string, payload syncPayload) (err error) {
 	}()
 	ctx, cancel := mergeContexts(q.ctx, payload.ctx)
 	defer cancel()
-	return q.handler(ctx, payload.repoFullName, payload.cloneURL)
+	return q.handler(ctx, payload.repoFullName, payload.cloneURL, payload.branch)
 }
 
 func (q *SyncQueue) get() (string, syncPayload, bool) {
