@@ -18,6 +18,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/analysis/impact"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 	"github.com/tae2089/code-context-graph/internal/store/search"
 )
@@ -84,6 +85,47 @@ func (p *simpleGoParser) Parse(filePath string, content []byte) ([]model.Node, [
 	return nodes, nil, nil
 }
 
+type commentAwareGoParser struct {
+	simpleGoParser
+}
+
+func (p *commentAwareGoParser) ParseWithComments(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []treesitter.CommentBlock, error) {
+	nodes, edges, err := p.Parse(filePath, content)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	lines := strings.Split(string(content), "\n")
+	var comments []treesitter.CommentBlock
+
+	i := 0
+	for i < len(lines) {
+		trimmed := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(trimmed, "//") {
+			start := i + 1
+			var textLines []string
+			for i < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i]), "//") {
+				textLines = append(textLines, strings.TrimSpace(lines[i]))
+				i++
+			}
+			end := i
+			comments = append(comments, treesitter.CommentBlock{
+				StartLine: start,
+				EndLine:   end,
+				Text:      strings.Join(textLines, "\n"),
+			})
+		} else {
+			i++
+		}
+	}
+
+	return nodes, edges, comments, nil
+}
+
+func (p *commentAwareGoParser) Language() string {
+	return "go"
+}
+
 var handlerTestDBSeq atomic.Int64
 
 func setupTestDeps(t *testing.T) *Deps {
@@ -118,6 +160,15 @@ func setupTestDeps(t *testing.T) *Deps {
 		ImpactAnalyzer: impact.New(st),
 		FlowTracer:     flows.New(st),
 	}
+}
+
+func setupTestDepsWithComments(t *testing.T) *Deps {
+	t.Helper()
+	deps := setupTestDeps(t)
+	goParser := &commentAwareGoParser{}
+	deps.Parser = goParser
+	deps.Walkers = map[string]Parser{".go": goParser}
+	return deps
 }
 
 func callTool(t *testing.T, deps *Deps, toolName string, args map[string]any) *mcp.CallToolResult {

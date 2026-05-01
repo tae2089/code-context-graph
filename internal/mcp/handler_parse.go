@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,8 +19,14 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/parse"
+	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 	"github.com/tae2089/code-context-graph/internal/pathutil"
+	"github.com/tae2089/code-context-graph/internal/service"
+	"github.com/tae2089/code-context-graph/internal/store"
 )
+
+var refreshSearchDocuments = service.RefreshSearchDocuments
 
 // walkParseStats accumulates file parsing progress for build handlers.
 // @intent 디렉터리 순회 중 생성된 파일·노드·엣지 수와 오류 수를 집계한다.
@@ -31,9 +38,16 @@ type walkParseStats struct {
 }
 
 type parsedWalkFile struct {
-	path  string
-	nodes []model.Node
-	edges []model.Edge
+	path     string
+	content  []byte
+	nodes    []model.Node
+	edges    []model.Edge
+	comments []treesitter.CommentBlock
+}
+
+type commentParserWithLanguage interface {
+	ParseWithComments(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []treesitter.CommentBlock, error)
+	Language() string
 }
 
 // walkAndParse walks a directory, parses supported files, and stores graph data.
@@ -96,16 +110,26 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 			continue
 		}
 
+		relPath, _ := filepath.Rel(absDir, fp)
+
 		content, err := os.ReadFile(fp)
 		if err != nil {
-			return stats, trace.Wrap(err, "read parse file "+fp)
+			return stats, trace.Wrap(err, "read parse file "+relPath)
 		}
 
-		nodes, edges, err := walker.ParseWithContext(ctx, fp, content)
-		if err != nil {
-			return stats, trace.Wrap(err, "parse file "+fp)
+		var nodes []model.Node
+		var edges []model.Edge
+		var comments []treesitter.CommentBlock
+
+		if tw, ok := walker.(commentParserWithLanguage); ok {
+			nodes, edges, comments, err = tw.ParseWithComments(ctx, relPath, content)
+		} else {
+			nodes, edges, err = walker.ParseWithContext(ctx, relPath, content)
 		}
-		parsedFiles = append(parsedFiles, parsedWalkFile{path: fp, nodes: nodes, edges: edges})
+		if err != nil {
+			return stats, trace.Wrap(err, "parse file "+relPath)
+		}
+		parsedFiles = append(parsedFiles, parsedWalkFile{path: relPath, content: content, nodes: nodes, edges: edges, comments: comments})
 		stats.Files++
 		stats.Nodes += len(nodes)
 		stats.Edges += len(edges)
@@ -116,11 +140,50 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 	}
 
 	for _, parsed := range parsedFiles {
-		if len(parsed.nodes) > 0 {
-			if err := h.deps.Store.UpsertNodes(ctx, parsed.nodes); err != nil {
-				return stats, trace.Wrap(err, "upsert nodes")
+		if err := h.deps.Store.WithTx(ctx, func(txStore store.GraphStore) error {
+			if len(parsed.nodes) > 0 {
+				if err := txStore.UpsertNodes(ctx, parsed.nodes); err != nil {
+					return trace.Wrap(err, "upsert nodes")
+				}
 			}
+
+			if len(parsed.comments) > 0 {
+				ext := strings.ToLower(filepath.Ext(parsed.path))
+				cp, ok := h.deps.Walkers[ext].(commentParserWithLanguage)
+				if ok {
+					binderComments := toMCPBinderComments(parsed.comments)
+					binder := parse.NewBinder()
+					sourceLines := strings.Split(string(parsed.content), "\n")
+					bindings := binder.Bind(binderComments, parsed.nodes, cp.Language(), sourceLines)
+
+					storedNodes, err := txStore.GetNodesByFile(ctx, parsed.path)
+					if err != nil {
+						return trace.Wrap(err, "get stored nodes for annotations")
+					}
+					storedMap := make(map[string]*model.Node, len(storedNodes))
+					for i := range storedNodes {
+						key := storedNodes[i].QualifiedName + ":" + strconv.Itoa(storedNodes[i].StartLine)
+						storedMap[key] = &storedNodes[i]
+					}
+
+					for _, b := range bindings {
+						key := b.Node.QualifiedName + ":" + strconv.Itoa(b.Node.StartLine)
+						stored := storedMap[key]
+						if stored == nil {
+							continue
+						}
+						b.Annotation.NodeID = stored.ID
+						if err := txStore.UpsertAnnotation(ctx, b.Annotation); err != nil {
+							return trace.Wrap(err, "upsert annotation for "+stored.QualifiedName)
+						}
+					}
+				}
+			}
+			return nil
+		}); err != nil {
+			return stats, trace.Wrap(err, "transaction failed for "+parsed.path)
 		}
+
 		if len(parsed.edges) > 0 {
 			if err := h.deps.Store.UpsertEdges(ctx, parsed.edges); err != nil {
 				return stats, trace.Wrap(err, "upsert edges")
@@ -128,6 +191,20 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 		}
 	}
 	return stats, nil
+}
+
+func toMCPBinderComments(tsComments []treesitter.CommentBlock) []parse.CommentBlock {
+	out := make([]parse.CommentBlock, len(tsComments))
+	for i, c := range tsComments {
+		out[i] = parse.CommentBlock{
+			StartLine:      c.StartLine,
+			EndLine:        c.EndLine,
+			Text:           c.Text,
+			IsDocstring:    c.IsDocstring,
+			OwnerStartLine: c.OwnerStartLine,
+		}
+	}
+	return out
 }
 
 // parseProject parses a project directory and stores discovered graph elements.
@@ -235,8 +312,9 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 			if err != nil {
 				return nil
 			}
+			relPath, _ := filepath.Rel(absDir, fp)
 			hash := sha256.Sum256(content)
-			files[fp] = incremental.FileInfo{
+			files[relPath] = incremental.FileInfo{
 				Hash:    hex.EncodeToString(hash[:]),
 				Content: content,
 			}
@@ -254,6 +332,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 	}
 
 	// 후처리
+	var failedSteps []string
 	switch postprocess {
 	case "full":
 		// flows 재빌드 (FlowTracer는 노드별이므로 스킵 — 전체 flow는 별도)
@@ -262,19 +341,30 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 			_, err := h.deps.CommunityBuilder.Rebuild(ctx, community.Config{Depth: 2})
 			if err != nil {
 				log.Warn("community rebuild failed", trace.SlogError(err))
+				failedSteps = append(failedSteps, "communities")
 			}
 		}
 		// search 재빌드
 		if h.deps.SearchBackend != nil {
+			if _, err := refreshSearchDocuments(ctx, h.deps.DB); err != nil {
+				log.Warn("search document refresh failed", trace.SlogError(err))
+				failedSteps = append(failedSteps, "search_documents")
+			}
 			if err := h.deps.SearchBackend.Rebuild(ctx, h.deps.DB); err != nil {
 				log.Warn("search rebuild failed", trace.SlogError(err))
+				failedSteps = append(failedSteps, "fts")
 			}
 		}
 	case "minimal":
 		// search만 재빌드
 		if h.deps.SearchBackend != nil {
+			if _, err := refreshSearchDocuments(ctx, h.deps.DB); err != nil {
+				log.Warn("search document refresh failed", trace.SlogError(err))
+				failedSteps = append(failedSteps, "search_documents")
+			}
 			if err := h.deps.SearchBackend.Rebuild(ctx, h.deps.DB); err != nil {
 				log.Warn("search rebuild failed", trace.SlogError(err))
+				failedSteps = append(failedSteps, "fts")
 			}
 		}
 	case "none":
@@ -282,13 +372,18 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 	}
 
 	elapsed := time.Since(start).Milliseconds()
+	status := "ok"
+	if len(failedSteps) > 0 {
+		status = "degraded"
+	}
 
 	result := map[string]any{
-		"status":        "ok",
+		"status":        status,
 		"files_parsed":  fileCount,
 		"nodes_created": nodeCount,
 		"edges_created": edgeCount,
 		"elapsed_ms":    elapsed,
+		"failed_steps":  failedSteps,
 	}
 	jsonStr, err := marshalJSON(result)
 	if err != nil {
@@ -318,6 +413,7 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 	log.Info("run_postprocess called", "flows", doFlows, "communities", doCommunities, "fts", doFTS)
 
 	var communitiesCount, ftsIndexed int
+	var failedSteps []string
 
 	// TODO: doFlows — FlowTracer operates per-node; bulk rebuild not yet implemented
 
@@ -325,6 +421,7 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 		stats, err := h.deps.CommunityBuilder.Rebuild(ctx, community.Config{Depth: communityDepth})
 		if err != nil {
 			log.Warn("community rebuild failed", trace.SlogError(err))
+			failedSteps = append(failedSteps, "communities")
 		} else {
 			communitiesCount = len(stats)
 		}
@@ -333,16 +430,23 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 	if doFTS && h.deps.SearchBackend != nil {
 		if err := h.deps.SearchBackend.Rebuild(ctx, h.deps.DB); err != nil {
 			log.Warn("search rebuild failed", trace.SlogError(err))
+			failedSteps = append(failedSteps, "fts")
 		} else {
 			ftsIndexed = 1 // at least one rebuild happened
 		}
 	}
 
+	status := "ok"
+	if len(failedSteps) > 0 {
+		status = "degraded"
+	}
+
 	result := map[string]any{
-		"status":            "ok",
+		"status":            status,
 		"flows_count":       0,
 		"communities_count": communitiesCount,
 		"fts_indexed":       ftsIndexed,
+		"failed_steps":      failedSteps,
 	}
 	jsonStr, err := marshalJSON(result)
 	if err != nil {

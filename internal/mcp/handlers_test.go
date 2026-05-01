@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"gorm.io/gorm"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
 	"github.com/tae2089/code-context-graph/internal/analysis/community"
@@ -745,6 +747,124 @@ func Run() {}
 	if mockComm.rebuildCalled {
 		t.Error("expected CommunityBuilder.Rebuild NOT to be called for postprocess=none")
 	}
+}
+
+func TestBuildOrUpdateGraph_DegradedOnCommunityFailure(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.CommunityBuilder = &mockCommunityBuilder{err: errors.New("community rebuild boom")}
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "svc.go", `package svc
+
+func Run() {}
+`)
+
+	result := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": true,
+		"postprocess":  "full",
+	})
+	if result.IsError {
+		t.Fatalf("build_or_update_graph should not return tool error, got: %s", getTextContent(result))
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+		t.Fatalf("expected JSON, got: %s", getTextContent(result))
+	}
+	if resp["status"] != "degraded" {
+		t.Fatalf("expected status=degraded, got %v", resp["status"])
+	}
+	failedSteps, ok := resp["failed_steps"].([]any)
+	if !ok || len(failedSteps) == 0 {
+		t.Fatalf("expected failed_steps to be non-empty, got %v", resp["failed_steps"])
+	}
+	if !containsString(failedSteps, "communities") {
+		t.Fatalf("expected communities in failed_steps, got %v", failedSteps)
+	}
+}
+
+func TestBuildOrUpdateGraph_DegradedOnSearchDocumentRefreshFailure(t *testing.T) {
+	deps := setupTestDeps(t)
+	origRefresh := refreshSearchDocuments
+	defer func() { refreshSearchDocuments = origRefresh }()
+	refreshSearchDocuments = func(ctx context.Context, db *gorm.DB) (int, error) {
+		return 0, errors.New("search document refresh boom")
+	}
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "svc.go", `package svc
+
+func Run() {}
+`)
+
+	result := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": true,
+		"postprocess":  "full",
+	})
+	if result.IsError {
+		t.Fatalf("build_or_update_graph should not return tool error, got: %s", getTextContent(result))
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+		t.Fatalf("expected JSON, got: %s", getTextContent(result))
+	}
+	if resp["status"] != "degraded" {
+		t.Fatalf("expected status=degraded, got %v", resp["status"])
+	}
+	failedSteps, ok := resp["failed_steps"].([]any)
+	if !ok || len(failedSteps) == 0 {
+		t.Fatalf("expected failed_steps to be non-empty, got %v", resp["failed_steps"])
+	}
+	if !containsString(failedSteps, "search_documents") {
+		t.Fatalf("expected search_documents in failed_steps, got %v", failedSteps)
+	}
+}
+
+func TestBuildOrUpdateGraph_DegradedOnFTSFailure(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.SearchBackend = &failSearchBackend{err: errors.New("fts rebuild boom")}
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "svc.go", `package svc
+
+func Run() {}
+`)
+
+	result := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": true,
+		"postprocess":  "full",
+	})
+	if result.IsError {
+		t.Fatalf("build_or_update_graph should not return tool error, got: %s", getTextContent(result))
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+		t.Fatalf("expected JSON, got: %s", getTextContent(result))
+	}
+	if resp["status"] != "degraded" {
+		t.Fatalf("expected status=degraded, got %v", resp["status"])
+	}
+	failedSteps, ok := resp["failed_steps"].([]any)
+	if !ok || len(failedSteps) == 0 {
+		t.Fatalf("expected failed_steps to be non-empty, got %v", resp["failed_steps"])
+	}
+	if !containsString(failedSteps, "fts") {
+		t.Fatalf("expected fts in failed_steps, got %v", failedSteps)
+	}
+}
+
+func containsString(values []any, target string) bool {
+	for _, v := range values {
+		if s, ok := v.(string); ok && s == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestBuildOrUpdateGraph_IncludePaths(t *testing.T) {
@@ -2111,5 +2231,262 @@ func Svc() {}
 	}
 	if !found {
 		t.Error("existingFiles must include ns-a file path")
+	}
+}
+
+type failSearchBackend struct {
+	err error
+}
+
+func (f *failSearchBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
+	return f.err
+}
+
+func (f *failSearchBackend) Migrate(db *gorm.DB) error { return nil }
+
+func (f *failSearchBackend) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error) {
+	return nil, nil
+}
+
+func TestRunPostprocess_DegradedOnCommunityFailure(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.CommunityBuilder = &mockCommunityBuilder{
+		err: errors.New("community rebuild boom"),
+	}
+
+	result := callTool(t, deps, "run_postprocess", map[string]any{
+		"communities": true,
+		"fts":         false,
+		"flows":       false,
+	})
+	if result.IsError {
+		t.Fatalf("run_postprocess should not return tool error, got: %s", getTextContent(result))
+	}
+
+	text := getTextContent(result)
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatalf("expected JSON, got: %s", text)
+	}
+
+	if resp["status"] != "degraded" {
+		t.Errorf("expected status=degraded, got %v", resp["status"])
+	}
+
+	failedSteps, ok := resp["failed_steps"].([]any)
+	if !ok || len(failedSteps) == 0 {
+		t.Fatalf("expected failed_steps to be non-empty, got %v", resp["failed_steps"])
+	}
+	found := false
+	for _, s := range failedSteps {
+		if s == "communities" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'communities' in failed_steps, got %v", failedSteps)
+	}
+}
+
+func TestRunPostprocess_DegradedOnSearchFailure(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.SearchBackend = &failSearchBackend{err: errors.New("fts rebuild boom")}
+
+	result := callTool(t, deps, "run_postprocess", map[string]any{
+		"communities": false,
+		"fts":         true,
+		"flows":       false,
+	})
+	if result.IsError {
+		t.Fatalf("run_postprocess should not return tool error, got: %s", getTextContent(result))
+	}
+
+	text := getTextContent(result)
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatalf("expected JSON, got: %s", text)
+	}
+
+	if resp["status"] != "degraded" {
+		t.Errorf("expected status=degraded, got %v", resp["status"])
+	}
+
+	failedSteps, ok := resp["failed_steps"].([]any)
+	if !ok || len(failedSteps) == 0 {
+		t.Fatalf("expected failed_steps to be non-empty, got %v", resp["failed_steps"])
+	}
+	found := false
+	for _, s := range failedSteps {
+		if s == "fts" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'fts' in failed_steps, got %v", failedSteps)
+	}
+}
+
+func TestBuildOrUpdateGraph_RefreshesSearchDocumentsBeforeFTS(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "svc.go", `package svc
+func MyService() {}
+`)
+
+	result := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": true,
+		"postprocess":  "full",
+	})
+	if result.IsError {
+		t.Fatalf("build_or_update_graph returned error: %s", getTextContent(result))
+	}
+
+	var docs []model.SearchDocument
+	if err := deps.DB.Find(&docs).Error; err != nil {
+		t.Fatalf("failed to query search_documents: %v", err)
+	}
+	if len(docs) == 0 {
+		t.Fatal("expected search_documents to be populated after build_or_update_graph with postprocess=full")
+	}
+
+	searchResult := callTool(t, deps, "search", map[string]any{"query": "MyService", "limit": 10})
+	if searchResult.IsError {
+		t.Fatalf("search returned error: %s", getTextContent(searchResult))
+	}
+	var nodes []map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(searchResult)), &nodes); err != nil {
+		t.Fatalf("expected JSON array, got: %s", getTextContent(searchResult))
+	}
+	if len(nodes) == 0 {
+		t.Fatal("expected at least 1 search result after build_or_update_graph refreshed search documents")
+	}
+}
+
+// ============================================================
+// MCP build path normalization & annotation binding parity
+// ============================================================
+
+// TestBuildOrUpdateGraph_FullRebuild_StoresRelativePaths verifies that
+// full rebuild stores repo-relative file_path values (not absolute paths).
+func TestBuildOrUpdateGraph_FullRebuild_StoresRelativePaths(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "hello.go", `package hello
+
+func Hello() string {
+	return "hello"
+}
+`)
+
+	result := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": true,
+		"postprocess":  "none",
+	})
+	if result.IsError {
+		t.Fatalf("build_or_update_graph error: %s", getTextContent(result))
+	}
+
+	node, err := deps.Store.GetNode(context.Background(), "hello.Hello")
+	if err != nil || node == nil {
+		t.Fatal("expected node hello.Hello to exist after full rebuild")
+	}
+
+	if filepath.IsAbs(node.FilePath) {
+		t.Errorf("expected repo-relative file_path, got absolute path: %s", node.FilePath)
+	}
+	if node.FilePath != "hello.go" {
+		t.Errorf("expected file_path=hello.go, got %s", node.FilePath)
+	}
+}
+
+// TestBuildOrUpdateGraph_Incremental_UsesRelativePathKeys verifies that
+// incremental build passes repo-relative path keys to the incremental syncer.
+func TestBuildOrUpdateGraph_Incremental_UsesRelativePathKeys(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	mockSync := &mockIncrementalSyncer{
+		result: &incremental.SyncStats{Added: 1},
+	}
+	deps.Incremental = mockSync
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "calc.go", `package calc
+
+func Add(a, b int) int {
+	return a + b
+}
+`)
+
+	result := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": false,
+		"postprocess":  "none",
+	})
+	if result.IsError {
+		t.Fatalf("build_or_update_graph error: %s", getTextContent(result))
+	}
+
+	if !mockSync.syncWithExisting {
+		t.Fatal("expected SyncWithExisting to be called")
+	}
+
+	for fp := range mockSync.files {
+		if filepath.IsAbs(fp) {
+			t.Errorf("incremental syncer received absolute path key: %s (want repo-relative)", fp)
+		}
+	}
+}
+
+// TestBuildOrUpdateGraph_FullRebuild_AnnotationBinding verifies that
+// full rebuild binds annotations so get_annotation works without manual seeding.
+func TestBuildOrUpdateGraph_FullRebuild_AnnotationBinding(t *testing.T) {
+	deps := setupTestDepsWithComments(t)
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "svc.go", `package svc
+
+// DoWork does the work.
+// @intent perform the main service operation
+func DoWork() {}
+`)
+
+	result := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": true,
+		"postprocess":  "none",
+	})
+	if result.IsError {
+		t.Fatalf("build_or_update_graph error: %s", getTextContent(result))
+	}
+
+	annResult := callTool(t, deps, "get_annotation", map[string]any{"qualified_name": "svc.DoWork"})
+	if annResult.IsError {
+		t.Fatalf("get_annotation error: %s", getTextContent(annResult))
+	}
+
+	text := getTextContent(annResult)
+	var ann map[string]any
+	if err := json.Unmarshal([]byte(text), &ann); err != nil {
+		t.Fatalf("expected JSON, got: %s", text)
+	}
+
+	tags, _ := ann["tags"].([]any)
+	found := false
+	for _, tag := range tags {
+		tm, ok := tag.(map[string]any)
+		if !ok {
+			continue
+		}
+		if tm["kind"] == "intent" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected @intent tag to be bound after full rebuild, got annotation: %v", ann)
 	}
 }
