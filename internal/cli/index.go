@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/docs"
@@ -33,9 +34,10 @@ func newIndexCmd(deps *Deps) *cobra.Command {
 			}
 
 			gen := &docs.Generator{
-				DB:      deps.DB,
-				OutDir:  absOut,
-				Exclude: resolveExcludes(excludePatterns),
+				DB:        deps.DB,
+				OutDir:    absOut,
+				Exclude:   resolveExcludes(excludePatterns),
+				Namespace: viper.GetString("namespace"),
 			}
 
 			if err := gen.RunIndex(); err != nil {

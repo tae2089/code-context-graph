@@ -64,7 +64,7 @@ func (g *Generator) writeFileDoc(grp nodeGroup) error {
 	if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
 		return fmt.Errorf("create dir: %w", err)
 	}
-	return os.WriteFile(outPath, []byte(content), 0644)
+	return atomicWriteFile(outPath, []byte(generatorManagedMarker+content), 0644)
 }
 
 // writeIndex writes the aggregated markdown index.
@@ -75,7 +75,7 @@ func (g *Generator) writeIndex(groups []nodeGroup) error {
 	if err := os.MkdirAll(g.OutDir, 0755); err != nil {
 		return fmt.Errorf("create dir: %w", err)
 	}
-	return os.WriteFile(filepath.Join(g.OutDir, "index.md"), []byte(content), 0644)
+	return atomicWriteFile(filepath.Join(g.OutDir, "index.md"), []byte(generatorManagedMarker+content), 0644)
 }
 
 // renderFileDoc renders one file documentation page as markdown.

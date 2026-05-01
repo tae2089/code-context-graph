@@ -125,6 +125,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	// Bind flags to viper
 	_ = viper.BindPFlag("db.driver", rootCmd.PersistentFlags().Lookup("db-driver"))
 	_ = viper.BindPFlag("db.dsn", rootCmd.PersistentFlags().Lookup("db-dsn"))
+	_ = viper.BindPFlag("namespace", rootCmd.PersistentFlags().Lookup("namespace"))
 
 	// Also explicitly bind env vars just in case AutomaticEnv needs a hint
 	_ = viper.BindEnv("db.driver", "CCG_DB_DRIVER")

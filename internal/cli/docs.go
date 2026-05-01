@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/docs"
@@ -17,6 +18,7 @@ import (
 func newDocsCmd(deps *Deps) *cobra.Command {
 	var outDir string
 	var excludePatterns []string
+	var prune bool
 
 	cmd := &cobra.Command{
 		Use:   "docs",
@@ -33,9 +35,11 @@ func newDocsCmd(deps *Deps) *cobra.Command {
 			}
 
 			gen := &docs.Generator{
-				DB:      deps.DB,
-				OutDir:  absOut,
-				Exclude: resolveExcludes(excludePatterns),
+				DB:        deps.DB,
+				OutDir:    absOut,
+				Exclude:   resolveExcludes(excludePatterns),
+				Namespace: viper.GetString("namespace"),
+				Prune:     prune,
 			}
 
 			if err := gen.Run(); err != nil {
@@ -49,5 +53,6 @@ func newDocsCmd(deps *Deps) *cobra.Command {
 
 	cmd.Flags().StringVar(&outDir, "out", "docs", "Output directory for generated documentation")
 	cmd.Flags().StringArrayVar(&excludePatterns, "exclude", nil, "Exclude files/paths matching pattern (repeatable, e.g. --exclude vendor --exclude '*.pb.go')")
+	cmd.Flags().BoolVar(&prune, "prune", true, "Prune stale generator-managed docs no longer present in the graph")
 	return cmd
 }

@@ -85,7 +85,7 @@ func (h *History) Save(path string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return atomicWriteFile(path, data, 0o644)
 }
 
 // WriteYamlRules appends Twice-Rule-triggered entries to .ccg.yaml rules section.
@@ -138,5 +138,5 @@ func WriteYamlRules(cfgPath string, triggered []string) error {
 		out.WriteString(r)
 	}
 
-	return os.WriteFile(cfgPath, []byte(out.String()), 0o644)
+	return atomicWriteFile(cfgPath, []byte(out.String()), 0o644)
 }

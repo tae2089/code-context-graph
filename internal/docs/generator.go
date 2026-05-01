@@ -1,8 +1,12 @@
 package docs
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -16,6 +20,15 @@ type Generator struct {
 	DB      *gorm.DB
 	OutDir  string
 	Exclude []string // path/glob patterns to exclude (see pathutil.MatchExcludes)
+	Namespace string
+	Prune     bool
+}
+
+const generatorManagedMarker = "<!-- generated-by: code-context-graph docs -->\n"
+
+type manifest struct {
+	Namespace string   `json:"namespace"`
+	Files     []string `json:"files"`
 }
 
 // Run generates index.md and per-file docs into g.OutDir.
@@ -44,14 +57,24 @@ func (g *Generator) Run() error {
 	}
 
 	groups := groupByFile(nodes, annByID, edgesByFromID)
+	current := generatedFiles(groups)
 
 	var errs []error
+	previous, _ := g.loadManifest()
 	for _, grp := range groups {
 		if err := g.writeFileDoc(grp); err != nil {
 			errs = append(errs, fmt.Errorf("write file doc %s: %w", grp.FilePath, err))
 		}
 	}
 	if err := g.writeIndex(groups); err != nil {
+		errs = append(errs, err)
+	}
+	if g.Prune {
+		if err := g.pruneManaged(previous.Files, current); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if err := g.saveManifest(current); err != nil {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
@@ -85,13 +108,17 @@ func (g *Generator) RunIndex() error {
 // @return 문서 대상 노드 목록과 node_id 기준 어노테이션 맵을 반환한다.
 func (g *Generator) loadNodes() ([]model.Node, map[uint]*model.Annotation, error) {
 	var nodes []model.Node
-	if err := g.DB.Where("kind IN ?", []string{
+	q := g.DB.Where("kind IN ?", []string{
 		string(model.NodeKindFunction),
 		string(model.NodeKindClass),
 		string(model.NodeKindType),
 		string(model.NodeKindTest),
 		string(model.NodeKindFile),
-	}).Find(&nodes).Error; err != nil {
+	})
+	if g.Namespace != "" {
+		q = q.Where("namespace = ?", g.Namespace)
+	}
+	if err := q.Find(&nodes).Error; err != nil {
 		return nil, nil, fmt.Errorf("query nodes: %w", err)
 	}
 
@@ -119,10 +146,13 @@ func (g *Generator) loadEdges(nodeIDs []uint) (map[uint][]model.Edge, error) {
 		return nil, nil
 	}
 	var edges []model.Edge
-	if err := g.DB.Preload("ToNode").
+	q := g.DB.Preload("ToNode").
 		Where("from_node_id IN ? AND kind IN ?", nodeIDs,
-			[]string{string(model.EdgeKindCalls), string(model.EdgeKindImportsFrom)}).
-		Find(&edges).Error; err != nil {
+			[]string{string(model.EdgeKindCalls), string(model.EdgeKindImportsFrom)})
+	if g.Namespace != "" {
+		q = q.Where("namespace = ?", g.Namespace)
+	}
+	if err := q.Find(&edges).Error; err != nil {
 		return nil, fmt.Errorf("query edges: %w", err)
 	}
 	result := make(map[uint][]model.Edge, len(edges))
@@ -130,6 +160,79 @@ func (g *Generator) loadEdges(nodeIDs []uint) (map[uint][]model.Edge, error) {
 		result[e.FromNodeID] = append(result[e.FromNodeID], e)
 	}
 	return result, nil
+}
+
+func generatedFiles(groups []nodeGroup) []string {
+	files := make([]string, 0, len(groups)+1)
+	for _, grp := range groups {
+		files = append(files, filepath.ToSlash(grp.FilePath+".md"))
+	}
+	files = append(files, "index.md")
+	return files
+}
+
+func (g *Generator) manifestPath() string {
+	name := ".ccg-docs-manifest.json"
+	if g.Namespace != "" {
+		name = ".ccg-docs-manifest." + strings.ReplaceAll(g.Namespace, string(filepath.Separator), "-") + ".json"
+	}
+	return filepath.Join(g.OutDir, name)
+}
+
+func (g *Generator) loadManifest() (*manifest, error) {
+	m := &manifest{Namespace: g.Namespace}
+	data, err := os.ReadFile(g.manifestPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return m, nil
+		}
+		return nil, err
+	}
+	if err := json.Unmarshal(data, m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (g *Generator) saveManifest(files []string) error {
+	data, err := json.MarshalIndent(manifest{Namespace: g.Namespace, Files: files}, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(g.OutDir, 0755); err != nil {
+		return err
+	}
+	return atomicWriteFile(g.manifestPath(), data, 0644)
+}
+
+func (g *Generator) pruneManaged(previous, current []string) error {
+	keep := map[string]bool{}
+	for _, p := range current {
+		keep[p] = true
+	}
+	var errs []error
+	for _, p := range previous {
+		p = filepath.ToSlash(p)
+		if keep[p] {
+			continue
+		}
+		full := filepath.Join(g.OutDir, filepath.FromSlash(p))
+		data, err := os.ReadFile(full)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			errs = append(errs, err)
+			continue
+		}
+		if !strings.HasPrefix(string(data), generatorManagedMarker) {
+			continue
+		}
+		if err := os.Remove(full); err != nil && !os.IsNotExist(err) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // nodeIDsFrom collects node IDs from a node slice.

@@ -122,9 +122,10 @@ func newLintCmd(deps *Deps) *cobra.Command {
 			}
 
 			gen := &docs.Generator{
-				DB:      deps.DB,
-				OutDir:  absOut,
-				Exclude: resolveExcludes(excludePatterns),
+				DB:        deps.DB,
+				OutDir:    absOut,
+				Exclude:   resolveExcludes(excludePatterns),
+				Namespace: viper.GetString("namespace"),
 			}
 
 			report, err := gen.Lint()

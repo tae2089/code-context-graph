@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gorm.io/driver/sqlite"
@@ -72,5 +73,76 @@ func TestDocsCommand_NoDB(t *testing.T) {
 	err := executeCmd(deps, stdout, stderr, "docs", "--out", outDir)
 	if err == nil {
 		t.Fatal("expected error when DB is nil")
+	}
+}
+
+func TestDocsCommand_PrunesManagedStaleDocsByDefault(t *testing.T) {
+	deps, stdout, stderr, db := setupDocsTest(t)
+	outDir := t.TempDir()
+
+	oldNode := model.Node{QualifiedName: "pkg.Old", Kind: model.NodeKindFunction, Name: "Old", FilePath: "pkg/old.go", StartLine: 1, EndLine: 5, Hash: "h1", Language: "go"}
+	db.Create(&oldNode)
+	if err := executeCmd(deps, stdout, stderr, "docs", "--out", outDir); err != nil {
+		t.Fatalf("initial docs: %v", err)
+	}
+
+	userDoc := filepath.Join(outDir, "pkg", "user.go.md")
+	if err := os.WriteFile(userDoc, []byte("# user doc\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	db.Delete(&oldNode)
+	db.Create(&model.Node{QualifiedName: "pkg.New", Kind: model.NodeKindFunction, Name: "New", FilePath: "pkg/new.go", StartLine: 1, EndLine: 5, Hash: "h2", Language: "go"})
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := executeCmd(deps, stdout, stderr, "docs", "--out", outDir); err != nil {
+		t.Fatalf("second docs: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "pkg", "old.go.md")); !os.IsNotExist(err) {
+		t.Fatalf("managed stale doc should be pruned by default, stat err=%v", err)
+	}
+	if _, err := os.Stat(userDoc); err != nil {
+		t.Fatalf("user doc must survive prune: %v", err)
+	}
+}
+
+func TestDocsCommand_PruneFlagCanDisableCleanup(t *testing.T) {
+	deps, stdout, stderr, db := setupDocsTest(t)
+	outDir := t.TempDir()
+
+	oldNode := model.Node{QualifiedName: "pkg.Old", Kind: model.NodeKindFunction, Name: "Old", FilePath: "pkg/old.go", StartLine: 1, EndLine: 5, Hash: "h1", Language: "go"}
+	db.Create(&oldNode)
+	if err := executeCmd(deps, stdout, stderr, "docs", "--out", outDir); err != nil {
+		t.Fatalf("initial docs: %v", err)
+	}
+	db.Delete(&oldNode)
+	db.Create(&model.Node{QualifiedName: "pkg.New", Kind: model.NodeKindFunction, Name: "New", FilePath: "pkg/new.go", StartLine: 1, EndLine: 5, Hash: "h2", Language: "go"})
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := executeCmd(deps, stdout, stderr, "docs", "--out", outDir, "--prune=false"); err != nil {
+		t.Fatalf("docs --prune=false: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "pkg", "old.go.md")); err != nil {
+		t.Fatalf("managed stale doc should remain when prune disabled: %v", err)
+	}
+}
+
+func TestDocsCommand_RespectsNamespace(t *testing.T) {
+	deps, stdout, stderr, db := setupDocsTest(t)
+	db.Create(&model.Node{Namespace: "alpha", QualifiedName: "alpha.Foo", Kind: model.NodeKindFunction, Name: "Foo", FilePath: "alpha/foo.go", StartLine: 1, EndLine: 5, Hash: "h1", Language: "go"})
+	db.Create(&model.Node{Namespace: "beta", QualifiedName: "beta.Bar", Kind: model.NodeKindFunction, Name: "Bar", FilePath: "beta/bar.go", StartLine: 1, EndLine: 5, Hash: "h2", Language: "go"})
+	outDir := t.TempDir()
+
+	if err := executeCmd(deps, stdout, stderr, "--namespace", "alpha", "docs", "--out", outDir); err != nil {
+		t.Fatalf("docs: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(outDir, "index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(content)
+	if !strings.Contains(got, "Foo") || strings.Contains(got, "Bar") {
+		t.Fatalf("namespace scope mismatch:\n%s", got)
 	}
 }

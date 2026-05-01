@@ -99,3 +99,26 @@ func TestIndexCommand_NilDB_Fails(t *testing.T) {
 		t.Fatal("expected error when DB is nil")
 	}
 }
+
+func TestIndexCommand_RespectsNamespace(t *testing.T) {
+	deps, stdout, stderr, db := setupIndexTest(t)
+	db.Create(&model.Node{Namespace: "alpha", QualifiedName: "alpha.Foo", Kind: model.NodeKindFunction, Name: "Foo", FilePath: "alpha/foo.go", StartLine: 1, EndLine: 5, Hash: "h1", Language: "go"})
+	db.Create(&model.Node{Namespace: "beta", QualifiedName: "beta.Bar", Kind: model.NodeKindFunction, Name: "Bar", FilePath: "beta/bar.go", StartLine: 1, EndLine: 5, Hash: "h2", Language: "go"})
+
+	outDir := t.TempDir()
+	if err := executeCmd(deps, stdout, stderr, "--namespace", "alpha", "index", "--out", outDir); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(outDir, "index.md"))
+	if err != nil {
+		t.Fatalf("expected index.md: %v", err)
+	}
+	got := string(content)
+	if !strings.Contains(got, "Foo") {
+		t.Fatalf("expected alpha symbol in index, got:\n%s", got)
+	}
+	if strings.Contains(got, "Bar") {
+		t.Fatalf("beta symbol leaked into alpha index:\n%s", got)
+	}
+}

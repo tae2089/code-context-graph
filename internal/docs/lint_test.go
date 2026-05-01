@@ -538,3 +538,20 @@ func TestLint_NoDrift_WhenAnnotationFresh(t *testing.T) {
 		t.Errorf("expected 0 drifted, got %v", report.Drifted)
 	}
 }
+
+func TestLint_RespectsNamespace(t *testing.T) {
+	db := newLintTestDB(t)
+	outDir := t.TempDir()
+
+	db.Create(&model.Node{Namespace: "alpha", QualifiedName: "pkg.Alpha", Kind: model.NodeKindFunction, Name: "Alpha", FilePath: "pkg/alpha.go", StartLine: 1, EndLine: 10, Hash: "h1", Language: "go"})
+	db.Create(&model.Node{Namespace: "beta", QualifiedName: "pkg.Beta", Kind: model.NodeKindFunction, Name: "Beta", FilePath: "pkg/beta.go", StartLine: 1, EndLine: 10, Hash: "h2", Language: "go"})
+
+	gen := &Generator{DB: db, OutDir: outDir, Namespace: "alpha"}
+	report, err := gen.Lint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Missing) != 1 || report.Missing[0] != "pkg/alpha.go" {
+		t.Fatalf("missing = %v, want only alpha file", report.Missing)
+	}
+}

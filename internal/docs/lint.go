@@ -88,13 +88,17 @@ func (g *Generator) Lint() (*LintReport, error) {
 	graphFiles := map[string]*fileEntry{}
 
 	var nodes []model.Node
-	if err := g.DB.Select("file_path, updated_at").
+	q := g.DB.Select("file_path, updated_at").
 		Where("kind IN ?", []string{
 			string(model.NodeKindFunction),
 			string(model.NodeKindClass),
 			string(model.NodeKindType),
 			string(model.NodeKindTest),
-		}).Find(&nodes).Error; err != nil {
+		})
+	if g.Namespace != "" {
+		q = q.Where("namespace = ?", g.Namespace)
+	}
+	if err := q.Find(&nodes).Error; err != nil {
 		return nil, fmt.Errorf("query nodes: %w", err)
 	}
 
@@ -132,12 +136,16 @@ func (g *Generator) Lint() (*LintReport, error) {
 
 	// 4. Find unannotated symbols (functions, classes, types — skip tests).
 	var symbolNodes []model.Node
-	if err := g.DB.Select("id, qualified_name, kind, file_path, updated_at").
+	sq := g.DB.Select("id, qualified_name, kind, file_path, updated_at").
 		Where("kind IN ?", []string{
 			string(model.NodeKindFunction),
 			string(model.NodeKindClass),
 			string(model.NodeKindType),
-		}).Find(&symbolNodes).Error; err != nil {
+		})
+	if g.Namespace != "" {
+		sq = sq.Where("namespace = ?", g.Namespace)
+	}
+	if err := sq.Find(&symbolNodes).Error; err != nil {
 		return nil, fmt.Errorf("query symbol nodes: %w", err)
 	}
 
@@ -210,7 +218,11 @@ func (g *Generator) Lint() (*LintReport, error) {
 				continue
 			}
 			var count int64
-			if err := g.DB.Model(&model.Node{}).Where("qualified_name = ?", tag.Value).Count(&count).Error; err != nil {
+			refQ := g.DB.Model(&model.Node{}).Where("qualified_name = ?", tag.Value)
+			if g.Namespace != "" {
+				refQ = refQ.Where("namespace = ?", g.Namespace)
+			}
+			if err := refQ.Count(&count).Error; err != nil {
 				return nil, fmt.Errorf("query dead ref for %q → %q: %w", n.QualifiedName, tag.Value, err)
 			}
 			if count == 0 {

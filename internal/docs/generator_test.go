@@ -310,3 +310,62 @@ func TestRun_ExcludePatterns(t *testing.T) {
 		t.Errorf("*_test.go matched file should be excluded")
 	}
 }
+
+func TestRun_RespectsNamespace(t *testing.T) {
+	db := newTestDB(t)
+	nodes := []model.Node{
+		{Namespace: "alpha", QualifiedName: "alpha.Foo", Kind: model.NodeKindFunction, Name: "Foo", FilePath: "alpha/foo.go", StartLine: 1, EndLine: 5, Hash: "h1", Language: "go"},
+		{Namespace: "beta", QualifiedName: "beta.Bar", Kind: model.NodeKindFunction, Name: "Bar", FilePath: "beta/bar.go", StartLine: 1, EndLine: 5, Hash: "h2", Language: "go"},
+	}
+	for i := range nodes {
+		db.Create(&nodes[i])
+	}
+
+	gen, outDir := newGenerator(t, db)
+	gen.Namespace = "alpha"
+	if err := gen.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(outDir, "index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(content)
+	if !strings.Contains(got, "Foo") {
+		t.Fatalf("expected alpha symbol in index, got:\n%s", got)
+	}
+	if strings.Contains(got, "Bar") {
+		t.Fatalf("beta symbol leaked into alpha docs:\n%s", got)
+	}
+}
+
+func TestRun_PruneDeletesOnlyGeneratorManagedStaleDocs(t *testing.T) {
+	db := newTestDB(t)
+	oldNode := model.Node{QualifiedName: "pkg.Old", Kind: model.NodeKindFunction, Name: "Old", FilePath: "pkg/old.go", StartLine: 1, EndLine: 5, Hash: "h1", Language: "go"}
+	db.Create(&oldNode)
+
+	gen, outDir := newGenerator(t, db)
+	gen.Prune = true
+	if err := gen.Run(); err != nil {
+		t.Fatalf("initial Run: %v", err)
+	}
+	userDoc := filepath.Join(outDir, "pkg", "user.go.md")
+	if err := os.WriteFile(userDoc, []byte("# user doc\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	db.Delete(&oldNode)
+	newNode := model.Node{QualifiedName: "pkg.New", Kind: model.NodeKindFunction, Name: "New", FilePath: "pkg/new.go", StartLine: 1, EndLine: 5, Hash: "h2", Language: "go"}
+	db.Create(&newNode)
+	if err := gen.Run(); err != nil {
+		t.Fatalf("second Run: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(outDir, "pkg", "old.go.md")); !os.IsNotExist(err) {
+		t.Fatalf("managed stale doc should be pruned, stat err=%v", err)
+	}
+	if _, err := os.Stat(userDoc); err != nil {
+		t.Fatalf("user doc must not be pruned: %v", err)
+	}
+}
