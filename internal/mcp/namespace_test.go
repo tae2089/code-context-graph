@@ -116,6 +116,7 @@ func TestMCPHandler_QueryWithNamespace(t *testing.T) {
 	deps.DB.Where("namespace = ? AND qualified_name = ?", "ns-a", "pkg.Caller").First(&callerA)
 	deps.DB.Where("namespace = ? AND qualified_name = ?", "ns-a", "pkg.Callee").First(&calleeA)
 	edge := model.Edge{FromNodeID: callerA.ID, ToNodeID: calleeA.ID, Kind: "calls", Fingerprint: fmt.Sprintf("calls:%d:%d", callerA.ID, calleeA.ID)}
+	edge.Namespace = "ns-a"
 	if err := deps.DB.Create(&edge).Error; err != nil {
 		t.Fatalf("create edge: %v", err)
 	}

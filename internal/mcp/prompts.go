@@ -8,6 +8,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/trace"
 
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
 	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
 	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
@@ -241,7 +242,11 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 	}
 
 	var edgeCount int64
-	if err := p.deps.DB.WithContext(ctx).Model(&model.Edge{}).Count(&edgeCount).Error; err != nil {
+	edgeQ := p.deps.DB.WithContext(ctx).Model(&model.Edge{})
+	if ns := ctxns.FromContext(ctx); ns != "" {
+		edgeQ = edgeQ.Where("namespace = ?", ns)
+	}
+	if err := edgeQ.Count(&edgeCount).Error; err != nil {
 		log.Warn("count edges failed", trace.SlogError(err))
 	}
 

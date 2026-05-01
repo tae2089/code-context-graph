@@ -40,7 +40,11 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 		if err := nodeQ.Count(&nodeCount).Error; err != nil {
 			return "", trace.Wrap(err, "count nodes")
 		}
-		if err := h.deps.DB.WithContext(ctx).Model(&model.Edge{}).Count(&edgeCount).Error; err != nil {
+		edgeQ := h.deps.DB.WithContext(ctx).Model(&model.Edge{})
+		if ns != "" {
+			edgeQ = edgeQ.Where("namespace = ?", ns)
+		}
+		if err := edgeQ.Count(&edgeCount).Error; err != nil {
 			return "", trace.Wrap(err, "count edges")
 		}
 
@@ -92,9 +96,12 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 				for _, r := range risks {
 					hasTest := false
 					var testEdges int64
-					h.deps.DB.WithContext(ctx).Model(&model.Edge{}).
-						Where("to_node_id = ? AND kind = ?", r.Node.ID, model.EdgeKindTestedBy).
-						Count(&testEdges)
+					testEdgeQ := h.deps.DB.WithContext(ctx).Model(&model.Edge{}).
+						Where("to_node_id = ? AND kind = ?", r.Node.ID, model.EdgeKindTestedBy)
+					if ns != "" {
+						testEdgeQ = testEdgeQ.Where("namespace = ?", ns)
+					}
+					testEdgeQ.Count(&testEdges)
 					if testEdges > 0 {
 						hasTest = true
 					}
