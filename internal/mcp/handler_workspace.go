@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,6 +50,76 @@ func validateWorkspacePath(workspace, filePath string) error {
 	return nil
 }
 
+func (h *handlers) safeWorkspaceRoot() (string, error) {
+	root := h.workspaceRoot()
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace root: %w", err)
+	}
+	if err := os.MkdirAll(absRoot, 0o755); err != nil {
+		return "", fmt.Errorf("create workspace root: %w", err)
+	}
+	realRoot, err := filepath.EvalSymlinks(absRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace root symlinks: %w", err)
+	}
+	return realRoot, nil
+}
+
+func safeJoin(base string, parts ...string) string {
+	all := append([]string{base}, parts...)
+	return filepath.Join(all...)
+}
+
+func ensureNoSymlinkInPath(root, relPath string, allowMissingLeaf bool) (string, error) {
+	cleanRel := filepath.Clean(relPath)
+	if cleanRel == "." {
+		return root, nil
+	}
+	current := root
+	segments := strings.Split(cleanRel, string(filepath.Separator))
+	for i, segment := range segments {
+		current = filepath.Join(current, segment)
+		info, err := os.Lstat(current)
+		if err != nil {
+			if allowMissingLeaf && errors.Is(err, fs.ErrNotExist) && i == len(segments)-1 {
+				return current, nil
+			}
+			if allowMissingLeaf && errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("symlink paths are not allowed")
+		}
+	}
+	return current, nil
+}
+
+func (h *handlers) resolveWorkspacePath(workspace, filePath string, allowMissingLeaf bool) (string, error) {
+	if err := validateWorkspacePath(workspace, filePath); err != nil {
+		return "", err
+	}
+	root, err := h.safeWorkspaceRoot()
+	if err != nil {
+		return "", err
+	}
+	wsDir, err := ensureNoSymlinkInPath(root, filepath.Clean(workspace), false)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			wsDir = safeJoin(root, filepath.Clean(workspace))
+		} else {
+			return "", err
+		}
+	}
+	if filePath == "" {
+		return wsDir, nil
+	}
+	rel := safeJoin(filepath.Clean(workspace), filepath.Clean(filePath))
+	return ensureNoSymlinkInPath(root, rel, allowMissingLeaf)
+}
+
 // uploadFile writes one base64-encoded file into a workspace.
 // @intent 단일 파일을 서버 작업공간에 업로드해 후속 분석 또는 문서 작업에 활용하게 한다.
 // @param request content는 base64 인코딩된 파일 바이트다.
@@ -82,7 +154,10 @@ func (h *handlers) uploadFile(ctx context.Context, request mcp.CallToolRequest) 
 		return mcp.NewToolResultError(fmt.Sprintf("file exceeds %d MB size limit", maxUploadSizeBytes>>20)), nil
 	}
 
-	target := filepath.Join(h.workspaceRoot(), filepath.Clean(workspace), filepath.Clean(filePath))
+	target, err := h.resolveWorkspacePath(workspace, filePath, true)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("resolve workspace path: %v", err)), nil
+	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("create directory: %v", err)), nil
 	}
@@ -146,11 +221,24 @@ func (h *handlers) listFiles(ctx context.Context, request mcp.CallToolRequest) (
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	wsDir := filepath.Join(h.workspaceRoot(), filepath.Clean(workspace))
+	wsDir, err := h.resolveWorkspacePath(workspace, "", false)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			jsonStr, _ := marshalJSON([]string{})
+			return mcp.NewToolResultText(jsonStr), nil
+		}
+		return mcp.NewToolResultError(fmt.Sprintf("resolve workspace path: %v", err)), nil
+	}
 
 	var files []string
 	err = filepath.Walk(wsDir, func(fp string, info os.FileInfo, err error) error {
 		if err != nil {
+			return nil
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if info.IsDir() {
@@ -194,7 +282,10 @@ func (h *handlers) deleteFile(ctx context.Context, request mcp.CallToolRequest) 
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	target := filepath.Join(h.workspaceRoot(), filepath.Clean(workspace), filepath.Clean(filePath))
+	target, err := h.resolveWorkspacePath(workspace, filePath, false)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("resolve workspace path: %v", err)), nil
+	}
 
 	if _, err := os.Stat(target); os.IsNotExist(err) {
 		return mcp.NewToolResultError(fmt.Sprintf("file %q not found in workspace %q", filePath, workspace)), nil
@@ -262,7 +353,10 @@ func (h *handlers) uploadFiles(ctx context.Context, request mcp.CallToolRequest)
 			return mcp.NewToolResultError(fmt.Sprintf("entry %d: file exceeds %d MB size limit", i, maxUploadSizeBytes>>20)), nil
 		}
 
-		target := filepath.Join(h.workspaceRoot(), filepath.Clean(e.Workspace), filepath.Clean(e.FilePath))
+		target, err := h.resolveWorkspacePath(e.Workspace, e.FilePath, true)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("entry %d: resolve workspace path: %v", i, err)), nil
+		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("entry %d: create directory: %v", i, err)), nil
 		}
@@ -302,7 +396,10 @@ func (h *handlers) deleteWorkspace(ctx context.Context, request mcp.CallToolRequ
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	wsDir := filepath.Join(h.workspaceRoot(), filepath.Clean(workspace))
+	wsDir, err := h.resolveWorkspacePath(workspace, "", false)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("resolve workspace path: %v", err)), nil
+	}
 
 	if _, err := os.Stat(wsDir); os.IsNotExist(err) {
 		return mcp.NewToolResultError(fmt.Sprintf("workspace %q not found", workspace)), nil

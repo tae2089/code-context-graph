@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-type SyncFunc func(ctx context.Context, repoFullName, cloneURL string)
+type SyncFunc func(ctx context.Context, repoFullName, cloneURL string) error
 
 type SyncHandlerFunc func(ctx context.Context, repoFullName, cloneURL string) error
 
@@ -20,10 +20,28 @@ type WebhookHandler struct {
 	secret []byte
 	filter *RepoFilter
 	onSync SyncFunc
+	insecure bool
+	cloneBaseURL string
 }
 
 func NewWebhookHandler(secret []byte, filter *RepoFilter, onSync SyncFunc) *WebhookHandler {
-	return &WebhookHandler{secret: secret, filter: filter, onSync: onSync}
+	return NewWebhookHandlerWithConfig(WebhookHandlerConfig{Secret: secret, Filter: filter, OnSync: onSync})
+}
+
+type WebhookHandlerConfig struct {
+	Secret       []byte
+	Filter       *RepoFilter
+	OnSync       SyncFunc
+	Insecure     bool
+	CloneBaseURL string
+}
+
+func NewWebhookHandlerWithOptions(secret []byte, filter *RepoFilter, onSync SyncFunc, insecure bool) *WebhookHandler {
+	return NewWebhookHandlerWithConfig(WebhookHandlerConfig{Secret: secret, Filter: filter, OnSync: onSync, Insecure: insecure})
+}
+
+func NewWebhookHandlerWithConfig(cfg WebhookHandlerConfig) *WebhookHandler {
+	return &WebhookHandler{secret: cfg.Secret, filter: cfg.Filter, onSync: cfg.OnSync, insecure: cfg.Insecure, cloneBaseURL: cfg.CloneBaseURL}
 }
 
 type pushEvent struct {
@@ -76,14 +94,30 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cloneURL, err := ResolveCloneURL(event.Repository.FullName, event.Repository.CloneURL, h.cloneBaseURL, h.insecure)
+	if err != nil {
+		http.Error(w, "invalid clone target", http.StatusForbidden)
+		return
+	}
+
 	slog.Info("processing push event", "repo", event.Repository.FullName, "ref", event.Ref)
-	h.onSync(context.WithoutCancel(r.Context()), event.Repository.FullName, event.Repository.CloneURL)
+	if err := h.onSync(context.WithoutCancel(r.Context()), event.Repository.FullName, cloneURL); err != nil {
+		if err == ErrSyncQueueFull {
+			http.Error(w, "sync queue full", http.StatusTooManyRequests)
+			return
+		}
+		http.Error(w, "sync dispatch failed", http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
 func (h *WebhookHandler) verifySignature(payload []byte, signature string) bool {
-	if len(h.secret) == 0 {
+	if h.insecure {
 		return true
+	}
+	if len(h.secret) == 0 {
+		return false
 	}
 	if signature == "" {
 		return false

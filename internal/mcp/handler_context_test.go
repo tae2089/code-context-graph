@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
@@ -212,6 +213,37 @@ func TestGetMinimalContext_CommunitiesAndFlows(t *testing.T) {
 	}
 	if firstFlow["node_count"].(float64) != 8 {
 		t.Errorf("first flow node_count = %v, want 8", firstFlow["node_count"])
+	}
+}
+
+func TestGetMinimalContext_RespectsFlowNamespace(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := ctxns.WithNamespace(context.Background(), "alpha")
+	if err := deps.Store.UpsertNodes(ctx, []model.Node{{QualifiedName: "pkg.N1", Kind: model.NodeKindFunction, Name: "N1", FilePath: "a.go", StartLine: 1, EndLine: 5, Language: "go"}}); err != nil {
+		t.Fatal(err)
+	}
+	node, _ := deps.Store.GetNode(ctx, "pkg.N1")
+	alpha := model.Flow{Namespace: "alpha", Name: "alpha_flow"}
+	beta := model.Flow{Namespace: "beta", Name: "beta_flow"}
+	deps.DB.Create(&alpha)
+	deps.DB.Create(&beta)
+	deps.DB.Create(&model.FlowMembership{Namespace: "alpha", FlowID: alpha.ID, NodeID: node.ID, Ordinal: 0})
+	deps.DB.Create(&model.FlowMembership{Namespace: "beta", FlowID: beta.ID, NodeID: node.ID, Ordinal: 0})
+
+	result := callTool(t, deps, "get_minimal_context", map[string]any{"workspace": "alpha"})
+	if result.IsError {
+		t.Fatalf("returned error: %s", getTextContent(result))
+	}
+	var data map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &data); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	flows := data["top_flows"].([]any)
+	if len(flows) != 1 {
+		t.Fatalf("top_flows count = %d, want 1", len(flows))
+	}
+	if flows[0].(map[string]any)["name"] != "alpha_flow" {
+		t.Fatalf("top flow name = %v, want alpha_flow", flows[0].(map[string]any)["name"])
 	}
 }
 

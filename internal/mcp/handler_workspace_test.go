@@ -393,6 +393,86 @@ func TestDeleteWorkspace_PathTraversal(t *testing.T) {
 	assertToolResultIsError(t, result)
 }
 
+func TestUploadFile_RejectsWorkspaceSymlinkEscape(t *testing.T) {
+	h, root := workspaceHandlers(t)
+
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "svc")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	encoded := base64.StdEncoding.EncodeToString([]byte("malicious"))
+	req := makeCallToolRequest(t, map[string]any{
+		"workspace": "svc",
+		"file_path": "docs/readme.md",
+		"content":   encoded,
+	})
+
+	result, err := h.uploadFile(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultIsError(t, result)
+
+	if _, err := os.Stat(filepath.Join(outside, "docs", "readme.md")); !os.IsNotExist(err) {
+		t.Fatalf("expected no file to be written outside workspace root")
+	}
+}
+
+func TestUploadFiles_RejectsIntermediateSymlinkEscape(t *testing.T) {
+	h, root := workspaceHandlers(t)
+
+	wsDir := filepath.Join(root, "svc")
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(wsDir, "link")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	content := base64.StdEncoding.EncodeToString([]byte("package main"))
+	filesJSON, _ := json.Marshal([]map[string]string{{
+		"workspace": "svc",
+		"file_path": "link/main.go",
+		"content":   content,
+	}})
+
+	req := makeCallToolRequest(t, map[string]any{"files": string(filesJSON)})
+	result, err := h.uploadFiles(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultIsError(t, result)
+
+	if _, err := os.Stat(filepath.Join(outside, "main.go")); !os.IsNotExist(err) {
+		t.Fatalf("expected no file to be written through symlink")
+	}
+}
+
+func TestGetDocContent_RejectsWorkspaceSymlinkEscape(t *testing.T) {
+	h, root := workspaceHandlers(t)
+
+	outside := t.TempDir()
+	secretPath := filepath.Join(outside, "secret.md")
+	if err := os.WriteFile(secretPath, []byte("secret"), 0o644); err != nil {
+		t.Fatalf("write secret: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "svc")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	req := makeCallToolRequest(t, map[string]any{
+		"workspace": "svc",
+		"file_path": "secret.md",
+	})
+	result, err := h.getDocContent(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultIsError(t, result)
+}
+
 func makeCallToolRequest(t *testing.T, args map[string]any) mcp.CallToolRequest {
 	t.Helper()
 	req := mcp.CallToolRequest{}

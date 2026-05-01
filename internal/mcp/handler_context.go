@@ -157,8 +157,12 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 			Count  int
 		}
 		var fcRows []flowCount
-		if err := h.deps.DB.WithContext(ctx).
-			Model(&model.FlowMembership{}).
+		flowCountQ := h.deps.DB.WithContext(ctx).
+			Model(&model.FlowMembership{})
+		if ns != "" {
+			flowCountQ = flowCountQ.Where("namespace = ?", ns)
+		}
+		if err := flowCountQ.
 			Select("flow_id, COUNT(*) as count").
 			Group("flow_id").
 			Scan(&fcRows).Error; err != nil {
@@ -170,7 +174,11 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 		}
 
 		var flowList []model.Flow
-		if err := h.deps.DB.WithContext(ctx).Find(&flowList).Error; err != nil {
+		flowQ := h.deps.DB.WithContext(ctx)
+		if ns != "" {
+			flowQ = flowQ.Where("namespace = ?", ns)
+		}
+		if err := flowQ.Find(&flowList).Error; err != nil {
 			return "", trace.Wrap(err, "find flows")
 		}
 

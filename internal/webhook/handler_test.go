@@ -38,14 +38,15 @@ func TestWebhookHandler_ValidPushEvent(t *testing.T) {
 
 	var mu sync.Mutex
 	var syncedRepo, syncedURL string
-	onSync := func(_ context.Context, repo, url string) {
-	mu.Lock()
+	onSync := func(_ context.Context, repo, url string) error {
+		mu.Lock()
 		defer mu.Unlock()
 		syncedRepo = repo
 		syncedURL = url
-}
+		return nil
+	}
 
-	h := NewWebhookHandler(secret, al, onSync)
+	h := NewWebhookHandlerWithConfig(WebhookHandlerConfig{Secret: secret, Filter: al, OnSync: onSync, CloneBaseURL: "https://github.com"})
 
 	payload := makePushEvent("refs/heads/main", "org/my-svc", "https://github.com/org/my-svc.git")
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
@@ -73,7 +74,7 @@ func TestWebhookHandler_InvalidSignature(t *testing.T) {
 	secret := []byte("test-secret")
 	al := NewRepoFilter([]string{"org/*"})
 
-	h := NewWebhookHandler(secret, al, func(context.Context, string, string) {})
+	h := NewWebhookHandler(secret, al, func(context.Context, string, string) error { return nil })
 
 	payload := makePushEvent("refs/heads/main", "org/svc", "https://github.com/org/svc.git")
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
@@ -88,12 +89,108 @@ func TestWebhookHandler_InvalidSignature(t *testing.T) {
 	}
 }
 
+func TestWebhookHandler_EmptySecretRejectsPushEvent(t *testing.T) {
+	al := NewRepoFilter([]string{"org/*"})
+
+	synced := false
+	h := NewWebhookHandler(nil, al, func(context.Context, string, string) error { synced = true; return nil })
+
+	payload := makePushEvent("refs/heads/main", "org/svc", "https://github.com/org/svc.git")
+	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
+	req.Header.Set("X-GitHub-Event", "push")
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+	if synced {
+		t.Error("expected sync to NOT be called when secret is empty")
+	}
+}
+
+func TestWebhookHandler_InsecureModeAcceptsUnsignedPushEvent(t *testing.T) {
+	al := NewRepoFilter([]string{"org/*"})
+
+	synced := false
+	h := NewWebhookHandlerWithOptions(nil, al, func(context.Context, string, string) error { synced = true; return nil }, true)
+
+	payload := makePushEvent("refs/heads/main", "org/svc", "https://github.com/org/svc.git")
+	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
+	req.Header.Set("X-GitHub-Event", "push")
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if !synced {
+		t.Error("expected sync to be called in insecure mode")
+	}
+}
+
+func TestWebhookHandler_UsesConfiguredCloneBaseURL(t *testing.T) {
+	secret := []byte("test-secret")
+	al := NewRepoFilter([]string{"org/*"})
+
+	var syncedURL string
+	h := NewWebhookHandlerWithConfig(WebhookHandlerConfig{
+		Secret:       secret,
+		Filter:       al,
+		CloneBaseURL: "https://github.com/base",
+		OnSync: func(_ context.Context, _ string, url string) error {
+			syncedURL = url
+			return nil
+		},
+	})
+
+	payload := makePushEvent("refs/heads/main", "org/svc", "https://evil.example/org/svc.git")
+	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
+	req.Header.Set("X-Hub-Signature-256", signPayload(secret, payload))
+	req.Header.Set("X-GitHub-Event", "push")
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if syncedURL != "https://github.com/base/org/svc.git" {
+		t.Fatalf("syncedURL = %q, want %q", syncedURL, "https://github.com/base/org/svc.git")
+	}
+}
+
+func TestWebhookHandler_RejectsSecureModeWithoutCloneBaseURL(t *testing.T) {
+	secret := []byte("test-secret")
+	al := NewRepoFilter([]string{"org/*"})
+
+	synced := false
+	h := NewWebhookHandler(secret, al, func(context.Context, string, string) error { synced = true; return nil })
+
+	payload := makePushEvent("refs/heads/main", "org/svc", "https://github.com/org/svc.git")
+	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
+	req.Header.Set("X-Hub-Signature-256", signPayload(secret, payload))
+	req.Header.Set("X-GitHub-Event", "push")
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+	if synced {
+		t.Fatal("expected sync not to be called without configured clone base URL")
+	}
+}
+
 func TestWebhookHandler_NonMainBranch(t *testing.T) {
 	secret := []byte("test-secret")
 	al := NewRepoFilter([]string{"org/*"})
 
 	synced := false
-	h := NewWebhookHandler(secret, al, func(context.Context, string, string) { synced = true })
+	h := NewWebhookHandlerWithConfig(WebhookHandlerConfig{Secret: secret, Filter: al, OnSync: func(context.Context, string, string) error { synced = true; return nil }, CloneBaseURL: "https://github.com"})
 
 	payload := makePushEvent("refs/heads/develop", "org/svc", "https://github.com/org/svc.git")
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
@@ -116,7 +213,7 @@ func TestWebhookHandler_DisallowedRepo(t *testing.T) {
 	al := NewRepoFilter([]string{"org/*"})
 
 	synced := false
-	h := NewWebhookHandler(secret, al, func(context.Context, string, string) { synced = true })
+	h := NewWebhookHandlerWithConfig(WebhookHandlerConfig{Secret: secret, Filter: al, OnSync: func(context.Context, string, string) error { synced = true; return nil }, CloneBaseURL: "https://github.com"})
 
 	payload := makePushEvent("refs/heads/main", "other/svc", "https://github.com/other/svc.git")
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
@@ -139,7 +236,7 @@ func TestWebhookHandler_NonPushEvent(t *testing.T) {
 	al := NewRepoFilter([]string{"org/*"})
 
 	synced := false
-	h := NewWebhookHandler(secret, al, func(context.Context, string, string) { synced = true })
+	h := NewWebhookHandler(secret, al, func(context.Context, string, string) error { synced = true; return nil })
 
 	payload := []byte(`{"action":"opened"}`)
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
@@ -180,10 +277,11 @@ func TestWebhookHandler_GiteaEventHeader(t *testing.T) {
 	al := NewRepoFilter([]string{"org/*"})
 
 	var syncedRepo string
-	onSync := func(_ context.Context, repo, url string) {
-	syncedRepo = repo
-}
-	h := NewWebhookHandler(secret, al, onSync)
+	onSync := func(_ context.Context, repo, url string) error {
+		syncedRepo = repo
+		return nil
+	}
+	h := NewWebhookHandlerWithConfig(WebhookHandlerConfig{Secret: secret, Filter: al, OnSync: onSync, CloneBaseURL: "https://gitea.local"})
 
 	payload := makePushEvent("refs/heads/main", "org/svc", "https://gitea.local/org/svc.git")
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
@@ -212,10 +310,11 @@ func TestWebhookHandler_GiteaSignatureHeader(t *testing.T) {
 	al := NewRepoFilter([]string{"org/*"})
 
 	var syncedRepo string
-	onSync := func(_ context.Context, repo, url string) {
-	syncedRepo = repo
-}
-	h := NewWebhookHandler(secret, al, onSync)
+	onSync := func(_ context.Context, repo, url string) error {
+		syncedRepo = repo
+		return nil
+	}
+	h := NewWebhookHandlerWithConfig(WebhookHandlerConfig{Secret: secret, Filter: al, OnSync: onSync, CloneBaseURL: "https://gitea.local"})
 
 	payload := makePushEvent("refs/heads/main", "org/svc", "https://gitea.local/org/svc.git")
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
@@ -238,12 +337,13 @@ func TestWebhookHandler_SyncContextNotCancelledOnReturn(t *testing.T) {
 	al := NewRepoFilter([]string{"org/*"})
 	ctxDone := make(chan error, 1)
 
-	h := NewWebhookHandler(secret, al, func(ctx context.Context, repo, url string) {
+	h := NewWebhookHandlerWithConfig(WebhookHandlerConfig{Secret: secret, Filter: al, CloneBaseURL: "https://github.com", OnSync: func(ctx context.Context, repo, url string) error {
 		go func() {
 			time.Sleep(20 * time.Millisecond)
 			ctxDone <- ctx.Err()
 		}()
-	})
+		return nil
+	}})
 
 	payload := makePushEvent("refs/heads/main", "org/svc", "https://github.com/org/svc.git")
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
@@ -260,5 +360,30 @@ func TestWebhookHandler_SyncContextNotCancelledOnReturn(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for sync context result")
+	}
+}
+
+func TestWebhookHandler_ReturnsTooManyRequestsWhenSyncQueueFull(t *testing.T) {
+	secret := []byte("test-secret")
+	al := NewRepoFilter([]string{"org/*"})
+	h := NewWebhookHandlerWithConfig(WebhookHandlerConfig{
+		Secret:       secret,
+		Filter:       al,
+		CloneBaseURL: "https://github.com",
+		OnSync: func(context.Context, string, string) error {
+			return ErrSyncQueueFull
+		},
+	})
+
+	payload := makePushEvent("refs/heads/main", "org/svc", "https://github.com/org/svc.git")
+	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
+	req.Header.Set("X-Hub-Signature-256", signPayload(secret, payload))
+	req.Header.Set("X-GitHub-Event", "push")
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusTooManyRequests)
 	}
 }

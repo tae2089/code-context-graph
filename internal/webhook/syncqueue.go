@@ -2,11 +2,14 @@ package webhook
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 )
+
+var ErrSyncQueueFull = errors.New("sync queue full")
 
 // RetryConfig configures exponential backoff retry for sync handlers.
 type RetryConfig struct {
@@ -36,6 +39,7 @@ type SyncQueue struct {
 	ctx         context.Context
 	handler     SyncHandlerFunc
 	retryConfig RetryConfig
+	maxTrackedRepos int
 	mu          sync.Mutex
 	queue       []string
 	dirty       map[string]bool
@@ -54,17 +58,30 @@ func NewSyncQueueWithContext(ctx context.Context, workers int, handler SyncHandl
 	return NewSyncQueueWithOptions(ctx, workers, handler, defaultRetryConfig())
 }
 
+type QueueConfig struct {
+	RetryConfig
+	MaxTrackedRepos int
+}
+
 func NewSyncQueueWithOptions(ctx context.Context, workers int, handler SyncHandlerFunc, retry RetryConfig) *SyncQueue {
+	return NewSyncQueueWithConfig(ctx, workers, handler, QueueConfig{RetryConfig: retry, MaxTrackedRepos: 1024})
+}
+
+func NewSyncQueueWithConfig(ctx context.Context, workers int, handler SyncHandlerFunc, cfg QueueConfig) *SyncQueue {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if retry.MaxAttempts <= 0 {
-		retry.MaxAttempts = 1
+	if cfg.MaxAttempts <= 0 {
+		cfg.MaxAttempts = 1
+	}
+	if cfg.MaxTrackedRepos <= 0 {
+		cfg.MaxTrackedRepos = 1024
 	}
 	q := &SyncQueue{
 		ctx:         ctx,
 		handler:     handler,
-		retryConfig: retry,
+		retryConfig: cfg.RetryConfig,
+		maxTrackedRepos: cfg.MaxTrackedRepos,
 		dirty:       make(map[string]bool),
 		processing:  make(map[string]bool),
 		payloads:    make(map[string]syncPayload),
@@ -79,11 +96,11 @@ func NewSyncQueueWithOptions(ctx context.Context, workers int, handler SyncHandl
 	return q
 }
 
-func (q *SyncQueue) Add(ctx context.Context, repoFullName, cloneURL string) {
+func (q *SyncQueue) Add(ctx context.Context, repoFullName, cloneURL string) error {
 	if ctx != nil {
 		select {
 		case <-ctx.Done():
-			return
+			return ctx.Err()
 		default:
 		}
 	}
@@ -91,16 +108,19 @@ func (q *SyncQueue) Add(ctx context.Context, repoFullName, cloneURL string) {
 	defer q.mu.Unlock()
 
 	if q.shutdown {
-		return
+		return nil
 	}
 
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if _, exists := q.payloads[repoFullName]; !exists && len(q.payloads) >= q.maxTrackedRepos {
+		return ErrSyncQueueFull
+	}
 	q.payloads[repoFullName] = syncPayload{ctx: ctx, repoFullName: repoFullName, cloneURL: cloneURL}
 
 	if q.dirty[repoFullName] {
-		return
+		return nil
 	}
 
 	q.dirty[repoFullName] = true
@@ -109,6 +129,7 @@ func (q *SyncQueue) Add(ctx context.Context, repoFullName, cloneURL string) {
 		q.queue = append(q.queue, repoFullName)
 		q.cond.Signal()
 	}
+	return nil
 }
 
 func (q *SyncQueue) Shutdown() {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
@@ -105,5 +106,26 @@ func TestTraceFlow_NoEdges(t *testing.T) {
 	}
 	if flow.Members[0].NodeID != 1 {
 		t.Errorf("expected node 1, got %d", flow.Members[0].NodeID)
+	}
+}
+
+func TestTraceFlow_PropagatesNamespace(t *testing.T) {
+	ms := &mockStore{
+		nodes: map[uint]*model.Node{1: newNode(1, "A"), 2: newNode(2, "B")},
+		edges: map[uint][]model.Edge{1: {callEdge(1, 2, 1)}},
+	}
+	tracer := New(ms)
+	ctx := ctxns.WithNamespace(context.Background(), "payments")
+	flow, err := tracer.TraceFlow(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flow.Namespace != "payments" {
+		t.Fatalf("flow namespace = %q, want %q", flow.Namespace, "payments")
+	}
+	for i, member := range flow.Members {
+		if member.Namespace != "payments" {
+			t.Fatalf("member[%d] namespace = %q, want %q", i, member.Namespace, "payments")
+		}
 	}
 }

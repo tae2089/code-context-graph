@@ -75,20 +75,22 @@ func (f *RepoFilter) IsAllowedRef(repoFullName, ref string) bool {
 		return false
 	}
 
+	allowed := false
 	for _, r := range f.rulesFull {
 		if !r.match(repoFullName) {
 			continue
 		}
 		if r.negate {
-			return false
+			allowed = false
+			continue
 		}
 		branches := r.branches
 		if len(branches) == 0 {
 			branches = defaultBranches
 		}
-		return matchBranchPatterns(ref, branches)
+		allowed = matchBranchPatterns(ref, branches)
 	}
-	return false
+	return allowed
 }
 
 func matchBranchPatterns(ref string, patterns []string) bool {

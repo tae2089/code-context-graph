@@ -141,7 +141,10 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 		if err := validateWorkspacePath(workspace, filePath); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		resolvedPath = filepath.Join(h.workspaceRoot(), filepath.Clean(workspace), clean)
+		resolvedPath, err = h.resolveWorkspacePath(workspace, clean, false)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("resolve workspace path: %v", err)), nil
+		}
 	} else {
 		resolvedPath = clean
 	}

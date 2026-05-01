@@ -37,9 +37,14 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 	}
 
 	return finalizeToolResult(h.cachedExecute("list_flows:", map[string]any{"sort_by": sortBy, "limit": limit, "workspace": request.GetString("workspace", "")}, func() (string, error) {
+		ns := ctxns.FromContext(ctx)
 		var fcRows []flowCount
-		if err := h.deps.DB.WithContext(ctx).
-			Model(&model.FlowMembership{}).
+		countQ := h.deps.DB.WithContext(ctx).
+			Model(&model.FlowMembership{})
+		if ns != "" {
+			countQ = countQ.Where("namespace = ?", ns)
+		}
+		if err := countQ.
 			Select("flow_id, COUNT(*) as count").
 			Group("flow_id").
 			Scan(&fcRows).Error; err != nil {
@@ -52,7 +57,11 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 		}
 
 		var flowList []model.Flow
-		if err := h.deps.DB.WithContext(ctx).Find(&flowList).Error; err != nil {
+		flowQ := h.deps.DB.WithContext(ctx)
+		if ns != "" {
+			flowQ = flowQ.Where("namespace = ?", ns)
+		}
+		if err := flowQ.Find(&flowList).Error; err != nil {
 			return "", trace.Wrap(err, "find flows")
 		}
 

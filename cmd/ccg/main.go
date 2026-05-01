@@ -313,7 +313,13 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 			return nil
 		}
 		syncQueue = webhook.NewSyncQueueWithContext(syncCtx, 4, syncHandler)
-		mux.Handle("/webhook", webhook.NewWebhookHandler(secret, filter, syncQueue.Add))
+		mux.Handle("/webhook", webhook.NewWebhookHandlerWithConfig(webhook.WebhookHandlerConfig{
+			Secret:       secret,
+			Filter:       filter,
+			OnSync:       syncQueue.Add,
+			Insecure:     cfg.InsecureWebhook,
+			CloneBaseURL: cfg.RepoCloneBaseURL,
+		}))
 		deps.Logger.Info("webhook endpoint registered", "path", "/webhook", "allowedRepos", cfg.AllowRepo)
 	}
 

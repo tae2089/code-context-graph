@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -18,7 +21,37 @@ type ServeConfig struct {
 	WorkspaceRoot string // root directory for file workspaces (default "workspaces")
 	AllowRepo     []string
 	WebhookSecret string
+	InsecureWebhook bool
+	RepoCloneBaseURL string
 	RepoRoot      string
+}
+
+func validateServeConfig(cfg ServeConfig) error {
+	if cfg.Transport != "streamable-http" {
+		return nil
+	}
+	if len(cfg.AllowRepo) == 0 {
+		return nil
+	}
+	if cfg.WebhookSecret != "" && cfg.InsecureWebhook {
+		return fmt.Errorf("--webhook-secret and --insecure-webhook are mutually exclusive")
+	}
+	if cfg.WebhookSecret == "" && !cfg.InsecureWebhook {
+		return fmt.Errorf("webhook sync requires --webhook-secret or --insecure-webhook when --allow-repo is set")
+	}
+	if strings.TrimSpace(cfg.RepoRoot) == "" {
+		return fmt.Errorf("webhook sync requires --repo-root when --allow-repo is set")
+	}
+	if !cfg.InsecureWebhook && strings.TrimSpace(cfg.RepoCloneBaseURL) == "" {
+		return fmt.Errorf("webhook sync requires --repo-clone-base-url unless --insecure-webhook is set")
+	}
+	if strings.TrimSpace(cfg.RepoCloneBaseURL) != "" {
+		parsed, err := url.Parse(cfg.RepoCloneBaseURL)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			return fmt.Errorf("--repo-clone-base-url must include scheme and host")
+		}
+	}
+	return nil
 }
 
 // newServeCmd creates the MCP server command.
@@ -33,6 +66,9 @@ func newServeCmd(deps *Deps) *cobra.Command {
 		Short: "Start the MCP server over stdio or HTTP",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateServeConfig(cfg); err != nil {
+				return err
+			}
 			if deps.ServeFunc != nil {
 				return deps.ServeFunc(cfg)
 			}
@@ -48,6 +84,8 @@ func newServeCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().StringVar(&cfg.WorkspaceRoot, "workspace-root", "workspaces", "Root directory for file workspaces")
 	cmd.Flags().StringSliceVar(&cfg.AllowRepo, "allow-repo", nil, "Allowed repo patterns for webhook sync (repeatable, e.g. org/*, !org/private)")
 	cmd.Flags().StringVar(&cfg.WebhookSecret, "webhook-secret", "", "HMAC secret for GitHub webhook signature verification")
+	cmd.Flags().BoolVar(&cfg.InsecureWebhook, "insecure-webhook", false, "Allow unsigned webhook requests (unsafe; testing only)")
+	cmd.Flags().StringVar(&cfg.RepoCloneBaseURL, "repo-clone-base-url", "", "Canonical base URL used to reconstruct clone targets for allowed repos")
 	cmd.Flags().StringVar(&cfg.RepoRoot, "repo-root", "", "Root directory for cloned repositories")
 
 	return cmd

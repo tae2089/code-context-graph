@@ -1320,6 +1320,38 @@ func TestGetAffectedFlows_ReturnsFlows(t *testing.T) {
 	}
 }
 
+func TestGetAffectedFlows_RespectsWorkspaceNamespace(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := ctxns.WithNamespace(context.Background(), "alpha")
+
+	if err := deps.Store.UpsertNodes(ctx, []model.Node{{QualifiedName: "pkg.FnA", Kind: model.NodeKindFunction, Name: "FnA", FilePath: "a.go", StartLine: 1, EndLine: 10, Language: "go"}}); err != nil {
+		t.Fatal(err)
+	}
+	nodeA, _ := deps.Store.GetNode(ctx, "pkg.FnA")
+	deps.DB.Create(&model.Flow{Namespace: "alpha", Name: "alpha-flow"})
+	deps.DB.Create(&model.Flow{Namespace: "beta", Name: "beta-flow"})
+	var alphaFlow, betaFlow model.Flow
+	deps.DB.First(&alphaFlow, "name = ?", "alpha-flow")
+	deps.DB.First(&betaFlow, "name = ?", "beta-flow")
+	deps.DB.Create(&model.FlowMembership{Namespace: "alpha", FlowID: alphaFlow.ID, NodeID: nodeA.ID, Ordinal: 0})
+	deps.DB.Create(&model.FlowMembership{Namespace: "beta", FlowID: betaFlow.ID, NodeID: nodeA.ID, Ordinal: 0})
+
+	deps.ChangesGitClient = &mockGitClient{changedFiles: []string{"a.go"}, hunks: []changes.Hunk{{FilePath: "a.go", StartLine: 1, EndLine: 10}}}
+	result := callTool(t, deps, "get_affected_flows", map[string]any{"repo_root": "/tmp/repo", "workspace": "alpha"})
+	if result.IsError {
+		t.Fatalf("get_affected_flows error: %s", getTextContent(result))
+	}
+	var resp map[string]any
+	json.Unmarshal([]byte(getTextContent(result)), &resp)
+	flows := resp["affected_flows"].([]any)
+	if len(flows) != 1 {
+		t.Fatalf("expected 1 affected flow, got %d", len(flows))
+	}
+	if flows[0].(map[string]any)["name"] != "alpha-flow" {
+		t.Fatalf("affected flow = %v, want alpha-flow", flows[0])
+	}
+}
+
 func TestGetAffectedFlows_NoFlows(t *testing.T) {
 	deps := setupTestDeps(t)
 	ctx := context.Background()
@@ -1470,6 +1502,26 @@ func TestListFlows_Empty(t *testing.T) {
 	flows := resp["flows"].([]any)
 	if len(flows) != 0 {
 		t.Errorf("expected 0 flows, got %d", len(flows))
+	}
+}
+
+func TestListFlows_RespectsWorkspaceNamespace(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.DB.Create(&model.Flow{Namespace: "alpha", Name: "alpha-flow"})
+	deps.DB.Create(&model.Flow{Namespace: "beta", Name: "beta-flow"})
+
+	result := callTool(t, deps, "list_flows", map[string]any{"workspace": "alpha"})
+	if result.IsError {
+		t.Fatalf("list_flows error: %s", getTextContent(result))
+	}
+	var resp map[string]any
+	json.Unmarshal([]byte(getTextContent(result)), &resp)
+	flows := resp["flows"].([]any)
+	if len(flows) != 1 {
+		t.Fatalf("expected 1 flow, got %d", len(flows))
+	}
+	if flows[0].(map[string]any)["name"] != "alpha-flow" {
+		t.Fatalf("flow name = %v, want alpha-flow", flows[0].(map[string]any)["name"])
 	}
 }
 

@@ -395,3 +395,92 @@ func TestNewSyncQueueWithOptions_NilContextDefaultsToBackground(t *testing.T) {
 		t.Fatal("timed out waiting for handler")
 	}
 }
+
+func TestSyncQueue_AddRejectsWhenMaxTrackedReposExceeded(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	handler := func(_ context.Context, repoFullName, cloneURL string) error {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-release
+		return nil
+	}
+
+	q := NewSyncQueueWithConfig(context.Background(), 1, handler, QueueConfig{
+		RetryConfig:    RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 1,
+	})
+	defer q.Shutdown()
+
+	if err := q.Add(context.Background(), "org/one", "url-one"); err != nil {
+		t.Fatalf("first Add returned error: %v", err)
+	}
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first repo to start")
+	}
+
+	if err := q.Add(context.Background(), "org/two", "url-two"); !errors.Is(err, ErrSyncQueueFull) {
+		t.Fatalf("second Add error = %v, want %v", err, ErrSyncQueueFull)
+	}
+
+	close(release)
+}
+
+func TestSyncQueue_AddAllowsExistingRepoUpdateWhenAtCapacity(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	urls := make(chan string, 2)
+	handler := func(_ context.Context, repoFullName, cloneURL string) error {
+		urls <- cloneURL
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-release
+		return nil
+	}
+
+	q := NewSyncQueueWithConfig(context.Background(), 1, handler, QueueConfig{
+		RetryConfig:    RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 1,
+	})
+	defer q.Shutdown()
+
+	if err := q.Add(context.Background(), "org/one", "url-one"); err != nil {
+		t.Fatalf("first Add returned error: %v", err)
+	}
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first repo to start")
+	}
+
+	if err := q.Add(context.Background(), "org/one", "url-two"); err != nil {
+		t.Fatalf("existing repo update returned error: %v", err)
+	}
+
+	close(release)
+
+	select {
+	case got := <-urls:
+		if got != "url-one" {
+			t.Fatalf("first handler url = %q, want %q", got, "url-one")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first handler call")
+	}
+	select {
+	case got := <-urls:
+		if got != "url-two" {
+			t.Fatalf("second handler url = %q, want %q", got, "url-two")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for second handler call")
+	}
+}

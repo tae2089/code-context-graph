@@ -171,17 +171,17 @@ func TestRepoFilter_PerRepoBranch_GlobPattern(t *testing.T) {
 	}
 }
 
-func TestRepoFilter_PerRepoBranch_FirstMatchWins(t *testing.T) {
+func TestRepoFilter_PerRepoBranch_LaterRuleOverrides(t *testing.T) {
 	f := NewRepoFilterFromRules([]RepoRule{
 		{Pattern: "org/api", Branches: []string{"develop"}},
 		{Pattern: "org/*", Branches: []string{"main"}},
 	})
 
-	if !f.IsAllowedRef("org/api", "refs/heads/develop") {
-		t.Error("expected org/api to use first match: develop")
+	if f.IsAllowedRef("org/api", "refs/heads/develop") {
+		t.Error("expected later matching rule to override earlier develop-only rule")
 	}
-	if f.IsAllowedRef("org/api", "refs/heads/main") {
-		t.Error("expected org/api NOT to fall through to org/* rule")
+	if !f.IsAllowedRef("org/api", "refs/heads/main") {
+		t.Error("expected org/api to use later org/* rule with main")
 	}
 	if !f.IsAllowedRef("org/web", "refs/heads/main") {
 		t.Error("expected org/web to match org/* rule with main")
@@ -190,8 +190,8 @@ func TestRepoFilter_PerRepoBranch_FirstMatchWins(t *testing.T) {
 
 func TestRepoFilter_PerRepoBranch_Negation(t *testing.T) {
 	f := NewRepoFilterFromRules([]RepoRule{
-		{Pattern: "!org/private"},
 		{Pattern: "org/*", Branches: []string{"main"}},
+		{Pattern: "!org/private"},
 	})
 
 	if f.IsAllowedRef("org/private", "refs/heads/main") {
@@ -199,6 +199,46 @@ func TestRepoFilter_PerRepoBranch_Negation(t *testing.T) {
 	}
 	if !f.IsAllowedRef("org/svc", "refs/heads/main") {
 		t.Error("expected org/svc + main to be allowed")
+	}
+}
+
+func TestRepoFilter_IsAllowedAndIsAllowedRef_ShareOverrideSemantics(t *testing.T) {
+	f := NewRepoFilterFromRules([]RepoRule{
+		{Pattern: "org/*", Branches: []string{"main"}},
+		{Pattern: "!org/private"},
+		{Pattern: "external/shared", Branches: []string{"release/*"}},
+	})
+
+	tests := []struct {
+		repo string
+		ref  string
+		want bool
+	}{
+		{repo: "org/svc", ref: "refs/heads/main", want: true},
+		{repo: "org/private", ref: "refs/heads/main", want: false},
+		{repo: "external/shared", ref: "refs/heads/release/v1", want: true},
+		{repo: "external/shared", ref: "refs/heads/main", want: false},
+		{repo: "other/repo", ref: "refs/heads/main", want: false},
+	}
+
+	for _, tt := range tests {
+		if got := f.IsAllowedRef(tt.repo, tt.ref); got != tt.want {
+			t.Errorf("IsAllowedRef(%q, %q) = %v, want %v", tt.repo, tt.ref, got, tt.want)
+		}
+		if got := f.IsAllowed(tt.repo); got != (tt.repo == "org/svc" || tt.repo == "external/shared") {
+			t.Errorf("IsAllowed(%q) = %v, unexpected repo-level decision", tt.repo, got)
+		}
+	}
+}
+
+func TestRepoFilter_IsAllowedRef_LaterNegationOverridesEarlierAllow(t *testing.T) {
+	f := NewRepoFilterFromRules([]RepoRule{
+		{Pattern: "org/*", Branches: []string{"main"}},
+		{Pattern: "!org/private"},
+	})
+
+	if f.IsAllowedRef("org/private", "refs/heads/main") {
+		t.Error("expected org/private to be denied because later negation overrides earlier allow")
 	}
 }
 

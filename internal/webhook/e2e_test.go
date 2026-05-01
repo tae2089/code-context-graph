@@ -24,7 +24,7 @@ func TestE2E_WebhookToRAG(t *testing.T) {
 	var cloneErr error
 	done := make(chan struct{})
 
-	onSync := func(_ context.Context, repoFullName, cloneURL string) {
+	onSync := func(_ context.Context, repoFullName, cloneURL string) error {
 		defer close(done)
 		ns := ExtractNamespace(repoFullName)
 		mu.Lock()
@@ -35,9 +35,10 @@ func TestE2E_WebhookToRAG(t *testing.T) {
 		mu.Lock()
 		cloneErr = err
 		mu.Unlock()
+		return nil
 	}
 
-	handler := NewWebhookHandler(secret, allowlist, onSync)
+	handler := NewWebhookHandlerWithOptions(secret, allowlist, onSync, true)
 
 	payload := makePushEvent("refs/heads/main", "myorg/pay-svc", bareDir)
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
@@ -92,7 +93,7 @@ func TestE2E_MultiRepoIsolation(t *testing.T) {
 	}
 	var wg sync.WaitGroup
 
-	onSync := func(_ context.Context, repoFullName, cloneURL string) {
+	onSync := func(_ context.Context, repoFullName, cloneURL string) error {
 		defer wg.Done()
 		ns := ExtractNamespace(repoFullName)
 		err := CloneOrPull(context.Background(), cloneURL, repoRoot, ns, nil)
@@ -102,9 +103,10 @@ func TestE2E_MultiRepoIsolation(t *testing.T) {
 			err error
 		}{ns: ns, err: err})
 		mu.Unlock()
+		return nil
 	}
 
-	handler := NewWebhookHandler(secret, allowlist, onSync)
+	handler := NewWebhookHandlerWithOptions(secret, allowlist, onSync, true)
 
 	wg.Add(1)
 	payload1 := makePushEvent("refs/heads/main", "myorg/svc-alpha", bareDir1)
@@ -205,7 +207,7 @@ func TestE2E_SyncQueueDedup(t *testing.T) {
 	q := NewSyncQueue(2, syncHandler)
 	defer q.Shutdown()
 
-	handler := NewWebhookHandler(secret, allowlist, q.Add)
+	handler := NewWebhookHandlerWithOptions(secret, allowlist, q.Add, true)
 
 	for i := 0; i < 5; i++ {
 		payload := makePushEvent("refs/heads/main", "myorg/pay-svc", bareDir)
@@ -273,7 +275,7 @@ func TestE2E_SyncQueueMultiRepoParallel(t *testing.T) {
 	q := NewSyncQueue(2, syncHandler)
 	defer q.Shutdown()
 
-	handler := NewWebhookHandler(secret, allowlist, q.Add)
+	handler := NewWebhookHandlerWithOptions(secret, allowlist, q.Add, true)
 
 	payload1 := makePushEvent("refs/heads/main", "myorg/svc-alpha", bareDir1)
 	req1 := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload1))

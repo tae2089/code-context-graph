@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
@@ -36,6 +37,7 @@ func (t *Tracer) TraceFlow(ctx context.Context, startNodeID uint) (*model.Flow, 
 	visited := map[uint]bool{}
 	var members []model.FlowMembership
 	ordinal := 0
+	ns := ctxns.FromContext(ctx)
 
 	queue := []uint{startNodeID}
 	visited[startNodeID] = true
@@ -45,6 +47,7 @@ func (t *Tracer) TraceFlow(ctx context.Context, startNodeID uint) (*model.Flow, 
 		queue = queue[1:]
 
 		members = append(members, model.FlowMembership{
+			Namespace: ns,
 			NodeID:  current,
 			Ordinal: ordinal,
 		})
@@ -69,6 +72,7 @@ func (t *Tracer) TraceFlow(ctx context.Context, startNodeID uint) (*model.Flow, 
 	}
 
 	return &model.Flow{
+		Namespace: ns,
 		Name:    name,
 		Members: members,
 	}, nil

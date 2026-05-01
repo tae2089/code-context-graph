@@ -8,6 +8,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
 	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
@@ -218,9 +219,14 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 		for _, r := range risks {
 			changedNodeIDs = append(changedNodeIDs, r.Node.ID)
 		}
+		ns := ctxns.FromContext(ctx)
 
 		var memberships []model.FlowMembership
-		if err := h.deps.DB.WithContext(ctx).Where("node_id IN ?", changedNodeIDs).Find(&memberships).Error; err != nil {
+		q := h.deps.DB.WithContext(ctx).Where("node_id IN ?", changedNodeIDs)
+		if ns != "" {
+			q = q.Where("namespace = ?", ns)
+		}
+		if err := q.Find(&memberships).Error; err != nil {
 			return "", trace.Wrap(err, "find affected flow memberships")
 		}
 
@@ -243,7 +249,11 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 		}
 
 		var flowList []model.Flow
-		if err := h.deps.DB.WithContext(ctx).Where("id IN ?", flowIDs).Find(&flowList).Error; err != nil {
+		flowQ := h.deps.DB.WithContext(ctx).Where("id IN ?", flowIDs)
+		if ns != "" {
+			flowQ = flowQ.Where("namespace = ?", ns)
+		}
+		if err := flowQ.Find(&flowList).Error; err != nil {
 			return "", trace.Wrap(err, "find affected flows")
 		}
 

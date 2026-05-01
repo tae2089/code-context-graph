@@ -9,6 +9,16 @@ ccg serve --transport streamable-http \
   --allow-repo "org/api:main,develop" \
   --allow-repo "org/web:main" \
   --webhook-secret "your-secret" \
+  --repo-clone-base-url https://github.com \
+  --repo-root /data/repos
+```
+
+For local testing only, you can explicitly opt into insecure mode instead of HMAC verification and canonical clone URL reconstruction:
+
+```bash
+ccg serve --transport streamable-http \
+  --allow-repo "org/*" \
+  --insecure-webhook \
   --repo-root /data/repos
 ```
 
@@ -52,7 +62,7 @@ Use the `--allow-repo` flag to configure allowed branches per repository.
 
 ### Matching Rules
 
-1. First matching rule is used (order matters)
+1. Later matching rules override earlier matching rules (order matters)
 2. Rejected if no matching rule found
 3. `refs/heads/` prefix is automatically stripped from the `ref` field in webhook payload
 
@@ -65,7 +75,11 @@ Verifies webhook payload with HMAC-SHA256.
 | GitHub | `X-Hub-Signature-256` | `sha256=<hex>` |
 | Gitea | `X-Gitea-Signature` | `<hex>` |
 
-Signature verification is skipped if `--webhook-secret` is not set.
+By default, webhook requests fail closed unless `--webhook-secret` is configured.
+
+- `--webhook-secret` enables HMAC verification.
+- `--insecure-webhook` is an explicit testing-only escape hatch and is mutually exclusive with `--webhook-secret`.
+- When running in secure mode, `--repo-clone-base-url` is required and the server reconstructs clone URLs from the allowed repository name instead of trusting `clone_url` from the webhook payload.
 
 ## Graceful Shutdown
 
