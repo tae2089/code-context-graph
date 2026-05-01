@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	sqliteFTSTable          = "search_fts"
-	sqliteFTSUpgradeTable   = "search_fts_upgrade"
-	sqliteFTSLegacyBackup   = "search_fts_legacy_backup"
+	sqliteFTSTable            = "search_fts"
+	sqliteFTSUpgradeTable     = "search_fts_upgrade"
+	sqliteFTSLegacyBackup     = "search_fts_legacy_backup"
+	sqliteFTSRebuildBatchSize = 500
 )
 
 // SQLiteBackend는 SQLite FTS5 기반 검색 백엔드다.
@@ -80,19 +81,19 @@ func (s *SQLiteBackend) rebuildTable(ctx context.Context, db *gorm.DB, tableName
 		return trace.Wrap(err, "clear fts")
 	}
 
-	var docs []model.SearchDocument
 	docsQ := db.WithContext(ctx)
 	if ns != "" {
 		docsQ = docsQ.Where("namespace = ?", ns)
 	}
-	if err := docsQ.Find(&docs).Error; err != nil {
-		return trace.Wrap(err, "load docs")
-	}
 
-	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		for _, doc := range docs {
-			insertSQL := fmt.Sprintf("INSERT INTO %s(node_id, content, language, namespace) VALUES (?, ?, ?, ?)", tableName)
-			if err := tx.Exec(
+	var batchDocs []model.SearchDocument
+	result := docsQ.FindInBatches(&batchDocs, sqliteFTSRebuildBatchSize, func(tx *gorm.DB, batch int) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		insertSQL := fmt.Sprintf("INSERT INTO %s(node_id, content, language, namespace) VALUES (?, ?, ?, ?)", tableName)
+		for _, doc := range batchDocs {
+			if err := tx.WithContext(ctx).Exec(
 				insertSQL,
 				doc.NodeID, doc.Content, doc.Language, doc.Namespace,
 			).Error; err != nil {
@@ -101,6 +102,10 @@ func (s *SQLiteBackend) rebuildTable(ctx context.Context, db *gorm.DB, tableName
 		}
 		return nil
 	})
+	if result.Error != nil {
+		return trace.Wrap(result.Error, "load docs")
+	}
+	return nil
 }
 
 // Query는 FTS5 MATCH 질의로 관련 노드를 검색한다.

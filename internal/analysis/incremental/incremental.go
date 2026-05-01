@@ -2,9 +2,9 @@ package incremental
 
 import (
 	"context"
+	"log/slog"
 	"path/filepath"
 	"strings"
-	"log/slog"
 
 	"github.com/tae2089/code-context-graph/internal/model"
 )
@@ -44,10 +44,10 @@ type SyncStats struct {
 // Syncer incrementally updates graph data for changed files.
 // @intent avoid full rebuilds by reparsing only files whose content hash changed
 type Syncer struct {
-	store  Store
-	parser Parser
+	store   Store
+	parser  Parser
 	parsers map[string]Parser
-	logger *slog.Logger
+	logger  *slog.Logger
 }
 
 // SyncerOption configures a Syncer instance.

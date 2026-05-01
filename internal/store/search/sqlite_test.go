@@ -4,14 +4,15 @@ package search
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 func setupTestDB(t *testing.T) *gorm.DB {
@@ -342,5 +343,36 @@ func TestSQLiteFTS_Migrate_LegacyUpgradeCleansStaleUpgradeTable(t *testing.T) {
 	}
 	if exists {
 		t.Fatal("did not expect stale upgrade table to remain after successful migrate")
+	}
+}
+
+func TestSQLiteFTS_Rebuild_BatchesLargeDatasets(t *testing.T) {
+	db := setupTestDB(t)
+	backend := NewSQLiteBackend()
+	if err := backend.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < sqliteFTSRebuildBatchSize+25; i++ {
+		node := model.Node{QualifiedName: fmt.Sprintf("pkg.Node%d", i), Kind: model.NodeKindFunction, Name: fmt.Sprintf("Node%d", i), FilePath: fmt.Sprintf("file%d.go", i), StartLine: i + 1, EndLine: i + 1, Language: "go"}
+		if err := db.Create(&node).Error; err != nil {
+			t.Fatal(err)
+		}
+		doc := model.SearchDocument{NodeID: node.ID, Content: fmt.Sprintf("term%d batched content", i), Language: "go"}
+		if err := db.Create(&doc).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := backend.Rebuild(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+
+	var count int64
+	if err := db.Raw("SELECT count(*) FROM search_fts").Scan(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != int64(sqliteFTSRebuildBatchSize+25) {
+		t.Fatalf("expected %d rows after batched rebuild, got %d", sqliteFTSRebuildBatchSize+25, count)
 	}
 }
