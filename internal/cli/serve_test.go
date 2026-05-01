@@ -1,8 +1,21 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
+
+type integrationComposeConfig struct {
+	Services struct {
+		CCG struct {
+			Command []string `yaml:"command"`
+		} `yaml:"ccg"`
+	} `yaml:"services"`
+}
 
 func TestServeCommand_ExecutesServeFunc(t *testing.T) {
 	deps, stdout, stderr := newTestDeps()
@@ -216,6 +229,31 @@ func TestServeCmd_WebhookAllowsSecureModeWithCloneBaseURL(t *testing.T) {
 	}
 }
 
+func TestIntegrationCompose_UsesSecureWebhookCloneBaseURL(t *testing.T) {
+	composePath := filepath.Join("..", "..", "docker-compose.integration.yml")
+	data, err := os.ReadFile(composePath)
+	if err != nil {
+		t.Fatalf("read compose file: %v", err)
+	}
+
+	var cfg integrationComposeConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("unmarshal compose file: %v", err)
+	}
+
+	command := cfg.Services.CCG.Command
+	if len(command) == 0 {
+		t.Fatal("ccg command is empty in docker-compose.integration.yml")
+	}
+
+	if !containsArg(command, "--repo-clone-base-url=http://gitea:3000") {
+		t.Fatalf("ccg command must include --repo-clone-base-url=http://gitea:3000 in secure mode, got %v", command)
+	}
+	if containsPrefixedArg(command, "--insecure-webhook") {
+		t.Fatalf("ccg command must not enable insecure webhook mode in integration compose, got %v", command)
+	}
+}
+
 func TestServeCmd_StdioDoesNotRequireWebhookValidation(t *testing.T) {
 	deps, stdout, stderr := newTestDeps()
 	called := false
@@ -231,4 +269,22 @@ func TestServeCmd_StdioDoesNotRequireWebhookValidation(t *testing.T) {
 	if !called {
 		t.Fatal("expected ServeFunc to be called")
 	}
+}
+
+func containsArg(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsPrefixedArg(args []string, prefix string) bool {
+	for _, arg := range args {
+		if arg == prefix || strings.HasPrefix(arg, prefix+"=") {
+			return true
+		}
+	}
+	return false
 }

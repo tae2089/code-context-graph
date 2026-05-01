@@ -65,6 +65,7 @@ services:
       - --db-dsn=host=postgres user=ccg password=ccg dbname=ccg_integration port=5432 sslmode=disable
       - --allow-repo=*/*
       - --webhook-secret=test-webhook-secret
+      - --repo-clone-base-url=http://gitea:3000
       - --repo-root=/repos
     ports:
       - "18080:8080"
