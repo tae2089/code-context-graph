@@ -123,19 +123,19 @@ func (s *Store) GetNodesByIDs(ctx context.Context, ids []uint) ([]model.Node, er
 
 // GetNodesByQualifiedNames는 이름 목록을 노드 맵으로 조회한다.
 // @intent qualified name 기반 참조 해석을 위해 빠른 조회 맵을 만든다.
-// @return 키는 QualifiedName이며 조회된 노드만 포함한다.
-func (s *Store) GetNodesByQualifiedNames(ctx context.Context, names []string) (map[string]*model.Node, error) {
+// @return 키는 QualifiedName이며 동일 이름의 모든 노드를 슬라이스로 포함한다.
+func (s *Store) GetNodesByQualifiedNames(ctx context.Context, names []string) (map[string][]model.Node, error) {
 	if len(names) == 0 {
-		return map[string]*model.Node{}, nil
+		return map[string][]model.Node{}, nil
 	}
 	ns := ctxns.FromContext(ctx)
 	var nodes []model.Node
 	if err := s.db.WithContext(ctx).Where("namespace = ? AND qualified_name IN ?", ns, names).Find(&nodes).Error; err != nil {
 		return nil, err
 	}
-	result := make(map[string]*model.Node, len(nodes))
-	for i := range nodes {
-		result[nodes[i].QualifiedName] = &nodes[i]
+	result := make(map[string][]model.Node, len(nodes))
+	for _, node := range nodes {
+		result[node.QualifiedName] = append(result[node.QualifiedName], node)
 	}
 	return result, nil
 }

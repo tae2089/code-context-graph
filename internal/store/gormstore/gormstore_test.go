@@ -840,8 +840,41 @@ func TestGetNodesByQualifiedNames_FiltersByNamespace(t *testing.T) {
 	if len(got) != 1 {
 		t.Errorf("expected 1 node in namespace a, got %d", len(got))
 	}
-	if n, ok := got["pkg.F"]; ok && n.Namespace != "a" {
-		t.Errorf("Namespace = %q, want %q", n.Namespace, "a")
+	if matchedNodes, ok := got["pkg.F"]; ok {
+		if len(matchedNodes) != 1 {
+			t.Fatalf("expected 1 matched node, got %d", len(matchedNodes))
+		}
+		if matchedNodes[0].Namespace != "a" {
+			t.Errorf("Namespace = %q, want %q", matchedNodes[0].Namespace, "a")
+		}
+	}
+}
+
+func TestGetNodesByQualifiedNames_PreservesDuplicateQualifiedNames(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := context.Background()
+
+	if err := s.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "save", Kind: model.NodeKindFunction, Name: "save", FilePath: "python/dup_methods.py", StartLine: 7, EndLine: 9, Language: "python"},
+		{QualifiedName: "save", Kind: model.NodeKindFunction, Name: "save", FilePath: "python/dup_methods.py", StartLine: 15, EndLine: 17, Language: "python"},
+	}); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+
+	got, err := s.GetNodesByQualifiedNames(ctx, []string{"save"})
+	if err != nil {
+		t.Fatalf("GetNodesByQualifiedNames: %v", err)
+	}
+	matchedNodes := got["save"]
+	if len(matchedNodes) != 2 {
+		t.Fatalf("expected 2 nodes for duplicate qualified name, got %d", len(matchedNodes))
+	}
+	startLines := map[int]bool{}
+	for _, node := range matchedNodes {
+		startLines[node.StartLine] = true
+	}
+	if !startLines[7] || !startLines[15] {
+		t.Fatalf("expected start lines 7 and 15, got %#v", startLines)
 	}
 }
 

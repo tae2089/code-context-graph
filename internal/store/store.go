@@ -12,7 +12,7 @@ type NodeReader interface {
 	GetNode(ctx context.Context, qualifiedName string) (*model.Node, error)
 	GetNodeByID(ctx context.Context, id uint) (*model.Node, error)
 	GetNodesByIDs(ctx context.Context, ids []uint) ([]model.Node, error)
-	GetNodesByQualifiedNames(ctx context.Context, names []string) (map[string]*model.Node, error)
+	GetNodesByQualifiedNames(ctx context.Context, names []string) (map[string][]model.Node, error)
 	GetNodesByFile(ctx context.Context, filePath string) ([]model.Node, error)
 	GetNodesByFiles(ctx context.Context, filePaths []string) (map[string][]model.Node, error)
 }
