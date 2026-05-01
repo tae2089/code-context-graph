@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"fmt"
 
 	"gorm.io/gorm"
 
@@ -90,6 +91,9 @@ func (p *PostgresBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 // @requires limit는 0보다 커야 의미 있는 결과를 얻는다.
 // @return ts_rank 기준 정렬 순서를 유지한 노드 목록을 반환한다.
 func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("limit must be > 0, got %d", limit)
+	}
 	tsQuery := SanitizePostgresTSQuery(query)
 	if tsQuery == "" {
 		return nil, nil

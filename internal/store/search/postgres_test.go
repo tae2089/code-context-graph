@@ -191,3 +191,15 @@ func TestPostgresFTS_Query_DefensivelyFiltersNodeNamespace(t *testing.T) {
 		t.Fatalf("expected only ns-a canonical node, got %#v", results)
 	}
 }
+
+func TestPostgresFTS_Query_RejectsNonPositiveLimit(t *testing.T) {
+	db := setupPostgresDB(t)
+	backend := NewPostgresBackend()
+	if err := backend.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := backend.Query(context.Background(), db, "sharedterm", 0); err == nil {
+		t.Fatal("expected query with limit=0 to fail")
+	}
+}
