@@ -38,3 +38,33 @@ func TestHandleHealth_MethodNotAllowed(t *testing.T) {
 		})
 	}
 }
+
+func TestValidBearerToken(t *testing.T) {
+	if !validBearerToken("Bearer secret", "secret") {
+		t.Fatal("expected bearer token to validate")
+	}
+	if validBearerToken("Bearer wrong", "secret") {
+		t.Fatal("expected wrong token to fail")
+	}
+	if validBearerToken("secret", "secret") {
+		t.Fatal("expected missing bearer prefix to fail")
+	}
+}
+
+func TestIsLoopbackHTTPAddr(t *testing.T) {
+	tests := []struct {
+		addr string
+		want bool
+	}{
+		{addr: "127.0.0.1:8080", want: true},
+		{addr: "localhost:8080", want: true},
+		{addr: ":8080", want: true},
+		{addr: "0.0.0.0:8080", want: false},
+		{addr: "192.168.0.10:8080", want: false},
+	}
+	for _, tt := range tests {
+		if got := isLoopbackHTTPAddr(tt.addr); got != tt.want {
+			t.Fatalf("isLoopbackHTTPAddr(%q) = %v, want %v", tt.addr, got, tt.want)
+		}
+	}
+}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,16 +13,19 @@ import (
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	transportpkg "github.com/mark3labs/mcp-go/client/transport"
 
 	"github.com/tae2089/code-context-graph/internal/model"
 )
+
+const testHTTPBearerToken = "test-mcp-token"
 
 func newHTTPTestClient(t *testing.T, srv *server.MCPServer) (*client.Client, func()) {
 	t.Helper()
 
 	testSrv := server.NewTestStreamableHTTPServer(srv)
 
-	httpClient, err := client.NewStreamableHttpClient(testSrv.URL + "/mcp")
+	httpClient, err := client.NewStreamableHttpClient(testSrv.URL+"/mcp", transportpkg.WithHTTPHeaders(map[string]string{"Authorization": "Bearer " + testHTTPBearerToken}))
 	if err != nil {
 		testSrv.Close()
 		t.Fatalf("create HTTP client: %v", err)
@@ -48,6 +53,87 @@ func newHTTPTestClient(t *testing.T, srv *server.MCPServer) (*client.Client, fun
 		testSrv.Close()
 	}
 	return httpClient, cleanup
+}
+
+func newAuthenticatedHTTPHandler(token string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func newHTTPAuthTestClient(t *testing.T, srv *server.MCPServer, token string) (*client.Client, func()) {
+	t.Helper()
+
+	httpSrv := server.NewStreamableHTTPServer(srv, server.WithEndpointPath("/mcp"))
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", newAuthenticatedHTTPHandler(token, httpSrv))
+	testSrv := httptest.NewServer(mux)
+
+	httpClient, err := client.NewStreamableHttpClient(testSrv.URL+"/mcp", transportpkg.WithHTTPHeaders(map[string]string{"Authorization": "Bearer " + token}))
+	if err != nil {
+		testSrv.Close()
+		t.Fatalf("create HTTP client: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := httpClient.Start(ctx); err != nil {
+		httpClient.Close()
+		testSrv.Close()
+		t.Fatalf("start HTTP client: %v", err)
+	}
+
+	initReq := mcp.InitializeRequest{}
+	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+	initReq.Params.ClientInfo = mcp.Implementation{Name: "e2e-test", Version: "1.0.0"}
+
+	if _, err := httpClient.Initialize(ctx, initReq); err != nil {
+		httpClient.Close()
+		testSrv.Close()
+		t.Fatalf("initialize: %v", err)
+	}
+
+	cleanup := func() {
+		httpClient.Close()
+		testSrv.Close()
+	}
+	return httpClient, cleanup
+}
+
+func TestE2EHTTP_RequiresBearerToken(t *testing.T) {
+	deps := setupE2EDeps(t)
+	srv := NewServer(deps)
+
+	_, cleanup := newHTTPAuthTestClient(t, srv, testHTTPBearerToken)
+	defer cleanup()
+
+	unauthSrv := server.NewStreamableHTTPServer(srv, server.WithEndpointPath("/mcp"))
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", newAuthenticatedHTTPHandler(testHTTPBearerToken, unauthSrv))
+	testSrv := httptest.NewServer(mux)
+	defer testSrv.Close()
+
+	unauthClient, err := client.NewStreamableHttpClient(testSrv.URL + "/mcp")
+	if err != nil {
+		t.Fatalf("create unauth client: %v", err)
+	}
+	defer unauthClient.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := unauthClient.Start(ctx); err != nil {
+		t.Fatalf("start unauth client: %v", err)
+	}
+
+	initReq := mcp.InitializeRequest{}
+	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+	initReq.Params.ClientInfo = mcp.Implementation{Name: "unauth-test", Version: "1.0.0"}
+	if _, err := unauthClient.Initialize(ctx, initReq); err == nil {
+		t.Fatal("expected initialize to fail without bearer token")
+	}
 }
 
 func TestE2EHTTP_ListTools(t *testing.T) {

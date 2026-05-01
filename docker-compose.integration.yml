@@ -61,6 +61,7 @@ services:
       - serve
       - --transport=streamable-http
       - --http-addr=:8080
+      - --http-bearer-token=test-mcp-token
       - --db-driver=postgres
       - --db-dsn=host=postgres user=ccg password=ccg dbname=ccg_integration port=5432 sslmode=disable
       - --allow-repo=*/*

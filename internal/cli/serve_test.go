@@ -137,6 +137,45 @@ func TestServeCmdFlags_RepoCloneBaseURL(t *testing.T) {
 	}
 }
 
+func TestServeCmdFlags_HTTPAuth(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+
+	var got ServeConfig
+	deps.ServeFunc = func(cfg ServeConfig) error {
+		got = cfg
+		return nil
+	}
+
+	err := executeCmd(deps, stdout, stderr, "serve", "--http-bearer-token", "secret-token", "--insecure-http")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.HTTPBearerToken != "secret-token" {
+		t.Fatalf("HTTPBearerToken = %q, want %q", got.HTTPBearerToken, "secret-token")
+	}
+	if !got.InsecureHTTP {
+		t.Fatal("expected InsecureHTTP to be true")
+	}
+}
+
+func TestServeCmd_DefaultHTTPAddrIsLoopback(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+
+	var got ServeConfig
+	deps.ServeFunc = func(cfg ServeConfig) error {
+		got = cfg
+		return nil
+	}
+
+	err := executeCmd(deps, stdout, stderr, "serve")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.HTTPAddr != "127.0.0.1:8080" {
+		t.Fatalf("HTTPAddr = %q, want %q", got.HTTPAddr, "127.0.0.1:8080")
+	}
+}
+
 func TestServeCmd_WebhookRequiresSecretOrInsecure(t *testing.T) {
 	deps, stdout, stderr := newTestDeps()
 	deps.ServeFunc = func(cfg ServeConfig) error { return nil }

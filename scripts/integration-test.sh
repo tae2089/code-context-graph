@@ -8,6 +8,7 @@ ADMIN_USER="testadmin"
 ADMIN_PASS="testadmin1234"
 ADMIN_EMAIL="admin@test.local"
 WEBHOOK_SECRET="test-webhook-secret"
+MCP_BEARER_TOKEN="test-mcp-token"
 REPO_NAME="sample-go"
 REPO2_NAME="sample-calc"
 TMPDIR_CLONE=""
@@ -60,6 +61,7 @@ mcp_call() {
     local resp
     resp=$(curl -sS -X POST "${CCG_URL}/mcp" \
         -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
         -d "{\"jsonrpc\":\"2.0\",\"id\":${MCP_REQ_ID},\"method\":\"tools/call\",\"params\":{\"name\":\"${tool}\",\"arguments\":${args}}}" 2>/dev/null) || resp=""
     echo "$resp"
@@ -223,6 +225,7 @@ $BUILD_OK || fail "Timed out waiting for webhook sync"
 info "Initializing MCP session..."
 INIT_RESP=$(curl -sS -D - -X POST "${CCG_URL}/mcp" \
     -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"integration-test","version":"1.0.0"}}}' 2>/dev/null) || INIT_RESP=""
 
 MCP_SESSION=$(echo "$INIT_RESP" | grep -i "mcp-session-id" | tr -d '\r' | awk '{print $2}')
@@ -237,6 +240,7 @@ else
     info "MCP session: ${MCP_SESSION:0:16}..."
     STATS_RESP=$(curl -fsS -X POST "${CCG_URL}/mcp" \
         -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
         -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_graph_stats","arguments":{}}}' 2>/dev/null) || STATS_RESP=""
 
@@ -331,6 +335,7 @@ if [ -n "$MCP_SESSION" ]; then
     info "Running postprocess (community detection) for workspace=${REPO_NAME}..."
     PP1_RESP=$(curl -fsS -X POST "${CCG_URL}/mcp" \
         -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
         -d "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"tools/call\",\"params\":{\"name\":\"run_postprocess\",\"arguments\":{\"workspace\":\"${REPO_NAME}\",\"communities\":true,\"flows\":false,\"fts\":false}}}" 2>/dev/null) || PP1_RESP=""
     info "Postprocess ${REPO_NAME}: $(echo "$PP1_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['content'][0]['text'])" 2>/dev/null || echo "$PP1_RESP")"
@@ -338,6 +343,7 @@ if [ -n "$MCP_SESSION" ]; then
     info "Running postprocess (community detection) for workspace=${REPO2_NAME}..."
     PP2_RESP=$(curl -fsS -X POST "${CCG_URL}/mcp" \
         -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
         -d "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"tools/call\",\"params\":{\"name\":\"run_postprocess\",\"arguments\":{\"workspace\":\"${REPO2_NAME}\",\"communities\":true,\"flows\":false,\"fts\":false}}}" 2>/dev/null) || PP2_RESP=""
     info "Postprocess ${REPO2_NAME}: $(echo "$PP2_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['content'][0]['text'])" 2>/dev/null || echo "$PP2_RESP")"
@@ -345,11 +351,13 @@ if [ -n "$MCP_SESSION" ]; then
     info "Checking graph stats per workspace..."
     STATS1=$(curl -fsS -X POST "${CCG_URL}/mcp" \
         -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
         -d "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\",\"params\":{\"name\":\"list_graph_stats\",\"arguments\":{\"workspace\":\"${REPO_NAME}\"}}}" 2>/dev/null) || STATS1=""
     info "Stats ${REPO_NAME}: $(echo "$STATS1" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['content'][0]['text'])" 2>/dev/null || echo "$STATS1")"
     STATS2=$(curl -fsS -X POST "${CCG_URL}/mcp" \
         -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
         -d "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"tools/call\",\"params\":{\"name\":\"list_graph_stats\",\"arguments\":{\"workspace\":\"${REPO2_NAME}\"}}}" 2>/dev/null) || STATS2=""
     info "Stats ${REPO2_NAME}: $(echo "$STATS2" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['content'][0]['text'])" 2>/dev/null || echo "$STATS2")"
@@ -357,6 +365,7 @@ if [ -n "$MCP_SESSION" ]; then
     info "Building RAG index for workspace=${REPO_NAME}..."
     RAG1_RESP=$(curl -fsS -X POST "${CCG_URL}/mcp" \
         -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
         -d "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\",\"params\":{\"name\":\"build_rag_index\",\"arguments\":{\"workspace\":\"${REPO_NAME}\"}}}" 2>/dev/null) || RAG1_RESP=""
     info "RAG index build for ${REPO_NAME}:"
@@ -365,6 +374,7 @@ if [ -n "$MCP_SESSION" ]; then
     info "Building RAG index for workspace=${REPO2_NAME}..."
     RAG2_RESP=$(curl -fsS -X POST "${CCG_URL}/mcp" \
         -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
         -d "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\",\"params\":{\"name\":\"build_rag_index\",\"arguments\":{\"workspace\":\"${REPO2_NAME}\"}}}" 2>/dev/null) || RAG2_RESP=""
     info "RAG index build for ${REPO2_NAME}:"
@@ -373,12 +383,14 @@ if [ -n "$MCP_SESSION" ]; then
     info "Verifying namespace isolation: get_rag_tree for ${REPO_NAME}..."
     TREE1_RESP=$(curl -fsS -X POST "${CCG_URL}/mcp" \
         -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
         -d "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/call\",\"params\":{\"name\":\"get_rag_tree\",\"arguments\":{\"workspace\":\"${REPO_NAME}\"}}}" 2>/dev/null) || TREE1_RESP=""
 
     info "Verifying namespace isolation: get_rag_tree for ${REPO2_NAME}..."
     TREE2_RESP=$(curl -fsS -X POST "${CCG_URL}/mcp" \
         -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
         -d "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\",\"params\":{\"name\":\"get_rag_tree\",\"arguments\":{\"workspace\":\"${REPO2_NAME}\"}}}" 2>/dev/null) || TREE2_RESP=""
 

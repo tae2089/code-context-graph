@@ -1,10 +1,12 @@
 package main
 
 import (
+	"crypto/subtle"
 	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net"
 	"os"
 	"os/signal"
 	"sync"
@@ -216,7 +218,7 @@ func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 		RepoRoot:          cfg.RepoRoot,
 	}
 
-	srv := mcpserver.NewServer(mcpDeps)
+		srv := mcpserver.NewServer(mcpDeps)
 
 	switch cfg.Transport {
 	case "streamable-http":
@@ -247,6 +249,10 @@ func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeConfig) error {
 	deps.Logger.Info("serving MCP over streamable-http", "addr", cfg.HTTPAddr, "stateless", cfg.Stateless)
 
+	if err := validateHTTPExposure(cfg); err != nil {
+		return err
+	}
+
 	opts := []server.StreamableHTTPOption{
 		server.WithEndpointPath("/mcp"),
 	}
@@ -257,7 +263,7 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 	httpSrv := server.NewStreamableHTTPServer(srv, opts...)
 
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", httpSrv)
+	mux.Handle("/mcp", mcpAuthMiddleware(cfg.HTTPBearerToken, httpSrv))
 	mux.HandleFunc("/health", handleHealth)
 
 	var syncQueue *webhook.SyncQueue
@@ -284,6 +290,11 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 			}
 
 			repoDir := webhook.RepoDir(cfg.RepoRoot, ns)
+			includePaths, err := pathutil.LoadIncludePathsFromConfig(repoDir)
+			if err != nil {
+				deps.Logger.Error("webhook include_paths config invalid", "repo", repoFullName, "namespace", ns, "error", err)
+				return err
+			}
 			graphSvc := &service.GraphService{
 				Store:         deps.Store,
 				DB:            deps.DB,
@@ -294,7 +305,7 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 			buildCtx := ctxns.WithNamespace(attemptCtx, ns)
 			stats, err := graphSvc.Build(buildCtx, service.BuildOptions{
 				Dir:          repoDir,
-				IncludePaths: pathutil.LoadIncludePathsFromConfig(repoDir),
+				IncludePaths: includePaths,
 			})
 			if err != nil {
 				deps.Logger.Error("webhook build failed", "repo", repoFullName, "error", err)
@@ -363,6 +374,59 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 		}
 		return nil
 	}
+}
+
+func validateHTTPExposure(cfg cli.ServeConfig) error {
+	if cfg.Transport != "streamable-http" {
+		return nil
+	}
+	if cfg.InsecureHTTP {
+		return nil
+	}
+	if isLoopbackHTTPAddr(cfg.HTTPAddr) {
+		return nil
+	}
+	if cfg.HTTPBearerToken == "" {
+		return fmt.Errorf("non-loopback streamable-http requires --http-bearer-token or --insecure-http")
+	}
+	return nil
+}
+
+func mcpAuthMiddleware(token string, next http.Handler) http.Handler {
+	if token == "" {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !validBearerToken(r.Header.Get("Authorization"), token) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func validBearerToken(header, expected string) bool {
+	const prefix = "Bearer "
+	if len(header) <= len(prefix) || header[:len(prefix)] != prefix {
+		return false
+	}
+	token := header[len(prefix):]
+	if len(token) != len(expected) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(token), []byte(expected)) == 1
+}
+
+func isLoopbackHTTPAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "" || host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // handleHealth responds to HTTP health checks.

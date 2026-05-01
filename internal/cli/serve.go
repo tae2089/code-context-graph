@@ -16,7 +16,9 @@ type ServeConfig struct {
 	CacheTTL      time.Duration
 	NoCache       bool
 	Transport     string // "stdio" (default) | "streamable-http"
-	HTTPAddr      string // listen address for HTTP transport (default ":8080")
+	HTTPAddr      string // listen address for HTTP transport (default "127.0.0.1:8080")
+	HTTPBearerToken string
+	InsecureHTTP  bool
 	Stateless     bool   // stateless session management for multi-instance deployments
 	WorkspaceRoot string // root directory for file workspaces (default "workspaces")
 	AllowRepo     []string
@@ -79,7 +81,9 @@ func newServeCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().DurationVar(&cfg.CacheTTL, "cache-ttl", 5*time.Minute, "TTL for MCP serve session cache (0 or --no-cache to disable)")
 	cmd.Flags().BoolVar(&cfg.NoCache, "no-cache", false, "Disable in-memory cache for MCP serve session")
 	cmd.Flags().StringVar(&cfg.Transport, "transport", "stdio", "Transport mode: stdio or streamable-http")
-	cmd.Flags().StringVar(&cfg.HTTPAddr, "http-addr", ":8080", "Listen address for HTTP transport")
+	cmd.Flags().StringVar(&cfg.HTTPAddr, "http-addr", "127.0.0.1:8080", "Listen address for HTTP transport")
+	cmd.Flags().StringVar(&cfg.HTTPBearerToken, "http-bearer-token", "", "Bearer token required for MCP HTTP requests when set")
+	cmd.Flags().BoolVar(&cfg.InsecureHTTP, "insecure-http", false, "Allow externally bound HTTP transport without bearer token (unsafe; testing only)")
 	cmd.Flags().BoolVar(&cfg.Stateless, "stateless", false, "Stateless session management (for multi-instance deployments)")
 	cmd.Flags().StringVar(&cfg.WorkspaceRoot, "workspace-root", "workspaces", "Root directory for file workspaces")
 	cmd.Flags().StringSliceVar(&cfg.AllowRepo, "allow-repo", nil, "Allowed repo patterns for webhook sync (repeatable, e.g. org/*, !org/private)")
