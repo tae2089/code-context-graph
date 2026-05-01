@@ -39,29 +39,31 @@ func NewSQLiteBackend() *SQLiteBackend {
 // @sideEffect search_fts 가상 테이블을 생성할 수 있다.
 // @ensures FTS5를 사용할 수 있으면 search_fts가 존재한다.
 func (s *SQLiteBackend) Migrate(db *gorm.DB) error {
-	existed, err := sqliteTableExists(db, sqliteFTSTable)
-	if err != nil {
-		return trace.Wrap(err, "check fts table")
-	}
-	if err := createSQLiteFTSTable(db, sqliteFTSTable, true); err != nil {
-		if strings.Contains(err.Error(), "no such module: fts5") {
-			return trace.Wrap(ErrFTS5NotAvailable, err.Error())
+	return db.Transaction(func(tx *gorm.DB) error {
+		existed, err := sqliteTableExists(tx, sqliteFTSTable)
+		if err != nil {
+			return trace.Wrap(err, "check fts table")
 		}
-		return err
-	}
-	hasNamespace, err := sqliteColumnExists(db, sqliteFTSTable, "namespace")
-	if err != nil {
-		return trace.Wrap(err, "inspect fts schema")
-	}
-	if !hasNamespace {
-		return s.upgradeLegacyFTSTable(db)
-	}
-	if !existed {
-		if err := s.rebuildTable(context.Background(), db, sqliteFTSTable); err != nil {
-			return trace.Wrap(err, "seed new fts")
+		if err := createSQLiteFTSTable(tx, sqliteFTSTable, true); err != nil {
+			if strings.Contains(err.Error(), "no such module: fts5") {
+				return trace.Wrap(ErrFTS5NotAvailable, err.Error())
+			}
+			return err
 		}
-	}
-	return nil
+		hasNamespace, err := sqliteColumnExists(tx, sqliteFTSTable, "namespace")
+		if err != nil {
+			return trace.Wrap(err, "inspect fts schema")
+		}
+		if !hasNamespace {
+			return s.upgradeLegacyFTSTable(tx)
+		}
+		if !existed {
+			if err := s.rebuildTable(context.Background(), tx, sqliteFTSTable); err != nil {
+				return trace.Wrap(err, "seed new fts")
+			}
+		}
+		return nil
+	})
 }
 
 // Rebuild는 search_documents 내용을 FTS 색인으로 다시 적재한다.
@@ -251,11 +253,9 @@ func (s *SQLiteBackend) upgradeLegacyFTSTable(db *gorm.DB) error {
 		return trace.Wrap(err, "create upgraded fts shadow")
 	}
 	if err := s.rebuildTable(context.Background(), db, sqliteFTSUpgradeTable); err != nil {
-		_ = db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", sqliteFTSUpgradeTable)).Error
 		return trace.Wrap(err, "populate upgraded fts shadow")
 	}
 	if err := db.Exec(fmt.Sprintf("ALTER TABLE %s RENAME TO %s", sqliteFTSTable, sqliteFTSLegacyBackup)).Error; err != nil {
-		_ = db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", sqliteFTSUpgradeTable)).Error
 		return trace.Wrap(err, "rename legacy fts backup")
 	}
 	if err := db.Exec(fmt.Sprintf("ALTER TABLE %s RENAME TO %s", sqliteFTSUpgradeTable, sqliteFTSTable)).Error; err != nil {

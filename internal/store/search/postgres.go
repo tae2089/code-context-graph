@@ -27,47 +27,49 @@ func NewPostgresBackend() *PostgresBackend {
 // @sideEffect 컬럼, 인덱스, 트리거 함수, 트리거를 생성 또는 교체한다.
 // @ensures search_documents 변경 시 tsv가 자동으로 갱신된다.
 func (p *PostgresBackend) Migrate(db *gorm.DB) error {
-	if err := db.Exec(`
-		ALTER TABLE search_documents
-		ADD COLUMN IF NOT EXISTS tsv tsvector,
-		ADD COLUMN IF NOT EXISTS namespace varchar(256) NOT NULL DEFAULT ''
-	`).Error; err != nil {
-		return trace.Wrap(err, "add tsv column")
-	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`
+			ALTER TABLE search_documents
+			ADD COLUMN IF NOT EXISTS tsv tsvector,
+			ADD COLUMN IF NOT EXISTS namespace varchar(256) NOT NULL DEFAULT ''
+		`).Error; err != nil {
+			return trace.Wrap(err, "add tsv column")
+		}
 
-	if err := db.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_search_documents_tsv
-		ON search_documents USING gin(tsv)
-	`).Error; err != nil {
-		return trace.Wrap(err, "create gin index")
-	}
+		if err := tx.Exec(`
+			CREATE INDEX IF NOT EXISTS idx_search_documents_tsv
+			ON search_documents USING gin(tsv)
+		`).Error; err != nil {
+			return trace.Wrap(err, "create gin index")
+		}
 
-	if err := db.Exec(`
-		CREATE OR REPLACE FUNCTION search_documents_tsv_trigger() RETURNS trigger AS $$
-		BEGIN
-			NEW.tsv := to_tsvector('simple', COALESCE(NEW.content, ''));
-			RETURN NEW;
-		END
-		$$ LANGUAGE plpgsql
-	`).Error; err != nil {
-		return trace.Wrap(err, "create trigger function")
-	}
+		if err := tx.Exec(`
+			CREATE OR REPLACE FUNCTION search_documents_tsv_trigger() RETURNS trigger AS $$
+			BEGIN
+				NEW.tsv := to_tsvector('simple', COALESCE(NEW.content, ''));
+				RETURN NEW;
+			END
+			$$ LANGUAGE plpgsql
+		`).Error; err != nil {
+			return trace.Wrap(err, "create trigger function")
+		}
 
-	if err := db.Exec(`
-		DROP TRIGGER IF EXISTS trg_search_documents_tsv ON search_documents
-	`).Error; err != nil {
-		return trace.Wrap(err, "drop old trigger")
-	}
+		if err := tx.Exec(`
+			DROP TRIGGER IF EXISTS trg_search_documents_tsv ON search_documents
+		`).Error; err != nil {
+			return trace.Wrap(err, "drop old trigger")
+		}
 
-	if err := db.Exec(`
-		CREATE TRIGGER trg_search_documents_tsv
-		BEFORE INSERT OR UPDATE ON search_documents
-		FOR EACH ROW EXECUTE FUNCTION search_documents_tsv_trigger()
-	`).Error; err != nil {
-		return trace.Wrap(err, "create trigger")
-	}
+		if err := tx.Exec(`
+			CREATE TRIGGER trg_search_documents_tsv
+			BEFORE INSERT OR UPDATE ON search_documents
+			FOR EACH ROW EXECUTE FUNCTION search_documents_tsv_trigger()
+		`).Error; err != nil {
+			return trace.Wrap(err, "create trigger")
+		}
 
-	return nil
+		return nil
+	})
 }
 
 // Rebuild는 모든 검색 문서의 tsvector를 다시 계산한다.
