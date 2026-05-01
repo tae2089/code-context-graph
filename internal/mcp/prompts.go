@@ -51,6 +51,7 @@ func promptResult(text string) *mcp.GetPromptResult {
 // @see mcp.promptHandlers.preMergeCheck
 func (p *promptHandlers) reviewChanges(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	args := request.Params.Arguments
+	ctx = ctxns.WithNamespace(ctx, resolveNamespace(ctx, args["workspace"]))
 	repoRoot := args["repo_root"]
 	base := args["base"]
 	if base == "" {
@@ -110,8 +111,14 @@ func (p *promptHandlers) reviewChanges(ctx context.Context, request mcp.GetPromp
 // @ensures 성공 시 커뮤니티와 모듈 간 결합도 목록을 포함한 프롬프트를 반환한다.
 // @sideEffect DB에서 커뮤니티와 결합도 정보를 조회한다.
 func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	ctx = ctxns.WithNamespace(ctx, resolveNamespace(ctx, request.Params.Arguments["workspace"]))
+	ns := ctxns.FromContext(ctx)
 	var communities []model.Community
-	if err := p.deps.DB.WithContext(ctx).Find(&communities).Error; err != nil {
+	query := p.deps.DB.WithContext(ctx)
+	if ns != "" {
+		query = query.Where("namespace = ?", ns)
+	}
+	if err := query.Find(&communities).Error; err != nil {
 		return nil, trace.Wrap(err, "query communities")
 	}
 
@@ -125,8 +132,13 @@ func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPro
 	log := p.deps.Logger
 	for _, c := range communities {
 		var memberCount int64
-		if err := p.deps.DB.WithContext(ctx).Model(&model.CommunityMembership{}).
-			Where("community_id = ?", c.ID).Count(&memberCount).Error; err != nil {
+		memberQ := p.deps.DB.WithContext(ctx).Model(&model.CommunityMembership{}).
+			Joins("JOIN communities ON communities.id = community_memberships.community_id").
+			Where("community_id = ?", c.ID)
+		if ns != "" {
+			memberQ = memberQ.Where("communities.namespace = ?", ns)
+		}
+		if err := memberQ.Count(&memberCount).Error; err != nil {
 			log.Warn("count community members failed", "community", c.ID, trace.SlogError(err))
 		}
 		sb.WriteString(fmt.Sprintf("- **%s** (전략: %s, 멤버: %d)\n", c.Label, c.Strategy, memberCount))
@@ -162,6 +174,7 @@ func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPro
 // @sideEffect 검색 인덱스 조회와 그래프 질의를 수행한다.
 func (p *promptHandlers) debugIssue(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	args := request.Params.Arguments
+	ctx = ctxns.WithNamespace(ctx, resolveNamespace(ctx, args["workspace"]))
 	description := args["description"]
 
 	if p.deps.SearchBackend == nil || p.deps.DB == nil {
@@ -231,9 +244,15 @@ func (p *promptHandlers) debugIssue(ctx context.Context, request mcp.GetPromptRe
 // @ensures 성공 시 온보딩용 통계와 구조 요약 프롬프트를 반환한다.
 // @sideEffect DB에서 통계, 커뮤니티, 대형 함수 정보를 조회한다.
 func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	ctx = ctxns.WithNamespace(ctx, resolveNamespace(ctx, request.Params.Arguments["workspace"]))
 	log := p.deps.Logger
+	ns := ctxns.FromContext(ctx)
 	var nodeCount int64
-	if err := p.deps.DB.WithContext(ctx).Model(&model.Node{}).Count(&nodeCount).Error; err != nil {
+	nodeQ := p.deps.DB.WithContext(ctx).Model(&model.Node{})
+	if ns != "" {
+		nodeQ = nodeQ.Where("namespace = ?", ns)
+	}
+	if err := nodeQ.Count(&nodeCount).Error; err != nil {
 		return nil, trace.Wrap(err, "count nodes")
 	}
 
@@ -243,7 +262,7 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 
 	var edgeCount int64
 	edgeQ := p.deps.DB.WithContext(ctx).Model(&model.Edge{})
-	if ns := ctxns.FromContext(ctx); ns != "" {
+	if ns != "" {
 		edgeQ = edgeQ.Where("namespace = ?", ns)
 	}
 	if err := edgeQ.Count(&edgeCount).Error; err != nil {
@@ -257,7 +276,11 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 		Count    int64
 	}
 	var langs []langStat
-	if err := p.deps.DB.WithContext(ctx).Model(&model.Node{}).
+	langQ := p.deps.DB.WithContext(ctx).Model(&model.Node{})
+	if ns != "" {
+		langQ = langQ.Where("namespace = ?", ns)
+	}
+	if err := langQ.
 		Select("language, COUNT(*) as count").
 		Group("language").
 		Having("language != ''").
@@ -275,7 +298,11 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 	}
 
 	var communities []model.Community
-	if err := p.deps.DB.WithContext(ctx).Find(&communities).Error; err != nil {
+	commQ := p.deps.DB.WithContext(ctx)
+	if ns != "" {
+		commQ = commQ.Where("namespace = ?", ns)
+	}
+	if err := commQ.Find(&communities).Error; err != nil {
 		log.Warn("find communities failed", trace.SlogError(err))
 	}
 	if len(communities) > 0 {
@@ -317,6 +344,7 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 func (p *promptHandlers) preMergeCheck(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	log := p.deps.Logger
 	args := request.Params.Arguments
+	ctx = ctxns.WithNamespace(ctx, resolveNamespace(ctx, args["workspace"]))
 	repoRoot := args["repo_root"]
 	base := args["base"]
 	if base == "" {

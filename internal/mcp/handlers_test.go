@@ -1655,6 +1655,41 @@ func TestListCommunities_Empty(t *testing.T) {
 	}
 }
 
+func TestListCommunities_WorkspaceScopesResults(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctxAlpha := ctxns.WithNamespace(context.Background(), "alpha")
+	ctxBeta := ctxns.WithNamespace(context.Background(), "beta")
+
+	alphaCommunity := model.Community{Namespace: "alpha", Key: "alpha/core", Label: "alpha/core", Strategy: "directory"}
+	betaCommunity := model.Community{Namespace: "beta", Key: "beta/core", Label: "beta/core", Strategy: "directory"}
+	deps.DB.Create(&alphaCommunity)
+	deps.DB.Create(&betaCommunity)
+
+	if err := deps.Store.UpsertNodes(ctxAlpha, []model.Node{{QualifiedName: "alpha.Fn", Kind: model.NodeKindFunction, Name: "Fn", FilePath: "alpha.go", StartLine: 1, EndLine: 5, Language: "go"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := deps.Store.UpsertNodes(ctxBeta, []model.Node{{QualifiedName: "beta.Fn", Kind: model.NodeKindFunction, Name: "Fn", FilePath: "beta.go", StartLine: 1, EndLine: 5, Language: "go"}}); err != nil {
+		t.Fatal(err)
+	}
+	alphaNode, _ := deps.Store.GetNode(ctxAlpha, "alpha.Fn")
+	betaNode, _ := deps.Store.GetNode(ctxBeta, "beta.Fn")
+	deps.DB.Create(&model.CommunityMembership{CommunityID: alphaCommunity.ID, NodeID: alphaNode.ID})
+	deps.DB.Create(&model.CommunityMembership{CommunityID: betaCommunity.ID, NodeID: betaNode.ID})
+
+	result := callTool(t, deps, "list_communities", map[string]any{"workspace": "alpha"})
+	if result.IsError {
+		t.Fatalf("list_communities error: %s", getTextContent(result))
+	}
+
+	text := getTextContent(result)
+	if strings.Contains(text, "beta/core") {
+		t.Fatalf("unexpected beta community leak: %s", text)
+	}
+	if !strings.Contains(text, "alpha/core") {
+		t.Fatalf("expected alpha community in scoped result: %s", text)
+	}
+}
+
 // ============================================================
 // 11.10 get_community
 // ============================================================
@@ -1756,6 +1791,17 @@ func TestGetCommunity_NotFound(t *testing.T) {
 	result := callTool(t, deps, "get_community", map[string]any{"community_id": 999})
 	if !result.IsError {
 		t.Fatal("expected error for nonexistent community")
+	}
+}
+
+func TestGetCommunity_WorkspaceRejectsForeignCommunity(t *testing.T) {
+	deps := setupTestDeps(t)
+	community := model.Community{Namespace: "beta", Key: "beta/core", Label: "beta/core", Strategy: "directory"}
+	deps.DB.Create(&community)
+
+	result := callTool(t, deps, "get_community", map[string]any{"community_id": community.ID, "workspace": "alpha"})
+	if !result.IsError {
+		t.Fatalf("expected scoped lookup to reject foreign community: %s", getTextContent(result))
 	}
 }
 

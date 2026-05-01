@@ -10,12 +10,14 @@ import (
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 	"github.com/tae2089/code-context-graph/internal/store/search"
@@ -56,6 +58,11 @@ func setupPromptTestDeps(t *testing.T) (*Deps, *gorm.DB) {
 func callPrompt(t *testing.T, deps *Deps, promptName string, args map[string]string) string {
 	t.Helper()
 	srv := NewServer(deps)
+	return callPromptWithContext(t, srv, context.Background(), promptName, args)
+}
+
+func callPromptWithContext(t *testing.T, srv *server.MCPServer, ctx context.Context, promptName string, args map[string]string) string {
+	t.Helper()
 
 	params := map[string]any{
 		"name": promptName,
@@ -71,7 +78,7 @@ func callPrompt(t *testing.T, deps *Deps, promptName string, args map[string]str
 		"params":  params,
 	})
 
-	resp := srv.HandleMessage(context.Background(), msg)
+	resp := srv.HandleMessage(ctx, msg)
 	rpcResp, ok := resp.(mcp.JSONRPCResponse)
 	if !ok {
 		errResp, isErr := resp.(mcp.JSONRPCError)
@@ -317,6 +324,40 @@ func TestArchitectureMap_NoCommunities(t *testing.T) {
 
 	if !strings.Contains(text, "커뮤니티가 없습니다") {
 		t.Errorf("expected no communities message, got: %s", text)
+	}
+}
+
+func TestArchitectureMap_RespectsWorkspaceArgument(t *testing.T) {
+	deps, db := setupPromptTestDeps(t)
+	db.Create(&model.Community{Namespace: "alpha", Key: "alpha/core", Label: "alpha/core", Strategy: "directory"})
+	db.Create(&model.Community{Namespace: "beta", Key: "beta/core", Label: "beta/core", Strategy: "directory"})
+
+	resultJSON := callPrompt(t, deps, "architecture_map", map[string]string{"workspace": "alpha"})
+	text := getPromptText(t, resultJSON)
+
+	if !strings.Contains(text, "alpha/core") {
+		t.Fatalf("expected alpha community in output: %s", text)
+	}
+	if strings.Contains(text, "beta/core") {
+		t.Fatalf("unexpected beta community leak: %s", text)
+	}
+}
+
+func TestArchitectureMap_FallsBackToContextNamespace(t *testing.T) {
+	deps, db := setupPromptTestDeps(t)
+	db.Create(&model.Community{Namespace: "alpha", Key: "alpha/core", Label: "alpha/core", Strategy: "directory"})
+	db.Create(&model.Community{Namespace: "beta", Key: "beta/core", Label: "beta/core", Strategy: "directory"})
+
+	srv := NewServer(deps)
+	ctx := ctxns.WithNamespace(context.Background(), "beta")
+	resultJSON := callPromptWithContext(t, srv, ctx, "architecture_map", nil)
+	text := getPromptText(t, resultJSON)
+
+	if !strings.Contains(text, "beta/core") {
+		t.Fatalf("expected beta community in output: %s", text)
+	}
+	if strings.Contains(text, "alpha/core") {
+		t.Fatalf("unexpected alpha community leak: %s", text)
 	}
 }
 

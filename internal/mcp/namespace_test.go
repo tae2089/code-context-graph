@@ -64,7 +64,7 @@ func TestMCPHandler_SearchWithNamespace(t *testing.T) {
 	for _, ns := range []string{"ns-a", "ns-b"} {
 		var node model.Node
 		deps.DB.Where("namespace = ? AND qualified_name = ?", ns, "pkg.SearchMe").First(&node)
-		doc := model.SearchDocument{NodeID: node.ID, Content: "SearchMe function implementation", Language: "go"}
+		doc := model.SearchDocument{Namespace: ns, NodeID: node.ID, Content: "SearchMe function implementation", Language: "go"}
 		if err := deps.DB.Create(&doc).Error; err != nil {
 			t.Fatalf("create SearchDocument for %s: %v", ns, err)
 		}

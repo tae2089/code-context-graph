@@ -24,7 +24,7 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 
 	log.Info("get_minimal_context called", "task", task, "repo_root", repoRoot, "base", base)
 
-	return finalizeToolResult(h.cachedExecute("get_minimal_context:", map[string]any{
+	return finalizeToolResult(h.cachedExecute(ctx, "get_minimal_context:", map[string]any{
 		"task":      task,
 		"repo_root": repoRoot,
 		"base":      base,
@@ -120,8 +120,13 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 			Count       int
 		}
 		var ccRows []commCount
-		if err := h.deps.DB.WithContext(ctx).
+		commCountQ := h.deps.DB.WithContext(ctx).
 			Model(&model.CommunityMembership{}).
+			Joins("JOIN communities ON communities.id = community_memberships.community_id")
+		if ns != "" {
+			commCountQ = commCountQ.Where("communities.namespace = ?", ns)
+		}
+		if err := commCountQ.
 			Select("community_id, COUNT(*) as count").
 			Group("community_id").
 			Scan(&ccRows).Error; err != nil {
@@ -133,7 +138,11 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 		}
 
 		var communities []model.Community
-		if err := h.deps.DB.WithContext(ctx).Find(&communities).Error; err != nil {
+		communityQ := h.deps.DB.WithContext(ctx)
+		if ns != "" {
+			communityQ = communityQ.Where("namespace = ?", ns)
+		}
+		if err := communityQ.Find(&communities).Error; err != nil {
 			return "", trace.Wrap(err, "find communities")
 		}
 
