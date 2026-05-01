@@ -82,6 +82,63 @@ func TestE2EHTTP_ListTools(t *testing.T) {
 	}
 }
 
+func TestE2EHTTP_ListTools_IncludePathsSchemaHasStringItems(t *testing.T) {
+	deps := setupE2EDeps(t)
+	srv := NewServer(deps)
+
+	httpClient, cleanup := newHTTPTestClient(t, srv)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result, err := httpClient.ListTools(ctx, mcp.ListToolsRequest{})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+
+	for _, toolName := range []string{"parse_project", "build_or_update_graph"} {
+		var found *mcp.Tool
+		for i := range result.Tools {
+			if result.Tools[i].Name == toolName {
+				found = &result.Tools[i]
+				break
+			}
+		}
+		if found == nil {
+			t.Fatalf("tool %q not found in ListTools result", toolName)
+		}
+
+		prop, ok := found.InputSchema.Properties["include_paths"]
+		if !ok {
+			t.Fatalf("tool %q missing include_paths property", toolName)
+		}
+
+		propMap, ok := prop.(map[string]any)
+		if !ok {
+			t.Fatalf("tool %q include_paths property has unexpected type %T", toolName, prop)
+		}
+
+		if got := propMap["type"]; got != "array" {
+			t.Fatalf("tool %q include_paths type = %v, want array", toolName, got)
+		}
+
+		items, ok := propMap["items"]
+		if !ok {
+			t.Fatalf("tool %q include_paths schema missing items", toolName)
+		}
+
+		itemsMap, ok := items.(map[string]any)
+		if !ok {
+			t.Fatalf("tool %q include_paths.items has unexpected type %T", toolName, items)
+		}
+
+		if got := itemsMap["type"]; got != "string" {
+			t.Fatalf("tool %q include_paths.items.type = %v, want string", toolName, got)
+		}
+	}
+}
+
 func TestE2EHTTP_ParseAndGetNode(t *testing.T) {
 	deps := setupE2EDeps(t)
 	srv := NewServer(deps)
