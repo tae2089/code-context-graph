@@ -2,7 +2,6 @@ package search
 
 import (
 	"context"
-	"strings"
 
 	"gorm.io/gorm"
 
@@ -29,7 +28,8 @@ func NewPostgresBackend() *PostgresBackend {
 func (p *PostgresBackend) Migrate(db *gorm.DB) error {
 	if err := db.Exec(`
 		ALTER TABLE search_documents
-		ADD COLUMN IF NOT EXISTS tsv tsvector
+		ADD COLUMN IF NOT EXISTS tsv tsvector,
+		ADD COLUMN IF NOT EXISTS namespace varchar(256) NOT NULL DEFAULT ''
 	`).Error; err != nil {
 		return trace.Wrap(err, "add tsv column")
 	}
@@ -73,10 +73,16 @@ func (p *PostgresBackend) Migrate(db *gorm.DB) error {
 // @intent 기존 search_documents 행의 전문 검색 색인을 일괄 재생성한다.
 // @sideEffect search_documents.tsv 값을 갱신한다.
 func (p *PostgresBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
-	return db.WithContext(ctx).Exec(`
+	ns := ctxns.FromContext(ctx)
+	query := `
 		UPDATE search_documents
-		SET tsv = to_tsvector('simple', COALESCE(content, ''))
-	`).Error
+		SET tsv = to_tsvector('simple', COALESCE(content, ''))`
+	args := []any{}
+	if ns != "" {
+		query += ` WHERE namespace = ?`
+		args = append(args, ns)
+	}
+	return db.WithContext(ctx).Exec(query, args...).Error
 }
 
 // Query는 PostgreSQL tsquery로 관련 노드를 검색한다.
@@ -84,24 +90,31 @@ func (p *PostgresBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 // @requires limit는 0보다 커야 의미 있는 결과를 얻는다.
 // @return ts_rank 기준 정렬 순서를 유지한 노드 목록을 반환한다.
 func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error) {
-	tokens := strings.Fields(query)
-	for i, tok := range tokens {
-		tokens[i] = tok + ":*"
+	tsQuery := SanitizePostgresTSQuery(query)
+	if tsQuery == "" {
+		return nil, nil
 	}
-	tsQuery := strings.Join(tokens, " & ")
+	ns := ctxns.FromContext(ctx)
 
 	type resultRow struct {
 		NodeID uint
 	}
 
 	var rows []resultRow
-	if err := db.WithContext(ctx).Raw(`
+	querySQL := `
 		SELECT sd.node_id
 		FROM search_documents sd
-		WHERE sd.tsv @@ to_tsquery('simple', ?)
+		WHERE sd.tsv @@ to_tsquery('simple', ?)`
+	args := []any{tsQuery}
+	if ns != "" {
+		querySQL += ` AND sd.namespace = ?`
+		args = append(args, ns)
+	}
+	querySQL += `
 		ORDER BY ts_rank(sd.tsv, to_tsquery('simple', ?)) DESC
-		LIMIT ?
-	`, tsQuery, tsQuery, limit).Scan(&rows).Error; err != nil {
+		LIMIT ?`
+	args = append(args, tsQuery, limit)
+	if err := db.WithContext(ctx).Raw(querySQL, args...).Scan(&rows).Error; err != nil {
 		return nil, trace.Wrap(err, "ts_query")
 	}
 
@@ -116,7 +129,7 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 
 	var nodes []model.Node
 	nodesQ := db.WithContext(ctx).Where("id IN ?", nodeIDs)
-	if ns := ctxns.FromContext(ctx); ns != "" {
+	if ns != "" {
 		nodesQ = nodesQ.Where("namespace = ?", ns)
 	}
 	if err := nodesQ.Find(&nodes).Error; err != nil {
