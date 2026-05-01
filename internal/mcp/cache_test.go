@@ -1,10 +1,37 @@
 package mcp
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
+
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+
+	"github.com/mark3labs/mcp-go/mcp"
+
+	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 )
+
+func openTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatalf("open test db: %v", err)
+	}
+	return db
+}
+
+func makeToolRequest(toolName string, args map[string]any) mcp.CallToolRequest {
+	var req mcp.CallToolRequest
+	req.Params.Name = toolName
+	req.Params.Arguments = args
+	return req
+}
 
 func TestCache_GetMiss(t *testing.T) {
 	c := NewCache(5 * time.Minute)
@@ -73,5 +100,115 @@ func TestCache_Close(t *testing.T) {
 	val, ok := c.Get("k")
 	if !ok || val != "v" {
 		t.Fatal("expected cache to still work after Close")
+	}
+}
+
+func TestGetNode_CacheHit(t *testing.T) {
+	db := openTestDB(t)
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatal(err)
+	}
+
+	node := model.Node{
+		QualifiedName: "pkg.CacheHitFunc",
+		Name:          "CacheHitFunc",
+		Kind:          model.NodeKindFunction,
+		FilePath:      "pkg/cache_hit.go",
+		Language:      "go",
+	}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	cache := NewCache(5 * time.Minute)
+	h := &handlers{deps: &Deps{Store: st, DB: db}, cache: cache}
+	req := makeToolRequest("get_node", map[string]any{"qualified_name": "pkg.CacheHitFunc"})
+
+	res1, err := h.getNode(context.Background(), req)
+	if err != nil {
+		t.Fatalf("first call error: %v", err)
+	}
+	if res1.IsError {
+		t.Fatal("first call: unexpected error result")
+	}
+
+	if err := db.Unscoped().Delete(&model.Node{}, node.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	res2, err := h.getNode(context.Background(), req)
+	if err != nil {
+		t.Fatalf("second call error: %v", err)
+	}
+	if res2.IsError {
+		t.Fatal("second call (cache hit): unexpected error result")
+	}
+}
+
+func TestGetNode_NoCache(t *testing.T) {
+	db := openTestDB(t)
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatal(err)
+	}
+
+	h := &handlers{deps: &Deps{Store: st, DB: db}, cache: nil}
+	req := makeToolRequest("get_node", map[string]any{"qualified_name": "pkg.NotExist"})
+
+	res, err := h.getNode(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatal("expected error response for missing node without cache")
+	}
+}
+
+func TestBuildOrUpdateGraph_FlushesCache(t *testing.T) {
+	deps := setupTestDeps(t)
+	cache := NewCache(5 * time.Minute)
+	cache.Set(`get_node:{"qualified_name":"pkg.Foo"}`, `{"id":1}`)
+	h := &handlers{deps: deps, cache: cache}
+
+	dir := t.TempDir()
+	goFile := fmt.Sprintf("%s/test.go", dir)
+	if err := os.WriteFile(goFile, []byte("package main\n\nfunc TestFunc() {\n\treturn\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req := makeToolRequest("build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": true,
+		"postprocess":  "none",
+	})
+
+	_, err := h.buildOrUpdateGraph(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := cache.Get(`get_node:{"qualified_name":"pkg.Foo"}`); ok {
+		t.Fatal("expected cache to be flushed after buildOrUpdateGraph")
+	}
+}
+
+func TestRunPostprocess_FlushesCache(t *testing.T) {
+	deps := setupTestDeps(t)
+	cache := NewCache(5 * time.Minute)
+	cache.Set(`get_node:{"qualified_name":"pkg.Foo"}`, `{"id":1}`)
+	h := &handlers{deps: deps, cache: cache}
+	req := makeToolRequest("run_postprocess", map[string]any{
+		"flows":       false,
+		"communities": false,
+		"fts":         false,
+	})
+
+	_, err := h.runPostprocess(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := cache.Get(`get_node:{"qualified_name":"pkg.Foo"}`); ok {
+		t.Fatal("expected cache to be flushed after runPostprocess")
 	}
 }
