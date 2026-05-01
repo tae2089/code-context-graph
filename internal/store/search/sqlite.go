@@ -24,14 +24,14 @@ const (
 
 // SQLiteBackend는 SQLite FTS5 기반 검색 백엔드다.
 // @intent SQLite 환경에서 전문 검색 색인 구축과 질의를 처리한다.
-type SQLiteBackend struct{}
-
-var sqliteFTSBatchInserter = insertSQLiteFTSBatch
+type SQLiteBackend struct {
+	batchInserter func(ctx context.Context, tx *gorm.DB, tableName string, docs []model.SearchDocument) error
+}
 
 // NewSQLiteBackend는 SQLite 검색 백엔드를 생성한다.
 // @intent SQLite 전용 Backend 구현체를 제공한다.
 func NewSQLiteBackend() *SQLiteBackend {
-	return &SQLiteBackend{}
+	return &SQLiteBackend{batchInserter: insertSQLiteFTSBatch}
 }
 
 // Migrate는 SQLite FTS5 가상 테이블을 준비한다.
@@ -95,7 +95,7 @@ func (s *SQLiteBackend) rebuildTable(ctx context.Context, db *gorm.DB, tableName
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := sqliteFTSBatchInserter(ctx, batchTx, tableName, batchDocs); err != nil {
+			if err := s.batchInserter(ctx, batchTx, tableName, batchDocs); err != nil {
 				return trace.Wrap(err, "insert fts batch "+strconv.Itoa(batch))
 			}
 			return nil

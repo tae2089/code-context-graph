@@ -440,9 +440,9 @@ func TestSQLiteFTS_Rebuild_RollsBackDeleteOnInsertFailure(t *testing.T) {
 	if err := backend.Rebuild(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	originalInserter := sqliteFTSBatchInserter
-	defer func() { sqliteFTSBatchInserter = originalInserter }()
-	sqliteFTSBatchInserter = func(ctx context.Context, tx *gorm.DB, tableName string, docs []model.SearchDocument) error {
+	originalInserter := backend.batchInserter
+	defer func() { backend.batchInserter = originalInserter }()
+	backend.batchInserter = func(ctx context.Context, tx *gorm.DB, tableName string, docs []model.SearchDocument) error {
 		return errors.New("boom")
 	}
 
@@ -487,9 +487,9 @@ func TestSQLiteFTS_Rebuild_NamespaceRollbackPreservesOtherRows(t *testing.T) {
 	if err := backend.Rebuild(ctxns.WithNamespace(context.Background(), "ns-b"), db); err != nil {
 		t.Fatal(err)
 	}
-	originalInserter := sqliteFTSBatchInserter
-	defer func() { sqliteFTSBatchInserter = originalInserter }()
-	sqliteFTSBatchInserter = func(ctx context.Context, tx *gorm.DB, tableName string, docs []model.SearchDocument) error {
+	originalInserter := backend.batchInserter
+	defer func() { backend.batchInserter = originalInserter }()
+	backend.batchInserter = func(ctx context.Context, tx *gorm.DB, tableName string, docs []model.SearchDocument) error {
 		for _, doc := range docs {
 			if doc.Namespace == "ns-a" {
 				return errors.New("boom")
