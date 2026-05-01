@@ -336,6 +336,9 @@ func newExampleCmd(_ *Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "example [language]",
 		Short: "Show annotation writing examples for a given language",
+		Annotations: map[string]string{
+			skipDBInitAnnotation: "true",
+		},
 		Long: `Show annotation writing examples for a given language.
 
 Defaults to "go" when no language is specified.

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -73,6 +75,69 @@ func TestRoot_ServeCommand(t *testing.T) {
 
 	if !called {
 		t.Fatal("expected ServeFunc to be called")
+	}
+}
+
+func TestRoot_SkipDBInitCommandsDoNotCallInitFunc(t *testing.T) {
+	commands := []string{"version", "languages", "hooks", "example", "tags"}
+
+	for _, name := range commands {
+		t.Run(name, func(t *testing.T) {
+			deps, stdout, stderr := newTestDeps()
+			called := 0
+			deps.InitFunc = func(dbDriver, dsn string) error {
+				called++
+				return nil
+			}
+
+			args := []string{name}
+			if name == "example" {
+				args = append(args, "go")
+			}
+			if err := executeCmd(deps, stdout, stderr, args...); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if called != 0 {
+				t.Fatalf("InitFunc called %d times, want 0", called)
+			}
+		})
+	}
+}
+
+func TestRoot_DBDependentCommandsStillCallInitFunc(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+	called := 0
+	deps.InitFunc = func(dbDriver, dsn string) error {
+		called++
+		return nil
+	}
+	deps.ServeFunc = func(cfg ServeConfig) error { return nil }
+
+	if err := executeCmd(deps, stdout, stderr, "serve"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if called != 1 {
+		t.Fatalf("InitFunc called %d times, want 1", called)
+	}
+}
+
+func TestRoot_HooksInstallSkipsInitFuncViaParentAnnotation(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+	called := 0
+	deps.InitFunc = func(dbDriver, dsn string) error {
+		called++
+		return nil
+	}
+	repoDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoDir, ".git", "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := executeCmd(deps, stdout, stderr, "hooks", "install", "--git-dir", repoDir); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if called != 0 {
+		t.Fatalf("InitFunc called %d times, want 0", called)
 	}
 }
 

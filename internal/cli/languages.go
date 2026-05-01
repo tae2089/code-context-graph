@@ -18,6 +18,9 @@ func newLanguagesCmd(deps *Deps) *cobra.Command {
 		Use:   "languages",
 		Short: "List all supported languages and their file extensions",
 		Args:  cobra.NoArgs,
+		Annotations: map[string]string{
+			skipDBInitAnnotation: "true",
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := stdout(cmd)
 			langs := collectLanguages(deps.Walkers)

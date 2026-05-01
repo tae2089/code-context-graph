@@ -21,6 +21,17 @@ import (
 // connection but Deps.DB is nil.
 var errDBNotInitialized = trace.New("database not initialized")
 
+const skipDBInitAnnotation = "skipDBInit"
+
+func shouldSkipDBInit(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Annotations[skipDBInitAnnotation] == "true" {
+			return true
+		}
+	}
+	return false
+}
+
 // Deps holds shared dependencies injected into all subcommands.
 // @intent 중앙 CLI 초기화 단계에서 만든 런타임 의존성을 하위 명령에 전달한다.
 type Deps struct {
@@ -90,7 +101,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			_ = viper.ReadInConfig()
 
 			// 3. Initialize Database if InitFunc is provided
-			if deps.InitFunc != nil {
+			if deps.InitFunc != nil && !shouldSkipDBInit(cmd) {
 				driver := viper.GetString("db.driver")
 				dsn := viper.GetString("db.dsn")
 				if err := deps.InitFunc(driver, dsn); err != nil {

@@ -86,6 +86,9 @@ func newTagsCmd(_ *Deps) *cobra.Command {
 		Use:   "tags",
 		Short: "Show all available annotation tags with descriptions",
 		Args:  cobra.NoArgs,
+		Annotations: map[string]string{
+			skipDBInitAnnotation: "true",
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := stdout(cmd)
 			fmt.Fprintln(out, "Annotation Tags Reference")

@@ -20,6 +20,9 @@ func newVersionCmd(deps *Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print build version information",
+		Annotations: map[string]string{
+			skipDBInitAnnotation: "true",
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			v := deps.Version
 			version := v.Version

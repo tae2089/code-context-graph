@@ -30,6 +30,9 @@ func newHooksCmd(_ *Deps) *cobra.Command {
 	hooksCmd := &cobra.Command{
 		Use:   "hooks",
 		Short: "Manage git hooks for automatic code graph updates",
+		Annotations: map[string]string{
+			skipDBInitAnnotation: "true",
+		},
 	}
 	hooksCmd.AddCommand(newHooksInstallCmd())
 	return hooksCmd

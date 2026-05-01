@@ -68,11 +68,21 @@ func main() {
 
 	deps := &cli.Deps{
 		Logger: logger,
+		Walkers: buildWalkers(logger),
 		Version: cli.VersionInfo{
 			Version: version,
 			Commit:  commit,
 			Date:    date,
 		},
+	}
+
+	var cleanupOnce sync.Once
+	runCleanup := func() {
+		cleanupOnce.Do(func() {
+			if deps.CleanupFunc != nil {
+				deps.CleanupFunc()
+			}
+		})
 	}
 
 	deps.InitFunc = func(driver, dsn string) error {
@@ -94,9 +104,8 @@ func main() {
 			return trace.Wrap(err, "migrate search backend")
 		}
 
-		walkers := buildWalkers(deps.Logger)
-		parsers := make(map[string]incremental.Parser, len(walkers))
-		for ext, walker := range walkers {
+		parsers := make(map[string]incremental.Parser, len(deps.Walkers))
+		for ext, walker := range deps.Walkers {
 			parsers[ext] = walker
 		}
 		syncer := incremental.NewWithRegistry(st, parsers)
@@ -104,10 +113,9 @@ func main() {
 		deps.DB = db
 		deps.Store = st
 		deps.SearchBackend = sb
-		deps.Walkers = walkers
 		deps.Syncer = syncer
 		deps.CleanupFunc = func() {
-			for _, w := range walkers {
+			for _, w := range deps.Walkers {
 				w.Close()
 			}
 			if sqlDB, err := db.DB(); err == nil {
@@ -124,40 +132,12 @@ func main() {
 
 	cmd := cli.NewRootCmd(deps)
 
-	// Signal handler: SIGINT/SIGTERM 수신 시 cleanup 실행 후 종료
-	var cleanupOnce sync.Once
-	cleanup := func() {
-		cleanupOnce.Do(func() {
-			if deps.CleanupFunc != nil {
-				deps.CleanupFunc()
-			}
-		})
-	}
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("signal handler panicked", "panic", r)
-				os.Exit(2)
-			}
-		}()
-		sig := <-sigCh
-		slog.Info("received signal, shutting down", "signal", sig)
-		cleanup()
-		if sig == syscall.SIGTERM {
-			os.Exit(0)
-		}
-		os.Exit(1)
-	}()
-
 	if err := cmd.Execute(); err != nil {
 		slog.Error("command failed", trace.SlogError(err))
-		cleanup()
+		runCleanup()
 		os.Exit(1)
 	}
-	cleanup()
+	runCleanup()
 }
 
 // buildWalkers creates a Walker for each supported language extension.
@@ -242,8 +222,19 @@ func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 		return serveStreamableHTTP(deps, srv, cfg)
 	default:
 		deps.Logger.Info("serving MCP over stdio")
-		if err := server.ServeStdio(srv); err != nil {
-			return trace.Wrap(err, "MCP server")
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- server.ServeStdio(srv)
+		}()
+		select {
+		case err := <-errCh:
+			if err != nil {
+				return trace.Wrap(err, "MCP server")
+			}
+		case <-ctx.Done():
+			deps.Logger.Info("received signal, shutting down stdio MCP server")
 		}
 		return nil
 	}
@@ -332,8 +323,6 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 		IdleTimeout:       120 * time.Second,
 	}
 
-	signal.Reset(syscall.SIGINT, syscall.SIGTERM)
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -345,12 +334,20 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 				errCh <- fmt.Errorf("HTTP server panicked: %v", r)
 			}
 		}()
-		errCh <- httpServer.ListenAndServe()
+		err := httpServer.ListenAndServe()
+		if err != nil && err != http.ErrServerClosed {
+			errCh <- err
+			return
+		}
+		errCh <- nil
 	}()
 
 	select {
 	case err := <-errCh:
-		return trace.Wrap(err, "HTTP server")
+		if err != nil {
+			return trace.Wrap(err, "HTTP server")
+		}
+		return nil
 	case <-ctx.Done():
 		deps.Logger.Info("shutting down HTTP server")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
