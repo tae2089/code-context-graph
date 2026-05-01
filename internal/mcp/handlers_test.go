@@ -122,12 +122,45 @@ func TestHandler_GetImpactRadius(t *testing.T) {
 	}
 
 	text := getTextContent(result)
-	var nodes []map[string]any
-	if err := json.Unmarshal([]byte(text), &nodes); err != nil {
-		t.Fatalf("expected JSON array, got: %s", text)
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatalf("expected JSON response, got: %s", text)
 	}
+	nodes := resp["nodes"].([]any)
 	if len(nodes) < 2 {
 		t.Errorf("expected at least 2 nodes in impact radius, got %d", len(nodes))
+	}
+	metadata := resp["metadata"].(map[string]any)
+	if metadata["returned_nodes"].(float64) != float64(len(nodes)) {
+		t.Fatalf("returned_nodes metadata mismatch: %v", metadata)
+	}
+}
+
+func TestHandler_GetImpactRadius_BoundsResults(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+	deps.Store.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "A", FilePath: "a.go", StartLine: 1, EndLine: 5, Language: "go"},
+		{QualifiedName: "pkg.B", Kind: model.NodeKindFunction, Name: "B", FilePath: "b.go", StartLine: 1, EndLine: 5, Language: "go"},
+		{QualifiedName: "pkg.C", Kind: model.NodeKindFunction, Name: "C", FilePath: "c.go", StartLine: 1, EndLine: 5, Language: "go"},
+	})
+	a, _ := deps.Store.GetNode(ctx, "pkg.A")
+	b, _ := deps.Store.GetNode(ctx, "pkg.B")
+	c, _ := deps.Store.GetNode(ctx, "pkg.C")
+	deps.Store.UpsertEdges(ctx, []model.Edge{{FromNodeID: a.ID, ToNodeID: b.ID, Kind: model.EdgeKindCalls, Fingerprint: "a-b"}, {FromNodeID: b.ID, ToNodeID: c.ID, Kind: model.EdgeKindCalls, Fingerprint: "b-c"}})
+
+	result := callTool(t, deps, "get_impact_radius", map[string]any{"qualified_name": "pkg.A", "depth": 5, "max_depth": 1, "max_nodes": 2})
+	if result.IsError {
+		t.Fatalf("get_impact_radius returned error: %s", getTextContent(result))
+	}
+	var resp map[string]any
+	json.Unmarshal([]byte(getTextContent(result)), &resp)
+	metadata := resp["metadata"].(map[string]any)
+	if metadata["max_depth"].(float64) != 1 || metadata["max_nodes"].(float64) != 2 {
+		t.Fatalf("unexpected metadata: %v", metadata)
+	}
+	if resp["nodes"] == nil {
+		t.Fatal("expected bounded nodes response")
 	}
 }
 
@@ -398,6 +431,37 @@ func TestHandler_TraceFlow(t *testing.T) {
 	members, ok := flow["members"].([]any)
 	if !ok || len(members) < 2 {
 		t.Errorf("expected at least 2 flow members, got %v", flow["members"])
+	}
+	metadata := flow["metadata"].(map[string]any)
+	if metadata["returned_nodes"].(float64) != float64(len(members)) {
+		t.Fatalf("returned_nodes metadata mismatch: %v", metadata)
+	}
+}
+
+func TestHandler_TraceFlow_BoundsMembers(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+	deps.Store.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.Start2", Kind: model.NodeKindFunction, Name: "Start2", FilePath: "s.go", StartLine: 1, EndLine: 5, Language: "go"},
+		{QualifiedName: "pkg.Next2", Kind: model.NodeKindFunction, Name: "Next2", FilePath: "n.go", StartLine: 1, EndLine: 5, Language: "go"},
+	})
+	s, _ := deps.Store.GetNode(ctx, "pkg.Start2")
+	n, _ := deps.Store.GetNode(ctx, "pkg.Next2")
+	deps.Store.UpsertEdges(ctx, []model.Edge{{FromNodeID: s.ID, ToNodeID: n.ID, Kind: model.EdgeKindCalls, Fingerprint: "s-n"}})
+
+	result := callTool(t, deps, "trace_flow", map[string]any{"qualified_name": "pkg.Start2", "max_nodes": 1})
+	if result.IsError {
+		t.Fatalf("trace_flow returned error: %s", getTextContent(result))
+	}
+	var flow map[string]any
+	json.Unmarshal([]byte(getTextContent(result)), &flow)
+	members := flow["members"].([]any)
+	if len(members) != 1 {
+		t.Fatalf("members=%d, want 1", len(members))
+	}
+	metadata := flow["metadata"].(map[string]any)
+	if metadata["truncated"] != true || metadata["max_nodes"].(float64) != 1 {
+		t.Fatalf("unexpected metadata: %v", metadata)
 	}
 }
 
@@ -1220,8 +1284,10 @@ func TestDetectChanges_ReturnsRiskEntries(t *testing.T) {
 		changedFiles: []string{"changed.go"},
 		hunks:        []changes.Hunk{{FilePath: "changed.go", StartLine: 5, EndLine: 15}},
 	}
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
 
-	result := callTool(t, deps, "detect_changes", map[string]any{"repo_root": "/tmp/repo"})
+	result := callTool(t, deps, "detect_changes", map[string]any{"repo_root": repoRoot})
 	if result.IsError {
 		t.Fatalf("detect_changes error: %s", getTextContent(result))
 	}
@@ -1243,8 +1309,10 @@ func TestDetectChanges_DefaultBase(t *testing.T) {
 		hunks:        []changes.Hunk{},
 	}
 	deps.ChangesGitClient = mock
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
 
-	callTool(t, deps, "detect_changes", map[string]any{"repo_root": "/tmp/repo"})
+	callTool(t, deps, "detect_changes", map[string]any{"repo_root": repoRoot})
 
 	if mock.lastBaseRef != "HEAD~1" {
 		t.Errorf("expected default base HEAD~1, got %q", mock.lastBaseRef)
@@ -1258,8 +1326,10 @@ func TestDetectChanges_EmptyDiff(t *testing.T) {
 		changedFiles: []string{},
 		hunks:        []changes.Hunk{},
 	}
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
 
-	result := callTool(t, deps, "detect_changes", map[string]any{"repo_root": "/tmp/repo"})
+	result := callTool(t, deps, "detect_changes", map[string]any{"repo_root": repoRoot})
 	if result.IsError {
 		t.Fatalf("detect_changes error: %s", getTextContent(result))
 	}
@@ -1279,6 +1349,21 @@ func TestDetectChanges_MissingRepoRoot(t *testing.T) {
 	result := callTool(t, deps, "detect_changes", map[string]any{})
 	if !result.IsError {
 		t.Fatal("expected error when repo_root is missing")
+	}
+}
+
+func TestDetectChanges_RejectsRepoRootOutsideConfiguredRoot(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.ChangesGitClient = &mockGitClient{}
+	deps.RepoRoot = t.TempDir()
+	outside := t.TempDir()
+
+	result := callTool(t, deps, "detect_changes", map[string]any{"repo_root": outside})
+	if !result.IsError {
+		t.Fatal("expected outside repo_root to return tool error")
+	}
+	if !strings.Contains(getTextContent(result), "outside configured analysis root") {
+		t.Fatalf("unexpected error: %s", getTextContent(result))
 	}
 }
 
@@ -1305,8 +1390,10 @@ func TestGetAffectedFlows_ReturnsFlows(t *testing.T) {
 		changedFiles: []string{"a.go"},
 		hunks:        []changes.Hunk{{FilePath: "a.go", StartLine: 1, EndLine: 10}},
 	}
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
 
-	result := callTool(t, deps, "get_affected_flows", map[string]any{"repo_root": "/tmp/repo"})
+	result := callTool(t, deps, "get_affected_flows", map[string]any{"repo_root": repoRoot})
 	if result.IsError {
 		t.Fatalf("get_affected_flows error: %s", getTextContent(result))
 	}
@@ -1337,7 +1424,9 @@ func TestGetAffectedFlows_RespectsWorkspaceNamespace(t *testing.T) {
 	deps.DB.Create(&model.FlowMembership{Namespace: "beta", FlowID: betaFlow.ID, NodeID: nodeA.ID, Ordinal: 0})
 
 	deps.ChangesGitClient = &mockGitClient{changedFiles: []string{"a.go"}, hunks: []changes.Hunk{{FilePath: "a.go", StartLine: 1, EndLine: 10}}}
-	result := callTool(t, deps, "get_affected_flows", map[string]any{"repo_root": "/tmp/repo", "workspace": "alpha"})
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
+	result := callTool(t, deps, "get_affected_flows", map[string]any{"repo_root": repoRoot, "workspace": "alpha"})
 	if result.IsError {
 		t.Fatalf("get_affected_flows error: %s", getTextContent(result))
 	}
@@ -1364,8 +1453,10 @@ func TestGetAffectedFlows_NoFlows(t *testing.T) {
 		changedFiles: []string{"b.go"},
 		hunks:        []changes.Hunk{{FilePath: "b.go", StartLine: 1, EndLine: 10}},
 	}
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
 
-	result := callTool(t, deps, "get_affected_flows", map[string]any{"repo_root": "/tmp/repo"})
+	result := callTool(t, deps, "get_affected_flows", map[string]any{"repo_root": repoRoot})
 	if result.IsError {
 		t.Fatalf("get_affected_flows error: %s", getTextContent(result))
 	}
@@ -1386,8 +1477,10 @@ func TestGetAffectedFlows_EmptyChanges(t *testing.T) {
 		changedFiles: []string{},
 		hunks:        []changes.Hunk{},
 	}
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
 
-	result := callTool(t, deps, "get_affected_flows", map[string]any{"repo_root": "/tmp/repo"})
+	result := callTool(t, deps, "get_affected_flows", map[string]any{"repo_root": repoRoot})
 	if result.IsError {
 		t.Fatalf("get_affected_flows error: %s", getTextContent(result))
 	}

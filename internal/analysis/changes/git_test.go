@@ -5,7 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestGitClient_ChangedFiles(t *testing.T) {
@@ -43,6 +45,29 @@ func TestGitClient_DiffHunks(t *testing.T) {
 	}
 	if hunks[0].FilePath != "hello.go" {
 		t.Errorf("expected hello.go, got %s", hunks[0].FilePath)
+	}
+}
+
+func TestRunGitLimitedWithMaxRejectsLargeOutput(t *testing.T) {
+	dir := initTestRepo(t)
+	_, err := runGitLimitedWithMax(context.Background(), dir, []string{"--version"}, 1)
+	if err == nil {
+		t.Fatal("expected output cap error")
+	}
+	if !strings.Contains(err.Error(), "git output exceeds") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunGitLimitedHonorsContextTimeout(t *testing.T) {
+	dir := initTestRepo(t)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	time.Sleep(time.Millisecond)
+
+	_, err := runGitLimited(ctx, dir, []string{"status"})
+	if err == nil {
+		t.Fatal("expected context timeout error")
 	}
 }
 

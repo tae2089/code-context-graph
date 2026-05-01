@@ -11,6 +11,8 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
 	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
 	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
+	flowspkg "github.com/tae2089/code-context-graph/internal/analysis/flows"
+	impactpkg "github.com/tae2089/code-context-graph/internal/analysis/impact"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -33,11 +35,19 @@ type ImpactAnalyzer interface {
 	ImpactRadius(ctx context.Context, nodeID uint, depth int) ([]model.Node, error)
 }
 
+type BoundedImpactAnalyzer interface {
+	ImpactRadiusBounded(ctx context.Context, nodeID uint, depth int, opts impactpkg.RadiusOptions) (*impactpkg.RadiusResult, error)
+}
+
 // FlowTracer defines the call-flow tracing contract for graph nodes.
 // @intent 시작 노드 기준 호출 흐름을 복원하는 분석기를 서버에 연결한다.
 // @see mcp.handlers.traceFlow
 type FlowTracer interface {
 	TraceFlow(ctx context.Context, startNodeID uint) (*model.Flow, error)
+}
+
+type BoundedFlowTracer interface {
+	TraceFlowBounded(ctx context.Context, startNodeID uint, opts flowspkg.TraceOptions) (*flowspkg.TraceResult, error)
 }
 
 // QueryService defines predefined graph query operations exposed over MCP.
@@ -130,4 +140,5 @@ type Deps struct {
 	RagProjectDesc string
 
 	WorkspaceRoot string
+	RepoRoot      string
 }

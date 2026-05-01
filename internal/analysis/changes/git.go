@@ -3,9 +3,12 @@ package changes
 import (
 	"bufio"
 	"context"
+	"fmt"
+	"io"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tae2089/trace"
 )
@@ -13,6 +16,11 @@ import (
 // ExecGitClient shells out to git for change detection.
 // @intent provide GitClient behavior using the local git executable
 type ExecGitClient struct{}
+
+const (
+	DefaultGitCommandTimeout = 30 * time.Second
+	MaxGitOutputSize         = 100 * 1024 * 1024
+)
 
 // NewExecGitClient creates an exec-backed git client.
 // @intent construct a GitClient that reads diffs from the local repository
@@ -29,9 +37,7 @@ func NewExecGitClient() *ExecGitClient {
 // @requires repoDir points to a valid git working tree
 // @ensures returned file paths are trimmed and exclude blank lines
 func (g *ExecGitClient) ChangedFiles(ctx context.Context, repoDir, baseRef string) ([]string, error) {
-	cmd := exec.CommandContext(ctx, "git", "diff", "--name-only", baseRef)
-	cmd.Dir = repoDir
-	out, err := cmd.Output()
+	out, err := runGitLimited(ctx, repoDir, []string{"diff", "--name-only", baseRef})
 	if err != nil {
 		return nil, trace.Wrap(err, "git diff --name-only")
 	}
@@ -62,9 +68,7 @@ func (g *ExecGitClient) ChangedFiles(ctx context.Context, repoDir, baseRef strin
 func (g *ExecGitClient) DiffHunks(ctx context.Context, repoDir, baseRef string, paths []string) ([]Hunk, error) {
 	args := []string{"diff", "-U0", baseRef, "--"}
 	args = append(args, paths...)
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = repoDir
-	out, err := cmd.Output()
+	out, err := runGitLimited(ctx, repoDir, args)
 	if err != nil {
 		return nil, trace.Wrap(err, "git diff -U0")
 	}
@@ -92,6 +96,43 @@ func (g *ExecGitClient) DiffHunks(ctx context.Context, repoDir, baseRef string, 
 		return nil, trace.Wrap(err, "scan git diff output")
 	}
 	return hunks, nil
+}
+
+func runGitLimited(ctx context.Context, repoDir string, args []string) ([]byte, error) {
+	return runGitLimitedWithMax(ctx, repoDir, args, MaxGitOutputSize)
+}
+
+func runGitLimitedWithMax(ctx context.Context, repoDir string, args []string, maxOutput int64) ([]byte, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, DefaultGitCommandTimeout)
+		defer cancel()
+	}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = repoDir
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	limit := maxOutput + 1
+	if limit < 1 {
+		limit = 1
+	}
+	data, readErr := io.ReadAll(io.LimitReader(out, limit))
+	waitErr := cmd.Wait()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if int64(len(data)) > maxOutput {
+		return nil, fmt.Errorf("git output exceeds %d bytes", maxOutput)
+	}
+	if waitErr != nil {
+		return nil, waitErr
+	}
+	return data, nil
 }
 
 // parseHunkHeader parses the added-side range from a unified diff header.

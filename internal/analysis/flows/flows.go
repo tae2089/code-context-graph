@@ -21,6 +21,17 @@ type Tracer struct {
 	store EdgeReader
 }
 
+type TraceOptions struct {
+	MaxNodes int
+}
+
+type TraceResult struct {
+	Flow          *model.Flow
+	Truncated     bool
+	MaxNodes      int
+	ReturnedNodes int
+}
+
 // New creates a flow tracer.
 // @intent construct a tracer bound to a graph edge reader
 func New(store EdgeReader) *Tracer {
@@ -34,10 +45,19 @@ func New(store EdgeReader) *Tracer {
 // @domainRule only calls edges expand the traced flow
 // @ensures each reachable node is included at most once
 func (t *Tracer) TraceFlow(ctx context.Context, startNodeID uint) (*model.Flow, error) {
+	result, err := t.TraceFlowBounded(ctx, startNodeID, TraceOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return result.Flow, nil
+}
+
+func (t *Tracer) TraceFlowBounded(ctx context.Context, startNodeID uint, opts TraceOptions) (*TraceResult, error) {
 	visited := map[uint]bool{}
 	var members []model.FlowMembership
 	ordinal := 0
 	ns := ctxns.FromContext(ctx)
+	truncated := false
 
 	queue := []uint{startNodeID}
 	visited[startNodeID] = true
@@ -45,6 +65,10 @@ func (t *Tracer) TraceFlow(ctx context.Context, startNodeID uint) (*model.Flow, 
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
+		if opts.MaxNodes > 0 && len(members) >= opts.MaxNodes {
+			truncated = true
+			break
+		}
 
 		members = append(members, model.FlowMembership{
 			Namespace: ns,
@@ -71,9 +95,10 @@ func (t *Tracer) TraceFlow(ctx context.Context, startNodeID uint) (*model.Flow, 
 		name = fmt.Sprintf("flow_from_%s", node.QualifiedName)
 	}
 
-	return &model.Flow{
+	flow := &model.Flow{
 		Namespace: ns,
 		Name:    name,
 		Members: members,
-	}, nil
+	}
+	return &TraceResult{Flow: flow, Truncated: truncated, MaxNodes: opts.MaxNodes, ReturnedNodes: len(members)}, nil
 }

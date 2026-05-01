@@ -24,6 +24,19 @@ type Analyzer struct {
 	store EdgeReader
 }
 
+type RadiusOptions struct {
+	MaxDepth int
+	MaxNodes int
+}
+
+type RadiusResult struct {
+	Nodes         []model.Node
+	Truncated     bool
+	MaxDepth      int
+	MaxNodes      int
+	ReturnedNodes int
+}
+
 // New creates an impact analyzer.
 // @intent construct a blast-radius analyzer around a graph reader
 func New(store EdgeReader) *Analyzer {
@@ -40,8 +53,20 @@ func New(store EdgeReader) *Analyzer {
 // @domainRule traverses both outgoing and incoming edges bidirectionally
 // @see changes.Service.Analyze
 func (a *Analyzer) ImpactRadius(ctx context.Context, nodeID uint, depth int) ([]model.Node, error) {
+	result, err := a.ImpactRadiusBounded(ctx, nodeID, depth, RadiusOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return result.Nodes, nil
+}
+
+func (a *Analyzer) ImpactRadiusBounded(ctx context.Context, nodeID uint, depth int, opts RadiusOptions) (*RadiusResult, error) {
+	if opts.MaxDepth > 0 && depth > opts.MaxDepth {
+		depth = opts.MaxDepth
+	}
 	visited := map[uint]bool{nodeID: true}
 	frontier := []uint{nodeID}
+	truncated := false
 
 	for d := 0; d < depth && len(frontier) > 0; d++ {
 		var next []uint
@@ -53,8 +78,15 @@ func (a *Analyzer) ImpactRadius(ctx context.Context, nodeID uint, depth int) ([]
 		for _, e := range edgesFrom {
 			if !visited[e.ToNodeID] {
 				visited[e.ToNodeID] = true
+				if opts.MaxNodes > 0 && len(visited) > opts.MaxNodes {
+					truncated = true
+					break
+				}
 				next = append(next, e.ToNodeID)
 			}
+		}
+		if truncated {
+			break
 		}
 
 		edgesTo, err := a.store.GetEdgesToNodes(ctx, frontier)
@@ -64,8 +96,15 @@ func (a *Analyzer) ImpactRadius(ctx context.Context, nodeID uint, depth int) ([]
 		for _, e := range edgesTo {
 			if !visited[e.FromNodeID] {
 				visited[e.FromNodeID] = true
+				if opts.MaxNodes > 0 && len(visited) > opts.MaxNodes {
+					truncated = true
+					break
+				}
 				next = append(next, e.FromNodeID)
 			}
+		}
+		if truncated {
+			break
 		}
 
 		frontier = next
@@ -80,6 +119,10 @@ func (a *Analyzer) ImpactRadius(ctx context.Context, nodeID uint, depth int) ([]
 	if err != nil {
 		return nil, err
 	}
+	if opts.MaxNodes > 0 && len(nodes) > opts.MaxNodes {
+		nodes = nodes[:opts.MaxNodes]
+		truncated = true
+	}
 
-	return nodes, nil
+	return &RadiusResult{Nodes: nodes, Truncated: truncated, MaxDepth: opts.MaxDepth, MaxNodes: opts.MaxNodes, ReturnedNodes: len(nodes)}, nil
 }

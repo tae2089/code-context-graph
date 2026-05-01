@@ -2,14 +2,26 @@ package mcp
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
 	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
+	flowspkg "github.com/tae2089/code-context-graph/internal/analysis/flows"
+	impactpkg "github.com/tae2089/code-context-graph/internal/analysis/impact"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+)
+
+const (
+	defaultImpactMaxDepth = 3
+	defaultImpactMaxNodes = 200
+	defaultTraceMaxNodes  = 200
 )
 
 // getImpactRadius returns nodes reachable within a bounded dependency radius.
@@ -27,6 +39,8 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 		return missingParamResult(err)
 	}
 	depth := request.GetInt("depth", 1)
+	maxDepth := request.GetInt("max_depth", defaultImpactMaxDepth)
+	maxNodes := request.GetInt("max_nodes", defaultImpactMaxNodes)
 
 	log.Info("get_impact_radius called", "qualified_name", qn, "depth", depth)
 
@@ -34,7 +48,7 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 		return mcp.NewToolResultError("ImpactAnalyzer not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "get_impact_radius:", map[string]any{"qualified_name": qn, "depth": depth, "workspace": request.GetString("workspace", "")}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "get_impact_radius:", map[string]any{"qualified_name": qn, "depth": depth, "max_depth": maxDepth, "max_nodes": maxNodes, "workspace": request.GetString("workspace", "")}, func() (string, error) {
 		node, err := h.deps.Store.GetNode(ctx, qn)
 		if err != nil {
 			log.Error("store error", "tool", "get_impact_radius", trace.SlogError(err))
@@ -45,10 +59,31 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 			return "", nodeNotFoundErr(qn)
 		}
 
-		nodes, err := h.deps.ImpactAnalyzer.ImpactRadius(ctx, node.ID, depth)
-		if err != nil {
-			log.Error("impact analysis error", "node_id", node.ID, trace.SlogError(err))
-			return "", trace.Wrap(err, "impact analysis error")
+		var nodes []model.Node
+		truncated := false
+		if bounded, ok := h.deps.ImpactAnalyzer.(BoundedImpactAnalyzer); ok {
+			res, err := bounded.ImpactRadiusBounded(ctx, node.ID, depth, impactpkg.RadiusOptions{MaxDepth: maxDepth, MaxNodes: maxNodes})
+			if err != nil {
+				log.Error("impact analysis error", "node_id", node.ID, trace.SlogError(err))
+				return "", trace.Wrap(err, "impact analysis error")
+			}
+			nodes = res.Nodes
+			truncated = res.Truncated
+		} else {
+			if maxDepth > 0 && depth > maxDepth {
+				depth = maxDepth
+				truncated = true
+			}
+			var err error
+			nodes, err = h.deps.ImpactAnalyzer.ImpactRadius(ctx, node.ID, depth)
+			if err != nil {
+				log.Error("impact analysis error", "node_id", node.ID, trace.SlogError(err))
+				return "", trace.Wrap(err, "impact analysis error")
+			}
+			if maxNodes > 0 && len(nodes) > maxNodes {
+				nodes = nodes[:maxNodes]
+				truncated = true
+			}
 		}
 
 		log.Info("get_impact_radius completed", "qualified_name", qn, "result_count", len(nodes))
@@ -57,7 +92,15 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 		for i, n := range nodes {
 			impactResult[i] = nodeToBasicMap(n)
 		}
-		result, err := marshalJSON(impactResult)
+		result, err := marshalJSON(map[string]any{
+			"nodes": impactResult,
+			"metadata": map[string]any{
+				"truncated":      truncated,
+				"max_depth":      maxDepth,
+				"max_nodes":      maxNodes,
+				"returned_nodes": len(impactResult),
+			},
+		})
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}
@@ -86,7 +129,8 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 		return mcp.NewToolResultError("FlowTracer not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "trace_flow:", map[string]any{"qualified_name": qn, "workspace": request.GetString("workspace", "")}, func() (string, error) {
+	maxNodes := request.GetInt("max_nodes", defaultTraceMaxNodes)
+	return finalizeToolResult(h.cachedExecute(ctx, "trace_flow:", map[string]any{"qualified_name": qn, "max_nodes": maxNodes, "workspace": request.GetString("workspace", "")}, func() (string, error) {
 		node, err := h.deps.Store.GetNode(ctx, qn)
 		if err != nil {
 			log.Error("store error", "tool", "trace_flow", trace.SlogError(err))
@@ -97,10 +141,27 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 			return "", nodeNotFoundErr(qn)
 		}
 
-		flow, err := h.deps.FlowTracer.TraceFlow(ctx, node.ID)
-		if err != nil {
-			log.Error("trace error", "node_id", node.ID, trace.SlogError(err))
-			return "", trace.Wrap(err, "trace error")
+		var flow *model.Flow
+		truncated := false
+		if bounded, ok := h.deps.FlowTracer.(BoundedFlowTracer); ok {
+			res, err := bounded.TraceFlowBounded(ctx, node.ID, flowspkg.TraceOptions{MaxNodes: maxNodes})
+			if err != nil {
+				log.Error("trace error", "node_id", node.ID, trace.SlogError(err))
+				return "", trace.Wrap(err, "trace error")
+			}
+			flow = res.Flow
+			truncated = res.Truncated
+		} else {
+			var err error
+			flow, err = h.deps.FlowTracer.TraceFlow(ctx, node.ID)
+			if err != nil {
+				log.Error("trace error", "node_id", node.ID, trace.SlogError(err))
+				return "", trace.Wrap(err, "trace error")
+			}
+			if maxNodes > 0 && len(flow.Members) > maxNodes {
+				flow.Members = flow.Members[:maxNodes]
+				truncated = true
+			}
 		}
 
 		log.Info("trace_flow completed", "qualified_name", qn, "members", len(flow.Members))
@@ -116,6 +177,11 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 		data := map[string]any{
 			"name":    flow.Name,
 			"members": members,
+			"metadata": map[string]any{
+				"truncated":      truncated,
+				"max_nodes":      maxNodes,
+				"returned_nodes": len(members),
+			},
 		}
 		result, err := marshalJSON(data)
 		if err != nil {
@@ -141,6 +207,12 @@ func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolReques
 		return missingParamResult(err)
 	}
 	base := request.GetString("base", "HEAD~1")
+
+	validatedRepoRoot, err := h.validateRepoRoot(repoRoot)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	repoRoot = validatedRepoRoot
 
 	log.Info("detect_changes called", "repo_root", repoRoot, "base", base)
 
@@ -193,6 +265,12 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 		return missingParamResult(err)
 	}
 	base := request.GetString("base", "HEAD~1")
+
+	validatedRepoRoot, err := h.validateRepoRoot(repoRoot)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	repoRoot = validatedRepoRoot
 
 	log.Info("get_affected_flows called", "repo_root", repoRoot, "base", base)
 
@@ -323,4 +401,41 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 		}
 		return result, nil
 	}))
+}
+
+func (h *handlers) validateRepoRoot(repoRoot string) (string, error) {
+	if repoRoot == "" {
+		return "", fmt.Errorf("repo_root is required")
+	}
+	allowed := h.deps.RepoRoot
+	if allowed == "" {
+		allowed = h.deps.WorkspaceRoot
+	}
+	if allowed == "" {
+		return "", fmt.Errorf("analysis repo root is not configured")
+	}
+	repo, err := canonicalPath(repoRoot)
+	if err != nil {
+		return "", fmt.Errorf("invalid repo_root: %w", err)
+	}
+	base, err := canonicalPath(allowed)
+	if err != nil {
+		return "", fmt.Errorf("invalid configured repo root: %w", err)
+	}
+	if repo != base && !strings.HasPrefix(repo, base+string(os.PathSeparator)) {
+		return "", fmt.Errorf("repo_root %q is outside configured analysis root", repoRoot)
+	}
+	return repo, nil
+}
+
+func canonicalPath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	real, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(real), nil
 }
