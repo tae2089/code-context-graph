@@ -47,12 +47,12 @@ func (s *Service) nodesByEdge(ctx context.Context, nodeID uint, kind model.EdgeK
 		q = s.db.WithContext(ctx).
 			Where("nodes.namespace = ?", ns).
 			Joins("JOIN edges ON edges.from_node_id = nodes.id").
-			Where("edges.to_node_id = ? AND edges.kind = ?", nodeID, kind)
+			Where("edges.namespace = ? AND edges.to_node_id = ? AND edges.kind = ?", ns, nodeID, kind)
 	default:
 		q = s.db.WithContext(ctx).
 			Where("nodes.namespace = ?", ns).
 			Joins("JOIN edges ON edges.to_node_id = nodes.id").
-			Where("edges.from_node_id = ? AND edges.kind = ?", nodeID, kind)
+			Where("edges.namespace = ? AND edges.from_node_id = ? AND edges.kind = ?", ns, nodeID, kind)
 	}
 	if err := q.Find(&nodes).Error; err != nil {
 		return nil, err

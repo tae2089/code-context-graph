@@ -52,7 +52,13 @@ func seedNodeNS(t *testing.T, db *gorm.DB, id uint, name string, kind model.Node
 
 func seedEdge(t *testing.T, db *gorm.DB, from, to uint, kind model.EdgeKind) {
 	t.Helper()
+	seedEdgeNS(t, db, from, to, kind, "")
+}
+
+func seedEdgeNS(t *testing.T, db *gorm.DB, from, to uint, kind model.EdgeKind, ns string) {
+	t.Helper()
 	e := model.Edge{
+		Namespace:   ns,
 		FromNodeID:  from,
 		ToNodeID:    to,
 		Kind:        kind,
@@ -300,8 +306,8 @@ func TestNodesByEdge_RespectsNamespace(t *testing.T) {
 	seedNodeNS(t, db, 2, "CalleeA", model.NodeKindFunction, "a.go", "ns-a")
 	seedNodeNS(t, db, 3, "CallerB", model.NodeKindFunction, "b.go", "ns-b")
 	seedNodeNS(t, db, 4, "CalleeB", model.NodeKindFunction, "b.go", "ns-b")
-	seedEdge(t, db, 1, 2, model.EdgeKindCalls)
-	seedEdge(t, db, 3, 4, model.EdgeKindCalls)
+	seedEdgeNS(t, db, 1, 2, model.EdgeKindCalls, "ns-a")
+	seedEdgeNS(t, db, 3, 4, model.EdgeKindCalls, "ns-b")
 
 	svc := New(db)
 
