@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"gorm.io/gorm"
@@ -91,14 +92,8 @@ func (s *SQLiteBackend) rebuildTable(ctx context.Context, db *gorm.DB, tableName
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		insertSQL := fmt.Sprintf("INSERT INTO %s(node_id, content, language, namespace) VALUES (?, ?, ?, ?)", tableName)
-		for _, doc := range batchDocs {
-			if err := tx.WithContext(ctx).Exec(
-				insertSQL,
-				doc.NodeID, doc.Content, doc.Language, doc.Namespace,
-			).Error; err != nil {
-				return trace.Wrap(err, "insert fts row")
-			}
+		if err := insertSQLiteFTSBatch(ctx, tx, tableName, batchDocs); err != nil {
+			return trace.Wrap(err, "insert fts batch "+strconv.Itoa(batch))
 		}
 		return nil
 	})
@@ -106,6 +101,32 @@ func (s *SQLiteBackend) rebuildTable(ctx context.Context, db *gorm.DB, tableName
 		return trace.Wrap(result.Error, "load docs")
 	}
 	return nil
+}
+
+func insertSQLiteFTSBatch(ctx context.Context, tx *gorm.DB, tableName string, docs []model.SearchDocument) error {
+	if len(docs) == 0 {
+		return nil
+	}
+	insertSQL, args := buildSQLiteFTSInsert(tableName, docs)
+	return tx.WithContext(ctx).Exec(insertSQL, args...).Error
+}
+
+func buildSQLiteFTSInsert(tableName string, docs []model.SearchDocument) (string, []any) {
+	if len(docs) == 0 {
+		return "", nil
+	}
+	placeholders := make([]string, len(docs))
+	args := make([]any, 0, len(docs)*4)
+	for i, doc := range docs {
+		placeholders[i] = "(?, ?, ?, ?)"
+		args = append(args, doc.NodeID, doc.Content, doc.Language, doc.Namespace)
+	}
+	insertSQL := fmt.Sprintf(
+		"INSERT INTO %s(node_id, content, language, namespace) VALUES %s",
+		tableName,
+		strings.Join(placeholders, ", "),
+	)
+	return insertSQL, args
 }
 
 // Query는 FTS5 MATCH 질의로 관련 노드를 검색한다.

@@ -376,3 +376,36 @@ func TestSQLiteFTS_Rebuild_BatchesLargeDatasets(t *testing.T) {
 		t.Fatalf("expected %d rows after batched rebuild, got %d", sqliteFTSRebuildBatchSize+25, count)
 	}
 }
+
+func TestInsertSQLiteFTSBatch_BuildsMultiValuesInsert(t *testing.T) {
+	docs := []model.SearchDocument{
+		{NodeID: 1, Content: "alpha", Language: "go", Namespace: "ns-a"},
+		{NodeID: 2, Content: "beta", Language: "go", Namespace: "ns-b"},
+	}
+
+	insertSQL, args := buildSQLiteFTSInsert(sqliteFTSTable, docs)
+
+	wantSQL := "INSERT INTO search_fts(node_id, content, language, namespace) VALUES (?, ?, ?, ?), (?, ?, ?, ?)"
+	if insertSQL != wantSQL {
+		t.Fatalf("unexpected SQL:\n got: %s\nwant: %s", insertSQL, wantSQL)
+	}
+	if len(args) != 8 {
+		t.Fatalf("expected 8 args, got %d", len(args))
+	}
+	wantArgs := []any{uint(1), "alpha", "go", "ns-a", uint(2), "beta", "go", "ns-b"}
+	for i := range wantArgs {
+		if args[i] != wantArgs[i] {
+			t.Fatalf("arg[%d] = %#v, want %#v", i, args[i], wantArgs[i])
+		}
+	}
+}
+
+func TestBuildSQLiteFTSInsert_EmptyBatch(t *testing.T) {
+	insertSQL, args := buildSQLiteFTSInsert(sqliteFTSTable, nil)
+	if insertSQL != "" {
+		t.Fatalf("expected empty SQL for empty batch, got %q", insertSQL)
+	}
+	if args != nil {
+		t.Fatalf("expected nil args for empty batch, got %#v", args)
+	}
+}
