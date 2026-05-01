@@ -56,9 +56,9 @@ func (s *Store) UpsertNodes(ctx context.Context, nodes []model.Node) error {
 	}
 	err := s.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "namespace"}, {Name: "qualified_name"}},
+			Columns: []clause.Column{{Name: "namespace"}, {Name: "qualified_name"}, {Name: "file_path"}, {Name: "start_line"}},
 			DoUpdates: clause.AssignmentColumns([]string{
-				"kind", "name", "file_path", "start_line", "end_line", "hash", "language",
+				"kind", "name", "end_line", "hash", "language",
 			}),
 		}).
 		CreateInBatches(nodes, 100).Error
@@ -200,6 +200,67 @@ func (s *Store) DeleteNodesByFile(ctx context.Context, filePath string) error {
 		}
 
 		return tx.Where("id IN ?", nodeIDs).Delete(&model.Node{}).Error
+	})
+}
+
+// DeleteGraph는 현재 namespace의 그래프 상태 전체를 제거한다.
+// @intent full rebuild 또는 include_paths rebuild 전에 namespace 범위 상태를 교체한다.
+// @sideEffect namespace에 속한 nodes, edges, annotations, doc_tags를 모두 삭제한다.
+func (s *Store) DeleteGraph(ctx context.Context) error {
+	ns := ctxns.FromContext(ctx)
+	var nodeIDs []uint
+	var filePaths []string
+	if err := s.db.WithContext(ctx).
+		Model(&model.Node{}).
+		Where("namespace = ?", ns).
+		Pluck("id", &nodeIDs).Error; err != nil {
+		return trace.Wrap(err, "pluck namespace node ids")
+	}
+	if err := s.db.WithContext(ctx).
+		Model(&model.Node{}).
+		Where("namespace = ?", ns).
+		Distinct().
+		Pluck("file_path", &filePaths).Error; err != nil {
+		return trace.Wrap(err, "pluck namespace file paths")
+	}
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if len(filePaths) > 0 {
+			if err := tx.
+				Where("file_path IN ?", filePaths).
+				Delete(&model.Edge{}).Error; err != nil {
+				return trace.Wrap(err, "delete namespace file-owned edges")
+			}
+		}
+
+		if len(nodeIDs) > 0 {
+			if err := tx.
+				Where("annotation_id IN (?)",
+					tx.Model(&model.Annotation{}).Select("id").Where("node_id IN ?", nodeIDs),
+				).Delete(&model.DocTag{}).Error; err != nil {
+				return trace.Wrap(err, "delete namespace doc_tags")
+			}
+
+			if err := tx.
+				Where("node_id IN ?", nodeIDs).
+				Delete(&model.Annotation{}).Error; err != nil {
+				return trace.Wrap(err, "delete namespace annotations")
+			}
+
+			if err := tx.
+				Where("from_node_id IN ? OR to_node_id IN ?", nodeIDs, nodeIDs).
+				Delete(&model.Edge{}).Error; err != nil {
+				return trace.Wrap(err, "delete namespace connected edges")
+			}
+
+			if err := tx.
+				Where("id IN ?", nodeIDs).
+				Delete(&model.Node{}).Error; err != nil {
+				return trace.Wrap(err, "delete namespace nodes")
+			}
+		}
+
+		return nil
 	})
 }
 

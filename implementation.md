@@ -187,3 +187,170 @@ Tidy First + TDD:
 - `internal/parse/treesitter/queries/python/tags.scm` — Python 쿼리
 - `internal/parse/treesitter/queries/rust/tags.scm` — Rust 쿼리
 - `testdata/binding_gap/{python,java,rust,c}/` — P0 fixture
+
+---
+
+## 2026-04-21 — Python prefix docstring `doc_tags` 누락 수정
+
+### 문제 재정의
+
+Python docstring 수집 자체는 이미 동작하지만, `r"""..."""`, `f"""..."""`, `b"""..."""`, `rb"""..."""` 같은 prefix가 붙은 문자열은 `Normalizer.stripBlockDelimiters()`가 앞의 prefix를 제거하지 못해 `@intent`가 문자열 시작에 오지 않는다. 그 결과 annotation parser가 `@tag`로 인식하지 못하고 `doc_tags`가 비게 된다.
+
+### 최소 수정 전략
+
+- walker / binder는 유지
+- Python normalizer에서만 **파싱용 텍스트**에 한해 string prefix를 제거
+- prefix 제거 후 기존 triple-quote delimiter 제거 로직을 재사용
+- 원본 source text(`CommentBlock.Text`)는 변경하지 않음
+
+### 지원 prefix 범위
+
+- 단일: `r`, `f`, `b`, `u`
+- 조합: `rb`, `br`, `rf`, `fr`, `ur`, `ru`
+
+### TDD
+
+1. `internal/annotation/normalizer_test.go`
+   - prefix별 normalize 결과가 `@intent ...` 로 시작하는지 검증
+2. `internal/parse/treesitter/python_docstring_prefix_binding_test.go`
+   - 실제 walker → binder 경로에서 각 함수의 `@intent` 바인딩 검증
+
+---
+
+## 2026-04-21 — incremental rebuild stale node 정리 설계
+
+### 문제
+
+`internal/service/indexer.go`의 파일 처리 루프는 같은 파일을 재빌드할 때 새로 파싱된 노드만 `UpsertNodes` 한다.
+이 경로는 **사라진 선언**을 별도로 지우지 않으므로, 예를 들어 `Remove()` 함수가 파일에서 삭제되어도 이전 빌드의 node가 DB에 남는다.
+
+### 요구 동작
+
+- 파일 단위 incremental rebuild 시 저장 트랜잭션 안에서 기존 파일 노드를 먼저 제거한다.
+- 제거 범위는 해당 파일의 node뿐 아니라 연결 edge / annotation / doc_tags까지 포함해야 한다.
+- 이후 현재 파싱 결과를 `UpsertNodes` 해서 최신 상태만 남긴다.
+
+### 설계
+
+1. `gormstore.DeleteNodesByFile(ctx, filePath)` 재사용
+   - 구현 실측 결과 이미 존재
+   - filePath+namespace 기준으로 node id를 모은 뒤 edge, doc_tags, annotation, node 순으로 cascade delete
+
+2. `GraphService.Build()`의 파일별 트랜잭션 순서 변경
+   - 기존: `UpsertNodes` → annotation binding
+   - 변경: `DeleteNodesByFile` → `UpsertNodes` → annotation binding
+
+3. TDD 계약
+   - 첫 빌드: `sample.go`에 `Keep`, `Remove`
+   - 두 번째 빌드: 동일 파일에서 `Remove` 삭제
+   - 기대: `GetNodesByFile("sample.go")` 결과의 function 이름은 `Keep`만 존재
+
+### 이유
+
+- `UpsertNodes`는 conflict key가 같은 노드만 갱신하므로, **삭제된 심볼**은 절대 없어지지 않는다.
+- 파일 단위 재파싱은 "해당 파일의 선언 집합을 전부 다시 계산"하는 작업이므로 replace semantics가 맞다.
+- 삭제를 같은 트랜잭션 안에서 수행하면 stale 상태가 중간에 노출되지 않는다.
+
+---
+
+## 2026-04-21 — 코드리뷰 후속 설계 수정
+
+### 1. Build/parse의 include_paths 의미 재정의
+
+기존 `Build()`/`walkAndParse()`는 include_paths가 있을 때 **선택된 파일만 추가 파싱**했지만,
+DB에는 이전 빌드의 비선택 파일 상태가 남아 있었다. 이는 기존 CLI/MCP 테스트 계약
+(`include_paths 밖 노드는 존재하면 안 됨`)과도 맞지 않는다.
+
+이번 수정에서는 의미를 다음처럼 고정한다.
+
+- `Build()` / `walkAndParse()`는 항상 **replace semantics**
+- `include_paths`는 "무엇을 남길 것인가"를 제한하는 필터
+- 따라서 빌드 시작 시 현재 namespace 그래프를 먼저 비우고,
+  이번 실행에서 관측된 파일만 다시 적재한다.
+
+이 방식은 코드리뷰에서 지적된 cross-file edge 유실 문제를 edge 보존으로 우회하지 않고,
+**노드/엣지/annotation 전체를 입력 집합 기준 최종 상태로 수렴**시킨다.
+
+### 2. unreadable / parse failure 정책
+
+기존에는 파일 읽기/파싱이 실패하면 해당 파일만 skip하고 이전 그래프 상태를 남겼다.
+하지만 replace semantics 기준에서는 이것이 stale data다.
+
+선택한 정책:
+
+- build start → graph reset
+- 이후 unreadable/parse failure 파일은 단순히 재적재되지 않음
+- 결과적으로 이전 상태는 제거되고, 현재 정상적으로 읽힌 파일만 그래프에 남음
+
+즉, "마지막 정상 상태 유지"가 아니라 **"현재 관측 가능한 상태만 유지"** 정책이다.
+
+### 3. Python docstring prefix 범위 축소
+
+이전 수정은 `f`, `b`, `rb`, `fr`까지 모두 docstring처럼 수집/정규화했다.
+하지만 이는 Python 런타임 의미의 문서화 문자열보다 범위가 넓다.
+
+선택한 정책:
+
+- 허용: plain triple-quoted string, `r`, `u`
+- 비허용: `f`, `b`, `rb`, `fr` 등 실행/bytes 성격 literal
+
+적용 지점:
+
+1. `walker.collectDocstrings()` 단계에서 비허용 prefix는 docstring으로 수집하지 않음
+2. `normalizer.stripPythonDocstringDelimiters()`도 동일한 허용 집합만 처리
+
+이중 방어로 수집/정규화 의미를 일치시킨다.
+
+---
+
+## 2026-04-21 — 재코드리뷰 후속 설계 수정
+
+### 1. `DeleteGraph()`의 삭제 순서 보정
+
+기존 `DeleteGraph()`는 namespace node를 먼저 지우고 난 뒤,
+`file_path IN (SELECT file_path FROM nodes WHERE namespace=...)` 형태로 file-owned edge를 지우려 했다.
+하지만 같은 트랜잭션 안에서 node를 이미 삭제한 뒤라 subquery가 빈 결과가 되어,
+**walker가 생성한 unresolved edge(From/To node id = 0)** 가 남을 수 있었다.
+
+수정 원칙:
+
+- 삭제 전에 namespace의 `file_path` 목록을 먼저 조회
+- 트랜잭션 시작 후 **file-owned edge를 먼저 삭제**
+- 이후 connected edges / annotations / doc_tags / nodes 삭제
+
+이 순서여야 node-id 기반 edge와 file_path 기반 unresolved edge를 모두 정리할 수 있다.
+
+### 2. replace semantics의 실패 경계 재정의
+
+이전 수정은 build 시작 시 바로 `DeleteGraph()`를 실행했다.
+이 경우 root path typo, root access failure, root-level walk error가 나면
+**새 그래프는 못 만들었는데 기존 그래프는 이미 삭제**되는 문제가 생긴다.
+
+새 정책:
+
+- `Build()` / `walkAndParse()`는 먼저 **root stat + preflight walk** 수행
+- preflight가 성공했을 때만 reset 시작
+- reset 이후 개별 파일 read/parse 실패는 기존 정책대로 skip
+
+즉, 실패를 두 종류로 나눈다.
+
+1. **입력 집합 자체를 확정할 수 없는 실패** (missing root, root-level walk 실패)
+   - reset 금지, 기존 graph 보존
+2. **입력 집합은 확정됐지만 개별 파일만 읽지 못하는 실패**
+   - reset 후 현재 읽힌 파일만 반영
+
+### 3. MCP incremental + `include_paths` 계약 통일
+
+재코드리뷰에서 MCP `full_rebuild=false` 경로는 여전히 merge semantics라서,
+문서/커밋 메시지의 "scoped rebuilds replace graph state"와 어긋난다는 지적이 나왔다.
+
+수정 방향:
+
+- MCP incremental 인터페이스를 `SyncWithExisting(ctx, files, existingFiles)`까지 확장
+- `build_or_update_graph` incremental 경로에서 DB의 기존 `file_path` 집합을 수집
+- `include_paths`로 제한된 현재 snapshot과 기존 file set을 함께 `SyncWithExisting()`에 전달
+
+결과:
+
+- incremental + `include_paths`도 excluded path 삭제 포함
+- full rebuild / incremental rebuild 모두 "현재 선택 입력 집합으로 수렴" 계약 유지

@@ -324,6 +324,42 @@ func TestDeleteEdgesByFile(t *testing.T) {
 	}
 }
 
+func TestDeleteGraph_RemovesUnresolvedEdgesByFilePath(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := ctxns.WithNamespace(context.Background(), "ns-a")
+
+	if err := s.UpsertNodes(ctx, []model.Node{{
+		QualifiedName: "pkg.A",
+		Kind:          model.NodeKindFunction,
+		Name:          "A",
+		FilePath:      "a.go",
+		StartLine:     1,
+		EndLine:       2,
+		Language:      "go",
+	}}); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+
+	if err := s.UpsertEdges(ctx, []model.Edge{
+		{Kind: model.EdgeKindCalls, FilePath: "a.go", Line: 1, Fingerprint: "calls:a.go:pkg.B:1"},
+		{Kind: model.EdgeKindContains, FilePath: "a.go", Line: 1, Fingerprint: "contains:a.go:pkg.A"},
+	}); err != nil {
+		t.Fatalf("UpsertEdges: %v", err)
+	}
+
+	if err := s.DeleteGraph(ctx); err != nil {
+		t.Fatalf("DeleteGraph: %v", err)
+	}
+
+	var edgeCount int64
+	if err := s.db.Model(&model.Edge{}).Where("file_path = ?", "a.go").Count(&edgeCount).Error; err != nil {
+		t.Fatalf("count edges: %v", err)
+	}
+	if edgeCount != 0 {
+		t.Fatalf("expected 0 unresolved/file-owned edges after DeleteGraph, got %d", edgeCount)
+	}
+}
+
 func TestUpsertAnnotation_Insert(t *testing.T) {
 	s := setupTestDB(t)
 	ctx := context.Background()
@@ -747,6 +783,74 @@ func TestDeleteNodesByFile_FiltersByNamespace(t *testing.T) {
 	got, _ = s.GetNode(ctxB, "b.F")
 	if got == nil {
 		t.Error("expected namespace b node to still exist")
+	}
+}
+
+func TestUpsertNodes_CrossFile_SameQualifiedName_BothSurvive(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := context.Background()
+
+	// Cross-file: 서로 다른 파일에 동일한 qualified_name을 가진 노드
+	// 예: C의 add (c/attr.c:3) vs Python의 add (python/oneline.py:2)
+	nodes := []model.Node{
+		{QualifiedName: "add", Kind: model.NodeKindFunction, Name: "add", FilePath: "c/attr.c", StartLine: 3, EndLine: 5, Language: "c"},
+		{QualifiedName: "add", Kind: model.NodeKindFunction, Name: "add", FilePath: "python/oneline.py", StartLine: 2, EndLine: 4, Language: "python"},
+	}
+	if err := s.UpsertNodes(ctx, nodes); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+
+	// 두 노드 모두 DB에 존재해야 한다
+	var count int64
+	s.db.Model(&model.Node{}).Where("qualified_name = ?", "add").Count(&count)
+	if count != 2 {
+		t.Errorf("expected 2 nodes with qualified_name='add', got %d", count)
+	}
+
+	// 각 file_path별로 올바른 노드가 있어야 한다
+	var cNode model.Node
+	err := s.db.Where("qualified_name = ? AND file_path = ?", "add", "c/attr.c").First(&cNode).Error
+	if err != nil {
+		t.Errorf("C node not found: %v", err)
+	}
+	var pyNode model.Node
+	err = s.db.Where("qualified_name = ? AND file_path = ?", "add", "python/oneline.py").First(&pyNode).Error
+	if err != nil {
+		t.Errorf("Python node not found: %v", err)
+	}
+}
+
+func TestUpsertNodes_SameFile_SameQualifiedName_DifferentLine_BothSurvive(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := context.Background()
+
+	// Same-file: 같은 파일에 동일 qualified_name, 다른 start_line
+	// 예: Alpha.save (line 7) vs Beta.save (line 15) — 둘 다 QN = "save"
+	nodes := []model.Node{
+		{QualifiedName: "save", Kind: model.NodeKindFunction, Name: "save", FilePath: "python/dup_methods.py", StartLine: 7, EndLine: 9, Language: "python"},
+		{QualifiedName: "save", Kind: model.NodeKindFunction, Name: "save", FilePath: "python/dup_methods.py", StartLine: 15, EndLine: 17, Language: "python"},
+	}
+	if err := s.UpsertNodes(ctx, nodes); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+
+	// 두 노드 모두 DB에 존재해야 한다
+	var count int64
+	s.db.Model(&model.Node{}).Where("qualified_name = ? AND file_path = ?", "save", "python/dup_methods.py").Count(&count)
+	if count != 2 {
+		t.Errorf("expected 2 nodes with qualified_name='save' in same file, got %d", count)
+	}
+
+	// start_line으로 구분 가능해야 한다
+	var node1 model.Node
+	err := s.db.Where("qualified_name = ? AND start_line = ?", "save", 7).First(&node1).Error
+	if err != nil {
+		t.Errorf("node at line 7 not found: %v", err)
+	}
+	var node2 model.Node
+	err = s.db.Where("qualified_name = ? AND start_line = ?", "save", 15).First(&node2).Error
+	if err != nil {
+		t.Errorf("node at line 15 not found: %v", err)
 	}
 }
 

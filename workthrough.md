@@ -319,3 +319,176 @@
 - **전역 보정이 기존 Red 테스트를 깨면, 테스트 스코프에서 명시적 Red로 전환하는 게 더 낫다**. walker.collectComments의 trailing-newline 보정은 single line_comment만을 고쳐야 하는데 merge된 block까지 같이 줄여 gap=2 계약을 위반함. "코드 수정 전에 기존 Red 테스트가 무엇을 고정하고 있는지" 확인하고, 수정 스코프가 겹치면 테스트 레벨 표현(expectBound=false + redReason)로 일단 "현상 고정"한 뒤 나중에 walker 보정과 함께 승격.
 - **SKIP보다 Red 계약이 회귀 탐지력이 높다**. Skip은 "그냥 안 돈다"로 눈에 안 띄지만, Red 계약(expectBound=false)은 구현이 우연히 고쳐져도 즉시 실패 → 엔지니어가 Green 승격을 안 하고 방치하는 실수를 잡는다.
 - **Kind + Name 동시 매칭으로 false-positive를 선제 차단**. 심볼 이름만으로 매칭하면 다른 종류(변수, 타입)가 동명이면 엉뚱한 binding을 잡을 수 있음. LangSpec/grammar가 변경될 때의 예기치 않은 동작을 리뷰어 1회 검토로 끝내지 않고 테스트 구조에 박아 두는 게 안전.
+
+---
+
+## 2026-04-21 — Python prefix docstring `doc_tags` 회귀
+
+### Red
+- `testdata/binding_gap/python/docstring_prefix.py`를 `r/f/b/rb/fr/u` prefix 케이스까지 확장
+- `internal/annotation/normalizer_test.go`에 prefix normalize Red 테스트 추가
+- `internal/parse/treesitter/python_docstring_prefix_binding_test.go`에 실제 walker→binder 경로 바인딩 Red 테스트 추가
+- 실패 확인:
+  - normalizer가 `r"""..."""` 등 prefix를 제거하지 못함
+  - binder 결과에서 `foo` 함수의 `@intent`가 비어 있음
+
+### Green 설계
+- 원인: docstring 수집은 정상이나 Python `stripBlockDelimiters()`가 따옴표 앞 prefix를 모름
+- 수정: normalizer에 `stripPythonStringPrefix()` 추가 후, delimiter 제거 전에 파싱용 문자열만 prefix 제거
+- 범위 최소화: walker/binder/원본 CommentBlock.Text 불변
+
+---
+
+## 2026-04-21 — incremental rebuild stale node 정리
+
+### 배경
+- 사용자 요청: `internal/service/indexer.go` incremental rebuild 경로에서 `DeleteNodesByFile`을 호출해 stale node를 정리하도록 TDD로 구현.
+
+### 컨텍스트 확인
+- `internal/store/store.go`에 `DeleteNodesByFile(ctx, filePath string) error` 계약이 이미 존재함 확인.
+- `internal/store/gormstore/gormstore.go` 실측 결과 구현도 이미 존재.
+  - namespace/file_path 기준 node id 조회
+  - 관련 edge, doc_tags, annotation, node cascade 삭제
+- 실제 누락 지점은 `GraphService.Build()`의 파일별 트랜잭션이었음. 현재는 `UpsertNodes`만 수행해 삭제된 선언이 영구 잔존.
+
+### Red
+- `internal/service/indexer_test.go`에 `TestBuild_IncrementalRebuild_RemovesStaleNodesBeforeUpsert` 추가.
+- 시나리오:
+  1. `sample.go`에 `Keep`, `Remove` 2개 함수로 1차 빌드
+  2. 같은 파일을 `Keep`만 남기도록 축소 후 2차 빌드
+  3. `GetNodesByFile("sample.go")`의 function 이름이 `Keep`만 남아야 함
+- 실제 Red 결과: 2차 빌드 후도 `got=[Keep Remove]` → stale node 재현 성공.
+
+### Green
+- `internal/service/indexer.go` 파일 처리 트랜잭션 시작 직후 `txStore.DeleteNodesByFile(ctx, relPath)` 호출 추가.
+- 그 다음 `UpsertNodes(ctx, nodes)` 실행하도록 순서 변경.
+- 이유: 파일 재빌드는 merge가 아니라 replace semantics여야 하므로 이전 파일 노드를 먼저 제거해야 함.
+
+### 결과
+- 신규 Red 테스트 Green 전환 확인.
+- 이번 변경으로 gormstore 구현 추가는 불필요했음. 기존 구현 재사용으로 해결.
+
+### 교훈
+- `Upsert`만으로는 절대 "삭제"를 표현할 수 없다. incremental rebuild가 사실상 file-level replace이면 delete-first가 계약이어야 한다.
+- 저장소 계층에 이미 올바른 primitive(`DeleteNodesByFile`)가 있어도 orchestration 계층에서 호출하지 않으면 기능은 없는 것과 같다. 이런 버그는 단위 테스트보다 시나리오 기반 서비스 테스트가 더 잘 잡는다.
+
+---
+
+## 2026-04-21 — 코드리뷰 후속 3건 동시 수정
+
+### 배경
+독립 코드리뷰에서 3개 리스크가 나왔다.
+
+1. include_paths 부분 재빌드에서 cross-file edge 유실
+2. read/parse 실패 시 stale state 잔존
+3. Python docstring prefix 허용 범위 과확장
+
+처음엔 1번을 "edge만 보존" 쪽으로 고칠 수도 있었지만, 기존 CLI/MCP 테스트를 다시 읽어보니
+이 프로젝트의 `include_paths` 의미는 원래부터 **선택된 경로만 그래프에 남는 replace semantics**였다.
+즉 리뷰 코멘트의 표면 현상은 edge 유실이지만, 더 근본 원인은 빌드가 증분 merge처럼 동작한 데 있었다.
+
+### 실제 수정
+
+- `store.GraphStore`에 `DeleteGraph(ctx)` 추가
+- `gormstore.Store.DeleteGraph()` 구현
+  - namespace 범위의 nodes / annotations / doc_tags / connected edges 전부 제거
+- `GraphService.Build()` 시작 시 `DeleteGraph(ctx)` 호출
+- MCP `walkAndParse()`도 동일하게 시작 시 `DeleteGraph(ctx)` 호출
+
+이렇게 해서:
+
+- full rebuild → 전체 그래프 교체
+- include_paths rebuild → 선택된 경로만 남도록 그래프 교체
+- unreadable/parse failure 파일 → 이전 상태 제거 후 재적재되지 않으므로 stale state 제거
+
+### Python docstring 쪽 수정
+
+리뷰대로 `f`, `b`, `rb`, `fr`까지 docstring처럼 취급하는 건 범위를 넓힌 것이었다.
+
+- `walker.tryExtractDocstring()` 앞단에서 literal prefix 검사 추가
+- 허용: plain / `r` / `u`
+- 비허용: `f` / `b` / `rb` / `fr`
+- `normalizer`도 같은 허용 집합만 delimiter strip 수행
+
+즉, 수집 단계와 정규화 단계의 의미를 맞췄다.
+
+### Red → Green 확인 포인트
+
+- service test:
+  - include_paths scoped rebuild 후 excluded file 노드 제거
+  - broken symlink unreadable file 후 이전 노드 제거
+- cli test:
+  - `build --path src/api` 재실행 시 이전 `src/other` 노드 제거
+- mcp e2e:
+  - `build_or_update_graph(full)` 후 `build_or_update_graph(scoped)` 시 excluded node 제거
+- annotation/treesitter test:
+  - `r`/`u`만 바인딩
+  - `f`/`b`/`rb`/`fr`는 바인딩되지 않음
+
+### 교훈
+
+1. 코드리뷰 코멘트는 현상 단위로 오기 쉽다. 하지만 기존 테스트 계약까지 다시 읽으면 더 근본적인 설계 불일치를 찾을 수 있다.
+2. `include_paths`는 "부분 업데이트"가 아니라 "남길 입력 집합 제한"이었다. 계약을 테스트에서 다시 읽어내는 것이 중요했다.
+3. docstring 문제는 normalizer만 고쳐선 안 되고, walker 수집 의미와 일치해야 한다. 수집/정규화가 서로 다른 의미를 가지면 다시 회귀한다.
+
+---
+
+## 2026-04-21 — 재코드리뷰 후속 3건 동시 수정
+
+### 배경
+재코드리뷰에서 새로 3개가 잡혔다.
+
+1. `DeleteGraph()`가 unresolved edge를 못 지움
+2. build/parse가 root-level failure 전에 graph를 먼저 지움
+3. MCP incremental + `include_paths`는 아직 replace semantics가 아님
+
+### Red에서 확인한 사실
+
+- `gormstore.DeleteGraph()`는 실제로 `file_path="a.go"`인 unresolved edge 2개를 남겼다.
+- `GraphService.Build()`는 missing root로 실패한 뒤 기존 `sample.go` node를 날렸다.
+- `parse_project`는 missing root에서 에러도 없이 `parsed=0`으로 끝나고 기존 graph도 지웠다.
+- `build_or_update_graph(full_rebuild=false, include_paths=[src/api])`는 기존 `src/other` 노드를 그대로 남겼다.
+
+즉 이번엔 리뷰 코멘트가 전부 실제 버그였다.
+
+### 수정 내용
+
+#### 1) DeleteGraph 순서 수정
+- namespace의 `file_path` 목록을 **삭제 전에** 조회
+- 트랜잭션에서 `file_path IN ?` edge 삭제를 먼저 수행
+- 그 다음 node-id 연결 edge / annotations / doc_tags / nodes 삭제
+
+이걸로 parser가 남긴 zero-id edge까지 reset 시 깨끗하게 비워진다.
+
+#### 2) preflight 후 reset
+- `Build()`는 `os.Stat(absDir)` + preflight `filepath.Walk` 성공 후에만 `DeleteGraph()` 호출
+- `walkAndParse()`도 동일하게 변경
+- root path typo / root-level walk 실패는 **기존 graph 보존 + error 반환**으로 바뀜
+
+다만 개별 파일 read/parse 실패는 이전 정책 그대로 유지했다.
+이건 사용자가 원했던 "관측 가능한 현재 입력 집합으로 수렴"과도 맞다.
+
+#### 3) MCP incremental replace semantics 통일
+- `internal/mcp/server.go`의 `IncrementalSyncer` 인터페이스를 `SyncWithExisting()`까지 확장
+- `build_or_update_graph` incremental 경로에서 DB의 기존 file_path 집합 수집
+- 현재 snapshot + 기존 file set을 함께 넘겨 excluded path도 삭제되게 함
+
+결과적으로 MCP에서도:
+
+- full rebuild + include_paths → replace
+- incremental + include_paths → replace
+
+둘 다 계약이 같아졌다.
+
+### 테스트 조정
+
+- 기존 MCP incremental 테스트는 `Sync()` 호출만 기대하고 있었는데,
+  지금은 `SyncWithExisting()`이 정답이라 기대값을 갱신했다.
+- missing root parse_project는 `callTool()`이 JSON-RPC error에서 바로 `Fatal`하므로,
+  handlers 직접 호출 경로로 바꿔 실제 error를 assert했다.
+
+### 교훈
+
+1. **replace semantics는 "언제 reset하느냐"가 핵심**이다. reset 자체보다 실패 경계가 더 중요했다.
+2. **zero-id / unresolved edge는 별도 정리 경로가 필요**하다. node-id 기반 cascade만 믿으면 안 된다.
+3. 리뷰에서 "계약 mismatch"가 나오면 문서가 아니라 테스트와 호출 인터페이스를 같이 바꿔야 한다. 이번에는 `SyncWithExisting()` 확장이 정확히 그 케이스였다.

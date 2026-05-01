@@ -38,6 +38,52 @@ func TestNormalize_PythonDocstring(t *testing.T) {
 	}
 }
 
+func TestNormalize_PythonDocstringPrefixes(t *testing.T) {
+	n := NewNormalizer()
+	accepted := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "raw", input: "r\"\"\"@intent raw docstring.\"\"\"", want: "@intent raw docstring."},
+		{name: "unicode", input: "u\"\"\"@intent unicode docstring.\"\"\"", want: "@intent unicode docstring."},
+		{name: "raw single quote", input: "r'''@intent raw single docstring.'''", want: "@intent raw single docstring."},
+	}
+
+	for _, tc := range accepted {
+		t.Run(tc.name, func(t *testing.T) {
+			got := n.Normalize(tc.input, "python")
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	rejected := []struct {
+		name  string
+		input string
+	}{
+		{name: "format", input: "f\"\"\"@intent format docstring.\"\"\""},
+		{name: "bytes", input: "b\"\"\"@intent bytes docstring.\"\"\""},
+		{name: "raw bytes", input: "rb\"\"\"@intent raw bytes docstring.\"\"\""},
+		{name: "format raw", input: "fr\"\"\"@intent format raw docstring.\"\"\""},
+		{name: "format single quote", input: "f'''@intent format single docstring.'''"},
+	}
+
+	for _, tc := range rejected {
+		t.Run("reject_"+tc.name, func(t *testing.T) {
+			got := n.Normalize(tc.input, "python")
+			if got == "@intent format docstring." ||
+				got == "@intent bytes docstring." ||
+				got == "@intent raw bytes docstring." ||
+				got == "@intent format raw docstring." ||
+				got == "@intent format single docstring." {
+				t.Fatalf("unsupported python literal prefix should not normalize as docstring: %q", got)
+			}
+		})
+	}
+}
+
 func TestNormalize_JavaDocComment(t *testing.T) {
 	n := NewNormalizer()
 	got := n.Normalize("/**\n * 사용자 인증을 수행한다\n * @param username ID\n */", "java")

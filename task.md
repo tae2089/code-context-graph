@@ -190,3 +190,100 @@ Red fixture + 통합 테스트 작성: `testdata/binding_gap/{typescript,kotlin,
 - 테스트: `CGO_ENABLED=1 go test -tags "fts5" ./... -count=1`
 - 한 번에 한 항목만 In Progress
 - Python docstring 이슈(P0-2)는 설계 결정 B 합의 후 착수
+
+---
+
+## 2026-04-21 — Python prefix docstring `doc_tags` 파싱 회귀 수정
+
+- [x] Red: prefix docstring(`r/f/b/rb/fr/u`) fixture 확장 및 바인딩/normalizer 테스트 추가
+- [x] Green: Python normalizer가 string prefix를 제거한 뒤 triple-quote delimiter를 제거하도록 수정
+- [ ] Verify: `CGO_ENABLED=1 go test -tags "fts5" ./... -count=1` 전체 통과
+- [ ] Verify: `lsp_diagnostics` clean on changed files
+
+---
+
+## 2026-04-21 — incremental rebuild stale node 정리
+
+- [x] `internal/service/indexer_test.go`에 Red 테스트 추가
+  - `TestBuild_IncrementalRebuild_RemovesStaleNodesBeforeUpsert`
+  - 첫 빌드에서 `Keep`, `Remove` 생성 후 같은 파일을 축소 재빌드했을 때 `Remove`가 남는 실패 재현
+
+- [x] `internal/service/indexer.go` incremental rebuild 경로 수정
+  - 파일 처리 트랜잭션 시작 직후 `DeleteNodesByFile(ctx, relPath)` 호출
+  - 그 다음 `UpsertNodes` 수행하여 stale node/annotation/edge 흔적 제거 후 최신 노드 저장
+
+- [x] `gormstore` 구현 확인
+  - `internal/store/gormstore/gormstore.go`에 `DeleteNodesByFile` 구현이 이미 존재함을 확인
+  - 노드 + 연결 엣지 + annotation/doc_tags cascade 삭제까지 수행 중
+
+- [ ] 최종 검증
+  - `lsp_diagnostics` clean
+  - `CGO_ENABLED=1 go test -tags "fts5" ./... -count=1` 전체 통과
+
+---
+
+## 2026-04-21 — 코드리뷰 후속 3건 동시 수정
+
+- [x] Red: `Build()`의 include_paths 부분 재빌드가 이전 그래프 상태를 replace하지 못하는 회귀 테스트 추가
+  - `internal/service/indexer_test.go`
+  - `internal/cli/build_test.go`
+  - `internal/mcp/e2e_test.go`
+
+- [x] Green: `GraphService.Build()`와 MCP `walkAndParse()`를 namespace 단위 replace semantics로 수정
+  - 빌드 시작 시 `DeleteGraph(ctx)`로 현재 namespace 그래프 상태 초기화
+  - include_paths/full rebuild 모두 "선택된 입력만 최종 상태에 남는다" 계약으로 통일
+
+- [x] Red: unreadable/read 실패 파일이 이전 stale state를 남기는 회귀 테스트 추가
+  - `internal/service/indexer_test.go` broken symlink 시나리오
+
+- [x] Green: read/parse 실패 포함 빌드 전체를 replace semantics로 처리
+  - 빌드 시작 시 reset하므로 unreadable/parse failure 파일의 이전 상태가 남지 않음
+
+- [x] Red: Python docstring prefix 범위를 실제 문서화 의미에 맞게 제한하는 positive/negative 테스트 추가
+  - 허용: plain, `r`, `u`
+  - 비허용: `f`, `b`, `rb`, `fr`
+
+- [x] Green: Python docstring 수집/정규화에서 허용 prefix만 docstring으로 처리
+  - `internal/parse/treesitter/walker.go`
+  - `internal/annotation/normalizer.go`
+  - fixture/테스트 기대값 조정
+
+- [ ] Verify
+  - `lsp_diagnostics` clean on changed files
+  - `CGO_ENABLED=1 go test -tags "fts5" ./... -count=1`
+  - CLI/MCP e2e 관련 패키지 테스트 포함 전체 green
+
+---
+
+## 2026-04-21 — 재코드리뷰 후속 3건 동시 수정
+
+- [x] Red: `DeleteGraph()`가 unresolved/file-owned edge를 남기는 회귀 테스트 추가
+  - `internal/store/gormstore/gormstore_test.go`
+
+- [x] Green: `DeleteGraph()`가 node 삭제 전에 namespace file_path 목록을 확보하고 file-owned edge를 먼저 삭제하도록 수정
+  - unresolved edge / zero-node-id edge까지 정리
+
+- [x] Red: `Build()`의 missing root / walk 실패가 기존 graph를 지우는 회귀 테스트 추가
+  - `internal/service/indexer_test.go`
+
+- [x] Green: `Build()`는 preflight walk 성공 이후에만 graph reset 수행
+  - invalid root는 reset 전에 즉시 실패
+  - per-file read/parse 실패는 reset 이후 skip 유지 (기존 정책 유지)
+
+- [x] Red: `parse_project` missing root가 graph를 지우거나 성공처럼 보이는 회귀 테스트 추가
+  - `internal/mcp/handlers_test.go`
+
+- [x] Green: `walkAndParse()`도 root stat + preflight walk 성공 이후에만 reset 수행
+  - missing root는 error 반환, 기존 graph 보존
+
+- [x] Red: MCP incremental + `include_paths`가 replace semantics를 만족하지 않는 통합 테스트 추가
+  - `internal/mcp/handlers_test.go`
+
+- [x] Green: MCP incremental 경로를 `SyncWithExisting()` 기반으로 전환
+  - `include_paths`가 있으면 기존 file set과 비교해 excluded path도 삭제되도록 수정
+  - MCP incremental 인터페이스 확장 (`SyncWithExisting`)
+
+- [ ] Verify
+  - `lsp_diagnostics` clean
+  - `CGO_ENABLED=1 go test -tags "fts5" ./... -count=1`
+  - `CGO_ENABLED=1 go test -tags "fts5" ./internal/cli ./internal/mcp -count=1`

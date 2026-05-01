@@ -121,14 +121,23 @@ func (m *mockCommunityBuilder) Rebuild(ctx context.Context, cfg community.Config
 }
 
 type mockIncrementalSyncer struct {
-	syncCalled bool
-	files      map[string]incremental.FileInfo
-	result     *incremental.SyncStats
-	err        error
+	syncCalled       bool
+	syncWithExisting bool
+	files            map[string]incremental.FileInfo
+	existingFiles    []string
+	result           *incremental.SyncStats
+	err              error
 }
 
 func (m *mockIncrementalSyncer) Sync(ctx context.Context, files map[string]incremental.FileInfo) (*incremental.SyncStats, error) {
 	m.syncCalled = true
 	m.files = files
+	return m.result, m.err
+}
+
+func (m *mockIncrementalSyncer) SyncWithExisting(ctx context.Context, files map[string]incremental.FileInfo, existingFiles []string) (*incremental.SyncStats, error) {
+	m.syncWithExisting = true
+	m.files = files
+	m.existingFiles = append([]string(nil), existingFiles...)
 	return m.result, m.err
 }

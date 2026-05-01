@@ -272,6 +272,47 @@ func Root() {}
 	}
 }
 
+func TestBuildCommand_Path_ReplacesPreviousGraphState(t *testing.T) {
+	deps, stdout, stderr, db := setupBuildTest(t)
+
+	dir := t.TempDir()
+	apiDir := filepath.Join(dir, "src", "api")
+	otherDir := filepath.Join(dir, "src", "other")
+	os.MkdirAll(apiDir, 0755)
+	os.MkdirAll(otherDir, 0755)
+	writeGoFile(t, apiDir, "handler.go", `package api
+func Handler() {}
+`)
+	writeGoFile(t, otherDir, "other.go", `package other
+func Other() {}
+`)
+
+	if err := executeCmd(deps, stdout, stderr, "build", dir); err != nil {
+		t.Fatalf("full build failed: %v", err)
+	}
+	if err := executeCmd(deps, stdout, stderr, "build", "--path", "src/api", dir); err != nil {
+		t.Fatalf("scoped build failed: %v", err)
+	}
+
+	var nodes []model.Node
+	if err := db.Find(&nodes).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	foundHandler := false
+	for _, n := range nodes {
+		switch n.Name {
+		case "Handler":
+			foundHandler = true
+		case "Other":
+			t.Fatal("expected Other to be removed after scoped rebuild")
+		}
+	}
+	if !foundHandler {
+		t.Fatal("expected Handler to remain after scoped rebuild")
+	}
+}
+
 func TestBuildCommand_NoRecursive_SkipsSubdirs(t *testing.T) {
 	deps, stdout, stderr, db := setupBuildTest(t)
 

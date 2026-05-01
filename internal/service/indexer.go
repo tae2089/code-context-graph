@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -59,6 +60,12 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 	if err != nil {
 		return stats, trace.Wrap(err, "resolve path")
 	}
+	if _, err := os.Stat(absDir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return stats, trace.Wrap(err, "build root does not exist")
+		}
+		return stats, trace.Wrap(err, "stat build root")
+	}
 
 	s.Logger.Info("building graph", "dir", absDir)
 
@@ -67,6 +74,7 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		edges   []model.Edge
 	}
 	var allDeferred []deferredEdges
+	var walkCandidates []string
 
 	err = filepath.Walk(absDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -91,53 +99,65 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		if pathutil.MatchExcludes(opts.ExcludePatterns, relPath) {
 			return nil
 		}
-
 		if len(opts.IncludePaths) > 0 && !pathutil.MatchIncludePaths(relPath, opts.IncludePaths) {
 			return nil
 		}
+		walkCandidates = append(walkCandidates, path)
+		return nil
+	})
+	if err != nil {
+		return stats, trace.Wrap(err, "preflight walk directory")
+	}
+
+	if err := s.Store.DeleteGraph(ctx); err != nil {
+		return stats, trace.Wrap(err, "reset graph state before rebuild")
+	}
+
+	for _, path := range walkCandidates {
+		relPath, _ := filepath.Rel(absDir, path)
 
 		ext := strings.ToLower(filepath.Ext(path))
 		walker, ok := s.Walkers[ext]
 		if !ok {
-			return nil
+			continue
 		}
 
 		content, err := os.ReadFile(path)
 		if err != nil {
 			s.Logger.Warn("skip unreadable file", "path", path, trace.SlogError(err))
-			return nil
+			continue
 		}
 
 		nodes, edges, tsComments, err := walker.ParseWithComments(ctx, relPath, content)
 		if err != nil {
 			s.Logger.Warn("parse failed", "path", relPath, trace.SlogError(err))
-			return nil
+			continue
 		}
 
 		err = s.Store.WithTx(ctx, func(txStore store.GraphStore) error {
-			if len(nodes) > 0 {
-				if err := txStore.UpsertNodes(ctx, nodes); err != nil {
-					return trace.Wrap(err, "upsert nodes for "+relPath)
-				}
+			if err := txStore.UpsertNodes(ctx, nodes); err != nil {
+				return trace.Wrap(err, "upsert nodes for "+relPath)
 			}
 
-		if len(tsComments) > 0 {
-			binderComments := toBinderComments(tsComments)
-			binder := parse.NewBinder()
-			sourceLines := strings.Split(string(content), "\n")
-			bindings := binder.Bind(binderComments, nodes, walker.Language(), sourceLines)
+			if len(tsComments) > 0 {
+				binderComments := toBinderComments(tsComments)
+				binder := parse.NewBinder()
+				sourceLines := strings.Split(string(content), "\n")
+				bindings := binder.Bind(binderComments, nodes, walker.Language(), sourceLines)
 
-				qNames := make([]string, len(bindings))
-				for i, b := range bindings {
-					qNames[i] = b.Node.QualifiedName
-				}
-				storedMap, err := txStore.GetNodesByQualifiedNames(ctx, qNames)
+				storedNodes, err := txStore.GetNodesByFile(ctx, relPath)
 				if err != nil {
-					return trace.Wrap(err, "batch get nodes for annotations")
+					return trace.Wrap(err, "get stored nodes for annotations")
+				}
+				storedMap := make(map[string]*model.Node, len(storedNodes))
+				for i := range storedNodes {
+					key := storedNodes[i].QualifiedName + ":" + strconv.Itoa(storedNodes[i].StartLine)
+					storedMap[key] = &storedNodes[i]
 				}
 
 				for _, b := range bindings {
-					stored := storedMap[b.Node.QualifiedName]
+					key := b.Node.QualifiedName + ":" + strconv.Itoa(b.Node.StartLine)
+					stored := storedMap[key]
 					if stored == nil {
 						continue
 					}
@@ -151,7 +171,7 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		})
 
 		if err != nil {
-			return trace.Wrap(err, "transaction failed for "+relPath)
+			return stats, trace.Wrap(err, "transaction failed for "+relPath)
 		}
 
 		if len(edges) > 0 {
@@ -161,11 +181,6 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		stats.TotalFiles++
 		stats.TotalNodes += len(nodes)
 		stats.TotalEdges += len(edges)
-
-		return nil
-	})
-	if err != nil {
-		return stats, trace.Wrap(err, "walk directory")
 	}
 
 	for _, d := range allDeferred {
