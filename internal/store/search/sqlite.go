@@ -2,6 +2,8 @@ package search
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"strings"
 
 	"gorm.io/gorm"
@@ -10,6 +12,12 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+)
+
+const (
+	sqliteFTSTable          = "search_fts"
+	sqliteFTSUpgradeTable   = "search_fts_upgrade"
+	sqliteFTSLegacyBackup   = "search_fts_legacy_backup"
 )
 
 // SQLiteBackend는 SQLite FTS5 기반 검색 백엔드다.
@@ -27,14 +35,27 @@ func NewSQLiteBackend() *SQLiteBackend {
 // @sideEffect search_fts 가상 테이블을 생성할 수 있다.
 // @ensures FTS5를 사용할 수 있으면 search_fts가 존재한다.
 func (s *SQLiteBackend) Migrate(db *gorm.DB) error {
-	if err := db.Exec(`
-		CREATE VIRTUAL TABLE IF NOT EXISTS search_fts
-		USING fts5(node_id, content, language)
-	`).Error; err != nil {
+	existed, err := sqliteTableExists(db, sqliteFTSTable)
+	if err != nil {
+		return trace.Wrap(err, "check fts table")
+	}
+	if err := createSQLiteFTSTable(db, sqliteFTSTable, true); err != nil {
 		if strings.Contains(err.Error(), "no such module: fts5") {
 			return trace.Wrap(ErrFTS5NotAvailable, err.Error())
 		}
 		return err
+	}
+	hasNamespace, err := sqliteColumnExists(db, sqliteFTSTable, "namespace")
+	if err != nil {
+		return trace.Wrap(err, "inspect fts schema")
+	}
+	if !hasNamespace {
+		return s.upgradeLegacyFTSTable(db)
+	}
+	if !existed {
+		if err := s.rebuildTable(context.Background(), db, sqliteFTSTable); err != nil {
+			return trace.Wrap(err, "seed new fts")
+		}
 	}
 	return nil
 }
@@ -44,20 +65,36 @@ func (s *SQLiteBackend) Migrate(db *gorm.DB) error {
 // @sideEffect search_fts 내용을 삭제하고 다시 삽입한다.
 // @domainRule 색인 내용은 search_documents의 현재 스냅샷과 일치해야 한다.
 func (s *SQLiteBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
-	if err := db.WithContext(ctx).Exec("DELETE FROM search_fts").Error; err != nil {
+	return s.rebuildTable(ctx, db, sqliteFTSTable)
+}
+
+func (s *SQLiteBackend) rebuildTable(ctx context.Context, db *gorm.DB, tableName string) error {
+	ns := ctxns.FromContext(ctx)
+	clearSQL := fmt.Sprintf("DELETE FROM %s", tableName)
+	clearArgs := []any{}
+	if ns != "" {
+		clearSQL += " WHERE namespace = ?"
+		clearArgs = append(clearArgs, ns)
+	}
+	if err := db.WithContext(ctx).Exec(clearSQL, clearArgs...).Error; err != nil {
 		return trace.Wrap(err, "clear fts")
 	}
 
 	var docs []model.SearchDocument
-	if err := db.WithContext(ctx).Find(&docs).Error; err != nil {
+	docsQ := db.WithContext(ctx)
+	if ns != "" {
+		docsQ = docsQ.Where("namespace = ?", ns)
+	}
+	if err := docsQ.Find(&docs).Error; err != nil {
 		return trace.Wrap(err, "load docs")
 	}
 
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, doc := range docs {
+			insertSQL := fmt.Sprintf("INSERT INTO %s(node_id, content, language, namespace) VALUES (?, ?, ?, ?)", tableName)
 			if err := tx.Exec(
-				"INSERT INTO search_fts(node_id, content, language) VALUES (?, ?, ?)",
-				doc.NodeID, doc.Content, doc.Language,
+				insertSQL,
+				doc.NodeID, doc.Content, doc.Language, doc.Namespace,
 			).Error; err != nil {
 				return trace.Wrap(err, "insert fts row")
 			}
@@ -71,27 +108,28 @@ func (s *SQLiteBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 // @requires limit는 0보다 커야 의미 있는 결과를 얻는다.
 // @return FTS 순위 순서를 유지한 노드 목록을 반환한다.
 func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error) {
-	tokens := strings.Fields(query)
-	for i, tok := range tokens {
-		if !strings.HasSuffix(tok, "*") {
-			tokens[i] = tok + "*"
-		}
+	ftsQuery := SanitizeFTS5(query)
+	if ftsQuery == "" {
+		return nil, nil
 	}
-	ftsQuery := strings.Join(tokens, " ")
+	ns := ctxns.FromContext(ctx)
 
 	type ftsRow struct {
 		NodeID uint
 	}
 
 	var rows []ftsRow
-	if err := db.WithContext(ctx).Raw(
-		`SELECT CAST(node_id AS INTEGER) AS node_id
+	querySQL := `SELECT CAST(node_id AS INTEGER) AS node_id
 		 FROM search_fts
-		 WHERE search_fts MATCH ?
-		 ORDER BY rank
-		 LIMIT ?`,
-		ftsQuery, limit,
-	).Scan(&rows).Error; err != nil {
+		 WHERE search_fts MATCH ?`
+	args := []any{ftsQuery}
+	if ns != "" {
+		querySQL += ` AND namespace = ?`
+		args = append(args, ns)
+	}
+	querySQL += ` ORDER BY rank LIMIT ?`
+	args = append(args, limit)
+	if err := db.WithContext(ctx).Raw(querySQL, args...).Scan(&rows).Error; err != nil {
 		return nil, trace.Wrap(err, "fts query")
 	}
 
@@ -106,7 +144,7 @@ func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, li
 
 	var nodes []model.Node
 	nodesQ := db.WithContext(ctx).Where("id IN ?", nodeIDs)
-	if ns := ctxns.FromContext(ctx); ns != "" {
+	if ns != "" {
 		nodesQ = nodesQ.Where("namespace = ?", ns)
 	}
 	if err := nodesQ.Find(&nodes).Error; err != nil {
@@ -132,6 +170,77 @@ func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, li
 	}
 
 	return result, nil
+}
+
+func sqliteColumnExists(db *gorm.DB, tableName, columnName string) (bool, error) {
+	rows, err := db.Raw("PRAGMA table_info(" + tableName + ")").Rows()
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return false, err
+		}
+		if name == columnName {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+func createSQLiteFTSTable(db *gorm.DB, tableName string, ifNotExists bool) error {
+	clause := ""
+	if ifNotExists {
+		clause = "IF NOT EXISTS "
+	}
+	stmt := fmt.Sprintf(`
+		CREATE VIRTUAL TABLE %s%s
+		USING fts5(node_id UNINDEXED, content, language, namespace UNINDEXED)
+	`, clause, tableName)
+	return db.Exec(stmt).Error
+}
+
+func (s *SQLiteBackend) upgradeLegacyFTSTable(db *gorm.DB) error {
+	for _, tableName := range []string{sqliteFTSUpgradeTable, sqliteFTSLegacyBackup} {
+		if err := db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)).Error; err != nil {
+			return trace.Wrap(err, "drop stale upgrade table")
+		}
+	}
+	if err := createSQLiteFTSTable(db, sqliteFTSUpgradeTable, false); err != nil {
+		if strings.Contains(err.Error(), "no such module: fts5") {
+			return trace.Wrap(ErrFTS5NotAvailable, err.Error())
+		}
+		return trace.Wrap(err, "create upgraded fts shadow")
+	}
+	if err := s.rebuildTable(context.Background(), db, sqliteFTSUpgradeTable); err != nil {
+		_ = db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", sqliteFTSUpgradeTable)).Error
+		return trace.Wrap(err, "populate upgraded fts shadow")
+	}
+	if err := db.Exec(fmt.Sprintf("ALTER TABLE %s RENAME TO %s", sqliteFTSTable, sqliteFTSLegacyBackup)).Error; err != nil {
+		_ = db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", sqliteFTSUpgradeTable)).Error
+		return trace.Wrap(err, "rename legacy fts backup")
+	}
+	if err := db.Exec(fmt.Sprintf("ALTER TABLE %s RENAME TO %s", sqliteFTSUpgradeTable, sqliteFTSTable)).Error; err != nil {
+		_ = db.Exec(fmt.Sprintf("ALTER TABLE %s RENAME TO %s", sqliteFTSLegacyBackup, sqliteFTSTable)).Error
+		return trace.Wrap(err, "activate upgraded fts")
+	}
+	if err := db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", sqliteFTSLegacyBackup)).Error; err != nil {
+		return trace.Wrap(err, "drop legacy fts backup")
+	}
+	return nil
+}
+
+func sqliteTableExists(db *gorm.DB, tableName string) (bool, error) {
+	var count int64
+	if err := db.Raw("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?", tableName).Scan(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 var _ Backend = (*SQLiteBackend)(nil)
