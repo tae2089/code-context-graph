@@ -346,7 +346,7 @@ func TestBuild_IncludePaths_ReplacesPreviousGraphScope(t *testing.T) {
 	}
 }
 
-func TestBuild_ReadFailure_RemovesPreviousGraphState(t *testing.T) {
+func TestBuild_ReadFailure_PreservesPreviousGraphState(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("broken symlink unreadable path scenario is unix-specific")
 	}
@@ -386,11 +386,11 @@ func TestBuild_ReadFailure_RemovesPreviousGraphState(t *testing.T) {
 		t.Fatalf("create broken symlink: %v", err)
 	}
 
-	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
-		t.Fatalf("second Build: %v", err)
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err == nil {
+		t.Fatal("expected second Build to fail on unreadable file")
 	}
 
-	assertFunctionNamesByFile(t, st, ctx, "sample.go", nil)
+	assertFunctionNamesByFile(t, st, ctx, "sample.go", []string{"Keep"})
 }
 
 func TestBuild_MissingRoot_DoesNotDeleteExistingGraph(t *testing.T) {

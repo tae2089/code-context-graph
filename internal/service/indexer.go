@@ -74,7 +74,15 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		relPath string
 		edges   []model.Edge
 	}
+	type parsedFile struct {
+		relPath    string
+		content    []byte
+		nodes      []model.Node
+		edges      []model.Edge
+		tsComments []treesitter.CommentBlock
+	}
 	var allDeferred []deferredEdges
+	var parsedFiles []parsedFile
 	var walkCandidates []string
 
 	err = filepath.Walk(absDir, func(path string, info os.FileInfo, err error) error {
@@ -110,10 +118,6 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		return stats, trace.Wrap(err, "preflight walk directory")
 	}
 
-	if err := s.Store.DeleteGraph(ctx); err != nil {
-		return stats, trace.Wrap(err, "reset graph state before rebuild")
-	}
-
 	for _, path := range walkCandidates {
 		relPath, _ := filepath.Rel(absDir, path)
 
@@ -125,28 +129,39 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 
 		content, err := os.ReadFile(path)
 		if err != nil {
-			s.Logger.Warn("skip unreadable file", "path", path, trace.SlogError(err))
-			continue
+			return stats, trace.Wrap(err, "read build file "+relPath)
 		}
 
 		nodes, edges, tsComments, err := walker.ParseWithComments(ctx, relPath, content)
 		if err != nil {
-			s.Logger.Warn("parse failed", "path", relPath, trace.SlogError(err))
-			continue
+			return stats, trace.Wrap(err, "parse build file "+relPath)
 		}
 
+		parsedFiles = append(parsedFiles, parsedFile{relPath: relPath, content: content, nodes: nodes, edges: edges, tsComments: tsComments})
+		stats.TotalFiles++
+		stats.TotalNodes += len(nodes)
+		stats.TotalEdges += len(edges)
+	}
+
+	if err := s.Store.DeleteGraph(ctx); err != nil {
+		return stats, trace.Wrap(err, "reset graph state before rebuild")
+	}
+
+	for _, parsed := range parsedFiles {
+		walker := s.Walkers[strings.ToLower(filepath.Ext(parsed.relPath))]
+
 		err = s.Store.WithTx(ctx, func(txStore store.GraphStore) error {
-			if err := txStore.UpsertNodes(ctx, nodes); err != nil {
-				return trace.Wrap(err, "upsert nodes for "+relPath)
+			if err := txStore.UpsertNodes(ctx, parsed.nodes); err != nil {
+				return trace.Wrap(err, "upsert nodes for "+parsed.relPath)
 			}
 
-			if len(tsComments) > 0 {
-				binderComments := toBinderComments(tsComments)
+			if len(parsed.tsComments) > 0 {
+				binderComments := toBinderComments(parsed.tsComments)
 				binder := parse.NewBinder()
-				sourceLines := strings.Split(string(content), "\n")
-				bindings := binder.Bind(binderComments, nodes, walker.Language(), sourceLines)
+				sourceLines := strings.Split(string(parsed.content), "\n")
+				bindings := binder.Bind(binderComments, parsed.nodes, walker.Language(), sourceLines)
 
-				storedNodes, err := txStore.GetNodesByFile(ctx, relPath)
+				storedNodes, err := txStore.GetNodesByFile(ctx, parsed.relPath)
 				if err != nil {
 					return trace.Wrap(err, "get stored nodes for annotations")
 				}
@@ -172,16 +187,12 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		})
 
 		if err != nil {
-			return stats, trace.Wrap(err, "transaction failed for "+relPath)
+			return stats, trace.Wrap(err, "transaction failed for "+parsed.relPath)
 		}
 
-		if len(edges) > 0 {
-			allDeferred = append(allDeferred, deferredEdges{relPath: relPath, edges: edges})
+		if len(parsed.edges) > 0 {
+			allDeferred = append(allDeferred, deferredEdges{relPath: parsed.relPath, edges: parsed.edges})
 		}
-
-		stats.TotalFiles++
-		stats.TotalNodes += len(nodes)
-		stats.TotalEdges += len(edges)
 	}
 
 	for _, d := range allDeferred {
