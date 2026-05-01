@@ -40,7 +40,7 @@ func (s *Service) Find(ctx context.Context, opts Options) ([]model.Node, error) 
 		Where("namespace = ?", ctxns.FromContext(ctx)).
 		Where("kind NOT IN ?", []model.NodeKind{model.NodeKindFile, model.NodeKindTest}).
 		Where("id NOT IN (?)",
-			s.db.Model(&model.Edge{}).Select("to_node_id"),
+			s.db.Model(&model.Edge{}).Select("to_node_id").Where("namespace = ?", ctxns.FromContext(ctx)),
 		)
 
 	if len(opts.Kinds) > 0 {

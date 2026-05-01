@@ -74,7 +74,7 @@ func (s *Service) ByFile(ctx context.Context, filePath string) (*FileCoverage, e
 		Model(&model.Node{}).
 		Where("id IN ? AND id IN (?)",
 			funcIDs,
-			s.db.Model(&model.Edge{}).Select("to_node_id").Where("kind = ?", model.EdgeKindTestedBy),
+			s.db.Model(&model.Edge{}).Select("to_node_id").Where("namespace = ? AND kind = ?", ctxns.FromContext(ctx), model.EdgeKindTestedBy),
 		).
 		Count(&testedCount).Error
 	if err != nil {
@@ -127,7 +127,7 @@ func (s *Service) ByCommunity(ctx context.Context, communityID uint) (*Community
 		Model(&model.Node{}).
 		Where("id IN ? AND id IN (?)",
 			funcIDs,
-			s.db.Model(&model.Edge{}).Select("to_node_id").Where("kind = ?", model.EdgeKindTestedBy),
+			s.db.Model(&model.Edge{}).Select("to_node_id").Where("namespace = ? AND kind = ?", ctxns.FromContext(ctx), model.EdgeKindTestedBy),
 		).
 		Count(&testedCount).Error
 	if err != nil {
