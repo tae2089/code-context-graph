@@ -130,6 +130,7 @@ func computeRiskScores(db *gorm.DB, ctx context.Context, hits map[uint]*hitInfo)
 	for id := range hits {
 		nodeIDs = append(nodeIDs, id)
 	}
+	ns := ctxns.FromContext(ctx)
 
 	type outCount struct {
 		FromNodeID uint
@@ -139,7 +140,7 @@ func computeRiskScores(db *gorm.DB, ctx context.Context, hits map[uint]*hitInfo)
 	if err := db.WithContext(ctx).
 		Model(&model.Edge{}).
 		Select("from_node_id, COUNT(*) as count").
-		Where("from_node_id IN ?", nodeIDs).
+		Where("namespace = ? AND from_node_id IN ?", ns, nodeIDs).
 		Group("from_node_id").
 		Scan(&outCounts).Error; err != nil {
 		return nil, err

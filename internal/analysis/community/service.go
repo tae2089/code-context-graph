@@ -68,7 +68,7 @@ func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 			return err
 		}
 
-		counts, err := countEdgesByCommunity(tx, groups, nodeComm)
+		counts, err := countEdgesByCommunity(tx, ns, groups, nodeComm)
 		if err != nil {
 			return err
 		}
@@ -160,14 +160,18 @@ type edgeCounts struct {
 	external int64
 }
 
-func countEdgesByCommunity(tx *gorm.DB, groups map[string][]model.Node, nodeComm map[uint]string) (map[string]*edgeCounts, error) {
+func countEdgesByCommunity(tx *gorm.DB, ns string, groups map[string][]model.Node, nodeComm map[uint]string) (map[string]*edgeCounts, error) {
 	counts := map[string]*edgeCounts{}
 	for key := range groups {
 		counts[key] = &edgeCounts{}
 	}
 
 	var batchEdges []model.Edge
-	if err := tx.FindInBatches(&batchEdges, 500, func(tx *gorm.DB, batch int) error {
+	edgesQ := tx.Model(&model.Edge{})
+	if ns != "" {
+		edgesQ = edgesQ.Where("namespace = ?", ns)
+	}
+	if err := edgesQ.FindInBatches(&batchEdges, 500, func(tx *gorm.DB, batch int) error {
 		for _, e := range batchEdges {
 			fromKey, fromOK := nodeComm[e.FromNodeID]
 			toKey, toOK := nodeComm[e.ToNodeID]

@@ -54,7 +54,7 @@ func (s *Service) Analyze(ctx context.Context) ([]CouplingPair, error) {
 		Where("cm1.community_id != cm2.community_id")
 	if ns != "" {
 		q = q.Joins("JOIN nodes n1 ON n1.id = edges.from_node_id").
-			Where("n1.namespace = ?", ns)
+			Where("edges.namespace = ? AND n1.namespace = ?", ns, ns)
 	}
 	if err := q.Group("cm1.community_id, cm2.community_id").
 		Scan(&rows).Error; err != nil {
