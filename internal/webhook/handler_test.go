@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 )
 
 func signPayload(secret, payload []byte) string {
@@ -229,5 +230,35 @@ func TestWebhookHandler_GiteaSignatureHeader(t *testing.T) {
 	}
 	if syncedRepo != "org/svc" {
 		t.Errorf("syncedRepo = %q, want %q", syncedRepo, "org/svc")
+	}
+}
+
+func TestWebhookHandler_SyncContextNotCancelledOnReturn(t *testing.T) {
+	secret := []byte("test-secret")
+	al := NewRepoFilter([]string{"org/*"})
+	ctxDone := make(chan error, 1)
+
+	h := NewWebhookHandler(secret, al, func(ctx context.Context, repo, url string) {
+		go func() {
+			time.Sleep(20 * time.Millisecond)
+			ctxDone <- ctx.Err()
+		}()
+	})
+
+	payload := makePushEvent("refs/heads/main", "org/svc", "https://github.com/org/svc.git")
+	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
+	req.Header.Set("X-Hub-Signature-256", signPayload(secret, payload))
+	req.Header.Set("X-GitHub-Event", "push")
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	select {
+	case err := <-ctxDone:
+		if err != nil {
+			t.Fatalf("expected detached context after response, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for sync context result")
 	}
 }

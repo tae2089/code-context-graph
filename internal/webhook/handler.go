@@ -77,7 +77,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("processing push event", "repo", event.Repository.FullName, "ref", event.Ref)
-	h.onSync(r.Context(), event.Repository.FullName, event.Repository.CloneURL)
+	h.onSync(context.WithoutCancel(r.Context()), event.Repository.FullName, event.Repository.CloneURL)
 	w.WriteHeader(http.StatusOK)
 }
 

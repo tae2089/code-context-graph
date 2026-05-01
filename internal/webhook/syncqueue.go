@@ -27,6 +27,7 @@ func defaultRetryConfig() RetryConfig {
 }
 
 type syncPayload struct {
+	ctx          context.Context
 	repoFullName string
 	cloneURL     string
 }
@@ -54,6 +55,9 @@ func NewSyncQueueWithContext(ctx context.Context, workers int, handler SyncHandl
 }
 
 func NewSyncQueueWithOptions(ctx context.Context, workers int, handler SyncHandlerFunc, retry RetryConfig) *SyncQueue {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if retry.MaxAttempts <= 0 {
 		retry.MaxAttempts = 1
 	}
@@ -75,7 +79,14 @@ func NewSyncQueueWithOptions(ctx context.Context, workers int, handler SyncHandl
 	return q
 }
 
-func (q *SyncQueue) Add(_ context.Context, repoFullName, cloneURL string) {
+func (q *SyncQueue) Add(ctx context.Context, repoFullName, cloneURL string) {
+	if ctx != nil {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -83,7 +94,10 @@ func (q *SyncQueue) Add(_ context.Context, repoFullName, cloneURL string) {
 		return
 	}
 
-	q.payloads[repoFullName] = syncPayload{repoFullName: repoFullName, cloneURL: cloneURL}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	q.payloads[repoFullName] = syncPayload{ctx: ctx, repoFullName: repoFullName, cloneURL: cloneURL}
 
 	if q.dirty[repoFullName] {
 		return
@@ -157,6 +171,9 @@ func (q *SyncQueue) safeHandle(repo string, payload syncPayload) {
 		case <-q.ctx.Done():
 			slog.Warn("sync retry cancelled", "repo", repo, "attempt", attempt)
 			return
+		case <-payload.ctx.Done():
+			slog.Warn("sync retry cancelled by payload context", "repo", repo, "attempt", attempt)
+			return
 		case <-time.After(delay):
 		}
 
@@ -174,7 +191,9 @@ func (q *SyncQueue) tryHandle(repo string, payload syncPayload) (err error) {
 			err = fmt.Errorf("panic: %v", r)
 		}
 	}()
-	return q.handler(q.ctx, payload.repoFullName, payload.cloneURL)
+	ctx, cancel := mergeContexts(q.ctx, payload.ctx)
+	defer cancel()
+	return q.handler(ctx, payload.repoFullName, payload.cloneURL)
 }
 
 func (q *SyncQueue) get() (string, syncPayload, bool) {
@@ -209,4 +228,21 @@ func (q *SyncQueue) done(repo string) {
 	} else {
 		delete(q.payloads, repo)
 	}
+}
+
+func mergeContexts(queueCtx, payloadCtx context.Context) (context.Context, context.CancelFunc) {
+	if payloadCtx == nil {
+		payloadCtx = context.Background()
+	}
+	merged, cancel := context.WithCancel(payloadCtx)
+	go func() {
+		select {
+		case <-queueCtx.Done():
+			cancel()
+		case <-payloadCtx.Done():
+			cancel()
+		case <-merged.Done():
+		}
+	}()
+	return merged, cancel
 }

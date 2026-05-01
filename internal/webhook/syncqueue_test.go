@@ -323,3 +323,75 @@ func TestSyncQueue_RetryCancelledOnContextDone(t *testing.T) {
 		t.Errorf("handler called %d times — retry was not cancelled by context", got)
 	}
 }
+
+func TestSyncQueue_AddHonorsPerCallContextCancel(t *testing.T) {
+	var callCount atomic.Int32
+	handler := func(_ context.Context, repoFullName, cloneURL string) error {
+		callCount.Add(1)
+		return nil
+	}
+
+	q := NewSyncQueue(1, handler)
+	defer q.Shutdown()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	q.Add(ctx, "org/svc", "url")
+
+	time.Sleep(100 * time.Millisecond)
+	if got := callCount.Load(); got != 0 {
+		t.Fatalf("expected cancelled Add not to enqueue work, got %d calls", got)
+	}
+}
+
+func TestSyncQueue_AddPerCallTimeoutPropagates(t *testing.T) {
+	handlerDone := make(chan error, 1)
+	handler := func(ctx context.Context, repoFullName, cloneURL string) error {
+		<-ctx.Done()
+		handlerDone <- ctx.Err()
+		return ctx.Err()
+	}
+
+	q := NewSyncQueue(1, handler)
+	defer q.Shutdown()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	q.Add(ctx, "org/svc", "url")
+
+	select {
+	case err := <-handlerDone:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("expected deadline exceeded, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for handler")
+	}
+}
+
+func TestNewSyncQueueWithOptions_NilContextDefaultsToBackground(t *testing.T) {
+	handlerDone := make(chan error, 1)
+	handler := func(ctx context.Context, repoFullName, cloneURL string) error {
+		select {
+		case <-ctx.Done():
+			handlerDone <- ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+			handlerDone <- nil
+		}
+		return nil
+	}
+
+	q := NewSyncQueueWithOptions(nil, 1, handler, RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond})
+	defer q.Shutdown()
+
+	q.Add(context.Background(), "org/svc", "url")
+
+	select {
+	case err := <-handlerDone:
+		if err != nil {
+			t.Fatalf("expected background fallback context, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for handler")
+	}
+}
