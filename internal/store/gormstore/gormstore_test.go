@@ -562,6 +562,66 @@ func TestGetAnnotation_WithTags(t *testing.T) {
 	}
 }
 
+func TestGetNodeByID_FiltersByNamespace(t *testing.T) {
+	s := setupTestDB(t)
+	ctxA := ctxns.WithNamespace(context.Background(), "a")
+	ctxB := ctxns.WithNamespace(context.Background(), "b")
+
+	if err := s.UpsertNodes(ctxA, []model.Node{{QualifiedName: "pkg.F", Kind: model.NodeKindFunction, Name: "F", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"}}); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+	node, _ := s.GetNode(ctxA, "pkg.F")
+
+	got, err := s.GetNodeByID(ctxB, node.ID)
+	if err != nil {
+		t.Fatalf("GetNodeByID: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected nil outside namespace, got %+v", got)
+	}
+}
+
+func TestGetNodesByIDs_FiltersByNamespace(t *testing.T) {
+	s := setupTestDB(t)
+	ctxA := ctxns.WithNamespace(context.Background(), "a")
+	ctxB := ctxns.WithNamespace(context.Background(), "b")
+
+	if err := s.UpsertNodes(ctxA, []model.Node{{QualifiedName: "pkg.F", Kind: model.NodeKindFunction, Name: "F", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"}}); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+	node, _ := s.GetNode(ctxA, "pkg.F")
+
+	got, err := s.GetNodesByIDs(ctxB, []uint{node.ID})
+	if err != nil {
+		t.Fatalf("GetNodesByIDs: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected no nodes outside namespace, got %d", len(got))
+	}
+}
+
+func TestGetAnnotation_FiltersByNamespace(t *testing.T) {
+	s := setupTestDB(t)
+	ctxA := ctxns.WithNamespace(context.Background(), "a")
+	ctxB := ctxns.WithNamespace(context.Background(), "b")
+
+	if err := s.UpsertNodes(ctxA, []model.Node{{QualifiedName: "pkg.F", Kind: model.NodeKindFunction, Name: "F", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"}}); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+	node, _ := s.GetNode(ctxA, "pkg.F")
+	if err := s.UpsertAnnotation(ctxA, &model.Annotation{NodeID: node.ID, Summary: "private"}); err != nil {
+		t.Fatalf("UpsertAnnotation: %v", err)
+	}
+
+	got, err := s.GetAnnotation(ctxB, node.ID)
+	if err != nil {
+		t.Fatalf("GetAnnotation: %v", err)
+	}
+	if got != nil {
+		t.Fatal("expected nil annotation outside namespace")
+	}
+}
+
 func TestWithTx_Success(t *testing.T) {
 	s := setupTestDB(t)
 	ctx := context.Background()

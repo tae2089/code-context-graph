@@ -97,7 +97,8 @@ func (s *Store) GetNode(ctx context.Context, qualifiedName string) (*model.Node,
 // @return 노드가 없으면 nil을 반환한다.
 func (s *Store) GetNodeByID(ctx context.Context, id uint) (*model.Node, error) {
 	var node model.Node
-	result := s.db.WithContext(ctx).First(&node, id)
+	ns := ctxns.FromContext(ctx)
+	result := s.db.WithContext(ctx).Where("namespace = ? AND id = ?", ns, id).First(&node)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -115,7 +116,8 @@ func (s *Store) GetNodesByIDs(ctx context.Context, ids []uint) ([]model.Node, er
 		return nil, nil
 	}
 	var nodes []model.Node
-	if err := s.db.WithContext(ctx).Where("id IN ?", ids).Find(&nodes).Error; err != nil {
+	ns := ctxns.FromContext(ctx)
+	if err := s.db.WithContext(ctx).Where("namespace = ? AND id IN ?", ns, ids).Find(&nodes).Error; err != nil {
 		return nil, err
 	}
 	return nodes, nil
@@ -384,7 +386,11 @@ func (s *Store) DeleteEdgesByFile(ctx context.Context, filePath string) error {
 // @domainRule node_id당 어노테이션은 하나만 유지되어야 한다.
 func (s *Store) UpsertAnnotation(ctx context.Context, ann *model.Annotation) error {
 	var existing model.Annotation
-	result := s.db.WithContext(ctx).Where("node_id = ?", ann.NodeID).First(&existing)
+	ns := ctxns.FromContext(ctx)
+	result := s.db.WithContext(ctx).
+		Joins("JOIN nodes ON nodes.id = annotations.node_id").
+		Where("annotations.node_id = ? AND nodes.namespace = ?", ann.NodeID, ns).
+		First(&existing)
 
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return s.db.WithContext(ctx).Create(ann).Error
@@ -407,9 +413,11 @@ func (s *Store) UpsertAnnotation(ctx context.Context, ann *model.Annotation) err
 // @return 어노테이션이 없으면 nil을 반환한다.
 func (s *Store) GetAnnotation(ctx context.Context, nodeID uint) (*model.Annotation, error) {
 	var ann model.Annotation
+	ns := ctxns.FromContext(ctx)
 	result := s.db.WithContext(ctx).
 		Preload("Tags").
-		Where("node_id = ?", nodeID).
+		Joins("JOIN nodes ON nodes.id = annotations.node_id").
+		Where("annotations.node_id = ? AND nodes.namespace = ?", nodeID, ns).
 		First(&ann)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil, nil
