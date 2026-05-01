@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"crypto/sha256"
 	"fmt"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/pathutil"
+	"github.com/tae2089/code-context-graph/internal/service"
 )
 
 // newUpdateCmd creates the incremental graph sync command.
@@ -71,13 +71,21 @@ func newUpdateCmd(deps *Deps) *cobra.Command {
 				return trace.Wrap(err, "walk directory")
 			}
 
-			ctx := context.Background()
+			ctx := cmd.Context()
 			if ns, _ := cmd.Flags().GetString("namespace"); ns != "" {
 				ctx = ctxns.WithNamespace(ctx, ns)
 			}
 			stats, err := deps.Syncer.Sync(ctx, files)
 			if err != nil {
 				return trace.Wrap(err, "incremental sync")
+			}
+			if deps.DB != nil && deps.SearchBackend != nil {
+				if _, err := service.RefreshSearchDocuments(ctx, deps.DB); err != nil {
+					return trace.Wrap(err, "refresh search documents")
+				}
+				if err := deps.SearchBackend.Rebuild(ctx, deps.DB); err != nil {
+					return trace.Wrap(err, "rebuild search index")
+				}
 			}
 
 			fmt.Fprintf(stdout(cmd), "Update complete: added=%d modified=%d skipped=%d deleted=%d\n",

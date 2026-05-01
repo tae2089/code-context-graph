@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"testing"
 
@@ -17,6 +18,15 @@ func newTestDeps() (*Deps, *bytes.Buffer, *bytes.Buffer) {
 
 func executeCmd(deps *Deps, stdout, stderr *bytes.Buffer, args ...string) error {
 	cmd := NewRootCmd(deps)
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs(args)
+	return cmd.Execute()
+}
+
+func executeCmdWithContext(ctx context.Context, deps *Deps, stdout, stderr *bytes.Buffer, args ...string) error {
+	cmd := NewRootCmd(deps)
+	cmd.SetContext(ctx)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
 	cmd.SetArgs(args)

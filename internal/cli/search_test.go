@@ -12,6 +12,7 @@ import (
 	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 	"github.com/tae2089/code-context-graph/internal/store/search"
 )
@@ -62,9 +63,9 @@ func seedSearchData(t *testing.T, db *gorm.DB) {
 	}
 
 	docs := []model.SearchDocument{
-		{NodeID: nodes[0].ID, Content: "Hello function says hello", Language: "go"},
-		{NodeID: nodes[1].ID, Content: "World function says world", Language: "go"},
-		{NodeID: nodes[2].ID, Content: "Foo function does foo stuff", Language: "go"},
+		{Namespace: nodes[0].Namespace, NodeID: nodes[0].ID, Content: "Hello function says hello", Language: "go"},
+		{Namespace: nodes[1].Namespace, NodeID: nodes[1].ID, Content: "World function says world", Language: "go"},
+		{Namespace: nodes[2].Namespace, NodeID: nodes[2].ID, Content: "Foo function does foo stuff", Language: "go"},
 	}
 	if err := db.WithContext(ctx).Create(&docs).Error; err != nil {
 		t.Fatal(err)
@@ -139,8 +140,8 @@ func TestSearchCommand_PathFilter_IncludesMatch(t *testing.T) {
 	db.WithContext(ctx).Create(&nodes)
 
 	docs := []model.SearchDocument{
-		{NodeID: nodes[0].ID, Content: "handle user login", Language: "go"},
-		{NodeID: nodes[1].ID, Content: "handle payment", Language: "go"},
+		{Namespace: nodes[0].Namespace, NodeID: nodes[0].ID, Content: "handle user login", Language: "go"},
+		{Namespace: nodes[1].Namespace, NodeID: nodes[1].ID, Content: "handle payment", Language: "go"},
 	}
 	db.WithContext(ctx).Create(&docs)
 	search.NewSQLiteBackend().Rebuild(ctx, db)
@@ -168,5 +169,61 @@ func TestSearchCommand_PathFilter_NoMatch(t *testing.T) {
 
 	if !strings.Contains(stdout.String(), "No results") {
 		t.Errorf("expected 'No results' for unmatched path, got:\n%s", stdout.String())
+	}
+}
+
+func TestSearchCommand_NamespaceIsolation(t *testing.T) {
+	deps, _, _, db := setupSearchTest(t)
+	ctxA := ctxns.WithNamespace(context.Background(), "ns-a")
+	ctxB := ctxns.WithNamespace(context.Background(), "ns-b")
+
+	nodeA := model.Node{Namespace: "ns-a", Name: "SearchA", QualifiedName: "pkg.SearchA", Kind: model.NodeKindFunction, FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"}
+	nodeB := model.Node{Namespace: "ns-b", Name: "SearchB", QualifiedName: "pkg.SearchB", Kind: model.NodeKindFunction, FilePath: "b.go", StartLine: 1, EndLine: 2, Language: "go"}
+	if err := db.Create(&nodeA).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&nodeB).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: "ns-a", NodeID: nodeA.ID, Content: "sharedterm alpha", Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: "ns-b", NodeID: nodeB.ID, Content: "sharedterm beta", Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := deps.SearchBackend.Rebuild(ctxA, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := deps.SearchBackend.Rebuild(ctxB, db); err != nil {
+		t.Fatal(err)
+	}
+
+	resultsA, err := deps.SearchBackend.Query(ctxA, db, "sharedterm", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resultsA) != 1 || resultsA[0].Namespace != "ns-a" {
+		t.Fatalf("expected only ns-a result, got %#v", resultsA)
+	}
+
+	resultsB, err := deps.SearchBackend.Query(ctxB, db, "sharedterm", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resultsB) != 1 || resultsB[0].Namespace != "ns-b" {
+		t.Fatalf("expected only ns-b result, got %#v", resultsB)
+	}
+}
+
+func TestSearchCommand_SpecialCharactersDoNotError(t *testing.T) {
+	deps, stdout, stderr, db := setupSearchTest(t)
+	seedSearchData(t, db)
+
+	for _, query := range []string{"func(x)", "foo:bar", "hello-world", "\"unterminated"} {
+		stdout.Reset()
+		stderr.Reset()
+		if err := executeCmd(deps, stdout, stderr, "search", query); err != nil {
+			t.Fatalf("search %q returned error: %v", query, err)
+		}
 	}
 }
