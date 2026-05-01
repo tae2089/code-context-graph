@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+const maxCacheEntries = 1000
+
 // entry stores a cached string value with its expiration time.
 // @intent 캐시 항목의 값과 TTL 만료 시점을 함께 보관한다.
 type entry struct {
@@ -19,6 +21,7 @@ type Cache struct {
 	entries map[string]entry
 	ttl     time.Duration
 	stopCh  chan struct{}
+	closeOnce sync.Once
 }
 
 // NewCache creates a Cache with the given TTL and starts a background cleanup goroutine.
@@ -59,6 +62,9 @@ func (c *Cache) Set(key string, value string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.entries[key] = entry{value: value, expiresAt: time.Now().Add(c.ttl)}
+	if len(c.entries) > maxCacheEntries {
+		c.evictOneLocked()
+	}
 }
 
 // Flush removes all entries from the cache.
@@ -75,7 +81,28 @@ func (c *Cache) Flush() {
 // @sideEffect stopCh를 닫아 cleanup 루프를 종료시킨다.
 // @mutates c.stopCh
 func (c *Cache) Close() {
-	close(c.stopCh)
+	c.closeOnce.Do(func() {
+		close(c.stopCh)
+	})
+}
+
+func (c *Cache) evictOneLocked() {
+	if len(c.entries) <= maxCacheEntries {
+		return
+	}
+	var victimKey string
+	var victimExpiry time.Time
+	first := true
+	for key, e := range c.entries {
+		if first || e.expiresAt.Before(victimExpiry) {
+			victimKey = key
+			victimExpiry = e.expiresAt
+			first = false
+		}
+	}
+	if !first {
+		delete(c.entries, victimKey)
+	}
 }
 
 // cleanup runs every 30s and removes expired entries to prevent unbounded growth.

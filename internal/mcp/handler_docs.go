@@ -91,7 +91,7 @@ func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) 
 		indexMtime = stat.ModTime().UnixNano()
 	}
 
-	return finalizeToolResult(h.cachedExecute("get_rag_tree:", map[string]any{"community_id": communityID, "depth": depth, "workspace": workspace, "mtime": indexMtime}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "get_rag_tree:", map[string]any{"community_id": communityID, "depth": depth, "workspace": workspace, "mtime": indexMtime}, func() (string, error) {
 		idx, err := ragindex.LoadIndex(h.ragIndexPath(workspace))
 		if err != nil {
 			return "", newToolResultErr(fmt.Sprintf("load doc-index: %v", err))
@@ -159,7 +159,7 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 		mtime = stat.ModTime().UnixNano()
 	}
 
-	return finalizeToolResult(h.cachedExecute("get_doc_content:", map[string]any{"file_path": filePath, "workspace": workspace, "mtime": mtime}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "get_doc_content:", map[string]any{"file_path": filePath, "workspace": workspace, "mtime": mtime}, func() (string, error) {
 		content, err := os.ReadFile(resolvedPath)
 		if err != nil {
 			return "", newToolResultErr(fmt.Sprintf("read file %q: %v. Run 'ccg docs' to generate documentation files.", filePath, err))
@@ -193,7 +193,7 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 		indexMtime = stat.ModTime().UnixNano()
 	}
 
-	return finalizeToolResult(h.cachedExecute("search_docs:", map[string]any{"query": query, "limit": limit, "workspace": workspace, "mtime": indexMtime}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "search_docs:", map[string]any{"query": query, "limit": limit, "workspace": workspace, "mtime": indexMtime}, func() (string, error) {
 		idx, err := ragindex.LoadIndex(h.ragIndexPath(workspace))
 		if err != nil {
 			return "", newToolResultErr(fmt.Sprintf("load doc-index: %v", err))

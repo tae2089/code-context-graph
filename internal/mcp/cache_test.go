@@ -15,6 +15,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 )
 
 func openTestDB(t *testing.T) *gorm.DB {
@@ -100,6 +101,42 @@ func TestCache_Close(t *testing.T) {
 	val, ok := c.Get("k")
 	if !ok || val != "v" {
 		t.Fatal("expected cache to still work after Close")
+	}
+}
+
+func TestCache_CloseIsIdempotent(t *testing.T) {
+	c := NewCache(5 * time.Minute)
+	c.Close()
+	c.Close()
+}
+
+func TestCache_EvictsSoonestExpiringEntryOnOverflow(t *testing.T) {
+	c := NewCache(time.Hour)
+	now := time.Now()
+	for i := 0; i < maxCacheEntries; i++ {
+		key := fmt.Sprintf("key-%d", i)
+		c.entries[key] = entry{
+			value:     key,
+			expiresAt: now.Add(time.Duration(i+1) * time.Minute),
+		}
+	}
+
+	c.mu.Lock()
+	c.entries["overflow"] = entry{value: "overflow", expiresAt: now.Add(2 * time.Hour)}
+	c.evictOneLocked()
+	_, hasFirst := c.entries["key-0"]
+	_, hasOverflow := c.entries["overflow"]
+	entryCount := len(c.entries)
+	c.mu.Unlock()
+
+	if hasFirst {
+		t.Fatal("expected soonest-expiring entry to be evicted")
+	}
+	if !hasOverflow {
+		t.Fatal("expected newest overflow entry to remain in cache")
+	}
+	if entryCount != maxCacheEntries {
+		t.Fatalf("entry count = %d, want %d", entryCount, maxCacheEntries)
 	}
 }
 
@@ -189,6 +226,37 @@ func TestBuildOrUpdateGraph_FlushesCache(t *testing.T) {
 
 	if _, ok := cache.Get(`get_node:{"qualified_name":"pkg.Foo"}`); ok {
 		t.Fatal("expected cache to be flushed after buildOrUpdateGraph")
+	}
+}
+
+func TestCachedExecute_UsesContextNamespaceForWorkspaceFallback(t *testing.T) {
+	deps := setupTestDeps(t)
+	cache := NewCache(5 * time.Minute)
+	h := &handlers{deps: deps, cache: cache}
+	ctx := ctxns.WithNamespace(context.Background(), "alpha")
+
+	callCount := 0
+	result, err := h.cachedExecute(ctx, "test:", map[string]any{"workspace": ""}, func() (string, error) {
+		callCount++
+		return "alpha-result", nil
+	})
+	if err != nil || result != "alpha-result" {
+		t.Fatalf("first call = (%q, %v), want alpha-result, nil", result, err)
+	}
+
+	if _, ok := cache.Get(`test:{"workspace":"alpha"}`); !ok {
+		t.Fatal("expected effective namespace to be used as cache key workspace")
+	}
+
+	result, err = h.cachedExecute(ctx, "test:", map[string]any{"workspace": ""}, func() (string, error) {
+		callCount++
+		return "miss", nil
+	})
+	if err != nil || result != "alpha-result" {
+		t.Fatalf("second call = (%q, %v), want alpha-result, nil", result, err)
+	}
+	if callCount != 1 {
+		t.Fatalf("fn called %d times, want 1", callCount)
 	}
 }
 

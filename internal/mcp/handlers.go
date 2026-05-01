@@ -63,6 +63,13 @@ func (h *handlers) applyWorkspace(ctx context.Context, request mcp.CallToolReque
 	return ctx
 }
 
+func resolveNamespace(ctx context.Context, workspace string) string {
+	if workspace != "" {
+		return workspace
+	}
+	return ctxns.FromContext(ctx)
+}
+
 // toolResultErr carries an MCP tool result alongside an error value.
 // @intent 일반 에러 흐름 안에서 사용자에게 반환할 MCP 오류 응답을 보존한다.
 // @see mcp.unwrapToolResultErr
@@ -144,12 +151,19 @@ func finalizeToolResult(result string, err error) (*mcp.CallToolResult, error) {
 // @param params 캐시 키에 포함할 요청 파라미터다.
 // @sideEffect 캐시 조회/저장과 디버그 로그 기록을 수행할 수 있다.
 // @mutates h.cache
-func (h *handlers) cachedExecute(prefix string, params map[string]any, fn func() (string, error)) (string, error) {
+func (h *handlers) cachedExecute(ctx context.Context, prefix string, params map[string]any, fn func() (string, error)) (string, error) {
 	if h.cache == nil {
 		return fn()
 	}
+	cacheParams := make(map[string]any, len(params))
+	for k, v := range params {
+		cacheParams[k] = v
+	}
+	if workspace, ok := cacheParams["workspace"].(string); ok {
+		cacheParams["workspace"] = resolveNamespace(ctx, workspace)
+	}
 
-	key, err := makeCacheKey(prefix, params)
+	key, err := makeCacheKey(prefix, cacheParams)
 	if err != nil {
 		h.logger().Warn("failed to marshal cache key", "prefix", prefix, trace.SlogError(err))
 		return fn()
