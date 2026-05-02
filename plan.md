@@ -191,3 +191,27 @@
 
 - `internal/webhook/syncqueue.go` — dirty/processing set + FIFO queue + bounded worker pool
 - `cmd/ccg/main.go` — `onSync`에서 `go func()` 제거, `SyncQueue.Add()` 사용 + graceful shutdown 연결
+
+---
+
+## Step 12: Lifecycle / Incremental Hardening
+
+### 테스트
+
+- [ ] `TestUpdateCommand_DeletesRemovedFiles` — `ccg update`가 현재 DB의 기존 파일 목록을 기준으로 삭제된 파일의 노드/엣지/search 문서를 정리
+- [ ] `TestSyncWithExisting_RestoresAnnotationsForModifiedFile` — incremental sync가 수정 파일의 annotation을 full build와 동일하게 복구
+- [ ] `TestBuildOrUpdateGraph_IncrementalIncludePaths_DefaultsToReplace` — MCP incremental + `include_paths` 기본 동작이 기존 replace semantics를 유지함을 명시
+- [ ] `TestBuildOrUpdateGraph_IncrementalIncludePaths_ReplaceFalsePreservesOutOfScopeFiles` — `replace=false`일 때 include 범위 밖 기존 그래프를 유지
+- [ ] `TestDeleteWorkspace_PurgesNamespaceGraphRAGAndCache` — workspace 삭제 시 namespace graph, workspace RAG index, MCP cache가 함께 정리
+- [ ] `TestBuilder_WriteIndex_UsesUniqueTempFileForConcurrentBuilds` — 같은 index dir 동시 빌드에서도 temp file 경합 없이 안전하게 완료
+- [ ] `TestDeleteGraph_LeavesCommunityParentsUntilExplicitCleanup` — 현재 `DeleteGraph`가 community parent row는 직접 정리하지 않는 동작을 characterization으로 고정
+- [ ] `TestDeleteGraph_LeavesFlowParentsUntilExplicitCleanup` — 현재 `DeleteGraph`가 flow parent row는 직접 정리하지 않는 동작을 characterization으로 고정
+
+### 구현
+
+- `internal/cli/update.go` — namespace 범위의 existing file paths를 읽어 `SyncWithExisting()`로 전달
+- `internal/analysis/incremental/incremental.go` — annotation-aware parser sibling interface를 지원하고 modified file의 annotation을 재생성
+- `internal/mcp/handler_parse.go`, `internal/mcp/tools_parse.go` — incremental `replace` flag 추가 (기본값 `true`)
+- `internal/mcp/handler_workspace.go` — workspace 삭제 시 namespace graph purge + workspace RAG index 제거 + cache flush
+- `internal/ragindex/builder.go` — same-dir unique temp file + `Sync()` + atomic rename
+- `internal/store/gormstore/gormstore.go` — production semantics 변경 대신 lifecycle characterization test를 통과하도록 현재 contract 유지
