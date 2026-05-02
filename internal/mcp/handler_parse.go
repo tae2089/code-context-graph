@@ -37,12 +37,32 @@ type walkParseStats struct {
 	Errors int
 }
 
-type parsedWalkFile struct {
-	path     string
-	content  []byte
-	nodes    []model.Node
-	edges    []model.Edge
-	comments []treesitter.CommentBlock
+type parsedWalkNodeBatch struct {
+	path        string
+	nodes       []model.Node
+	comments    []treesitter.CommentBlock
+	sourceLines []string
+}
+
+type parsedWalkEdgeBatch struct {
+	path  string
+	edges []model.Edge
+}
+
+func newParsedWalkNodeBatch(path string, content []byte, nodes []model.Node, comments []treesitter.CommentBlock) parsedWalkNodeBatch {
+	out := parsedWalkNodeBatch{
+		path:     path,
+		nodes:    nodes,
+		comments: comments,
+	}
+	if len(comments) > 0 {
+		out.sourceLines = strings.Split(string(content), "\n")
+	}
+	return out
+}
+
+func newParsedWalkEdgeBatch(path string, edges []model.Edge) parsedWalkEdgeBatch {
+	return parsedWalkEdgeBatch{path: path, edges: edges}
 }
 
 type commentParserWithLanguage interface {
@@ -106,7 +126,8 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 		return stats, trace.Wrap(err, "preflight walk dir")
 	}
 
-	parsedFiles := make([]parsedWalkFile, 0, len(walkFiles))
+	nodeBatches := make([]parsedWalkNodeBatch, 0, len(walkFiles))
+	edgeBatches := make([]parsedWalkEdgeBatch, 0, len(walkFiles))
 	var totalParsedBytes int64
 	for _, fp := range walkFiles {
 		if err := ctx.Err(); err != nil {
@@ -151,7 +172,8 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 		if err != nil {
 			return stats, trace.Wrap(err, "parse file "+relPath)
 		}
-		parsedFiles = append(parsedFiles, parsedWalkFile{path: relPath, content: content, nodes: nodes, edges: edges, comments: comments})
+		nodeBatches = append(nodeBatches, newParsedWalkNodeBatch(relPath, content, nodes, comments))
+		edgeBatches = append(edgeBatches, newParsedWalkEdgeBatch(relPath, edges))
 		stats.Files++
 		stats.Nodes += len(nodes)
 		stats.Edges += len(edges)
@@ -169,7 +191,7 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 			return trace.Wrap(err, "reset graph state before parse")
 		}
 
-		for _, parsed := range parsedFiles {
+		for _, parsed := range nodeBatches {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -185,8 +207,7 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 				if ok {
 					binderComments := toMCPBinderComments(parsed.comments)
 					binder := parse.NewBinder()
-					sourceLines := strings.Split(string(parsed.content), "\n")
-					bindings := binder.Bind(binderComments, parsed.nodes, cp.Language(), sourceLines)
+					bindings := binder.Bind(binderComments, parsed.nodes, cp.Language(), parsed.sourceLines)
 
 					storedNodes, err := txStore.GetNodesByFile(ctx, parsed.path)
 					if err != nil {
@@ -213,7 +234,9 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 			}
 		}
 
-		for _, parsed := range parsedFiles {
+		nodeBatches = nil
+
+		for _, parsed := range edgeBatches {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
