@@ -55,6 +55,29 @@ func setupUpdateTest(t *testing.T) (*Deps, *bytes.Buffer, *bytes.Buffer, *gorm.D
 	return deps, stdout, stderr, db
 }
 
+func setupUpdateGraphOnlyTest(t *testing.T) (*Deps, *bytes.Buffer, *bytes.Buffer, *gorm.DB) {
+	t.Helper()
+	deps, stdout, stderr := newTestDeps()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatal(err)
+	}
+
+	walker := treesitter.NewWalker(treesitter.GoSpec)
+	deps.Store = st
+	deps.Walkers = map[string]*treesitter.Walker{".go": walker}
+	deps.Syncer = incremental.New(st, walker)
+	deps.DB = db
+
+	return deps, stdout, stderr, db
+}
+
 func TestUpdateCommand_IncrementalSync(t *testing.T) {
 	deps, stdout, stderr, db := setupUpdateTest(t)
 
@@ -102,6 +125,49 @@ func B() {}
 	}
 	if !foundB {
 		t.Fatal("expected to find newly added function B")
+	}
+}
+
+func TestUpdateCommand_DeletesRemovedFiles(t *testing.T) {
+	deps, stdout, stderr, db := setupUpdateGraphOnlyTest(t)
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "a.go", `package a
+func A() {}
+`)
+	writeGoFile(t, dir, "b.go", `package a
+func B() {}
+`)
+
+	if err := executeCmd(deps, stdout, stderr, "build", dir); err != nil {
+		t.Fatalf("initial build: %v", err)
+	}
+
+	var before int64
+	if err := db.Model(&model.Node{}).Where("file_path = ?", "b.go").Count(&before).Error; err != nil {
+		t.Fatalf("count deleted file nodes before update: %v", err)
+	}
+	if before == 0 {
+		t.Fatal("expected nodes for b.go after initial build")
+	}
+
+	if err := os.Remove(filepath.Join(dir, "b.go")); err != nil {
+		t.Fatalf("remove b.go: %v", err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+
+	if err := executeCmd(deps, stdout, stderr, "update", dir); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	var after int64
+	if err := db.Model(&model.Node{}).Where("file_path = ?", "b.go").Count(&after).Error; err != nil {
+		t.Fatalf("count deleted file nodes after update: %v", err)
+	}
+	if after != 0 {
+		t.Fatalf("expected b.go nodes to be removed after update, got %d", after)
 	}
 }
 

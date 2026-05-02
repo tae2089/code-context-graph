@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"os"
@@ -9,8 +10,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/tae2089/trace"
+	"gorm.io/gorm"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
+	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/pathutil"
 	"github.com/tae2089/code-context-graph/internal/service"
@@ -75,7 +78,11 @@ func newUpdateCmd(deps *Deps) *cobra.Command {
 			if ns, _ := cmd.Flags().GetString("namespace"); ns != "" {
 				ctx = ctxns.WithNamespace(ctx, ns)
 			}
-			stats, err := deps.Syncer.Sync(ctx, files)
+			existingFiles, err := existingGraphFiles(ctx, deps.DB)
+			if err != nil {
+				return trace.Wrap(err, "load existing graph files")
+			}
+			stats, err := deps.Syncer.SyncWithExisting(ctx, files, existingFiles)
 			if err != nil {
 				return trace.Wrap(err, "incremental sync")
 			}
@@ -96,4 +103,24 @@ func newUpdateCmd(deps *Deps) *cobra.Command {
 	}
 
 	return cmd
+}
+
+func existingGraphFiles(ctx context.Context, db *gorm.DB) ([]string, error) {
+	if db == nil {
+		return nil, nil
+	}
+
+	ns := ctxns.FromContext(ctx)
+	query := db.WithContext(ctx).Model(&model.Node{})
+	if ns != "" {
+		query = query.Where("namespace = ?", ns)
+	} else {
+		query = query.Where("namespace = ?", "")
+	}
+
+	var filePaths []string
+	if err := query.Distinct().Pluck("file_path", &filePaths).Error; err != nil {
+		return nil, err
+	}
+	return filePaths, nil
 }
