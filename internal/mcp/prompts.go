@@ -42,6 +42,23 @@ func promptResult(text string) *mcp.GetPromptResult {
 	}
 }
 
+func resolvePromptNamespace(args map[string]string) string {
+	if namespace := args["namespace"]; namespace != "" {
+		return ctxns.Normalize(namespace)
+	}
+	return resolveNamespace(context.Background(), args["workspace"])
+}
+
+func promptNamespaceRoot(deps *Deps) string {
+	if deps.NamespaceRoot != "" {
+		return deps.NamespaceRoot
+	}
+	if deps.WorkspaceRoot != "" {
+		return deps.WorkspaceRoot
+	}
+	return "workspaces"
+}
+
 // reviewChanges builds a prompt summarizing change risk and coverage gaps.
 // @intent 변경 리뷰 전에 리스크 높은 함수와 테스트 빈틈을 한 번에 보여준다.
 // @param request repo_root와 base 인자로 Git 비교 범위를 정한다.
@@ -51,14 +68,14 @@ func promptResult(text string) *mcp.GetPromptResult {
 // @see mcp.promptHandlers.preMergeCheck
 func (p *promptHandlers) reviewChanges(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	args := request.Params.Arguments
-	ctx = ctxns.WithNamespace(ctx, resolveNamespace(ctx, args["workspace"]))
+	ctx = ctxns.WithNamespace(ctx, resolvePromptNamespace(args))
 	repoRoot := args["repo_root"]
 	base := args["base"]
 	if base == "" {
 		base = "HEAD~1"
 	}
 
-	validatedRepoRoot, err := validateRepoRootWithin(repoRoot, p.deps.RepoRoot, p.deps.WorkspaceRoot)
+	validatedRepoRoot, err := validateRepoRootWithin(repoRoot, p.deps.RepoRoot, promptNamespaceRoot(p.deps))
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +134,7 @@ func (p *promptHandlers) reviewChanges(ctx context.Context, request mcp.GetPromp
 // @ensures 성공 시 커뮤니티와 모듈 간 결합도 목록을 포함한 프롬프트를 반환한다.
 // @sideEffect DB에서 커뮤니티와 결합도 정보를 조회한다.
 func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-	ctx = ctxns.WithNamespace(ctx, resolveNamespace(ctx, request.Params.Arguments["workspace"]))
+	ctx = ctxns.WithNamespace(ctx, resolvePromptNamespace(request.Params.Arguments))
 	ns := ctxns.FromContext(ctx)
 	var communities []model.Community
 	query := p.deps.DB.WithContext(ctx).Where("namespace = ?", ns)
@@ -175,7 +192,7 @@ func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPro
 // @sideEffect 검색 인덱스 조회와 그래프 질의를 수행한다.
 func (p *promptHandlers) debugIssue(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	args := request.Params.Arguments
-	ctx = ctxns.WithNamespace(ctx, resolveNamespace(ctx, args["workspace"]))
+	ctx = ctxns.WithNamespace(ctx, resolvePromptNamespace(args))
 	description := args["description"]
 
 	if p.deps.SearchBackend == nil || p.deps.DB == nil {
@@ -245,7 +262,7 @@ func (p *promptHandlers) debugIssue(ctx context.Context, request mcp.GetPromptRe
 // @ensures 성공 시 온보딩용 통계와 구조 요약 프롬프트를 반환한다.
 // @sideEffect DB에서 통계, 커뮤니티, 대형 함수 정보를 조회한다.
 func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-	ctx = ctxns.WithNamespace(ctx, resolveNamespace(ctx, request.Params.Arguments["workspace"]))
+	ctx = ctxns.WithNamespace(ctx, resolvePromptNamespace(request.Params.Arguments))
 	log := p.deps.Logger
 	ns := ctxns.FromContext(ctx)
 	var nodeCount int64
@@ -333,14 +350,14 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 func (p *promptHandlers) preMergeCheck(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	log := p.deps.Logger
 	args := request.Params.Arguments
-	ctx = ctxns.WithNamespace(ctx, resolveNamespace(ctx, args["workspace"]))
+	ctx = ctxns.WithNamespace(ctx, resolvePromptNamespace(args))
 	repoRoot := args["repo_root"]
 	base := args["base"]
 	if base == "" {
 		base = "HEAD~1"
 	}
 
-	validatedRepoRoot, err := validateRepoRootWithin(repoRoot, p.deps.RepoRoot, p.deps.WorkspaceRoot)
+	validatedRepoRoot, err := validateRepoRootWithin(repoRoot, p.deps.RepoRoot, promptNamespaceRoot(p.deps))
 	if err != nil {
 		return nil, err
 	}
