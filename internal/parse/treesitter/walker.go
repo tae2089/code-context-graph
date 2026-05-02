@@ -154,10 +154,7 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 
 	w.logger.Debug("parsing file", "file", filePath, "language", w.spec.Name)
 
-	parser := w.acquireParser()
-	defer w.releaseParser(parser)
-
-	tree, err := parser.ParseCtx(ctx, nil, content)
+	tree, err := w.parseSourceCtx(ctx, content)
 	if err != nil {
 		w.logger.Error("tree-sitter parse error", "file", filePath, "error", err)
 		return nil, nil, nil, trace.Wrap(err, "parse error")
@@ -682,10 +679,7 @@ func (w *Walker) ExtractComments(ctx context.Context, filePath string, content [
 		return nil, trace.Wrap(errUnsupportedLanguage, w.spec.Name)
 	}
 
-	parser := w.acquireParser()
-	defer w.releaseParser(parser)
-
-	tree, err := parser.ParseCtx(ctx, nil, content)
+	tree, err := w.parseSourceCtx(ctx, content)
 	if err != nil {
 		return nil, trace.Wrap(err, "parse error")
 	}
@@ -694,6 +688,40 @@ func (w *Walker) ExtractComments(ctx context.Context, filePath string, content [
 	var comments []CommentBlock
 	w.collectComments(tree.RootNode(), content, &comments)
 	return comments, nil
+}
+
+func (w *Walker) parseSourceCtx(ctx context.Context, content []byte) (*sitter.Tree, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	parser := w.acquireParser()
+	defer w.releaseParser(parser)
+	input := sitter.Input{
+		Encoding: sitter.InputEncodingUTF8,
+		Read: func(offset uint32, position sitter.Point) []byte {
+			_ = position
+			if err := ctx.Err(); err != nil {
+				return nil
+			}
+			if offset >= uint32(len(content)) {
+				return nil
+			}
+			return content[offset:]
+		},
+	}
+
+	tree, err := parser.ParseInputCtx(ctx, nil, input)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		if tree != nil {
+			tree.Close()
+		}
+		return nil, err
+	}
+	return tree, nil
 }
 
 // collectComments walks the AST and merges adjacent comment nodes into comment blocks.

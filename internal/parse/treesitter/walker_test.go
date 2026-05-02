@@ -28,15 +28,90 @@ func TestParseWithContext_RespectsContextCancellation(t *testing.T) {
 	content := []byte(`package main
 func Foo() {}`)
 
-	// 취소된 context가 전달되면 에러를 반환하거나 빈 결과를 돌려야 함
-	// (tree-sitter ParseCtx는 ctx를 체크함)
-	nodes, edges, err := w.ParseWithContext(ctx, "test.go", content)
+	// 취소된 context면 반드시 context.Canceled를 반환해야 한다.
+	_, _, err := w.ParseWithContext(ctx, "test.go", content)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestExtractComments_RespectsContextCancellation(t *testing.T) {
+	w := NewWalker(GoSpec)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := w.ExtractComments(ctx, "test.go", []byte("package main\n// hello\nfunc Foo() {}\n"))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestParseSourceCtx_SingleShotReadSeam(t *testing.T) {
+	w := NewWalker(GoSpec)
+	tree, err := w.parseSourceCtx(context.Background(), []byte("package main\nfunc hello() {}\n"))
 	if err != nil {
-		// 취소된 context → 에러 반환은 올바른 동작
-		t.Logf("ParseWithContext returned expected error: %v", err)
-	} else {
-		// 에러 없이 리턴해도 panic만 안 나면 OK
-		t.Logf("ParseWithContext succeeded despite cancelled ctx: nodes=%d edges=%d", len(nodes), len(edges))
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tree == nil {
+		t.Fatal("expected tree, got nil")
+	}
+	if got := tree.RootNode().Type(); got != "source_file" {
+		t.Fatalf("root type = %q, want %q", got, "source_file")
+	}
+	tree.Close()
+}
+
+func TestParseSourceCtx_ParityWithParseCtx(t *testing.T) {
+	tests := []struct {
+		name    string
+		walker  *Walker
+		content []byte
+	}{
+		{
+			name:    "go",
+			walker:  NewWalker(GoSpec),
+			content: []byte("package main\n\nfunc hello() {}\n"),
+		},
+		{
+			name:    "python",
+			walker:  NewWalker(PythonSpec),
+			content: []byte("def hello():\n    return 1\n"),
+		},
+		{
+			name:    "typescript",
+			walker:  NewWalker(TypeScriptSpec),
+			content: []byte("export function hello(): number {\n  return 1;\n}\n"),
+		},
+		{
+			name:    "lua_typed_function",
+			walker:  NewWalker(LuaSpec),
+			content: []byte("function add(x: number, y: number): number\n    return x + y\nend\n"),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			defer tc.walker.Close()
+
+			parser := tc.walker.acquireParser()
+			defer tc.walker.releaseParser(parser)
+
+			directTree, err := parser.ParseCtx(context.Background(), nil, tc.content)
+			if err != nil {
+				t.Fatalf("direct ParseCtx error: %v", err)
+			}
+			defer directTree.Close()
+
+			helpTree, err := tc.walker.parseSourceCtx(context.Background(), tc.content)
+			if err != nil {
+				t.Fatalf("parseSourceCtx error: %v", err)
+			}
+			defer helpTree.Close()
+
+			if got, want := directTree.RootNode().String(), helpTree.RootNode().String(); got != want {
+				t.Fatalf("root string mismatch\n direct: %s\n helper: %s", got, want)
+			}
+		})
 	}
 }
 
