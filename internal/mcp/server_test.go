@@ -40,10 +40,12 @@ func TestMCPServer_ListTools(t *testing.T) {
 		"get_doc_content",
 		"search_docs",
 		"upload_file",
+		"list_namespaces",
 		"list_workspaces",
 		"list_files",
 		"delete_file",
 		"upload_files",
+		"delete_namespace",
 		"delete_workspace",
 		"get_minimal_context",
 	}
@@ -75,8 +77,8 @@ func TestMCPServer_ListTools_18(t *testing.T) {
 	srv := NewServer(deps)
 	tools := srv.ListTools()
 
-	if len(tools) != 29 {
-		t.Fatalf("expected 29 tools, got %d", len(tools))
+	if len(tools) != 31 {
+		t.Fatalf("expected 31 tools, got %d", len(tools))
 	}
 }
 
@@ -183,11 +185,13 @@ func TestMCPServer_ToolRequiredFlags(t *testing.T) {
 		"get_rag_tree":               nil,
 		"get_doc_content":            {"file_path"},
 		"search_docs":                {"query"},
-		"upload_file":                {"workspace", "file_path", "content"},
+		"upload_file":                {"namespace", "file_path", "content"},
+		"list_namespaces":            nil,
 		"list_workspaces":            nil,
-		"list_files":                 {"workspace"},
-		"delete_file":                {"workspace", "file_path"},
+		"list_files":                 {"namespace"},
+		"delete_file":                {"namespace", "file_path"},
 		"upload_files":               {"files"},
+		"delete_namespace":           {"namespace"},
 		"delete_workspace":           {"workspace"},
 		"get_minimal_context":        nil,
 	}
