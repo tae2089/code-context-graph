@@ -24,6 +24,7 @@ func parseTools(h *handlers) []server.ServerTool {
 				mcp.WithString("postprocess", mcp.Description("Postprocessing mode: full, minimal, or none (default: full)")),
 				mcp.WithString("workspace", mcp.Description("Workspace name for namespace isolation")),
 				mcp.WithArray("include_paths", mcp.Description("Only include specific sub-paths (e.g. [\"src/api\", \"src/auth\"])"), mcp.WithStringItems()),
+				mcp.WithBoolean("replace", mcp.Description("When true (default), incremental include_paths replaces prior namespace graph state outside the included scope; when false, preserves out-of-scope files")),
 			),
 			Handler: h.buildOrUpdateGraph,
 		},

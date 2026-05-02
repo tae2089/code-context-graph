@@ -133,6 +133,28 @@ func TestMCPServer_IncludePathsArraySchemaHasStringItems(t *testing.T) {
 	}
 }
 
+func TestMCPServer_ReplaceFlagOnBuildOrUpdateGraphOnly(t *testing.T) {
+	deps := &Deps{}
+	srv := NewServer(deps)
+	tools := srv.ListTools()
+
+	buildTool, ok := tools["build_or_update_graph"]
+	if !ok {
+		t.Fatal("build_or_update_graph not registered")
+	}
+	if _, ok := buildTool.Tool.InputSchema.Properties["replace"]; !ok {
+		t.Fatal("build_or_update_graph missing replace property")
+	}
+
+	parseTool, ok := tools["parse_project"]
+	if !ok {
+		t.Fatal("parse_project not registered")
+	}
+	if _, ok := parseTool.Tool.InputSchema.Properties["replace"]; ok {
+		t.Fatal("parse_project should not expose replace property")
+	}
+}
+
 func TestMCPServer_ToolRequiredFlags(t *testing.T) {
 	deps := &Deps{}
 	srv := NewServer(deps)
