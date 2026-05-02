@@ -9,8 +9,10 @@ CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/
 ## Test
 
 ```bash
-CGO_ENABLED=1 go test -tags "fts5" ./... -count=1
+make test
 ```
+
+`make test` runs both the Go test suite and the lightweight shell helper tests for the Docker integration harness.
 
 ### Eval Test
 
@@ -35,6 +37,12 @@ Full-stack pipeline test: Gitea push → webhook → ccg clone → build → Pos
 ./scripts/integration-test.sh
 ```
 
+Lightweight shell helper tests cover the integration harness helpers without starting Docker:
+
+```bash
+make test-integration-helpers
+```
+
 ### What It Does
 
 1. Start 3 containers via Docker Compose (Gitea, PostgreSQL, ccg)
@@ -44,7 +52,30 @@ Full-stack pipeline test: Gitea push → webhook → ccg clone → build → Pos
 5. Push code to Gitea (triggers webhook)
 6. Wait for ccg to complete clone, parse, and build
 7. Verify graph data via MCP protocol (initialize → tools/call)
-8. Clean up all containers
+8. Capture debug artifacts on failure
+9. Clean up all containers unless requested otherwise
+
+### Debugging Integration Failures
+
+The integration harness writes Docker diagnostics on failure. Use these environment variables for local debugging:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ARTIFACT_DIR` | `artifacts/integration-<timestamp>` | Directory for `compose-ps.txt`, `compose.log`, and per-service logs |
+| `KEEP_CONTAINERS` | `0` | Set to `1` to skip `docker compose down -v` after the run |
+| `DUMP_ON_SUCCESS` | `0` | Set to `1` to capture artifacts even when the run passes |
+| `WEBHOOK_WAIT_SECONDS` | `60` | Maximum webhook/build wait per repository |
+| `CCG_E2E_ALLOW_MCP_LOG_FALLBACK` | `0` | Local debugging only: set to `1` to allow log-based webhook smoke checks when MCP initialize fails. Default behavior fails because MCP verification is required. |
+
+Examples:
+
+```bash
+KEEP_CONTAINERS=1 ARTIFACT_DIR=/tmp/ccg-e2e ./scripts/integration-test.sh
+DUMP_ON_SUCCESS=1 ./scripts/integration-test.sh
+```
+
+Webhook waits prefer MCP-observable graph stats for the target workspace and only fall back to ccg logs when MCP is not ready or not yet showing data.
+MCP initialization and tool responses are strict: malformed JSON, top-level JSON-RPC errors, `result.isError=true`, and missing `result.content[0].text` for content assertions fail the integration run. A run that cannot initialize MCP will not report the full integration test as passed unless the local debug override above is explicitly set, and that override skips MCP tool verification.
 
 ### Manual Container Management
 

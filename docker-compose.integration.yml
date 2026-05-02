@@ -57,6 +57,7 @@ services:
     environment:
       - CCG_DB_DRIVER=postgres
       - CCG_DB_DSN=host=postgres user=ccg password=ccg dbname=ccg_integration port=5432 sslmode=disable
+      - CCG_LOG_FORMAT=text
     command:
       - serve
       - --transport=streamable-http
@@ -72,6 +73,8 @@ services:
       - "18080:8080"
     depends_on:
       postgres:
+        condition: service_healthy
+      gitea:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/ready"]
