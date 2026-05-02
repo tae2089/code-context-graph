@@ -7,14 +7,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/mark3labs/mcp-go/client"
+	transportpkg "github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	transportpkg "github.com/mark3labs/mcp-go/client/transport"
 
 	"github.com/tae2089/code-context-graph/internal/model"
 )
@@ -322,7 +321,7 @@ func DeleteExpiredSessions() error { return nil }
 		t.Fatalf("parse_project: %v", err)
 	}
 
-	nodesInFile, err := deps.Store.GetNodesByFile(ctx, filepath.Join(dir, "repo.go"))
+	nodesInFile, err := deps.Store.GetNodesByFile(ctx, "repo.go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,10 +409,13 @@ func C() {}
 	}
 
 	text := extractText(irResult)
-	var nodes []map[string]any
-	if err := json.Unmarshal([]byte(text), &nodes); err != nil {
+	var impact struct {
+		Nodes []map[string]any `json:"nodes"`
+	}
+	if err := json.Unmarshal([]byte(text), &impact); err != nil {
 		t.Fatalf("parse impact JSON: %v — raw: %s", err, text)
 	}
+	nodes := impact.Nodes
 	if len(nodes) < 3 {
 		t.Errorf("expected >=3 nodes in impact radius depth 2, got %d", len(nodes))
 	}

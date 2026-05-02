@@ -351,10 +351,13 @@ func SaveToDatabase() {
 		t.Fatalf("get_impact_radius error: %s", getTextContent(irResult))
 	}
 	irText := getTextContent(irResult)
-	var nodes []map[string]any
-	if err := json.Unmarshal([]byte(irText), &nodes); err != nil {
-		t.Fatalf("impact radius result not JSON array: %s", irText)
+	var impact struct {
+		Nodes []map[string]any `json:"nodes"`
 	}
+	if err := json.Unmarshal([]byte(irText), &impact); err != nil {
+		t.Fatalf("impact radius result not JSON object: %s", irText)
+	}
+	nodes := impact.Nodes
 	// depth 2: HandleRequest → ValidateInput + ProcessData (depth 1) → SaveToDatabase (depth 2) = 4 nodes
 	if len(nodes) < 4 {
 		t.Errorf("expected at least 4 nodes in impact radius (depth 2), got %d", len(nodes))
@@ -388,7 +391,7 @@ func DeleteAllExpiredSessions() error {
 	}
 
 	// Step 2: Create search documents for parsed nodes
-	nodesInFile, err := deps.Store.GetNodesByFile(ctx, filepath.Join(dir, "repository.go"))
+	nodesInFile, err := deps.Store.GetNodesByFile(ctx, "repository.go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -611,7 +614,7 @@ func RefundPayment(txID string) error {
 
 	// Step 3: 검색 색인 생성
 	ctx := context.Background()
-	nodesInFile, err := deps.Store.GetNodesByFile(ctx, filepath.Join(wsPath, "payment.go"))
+	nodesInFile, err := deps.Store.GetNodesByFile(ctx, "payment.go")
 	if err != nil {
 		t.Fatal(err)
 	}
