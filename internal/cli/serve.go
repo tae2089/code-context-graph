@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ type ServeConfig struct {
 	InsecureHTTP  bool
 	Stateless     bool   // stateless session management for multi-instance deployments
 	WorkspaceRoot string // root directory for file workspaces (default "workspaces")
+	WebhookWorkers int
 	AllowRepo     []string
 	WebhookSecret string
 	InsecureWebhook bool
@@ -31,6 +33,9 @@ type ServeConfig struct {
 func validateServeConfig(cfg ServeConfig) error {
 	if cfg.Transport != "streamable-http" {
 		return nil
+	}
+	if cfg.WebhookWorkers <= 0 {
+		return fmt.Errorf("--webhook-workers must be > 0")
 	}
 	if len(cfg.AllowRepo) == 0 {
 		return nil
@@ -82,15 +87,16 @@ func newServeCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().BoolVar(&cfg.NoCache, "no-cache", false, "Disable in-memory cache for MCP serve session")
 	cmd.Flags().StringVar(&cfg.Transport, "transport", "stdio", "Transport mode: stdio or streamable-http")
 	cmd.Flags().StringVar(&cfg.HTTPAddr, "http-addr", "127.0.0.1:8080", "Listen address for HTTP transport")
-	cmd.Flags().StringVar(&cfg.HTTPBearerToken, "http-bearer-token", "", "Bearer token required for MCP HTTP requests when set")
+	cmd.Flags().StringVar(&cfg.HTTPBearerToken, "http-bearer-token", os.Getenv("CCG_HTTP_BEARER_TOKEN"), "Bearer token required for MCP HTTP requests when set")
 	cmd.Flags().BoolVar(&cfg.InsecureHTTP, "insecure-http", false, "Allow externally bound HTTP transport without bearer token (unsafe; testing only)")
 	cmd.Flags().BoolVar(&cfg.Stateless, "stateless", false, "Stateless session management (for multi-instance deployments)")
 	cmd.Flags().StringVar(&cfg.WorkspaceRoot, "workspace-root", "workspaces", "Root directory for file workspaces")
+	cmd.Flags().IntVar(&cfg.WebhookWorkers, "webhook-workers", 4, "Number of webhook sync workers")
 	cmd.Flags().StringSliceVar(&cfg.AllowRepo, "allow-repo", nil, "Allowed repo patterns for webhook sync (repeatable, e.g. org/*, !org/private)")
 	cmd.Flags().StringVar(&cfg.WebhookSecret, "webhook-secret", "", "HMAC secret for GitHub webhook signature verification")
 	cmd.Flags().BoolVar(&cfg.InsecureWebhook, "insecure-webhook", false, "Allow unsigned webhook requests (unsafe; testing only)")
 	cmd.Flags().StringVar(&cfg.RepoCloneBaseURL, "repo-clone-base-url", "", "Canonical base URL used to reconstruct clone targets for allowed repos")
-	cmd.Flags().StringVar(&cfg.RepoRoot, "repo-root", "", "Root directory for cloned repositories")
+	cmd.Flags().StringVar(&cfg.RepoRoot, "repo-root", os.Getenv("CCG_REPO_ROOT"), "Root directory for cloned repositories")
 
 	return cmd
 }

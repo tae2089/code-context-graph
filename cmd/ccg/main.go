@@ -265,6 +265,16 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcpAuthMiddleware(cfg.HTTPBearerToken, mcpserver.LimitHTTPBody(httpSrv)))
 	mux.HandleFunc("/health", handleHealth)
+	mux.Handle("/ready", readyHandler(func(r *http.Request) error {
+		if deps.DB == nil {
+			return fmt.Errorf("database not configured")
+		}
+		sqlDB, err := deps.DB.DB()
+		if err != nil {
+			return trace.Wrap(err, "get sql db")
+		}
+		return sqlDB.PingContext(r.Context())
+	}))
 
 	var syncQueue *webhook.SyncQueue
 	syncCtx, syncCancel := context.WithCancel(context.Background())
@@ -315,7 +325,7 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 				"files", stats.TotalFiles, "nodes", stats.TotalNodes, "edges", stats.TotalEdges)
 			return nil
 		}
-		syncQueue = webhook.NewSyncQueueWithContext(syncCtx, 4, syncHandler)
+		syncQueue = webhook.NewSyncQueueWithContext(syncCtx, cfg.WebhookWorkers, syncHandler)
 		mux.Handle("/webhook", webhook.NewWebhookHandlerWithConfig(webhook.WebhookHandlerConfig{
 			Secret:       secret,
 			Filter:       filter,
@@ -444,6 +454,27 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("health check write failed", "error", err)
 	}
+}
+
+func readyHandler(check func(*http.Request) error) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := check(r); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			if _, writeErr := w.Write([]byte(`{"status":"not_ready"}`)); writeErr != nil {
+				slog.Error("ready check write failed", "error", writeErr)
+			}
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write([]byte(`{"status":"ready"}`)); err != nil {
+			slog.Error("ready check write failed", "error", err)
+		}
+	})
 }
 
 // openDB opens a GORM connection for the configured driver.

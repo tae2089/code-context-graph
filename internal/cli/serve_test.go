@@ -158,6 +158,44 @@ func TestServeCmdFlags_HTTPAuth(t *testing.T) {
 	}
 }
 
+func TestServeCmd_UsesHTTPBearerTokenFromEnv(t *testing.T) {
+	t.Setenv("CCG_HTTP_BEARER_TOKEN", "env-secret")
+
+	deps, stdout, stderr := newTestDeps()
+	var got ServeConfig
+	deps.ServeFunc = func(cfg ServeConfig) error {
+		got = cfg
+		return nil
+	}
+
+	err := executeCmd(deps, stdout, stderr, "serve")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.HTTPBearerToken != "env-secret" {
+		t.Fatalf("HTTPBearerToken = %q, want %q", got.HTTPBearerToken, "env-secret")
+	}
+}
+
+func TestServeCmd_UsesRepoRootFromEnv(t *testing.T) {
+	t.Setenv("CCG_REPO_ROOT", "/env/repos")
+
+	deps, stdout, stderr := newTestDeps()
+	var got ServeConfig
+	deps.ServeFunc = func(cfg ServeConfig) error {
+		got = cfg
+		return nil
+	}
+
+	err := executeCmd(deps, stdout, stderr, "serve")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.RepoRoot != "/env/repos" {
+		t.Fatalf("RepoRoot = %q, want %q", got.RepoRoot, "/env/repos")
+	}
+}
+
 func TestServeCmd_DefaultHTTPAddrIsLoopback(t *testing.T) {
 	deps, stdout, stderr := newTestDeps()
 
@@ -173,6 +211,39 @@ func TestServeCmd_DefaultHTTPAddrIsLoopback(t *testing.T) {
 	}
 	if got.HTTPAddr != "127.0.0.1:8080" {
 		t.Fatalf("HTTPAddr = %q, want %q", got.HTTPAddr, "127.0.0.1:8080")
+	}
+	if got.WebhookWorkers != 4 {
+		t.Fatalf("WebhookWorkers = %d, want 4", got.WebhookWorkers)
+	}
+}
+
+func TestServeCmdFlags_WebhookWorkers(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+
+	var got ServeConfig
+	deps.ServeFunc = func(cfg ServeConfig) error {
+		got = cfg
+		return nil
+	}
+
+	err := executeCmd(deps, stdout, stderr, "serve", "--webhook-workers", "2")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.WebhookWorkers != 2 {
+		t.Fatalf("WebhookWorkers = %d, want 2", got.WebhookWorkers)
+	}
+}
+
+func TestServeCmd_RejectsNonPositiveWebhookWorkers(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+	deps.ServeFunc = func(cfg ServeConfig) error { return nil }
+
+	for _, workers := range []string{"0", "-1"} {
+		err := executeCmd(deps, stdout, stderr, "serve", "--transport", "streamable-http", "--webhook-workers", workers)
+		if err == nil || !strings.Contains(err.Error(), "--webhook-workers must be > 0") {
+			t.Fatalf("expected webhook worker validation error for %s, got %v", workers, err)
+		}
 	}
 }
 
