@@ -381,13 +381,9 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		absDir, _ := filepath.Abs(dirPath)
 		files := map[string]incremental.FileInfo{}
 		existingFiles := []string{}
-		var existingNodes []model.Node
 		ns := ctxns.FromContext(ctx)
-		if err := h.deps.DB.Model(&model.Node{}).Where("namespace = ?", ns).Distinct("file_path").Find(&existingNodes).Error; err != nil {
+		if err := h.deps.DB.Model(&model.Node{}).Where("namespace = ?", ns).Distinct().Pluck("file_path", &existingFiles).Error; err != nil {
 			return nil, trace.Wrap(err, "load existing file paths")
-		}
-		for _, n := range existingNodes {
-			existingFiles = append(existingFiles, n.FilePath)
 		}
 		if !replace && len(includePaths) > 0 {
 			filtered := make([]string, 0, len(existingFiles))
