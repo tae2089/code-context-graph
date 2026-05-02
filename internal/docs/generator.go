@@ -17,9 +17,9 @@ import (
 // Generator reads the SQLite graph and writes markdown documentation.
 // @intent 그래프에 저장된 심볼과 어노테이션을 문서 생성 단계로 전달한다.
 type Generator struct {
-	DB      *gorm.DB
-	OutDir  string
-	Exclude []string // path/glob patterns to exclude (see pathutil.MatchExcludes)
+	DB        *gorm.DB
+	OutDir    string
+	Exclude   []string // path/glob patterns to exclude (see pathutil.MatchExcludes)
 	Namespace string
 	Prune     bool
 }
@@ -57,6 +57,9 @@ func (g *Generator) Run() error {
 	}
 
 	groups := groupByFile(nodes, annByID, edgesByFromID)
+	if err := g.validateDocGroups(groups); err != nil {
+		return err
+	}
 	current := generatedFiles(groups)
 
 	var errs []error
@@ -100,7 +103,19 @@ func (g *Generator) RunIndex() error {
 	}
 
 	groups := groupByFile(nodes, annByID, nil)
+	if err := g.validateDocGroups(groups); err != nil {
+		return err
+	}
 	return g.writeIndex(groups)
+}
+
+func (g *Generator) validateDocGroups(groups []nodeGroup) error {
+	for _, grp := range groups {
+		if _, err := safeDocOutputPath(g.OutDir, grp.FilePath+".md"); err != nil {
+			return fmt.Errorf("invalid file doc path %s: %w", grp.FilePath, err)
+		}
+	}
+	return nil
 }
 
 // loadNodes loads documentable graph nodes and their annotations.
@@ -216,7 +231,11 @@ func (g *Generator) pruneManaged(previous, current []string) error {
 		if keep[p] {
 			continue
 		}
-		full := filepath.Join(g.OutDir, filepath.FromSlash(p))
+		full, err := safeDocOutputPath(g.OutDir, p)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
 		data, err := os.ReadFile(full)
 		if err != nil {
 			if os.IsNotExist(err) {

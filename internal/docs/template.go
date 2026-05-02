@@ -1,7 +1,9 @@
 package docs
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -60,11 +62,63 @@ func groupByFile(nodes []model.Node, annByID map[uint]*model.Annotation, edgesBy
 // @sideEffect 출력 디렉터리를 만들고 해당 .md 파일을 기록한다.
 func (g *Generator) writeFileDoc(grp nodeGroup) error {
 	content := renderFileDoc(grp)
-	outPath := filepath.Join(g.OutDir, filepath.FromSlash(grp.FilePath+".md"))
+	outPath, err := safeDocOutputPath(g.OutDir, grp.FilePath+".md")
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
 		return fmt.Errorf("create dir: %w", err)
 	}
 	return atomicWriteFile(outPath, []byte(generatorManagedMarker+content), 0644)
+}
+
+func safeDocOutputPath(outDir, relPath string) (string, error) {
+	clean := filepath.Clean(filepath.FromSlash(relPath))
+	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid file path %q: path traversal not allowed", relPath)
+	}
+	base, err := filepath.Abs(outDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve output directory: %w", err)
+	}
+	target := filepath.Join(base, clean)
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return "", fmt.Errorf("resolve output path: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("invalid file path %q: outside output directory", relPath)
+	}
+	if err := rejectSymlinkPath(base, clean); err != nil {
+		return "", fmt.Errorf("invalid file path %q: %w", relPath, err)
+	}
+	return target, nil
+}
+
+func rejectSymlinkPath(root, relPath string) error {
+	clean := filepath.Clean(relPath)
+	if clean == "." {
+		return nil
+	}
+	current := root
+	segments := strings.Split(clean, string(filepath.Separator))
+	for i, segment := range segments {
+		current = filepath.Join(current, segment)
+		info, err := os.Lstat(current)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("symlink paths are not allowed")
+		}
+		if !info.IsDir() && i < len(segments)-1 {
+			return fmt.Errorf("non-directory path component %q", segment)
+		}
+	}
+	return nil
 }
 
 // writeIndex writes the aggregated markdown index.
@@ -143,7 +197,7 @@ func renderSymbol(b *strings.Builder, n model.Node, ann *model.Annotation, edges
 		if ann.Summary == "" {
 			fmt.Fprintln(b)
 		}
-		for _, l := range strings.Split(ann.Context, "\n") {
+		for l := range strings.SplitSeq(ann.Context, "\n") {
 			fmt.Fprintf(b, "> %s\n", l)
 		}
 	}

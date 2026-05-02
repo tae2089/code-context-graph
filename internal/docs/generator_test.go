@@ -208,6 +208,87 @@ func TestRun_GeneratesFileDoc(t *testing.T) {
 	}
 }
 
+func TestRun_RejectsFilePathOutsideOutDir(t *testing.T) {
+	db := newTestDB(t)
+	badNode := model.Node{
+		QualifiedName: "evil.Escape",
+		Kind:          model.NodeKindFunction,
+		Name:          "Escape",
+		FilePath:      "../escape.go",
+		StartLine:     1,
+		EndLine:       5,
+		Hash:          "h1",
+		Language:      "go",
+	}
+	if err := db.Create(&badNode).Error; err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+
+	gen, outDir := newGenerator(t, db)
+	err := gen.Run()
+	if err == nil {
+		t.Fatal("expected Run to reject a file path outside OutDir")
+	}
+	if _, statErr := os.Stat(filepath.Join(filepath.Dir(outDir), "escape.go.md")); !os.IsNotExist(statErr) {
+		t.Fatalf("expected no file outside OutDir, stat err=%v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(outDir, ".ccg-docs-manifest.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("expected no manifest after invalid path, stat err=%v", statErr)
+	}
+}
+
+func TestRun_RejectsAbsoluteFilePath(t *testing.T) {
+	db := newTestDB(t)
+	badNode := model.Node{
+		QualifiedName: "evil.Abs",
+		Kind:          model.NodeKindFunction,
+		Name:          "Abs",
+		FilePath:      filepath.Join(t.TempDir(), "abs.go"),
+		StartLine:     1,
+		EndLine:       5,
+		Hash:          "h1",
+		Language:      "go",
+	}
+	if err := db.Create(&badNode).Error; err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+
+	gen, _ := newGenerator(t, db)
+	if err := gen.Run(); err == nil {
+		t.Fatal("expected Run to reject an absolute file path")
+	}
+}
+
+func TestRun_RejectsSymlinkDirectoryEscape(t *testing.T) {
+	db := newTestDB(t)
+	node := model.Node{
+		QualifiedName: "pkg.Escape",
+		Kind:          model.NodeKindFunction,
+		Name:          "Escape",
+		FilePath:      "pkg/escape.go",
+		StartLine:     1,
+		EndLine:       5,
+		Hash:          "h1",
+		Language:      "go",
+	}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+
+	gen, outDir := newGenerator(t, db)
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(outDir, "pkg")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	if err := gen.Run(); err == nil {
+		t.Fatal("expected Run to reject an output path through symlink")
+	}
+	if _, statErr := os.Stat(filepath.Join(outside, "escape.go.md")); !os.IsNotExist(statErr) {
+		t.Fatalf("expected no file through symlink, stat err=%v", statErr)
+	}
+}
+
 func TestRun_GeneratesIndexMd(t *testing.T) {
 	db := newTestDB(t)
 
