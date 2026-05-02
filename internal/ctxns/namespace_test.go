@@ -13,10 +13,18 @@ func TestWithNamespace_setsNamespaceInContext(t *testing.T) {
 	}
 }
 
-func TestFromContext_emptyWhenNotSet(t *testing.T) {
+func TestFromContext_emptyWhenNotSet_returnsDefault(t *testing.T) {
 	ctx := context.Background()
 	got := FromContext(ctx)
-	if got != "" {
-		t.Errorf("FromContext() = %q, want empty string", got)
+	if got != "default" {
+		t.Errorf("FromContext() = %q, want %q", got, "default")
+	}
+}
+
+func TestWithNamespace_emptyStringNormalizesToDefault(t *testing.T) {
+	ctx := WithNamespace(context.Background(), "")
+	got := FromContext(ctx)
+	if got != "default" {
+		t.Errorf("FromContext() = %q, want %q", got, "default")
 	}
 }

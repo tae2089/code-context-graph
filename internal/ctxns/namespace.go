@@ -5,10 +5,19 @@ import "context"
 
 type ctxKey struct{}
 
+const DefaultNamespace = "default"
+
+func Normalize(ns string) string {
+	if ns == "" {
+		return DefaultNamespace
+	}
+	return ns
+}
+
 // WithNamespace는 context에 namespace 값을 설정한다.
 // @intent 호출자 시그니처 변경 없이 store 레이어까지 namespace를 전달한다.
 func WithNamespace(ctx context.Context, ns string) context.Context {
-	return context.WithValue(ctx, ctxKey{}, ns)
+	return context.WithValue(ctx, ctxKey{}, Normalize(ns))
 }
 
 // FromContext는 context에서 namespace를 추출한다.
@@ -16,7 +25,7 @@ func WithNamespace(ctx context.Context, ns string) context.Context {
 // @return namespace가 설정되지 않았으면 빈 문자열을 반환한다.
 func FromContext(ctx context.Context) string {
 	if v, ok := ctx.Value(ctxKey{}).(string); ok {
-		return v
+		return Normalize(v)
 	}
-	return ""
+	return DefaultNamespace
 }
