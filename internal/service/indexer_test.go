@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,8 +31,112 @@ import (
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
+	"github.com/tae2089/code-context-graph/internal/store"
 	storesearch "github.com/tae2089/code-context-graph/internal/store/search"
 )
+
+type recordingGraphStore struct {
+	t         *testing.T
+	ops       []string
+	nextID    uint
+	nodesByFP map[string][]model.Node
+}
+
+func newRecordingGraphStore(t *testing.T) *recordingGraphStore {
+	return &recordingGraphStore{t: t, nodesByFP: make(map[string][]model.Node)}
+}
+
+func (r *recordingGraphStore) record(op string) {
+	r.ops = append(r.ops, op)
+}
+
+func (r *recordingGraphStore) WithTx(ctx context.Context, fn func(store.GraphStore) error) error {
+	return fn(r)
+}
+
+func (r *recordingGraphStore) AutoMigrate() error { return nil }
+
+func (r *recordingGraphStore) DeleteGraph(ctx context.Context) error {
+	r.record("DeleteGraph")
+	r.nodesByFP = make(map[string][]model.Node)
+	return nil
+}
+
+func (r *recordingGraphStore) UpsertNodes(ctx context.Context, nodes []model.Node) error {
+	r.record("UpsertNodes")
+	for i := range nodes {
+		r.nextID++
+		nodes[i].ID = r.nextID
+		r.nodesByFP[nodes[i].FilePath] = append(r.nodesByFP[nodes[i].FilePath], nodes[i])
+	}
+	return nil
+}
+
+func (r *recordingGraphStore) GetNodesByFile(ctx context.Context, filePath string) ([]model.Node, error) {
+	r.record("GetNodesByFile")
+	nodes := r.nodesByFP[filePath]
+	out := make([]model.Node, len(nodes))
+	copy(out, nodes)
+	return out, nil
+}
+
+func (r *recordingGraphStore) UpsertAnnotation(ctx context.Context, ann *model.Annotation) error {
+	r.record("UpsertAnnotation")
+	return nil
+}
+
+func (r *recordingGraphStore) UpsertEdges(ctx context.Context, edges []model.Edge) error {
+	r.record("UpsertEdges")
+	return nil
+}
+
+func (r *recordingGraphStore) GetNode(ctx context.Context, qualifiedName string) (*model.Node, error) {
+	return nil, nil
+}
+
+func (r *recordingGraphStore) GetNodeByID(ctx context.Context, id uint) (*model.Node, error) {
+	return nil, nil
+}
+
+func (r *recordingGraphStore) GetNodesByIDs(ctx context.Context, ids []uint) ([]model.Node, error) {
+	return nil, nil
+}
+
+func (r *recordingGraphStore) GetNodesByQualifiedNames(ctx context.Context, names []string) (map[string][]model.Node, error) {
+	return nil, nil
+}
+
+func (r *recordingGraphStore) GetNodesByFiles(ctx context.Context, filePaths []string) (map[string][]model.Node, error) {
+	return nil, nil
+}
+
+func (r *recordingGraphStore) GetEdgesFrom(ctx context.Context, nodeID uint) ([]model.Edge, error) {
+	return nil, nil
+}
+
+func (r *recordingGraphStore) GetEdgesFromNodes(ctx context.Context, nodeIDs []uint) ([]model.Edge, error) {
+	return nil, nil
+}
+
+func (r *recordingGraphStore) GetEdgesTo(ctx context.Context, nodeID uint) ([]model.Edge, error) {
+	return nil, nil
+}
+
+func (r *recordingGraphStore) GetEdgesToNodes(ctx context.Context, nodeIDs []uint) ([]model.Edge, error) {
+	return nil, nil
+}
+
+func (r *recordingGraphStore) DeleteNodesByFile(ctx context.Context, filePath string) error {
+	return nil
+}
+
+func (r *recordingGraphStore) DeleteEdgesByFile(ctx context.Context, filePath string) error {
+	return nil
+}
+
+func (r *recordingGraphStore) GetAnnotation(ctx context.Context, nodeID uint) (*model.Annotation, error) {
+	return nil, nil
+}
 
 func TestToBinderComments_PreservesBasicFields(t *testing.T) {
 	in := []treesitter.CommentBlock{
@@ -95,6 +200,43 @@ func TestToBinderComments_EmptyInput(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("expected empty slice, got len=%d", len(got))
+	}
+}
+
+func TestNewParsedBuildEdgeBatch_DoesNotRetainNodeSideState(t *testing.T) {
+	typ := reflect.TypeFor[parsedBuildEdgeBatch]()
+	for _, name := range []string{"nodes", "tsComments", "sourceLines"} {
+		if _, ok := typ.FieldByName(name); ok {
+			t.Fatalf("parsedBuildEdgeBatch must not retain %s", name)
+		}
+	}
+}
+
+func TestNewParsedBuildNodeBatch_DropsRawContentAndOnlyBuildsSourceLinesWhenNeeded(t *testing.T) {
+	typ := reflect.TypeFor[parsedBuildNodeBatch]()
+	if _, ok := typ.FieldByName("content"); ok {
+		t.Fatal("parsedBuildNodeBatch must not retain raw content")
+	}
+
+	noComments := newParsedBuildNodeBatch("sample.go", []byte("package sample\nfunc Keep() {}\n"), nil, nil)
+	if noComments.sourceLines != nil {
+		t.Fatalf("expected no sourceLines without comments, got %#v", noComments.sourceLines)
+	}
+
+	withComments := newParsedBuildNodeBatch(
+		"sample.go",
+		[]byte("package sample\n// hello\nfunc Keep() {}\n"),
+		nil,
+		[]treesitter.CommentBlock{{StartLine: 2, EndLine: 2, Text: "// hello"}},
+	)
+	if withComments.sourceLines == nil {
+		t.Fatal("expected sourceLines when tsComments exist")
+	}
+	if got, want := len(withComments.sourceLines), 4; got != want {
+		t.Fatalf("sourceLines length mismatch: got=%d want=%d", got, want)
+	}
+	if got, want := withComments.sourceLines[1], "// hello"; got != want {
+		t.Fatalf("sourceLines[1] mismatch: got=%q want=%q", got, want)
 	}
 }
 
@@ -267,6 +409,54 @@ func Keep() int {
 	}
 
 	assertFunctionNamesByFile(t, st, ctx, "sample.go", []string{"Keep"})
+}
+
+func TestBuild_OrderingSeam_AnnotationBeforeEdges(t *testing.T) {
+	fakeStore := newRecordingGraphStore(t)
+	svc := &GraphService{
+		Store: fakeStore,
+		Walkers: map[string]*treesitter.Walker{
+			".go": treesitter.NewWalker(treesitter.GoSpec),
+		},
+		Logger: slog.Default(),
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "sample.go"), []byte(`package sample
+
+// @intent keep track of the function
+func Keep() {}
+`), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	if _, err := svc.Build(context.Background(), BuildOptions{Dir: dir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	want := []string{"DeleteGraph", "UpsertNodes", "GetNodesByFile", "UpsertAnnotation", "UpsertEdges"}
+	for i, op := range want[:4] {
+		if len(fakeStore.ops) <= i {
+			t.Fatalf("ops too short: got %v", fakeStore.ops)
+		}
+		if fakeStore.ops[i] != op {
+			t.Fatalf("op[%d]=%q want %q (all=%v)", i, fakeStore.ops[i], op, fakeStore.ops)
+		}
+	}
+	firstEdge := slices.Index(fakeStore.ops, "UpsertEdges")
+	lastAnn := -1
+	for i := len(fakeStore.ops) - 1; i >= 0; i-- {
+		if fakeStore.ops[i] == "UpsertAnnotation" {
+			lastAnn = i
+			break
+		}
+	}
+	if firstEdge == -1 || lastAnn == -1 {
+		t.Fatalf("expected annotations and edges in ops: %v", fakeStore.ops)
+	}
+	if firstEdge <= lastAnn {
+		t.Fatalf("expected UpsertEdges after all UpsertAnnotation calls, got %v", fakeStore.ops)
+	}
 }
 
 func TestBuild_IncludePaths_ReplacesPreviousGraphScope(t *testing.T) {
@@ -770,7 +960,7 @@ func TestRefreshSearchDocuments_RebuildsPerBatchWithoutAccumulatingGlobalSlice(t
 		t.Fatalf("migrate: %v", err)
 	}
 
-	for i := 0; i < 550; i++ {
+	for i := range 550 {
 		node := model.Node{
 			QualifiedName: "pkg.Node" + strconv.Itoa(i),
 			Kind:          model.NodeKindFunction,

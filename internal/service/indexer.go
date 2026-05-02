@@ -23,6 +23,34 @@ import (
 	"github.com/tae2089/code-context-graph/internal/store/search"
 )
 
+type parsedBuildNodeBatch struct {
+	relPath     string
+	nodes       []model.Node
+	tsComments  []treesitter.CommentBlock
+	sourceLines []string
+}
+
+type parsedBuildEdgeBatch struct {
+	relPath string
+	edges   []model.Edge
+}
+
+func newParsedBuildNodeBatch(relPath string, content []byte, nodes []model.Node, tsComments []treesitter.CommentBlock) parsedBuildNodeBatch {
+	out := parsedBuildNodeBatch{
+		relPath:    relPath,
+		nodes:      nodes,
+		tsComments: tsComments,
+	}
+	if len(tsComments) > 0 {
+		out.sourceLines = strings.Split(string(content), "\n")
+	}
+	return out
+}
+
+func newParsedBuildEdgeBatch(relPath string, edges []model.Edge) parsedBuildEdgeBatch {
+	return parsedBuildEdgeBatch{relPath: relPath, edges: edges}
+}
+
 // GraphService orchestrates graph building and search document refresh.
 // @intent 파싱 결과 저장과 검색 인덱스 재구성을 하나의 서비스로 묶는다.
 type GraphService struct {
@@ -73,14 +101,8 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 
 	s.Logger.Info("building graph", "dir", absDir)
 
-	type parsedFile struct {
-		relPath    string
-		content    []byte
-		nodes      []model.Node
-		edges      []model.Edge
-		tsComments []treesitter.CommentBlock
-	}
-	var parsedFiles []parsedFile
+	var nodeBatches []parsedBuildNodeBatch
+	var edgeBatches []parsedBuildEdgeBatch
 	var walkCandidates []string
 
 	err = filepath.Walk(absDir, func(path string, info os.FileInfo, err error) error {
@@ -157,7 +179,8 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 			return stats, trace.Wrap(err, "parse build file "+relPath)
 		}
 
-		parsedFiles = append(parsedFiles, parsedFile{relPath: relPath, content: content, nodes: nodes, edges: edges, tsComments: tsComments})
+		nodeBatches = append(nodeBatches, newParsedBuildNodeBatch(relPath, content, nodes, tsComments))
+		edgeBatches = append(edgeBatches, newParsedBuildEdgeBatch(relPath, edges))
 		stats.TotalFiles++
 		stats.TotalNodes += len(nodes)
 		stats.TotalEdges += len(edges)
@@ -175,7 +198,7 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 			return trace.Wrap(err, "reset graph state before rebuild")
 		}
 
-		for _, parsed := range parsedFiles {
+		for _, parsed := range nodeBatches {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -188,8 +211,7 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 			if len(parsed.tsComments) > 0 {
 				binderComments := toBinderComments(parsed.tsComments)
 				binder := parse.NewBinder()
-				sourceLines := strings.Split(string(parsed.content), "\n")
-				bindings := binder.Bind(binderComments, parsed.nodes, walker.Language(), sourceLines)
+				bindings := binder.Bind(binderComments, parsed.nodes, walker.Language(), parsed.sourceLines)
 
 				storedNodes, err := txStore.GetNodesByFile(ctx, parsed.relPath)
 				if err != nil {
@@ -215,7 +237,9 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 			}
 		}
 
-		for _, parsed := range parsedFiles {
+		nodeBatches = nil
+
+		for _, parsed := range edgeBatches {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
