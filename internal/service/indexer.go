@@ -41,6 +41,11 @@ type parsedBuildEdgeBatch struct {
 
 var testBuildBatchReleaseHook func([]parsedBuildNodeBatch, int)
 
+const (
+	buildFlushFileBatchSize = 100
+	buildFlushParsedBytes   = 16 << 20
+)
+
 func newParsedBuildNodeBatch(relPath string, content []byte, nodes []model.Node, tsComments []treesitter.CommentBlock, language string) parsedBuildNodeBatch {
 	out := parsedBuildNodeBatch{
 		relPath:    relPath,
@@ -120,6 +125,10 @@ type IncrementalSyncer interface {
 	SyncWithExisting(ctx context.Context, files map[string]incremental.FileInfo, existingFiles []string) (*incremental.SyncStats, error)
 }
 
+type transactionalDBStore interface {
+	WithTxDB(ctx context.Context, fn func(store.GraphStore, *gorm.DB) error) error
+}
+
 // GraphService orchestrates graph building and search document refresh.
 // @intent 파싱 결과 저장과 검색 인덱스 재구성을 하나의 서비스로 묶는다.
 type GraphService struct {
@@ -180,108 +189,158 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 
 	s.logger().Info("building graph", "dir", absDir)
 
-	walkCandidates, err := collectWalkCandidates(ctx, absDir, opts)
-	if err != nil {
-		return stats, trace.Wrap(err, "preflight walk directory")
-	}
-
-	var nodeBatches []parsedBuildNodeBatch
-	var edgeBatches []parsedBuildEdgeBatch
-	var totalParsedBytes int64
-	for _, path := range walkCandidates {
-		if err := ctx.Err(); err != nil {
-			return stats, err
-		}
-		relPath, _ := filepath.Rel(absDir, path)
-
-		ext := strings.ToLower(filepath.Ext(path))
-		walker, ok := s.parserForExt(ext)
-		if !ok {
-			continue
-		}
-
-		info, err := os.Stat(path)
-		if err != nil {
-			return stats, trace.Wrap(err, "stat build file "+relPath)
-		}
-		if err := CheckParseFileSize(relPath, info.Size(), opts.MaxFileBytes); err != nil {
-			return stats, err
-		}
-		if err := CheckTotalParsedBytes(relPath, totalParsedBytes, info.Size(), opts.MaxTotalParsedBytes); err != nil {
-			return stats, err
-		}
-
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return stats, trace.Wrap(err, "read build file "+relPath)
-		}
-		totalParsedBytes += int64(len(content))
-		if err := CheckTotalParsedBytes(relPath, 0, totalParsedBytes, opts.MaxTotalParsedBytes); err != nil {
-			return stats, err
-		}
-
-		nodes, edges, tsComments, language, err := parseForBuild(ctx, walker, relPath, content)
-		if err != nil {
-			return stats, trace.Wrap(err, "parse build file "+relPath)
-		}
-
-		nodeBatches = append(nodeBatches, newParsedBuildNodeBatch(relPath, content, nodes, tsComments, language))
-		edgeBatches = append(edgeBatches, newParsedBuildEdgeBatch(relPath, edges))
-		stats.TotalFiles++
-		stats.TotalNodes += len(nodes)
-		stats.TotalEdges += len(edges)
-	}
-
 	if err := ctx.Err(); err != nil {
 		return stats, err
 	}
 
-	err = s.Store.WithTx(ctx, func(txStore store.GraphStore) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := txStore.DeleteGraph(ctx); err != nil {
-			return trace.Wrap(err, "reset graph state before rebuild")
-		}
-
-		for i := range nodeBatches {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if err := s.bindAndReleaseNodeBatch(ctx, txStore, nodeBatches, i); err != nil {
-				return err
-			}
-		}
-
-		nodeBatches = nil
-
-		for _, parsed := range edgeBatches {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if len(parsed.edges) == 0 {
-				continue
-			}
-			if err := txStore.UpsertEdges(ctx, parsed.edges); err != nil {
-				return trace.Wrap(err, "upsert deferred edges for "+parsed.relPath)
-			}
-		}
-
-		return nil
+	err = s.withBuildTx(ctx, opts, func(txStore store.GraphStore, txDB *gorm.DB) error {
+		return s.buildGraphInTx(ctx, txStore, txDB, absDir, opts, &stats)
 	})
 	if err != nil {
 		return stats, err
 	}
 
-	if !opts.SkipSearchRebuild {
-		if err := s.rebuildSearch(ctx); err != nil {
-			return stats, err
-		}
-	}
-
 	s.logger().Info("build complete", "files", stats.TotalFiles, "nodes", stats.TotalNodes, "edges", stats.TotalEdges)
 
 	return stats, nil
+}
+
+func (s *GraphService) withBuildTx(ctx context.Context, opts BuildOptions, fn func(store.GraphStore, *gorm.DB) error) error {
+	if opts.SkipSearchRebuild || s.SearchBackend == nil || s.DB == nil {
+		return s.Store.WithTx(ctx, func(txStore store.GraphStore) error {
+			return fn(txStore, nil)
+		})
+	}
+
+	txStore, ok := s.Store.(transactionalDBStore)
+	if !ok {
+		return trace.New("graph store does not support DB transaction handle for search rebuild")
+	}
+	return txStore.WithTxDB(ctx, fn)
+}
+
+func (s *GraphService) buildGraphInTx(ctx context.Context, txStore store.GraphStore, txDB *gorm.DB, absDir string, opts BuildOptions, stats *BuildStats) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := txStore.DeleteGraph(ctx); err != nil {
+		return trace.Wrap(err, "reset graph state before rebuild")
+	}
+
+	batch := buildPersistBatch{}
+	var totalParsedBytes int64
+	if err := walkMatchingFiles(ctx, absDir, opts, func(path, relPath string) error {
+		parser, ok := s.parserForExt(strings.ToLower(filepath.Ext(path)))
+		if !ok {
+			return nil
+		}
+
+		info, err := os.Stat(path)
+		if err != nil {
+			return trace.Wrap(err, "stat build file "+relPath)
+		}
+		if err := CheckParseFileSize(relPath, info.Size(), opts.MaxFileBytes); err != nil {
+			return err
+		}
+		if err := CheckTotalParsedBytes(relPath, totalParsedBytes, info.Size(), opts.MaxTotalParsedBytes); err != nil {
+			return err
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return trace.Wrap(err, "read build file "+relPath)
+		}
+		contentBytes := int64(len(content))
+		totalParsedBytes += contentBytes
+		if err := CheckTotalParsedBytes(relPath, 0, totalParsedBytes, opts.MaxTotalParsedBytes); err != nil {
+			return err
+		}
+
+		nodes, edges, tsComments, language, err := parseForBuild(ctx, parser, relPath, content)
+		if err != nil {
+			return trace.Wrap(err, "parse build file "+relPath)
+		}
+
+		batch.add(newParsedBuildNodeBatch(relPath, content, nodes, tsComments, language), newParsedBuildEdgeBatch(relPath, edges), contentBytes)
+		stats.TotalFiles++
+		stats.TotalNodes += len(nodes)
+		stats.TotalEdges += len(edges)
+
+		if batch.shouldFlush() {
+			return s.flushBuildBatch(ctx, txStore, &batch)
+		}
+		return nil
+	}); err != nil {
+		return trace.Wrap(err, "walk build directory")
+	}
+	if err := s.flushBuildBatch(ctx, txStore, &batch); err != nil {
+		return err
+	}
+
+	if !opts.SkipSearchRebuild && s.SearchBackend != nil && s.DB != nil {
+		if txDB == nil {
+			return trace.New("search rebuild requires transaction DB handle")
+		}
+		if err := s.rebuildSearchWithDB(ctx, txDB); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+type buildPersistBatch struct {
+	nodeBatches []parsedBuildNodeBatch
+	edgeBatches []parsedBuildEdgeBatch
+	files       int
+	bytes       int64
+}
+
+func (b *buildPersistBatch) add(nodeBatch parsedBuildNodeBatch, edgeBatch parsedBuildEdgeBatch, parsedBytes int64) {
+	b.nodeBatches = append(b.nodeBatches, nodeBatch)
+	b.edgeBatches = append(b.edgeBatches, edgeBatch)
+	b.files++
+	b.bytes += parsedBytes
+}
+
+func (b *buildPersistBatch) shouldFlush() bool {
+	return b.files >= buildFlushFileBatchSize || b.bytes >= buildFlushParsedBytes
+}
+
+func (b *buildPersistBatch) reset() {
+	b.nodeBatches = nil
+	b.edgeBatches = nil
+	b.files = 0
+	b.bytes = 0
+}
+
+func (s *GraphService) flushBuildBatch(ctx context.Context, txStore store.GraphStore, batch *buildPersistBatch) error {
+	if batch.files == 0 {
+		return nil
+	}
+	for i := range batch.nodeBatches {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := s.bindAndReleaseNodeBatch(ctx, txStore, batch.nodeBatches, i); err != nil {
+			return err
+		}
+	}
+
+	for _, parsed := range batch.edgeBatches {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if len(parsed.edges) == 0 {
+			continue
+		}
+		if err := txStore.UpsertEdges(ctx, parsed.edges); err != nil {
+			return trace.Wrap(err, "upsert deferred edges for "+parsed.relPath)
+		}
+	}
+
+	batch.reset()
+	return nil
 }
 
 // Update incrementally syncs changed files into the graph and optionally rebuilds search.
@@ -388,52 +447,22 @@ func (s *GraphService) rebuildSearch(ctx context.Context) error {
 	if s.SearchBackend == nil || s.DB == nil {
 		return nil
 	}
-	docCount, err := RefreshSearchDocuments(ctx, s.DB)
+	return s.rebuildSearchWithDB(ctx, s.DB)
+}
+
+func (s *GraphService) rebuildSearchWithDB(ctx context.Context, db *gorm.DB) error {
+	if s.SearchBackend == nil || db == nil {
+		return nil
+	}
+	docCount, err := RefreshSearchDocuments(ctx, db)
 	if err != nil {
 		return err
 	}
-	if err := s.SearchBackend.Rebuild(ctx, s.DB); err != nil {
+	if err := s.SearchBackend.Rebuild(ctx, db); err != nil {
 		return trace.Wrap(err, "rebuild search index")
 	}
 	s.logger().Info("search index rebuilt", "documents", docCount)
 	return nil
-}
-
-func collectWalkCandidates(ctx context.Context, absDir string, opts BuildOptions) ([]string, error) {
-	var walkCandidates []string
-	err := filepath.Walk(absDir, func(path string, info os.FileInfo, err error) error {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
-		if err != nil {
-			return err
-		}
-
-		relPath, _ := filepath.Rel(absDir, path)
-
-		if info.IsDir() {
-			if path != absDir && opts.NoRecursive {
-				return filepath.SkipDir
-			}
-			if pathutil.ShouldSkipDir(info.Name()) || pathutil.MatchExcludes(opts.ExcludePatterns, relPath) {
-				return filepath.SkipDir
-			}
-			if len(opts.IncludePaths) > 0 && path != absDir && !pathutil.MatchIncludePaths(relPath, opts.IncludePaths) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		if pathutil.MatchExcludes(opts.ExcludePatterns, relPath) {
-			return nil
-		}
-		if len(opts.IncludePaths) > 0 && !pathutil.MatchIncludePaths(relPath, opts.IncludePaths) {
-			return nil
-		}
-		walkCandidates = append(walkCandidates, path)
-		return nil
-	})
-	return walkCandidates, err
 }
 
 func walkMatchingFiles(ctx context.Context, absDir string, opts BuildOptions, fn func(path, relPath string) error) error {

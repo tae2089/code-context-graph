@@ -775,6 +775,10 @@ func TestDeleteWorkspace_PreservesFilesWhenSearchPurgeFails(t *testing.T) {
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate store: %v", err)
 	}
+	ctx := ctxns.WithNamespace(t.Context(), "svc")
+	if err := st.UpsertNodes(ctx, []model.Node{{QualifiedName: "svc.Keep", Kind: model.NodeKindFunction, Name: "Keep", FilePath: "file.go", StartLine: 1, EndLine: 1, Language: "go"}}); err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
 	backend := &spySearchBackend{purgeErr: errors.New("fts purge boom")}
 	h := &handlers{deps: &Deps{WorkspaceRoot: workspaceRoot, RagIndexDir: ragRoot, Store: st, DB: db, SearchBackend: backend}}
 
@@ -792,6 +796,9 @@ func TestDeleteWorkspace_PreservesFilesWhenSearchPurgeFails(t *testing.T) {
 
 	if _, err := os.Stat(wsDir); err != nil {
 		t.Fatalf("workspace directory should remain on search purge failure: %v", err)
+	}
+	if got, getErr := st.GetNode(ctx, "svc.Keep"); getErr != nil || got == nil {
+		t.Fatalf("namespace graph should remain on search purge failure, node=%+v err=%v", got, getErr)
 	}
 }
 

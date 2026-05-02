@@ -2,6 +2,7 @@ package webhook
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -20,10 +21,19 @@ import (
 
 var ErrRepoLockTimeout = errors.New("repo lock timeout")
 
+const repoLockStaleAfter = 30 * time.Minute
+
 type RepoLocker struct {
 	timeout time.Duration
 	mu      sync.Mutex
 	locks   map[string]chan struct{}
+}
+
+type repoLockMetadata struct {
+	Repo      string    `json:"repo"`
+	PID       int       `json:"pid"`
+	Hostname  string    `json:"hostname"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 func NewRepoLocker(timeout time.Duration) *RepoLocker {
@@ -85,6 +95,12 @@ func acquireFilesystemLock(ctx context.Context, lockRoot, repoFullName string) (
 	for {
 		file, err := os.OpenFile(lockFile, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
 		if err == nil {
+			if err := writeRepoLockMetadata(file, repoFullName); err != nil {
+				name := file.Name()
+				_ = file.Close()
+				_ = os.Remove(name)
+				return nil, nil, fmt.Errorf("write repo lock metadata: %w", err)
+			}
 			return file, func(file *os.File) {
 				name := file.Name()
 				_ = file.Close()
@@ -94,6 +110,10 @@ func acquireFilesystemLock(ctx context.Context, lockRoot, repoFullName string) (
 		if !os.IsExist(err) {
 			return nil, nil, fmt.Errorf("create repo lock: %w", err)
 		}
+		if removed, age := removeStaleFilesystemLock(lockFile); removed {
+			slog.Warn("removed stale repo lock", "repo", repoFullName, "lock", lockFile, "age", age)
+			continue
+		}
 
 		select {
 		case <-ctx.Done():
@@ -101,6 +121,38 @@ func acquireFilesystemLock(ctx context.Context, lockRoot, repoFullName string) (
 		case <-ticker.C:
 		}
 	}
+}
+
+func writeRepoLockMetadata(file *os.File, repoFullName string) error {
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "unknown"
+	}
+	meta := repoLockMetadata{
+		Repo:      repoFullName,
+		PID:       os.Getpid(),
+		Hostname:  hostname,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := json.NewEncoder(file).Encode(meta); err != nil {
+		return err
+	}
+	return file.Sync()
+}
+
+func removeStaleFilesystemLock(lockFile string) (bool, time.Duration) {
+	info, err := os.Stat(lockFile)
+	if err != nil {
+		return false, 0
+	}
+	age := time.Since(info.ModTime())
+	if age < repoLockStaleAfter {
+		return false, age
+	}
+	if err := os.Remove(lockFile); err != nil {
+		return false, age
+	}
+	return true, age
 }
 
 func lockFileName(repoFullName string) string {

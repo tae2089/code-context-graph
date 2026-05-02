@@ -293,14 +293,14 @@ func (s *Store) DeleteGraph(ctx context.Context) error {
 				return trace.Wrap(err, "delete namespace community memberships")
 			}
 
-		if tx.Migrator().HasTable(&model.FlowMembership{}) {
-			flowIDs := tx.Model(&model.Flow{}).Select("id").Where("namespace = ?", ns)
-			if err := tx.
-				Where("node_id IN ? OR flow_id IN (?)", nodeIDs, flowIDs).
-				Delete(&model.FlowMembership{}).Error; err != nil {
-				return trace.Wrap(err, "delete namespace flow memberships")
+			if tx.Migrator().HasTable(&model.FlowMembership{}) {
+				flowIDs := tx.Model(&model.Flow{}).Select("id").Where("namespace = ?", ns)
+				if err := tx.
+					Where("node_id IN ? OR flow_id IN (?)", nodeIDs, flowIDs).
+					Delete(&model.FlowMembership{}).Error; err != nil {
+					return trace.Wrap(err, "delete namespace flow memberships")
+				}
 			}
-		}
 
 			if tx.Migrator().HasTable(&model.SearchDocument{}) {
 				if err := tx.
@@ -469,6 +469,16 @@ func (s *Store) WithTx(ctx context.Context, fn func(store store.GraphStore) erro
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		txStore := New(tx)
 		return fn(txStore)
+	})
+}
+
+// WithTxDB는 저장소와 같은 트랜잭션 DB 핸들을 함께 전달한다.
+// @intent 그래프 저장과 DB 기반 파생 상태 갱신을 하나의 트랜잭션으로 묶게 한다.
+// @sideEffect 데이터베이스 트랜잭션을 시작하고 commit 또는 rollback 한다.
+func (s *Store) WithTxDB(ctx context.Context, fn func(store.GraphStore, *gorm.DB) error) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		txStore := New(tx)
+		return fn(txStore, tx)
 	})
 }
 

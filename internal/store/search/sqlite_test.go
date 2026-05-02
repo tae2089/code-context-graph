@@ -630,3 +630,57 @@ func TestSQLiteFTS_Rebuild_NamespaceRollbackPreservesOtherRows(t *testing.T) {
 		t.Fatalf("expected ns-b rows to remain untouched, got %d", countB)
 	}
 }
+
+func TestSQLiteFTS_Rebuild_RollsBackWithOuterTransaction(t *testing.T) {
+	db := setupTestDB(t)
+	backend := NewSQLiteBackend()
+	if err := backend.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+
+	seedNode := model.Node{QualifiedName: "pkg.Seed", Kind: model.NodeKindFunction, Name: "Seed", FilePath: "seed.go", StartLine: 1, EndLine: 1, Language: "go"}
+	newNode := model.Node{QualifiedName: "pkg.New", Kind: model.NodeKindFunction, Name: "New", FilePath: "new.go", StartLine: 1, EndLine: 1, Language: "go"}
+	if err := db.Create(&seedNode).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.SearchDocument{NodeID: seedNode.ID, Content: "seedterm", Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.Rebuild(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+
+	err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&newNode).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("node_id = ?", seedNode.ID).Delete(&model.SearchDocument{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&model.SearchDocument{NodeID: newNode.ID, Content: "newterm", Language: "go"}).Error; err != nil {
+			return err
+		}
+		if err := backend.Rebuild(context.Background(), tx); err != nil {
+			return err
+		}
+		return errors.New("force outer rollback")
+	})
+	if err == nil {
+		t.Fatal("expected forced rollback")
+	}
+
+	results, err := backend.Query(context.Background(), db, "seedterm", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].QualifiedName != "pkg.Seed" {
+		t.Fatalf("expected seed FTS row after outer rollback, got %+v", results)
+	}
+	results, err = backend.Query(context.Background(), db, "newterm", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("expected new FTS row to roll back, got %+v", results)
+	}
+}

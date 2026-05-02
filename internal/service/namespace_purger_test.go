@@ -23,6 +23,10 @@ type failingGraphStore struct {
 
 func (f failingGraphStore) DeleteGraph(ctx context.Context) error { return f.err }
 
+type nonTransactionalNodeWriter struct {
+	store.NodeWriter
+}
+
 type purgerSpyBackend struct {
 	storesearch.Backend
 	calls    []string
@@ -214,18 +218,28 @@ func TestNamespacePurger_RollsBackWhenSearchPurgeFails(t *testing.T) {
 		t.Fatal("expected error when search backend purge fails")
 	}
 
-	var commACount, flowACount int64
+	ctxA := ctxns.WithNamespace(context.Background(), "ns-a")
+	if got, getErr := st.GetNodeByID(ctxA, nodeIDA); getErr != nil || got == nil {
+		t.Fatalf("expected ns-a node kept after rollback, node=%+v err=%v", got, getErr)
+	}
+
+	var commACount, flowACount, commAMemCount, flowAMemCount int64
 	db.Model(&model.Community{}).Where("namespace = ?", "ns-a").Count(&commACount)
 	db.Model(&model.Flow{}).Where("namespace = ?", "ns-a").Count(&flowACount)
+	db.Model(&model.CommunityMembership{}).Where("community_id = ?", commAID).Count(&commAMemCount)
+	db.Model(&model.FlowMembership{}).Where("flow_id = ?", flowAID).Count(&flowAMemCount)
 	if commACount != 1 {
 		t.Errorf("expected ns-a community kept after rollback, got %d", commACount)
 	}
 	if flowACount != 1 {
 		t.Errorf("expected ns-a flow kept after rollback, got %d", flowACount)
 	}
-	_ = nodeIDA
-	_ = commAID
-	_ = flowAID
+	if commAMemCount != 1 {
+		t.Errorf("expected ns-a community membership kept after rollback, got %d", commAMemCount)
+	}
+	if flowAMemCount != 1 {
+		t.Errorf("expected ns-a flow membership kept after rollback, got %d", flowAMemCount)
+	}
 }
 
 func TestNamespacePurger_PropagatesGraphStoreError(t *testing.T) {
@@ -240,6 +254,26 @@ func TestNamespacePurger_PropagatesGraphStoreError(t *testing.T) {
 	}
 	if len(backend.calls) != 0 {
 		t.Errorf("expected backend not invoked when graph delete fails, got %v", backend.calls)
+	}
+}
+
+func TestNamespacePurger_FailsClosedWhenStoreLacksTransactionalDB(t *testing.T) {
+	db := newPurgerTestDB(t)
+	st := gormstore.New(db)
+	backend := &purgerSpyBackend{}
+	nodeIDA, _, _, _ := seedTwoNamespaces(t, db)
+
+	purger := NewNamespacePurger(nonTransactionalNodeWriter{NodeWriter: st}, db, backend)
+	err := purger.Purge(ctxns.WithNamespace(context.Background(), "ns-a"))
+	if err == nil {
+		t.Fatal("expected error when graph store lacks DB transaction handle")
+	}
+	if len(backend.calls) != 0 {
+		t.Errorf("expected backend not invoked without transaction support, got %v", backend.calls)
+	}
+	ctxA := ctxns.WithNamespace(context.Background(), "ns-a")
+	if got, getErr := st.GetNodeByID(ctxA, nodeIDA); getErr != nil || got == nil {
+		t.Fatalf("expected ns-a node preserved, node=%+v err=%v", got, getErr)
 	}
 }
 

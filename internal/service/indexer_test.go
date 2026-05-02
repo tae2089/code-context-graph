@@ -156,6 +156,31 @@ func (r *recordingIncrementalSyncer) SyncWithExisting(ctx context.Context, files
 	return r.result, r.err
 }
 
+type failingBuildParser struct {
+	failPath string
+}
+
+func (p failingBuildParser) Parse(filePath string, content []byte) ([]model.Node, []model.Edge, error) {
+	return p.ParseWithContext(context.Background(), filePath, content)
+}
+
+func (p failingBuildParser) ParseWithContext(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, error) {
+	if filePath == p.failPath {
+		return nil, nil, errors.New("parse boom")
+	}
+	name := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
+	return []model.Node{{
+		QualifiedName: "pkg." + name,
+		Kind:          model.NodeKindFunction,
+		Name:          name,
+		FilePath:      filePath,
+		StartLine:     1,
+		EndLine:       1,
+		Hash:          string(content),
+		Language:      "stub",
+	}}, nil, nil
+}
+
 func TestToBinderComments_PreservesBasicFields(t *testing.T) {
 	in := []treesitter.CommentBlock{
 		{StartLine: 3, EndLine: 4, Text: "// hello"},
@@ -478,6 +503,63 @@ func Keep() {}
 	}
 }
 
+func TestBuild_FlushesLargeBuildInBoundedBatches(t *testing.T) {
+	fakeStore := newRecordingGraphStore(t)
+	svc := &GraphService{
+		Store: fakeStore,
+		Walkers: map[string]*treesitter.Walker{
+			".go": treesitter.NewWalker(treesitter.GoSpec),
+		},
+		Logger: slog.Default(),
+	}
+
+	dir := t.TempDir()
+	for i := range buildFlushFileBatchSize + 1 {
+		content := `package sample
+
+// @intent keep track of the function
+func Keep` + strconv.Itoa(i) + `() {}
+`
+		name := "file" + strconv.Itoa(i) + ".go"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	stats, err := svc.Build(context.Background(), BuildOptions{Dir: dir})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if stats.TotalFiles != buildFlushFileBatchSize+1 {
+		t.Fatalf("TotalFiles = %d, want %d", stats.TotalFiles, buildFlushFileBatchSize+1)
+	}
+
+	edgeFlushes := 0
+	for _, op := range fakeStore.ops {
+		if op == "UpsertEdges" {
+			edgeFlushes++
+		}
+	}
+	if edgeFlushes < 2 {
+		t.Fatalf("expected at least 2 edge flushes, got %d (ops=%v)", edgeFlushes, fakeStore.ops)
+	}
+
+	firstEdge := slices.Index(fakeStore.ops, "UpsertEdges")
+	lastAnn := -1
+	for i := len(fakeStore.ops) - 1; i >= 0; i-- {
+		if fakeStore.ops[i] == "UpsertAnnotation" {
+			lastAnn = i
+			break
+		}
+	}
+	if firstEdge == -1 || lastAnn == -1 {
+		t.Fatalf("expected annotations and edges in ops: %v", fakeStore.ops)
+	}
+	if firstEdge >= lastAnn {
+		t.Fatalf("expected batch flushing to allow an edge flush before the final annotation, got ops=%v", fakeStore.ops)
+	}
+}
+
 func TestBuild_ReleasesBatchCommentStateAfterBinding(t *testing.T) {
 	var snapshots []struct {
 		batch         int
@@ -780,6 +862,51 @@ func TestBuild_MaxTotalParsedBytesRejectsBeforeMutation(t *testing.T) {
 
 	assertFunctionNamesByFile(t, st, ctx, "keep.go", []string{"Keep"})
 	assertFunctionNamesByFile(t, st, ctx, "other.go", nil)
+}
+
+func TestBuild_ParseFailureRollsBackStreamedFlushes(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{
+		Store: st,
+		DB:    db,
+		Parsers: map[string]Parser{
+			".stub": failingBuildParser{failPath: "fail.stub"},
+		},
+		Logger: slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "keep.stub"), []byte("keep-v1"), 0o644); err != nil {
+		t.Fatalf("write keep.stub: %v", err)
+	}
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("first Build: %v", err)
+	}
+	assertFunctionNamesByFile(t, st, ctx, "keep.stub", []string{"keep"})
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "fail.stub"), []byte("fail"), 0o644); err != nil {
+		t.Fatalf("write fail.stub: %v", err)
+	}
+	_, err = svc.Build(ctx, BuildOptions{Dir: tmpDir})
+	if err == nil {
+		t.Fatal("expected parse failure")
+	}
+	if !strings.Contains(err.Error(), "parse boom") {
+		t.Fatalf("expected parse boom, got %v", err)
+	}
+
+	assertFunctionNamesByFile(t, st, ctx, "keep.stub", []string{"keep"})
+	assertFunctionNamesByFile(t, st, ctx, "fail.stub", nil)
 }
 
 func TestUpdate_SkipsUnreadableFiles(t *testing.T) {
@@ -1141,6 +1268,14 @@ func TestBuild_PropagatesSearchBackendRebuildError(t *testing.T) {
 		t.Fatalf("migrate search docs: %v", err)
 	}
 
+	seedNode := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Seed", Kind: model.NodeKindFunction, Name: "Seed", FilePath: "seed.go", StartLine: 1, EndLine: 2, Language: "go"}
+	if err := db.Create(&seedNode).Error; err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: seedNode.ID, Content: "seed searchable", Language: "go"}).Error; err != nil {
+		t.Fatalf("seed search doc: %v", err)
+	}
+
 	svc := &GraphService{
 		Store:         st,
 		DB:            db,
@@ -1160,6 +1295,90 @@ func TestBuild_PropagatesSearchBackendRebuildError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "rebuild search index") {
 		t.Fatalf("expected rebuild search index error, got %v", err)
+	}
+
+	var keptSeed, createdKeep int64
+	if err := db.Model(&model.Node{}).Where("qualified_name = ?", "pkg.Seed").Count(&keptSeed).Error; err != nil {
+		t.Fatalf("count seed node: %v", err)
+	}
+	if err := db.Model(&model.Node{}).Where("qualified_name = ?", "sample.Keep").Count(&createdKeep).Error; err != nil {
+		t.Fatalf("count new node: %v", err)
+	}
+	if keptSeed != 1 || createdKeep != 0 {
+		t.Fatalf("expected graph rollback after search rebuild failure, seed=%d new=%d", keptSeed, createdKeep)
+	}
+
+	var docCount int64
+	if err := db.Model(&model.SearchDocument{}).Where("content = ?", "seed searchable").Count(&docCount).Error; err != nil {
+		t.Fatalf("count seed doc: %v", err)
+	}
+	if docCount != 1 {
+		t.Fatalf("expected seed search document to survive rollback, got %d", docCount)
+	}
+}
+
+func TestBuild_SearchDocumentRefreshFailureRollsBackGraphAndDocs(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:?_pragma=journal_mode(WAL)"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := db.AutoMigrate(&model.SearchDocument{}); err != nil {
+		t.Fatalf("migrate search docs: %v", err)
+	}
+
+	seedNode := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Seed", Kind: model.NodeKindFunction, Name: "Seed", FilePath: "seed.go", StartLine: 1, EndLine: 2, Language: "go"}
+	if err := db.Create(&seedNode).Error; err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: seedNode.ID, Content: "seed searchable", Language: "go"}).Error; err != nil {
+		t.Fatalf("seed search doc: %v", err)
+	}
+	if err := db.Exec("CREATE TRIGGER fail_search_docs_insert BEFORE INSERT ON search_documents BEGIN SELECT RAISE(ABORT, 'search doc boom'); END;").Error; err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+
+	svc := &GraphService{
+		Store:         st,
+		DB:            db,
+		SearchBackend: &failSearchBackend{},
+		Walkers:       map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:        slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "sample.go"), []byte("package sample\n\nfunc Keep() {}\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	_, err = svc.Build(context.Background(), BuildOptions{Dir: tmpDir})
+	if err == nil {
+		t.Fatal("expected build to fail when search document refresh fails")
+	}
+	if !strings.Contains(err.Error(), "search doc boom") {
+		t.Fatalf("expected search doc boom, got %v", err)
+	}
+
+	var keptSeed, createdKeep int64
+	if err := db.Model(&model.Node{}).Where("qualified_name = ?", "pkg.Seed").Count(&keptSeed).Error; err != nil {
+		t.Fatalf("count seed node: %v", err)
+	}
+	if err := db.Model(&model.Node{}).Where("qualified_name = ?", "sample.Keep").Count(&createdKeep).Error; err != nil {
+		t.Fatalf("count new node: %v", err)
+	}
+	if keptSeed != 1 || createdKeep != 0 {
+		t.Fatalf("expected graph rollback after search document refresh failure, seed=%d new=%d", keptSeed, createdKeep)
+	}
+
+	var docCount int64
+	if err := db.Model(&model.SearchDocument{}).Where("content = ?", "seed searchable").Count(&docCount).Error; err != nil {
+		t.Fatalf("count seed doc: %v", err)
+	}
+	if docCount != 1 {
+		t.Fatalf("expected seed search document to survive rollback, got %d", docCount)
 	}
 }
 

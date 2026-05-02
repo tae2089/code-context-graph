@@ -299,6 +299,96 @@ func TestRepoLocker_TimesOutWhenFilesystemLockHeld(t *testing.T) {
 	}
 }
 
+func TestRepoLocker_RemovesStaleFilesystemLock(t *testing.T) {
+	lockRoot := t.TempDir()
+	locker := NewRepoLocker(2 * time.Second)
+
+	lockFile := filepath.Join(lockRoot, ".locks", "org-svc.lock")
+	if err := os.MkdirAll(filepath.Dir(lockFile), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockFile, []byte(`{"repo":"org/svc"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	staleTime := time.Now().Add(-(repoLockStaleAfter + time.Minute))
+	if err := os.Chtimes(lockFile, staleTime, staleTime); err != nil {
+		t.Fatal(err)
+	}
+
+	entered := make(chan struct{})
+	err := locker.WithLock(context.Background(), lockRoot, "org/svc", func(context.Context) error {
+		if _, statErr := os.Stat(lockFile); statErr != nil {
+			t.Fatalf("expected replacement lock file during callback: %v", statErr)
+		}
+		close(entered)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WithLock: %v", err)
+	}
+	select {
+	case <-entered:
+	default:
+		t.Fatal("callback did not run")
+	}
+	if _, err := os.Stat(lockFile); !os.IsNotExist(err) {
+		t.Fatalf("expected lock file removed after callback, stat err=%v", err)
+	}
+}
+
+func TestRepoLocker_RemovesMalformedStaleFilesystemLock(t *testing.T) {
+	lockRoot := t.TempDir()
+	locker := NewRepoLocker(2 * time.Second)
+
+	lockFile := filepath.Join(lockRoot, ".locks", "org-svc.lock")
+	if err := os.MkdirAll(filepath.Dir(lockFile), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockFile, []byte(`not-json`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	staleTime := time.Now().Add(-(repoLockStaleAfter + time.Minute))
+	if err := os.Chtimes(lockFile, staleTime, staleTime); err != nil {
+		t.Fatal(err)
+	}
+
+	called := false
+	if err := locker.WithLock(context.Background(), lockRoot, "org/svc", func(context.Context) error {
+		called = true
+		return nil
+	}); err != nil {
+		t.Fatalf("WithLock: %v", err)
+	}
+	if !called {
+		t.Fatal("expected callback to run after malformed stale lock removal")
+	}
+}
+
+func TestRepoLocker_DoesNotRemoveFreshMalformedFilesystemLock(t *testing.T) {
+	lockRoot := t.TempDir()
+	locker := NewRepoLocker(30 * time.Millisecond)
+
+	lockFile := filepath.Join(lockRoot, ".locks", "org-svc.lock")
+	if err := os.MkdirAll(filepath.Dir(lockFile), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockFile, []byte(`not-json`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(lockFile)
+
+	err := locker.WithLock(context.Background(), lockRoot, "org/svc", func(context.Context) error {
+		t.Fatal("callback should not run while fresh filesystem lock is held")
+		return nil
+	})
+	if !errors.Is(err, ErrRepoLockTimeout) {
+		t.Fatalf("error = %v, want ErrRepoLockTimeout", err)
+	}
+	if _, err := os.Stat(lockFile); err != nil {
+		t.Fatalf("fresh malformed lock should remain, stat err=%v", err)
+	}
+}
+
 func TestRepoLocker_AllowsDifferentReposInParallel(t *testing.T) {
 	lockRoot := t.TempDir()
 	locker := NewRepoLocker(2 * time.Second)
