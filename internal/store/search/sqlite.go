@@ -74,6 +74,19 @@ func (s *SQLiteBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 	return s.rebuildTable(ctx, db, sqliteFTSTable)
 }
 
+// PurgeNamespace는 특정 namespace의 FTS 물리 인덱스를 제거한다.
+// @intent workspace 삭제 등 rebuild 없는 경로에서도 stale FTS row를 정리한다.
+func (s *SQLiteBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error {
+	exists, err := sqliteTableExists(db, sqliteFTSTable)
+	if err != nil {
+		return trace.Wrap(err, "check fts table before purge")
+	}
+	if !exists {
+		return nil
+	}
+	return db.WithContext(ctx).Exec("DELETE FROM "+sqliteFTSTable+" WHERE namespace = ?", ctxns.FromContext(ctx)).Error
+}
+
 func (s *SQLiteBackend) rebuildTable(ctx context.Context, db *gorm.DB, tableName string) error {
 	ns := ctxns.FromContext(ctx)
 	clearSQL := fmt.Sprintf("DELETE FROM %s WHERE namespace = ?", tableName)

@@ -18,5 +18,6 @@ var ErrFTS5NotAvailable = trace.New("fts5 module not available")
 type Backend interface {
 	Migrate(db *gorm.DB) error
 	Rebuild(ctx context.Context, db *gorm.DB) error
+	PurgeNamespace(ctx context.Context, db *gorm.DB) error
 	Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error)
 }

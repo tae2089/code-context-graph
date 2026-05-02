@@ -89,6 +89,12 @@ func (p *PostgresBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 	return db.WithContext(ctx).Exec(query, args...).Error
 }
 
+// PurgeNamespace는 PostgreSQL search_documents 삭제 이후 별도 물리 정리가 필요 없으므로 no-op이다.
+// @intent Backend 인터페이스를 맞추고 workspace purge 경로를 일관되게 유지한다.
+func (p *PostgresBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error {
+	return nil
+}
+
 // Query는 PostgreSQL tsquery로 관련 노드를 검색한다.
 // @intent 사용자 검색어를 prefix tsquery로 변환해 관련 노드를 찾는다.
 // @requires limit는 0보다 커야 의미 있는 결과를 얻는다.

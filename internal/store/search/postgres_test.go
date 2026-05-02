@@ -233,3 +233,14 @@ func TestPostgresFTS_Query_RejectsNonPositiveLimit(t *testing.T) {
 		t.Fatal("expected query with limit=0 to fail")
 	}
 }
+
+func TestPostgresFTS_PurgeNamespace_NoOp(t *testing.T) {
+	db := setupPostgresDB(t)
+	backend := NewPostgresBackend()
+	if err := backend.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.PurgeNamespace(ctxns.WithNamespace(context.Background(), "ns-a"), db); err != nil {
+		t.Fatalf("expected no-op purge to succeed: %v", err)
+	}
+}
