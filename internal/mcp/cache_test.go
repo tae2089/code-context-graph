@@ -229,6 +229,28 @@ func TestBuildOrUpdateGraph_FlushesCache(t *testing.T) {
 	}
 }
 
+func TestParseProject_FlushesCache(t *testing.T) {
+	deps := setupTestDeps(t)
+	cache := NewCache(5 * time.Minute)
+	cache.Set(`get_node:{"qualified_name":"pkg.Foo"}`, `{"id":1}`)
+	h := &handlers{deps: deps, cache: cache}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(fmt.Sprintf("%s/test.go", dir), []byte("package main\n\nfunc TestFunc() {\n\treturn\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req := makeToolRequest("parse_project", map[string]any{"path": dir})
+
+	_, err := h.parseProject(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := cache.Get(`get_node:{"qualified_name":"pkg.Foo"}`); ok {
+		t.Fatal("expected cache to be flushed after parseProject")
+	}
+}
+
 func TestCachedExecute_UsesContextNamespaceForWorkspaceFallback(t *testing.T) {
 	deps := setupTestDeps(t)
 	cache := NewCache(5 * time.Minute)

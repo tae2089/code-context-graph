@@ -237,6 +237,9 @@ func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest
 	}
 
 	log.Info("parse_project completed", "parsed", stats.Files, "errors", stats.Errors)
+	if h.cache != nil {
+		h.cache.Flush()
+	}
 	return mcp.NewToolResultText(fmt.Sprintf(`{"parsed":%d,"errors":%d}`, stats.Files, stats.Errors)), nil
 }
 
@@ -345,9 +348,11 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 
 	// 후처리
 	var failedSteps []string
+	var skippedSteps []string
 	switch postprocess {
 	case "full":
 		// flows 재빌드 (FlowTracer는 노드별이므로 스킵 — 전체 flow는 별도)
+		skippedSteps = append(skippedSteps, "flows")
 		// community 재빌드
 		if h.deps.CommunityBuilder != nil {
 			_, err := h.deps.CommunityBuilder.Rebuild(ctx, community.Config{Depth: 2})
@@ -368,6 +373,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 			}
 		}
 	case "minimal":
+		skippedSteps = append(skippedSteps, "communities", "flows")
 		// search만 재빌드
 		if h.deps.SearchBackend != nil {
 			if _, err := refreshSearchDocuments(ctx, h.deps.DB); err != nil {
@@ -381,6 +387,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		}
 	case "none":
 		// 스킵
+		skippedSteps = append(skippedSteps, "communities", "flows", "search_documents", "fts")
 	}
 
 	elapsed := time.Since(start).Milliseconds()
@@ -396,6 +403,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		"edges_created": edgeCount,
 		"elapsed_ms":    elapsed,
 		"failed_steps":  failedSteps,
+		"skipped_steps": skippedSteps,
 	}
 	jsonStr, err := marshalJSON(result)
 	if err != nil {
@@ -429,8 +437,12 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 
 	var communitiesCount, ftsIndexed int
 	var failedSteps []string
+	var skippedSteps []string
 
 	// TODO: doFlows — FlowTracer operates per-node; bulk rebuild not yet implemented
+	if doFlows {
+		skippedSteps = append(skippedSteps, "flows")
+	}
 
 	if doCommunities && h.deps.CommunityBuilder != nil {
 		stats, err := h.deps.CommunityBuilder.Rebuild(ctx, community.Config{Depth: communityDepth})
@@ -443,12 +455,26 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 	}
 
 	if doFTS && h.deps.SearchBackend != nil {
-		if err := h.deps.SearchBackend.Rebuild(ctx, h.deps.DB); err != nil {
+		if _, err := refreshSearchDocuments(ctx, h.deps.DB); err != nil {
+			log.Warn("search document refresh failed", trace.SlogError(err))
+			failedSteps = append(failedSteps, "search_documents")
+		} else if err := h.deps.SearchBackend.Rebuild(ctx, h.deps.DB); err != nil {
 			log.Warn("search rebuild failed", trace.SlogError(err))
 			failedSteps = append(failedSteps, "fts")
 		} else {
 			ftsIndexed = 1 // at least one rebuild happened
 		}
+	}
+
+	if doFTS && h.deps.SearchBackend == nil {
+		skippedSteps = append(skippedSteps, "search_documents", "fts")
+	}
+
+	if !doCommunities {
+		skippedSteps = append(skippedSteps, "communities")
+	}
+	if !doFTS {
+		skippedSteps = append(skippedSteps, "search_documents", "fts")
 	}
 
 	status := "ok"
@@ -462,6 +488,7 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 		"communities_count": communitiesCount,
 		"fts_indexed":       ftsIndexed,
 		"failed_steps":      failedSteps,
+		"skipped_steps":     skippedSteps,
 	}
 	jsonStr, err := marshalJSON(result)
 	if err != nil {

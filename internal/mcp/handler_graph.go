@@ -100,6 +100,9 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 		}
 
 		result, err := marshalJSON(map[string]any{"flows": infos})
+		if err == nil {
+			result, err = marshalJSON(map[string]any{"flows": infos, "derived_state": derivedStateFlows()})
+		}
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}
@@ -191,7 +194,7 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 			})
 		}
 
-		result, err := marshalJSON(map[string]any{"communities": infos})
+		result, err := marshalJSON(map[string]any{"communities": infos, "derived_state": derivedStateCommunities()})
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}
@@ -243,6 +246,7 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 			"id":         comm.ID,
 			"label":      comm.Label,
 			"node_count": memberCount,
+			"derived_state": derivedStateCommunities(),
 		}
 
 		if h.deps.CoverageAnalyzer != nil {
@@ -321,6 +325,7 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 				"communities": []any{},
 				"coupling":    []any{},
 				"warnings":    []string{"No communities found. Run community rebuild first."},
+				"derived_state": derivedStateSummary(),
 			})
 			if err != nil {
 				return "", trace.Wrap(err, "marshal result")
@@ -386,10 +391,39 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 			"communities": commInfos,
 			"coupling":    couplingPairs,
 			"warnings":    warnings,
+			"derived_state": derivedStateSummary(),
 		})
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}
 		return result, nil
 	}))
+}
+
+func derivedStateCommunities() map[string]any {
+	return map[string]any{
+		"communities": map[string]any{
+			"freshness":    "unknown",
+			"source":       "stored_community_memberships",
+			"refresh_hint": "run_postprocess with communities=true after graph changes",
+		},
+	}
+}
+
+func derivedStateFlows() map[string]any {
+	return map[string]any{
+		"flows": map[string]any{
+			"freshness":    "unknown",
+			"source":       "stored_flow_memberships",
+			"refresh_hint": "trace_flow returns ephemeral results; persisted flow rebuild is not implemented",
+		},
+	}
+}
+
+func derivedStateSummary() map[string]any {
+	state := derivedStateCommunities()
+	for k, v := range derivedStateFlows() {
+		state[k] = v
+	}
+	return state
 }

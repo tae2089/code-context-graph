@@ -1790,6 +1790,11 @@ func TestListFlows_Empty(t *testing.T) {
 	if len(flows) != 0 {
 		t.Errorf("expected 0 flows, got %d", len(flows))
 	}
+	derived := resp["derived_state"].(map[string]any)
+	flowState := derived["flows"].(map[string]any)
+	if flowState["freshness"] != "unknown" {
+		t.Fatalf("expected flows freshness=unknown, got %v", flowState["freshness"])
+	}
 }
 
 func TestListFlows_RespectsWorkspaceNamespace(t *testing.T) {
@@ -1939,6 +1944,11 @@ func TestListCommunities_Empty(t *testing.T) {
 	comms := resp["communities"].([]any)
 	if len(comms) != 0 {
 		t.Errorf("expected 0 communities, got %d", len(comms))
+	}
+	derived := resp["derived_state"].(map[string]any)
+	communityState := derived["communities"].(map[string]any)
+	if communityState["freshness"] != "unknown" {
+		t.Fatalf("expected communities freshness=unknown, got %v", communityState["freshness"])
 	}
 }
 
@@ -2397,6 +2407,66 @@ func TestRunPostprocess_DegradedOnSearchFailure(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected 'fts' in failed_steps, got %v", failedSteps)
+	}
+}
+
+func TestRunPostprocess_RefreshesSearchDocumentsBeforeFTS(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "svc.go", `package svc
+func FreshSearch() {}
+`)
+	build := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": true,
+		"postprocess":  "none",
+	})
+	if build.IsError {
+		t.Fatalf("build_or_update_graph returned error: %s", getTextContent(build))
+	}
+
+	result := callTool(t, deps, "run_postprocess", map[string]any{
+		"communities": false,
+		"fts":         true,
+		"flows":       false,
+	})
+	if result.IsError {
+		t.Fatalf("run_postprocess returned error: %s", getTextContent(result))
+	}
+
+	searchResult := callTool(t, deps, "search", map[string]any{"query": "FreshSearch", "limit": 10})
+	if searchResult.IsError {
+		t.Fatalf("search returned error: %s", getTextContent(searchResult))
+	}
+	var nodes []map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(searchResult)), &nodes); err != nil {
+		t.Fatalf("expected JSON array, got: %s", getTextContent(searchResult))
+	}
+	if len(nodes) == 0 {
+		t.Fatal("expected at least 1 search result after run_postprocess refreshed search documents")
+	}
+}
+
+func TestRunPostprocess_ReportsSkippedFlowRebuild(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	result := callTool(t, deps, "run_postprocess", map[string]any{
+		"communities": false,
+		"fts":         false,
+		"flows":       true,
+	})
+	if result.IsError {
+		t.Fatalf("run_postprocess returned error: %s", getTextContent(result))
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+		t.Fatalf("expected JSON, got: %s", getTextContent(result))
+	}
+	skipped := resp["skipped_steps"].([]any)
+	if !containsString(skipped, "flows") {
+		t.Fatalf("expected skipped_steps to contain flows, got %v", skipped)
 	}
 }
 
