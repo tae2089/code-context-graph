@@ -137,6 +137,36 @@ func TestResolveIncludePaths_EmptyBothReturnsNil(t *testing.T) {
 	viper.Reset()
 }
 
+func TestResolveMaxFileBytes_PrefersFlagOverConfig(t *testing.T) {
+	viper.Reset()
+	viper.Set("parse.max_file_bytes", 10)
+	defer viper.Reset()
+
+	if got := resolveMaxFileBytes(20); got != 20 {
+		t.Fatalf("expected flag value 20, got %d", got)
+	}
+}
+
+func TestResolveMaxFileBytes_UsesConfigWhenFlagDefault(t *testing.T) {
+	viper.Reset()
+	viper.Set("parse.max_file_bytes", 10)
+	defer viper.Reset()
+
+	if got := resolveMaxFileBytes(0); got != 10 {
+		t.Fatalf("expected config value 10, got %d", got)
+	}
+}
+
+func TestResolveMaxTotalParsedBytes_UsesConfigWhenFlagDefault(t *testing.T) {
+	viper.Reset()
+	viper.Set("parse.max_total_parsed_bytes", 128)
+	defer viper.Reset()
+
+	if got := resolveMaxTotalParsedBytes(0); got != 128 {
+		t.Fatalf("expected config value 128, got %d", got)
+	}
+}
+
 func TestBuildCommand_PathFromConfig(t *testing.T) {
 	deps, stdout, stderr, db := setupBuildTest(t)
 

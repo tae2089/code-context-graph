@@ -19,6 +19,8 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 	var excludePatterns []string
 	var noRecursive bool
 	var includePaths []string
+	var maxFileBytes int64
+	var maxTotalParsedBytes int64
 
 	cmd := &cobra.Command{
 		Use:   "build [directory]",
@@ -32,6 +34,8 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 
 			patterns := resolveExcludes(excludePatterns)
 			paths := resolveIncludePaths(includePaths)
+			fileLimit := resolveMaxFileBytes(maxFileBytes)
+			totalLimit := resolveMaxTotalParsedBytes(maxTotalParsedBytes)
 
 			svc := &service.GraphService{
 				Store:         deps.Store,
@@ -42,10 +46,12 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 			}
 
 			opts := service.BuildOptions{
-				Dir:             dir,
-				NoRecursive:     noRecursive,
-				ExcludePatterns: patterns,
-				IncludePaths:    paths,
+				Dir:                 dir,
+				NoRecursive:         noRecursive,
+				ExcludePatterns:     patterns,
+				IncludePaths:        paths,
+				MaxFileBytes:        fileLimit,
+				MaxTotalParsedBytes: totalLimit,
 			}
 
 			ctx := context.Background()
@@ -65,6 +71,8 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().BoolVar(&noRecursive, "no-recursive", false, "Only parse files in the top-level directory, skip subdirectories")
 	cmd.Flags().StringArrayVar(&excludePatterns, "exclude", nil, "Exclude files/directories matching pattern (repeatable, e.g. --exclude vendor --exclude *.pb.go)")
 	cmd.Flags().StringArrayVar(&includePaths, "path", nil, "Only include specific paths (repeatable, e.g. --path src/api --path src/auth)")
+	cmd.Flags().Int64Var(&maxFileBytes, "max-file-bytes", 0, "Maximum bytes allowed per parsed source file (0 disables limit; config: parse.max_file_bytes)")
+	cmd.Flags().Int64Var(&maxTotalParsedBytes, "max-total-parsed-bytes", 0, "Maximum total bytes allowed across parsed source files (0 disables limit; config: parse.max_total_parsed_bytes)")
 
 	return cmd
 }

@@ -191,6 +191,26 @@ func Beta() {}
 	_ = ctx
 }
 
+func TestBuildCommand_MaxFileBytesFlag(t *testing.T) {
+	deps, stdout, stderr, db := setupBuildTest(t)
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "hello.go", `package hello
+
+func Hello() string { return "hello" }
+`)
+
+	err := executeCmd(deps, stdout, stderr, "build", "--max-file-bytes", "8", dir)
+	if err == nil {
+		t.Fatal("expected build to reject file over max-file-bytes")
+	}
+
+	var count int64
+	if db.Model(&model.Node{}).Count(&count); count != 0 {
+		t.Fatalf("expected no graph mutation on limit failure, got %d nodes", count)
+	}
+}
+
 func TestBuildCommand_Namespace_StoresWithNamespace(t *testing.T) {
 	deps, stdout, stderr, db := setupBuildTest(t)
 

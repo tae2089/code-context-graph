@@ -12,8 +12,8 @@ import (
 	"github.com/tae2089/trace"
 	"gorm.io/gorm"
 
-	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 	"github.com/tae2089/code-context-graph/internal/store"
 	"github.com/tae2089/code-context-graph/internal/store/search"
@@ -226,4 +226,18 @@ func resolveIncludePaths(flagPaths []string) []string {
 	combined = append(combined, cfgPaths...)
 	combined = append(combined, flagPaths...)
 	return combined
+}
+
+func resolveMaxFileBytes(flagValue int64) int64 {
+	if flagValue != 0 {
+		return flagValue
+	}
+	return viper.GetInt64("parse.max_file_bytes")
+}
+
+func resolveMaxTotalParsedBytes(flagValue int64) int64 {
+	if flagValue != 0 {
+		return flagValue
+	}
+	return viper.GetInt64("parse.max_total_parsed_bytes")
 }
