@@ -17,11 +17,11 @@ type SyncFunc func(ctx context.Context, repoFullName, cloneURL, branch string) e
 type SyncHandlerFunc func(ctx context.Context, repoFullName, cloneURL, branch string) error
 
 type WebhookHandler struct {
-	secret []byte
-	filter *RepoFilter
-	onSync SyncFunc
-	insecure bool
-	cloneBaseURL string
+	secret        []byte
+	filter        *RepoFilter
+	onSync        SyncFunc
+	insecure      bool
+	cloneBaseURLs []string
 }
 
 func NewWebhookHandler(secret []byte, filter *RepoFilter, onSync SyncFunc) *WebhookHandler {
@@ -29,11 +29,12 @@ func NewWebhookHandler(secret []byte, filter *RepoFilter, onSync SyncFunc) *Webh
 }
 
 type WebhookHandlerConfig struct {
-	Secret       []byte
-	Filter       *RepoFilter
-	OnSync       SyncFunc
-	Insecure     bool
-	CloneBaseURL string
+	Secret        []byte
+	Filter        *RepoFilter
+	OnSync        SyncFunc
+	Insecure      bool
+	CloneBaseURL  string
+	CloneBaseURLs []string
 }
 
 func NewWebhookHandlerWithOptions(secret []byte, filter *RepoFilter, onSync SyncFunc, insecure bool) *WebhookHandler {
@@ -41,7 +42,11 @@ func NewWebhookHandlerWithOptions(secret []byte, filter *RepoFilter, onSync Sync
 }
 
 func NewWebhookHandlerWithConfig(cfg WebhookHandlerConfig) *WebhookHandler {
-	return &WebhookHandler{secret: cfg.Secret, filter: cfg.Filter, onSync: cfg.OnSync, insecure: cfg.Insecure, cloneBaseURL: cfg.CloneBaseURL}
+	cloneBaseURLs := append([]string(nil), cfg.CloneBaseURLs...)
+	if cfg.CloneBaseURL != "" {
+		cloneBaseURLs = append([]string{cfg.CloneBaseURL}, cloneBaseURLs...)
+	}
+	return &WebhookHandler{secret: cfg.Secret, filter: cfg.Filter, onSync: cfg.OnSync, insecure: cfg.Insecure, cloneBaseURLs: cloneBaseURLs}
 }
 
 type pushEvent struct {
@@ -109,7 +114,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cloneURL, err := ResolveCloneURL(event.Repository.FullName, event.Repository.CloneURL, h.cloneBaseURL, h.insecure)
+	cloneURL, err := ResolveCloneURL(event.Repository.FullName, event.Repository.CloneURL, h.cloneBaseURLs, h.insecure)
 	if err != nil {
 		http.Error(w, "invalid clone target", http.StatusForbidden)
 		return

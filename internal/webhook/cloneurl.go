@@ -7,14 +7,26 @@ import (
 	"strings"
 )
 
-func ResolveCloneURL(repoFullName, payloadCloneURL, baseURL string, allowPayload bool) (string, error) {
+func ResolveCloneURL(repoFullName, payloadCloneURL string, baseURLs []string, allowPayload bool) (string, error) {
 	repoPath, err := normalizeRepoPath(repoFullName)
 	if err != nil {
 		return "", err
 	}
 
-	if strings.TrimSpace(baseURL) != "" {
-		return buildCloneURL(baseURL, repoPath)
+	var firstBaseURL string
+	for _, baseURL := range baseURLs {
+		if strings.TrimSpace(baseURL) == "" {
+			continue
+		}
+		if _, err := parseCloneBaseURL(baseURL); err != nil {
+			return "", err
+		}
+		if firstBaseURL == "" {
+			firstBaseURL = baseURL
+		}
+	}
+	if firstBaseURL != "" {
+		return buildCloneURL(firstBaseURL, repoPath)
 	}
 	if allowPayload && strings.TrimSpace(payloadCloneURL) != "" {
 		return payloadCloneURL, nil
@@ -40,14 +52,25 @@ func normalizeRepoPath(repoFullName string) (string, error) {
 }
 
 func buildCloneURL(baseURL, repoPath string) (string, error) {
-	parsed, err := url.Parse(baseURL)
+	parsed, err := parseCloneBaseURL(baseURL)
 	if err != nil {
-		return "", fmt.Errorf("parse repo clone base URL: %w", err)
-	}
-	if parsed.Scheme == "" || parsed.Host == "" {
-		return "", fmt.Errorf("repo clone base URL must include scheme and host")
+		return "", err
 	}
 	cloneURL := *parsed
 	cloneURL.Path = path.Join(parsed.Path, repoPath) + ".git"
 	return cloneURL.String(), nil
+}
+
+func parseCloneBaseURL(baseURL string) (*url.URL, error) {
+	if _, err := url.ParseRequestURI(baseURL); err != nil {
+		return nil, fmt.Errorf("parse repo clone base URL: %w", err)
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse repo clone base URL: %w", err)
+	}
+	if parsed.Scheme == "" || parsed.Host == "" || parsed.Opaque != "" {
+		return nil, fmt.Errorf("repo clone base URL must include scheme and host")
+	}
+	return parsed, nil
 }
