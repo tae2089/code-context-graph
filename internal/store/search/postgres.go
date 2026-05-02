@@ -27,20 +27,13 @@ func NewPostgresBackend() *PostgresBackend {
 // @sideEffect 컬럼, 인덱스, 트리거 함수, 트리거를 생성 또는 교체한다.
 // @ensures search_documents 변경 시 tsv가 자동으로 갱신된다.
 func (p *PostgresBackend) Migrate(db *gorm.DB) error {
-	return db.Transaction(func(tx *gorm.DB) error {
+	if err := db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec(`
 			ALTER TABLE search_documents
 			ADD COLUMN IF NOT EXISTS tsv tsvector,
 			ADD COLUMN IF NOT EXISTS namespace varchar(256) NOT NULL DEFAULT ''
 		`).Error; err != nil {
 			return trace.Wrap(err, "add tsv column")
-		}
-
-		if err := tx.Exec(`
-			CREATE INDEX IF NOT EXISTS idx_search_documents_tsv
-			ON search_documents USING gin(tsv)
-		`).Error; err != nil {
-			return trace.Wrap(err, "create gin index")
 		}
 
 		if err := tx.Exec(`
@@ -69,7 +62,18 @@ func (p *PostgresBackend) Migrate(db *gorm.DB) error {
 		}
 
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+
+	if err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_search_documents_tsv
+		ON search_documents USING gin(tsv)
+	`).Error; err != nil {
+		return trace.Wrap(err, "create gin index")
+	}
+
+	return nil
 }
 
 // Rebuild는 모든 검색 문서의 tsvector를 다시 계산한다.
