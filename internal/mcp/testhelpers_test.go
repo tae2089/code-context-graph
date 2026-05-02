@@ -164,6 +164,33 @@ func setupTestDeps(t *testing.T) *Deps {
 	}
 }
 
+func setupGraphOnlyTestDeps(t *testing.T) *Deps {
+	t.Helper()
+	dsn := fmt.Sprintf("file:handlertest-graph-only%d?mode=memory&cache=shared", handlerTestDBSeq.Add(1))
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Flow{}, &model.FlowMembership{}); err != nil {
+		t.Fatal(err)
+	}
+
+	goParser := &simpleGoParser{}
+	return &Deps{
+		Store:          st,
+		DB:             db,
+		Parser:         goParser,
+		Walkers:        map[string]Parser{".go": goParser},
+		ImpactAnalyzer: impact.New(st),
+		FlowTracer:     flows.New(st),
+		RepoRoot:       os.TempDir(),
+	}
+}
+
 func setupTestDepsWithComments(t *testing.T) *Deps {
 	t.Helper()
 	deps := setupTestDeps(t)

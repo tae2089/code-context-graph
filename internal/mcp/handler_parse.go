@@ -263,6 +263,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 	fullRebuild := request.GetBool("full_rebuild", true)
 	postprocess := request.GetString("postprocess", "full")
 	includePaths := request.GetStringSlice("include_paths", nil)
+	replace := request.GetBool("replace", true)
 
 	log.Info("build_or_update_graph called", "path", dirPath, "full_rebuild", fullRebuild, "postprocess", postprocess)
 
@@ -295,6 +296,15 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		}
 		for _, n := range existingNodes {
 			existingFiles = append(existingFiles, n.FilePath)
+		}
+		if !replace && len(includePaths) > 0 {
+			filtered := make([]string, 0, len(existingFiles))
+			for _, fp := range existingFiles {
+				if pathutil.MatchIncludePaths(fp, includePaths) {
+					filtered = append(filtered, fp)
+				}
+			}
+			existingFiles = filtered
 		}
 		err := filepath.Walk(dirPath, func(fp string, info os.FileInfo, err error) error {
 			if err != nil {

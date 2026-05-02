@@ -719,6 +719,93 @@ func Other() {}
 	}
 }
 
+func TestBuildOrUpdateGraph_IncrementalIncludePaths_DefaultsToReplace(t *testing.T) {
+	deps := setupGraphOnlyTestDeps(t)
+
+	ctx := ctxns.WithNamespace(context.Background(), "svc")
+	if err := deps.Store.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "api.Handler", Kind: model.NodeKindFunction, Name: "Handler", FilePath: filepath.Join("src", "api", "handler.go"), StartLine: 1, EndLine: 2, Language: "go"},
+		{QualifiedName: "other.Other", Kind: model.NodeKindFunction, Name: "Other", FilePath: filepath.Join("src", "other", "other.go"), StartLine: 1, EndLine: 2, Language: "go"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	mockSync := &mockIncrementalSyncer{result: &incremental.SyncStats{}}
+	deps.Incremental = mockSync
+
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "src", "api"), 0o755)
+	os.MkdirAll(filepath.Join(dir, "src", "other"), 0o755)
+	writeGoFile(t, filepath.Join(dir, "src", "api"), "handler.go", `package api
+func Handler() {}
+`)
+	writeGoFile(t, filepath.Join(dir, "src", "other"), "other.go", `package other
+func Other() {}
+`)
+
+	callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":          dir,
+		"full_rebuild":  false,
+		"postprocess":   "none",
+		"workspace":     "svc",
+		"include_paths": []string{"src/api"},
+	})
+
+	if !mockSync.syncWithExisting {
+		t.Fatal("expected Incremental.SyncWithExisting to be called")
+	}
+	if len(mockSync.existingFiles) != 2 {
+		t.Fatalf("expected default replace semantics to pass all namespace files, got %v", mockSync.existingFiles)
+	}
+	if !containsStringInSlice(mockSync.existingFiles, filepath.Join("src", "other", "other.go")) {
+		t.Fatalf("expected existingFiles to include out-of-scope file under default replace semantics, got %v", mockSync.existingFiles)
+	}
+}
+
+func TestBuildOrUpdateGraph_IncrementalIncludePaths_ReplaceFalsePreservesOutOfScopeFiles(t *testing.T) {
+	deps := setupGraphOnlyTestDeps(t)
+
+	ctx := ctxns.WithNamespace(context.Background(), "svc")
+	if err := deps.Store.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "api.Handler", Kind: model.NodeKindFunction, Name: "Handler", FilePath: filepath.Join("src", "api", "handler.go"), StartLine: 1, EndLine: 2, Language: "go"},
+		{QualifiedName: "other.Other", Kind: model.NodeKindFunction, Name: "Other", FilePath: filepath.Join("src", "other", "other.go"), StartLine: 1, EndLine: 2, Language: "go"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	mockSync := &mockIncrementalSyncer{result: &incremental.SyncStats{}}
+	deps.Incremental = mockSync
+
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "src", "api"), 0o755)
+	os.MkdirAll(filepath.Join(dir, "src", "other"), 0o755)
+	writeGoFile(t, filepath.Join(dir, "src", "api"), "handler.go", `package api
+func Handler() {}
+`)
+	writeGoFile(t, filepath.Join(dir, "src", "other"), "other.go", `package other
+func Other() {}
+`)
+
+	callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":          dir,
+		"full_rebuild":  false,
+		"postprocess":   "none",
+		"workspace":     "svc",
+		"include_paths": []string{"src/api"},
+		"replace":       false,
+	})
+
+	if !mockSync.syncWithExisting {
+		t.Fatal("expected Incremental.SyncWithExisting to be called")
+	}
+	if containsStringInSlice(mockSync.existingFiles, filepath.Join("src", "other", "other.go")) {
+		t.Fatalf("expected replace=false to exclude out-of-scope file from existingFiles, got %v", mockSync.existingFiles)
+	}
+	if !containsStringInSlice(mockSync.existingFiles, filepath.Join("src", "api", "handler.go")) {
+		t.Fatalf("expected replace=false to keep in-scope file, got %v", mockSync.existingFiles)
+	}
+}
+
 func TestParseProject_MissingRoot_DoesNotDeleteExistingGraph(t *testing.T) {
 	deps := setupTestDeps(t)
 
@@ -945,6 +1032,15 @@ func Run() {}
 func containsString(values []any, target string) bool {
 	for _, v := range values {
 		if s, ok := v.(string); ok && s == target {
+			return true
+		}
+	}
+	return false
+}
+
+func containsStringInSlice(values []string, target string) bool {
+	for _, v := range values {
+		if v == target {
 			return true
 		}
 	}
