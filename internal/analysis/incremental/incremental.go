@@ -65,6 +65,15 @@ type Syncer struct {
 	logger  *slog.Logger
 }
 
+func releaseContent(files map[string]FileInfo, filePath string) {
+	info, ok := files[filePath]
+	if !ok {
+		return
+	}
+	info.Content = nil
+	files[filePath] = info
+}
+
 // SyncerOption configures a Syncer instance.
 // @intent customize incremental sync behavior without expanding the constructor signature
 type SyncerOption func(*Syncer)
@@ -144,12 +153,14 @@ func (s *Syncer) SyncWithExisting(ctx context.Context, files map[string]FileInfo
 		if parser == nil {
 			s.logger.Debug("file skipped (no parser)", "file", filePath)
 			stats.Skipped++
+			releaseContent(files, filePath)
 			continue
 		}
 
 		if len(existing) > 0 && existing[0].Hash == info.Hash {
 			s.logger.Debug("file skipped (unchanged)", "file", filePath)
 			stats.Skipped++
+			releaseContent(files, filePath)
 			continue
 		}
 
@@ -194,6 +205,7 @@ func (s *Syncer) SyncWithExisting(ctx context.Context, files map[string]FileInfo
 				return nil, err
 			}
 		}
+		releaseContent(files, filePath)
 	}
 
 	for _, ep := range existingFiles {

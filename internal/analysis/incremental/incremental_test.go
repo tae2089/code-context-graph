@@ -367,3 +367,100 @@ func TestIncremental_UnknownExtensionIsSkipped(t *testing.T) {
 		t.Fatalf("expected no upserts, got %v", st.upserted)
 	}
 }
+
+func TestSyncWithExisting_ReleasesContentAfterProcessing(t *testing.T) {
+	st := newStore()
+	st.nodes["pkg.Old"] = &model.Node{QualifiedName: "pkg.Old", Kind: model.NodeKindFunction, Name: "Old", FilePath: "mod.go", Hash: "old_hash", Language: "go"}
+	parser := &staticParser{result: map[string]parseResult{
+		"new.go": {
+			nodes: []model.Node{{QualifiedName: "pkg.New", Kind: model.NodeKindFunction, Name: "New", FilePath: "new.go", StartLine: 1, EndLine: 2, Hash: "new_hash", Language: "go"}},
+		},
+		"mod.go": {
+			nodes: []model.Node{{QualifiedName: "pkg.Updated", Kind: model.NodeKindFunction, Name: "Updated", FilePath: "mod.go", StartLine: 1, EndLine: 2, Hash: "mod_hash", Language: "go"}},
+		},
+	}}
+
+	syncer := New(st, parser)
+	files := map[string]FileInfo{
+		"new.go": {Hash: "new_hash", Content: []byte("package pkg\nfunc New() {}")},
+		"mod.go": {Hash: "mod_hash", Content: []byte("package pkg\nfunc Updated() {}")},
+	}
+	stats, err := syncer.Sync(context.Background(), files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Added != 1 || stats.Modified != 1 {
+		t.Fatalf("expected 1 added and 1 modified, got %+v", stats)
+	}
+	if files["new.go"].Content != nil {
+		t.Fatalf("expected new.go content released, got %d bytes", len(files["new.go"].Content))
+	}
+	if files["mod.go"].Content != nil {
+		t.Fatalf("expected mod.go content released, got %d bytes", len(files["mod.go"].Content))
+	}
+	if files["new.go"].Hash != "new_hash" || files["mod.go"].Hash != "mod_hash" {
+		t.Fatalf("expected hashes preserved, got new=%q mod=%q", files["new.go"].Hash, files["mod.go"].Hash)
+	}
+}
+
+func TestSyncWithExisting_ReleasesContentForUnchangedAndUnparsedFiles(t *testing.T) {
+	st := newStore()
+	st.nodes["pkg.Existing"] = &model.Node{QualifiedName: "pkg.Existing", Kind: model.NodeKindFunction, Name: "Existing", FilePath: "exist.go", Hash: "same123", Language: "go"}
+	st.nodes["pkg.Old"] = &model.Node{QualifiedName: "pkg.Old", Kind: model.NodeKindFunction, Name: "Old", FilePath: "mod.go", Hash: "old_hash", Language: "go"}
+	parser := &staticParser{result: map[string]parseResult{
+		"mod.go": {
+			nodes: []model.Node{{QualifiedName: "pkg.Updated", Kind: model.NodeKindFunction, Name: "Updated", FilePath: "mod.go", StartLine: 1, EndLine: 2, Hash: "new_hash", Language: "go"}},
+		},
+	}}
+
+	syncer := NewWithRegistry(st, map[string]Parser{".go": parser})
+	files := map[string]FileInfo{
+		"exist.go":  {Hash: "same123", Content: []byte("package pkg")},
+		"note.txt":  {Hash: "txt1", Content: []byte("hello")},
+		"mod.go":    {Hash: "new_hash", Content: []byte("package pkg\nfunc Updated() {}")},
+	}
+	stats, err := syncer.Sync(context.Background(), files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Skipped != 2 || stats.Modified != 1 {
+		t.Fatalf("expected 2 skipped and 1 modified, got %+v", stats)
+	}
+	for _, fp := range []string{"exist.go", "note.txt", "mod.go"} {
+		if files[fp].Content != nil {
+			t.Fatalf("expected %s content released, got %d bytes", fp, len(files[fp].Content))
+		}
+	}
+}
+
+func TestSyncWithExisting_DoesNotReleaseContentBeforeAnnotations(t *testing.T) {
+	st := newStore()
+	st.nodes["pkg.Old"] = &model.Node{ID: 1, QualifiedName: "pkg.Old", Kind: model.NodeKindFunction, Name: "Old", FilePath: "mod.go", StartLine: 3, EndLine: 5, Hash: "old_hash", Language: "go"}
+	parser := &commentAwareParser{result: map[string]commentParseResult{
+		"mod.go": {
+			parseResult: parseResult{
+				nodes: []model.Node{{QualifiedName: "mod.go", Kind: model.NodeKindFile, Name: "mod.go", FilePath: "mod.go", StartLine: 1, EndLine: 5, Hash: "new_hash", Language: "go"}, {QualifiedName: "pkg.Updated", Kind: model.NodeKindFunction, Name: "Updated", FilePath: "mod.go", StartLine: 3, EndLine: 5, Hash: "new_hash", Language: "go"}},
+			},
+			comments: []treesitter.CommentBlock{{StartLine: 1, EndLine: 1, Text: "// @intent restore test"}},
+			language: "go",
+		},
+	}}
+
+	syncer := New(st, parser)
+	files := map[string]FileInfo{
+		"mod.go": {Hash: "new_hash", Content: []byte("// @intent restore test\nfunc Updated() {}")},
+	}
+	stats, err := syncer.Sync(context.Background(), files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Modified != 1 {
+		t.Fatalf("expected 1 modified, got %d", stats.Modified)
+	}
+	if len(st.annotations) != 1 {
+		t.Fatalf("expected 1 restored annotation, got %d", len(st.annotations))
+	}
+	if files["mod.go"].Content != nil {
+		t.Fatalf("expected mod.go content released after annotation restore, got %d bytes", len(files["mod.go"].Content))
+	}
+}
