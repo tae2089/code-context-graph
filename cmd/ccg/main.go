@@ -1,12 +1,12 @@
 package main
 
 import (
-	"crypto/subtle"
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -69,7 +69,7 @@ func main() {
 	logger := slog.Default()
 
 	deps := &cli.Deps{
-		Logger: logger,
+		Logger:  logger,
 		Walkers: buildWalkers(logger),
 		Version: cli.VersionInfo{
 			Version: version,
@@ -152,7 +152,7 @@ func migrateLegacyDefaultNamespace(db *gorm.DB) error {
 		}
 
 		updates := []struct {
-			name string
+			name  string
 			model any
 		}{
 			{name: "nodes", model: &model.Node{}},
@@ -308,31 +308,33 @@ func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 	}
 
 	mcpDeps := &mcpserver.Deps{
-		Store:             deps.Store,
-		DB:                deps.DB,
-		Parser:            deps.Walkers[".go"],
-		Walkers:           mcpWalkers,
-		SearchBackend:     deps.SearchBackend,
-		ImpactAnalyzer:    impact.New(deps.Store),
-		FlowTracer:        flows.New(deps.Store),
-		ChangesGitClient:  changes.NewExecGitClient(),
-		QueryService:      query.New(deps.DB),
-		LargefuncAnalyzer: largefunc.New(deps.DB),
-		DeadcodeAnalyzer:  deadcode.New(deps.DB),
-		CouplingAnalyzer:  coupling.New(deps.DB),
-		CoverageAnalyzer:  coverage.New(deps.DB),
-		CommunityBuilder:  community.New(deps.DB),
-		Incremental:       deps.Syncer,
-		Logger:            deps.Logger,
-		Cache:             cache,
-		RagIndexDir:       viper.GetString("rag.index_dir"),
-		RagProjectDesc:    viper.GetString("rag.description"),
-		NamespaceRoot:     cfg.NamespaceRoot,
-		WorkspaceRoot:     cfg.WorkspaceRoot,
-		RepoRoot:          cfg.RepoRoot,
+		Store:               deps.Store,
+		DB:                  deps.DB,
+		Parser:              deps.Walkers[".go"],
+		Walkers:             mcpWalkers,
+		SearchBackend:       deps.SearchBackend,
+		ImpactAnalyzer:      impact.New(deps.Store),
+		FlowTracer:          flows.New(deps.Store),
+		ChangesGitClient:    changes.NewExecGitClient(),
+		QueryService:        query.New(deps.DB),
+		LargefuncAnalyzer:   largefunc.New(deps.DB),
+		DeadcodeAnalyzer:    deadcode.New(deps.DB),
+		CouplingAnalyzer:    coupling.New(deps.DB),
+		CoverageAnalyzer:    coverage.New(deps.DB),
+		CommunityBuilder:    community.New(deps.DB),
+		Incremental:         deps.Syncer,
+		Logger:              deps.Logger,
+		Cache:               cache,
+		RagIndexDir:         viper.GetString("rag.index_dir"),
+		RagProjectDesc:      viper.GetString("rag.description"),
+		NamespaceRoot:       cfg.NamespaceRoot,
+		WorkspaceRoot:       cfg.WorkspaceRoot,
+		RepoRoot:            cfg.RepoRoot,
+		MaxFileBytes:        cfg.MaxFileBytes,
+		MaxTotalParsedBytes: cfg.MaxTotalParsedBytes,
 	}
 
-		srv := mcpserver.NewServer(mcpDeps)
+	srv := mcpserver.NewServer(mcpDeps)
 
 	switch cfg.Transport {
 	case "streamable-http":
@@ -401,6 +403,7 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 		}
 		filter := webhook.NewRepoFilterFromRules(rules)
 		secret := []byte(cfg.WebhookSecret)
+		repoLocker := webhook.NewRepoLocker(30 * time.Second)
 		syncHandler := func(ctx context.Context, repoFullName, cloneURL, branch string) error {
 			ns := webhook.ExtractNamespace(repoFullName)
 			deps.Logger.Info("webhook sync started", "repo", repoFullName, "namespace", ns, "branch", branch)
@@ -408,7 +411,7 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 			attemptCtx, attemptCancel := context.WithTimeout(ctx, 15*time.Minute)
 			defer attemptCancel()
 
-			if err := webhook.CloneOrPullBranch(attemptCtx, cloneURL, cfg.RepoRoot, ns, branch, nil); err != nil {
+			if err := webhook.CloneOrPullBranchLocked(attemptCtx, repoLocker, cloneURL, cfg.RepoRoot, repoFullName, ns, branch, nil); err != nil {
 				deps.Logger.Error("webhook clone/pull failed", "repo", repoFullName, "error", err)
 				return err
 			}
@@ -428,8 +431,10 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 			}
 			buildCtx := ctxns.WithNamespace(attemptCtx, ns)
 			stats, err := graphSvc.Build(buildCtx, service.BuildOptions{
-				Dir:          repoDir,
-				IncludePaths: includePaths,
+				Dir:                 repoDir,
+				IncludePaths:        includePaths,
+				MaxFileBytes:        cfg.MaxFileBytes,
+				MaxTotalParsedBytes: cfg.MaxTotalParsedBytes,
 			})
 			if err != nil {
 				deps.Logger.Error("webhook build failed", "repo", repoFullName, "error", err)
@@ -441,11 +446,11 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 		}
 		syncQueue = webhook.NewSyncQueueWithContext(syncCtx, cfg.WebhookWorkers, syncHandler)
 		mux.Handle("/webhook", webhook.NewWebhookHandlerWithConfig(webhook.WebhookHandlerConfig{
-			Secret:       secret,
-			Filter:       filter,
-			OnSync:       syncQueue.Add,
-			Insecure:     cfg.InsecureWebhook,
-			CloneBaseURL: cfg.RepoCloneBaseURL,
+			Secret:        secret,
+			Filter:        filter,
+			OnSync:        syncQueue.Add,
+			Insecure:      cfg.InsecureWebhook,
+			CloneBaseURLs: cfg.RepoCloneBaseURLs,
 		}))
 		deps.Logger.Info("webhook endpoint registered", "path", "/webhook", "allowedRepos", cfg.AllowRepo)
 	}

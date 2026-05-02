@@ -132,8 +132,29 @@ func TestServeCmdFlags_RepoCloneBaseURL(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if got.RepoCloneBaseURL != "https://github.com" {
-		t.Errorf("RepoCloneBaseURL = %q, want %q", got.RepoCloneBaseURL, "https://github.com")
+	if len(got.RepoCloneBaseURLs) != 1 || got.RepoCloneBaseURLs[0] != "https://github.com" {
+		t.Errorf("RepoCloneBaseURLs = %v, want [https://github.com]", got.RepoCloneBaseURLs)
+	}
+}
+
+func TestServeCmdFlags_RepoCloneBaseURLRepeatable(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+
+	var got ServeConfig
+	deps.ServeFunc = func(cfg ServeConfig) error {
+		got = cfg
+		return nil
+	}
+
+	err := executeCmd(deps, stdout, stderr, "serve", "--repo-clone-base-url", "https://gitea.local", "--repo-clone-base-url", "https://github.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got.RepoCloneBaseURLs) != 2 {
+		t.Fatalf("RepoCloneBaseURLs len = %d, want 2", len(got.RepoCloneBaseURLs))
+	}
+	if got.RepoCloneBaseURLs[0] != "https://gitea.local" || got.RepoCloneBaseURLs[1] != "https://github.com" {
+		t.Fatalf("RepoCloneBaseURLs = %v, want [https://gitea.local https://github.com]", got.RepoCloneBaseURLs)
 	}
 }
 
@@ -387,8 +408,8 @@ func TestServeCmd_WebhookAllowsSecureModeWithCloneBaseURL(t *testing.T) {
 	called := false
 	deps.ServeFunc = func(cfg ServeConfig) error {
 		called = true
-		if cfg.RepoCloneBaseURL != "https://github.com" {
-			t.Fatalf("RepoCloneBaseURL = %q, want %q", cfg.RepoCloneBaseURL, "https://github.com")
+		if len(cfg.RepoCloneBaseURLs) != 1 || cfg.RepoCloneBaseURLs[0] != "https://github.com" {
+			t.Fatalf("RepoCloneBaseURLs = %v, want [https://github.com]", cfg.RepoCloneBaseURLs)
 		}
 		return nil
 	}

@@ -14,21 +14,24 @@ import (
 // ServeConfig holds parsed flags for the serve subcommand.
 // @intent MCP 서버 실행에 필요한 전송 방식과 세션 관련 옵션을 전달한다.
 type ServeConfig struct {
-	CacheTTL      time.Duration
-	NoCache       bool
-	Transport     string // "stdio" (default) | "streamable-http"
-	HTTPAddr      string // listen address for HTTP transport (default "127.0.0.1:8080")
-	HTTPBearerToken string
-	InsecureHTTP  bool
-	Stateless     bool   // stateless session management for multi-instance deployments
-	NamespaceRoot string // root directory for file namespaces (default "workspaces")
-	WorkspaceRoot string // root directory for file workspaces (default "workspaces")
-	WebhookWorkers int
-	AllowRepo     []string
-	WebhookSecret string
-	InsecureWebhook bool
-	RepoCloneBaseURL string
-	RepoRoot      string
+	CacheTTL            time.Duration
+	NoCache             bool
+	Transport           string // "stdio" (default) | "streamable-http"
+	HTTPAddr            string // listen address for HTTP transport (default "127.0.0.1:8080")
+	HTTPBearerToken     string
+	InsecureHTTP        bool
+	Stateless           bool   // stateless session management for multi-instance deployments
+	NamespaceRoot       string // root directory for file namespaces (default "workspaces")
+	WorkspaceRoot       string // root directory for file workspaces (default "workspaces")
+	WebhookWorkers      int
+	AllowRepo           []string
+	WebhookSecret       string
+	InsecureWebhook     bool
+	RepoCloneBaseURL    string
+	RepoCloneBaseURLs   []string
+	RepoRoot            string
+	MaxFileBytes        int64
+	MaxTotalParsedBytes int64
 }
 
 func validateServeConfig(cfg ServeConfig) error {
@@ -50,16 +53,34 @@ func validateServeConfig(cfg ServeConfig) error {
 	if strings.TrimSpace(cfg.RepoRoot) == "" {
 		return fmt.Errorf("webhook sync requires --repo-root when --allow-repo is set")
 	}
-	if !cfg.InsecureWebhook && strings.TrimSpace(cfg.RepoCloneBaseURL) == "" {
+	cloneBaseURLs := configuredCloneBaseURLs(cfg)
+	if !cfg.InsecureWebhook && len(cloneBaseURLs) == 0 {
 		return fmt.Errorf("webhook sync requires --repo-clone-base-url unless --insecure-webhook is set")
 	}
-	if strings.TrimSpace(cfg.RepoCloneBaseURL) != "" {
-		parsed, err := url.Parse(cfg.RepoCloneBaseURL)
-		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+	for _, cloneBaseURL := range cloneBaseURLs {
+		if _, err := url.ParseRequestURI(cloneBaseURL); err != nil {
+			return fmt.Errorf("--repo-clone-base-url must include scheme and host")
+		}
+		parsed, err := url.Parse(cloneBaseURL)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.Opaque != "" {
 			return fmt.Errorf("--repo-clone-base-url must include scheme and host")
 		}
 	}
 	return nil
+}
+
+func configuredCloneBaseURLs(cfg ServeConfig) []string {
+	baseURLs := append([]string(nil), cfg.RepoCloneBaseURLs...)
+	if cfg.RepoCloneBaseURL != "" {
+		baseURLs = append([]string{cfg.RepoCloneBaseURL}, baseURLs...)
+	}
+	filtered := baseURLs[:0]
+	for _, baseURL := range baseURLs {
+		if strings.TrimSpace(baseURL) != "" {
+			filtered = append(filtered, baseURL)
+		}
+	}
+	return filtered
 }
 
 // newServeCmd creates the MCP server command.
@@ -97,14 +118,18 @@ func newServeCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().StringSliceVar(&cfg.AllowRepo, "allow-repo", nil, "Allowed repo patterns for webhook sync (repeatable, e.g. org/*, !org/private)")
 	cmd.Flags().StringVar(&cfg.WebhookSecret, "webhook-secret", "", "HMAC secret for GitHub webhook signature verification")
 	cmd.Flags().BoolVar(&cfg.InsecureWebhook, "insecure-webhook", false, "Allow unsigned webhook requests (unsafe; testing only)")
-	cmd.Flags().StringVar(&cfg.RepoCloneBaseURL, "repo-clone-base-url", "", "Canonical base URL used to reconstruct clone targets for allowed repos")
+	cmd.Flags().StringArrayVar(&cfg.RepoCloneBaseURLs, "repo-clone-base-url", nil, "Canonical base URL used to reconstruct clone targets for allowed repos (repeatable)")
 	cmd.Flags().StringVar(&cfg.RepoRoot, "repo-root", os.Getenv("CCG_REPO_ROOT"), "Root directory for cloned repositories")
+	cmd.Flags().Int64Var(&cfg.MaxFileBytes, "max-file-bytes", 0, "Maximum bytes allowed per parsed source file (0 disables limit; config: parse.max_file_bytes)")
+	cmd.Flags().Int64Var(&cfg.MaxTotalParsedBytes, "max-total-parsed-bytes", 0, "Maximum total bytes allowed across parsed source files (0 disables limit; config: parse.max_total_parsed_bytes)")
 
 	cmd.PreRun = func(cmd *cobra.Command, args []string) {
 		if cmd.Flags().Changed("workspace-root") && !cmd.Flags().Changed("namespace-root") {
 			cfg.NamespaceRoot = cfg.WorkspaceRoot
 		}
 		cfg.WorkspaceRoot = cfg.NamespaceRoot
+		cfg.MaxFileBytes = resolveMaxFileBytes(cfg.MaxFileBytes)
+		cfg.MaxTotalParsedBytes = resolveMaxTotalParsedBytes(cfg.MaxTotalParsedBytes)
 	}
 
 	return cmd
