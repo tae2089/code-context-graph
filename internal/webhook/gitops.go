@@ -2,17 +2,111 @@ package webhook
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
+	"time"
 
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 )
+
+var ErrRepoLockTimeout = errors.New("repo lock timeout")
+
+type RepoLocker struct {
+	timeout time.Duration
+	mu      sync.Mutex
+	locks   map[string]chan struct{}
+}
+
+func NewRepoLocker(timeout time.Duration) *RepoLocker {
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	return &RepoLocker{timeout: timeout, locks: make(map[string]chan struct{})}
+}
+
+func (l *RepoLocker) WithLock(ctx context.Context, lockRoot, repoFullName string, fn func(context.Context) error) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	acquireCtx, cancel := context.WithTimeout(ctx, l.timeout)
+	defer cancel()
+
+	localLock, releaseLocal, err := l.acquireLocal(acquireCtx, repoFullName)
+	if err != nil {
+		return err
+	}
+	defer releaseLocal(localLock)
+
+	lockFile, releaseFile, err := acquireFilesystemLock(acquireCtx, lockRoot, repoFullName)
+	if err != nil {
+		return err
+	}
+	defer releaseFile(lockFile)
+
+	return fn(ctx)
+}
+
+func (l *RepoLocker) acquireLocal(ctx context.Context, repoFullName string) (chan struct{}, func(chan struct{}), error) {
+	l.mu.Lock()
+	lock := l.locks[repoFullName]
+	if lock == nil {
+		lock = make(chan struct{}, 1)
+		lock <- struct{}{}
+		l.locks[repoFullName] = lock
+	}
+	l.mu.Unlock()
+
+	select {
+	case <-lock:
+		return lock, func(lock chan struct{}) { lock <- struct{}{} }, nil
+	case <-ctx.Done():
+		return nil, nil, fmt.Errorf("%w: %s", ErrRepoLockTimeout, repoFullName)
+	}
+}
+
+func acquireFilesystemLock(ctx context.Context, lockRoot, repoFullName string) (*os.File, func(*os.File), error) {
+	lockFile := filepath.Join(lockRoot, ".locks", lockFileName(repoFullName))
+	if err := os.MkdirAll(filepath.Dir(lockFile), 0755); err != nil {
+		return nil, nil, fmt.Errorf("create lock directory: %w", err)
+	}
+
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		file, err := os.OpenFile(lockFile, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
+		if err == nil {
+			return file, func(file *os.File) {
+				name := file.Name()
+				_ = file.Close()
+				_ = os.Remove(name)
+			}, nil
+		}
+		if !os.IsExist(err) {
+			return nil, nil, fmt.Errorf("create repo lock: %w", err)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, nil, fmt.Errorf("%w: %s", ErrRepoLockTimeout, repoFullName)
+		case <-ticker.C:
+		}
+	}
+}
+
+func lockFileName(repoFullName string) string {
+	replacer := strings.NewReplacer("/", "-", "\\", "-", ":", "-")
+	return replacer.Replace(repoFullName) + ".lock"
+}
 
 func RepoDir(repoRoot, namespace string) string {
 	return filepath.Join(repoRoot, namespace)
@@ -34,6 +128,15 @@ func CloneOrPullBranch(ctx context.Context, repoURL, repoRoot, namespace, branch
 	}
 
 	return syncRepoBranch(ctx, repo, branch, auth)
+}
+
+func CloneOrPullBranchLocked(ctx context.Context, locker *RepoLocker, repoURL, repoRoot, repoFullName, namespace, branch string, auth transport.AuthMethod) error {
+	if locker == nil {
+		locker = NewRepoLocker(30 * time.Second)
+	}
+	return locker.WithLock(ctx, repoRoot, repoFullName, func(ctx context.Context) error {
+		return CloneOrPullBranch(ctx, repoURL, repoRoot, namespace, branch, auth)
+	})
 }
 
 func sanitizeURL(raw string) string {

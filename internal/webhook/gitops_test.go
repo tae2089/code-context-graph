@@ -2,10 +2,14 @@ package webhook
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func initBareRepo(t *testing.T) string {
@@ -210,4 +214,120 @@ func TestGitOps_CloneOrPullBranchCleansWorktreeDrift(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dest, "untracked.txt")); !os.IsNotExist(err) {
 		t.Fatalf("untracked drift should be removed, stat err=%v", err)
 	}
+}
+
+func TestRepoLocker_SerializesSameRepoInProcess(t *testing.T) {
+	lockRoot := t.TempDir()
+	locker := NewRepoLocker(2 * time.Second)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var concurrent int32
+	var maxConcurrent int32
+
+	go func() {
+		err := locker.WithLock(context.Background(), lockRoot, "org/svc", func(context.Context) error {
+			current := atomic.AddInt32(&concurrent, 1)
+			atomic.StoreInt32(&maxConcurrent, current)
+			close(entered)
+			<-release
+			atomic.AddInt32(&concurrent, -1)
+			return nil
+		})
+		if err != nil {
+			t.Errorf("first lock failed: %v", err)
+		}
+	}()
+	<-entered
+
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- locker.WithLock(context.Background(), lockRoot, "org/svc", func(context.Context) error {
+			current := atomic.AddInt32(&concurrent, 1)
+			for {
+				prev := atomic.LoadInt32(&maxConcurrent)
+				if current <= prev || atomic.CompareAndSwapInt32(&maxConcurrent, prev, current) {
+					break
+				}
+			}
+			atomic.AddInt32(&concurrent, -1)
+			return nil
+		})
+	}()
+
+	select {
+	case err := <-secondDone:
+		t.Fatalf("second lock finished before first released: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+
+	select {
+	case err := <-secondDone:
+		if err != nil {
+			t.Fatalf("second lock failed: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for second lock")
+	}
+	if maxConcurrent != 1 {
+		t.Fatalf("same repo operations overlapped, maxConcurrent=%d", maxConcurrent)
+	}
+}
+
+func TestRepoLocker_TimesOutWhenFilesystemLockHeld(t *testing.T) {
+	lockRoot := t.TempDir()
+	locker := NewRepoLocker(30 * time.Millisecond)
+
+	lockFile := filepath.Join(lockRoot, ".locks", "org-svc.lock")
+	if err := os.MkdirAll(filepath.Dir(lockFile), 0755); err != nil {
+		t.Fatal(err)
+	}
+	held, err := os.OpenFile(lockFile, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	defer os.Remove(lockFile)
+
+	err = locker.WithLock(context.Background(), lockRoot, "org/svc", func(context.Context) error {
+		t.Fatal("callback should not run while filesystem lock is held")
+		return nil
+	})
+	if !errors.Is(err, ErrRepoLockTimeout) {
+		t.Fatalf("error = %v, want ErrRepoLockTimeout", err)
+	}
+}
+
+func TestRepoLocker_AllowsDifferentReposInParallel(t *testing.T) {
+	lockRoot := t.TempDir()
+	locker := NewRepoLocker(2 * time.Second)
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	var wg sync.WaitGroup
+
+	for _, repo := range []string{"org/a", "org/b"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := locker.WithLock(context.Background(), lockRoot, repo, func(context.Context) error {
+				started <- struct{}{}
+				<-release
+				return nil
+			})
+			if err != nil {
+				t.Errorf("lock %s failed: %v", repo, err)
+			}
+		}()
+	}
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("different repo lock did not start in parallel")
+		}
+	}
+	close(release)
+	wg.Wait()
 }
