@@ -151,3 +151,28 @@ func TestMatchExcludes(t *testing.T) {
 		})
 	}
 }
+
+func TestHasPathPrefix(t *testing.T) {
+	tests := []struct {
+		name   string
+		path   string
+		prefix string
+		want   bool
+	}{
+		{name: "exact match", path: "internal/api", prefix: "internal/api", want: true},
+		{name: "child path", path: "internal/api/handler.go", prefix: "internal/api", want: true},
+		{name: "sibling not matched", path: "internal/api2/handler.go", prefix: "internal/api", want: false},
+		{name: "shorter path not matched", path: "internal", prefix: "internal/api", want: false},
+		{name: "windows separators normalized", path: `internal\api\handler.go`, prefix: "internal/api", want: true},
+		{name: "empty prefix matches all", path: "internal/api/handler.go", prefix: "", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pathutil.HasPathPrefix(tt.path, tt.prefix)
+			if got != tt.want {
+				t.Errorf("HasPathPrefix(%q, %q) = %v, want %v", tt.path, tt.prefix, got, tt.want)
+			}
+		})
+	}
+}

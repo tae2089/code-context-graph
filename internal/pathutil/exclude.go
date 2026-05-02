@@ -127,6 +127,17 @@ func MatchIncludePaths(relPath string, includePaths []string) bool {
 	return false
 }
 
+// HasPathPrefix reports whether path is the same as prefix or is nested under it.
+// Both inputs are normalized to slash-separated clean relative paths.
+func HasPathPrefix(pathValue, prefix string) bool {
+	pathValue = normalizeIncludePath(pathValue)
+	prefix = normalizeIncludePath(prefix)
+	if prefix == "" || prefix == "." {
+		return true
+	}
+	return pathValue == prefix || strings.HasPrefix(pathValue, prefix+"/")
+}
+
 func normalizeIncludePath(p string) string {
 	clean := path.Clean(strings.ReplaceAll(filepath.ToSlash(strings.TrimSpace(p)), `\`, "/"))
 	if clean == "." {
