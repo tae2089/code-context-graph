@@ -12,7 +12,7 @@ docker build -t ccg .
 # Set a bearer token for externally bound HTTP transport.
 export CCG_HTTP_BEARER_TOKEN=replace-with-a-long-random-token
 
-# Mount your project and serve over HTTP
+# Mount your project, build the graph, and serve over HTTP
 docker run -d -p 8080:8080 \
   -e CCG_HTTP_BEARER_TOKEN="$CCG_HTTP_BEARER_TOKEN" \
   -v $(pwd):/workspace --entrypoint sh ccg \
@@ -21,6 +21,14 @@ docker run -d -p 8080:8080 \
 
 The image's default HTTP command binds to `:8080`, so you must provide
 `CCG_HTTP_BEARER_TOKEN` for normal external access.
+
+Run migrations only when creating a new database or upgrading CCG:
+
+```bash
+docker run --rm \
+  -v $(pwd):/workspace --entrypoint ccg ccg \
+  migrate
+```
 
 Connect from `.mcp.json`:
 
@@ -47,6 +55,16 @@ docker run -d -p 8080:8080 \
   -e CCG_DB_DSN="host=db user=ccg password=ccg dbname=ccg sslmode=disable" \
   -v $(pwd):/workspace --entrypoint sh ccg \
   -c "ccg build /workspace && ccg serve --transport streamable-http --http-addr :8080"
+```
+
+For PostgreSQL, run the migration as a separate one-shot command when needed:
+
+```bash
+docker run --rm \
+  -e CCG_DB_DRIVER=postgres \
+  -e CCG_DB_DSN="host=db user=ccg password=ccg dbname=ccg sslmode=disable" \
+  --entrypoint ccg ccg \
+  migrate
 ```
 
 ## Docker Compose
