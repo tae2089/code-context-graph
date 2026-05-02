@@ -125,6 +125,10 @@ type IncrementalSyncer interface {
 	SyncWithExisting(ctx context.Context, files map[string]incremental.FileInfo, existingFiles []string) (*incremental.SyncStats, error)
 }
 
+type transactionalIncrementalSyncer interface {
+	SyncWithExistingStore(ctx context.Context, syncStore incremental.Store, files map[string]incremental.FileInfo, existingFiles []string) (*incremental.SyncStats, error)
+}
+
 type transactionalDBStore interface {
 	WithTxDB(ctx context.Context, fn func(store.GraphStore, *gorm.DB) error) error
 }
@@ -363,6 +367,150 @@ func (s *GraphService) Update(ctx context.Context, opts UpdateOptions) (*increme
 
 	s.logger().Info("incremental update", "dir", absDir)
 
+	stats := &incremental.SyncStats{}
+	err = s.withUpdateTx(ctx, opts, func(txStore store.GraphStore, txDB *gorm.DB) error {
+		var err error
+		stats, err = s.updateGraphInTx(ctx, txStore, txDB, absDir, opts)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return stats, nil
+}
+
+func (s *GraphService) withUpdateTx(ctx context.Context, opts UpdateOptions, fn func(store.GraphStore, *gorm.DB) error) error {
+	if s.Store == nil {
+		return fn(nil, s.DB)
+	}
+	if _, ok := opts.Syncer.(transactionalIncrementalSyncer); !ok {
+		if !opts.SkipSearchRebuild && s.SearchBackend != nil && s.DB != nil {
+			return trace.New("incremental syncer does not support transaction-scoped store")
+		}
+		return fn(nil, s.DB)
+	}
+	if txStore, ok := s.Store.(transactionalDBStore); ok && s.DB != nil {
+		return txStore.WithTxDB(ctx, fn)
+	}
+	if opts.SkipSearchRebuild || s.SearchBackend == nil || s.DB == nil {
+		return s.Store.WithTx(ctx, func(txStore store.GraphStore) error {
+			return fn(txStore, nil)
+		})
+	}
+
+	txStore, ok := s.Store.(transactionalDBStore)
+	if !ok {
+		return trace.New("graph store does not support DB transaction handle for search rebuild")
+	}
+	return txStore.WithTxDB(ctx, fn)
+}
+
+func (s *GraphService) updateGraphInTx(ctx context.Context, txStore store.GraphStore, txDB *gorm.DB, absDir string, opts UpdateOptions) (*incremental.SyncStats, error) {
+	if txStore == nil {
+		return s.updateGraphWithoutTx(ctx, absDir, opts)
+	}
+
+	syncer := opts.Syncer
+	stats := &incremental.SyncStats{}
+	batch := make(map[string]incremental.FileInfo)
+	currentFiles := make(map[string]struct{})
+	var batchBytes int64
+	var totalParsedBytes int64
+
+	flush := func(existingFiles []string) error {
+		if len(batch) == 0 && len(existingFiles) == 0 {
+			return nil
+		}
+		batchStats, err := syncIncrementalBatch(ctx, syncer, txStore, batch, existingFiles)
+		if err != nil {
+			return trace.Wrap(err, "incremental sync")
+		}
+		addSyncStats(stats, batchStats)
+		batch = make(map[string]incremental.FileInfo)
+		batchBytes = 0
+		return nil
+	}
+
+	if err := walkMatchingFiles(ctx, absDir, opts.BuildOptions, func(path, relPath string) error {
+		if _, ok := s.parserForExt(strings.ToLower(filepath.Ext(path))); !ok {
+			return nil
+		}
+
+		info, err := os.Stat(path)
+		if err != nil {
+			s.logger().Warn("skip unreadable update file", "file", relPath, "error", err)
+			return nil
+		}
+		if err := CheckParseFileSize(relPath, info.Size(), opts.MaxFileBytes); err != nil {
+			return err
+		}
+		if err := CheckTotalParsedBytes(relPath, totalParsedBytes, info.Size(), opts.MaxTotalParsedBytes); err != nil {
+			return err
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			s.logger().Warn("skip unreadable update file", "file", relPath, "error", err)
+			return nil
+		}
+		contentBytes := int64(len(content))
+		totalParsedBytes += contentBytes
+		if err := CheckTotalParsedBytes(relPath, 0, totalParsedBytes, opts.MaxTotalParsedBytes); err != nil {
+			return err
+		}
+		hash := sha256.Sum256(content)
+		batch[relPath] = incremental.FileInfo{
+			Hash:    hex.EncodeToString(hash[:]),
+			Content: content,
+		}
+		currentFiles[relPath] = struct{}{}
+		batchBytes += contentBytes
+		if len(batch) >= buildFlushFileBatchSize || batchBytes >= buildFlushParsedBytes {
+			return flush(nil)
+		}
+		return nil
+	}); err != nil {
+		return nil, trace.Wrap(err, "walk update directory")
+	}
+	if err := flush(nil); err != nil {
+		return nil, err
+	}
+
+	existingFiles, err := ExistingGraphFiles(ctx, txDBForExistingFiles(txDB, s.DB))
+	if err != nil {
+		return nil, trace.Wrap(err, "load existing graph files")
+	}
+	if !opts.Replace && len(opts.IncludePaths) > 0 {
+		filtered := make([]string, 0, len(existingFiles))
+		for _, fp := range existingFiles {
+			if pathutil.MatchIncludePaths(fp, opts.IncludePaths) {
+				filtered = append(filtered, fp)
+			}
+		}
+		existingFiles = filtered
+	}
+	deletedFiles := make([]string, 0, len(existingFiles))
+	for _, fp := range existingFiles {
+		if _, ok := currentFiles[fp]; !ok {
+			deletedFiles = append(deletedFiles, fp)
+		}
+	}
+	if err := flush(deletedFiles); err != nil {
+		return nil, err
+	}
+
+	if !opts.SkipSearchRebuild && s.SearchBackend != nil && s.DB != nil {
+		if txDB == nil {
+			return nil, trace.New("search rebuild requires transaction DB handle")
+		}
+		if err := s.rebuildSearchWithDB(ctx, txDB); err != nil {
+			return nil, err
+		}
+	}
+	return stats, nil
+}
+
+func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, opts UpdateOptions) (*incremental.SyncStats, error) {
 	files := make(map[string]incremental.FileInfo)
 	var totalParsedBytes int64
 	if err := walkMatchingFiles(ctx, absDir, opts.BuildOptions, func(path, relPath string) error {
@@ -425,6 +573,34 @@ func (s *GraphService) Update(ctx context.Context, opts UpdateOptions) (*increme
 		}
 	}
 	return stats, nil
+}
+
+func syncIncrementalBatch(ctx context.Context, syncer IncrementalSyncer, txStore store.GraphStore, files map[string]incremental.FileInfo, existingFiles []string) (*incremental.SyncStats, error) {
+	if txStore != nil {
+		txSyncer, ok := syncer.(transactionalIncrementalSyncer)
+		if !ok {
+			return nil, trace.New("incremental syncer does not support transaction-scoped store")
+		}
+		return txSyncer.SyncWithExistingStore(ctx, txStore, files, existingFiles)
+	}
+	return syncer.SyncWithExisting(ctx, files, existingFiles)
+}
+
+func addSyncStats(dst, src *incremental.SyncStats) {
+	if dst == nil || src == nil {
+		return
+	}
+	dst.Added += src.Added
+	dst.Modified += src.Modified
+	dst.Skipped += src.Skipped
+	dst.Deleted += src.Deleted
+}
+
+func txDBForExistingFiles(txDB, db *gorm.DB) *gorm.DB {
+	if txDB != nil {
+		return txDB
+	}
+	return db
 }
 
 func (s *GraphService) logger() *slog.Logger {

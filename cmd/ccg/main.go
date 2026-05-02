@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -446,7 +447,7 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcpAuthMiddleware(cfg.HTTPBearerToken, mcpserver.LimitHTTPBody(httpSrv)))
 	mux.HandleFunc("/health", handleHealth)
-	mux.Handle("/ready", readyHandler(func(r *http.Request) error {
+	dbReadyCheck := func(r *http.Request) error {
 		if deps.DB == nil {
 			return fmt.Errorf("database not configured")
 		}
@@ -455,11 +456,27 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 			return trace.Wrap(err, "get sql db")
 		}
 		return sqlDB.PingContext(r.Context())
-	}))
+	}
 
 	var syncQueue *webhook.SyncQueue
 	syncCtx, syncCancel := context.WithCancel(context.Background())
 	defer syncCancel()
+
+	mux.Handle("/ready", readyHandler(func(r *http.Request) error {
+		if err := dbReadyCheck(r); err != nil {
+			return err
+		}
+		if syncQueue != nil {
+			stats := syncQueue.Stats()
+			if stats.MaxTrackedRepos > 0 && stats.TrackedRepos >= stats.MaxTrackedRepos {
+				return fmt.Errorf("webhook sync queue full")
+			}
+		}
+		return nil
+	}))
+	mux.Handle("/status", statusHandler(dbReadyCheck, func() *webhook.SyncQueue {
+		return syncQueue
+	}))
 
 	if len(cfg.AllowRepo) > 0 {
 		rules := make([]webhook.RepoRule, 0, len(cfg.AllowRepo))
@@ -473,7 +490,7 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 			ns := webhook.ExtractNamespace(repoFullName)
 			deps.Logger.Info("webhook sync started", "repo", repoFullName, "namespace", ns, "branch", branch)
 
-			attemptCtx, attemptCancel := context.WithTimeout(ctx, 15*time.Minute)
+			attemptCtx, attemptCancel := context.WithTimeout(ctx, cfg.WebhookAttemptTimeout)
 			defer attemptCancel()
 
 			if err := webhook.CloneOrPullBranchLocked(attemptCtx, repoLocker, cloneURL, cfg.RepoRoot, repoFullName, ns, branch, nil); err != nil {
@@ -509,7 +526,14 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 				"files", stats.TotalFiles, "nodes", stats.TotalNodes, "edges", stats.TotalEdges)
 			return nil
 		}
-		syncQueue = webhook.NewSyncQueueWithContext(syncCtx, cfg.WebhookWorkers, syncHandler)
+		syncQueue = webhook.NewSyncQueueWithConfig(syncCtx, cfg.WebhookWorkers, syncHandler, webhook.QueueConfig{
+			RetryConfig: webhook.RetryConfig{
+				MaxAttempts: cfg.WebhookRetryAttempts,
+				BaseDelay:   cfg.WebhookRetryBaseDelay,
+				MaxDelay:    cfg.WebhookRetryMaxDelay,
+			},
+			MaxTrackedRepos: cfg.WebhookMaxTrackedRepos,
+		})
 		mux.Handle("/webhook", webhook.NewWebhookHandlerWithConfig(webhook.WebhookHandlerConfig{
 			Secret:        secret,
 			Filter:        filter,
@@ -661,6 +685,45 @@ func readyHandler(check func(*http.Request) error) http.Handler {
 	})
 }
 
+type statusResponse struct {
+	Status  string                  `json:"status"`
+	DB      string                  `json:"db"`
+	Webhook *webhook.SyncQueueStats `json:"webhook,omitempty"`
+}
+
+func statusHandler(dbCheck func(*http.Request) error, queue func() *webhook.SyncQueue) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		resp := statusResponse{Status: "ok", DB: "ready"}
+		code := http.StatusOK
+		if err := dbCheck(r); err != nil {
+			resp.Status = "not_ready"
+			resp.DB = "not_ready"
+			code = http.StatusServiceUnavailable
+		}
+		if queue != nil {
+			if q := queue(); q != nil {
+				stats := q.Stats()
+				resp.Webhook = &stats
+				if stats.MaxTrackedRepos > 0 && stats.TrackedRepos >= stats.MaxTrackedRepos {
+					resp.Status = "not_ready"
+					code = http.StatusServiceUnavailable
+				}
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(code)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			slog.Error("status check write failed", "error", err)
+		}
+	})
+}
+
 // openDB opens a GORM connection for the configured driver.
 // @intent 실행 환경에 맞는 SQLite 또는 PostgreSQL 연결을 생성한다.
 // @requires driver는 sqlite 또는 postgres여야 한다.
@@ -700,12 +763,31 @@ func openDB(driver, dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, trace.Wrap(err, "get underlying sql.DB")
 	}
+	configureDBPool(sqlDB, driver)
+
+	return db, nil
+}
+
+type sqlDBPool interface {
+	SetMaxOpenConns(int)
+	SetMaxIdleConns(int)
+	SetConnMaxLifetime(time.Duration)
+	SetConnMaxIdleTime(time.Duration)
+}
+
+func configureDBPool(sqlDB sqlDBPool, driver string) {
+	if driver == "sqlite" {
+		sqlDB.SetMaxOpenConns(1)
+		sqlDB.SetMaxIdleConns(1)
+		sqlDB.SetConnMaxLifetime(0)
+		sqlDB.SetConnMaxIdleTime(0)
+		return
+	}
+
 	sqlDB.SetMaxOpenConns(25)
 	sqlDB.SetMaxIdleConns(5)
 	sqlDB.SetConnMaxLifetime(5 * time.Minute)
 	sqlDB.SetConnMaxIdleTime(5 * time.Minute)
-
-	return db, nil
 }
 
 // newSearchBackend selects the search backend for a database driver.

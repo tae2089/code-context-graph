@@ -1147,6 +1147,28 @@ func Run() {}
 	}
 }
 
+func TestBuildOrUpdateGraph_RejectsInvalidPostprocessPolicy(t *testing.T) {
+	deps := setupTestDeps(t)
+	dir := t.TempDir()
+	writeGoFile(t, dir, "svc.go", `package svc
+
+func Run() {}
+`)
+
+	result := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":               dir,
+		"full_rebuild":       true,
+		"postprocess":        "none",
+		"postprocess_policy": "strict",
+	})
+	if !result.IsError {
+		t.Fatalf("expected tool error for invalid postprocess_policy, got: %s", getTextContent(result))
+	}
+	if !strings.Contains(getTextContent(result), "postprocess_policy must be degraded or fail_closed") {
+		t.Fatalf("unexpected error: %s", getTextContent(result))
+	}
+}
+
 func containsString(values []any, target string) bool {
 	for _, v := range values {
 		if s, ok := v.(string); ok && s == target {

@@ -37,18 +37,35 @@ type syncPayload struct {
 }
 
 type SyncQueue struct {
-	ctx         context.Context
-	handler     SyncHandlerFunc
-	retryConfig RetryConfig
+	ctx             context.Context
+	handler         SyncHandlerFunc
+	retryConfig     RetryConfig
 	maxTrackedRepos int
-	mu          sync.Mutex
-	queue       []string
-	dirty       map[string]bool
-	processing  map[string]bool
-	payloads    map[string]syncPayload
-	cond        *sync.Cond
-	shutdown    bool
-	wg          sync.WaitGroup
+	mu              sync.Mutex
+	queue           []string
+	dirty           map[string]bool
+	processing      map[string]bool
+	payloads        map[string]syncPayload
+	queueFullTotal  int64
+	failureTotal    int64
+	lastError       string
+	lastErrorTime   time.Time
+	cond            *sync.Cond
+	shutdown        bool
+	wg              sync.WaitGroup
+}
+
+type SyncQueueStats struct {
+	Queued          int       `json:"queued"`
+	Dirty           int       `json:"dirty"`
+	Processing      int       `json:"processing"`
+	TrackedRepos    int       `json:"tracked_repos"`
+	MaxTrackedRepos int       `json:"max_tracked_repos"`
+	QueueFullTotal  int64     `json:"queue_full_total"`
+	FailureTotal    int64     `json:"failure_total"`
+	LastError       string    `json:"last_error,omitempty"`
+	LastErrorTime   time.Time `json:"last_error_time,omitempty"`
+	Shutdown        bool      `json:"shutdown"`
 }
 
 func NewSyncQueue(workers int, handler SyncHandlerFunc) *SyncQueue {
@@ -79,13 +96,13 @@ func NewSyncQueueWithConfig(ctx context.Context, workers int, handler SyncHandle
 		cfg.MaxTrackedRepos = 1024
 	}
 	q := &SyncQueue{
-		ctx:         ctx,
-		handler:     handler,
-		retryConfig: cfg.RetryConfig,
+		ctx:             ctx,
+		handler:         handler,
+		retryConfig:     cfg.RetryConfig,
 		maxTrackedRepos: cfg.MaxTrackedRepos,
-		dirty:       make(map[string]bool),
-		processing:  make(map[string]bool),
-		payloads:    make(map[string]syncPayload),
+		dirty:           make(map[string]bool),
+		processing:      make(map[string]bool),
+		payloads:        make(map[string]syncPayload),
 	}
 	q.cond = sync.NewCond(&q.mu)
 
@@ -116,6 +133,7 @@ func (q *SyncQueue) Add(ctx context.Context, repoFullName, cloneURL, branch stri
 		ctx = context.Background()
 	}
 	if _, exists := q.payloads[repoFullName]; !exists && len(q.payloads) >= q.maxTrackedRepos {
+		q.queueFullTotal++
 		return ErrSyncQueueFull
 	}
 	q.payloads[repoFullName] = syncPayload{ctx: ctx, repoFullName: repoFullName, cloneURL: cloneURL, branch: branch}
@@ -154,6 +172,24 @@ func (q *SyncQueue) Shutdown() {
 	case <-done:
 	case <-time.After(30 * time.Second):
 		slog.Error("sync queue shutdown timed out after 30s, abandoning workers")
+		q.recordFailure("shutdown", errors.New("sync queue shutdown timed out after 30s"))
+	}
+}
+
+func (q *SyncQueue) Stats() SyncQueueStats {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return SyncQueueStats{
+		Queued:          len(q.queue),
+		Dirty:           len(q.dirty),
+		Processing:      len(q.processing),
+		TrackedRepos:    len(q.payloads),
+		MaxTrackedRepos: q.maxTrackedRepos,
+		QueueFullTotal:  q.queueFullTotal,
+		FailureTotal:    q.failureTotal,
+		LastError:       q.lastError,
+		LastErrorTime:   q.lastErrorTime,
+		Shutdown:        q.shutdown,
 	}
 }
 
@@ -184,6 +220,7 @@ func (q *SyncQueue) safeHandle(repo string, payload syncPayload) {
 
 		if attempt == cfg.MaxAttempts {
 			slog.Error("sync handler failed, giving up", "repo", repo, "attempts", attempt, "error", err)
+			q.recordFailure(repo, err)
 			return
 		}
 
@@ -204,6 +241,14 @@ func (q *SyncQueue) safeHandle(repo string, payload syncPayload) {
 			delay = cfg.MaxDelay
 		}
 	}
+}
+
+func (q *SyncQueue) recordFailure(repo string, err error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.failureTotal++
+	q.lastError = fmt.Sprintf("%s: %v", repo, err)
+	q.lastErrorTime = time.Now()
 }
 
 func (q *SyncQueue) tryHandle(repo string, payload syncPayload) (err error) {

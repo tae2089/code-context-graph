@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,24 +15,29 @@ import (
 // ServeConfig holds parsed flags for the serve subcommand.
 // @intent MCP 서버 실행에 필요한 전송 방식과 세션 관련 옵션을 전달한다.
 type ServeConfig struct {
-	CacheTTL            time.Duration
-	NoCache             bool
-	Transport           string // "stdio" (default) | "streamable-http"
-	HTTPAddr            string // listen address for HTTP transport (default "127.0.0.1:8080")
-	HTTPBearerToken     string
-	InsecureHTTP        bool
-	Stateless           bool   // stateless session management for multi-instance deployments
-	NamespaceRoot       string // root directory for file namespaces (default "workspaces")
-	WorkspaceRoot       string // root directory for file workspaces (default "workspaces")
-	WebhookWorkers      int
-	AllowRepo           []string
-	WebhookSecret       string
-	InsecureWebhook     bool
-	RepoCloneBaseURL    string
-	RepoCloneBaseURLs   []string
-	RepoRoot            string
-	MaxFileBytes        int64
-	MaxTotalParsedBytes int64
+	CacheTTL               time.Duration
+	NoCache                bool
+	Transport              string // "stdio" (default) | "streamable-http"
+	HTTPAddr               string // listen address for HTTP transport (default "127.0.0.1:8080")
+	HTTPBearerToken        string
+	InsecureHTTP           bool
+	Stateless              bool   // stateless session management for multi-instance deployments
+	NamespaceRoot          string // root directory for file namespaces (default "workspaces")
+	WorkspaceRoot          string // root directory for file workspaces (default "workspaces")
+	WebhookWorkers         int
+	AllowRepo              []string
+	WebhookSecret          string
+	InsecureWebhook        bool
+	RepoCloneBaseURL       string
+	RepoCloneBaseURLs      []string
+	RepoRoot               string
+	WebhookMaxTrackedRepos int
+	WebhookAttemptTimeout  time.Duration
+	WebhookRetryAttempts   int
+	WebhookRetryBaseDelay  time.Duration
+	WebhookRetryMaxDelay   time.Duration
+	MaxFileBytes           int64
+	MaxTotalParsedBytes    int64
 }
 
 func validateServeConfig(cfg ServeConfig) error {
@@ -40,6 +46,21 @@ func validateServeConfig(cfg ServeConfig) error {
 	}
 	if cfg.WebhookWorkers <= 0 {
 		return fmt.Errorf("--webhook-workers must be > 0")
+	}
+	if cfg.WebhookMaxTrackedRepos <= 0 {
+		return fmt.Errorf("--webhook-max-tracked-repos must be > 0")
+	}
+	if cfg.WebhookAttemptTimeout <= 0 {
+		return fmt.Errorf("--webhook-attempt-timeout must be > 0")
+	}
+	if cfg.WebhookRetryAttempts <= 0 {
+		return fmt.Errorf("--webhook-retry-attempts must be > 0")
+	}
+	if cfg.WebhookRetryBaseDelay <= 0 {
+		return fmt.Errorf("--webhook-retry-base-delay must be > 0")
+	}
+	if cfg.WebhookRetryMaxDelay <= 0 {
+		return fmt.Errorf("--webhook-retry-max-delay must be > 0")
 	}
 	if len(cfg.AllowRepo) == 0 {
 		return nil
@@ -114,7 +135,12 @@ func newServeCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().BoolVar(&cfg.Stateless, "stateless", false, "Stateless session management (for multi-instance deployments)")
 	cmd.Flags().StringVar(&cfg.NamespaceRoot, "namespace-root", "workspaces", "Root directory for file namespaces")
 	cmd.Flags().StringVar(&cfg.WorkspaceRoot, "workspace-root", "", "Deprecated alias for --namespace-root")
-	cmd.Flags().IntVar(&cfg.WebhookWorkers, "webhook-workers", 4, "Number of webhook sync workers")
+	cmd.Flags().IntVar(&cfg.WebhookWorkers, "webhook-workers", envInt("CCG_WEBHOOK_WORKERS", 4), "Number of webhook sync workers")
+	cmd.Flags().IntVar(&cfg.WebhookMaxTrackedRepos, "webhook-max-tracked-repos", envInt("CCG_WEBHOOK_MAX_TRACKED_REPOS", 1024), "Maximum repositories tracked by the webhook sync queue")
+	cmd.Flags().DurationVar(&cfg.WebhookAttemptTimeout, "webhook-attempt-timeout", envDuration("CCG_WEBHOOK_ATTEMPT_TIMEOUT", 15*time.Minute), "Timeout for one webhook sync attempt")
+	cmd.Flags().IntVar(&cfg.WebhookRetryAttempts, "webhook-retry-attempts", envInt("CCG_WEBHOOK_RETRY_ATTEMPTS", 3), "Maximum webhook sync attempts per queued item")
+	cmd.Flags().DurationVar(&cfg.WebhookRetryBaseDelay, "webhook-retry-base-delay", envDuration("CCG_WEBHOOK_RETRY_BASE_DELAY", time.Second), "Initial webhook sync retry delay")
+	cmd.Flags().DurationVar(&cfg.WebhookRetryMaxDelay, "webhook-retry-max-delay", envDuration("CCG_WEBHOOK_RETRY_MAX_DELAY", 30*time.Second), "Maximum webhook sync retry delay")
 	cmd.Flags().StringSliceVar(&cfg.AllowRepo, "allow-repo", nil, "Allowed repo patterns for webhook sync (repeatable, e.g. org/*, !org/private)")
 	cmd.Flags().StringVar(&cfg.WebhookSecret, "webhook-secret", "", "HMAC secret for GitHub webhook signature verification")
 	cmd.Flags().BoolVar(&cfg.InsecureWebhook, "insecure-webhook", false, "Allow unsigned webhook requests (unsafe; testing only)")
@@ -133,4 +159,28 @@ func newServeCmd(deps *Deps) *cobra.Command {
 	}
 
 	return cmd
+}
+
+func envInt(name string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return v
+}
+
+func envDuration(name string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	v, err := time.ParseDuration(raw)
+	if err != nil {
+		return fallback
+	}
+	return v
 }

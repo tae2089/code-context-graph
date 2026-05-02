@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -316,6 +317,57 @@ func TestServeCmdFlags_WebhookWorkers(t *testing.T) {
 	}
 	if got.WebhookWorkers != 2 {
 		t.Fatalf("WebhookWorkers = %d, want 2", got.WebhookWorkers)
+	}
+}
+
+func TestServeCmdFlags_WebhookOperationalTuning(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+
+	var got ServeConfig
+	deps.ServeFunc = func(cfg ServeConfig) error {
+		got = cfg
+		return nil
+	}
+
+	err := executeCmd(deps, stdout, stderr, "serve",
+		"--webhook-max-tracked-repos", "8",
+		"--webhook-attempt-timeout", "2m",
+		"--webhook-retry-attempts", "5",
+		"--webhook-retry-base-delay", "2s",
+		"--webhook-retry-max-delay", "20s",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.WebhookMaxTrackedRepos != 8 || got.WebhookAttemptTimeout != 2*time.Minute ||
+		got.WebhookRetryAttempts != 5 || got.WebhookRetryBaseDelay != 2*time.Second ||
+		got.WebhookRetryMaxDelay != 20*time.Second {
+		t.Fatalf("unexpected webhook tuning config: %+v", got)
+	}
+}
+
+func TestServeCmd_UsesWebhookTuningFromEnv(t *testing.T) {
+	t.Setenv("CCG_WEBHOOK_MAX_TRACKED_REPOS", "9")
+	t.Setenv("CCG_WEBHOOK_ATTEMPT_TIMEOUT", "3m")
+	t.Setenv("CCG_WEBHOOK_RETRY_ATTEMPTS", "6")
+	t.Setenv("CCG_WEBHOOK_RETRY_BASE_DELAY", "3s")
+	t.Setenv("CCG_WEBHOOK_RETRY_MAX_DELAY", "30s")
+
+	deps, stdout, stderr := newTestDeps()
+	var got ServeConfig
+	deps.ServeFunc = func(cfg ServeConfig) error {
+		got = cfg
+		return nil
+	}
+
+	err := executeCmd(deps, stdout, stderr, "serve")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.WebhookMaxTrackedRepos != 9 || got.WebhookAttemptTimeout != 3*time.Minute ||
+		got.WebhookRetryAttempts != 6 || got.WebhookRetryBaseDelay != 3*time.Second ||
+		got.WebhookRetryMaxDelay != 30*time.Second {
+		t.Fatalf("unexpected webhook env config: %+v", got)
 	}
 }
 

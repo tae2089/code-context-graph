@@ -134,6 +134,19 @@ func (s *Syncer) Sync(ctx context.Context, files map[string]FileInfo) (*SyncStat
 // @mutates graph storage by deleting stale nodes and upserting parsed nodes and edges
 // @ensures deleted files are removed from storage when absent from files
 func (s *Syncer) SyncWithExisting(ctx context.Context, files map[string]FileInfo, existingFiles []string) (*SyncStats, error) {
+	return s.syncWithExisting(ctx, s.store, files, existingFiles)
+}
+
+// SyncWithExistingStore runs sync with the provided store without mutating the receiver.
+// @intent let callers bind incremental sync to an existing transaction-scoped store
+func (s *Syncer) SyncWithExistingStore(ctx context.Context, syncStore Store, files map[string]FileInfo, existingFiles []string) (*SyncStats, error) {
+	if syncStore == nil {
+		syncStore = s.store
+	}
+	return s.syncWithExisting(ctx, syncStore, files, existingFiles)
+}
+
+func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files map[string]FileInfo, existingFiles []string) (*SyncStats, error) {
 	stats := &SyncStats{}
 
 	s.logger.Info("sync started", "file_count", len(files), "existing_count", len(existingFiles))
@@ -142,7 +155,7 @@ func (s *Syncer) SyncWithExisting(ctx context.Context, files map[string]FileInfo
 	for fp := range files {
 		filePaths = append(filePaths, fp)
 	}
-	existingByFile, err := s.store.GetNodesByFiles(ctx, filePaths)
+	existingByFile, err := syncStore.GetNodesByFiles(ctx, filePaths)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +193,7 @@ func (s *Syncer) SyncWithExisting(ctx context.Context, files map[string]FileInfo
 		}
 
 		if len(existing) > 0 {
-			if err := s.store.DeleteNodesByFile(ctx, filePath); err != nil {
+			if err := syncStore.DeleteNodesByFile(ctx, filePath); err != nil {
 				return nil, err
 			}
 			s.logger.Debug("file modified", "file", filePath)
@@ -191,17 +204,17 @@ func (s *Syncer) SyncWithExisting(ctx context.Context, files map[string]FileInfo
 		}
 
 		if len(nodes) > 0 {
-			if err := s.store.UpsertNodes(ctx, nodes); err != nil {
+			if err := syncStore.UpsertNodes(ctx, nodes); err != nil {
 				return nil, err
 			}
 			if len(comments) > 0 {
-				if err := s.restoreAnnotations(ctx, filePath, info.Content, nodes, comments, language); err != nil {
+				if err := s.restoreAnnotations(ctx, syncStore, filePath, info.Content, nodes, comments, language); err != nil {
 					return nil, err
 				}
 			}
 		}
 		if len(edges) > 0 {
-			if err := s.store.UpsertEdges(ctx, edges); err != nil {
+			if err := syncStore.UpsertEdges(ctx, edges); err != nil {
 				return nil, err
 			}
 		}
@@ -210,7 +223,7 @@ func (s *Syncer) SyncWithExisting(ctx context.Context, files map[string]FileInfo
 
 	for _, ep := range existingFiles {
 		if _, stillPresent := files[ep]; !stillPresent {
-			if err := s.store.DeleteNodesByFile(ctx, ep); err != nil {
+			if err := syncStore.DeleteNodesByFile(ctx, ep); err != nil {
 				return nil, err
 			}
 			s.logger.Debug("file deleted", "file", ep)
@@ -238,8 +251,8 @@ func (s *Syncer) resolveParser(filePath string) Parser {
 	return s.parser
 }
 
-func (s *Syncer) restoreAnnotations(ctx context.Context, filePath string, content []byte, nodes []model.Node, comments []treesitter.CommentBlock, language string) error {
-	writer, ok := s.store.(annotationWriter)
+func (s *Syncer) restoreAnnotations(ctx context.Context, syncStore Store, filePath string, content []byte, nodes []model.Node, comments []treesitter.CommentBlock, language string) error {
+	writer, ok := syncStore.(annotationWriter)
 	if !ok || language == "" {
 		return nil
 	}
@@ -261,7 +274,7 @@ func (s *Syncer) restoreAnnotations(ctx context.Context, filePath string, conten
 		return nil
 	}
 
-	storedNodes, err := s.store.GetNodesByFile(ctx, filePath)
+	storedNodes, err := syncStore.GetNodesByFile(ctx, filePath)
 	if err != nil {
 		return err
 	}

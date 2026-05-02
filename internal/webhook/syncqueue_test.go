@@ -433,7 +433,7 @@ func TestSyncQueue_AddRejectsWhenMaxTrackedReposExceeded(t *testing.T) {
 	}
 
 	q := NewSyncQueueWithConfig(context.Background(), 1, handler, QueueConfig{
-		RetryConfig:    RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		RetryConfig:     RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
 		MaxTrackedRepos: 1,
 	})
 	defer q.Shutdown()
@@ -470,7 +470,7 @@ func TestSyncQueue_AddAllowsExistingRepoUpdateWhenAtCapacity(t *testing.T) {
 	}
 
 	q := NewSyncQueueWithConfig(context.Background(), 1, handler, QueueConfig{
-		RetryConfig:    RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		RetryConfig:     RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
 		MaxTrackedRepos: 1,
 	})
 	defer q.Shutdown()
@@ -507,4 +507,62 @@ func TestSyncQueue_AddAllowsExistingRepoUpdateWhenAtCapacity(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for second handler call")
 	}
+}
+
+func TestSyncQueueStats_ReportsQueueFull(t *testing.T) {
+	q := NewSyncQueueWithConfig(context.Background(), 0, func(context.Context, string, string, string) error {
+		return nil
+	}, QueueConfig{
+		RetryConfig:     RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 1,
+	})
+	defer q.Shutdown()
+
+	if err := q.Add(context.Background(), "org/one", "url-one", "main"); err != nil {
+		t.Fatalf("first Add returned error: %v", err)
+	}
+	if err := q.Add(context.Background(), "org/two", "url-two", "main"); !errors.Is(err, ErrSyncQueueFull) {
+		t.Fatalf("second Add error = %v, want ErrSyncQueueFull", err)
+	}
+
+	stats := q.Stats()
+	if stats.Queued != 1 || stats.TrackedRepos != 1 || stats.MaxTrackedRepos != 1 {
+		t.Fatalf("unexpected stats: %+v", stats)
+	}
+	if stats.QueueFullTotal != 1 {
+		t.Fatalf("QueueFullTotal = %d, want 1", stats.QueueFullTotal)
+	}
+}
+
+func TestSyncQueueStats_ReportsFinalFailure(t *testing.T) {
+	done := make(chan struct{})
+	q := NewSyncQueueWithConfig(context.Background(), 1, func(context.Context, string, string, string) error {
+		close(done)
+		return errors.New("boom")
+	}, QueueConfig{
+		RetryConfig:     RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 1,
+	})
+	defer q.Shutdown()
+
+	if err := q.Add(context.Background(), "org/fail", "url", "main"); err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for handler")
+	}
+
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		stats := q.Stats()
+		if stats.FailureTotal == 1 {
+			if stats.LastError == "" || stats.LastErrorTime.IsZero() {
+				t.Fatalf("failure stats missing details: %+v", stats)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("failure stats were not recorded: %+v", q.Stats())
 }

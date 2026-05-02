@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/tae2089/code-context-graph/internal/webhook"
 )
 
 func TestHandleHealth_OK(t *testing.T) {
@@ -86,6 +90,56 @@ func TestReadyHandler_MethodNotAllowed(t *testing.T) {
 				t.Fatalf("expected 405, got %d", rec.Code)
 			}
 		})
+	}
+}
+
+func TestStatusHandler_ReportsWebhookQueueFull(t *testing.T) {
+	q := webhook.NewSyncQueueWithConfig(nil, 0, func(context.Context, string, string, string) error {
+		return nil
+	}, webhook.QueueConfig{
+		RetryConfig:     webhook.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 1,
+	})
+	defer q.Shutdown()
+	if err := q.Add(nil, "org/one", "url", "main"); err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	rec := httptest.NewRecorder()
+
+	statusHandler(func(r *http.Request) error { return nil }, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+type recordingPool struct {
+	maxOpen     int
+	maxIdle     int
+	maxLifetime time.Duration
+	maxIdleTime time.Duration
+}
+
+func (p *recordingPool) SetMaxOpenConns(v int)              { p.maxOpen = v }
+func (p *recordingPool) SetMaxIdleConns(v int)              { p.maxIdle = v }
+func (p *recordingPool) SetConnMaxLifetime(v time.Duration) { p.maxLifetime = v }
+func (p *recordingPool) SetConnMaxIdleTime(v time.Duration) { p.maxIdleTime = v }
+
+func TestConfigureDBPool_SQLiteUsesSingleConnection(t *testing.T) {
+	pool := &recordingPool{}
+	configureDBPool(pool, "sqlite")
+	if pool.maxOpen != 1 || pool.maxIdle != 1 || pool.maxLifetime != 0 || pool.maxIdleTime != 0 {
+		t.Fatalf("unexpected sqlite pool config: %+v", pool)
+	}
+}
+
+func TestConfigureDBPool_PostgresKeepsDefaultPool(t *testing.T) {
+	pool := &recordingPool{}
+	configureDBPool(pool, "postgres")
+	if pool.maxOpen != 25 || pool.maxIdle != 5 || pool.maxLifetime != 5*time.Minute || pool.maxIdleTime != 5*time.Minute {
+		t.Fatalf("unexpected postgres pool config: %+v", pool)
 	}
 }
 
