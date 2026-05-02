@@ -356,12 +356,11 @@ func (b *Builder) writeIndex(idx *Index) error {
 	}
 
 	target := filepath.Join(dir, "doc-index.json")
-	tmp := target + ".tmp"
-
-	f, err := os.Create(tmp)
+	f, err := os.CreateTemp(dir, "doc-index-*.tmp")
 	if err != nil {
 		return trace.Wrap(err, "create temp file")
 	}
+	tmp := f.Name()
 
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
@@ -369,6 +368,12 @@ func (b *Builder) writeIndex(idx *Index) error {
 		f.Close()
 		os.Remove(tmp)
 		return trace.Wrap(err, "encode index")
+	}
+
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return trace.Wrap(err, "sync temp file")
 	}
 
 	if err := f.Close(); err != nil {
