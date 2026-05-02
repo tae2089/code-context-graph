@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -159,6 +160,7 @@ func setupTestDeps(t *testing.T) *Deps {
 		SearchBackend:  sb,
 		ImpactAnalyzer: impact.New(st),
 		FlowTracer:     flows.New(st),
+		RepoRoot:       os.TempDir(),
 	}
 }
 

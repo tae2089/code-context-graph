@@ -59,6 +59,7 @@ func setupE2EDeps(t *testing.T) *Deps {
 		SearchBackend:  sb,
 		ImpactAnalyzer: impact.New(st),
 		FlowTracer:     flows.New(st),
+		RepoRoot:       os.TempDir(),
 	}
 }
 

@@ -224,6 +224,12 @@ func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest
 
 	log.Info("parse_project called", "path", dirPath)
 
+	validatedPath, err := h.validateAnalysisPath(dirPath)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	dirPath = validatedPath
+
 	includePaths := request.GetStringSlice("include_paths", nil)
 	stats, err := h.walkAndParse(ctx, dirPath, includePaths...)
 	if err != nil {
@@ -256,6 +262,12 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 	includePaths := request.GetStringSlice("include_paths", nil)
 
 	log.Info("build_or_update_graph called", "path", dirPath, "full_rebuild", fullRebuild, "postprocess", postprocess)
+
+	validatedPath, err := h.validateAnalysisPath(dirPath)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	dirPath = validatedPath
 
 	start := time.Now()
 	var nodeCount, edgeCount, fileCount int
@@ -409,6 +421,9 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 	doCommunities := request.GetBool("communities", true)
 	doFTS := request.GetBool("fts", true)
 	communityDepth := request.GetInt("community_depth", 2)
+	if communityDepth < 1 || communityDepth > 8 {
+		return mcp.NewToolResultError("community_depth must be between 1 and 8"), nil
+	}
 
 	log.Info("run_postprocess called", "flows", doFlows, "communities", doCommunities, "fts", doFTS)
 
@@ -456,4 +471,29 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 		h.cache.Flush()
 	}
 	return mcp.NewToolResultText(jsonStr), nil
+}
+
+func (h *handlers) validateAnalysisPath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	allowed := h.deps.RepoRoot
+	if allowed == "" {
+		allowed = h.deps.WorkspaceRoot
+	}
+	if allowed == "" {
+		return "", fmt.Errorf("analysis root is not configured")
+	}
+	target, err := canonicalPath(path)
+	if err != nil {
+		return "", fmt.Errorf("invalid path: %w", err)
+	}
+	base, err := canonicalPath(allowed)
+	if err != nil {
+		return "", fmt.Errorf("invalid configured analysis root: %w", err)
+	}
+	if target != base && !strings.HasPrefix(target, base+string(os.PathSeparator)) {
+		return "", fmt.Errorf("path %q is outside configured analysis root", path)
+	}
+	return target, nil
 }

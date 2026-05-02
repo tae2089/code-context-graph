@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,12 +47,14 @@ func TestHandler_ParseProject(t *testing.T) {
 	deps := setupTestDeps(t)
 
 	dir := t.TempDir()
+	deps.RepoRoot = dir
 	goFile := filepath.Join(dir, "main.go")
 	os.WriteFile(goFile, []byte(`package main
 
 func Hello() string {
 	return "hello"
 }
+
 `), 0644)
 
 	result := callTool(t, deps, "parse_project", map[string]any{"path": dir})
@@ -70,6 +73,35 @@ func Hello() string {
 	}
 	if node == nil {
 		t.Fatal("expected node main.Hello to exist after parsing")
+	}
+}
+
+func TestParseProject_RejectsPathOutsideConfiguredRoot(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.RepoRoot = t.TempDir()
+	outside := t.TempDir()
+	writeGoFile(t, outside, "main.go", `package main
+func Hello() {}
+`)
+
+	result := callTool(t, deps, "parse_project", map[string]any{"path": outside})
+	if !result.IsError {
+		t.Fatal("expected parse_project to reject path outside configured root")
+	}
+}
+
+func TestParseProject_FailsClosedWithoutConfiguredRoot(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.RepoRoot = ""
+	deps.WorkspaceRoot = ""
+	dir := t.TempDir()
+	writeGoFile(t, dir, "main.go", `package main
+func Hello() {}
+`)
+
+	result := callTool(t, deps, "parse_project", map[string]any{"path": dir})
+	if !result.IsError {
+		t.Fatal("expected parse_project to fail closed without RepoRoot or WorkspaceRoot")
 	}
 }
 
@@ -487,11 +519,13 @@ func TestBuildOrUpdateGraph_FullRebuild(t *testing.T) {
 	deps := setupTestDeps(t)
 
 	dir := t.TempDir()
+	deps.RepoRoot = dir
 	writeGoFile(t, dir, "hello.go", `package hello
 
 func Hello() string {
 	return "hello"
 }
+
 `)
 
 	result := callTool(t, deps, "build_or_update_graph", map[string]any{
@@ -516,6 +550,24 @@ func Hello() string {
 	node, err := deps.Store.GetNode(context.Background(), "hello.Hello")
 	if err != nil || node == nil {
 		t.Fatal("expected node hello.Hello to exist after full rebuild")
+	}
+}
+
+func TestBuildOrUpdateGraph_RejectsPathOutsideConfiguredRoot(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.RepoRoot = t.TempDir()
+	outside := t.TempDir()
+	writeGoFile(t, outside, "hello.go", `package hello
+func Hello() {}
+`)
+
+	result := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":         outside,
+		"full_rebuild": true,
+		"postprocess":  "none",
+	})
+	if !result.IsError {
+		t.Fatal("expected build_or_update_graph to reject path outside configured root")
 	}
 }
 
@@ -1012,6 +1064,28 @@ func TestRunPostprocess_NoneEnabled(t *testing.T) {
 	}
 	if resp["status"] != "ok" {
 		t.Errorf("expected status=ok, got %v", resp["status"])
+	}
+}
+
+func TestRunPostprocess_RejectsInvalidCommunityDepth(t *testing.T) {
+	for _, depth := range []int{0, 9} {
+		t.Run(fmt.Sprintf("depth-%d", depth), func(t *testing.T) {
+			deps := setupTestDeps(t)
+			mockComm := &mockCommunityBuilder{}
+			deps.CommunityBuilder = mockComm
+
+			result := callTool(t, deps, "run_postprocess", map[string]any{
+				"communities":     true,
+				"fts":             false,
+				"community_depth": depth,
+			})
+			if !result.IsError {
+				t.Fatalf("expected community_depth=%d to be rejected", depth)
+			}
+			if mockComm.rebuildCalled {
+				t.Fatal("community rebuild should not run for invalid depth")
+			}
+		})
 	}
 }
 
