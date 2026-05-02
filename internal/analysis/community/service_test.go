@@ -29,7 +29,7 @@ func setupDB(t *testing.T) *gorm.DB {
 
 func seedNode(t *testing.T, db *gorm.DB, id uint, name string, file string) {
 	t.Helper()
-	seedNodeNS(t, db, id, name, file, "")
+	seedNodeNS(t, db, id, name, file, ctxns.DefaultNamespace)
 }
 
 func seedNodeNS(t *testing.T, db *gorm.DB, id uint, name string, file string, ns string) {
@@ -285,9 +285,9 @@ func TestRebuild_EmptyNamespace_DoesNotDeleteOtherNamespaceCommunities(t *testin
 
 func TestRebuild_EmptyNamespace_DeletesStaleDefaultNamespaceParents(t *testing.T) {
 	db := setupDB(t)
-	seedNodeNS(t, db, 1, "Default", "default/a.go", "")
+	seedNodeNS(t, db, 1, "Default", "default/a.go", ctxns.DefaultNamespace)
 
-	stale := model.Community{Namespace: "", Key: "stale", Label: "stale", Strategy: "directory"}
+	stale := model.Community{Namespace: ctxns.DefaultNamespace, Key: "stale", Label: "stale", Strategy: "directory"}
 	if err := db.Create(&stale).Error; err != nil {
 		t.Fatalf("seed stale community: %v", err)
 	}
@@ -315,9 +315,9 @@ func TestRebuild_AfterDeleteGraph_CleansStaleParentsAndRecreatesCommunity(t *tes
 	store := gormstore.New(db)
 	ctx := context.Background()
 
-	seedNodeNS(t, db, 1, "Default", "default/a.go", "")
+	seedNodeNS(t, db, 1, "Default", "default/a.go", ctxns.DefaultNamespace)
 
-	stale := model.Community{Namespace: "", Key: "default", Label: "default", Strategy: "directory"}
+	stale := model.Community{Namespace: ctxns.DefaultNamespace, Key: "default", Label: "default", Strategy: "directory"}
 	if err := db.Create(&stale).Error; err != nil {
 		t.Fatalf("seed stale community: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestRebuild_AfterDeleteGraph_CleansStaleParentsAndRecreatesCommunity(t *tes
 		t.Fatalf("DeleteGraph: %v", err)
 	}
 
-	seedNodeNS(t, db, 2, "DefaultNew", "default/b.go", "")
+	seedNodeNS(t, db, 2, "DefaultNew", "default/b.go", ctxns.DefaultNamespace)
 
 	b := New(db)
 	stats, err := b.Rebuild(ctx, Config{Depth: 1})
@@ -341,7 +341,7 @@ func TestRebuild_AfterDeleteGraph_CleansStaleParentsAndRecreatesCommunity(t *tes
 	}
 
 	var count int64
-	if err := db.Model(&model.Community{}).Where("namespace = ? AND key = ?", "", "default").Count(&count).Error; err != nil {
+	if err := db.Model(&model.Community{}).Where("namespace = ? AND key = ?", ctxns.DefaultNamespace, "default").Count(&count).Error; err != nil {
 		t.Fatalf("count rebuilt communities: %v", err)
 	}
 	if count != 1 {
