@@ -68,9 +68,9 @@ func (h *handlers) resolvedRagIndexPath(workspace string) (string, error) {
 		if err := validateWorkspacePath(workspace, ""); err != nil {
 			return "", err
 		}
-		return safePathUnderRoot(h.ragIndexRoot(), filepath.Join(workspace, "doc-index.json"), "workspace", false, false)
+		return safePathUnderRoot(h.ragIndexRoot(), filepath.Join(workspace, "doc-index.json"), "workspace", false, true)
 	}
-	return safePathUnderRoot(h.ragIndexRoot(), "doc-index.json", "file_path", false, false)
+	return safePathUnderRoot(h.ragIndexRoot(), "doc-index.json", "file_path", false, true)
 }
 
 // buildRagIndex builds the documentation RAG index from generated docs and communities.

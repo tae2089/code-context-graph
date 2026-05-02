@@ -1,13 +1,22 @@
 package mcp
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+
+	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 )
 
 func workspaceHandlers(t *testing.T) (*handlers, string) {
@@ -384,6 +393,150 @@ func TestDeleteWorkspace_Basic(t *testing.T) {
 
 	if _, err := os.Stat(wsDir); !os.IsNotExist(err) {
 		t.Error("workspace directory should have been deleted")
+	}
+}
+
+func TestDeleteWorkspace_PurgesNamespaceGraphRAGAndCache(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	ragRoot := t.TempDir()
+	cache := NewCache(time.Minute)
+	t.Cleanup(cache.Close)
+	cache.Set("search:svc", "stale")
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate store: %v", err)
+	}
+	if err := db.AutoMigrate(&model.SearchDocument{}, &model.Flow{}, &model.FlowMembership{}); err != nil {
+		t.Fatalf("migrate extras: %v", err)
+	}
+	if err := db.AutoMigrate(&model.Community{}, &model.CommunityMembership{}); err != nil {
+		t.Fatalf("migrate communities: %v", err)
+	}
+
+	h := &handlers{
+		deps: &Deps{
+			WorkspaceRoot: workspaceRoot,
+			RagIndexDir:   ragRoot,
+			Store:         st,
+			DB:            db,
+		},
+		cache: cache,
+	}
+
+	wsDir := filepath.Join(workspaceRoot, "svc")
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(wsDir, "file.go"), []byte("package svc"), 0o644); err != nil {
+		t.Fatalf("write workspace file: %v", err)
+	}
+
+	ragIndexPath := filepath.Join(ragRoot, "svc", "doc-index.json")
+	if err := os.MkdirAll(filepath.Dir(ragIndexPath), 0o755); err != nil {
+		t.Fatalf("mkdir rag dir: %v", err)
+	}
+	if err := os.WriteFile(ragIndexPath, []byte(`{"community_count":1}`), 0o644); err != nil {
+		t.Fatalf("write rag index: %v", err)
+	}
+
+	ctx := ctxns.WithNamespace(context.Background(), "svc")
+	if err := st.UpsertNodes(ctx, []model.Node{{QualifiedName: "svc.Handler", Kind: model.NodeKindFunction, Name: "Handler", FilePath: "file.go", StartLine: 1, EndLine: 2, Language: "go"}}); err != nil {
+		t.Fatalf("seed namespaced node: %v", err)
+	}
+	svcNode, err := st.GetNode(ctx, "svc.Handler")
+	if err != nil || svcNode == nil {
+		t.Fatalf("load namespaced node: %v", err)
+	}
+	if err := st.UpsertNodes(context.Background(), []model.Node{{QualifiedName: "other.Handler", Kind: model.NodeKindFunction, Name: "Handler", FilePath: "other.go", StartLine: 1, EndLine: 2, Language: "go"}}); err != nil {
+		t.Fatalf("seed legacy node: %v", err)
+	}
+
+	svcCommunity := model.Community{Namespace: "svc", Key: "svc/core", Label: "svc/core", Strategy: "directory"}
+	if err := db.Create(&svcCommunity).Error; err != nil {
+		t.Fatalf("seed svc community: %v", err)
+	}
+	if err := db.Create(&model.CommunityMembership{CommunityID: svcCommunity.ID, NodeID: svcNode.ID}).Error; err != nil {
+		t.Fatalf("seed svc community membership: %v", err)
+	}
+	svcFlow := model.Flow{Namespace: "svc", Name: "svc-flow"}
+	if err := db.Create(&svcFlow).Error; err != nil {
+		t.Fatalf("seed svc flow: %v", err)
+	}
+	if err := db.Create(&model.FlowMembership{Namespace: "svc", FlowID: svcFlow.ID, NodeID: svcNode.ID, Ordinal: 0}).Error; err != nil {
+		t.Fatalf("seed svc flow membership: %v", err)
+	}
+
+	otherCommunity := model.Community{Namespace: "other", Key: "other/core", Label: "other/core", Strategy: "directory"}
+	if err := db.Create(&otherCommunity).Error; err != nil {
+		t.Fatalf("seed control community: %v", err)
+	}
+	otherFlow := model.Flow{Namespace: "other", Name: "other-flow"}
+	if err := db.Create(&otherFlow).Error; err != nil {
+		t.Fatalf("seed control flow: %v", err)
+	}
+
+	req := makeCallToolRequest(t, map[string]any{"workspace": "svc"})
+	result, err := h.deleteWorkspace(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultNotError(t, result)
+
+	if _, err := os.Stat(wsDir); !os.IsNotExist(err) {
+		t.Fatal("workspace directory should have been deleted")
+	}
+	if _, err := os.Stat(ragIndexPath); !os.IsNotExist(err) {
+		t.Fatal("workspace rag index should have been deleted")
+	}
+	if _, ok := cache.Get("search:svc"); ok {
+		t.Fatal("cache should have been flushed")
+	}
+
+	node, err := st.GetNode(ctx, "svc.Handler")
+	if err != nil {
+		t.Fatalf("get purged node: %v", err)
+	}
+	if node != nil {
+		t.Fatal("workspace namespace graph should have been purged")
+	}
+
+	otherNode, err := st.GetNode(context.Background(), "other.Handler")
+	if err != nil {
+		t.Fatalf("get untouched node: %v", err)
+	}
+	if otherNode == nil {
+		t.Fatal("out-of-workspace graph should remain")
+	}
+
+	var svcCommunityCount, svcFlowCount, otherCommunityCount, otherFlowCount int64
+	if err := db.Model(&model.Community{}).Where("namespace = ?", "svc").Count(&svcCommunityCount).Error; err != nil {
+		t.Fatalf("count svc communities: %v", err)
+	}
+	if err := db.Model(&model.Flow{}).Where("namespace = ?", "svc").Count(&svcFlowCount).Error; err != nil {
+		t.Fatalf("count svc flows: %v", err)
+	}
+	if err := db.Model(&model.Community{}).Where("namespace = ?", "other").Count(&otherCommunityCount).Error; err != nil {
+		t.Fatalf("count other communities: %v", err)
+	}
+	if err := db.Model(&model.Flow{}).Where("namespace = ?", "other").Count(&otherFlowCount).Error; err != nil {
+		t.Fatalf("count other flows: %v", err)
+	}
+	if svcCommunityCount != 0 {
+		t.Fatalf("workspace communities should have been purged, got %d", svcCommunityCount)
+	}
+	if svcFlowCount != 0 {
+		t.Fatalf("workspace flows should have been purged, got %d", svcFlowCount)
+	}
+	if otherCommunityCount != 1 {
+		t.Fatalf("control community should remain, got %d", otherCommunityCount)
+	}
+	if otherFlowCount != 1 {
+		t.Fatalf("control flow should remain, got %d", otherFlowCount)
 	}
 }
 

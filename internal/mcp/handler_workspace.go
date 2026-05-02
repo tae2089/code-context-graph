@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 const maxUploadSizeBytes = 10 << 20 // 10 MB
@@ -434,6 +436,35 @@ func (h *handlers) deleteWorkspace(ctx context.Context, request mcp.CallToolRequ
 
 	if err := os.RemoveAll(wsDir); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("delete workspace: %v", err)), nil
+	}
+
+	if h.deps != nil && h.deps.Store != nil {
+		if err := h.deps.Store.DeleteGraph(ctxns.WithNamespace(ctx, workspace)); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("purge workspace graph: %v", err)), nil
+		}
+	}
+	if h.deps != nil && h.deps.DB != nil {
+		mig := h.deps.DB.Migrator()
+		if mig.HasTable(&model.Community{}) {
+			if err := h.deps.DB.WithContext(ctx).Where("namespace = ?", workspace).Delete(&model.Community{}).Error; err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("purge workspace communities: %v", err)), nil
+			}
+		}
+		if mig.HasTable(&model.Flow{}) {
+			if err := h.deps.DB.WithContext(ctx).Where("namespace = ?", workspace).Delete(&model.Flow{}).Error; err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("purge workspace flows: %v", err)), nil
+			}
+		}
+	}
+
+	if indexPath, err := h.resolvedRagIndexPath(workspace); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("resolve rag index path: %v", err)), nil
+	} else if err := os.Remove(indexPath); err != nil && !os.IsNotExist(err) {
+		return mcp.NewToolResultError(fmt.Sprintf("delete workspace rag index: %v", err)), nil
+	}
+
+	if h.cache != nil {
+		h.cache.Flush()
 	}
 
 	delResult := map[string]any{
