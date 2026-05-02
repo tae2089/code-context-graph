@@ -57,15 +57,12 @@ func (h *handlers) logger() *slog.Logger {
 }
 
 func (h *handlers) applyWorkspace(ctx context.Context, request mcp.CallToolRequest) context.Context {
-	if ws := request.GetString("workspace", ""); ws != "" {
-		return ctxns.WithNamespace(ctx, ws)
-	}
-	return ctx
+	return ctxns.WithNamespace(ctx, request.GetString("workspace", ""))
 }
 
 func resolveNamespace(ctx context.Context, workspace string) string {
 	if workspace != "" {
-		return workspace
+		return ctxns.Normalize(workspace)
 	}
 	return ctxns.FromContext(ctx)
 }

@@ -148,6 +148,7 @@ func TestGetNode_CacheHit(t *testing.T) {
 	}
 
 	node := model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "pkg.CacheHitFunc",
 		Name:          "CacheHitFunc",
 		Kind:          model.NodeKindFunction,

@@ -111,7 +111,7 @@ func TestMCPHandler_GraphWithNamespace(t *testing.T) {
 
 func TestMCPHandler_ListGraphStats_EmptyNamespaceDoesNotIncludeOtherNamespaces(t *testing.T) {
 	deps := setupTestDeps(t)
-	seedNodeWithNamespace(t, deps.DB, "", "pkg.Default", "function", "default.go")
+	seedNodeWithNamespace(t, deps.DB, "default", "pkg.Default", "function", "default.go")
 	seedNodeWithNamespace(t, deps.DB, "ns-a", "pkg.Other", "function", "other.go")
 
 	result := callTool(t, deps, "list_graph_stats", map[string]any{})
@@ -127,6 +127,13 @@ func TestMCPHandler_ListGraphStats_EmptyNamespaceDoesNotIncludeOtherNamespaces(t
 	totalNodes, ok := stats["total_nodes"].(float64)
 	if !ok || int(totalNodes) != 1 {
 		t.Fatalf("expected 1 default-namespace node, got %v", stats["total_nodes"])
+	}
+}
+
+func TestResolveNamespace_EmptyWorkspaceFallsBackToDefault(t *testing.T) {
+	got := resolveNamespace(context.Background(), "")
+	if got != "default" {
+		t.Fatalf("resolveNamespace() = %q, want %q", got, "default")
 	}
 }
 
