@@ -18,7 +18,7 @@ const (
 // @intent 파일 내 선언의 정체성과 위치 정보를 영속화한다.
 type Node struct {
 	ID            uint     `gorm:"primaryKey"`
-	Namespace     string   `gorm:"size:256;not null;default:'';uniqueIndex:idx_ns_qn_fp_sl"`
+	Namespace     string   `gorm:"size:256;not null;default:'default';uniqueIndex:idx_ns_qn_fp_sl"`
 	QualifiedName string   `gorm:"size:512;not null;uniqueIndex:idx_ns_qn_fp_sl"`
 	Kind          NodeKind `gorm:"size:32;not null;index"`
 	Name          string   `gorm:"size:256;not null"`

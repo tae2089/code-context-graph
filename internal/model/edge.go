@@ -21,7 +21,7 @@ const (
 // @intent 코드 그래프에서 선언 간 연결과 그 출처를 영속화한다.
 type Edge struct {
 	ID          uint     `gorm:"primaryKey"`
-	Namespace   string   `gorm:"size:256;not null;default:'';index;uniqueIndex:idx_edges_namespace_fingerprint"`
+	Namespace   string   `gorm:"size:256;not null;default:'default';index;uniqueIndex:idx_edges_namespace_fingerprint"`
 	FromNodeID  uint     `gorm:"index"`
 	ToNodeID    uint     `gorm:"index"`
 	Kind        EdgeKind `gorm:"size:32;not null;index"`
