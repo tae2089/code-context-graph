@@ -293,13 +293,14 @@ func (s *Store) DeleteGraph(ctx context.Context) error {
 				return trace.Wrap(err, "delete namespace community memberships")
 			}
 
-			if tx.Migrator().HasTable(&model.FlowMembership{}) {
-				if err := tx.
-					Where("node_id IN ?", nodeIDs).
-					Delete(&model.FlowMembership{}).Error; err != nil {
-					return trace.Wrap(err, "delete namespace flow memberships")
-				}
+		if tx.Migrator().HasTable(&model.FlowMembership{}) {
+			flowIDs := tx.Model(&model.Flow{}).Select("id").Where("namespace = ?", ns)
+			if err := tx.
+				Where("node_id IN ? OR flow_id IN (?)", nodeIDs, flowIDs).
+				Delete(&model.FlowMembership{}).Error; err != nil {
+				return trace.Wrap(err, "delete namespace flow memberships")
 			}
+		}
 
 			if tx.Migrator().HasTable(&model.SearchDocument{}) {
 				if err := tx.

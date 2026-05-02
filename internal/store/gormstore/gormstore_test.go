@@ -1186,6 +1186,47 @@ func TestDeleteNodesByFile_CleansMemberships(t *testing.T) {
 	}
 }
 
+func TestDeleteNodesByFile_LeavesOtherFlowMembershipsInNamespace(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := ctxns.WithNamespace(context.Background(), "ns-x")
+
+	if err := s.UpsertNodes(ctx, []model.Node{{
+		QualifiedName: "pkg.A",
+		Kind:          model.NodeKindFunction,
+		Name:          "A",
+		FilePath:      "a.go",
+		StartLine:     1,
+		EndLine:       2,
+		Language:      "go",
+	}}); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+	node, _ := s.GetNode(ctx, "pkg.A")
+
+	flow := model.Flow{Namespace: "ns-x", Name: "login-flow"}
+	if err := s.db.Create(&flow).Error; err != nil {
+		t.Fatalf("insert flow: %v", err)
+	}
+	if err := s.db.Create(&model.FlowMembership{Namespace: "ns-x", FlowID: flow.ID, NodeID: node.ID, Ordinal: 0}).Error; err != nil {
+		t.Fatalf("insert deleted-file flow membership: %v", err)
+	}
+	if err := s.db.Create(&model.FlowMembership{Namespace: ctxns.DefaultNamespace, FlowID: flow.ID, NodeID: 999999, Ordinal: 1}).Error; err != nil {
+		t.Fatalf("insert untouched flow membership: %v", err)
+	}
+
+	if err := s.DeleteNodesByFile(ctx, "a.go"); err != nil {
+		t.Fatalf("DeleteNodesByFile: %v", err)
+	}
+
+	var count int64
+	if err := s.db.Model(&model.FlowMembership{}).Where("flow_id = ? AND node_id = ?", flow.ID, 999999).Count(&count).Error; err != nil {
+		t.Fatalf("count flow memberships: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected unrelated flow membership to remain after file delete, got %d", count)
+	}
+}
+
 func TestDeleteGraph_CleansSearchDocuments(t *testing.T) {
 	s := setupTestDB(t)
 	ctx := ctxns.WithNamespace(context.Background(), "ns-x")
@@ -1252,6 +1293,73 @@ func TestDeleteGraph_CleansMemberships(t *testing.T) {
 	}
 	if flowCount != 0 {
 		t.Fatalf("expected flow memberships to be deleted, got %d", flowCount)
+	}
+}
+
+func TestDeleteGraph_CleansFlowMembershipsByFlowNamespace(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := ctxns.WithNamespace(context.Background(), "ns-x")
+	otherCtx := ctxns.WithNamespace(context.Background(), "ns-y")
+
+	if err := s.UpsertNodes(ctx, []model.Node{{
+		QualifiedName: "pkg.B",
+		Kind:          model.NodeKindFunction,
+		Name:          "B",
+		FilePath:      "b.go",
+		StartLine:     1,
+		EndLine:       2,
+		Language:      "go",
+	}}); err != nil {
+		t.Fatalf("UpsertNodes ns-x: %v", err)
+	}
+	if err := s.UpsertNodes(otherCtx, []model.Node{{
+		QualifiedName: "pkg.C",
+		Kind:          model.NodeKindFunction,
+		Name:          "C",
+		FilePath:      "c.go",
+		StartLine:     1,
+		EndLine:       2,
+		Language:      "go",
+	}}); err != nil {
+		t.Fatalf("UpsertNodes ns-y: %v", err)
+	}
+	node, _ := s.GetNode(ctx, "pkg.B")
+	otherNode, _ := s.GetNode(otherCtx, "pkg.C")
+
+	flow := model.Flow{Namespace: "ns-x", Name: "checkout-flow"}
+	otherFlow := model.Flow{Namespace: "ns-y", Name: "other-flow"}
+	if err := s.db.Create(&flow).Error; err != nil {
+		t.Fatalf("insert ns-x flow: %v", err)
+	}
+	if err := s.db.Create(&otherFlow).Error; err != nil {
+		t.Fatalf("insert ns-y flow: %v", err)
+	}
+	if err := s.db.Create(&model.FlowMembership{Namespace: ctxns.DefaultNamespace, FlowID: flow.ID, NodeID: 999999, Ordinal: 0}).Error; err != nil {
+		t.Fatalf("insert orphaned ns-x flow membership: %v", err)
+	}
+	if err := s.db.Create(&model.FlowMembership{Namespace: "other", FlowID: flow.ID, NodeID: node.ID, Ordinal: 1}).Error; err != nil {
+		t.Fatalf("insert mismatched ns-x flow membership: %v", err)
+	}
+	if err := s.db.Create(&model.FlowMembership{Namespace: "ns-y", FlowID: otherFlow.ID, NodeID: otherNode.ID, Ordinal: 0}).Error; err != nil {
+		t.Fatalf("insert ns-y flow membership: %v", err)
+	}
+
+	if err := s.DeleteGraph(ctx); err != nil {
+		t.Fatalf("DeleteGraph: %v", err)
+	}
+
+	var nsXCount, nsYCount int64
+	if err := s.db.Model(&model.FlowMembership{}).Where("flow_id = ?", flow.ID).Count(&nsXCount).Error; err != nil {
+		t.Fatalf("count ns-x flow memberships: %v", err)
+	}
+	if err := s.db.Model(&model.FlowMembership{}).Where("flow_id = ?", otherFlow.ID).Count(&nsYCount).Error; err != nil {
+		t.Fatalf("count ns-y flow memberships: %v", err)
+	}
+	if nsXCount != 0 {
+		t.Fatalf("expected ns-x flow memberships to be deleted by flow scope, got %d", nsXCount)
+	}
+	if nsYCount != 1 {
+		t.Fatalf("expected other namespace flow membership to remain, got %d", nsYCount)
 	}
 }
 
