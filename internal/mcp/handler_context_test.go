@@ -274,9 +274,11 @@ func TestGetMinimalContext_WithRepoRoot(t *testing.T) {
 		},
 	}
 	deps.ChangesGitClient = mock
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
 
 	result := callTool(t, deps, "get_minimal_context", map[string]any{
-		"repo_root": "/fake/repo",
+		"repo_root": repoRoot,
 		"base":      "HEAD~1",
 	})
 	if result.IsError {
@@ -310,6 +312,19 @@ func TestGetMinimalContext_WithRepoRoot(t *testing.T) {
 	}
 	if testGaps == 0 {
 		t.Error("test_gaps should be > 0 for untested changed nodes")
+	}
+}
+
+func TestGetMinimalContext_RejectsRepoRootOutsideConfiguredRoot(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.ChangesGitClient = &contextMockGitClient{}
+	deps.RepoRoot = t.TempDir()
+
+	result := callTool(t, deps, "get_minimal_context", map[string]any{
+		"repo_root": t.TempDir(),
+	})
+	if !result.IsError {
+		t.Fatal("expected get_minimal_context to reject repo_root outside configured root")
 	}
 }
 

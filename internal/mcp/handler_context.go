@@ -21,6 +21,13 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 	task := request.GetString("task", "")
 	repoRoot := request.GetString("repo_root", "")
 	base := request.GetString("base", "HEAD~1")
+	if repoRoot != "" {
+		validatedRepoRoot, err := h.validateRepoRoot(repoRoot)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		repoRoot = validatedRepoRoot
+	}
 
 	log.Info("get_minimal_context called", "task", task, "repo_root", repoRoot, "base", base)
 
@@ -216,6 +223,7 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 			"test_gaps":       testGaps,
 			"top_communities": commInfos,
 			"top_flows":       flowInfos,
+			"derived_state":   derivedStateSummary(),
 			"suggested_tools": suggestedTools,
 		}
 

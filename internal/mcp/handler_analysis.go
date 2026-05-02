@@ -404,12 +404,16 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 }
 
 func (h *handlers) validateRepoRoot(repoRoot string) (string, error) {
+	return validateRepoRootWithin(repoRoot, h.deps.RepoRoot, h.deps.WorkspaceRoot)
+}
+
+func validateRepoRootWithin(repoRoot, configuredRepoRoot, workspaceRoot string) (string, error) {
 	if repoRoot == "" {
 		return "", fmt.Errorf("repo_root is required")
 	}
-	allowed := h.deps.RepoRoot
+	allowed := configuredRepoRoot
 	if allowed == "" {
-		allowed = h.deps.WorkspaceRoot
+		allowed = workspaceRoot
 	}
 	if allowed == "" {
 		return "", fmt.Errorf("analysis repo root is not configured")
