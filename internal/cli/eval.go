@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tae2089/trace"
 
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/eval"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
@@ -22,6 +23,8 @@ func newEvalCmd(deps *Deps) *cobra.Command {
 		Use:   "eval",
 		Short: "Evaluate parser accuracy and search quality against golden corpus",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ns, _ := cmd.Flags().GetString("namespace")
+			ctx := ctxns.WithNamespace(cmd.Context(), ns)
 			opts := eval.RunOptions{
 				CorpusDir: corpusDir,
 				Suite:     suite,
@@ -32,10 +35,9 @@ func newEvalCmd(deps *Deps) *cobra.Command {
 			}
 
 			if (suite == "all" || suite == "search") && deps.DB != nil && deps.SearchBackend != nil {
-				opts.SearchFn = makeSearchFn(deps)
+				opts.SearchFn = makeSearchFn(ctx, deps)
 			}
 
-			ctx := context.Background()
 			_, err := eval.Run(ctx, opts)
 			if err != nil {
 				return trace.Wrap(err, "eval")
@@ -52,12 +54,12 @@ func newEvalCmd(deps *Deps) *cobra.Command {
 	return cmd
 }
 
-func makeSearchFn(deps *Deps) eval.SearchFunc {
+func makeSearchFn(ctx context.Context, deps *Deps) eval.SearchFunc {
 	return func(query string, limit int) ([]string, error) {
 		if deps.DB == nil || deps.SearchBackend == nil {
 			return nil, fmt.Errorf("database not initialized for search eval")
 		}
-		nodes, err := deps.SearchBackend.Query(context.Background(), deps.DB, query, limit)
+		nodes, err := deps.SearchBackend.Query(ctx, deps.DB, query, limit)
 		if err != nil {
 			return nil, err
 		}

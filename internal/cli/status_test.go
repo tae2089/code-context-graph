@@ -9,6 +9,8 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
+	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 )
@@ -115,5 +117,31 @@ func TestStatusCommand_EmptyDB(t *testing.T) {
 	out := stdout.String()
 	if !strings.Contains(out, "No data") {
 		t.Fatalf("expected 'No data' for empty DB, got: %s", out)
+	}
+}
+
+func TestStatusCommand_RespectsNamespace(t *testing.T) {
+	deps, stdout, stderr, db := setupStatusTest(t)
+
+	if err := db.Create(&model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "default.Foo", Kind: model.NodeKindFunction, Name: "Foo", FilePath: "default/foo.go", StartLine: 1, EndLine: 2, Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.Node{Namespace: "other", QualifiedName: "other.Bar", Kind: model.NodeKindFunction, Name: "Bar", FilePath: "other/bar.go", StartLine: 1, EndLine: 2, Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+
+	if err := executeCmd(deps, stdout, stderr, "status"); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "Nodes: 1") {
+		t.Fatalf("expected default namespace only, got: %s", out)
+	}
+	if strings.Contains(out, "Nodes: 2") {
+		t.Fatalf("unexpected cross-namespace aggregation: %s", out)
 	}
 }

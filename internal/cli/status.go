@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tae2089/trace"
 
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
@@ -30,16 +31,21 @@ func newStatusCmd(deps *Deps) *cobra.Command {
 				return errDBNotInitialized
 			}
 
+			ns, _ := cmd.Flags().GetString("namespace")
+			ctx := ctxns.WithNamespace(cmd.Context(), ns)
+			nodeQuery := deps.DB.WithContext(ctx).Model(&model.Node{}).Where("namespace = ?", ctxns.FromContext(ctx))
+			edgeQuery := deps.DB.WithContext(ctx).Model(&model.Edge{}).Where("namespace = ?", ctxns.FromContext(ctx))
+
 			var nodeCount, edgeCount int64
-			if err := deps.DB.Model(&model.Node{}).Count(&nodeCount).Error; err != nil {
+			if err := nodeQuery.Count(&nodeCount).Error; err != nil {
 				return trace.Wrap(err, "count nodes")
 			}
-			if err := deps.DB.Model(&model.Edge{}).Count(&edgeCount).Error; err != nil {
+			if err := edgeQuery.Count(&edgeCount).Error; err != nil {
 				return trace.Wrap(err, "count edges")
 			}
 
 			var fileCount int64
-			deps.DB.Model(&model.Node{}).Distinct("file_path").Count(&fileCount)
+			nodeQuery.Distinct("file_path").Count(&fileCount)
 
 			out := stdout(cmd)
 
@@ -53,7 +59,7 @@ func newStatusCmd(deps *Deps) *cobra.Command {
 			fmt.Fprintf(out, "Files: %d\n", fileCount)
 
 			var nodeKinds []kindCount
-			deps.DB.Model(&model.Node{}).Select("kind, count(*) as count").Group("kind").Scan(&nodeKinds)
+			nodeQuery.Select("kind, count(*) as count").Group("kind").Scan(&nodeKinds)
 			if len(nodeKinds) > 0 {
 				fmt.Fprintln(out, "\nNode kinds:")
 				for _, k := range nodeKinds {
@@ -62,7 +68,7 @@ func newStatusCmd(deps *Deps) *cobra.Command {
 			}
 
 			var edgeKinds []kindCount
-			deps.DB.Model(&model.Edge{}).Select("kind, count(*) as count").Group("kind").Scan(&edgeKinds)
+			edgeQuery.Select("kind, count(*) as count").Group("kind").Scan(&edgeKinds)
 			if len(edgeKinds) > 0 {
 				fmt.Fprintln(out, "\nEdge kinds:")
 				for _, k := range edgeKinds {
