@@ -190,9 +190,11 @@ func TestReviewChanges_ReturnsRiskEntries(t *testing.T) {
 			{FilePath: "b.go", StartLine: 3, EndLine: 7},
 		},
 	}
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
 
 	resultJSON := callPrompt(t, deps, "review_changes", map[string]string{
-		"repo_root": "/tmp/repo",
+		"repo_root": repoRoot,
 		"base":      "HEAD~1",
 	})
 	text := getPromptText(t, resultJSON)
@@ -217,9 +219,11 @@ func TestReviewChanges_IncludesTestGaps(t *testing.T) {
 		changedFiles: []string{"untested.go"},
 		hunks:        []changes.Hunk{{FilePath: "untested.go", StartLine: 1, EndLine: 10}},
 	}
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
 
 	resultJSON := callPrompt(t, deps, "review_changes", map[string]string{
-		"repo_root": "/tmp/repo",
+		"repo_root": repoRoot,
 		"base":      "HEAD~1",
 	})
 	text := getPromptText(t, resultJSON)
@@ -236,9 +240,11 @@ func TestReviewChanges_EmptyChanges(t *testing.T) {
 		changedFiles: []string{},
 		hunks:        []changes.Hunk{},
 	}
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
 
 	resultJSON := callPrompt(t, deps, "review_changes", map[string]string{
-		"repo_root": "/tmp/repo",
+		"repo_root": repoRoot,
 	})
 	text := getPromptText(t, resultJSON)
 
@@ -257,10 +263,12 @@ func TestReviewChanges_DefaultBase(t *testing.T) {
 		hunks:        []changes.Hunk{{FilePath: "fn.go", StartLine: 1, EndLine: 5}},
 	}
 	deps.ChangesGitClient = mock
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
 
 	// No base parameter — should default to HEAD~1
 	callPrompt(t, deps, "review_changes", map[string]string{
-		"repo_root": "/tmp/repo",
+		"repo_root": repoRoot,
 	})
 
 	if mock.lastBaseRef != "HEAD~1" {
@@ -498,9 +506,11 @@ func TestPreMergeCheck_ReturnsRiskAndCoverage(t *testing.T) {
 		changedFiles: []string{"handler.go"},
 		hunks:        []changes.Hunk{{FilePath: "handler.go", StartLine: 5, EndLine: 15}},
 	}
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
 
 	resultJSON := callPrompt(t, deps, "pre_merge_check", map[string]string{
-		"repo_root": "/tmp/repo",
+		"repo_root": repoRoot,
 		"base":      "HEAD~1",
 	})
 	text := getPromptText(t, resultJSON)
@@ -523,9 +533,11 @@ func TestPreMergeCheck_IncludesDeadCode(t *testing.T) {
 		changedFiles: []string{},
 		hunks:        []changes.Hunk{},
 	}
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
 
 	resultJSON := callPrompt(t, deps, "pre_merge_check", map[string]string{
-		"repo_root": "/tmp/repo",
+		"repo_root": repoRoot,
 	})
 	text := getPromptText(t, resultJSON)
 
@@ -543,9 +555,11 @@ func TestPreMergeCheck_IncludesLargeFunctions(t *testing.T) {
 		changedFiles: []string{},
 		hunks:        []changes.Hunk{},
 	}
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
 
 	resultJSON := callPrompt(t, deps, "pre_merge_check", map[string]string{
-		"repo_root": "/tmp/repo",
+		"repo_root": repoRoot,
 	})
 	text := getPromptText(t, resultJSON)
 
@@ -561,14 +575,54 @@ func TestPreMergeCheck_EmptyChanges(t *testing.T) {
 		changedFiles: []string{},
 		hunks:        []changes.Hunk{},
 	}
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
 
 	resultJSON := callPrompt(t, deps, "pre_merge_check", map[string]string{
-		"repo_root": "/tmp/repo",
+		"repo_root": repoRoot,
 	})
 	text := getPromptText(t, resultJSON)
 
 	if !strings.Contains(text, "변경사항이 없습니다") {
 		t.Errorf("expected empty changes message, got: %s", text)
+	}
+}
+
+func TestReviewChanges_RejectsRepoRootOutsideConfiguredRoot(t *testing.T) {
+	deps, _ := setupPromptTestDeps(t)
+	deps.ChangesGitClient = &mockGitClient{}
+	deps.RepoRoot = t.TempDir()
+
+	srv := NewServer(deps)
+	params := map[string]any{
+		"name": "review_changes",
+		"arguments": map[string]string{
+			"repo_root": t.TempDir(),
+		},
+	}
+	msg, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "prompts/get", "params": params})
+	resp := srv.HandleMessage(context.Background(), msg)
+	if _, ok := resp.(mcp.JSONRPCError); !ok {
+		t.Fatalf("expected JSONRPCError, got %T", resp)
+	}
+}
+
+func TestPreMergeCheck_RejectsRepoRootOutsideConfiguredRoot(t *testing.T) {
+	deps, _ := setupPromptTestDeps(t)
+	deps.ChangesGitClient = &mockGitClient{}
+	deps.RepoRoot = t.TempDir()
+
+	srv := NewServer(deps)
+	params := map[string]any{
+		"name": "pre_merge_check",
+		"arguments": map[string]string{
+			"repo_root": t.TempDir(),
+		},
+	}
+	msg, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "prompts/get", "params": params})
+	resp := srv.HandleMessage(context.Background(), msg)
+	if _, ok := resp.(mcp.JSONRPCError); !ok {
+		t.Fatalf("expected JSONRPCError, got %T", resp)
 	}
 }
 

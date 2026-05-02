@@ -58,6 +58,12 @@ func (p *promptHandlers) reviewChanges(ctx context.Context, request mcp.GetPromp
 		base = "HEAD~1"
 	}
 
+	validatedRepoRoot, err := validateRepoRootWithin(repoRoot, p.deps.RepoRoot, p.deps.WorkspaceRoot)
+	if err != nil {
+		return nil, err
+	}
+	repoRoot = validatedRepoRoot
+
 	if p.deps.ChangesGitClient == nil {
 		return promptResult("변경사항이 없습니다 (GitClient가 설정되지 않음)"), nil
 	}
@@ -350,6 +356,12 @@ func (p *promptHandlers) preMergeCheck(ctx context.Context, request mcp.GetPromp
 	if base == "" {
 		base = "HEAD~1"
 	}
+
+	validatedRepoRoot, err := validateRepoRootWithin(repoRoot, p.deps.RepoRoot, p.deps.WorkspaceRoot)
+	if err != nil {
+		return nil, err
+	}
+	repoRoot = validatedRepoRoot
 
 	if p.deps.ChangesGitClient == nil {
 		return promptResult("변경사항이 없습니다 (GitClient가 설정되지 않음)"), nil
