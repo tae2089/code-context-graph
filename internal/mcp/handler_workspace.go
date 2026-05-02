@@ -37,8 +37,8 @@ func validateWorkspacePath(workspace, filePath string) error {
 		return fmt.Errorf("workspace must not be empty")
 	}
 	cleanWS := filepath.Clean(workspace)
-	if filepath.IsAbs(cleanWS) || strings.HasPrefix(cleanWS, "..") {
-		return fmt.Errorf("invalid workspace: path traversal not allowed")
+	if cleanWS == "." || cleanWS == ".." || filepath.IsAbs(cleanWS) || strings.HasPrefix(cleanWS, "..") || strings.ContainsAny(cleanWS, `/\\`) {
+		return fmt.Errorf("invalid workspace: must be a single safe name")
 	}
 
 	if filePath != "" {

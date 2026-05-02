@@ -62,6 +62,10 @@ func TestUploadFile_PathTraversal(t *testing.T) {
 		{"dotdot in file_path", "ok", "../../etc/passwd"},
 		{"absolute workspace", "/etc", "passwd"},
 		{"absolute file_path", "ok", "/etc/passwd"},
+		{"dot workspace", ".", "file.md"},
+		{"double-dot workspace", "..", "file.md"},
+		{"path-like workspace slash", "service/api", "file.md"},
+		{"path-like workspace separator", "service" + string(filepath.Separator) + "api", "file.md"},
 	}
 
 	for _, tt := range tests {
@@ -78,6 +82,22 @@ func TestUploadFile_PathTraversal(t *testing.T) {
 			assertToolResultIsError(t, result)
 		})
 	}
+}
+
+func TestUploadFile_RejectsEmptyWorkspace(t *testing.T) {
+	h, _ := workspaceHandlers(t)
+	encoded := base64.StdEncoding.EncodeToString([]byte("content"))
+
+	req := makeCallToolRequest(t, map[string]any{
+		"workspace": "",
+		"file_path": "file.md",
+		"content":   encoded,
+	})
+	result, err := h.uploadFile(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultIsError(t, result)
 }
 
 func TestUploadFile_InvalidBase64(t *testing.T) {
@@ -383,14 +403,39 @@ func TestDeleteWorkspace_NotFound(t *testing.T) {
 func TestDeleteWorkspace_PathTraversal(t *testing.T) {
 	h, _ := workspaceHandlers(t)
 
+	for _, workspace := range []string{"../evil", ".", "..", "service/api"} {
+		t.Run(workspace, func(t *testing.T) {
+			req := makeCallToolRequest(t, map[string]any{
+				"workspace": workspace,
+			})
+			result, err := h.deleteWorkspace(t.Context(), req)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			assertToolResultIsError(t, result)
+		})
+	}
+}
+
+func TestDeleteWorkspace_NeverDeletesWorkspaceRoot(t *testing.T) {
+	h, root := workspaceHandlers(t)
+	marker := filepath.Join(root, "marker.txt")
+	if err := os.WriteFile(marker, []byte("keep"), 0o644); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+
 	req := makeCallToolRequest(t, map[string]any{
-		"workspace": "../evil",
+		"workspace": ".",
 	})
 	result, err := h.deleteWorkspace(t.Context(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	assertToolResultIsError(t, result)
+
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("workspace root marker should remain: %v", err)
+	}
 }
 
 func TestUploadFile_RejectsWorkspaceSymlinkEscape(t *testing.T) {
