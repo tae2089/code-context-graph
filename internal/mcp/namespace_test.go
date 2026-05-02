@@ -57,6 +57,25 @@ func TestMCPHandler_WorkspaceToNamespace(t *testing.T) {
 	}
 }
 
+func TestMCPHandler_NamespaceParamTakesPrecedenceOverWorkspace(t *testing.T) {
+	deps := setupTestDeps(t)
+	seedNodeWithNamespace(t, deps.DB, "ns-new", "pkg.Foo", "function", "new/foo.go")
+	seedNodeWithNamespace(t, deps.DB, "ns-old", "pkg.Foo", "function", "old/foo.go")
+
+	result := callTool(t, deps, "get_node", map[string]any{
+		"qualified_name": "pkg.Foo",
+		"namespace":      "ns-new",
+		"workspace":      "ns-old",
+	})
+	if result.IsError {
+		t.Fatalf("get_node with namespace returned error: %v", getTextContent(result))
+	}
+	text := getTextContent(result)
+	if !strings.Contains(text, "new/foo.go") || strings.Contains(text, "old/foo.go") {
+		t.Fatalf("namespace should win over workspace, got: %s", text)
+	}
+}
+
 func TestMCPHandler_SearchWithNamespace(t *testing.T) {
 	deps := setupTestDeps(t)
 	seedNodeWithNamespace(t, deps.DB, "ns-a", "pkg.SearchMe", "function", "a/search.go")

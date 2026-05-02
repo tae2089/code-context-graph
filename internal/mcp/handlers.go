@@ -57,7 +57,7 @@ func (h *handlers) logger() *slog.Logger {
 }
 
 func (h *handlers) applyWorkspace(ctx context.Context, request mcp.CallToolRequest) context.Context {
-	return ctxns.WithNamespace(ctx, request.GetString("workspace", ""))
+	return ctxns.WithNamespace(ctx, requestNamespace(request))
 }
 
 func resolveNamespace(ctx context.Context, workspace string) string {
@@ -65,6 +65,13 @@ func resolveNamespace(ctx context.Context, workspace string) string {
 		return ctxns.Normalize(workspace)
 	}
 	return ctxns.FromContext(ctx)
+}
+
+func requestNamespace(request mcp.CallToolRequest) string {
+	if namespace := request.GetString("namespace", ""); namespace != "" {
+		return namespace
+	}
+	return request.GetString("workspace", "")
 }
 
 // toolResultErr carries an MCP tool result alongside an error value.
@@ -156,8 +163,12 @@ func (h *handlers) cachedExecute(ctx context.Context, prefix string, params map[
 	for k, v := range params {
 		cacheParams[k] = v
 	}
-	if workspace, ok := cacheParams["workspace"].(string); ok {
-		cacheParams["workspace"] = resolveNamespace(ctx, workspace)
+	if namespace, ok := cacheParams["namespace"].(string); ok {
+		cacheParams["namespace"] = resolveNamespace(ctx, namespace)
+		delete(cacheParams, "workspace")
+	} else if workspace, ok := cacheParams["workspace"].(string); ok {
+		cacheParams["namespace"] = resolveNamespace(ctx, workspace)
+		delete(cacheParams, "workspace")
 	}
 
 	key, err := makeCacheKey(prefix, cacheParams)

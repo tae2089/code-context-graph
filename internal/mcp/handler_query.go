@@ -29,7 +29,7 @@ func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*m
 
 	log.Info("get_node called", "qualified_name", qn)
 
-	return finalizeToolResult(h.cachedExecute(ctx, "get_node:", map[string]any{"qualified_name": qn, "workspace": request.GetString("workspace", "")}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "get_node:", map[string]any{"qualified_name": qn, "namespace": requestNamespace(request)}, func() (string, error) {
 		node, err := h.deps.Store.GetNode(ctx, qn)
 		if err != nil {
 			log.Error("store error", "tool", "get_node", trace.SlogError(err))
@@ -84,7 +84,7 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 		return mcp.NewToolResultError("SearchBackend not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "search:", map[string]any{"query": query, "limit": limit, "path": pathPrefix, "workspace": request.GetString("workspace", "")}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "search:", map[string]any{"query": query, "limit": limit, "path": pathPrefix, "namespace": requestNamespace(request)}, func() (string, error) {
 		// When path filtering is active, fetch more results from FTS so
 		// that after filtering we still have up to 'limit' results.
 		fetchLimit := limit
@@ -142,7 +142,7 @@ func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolReques
 
 	log.Info("get_annotation called", "qualified_name", qn)
 
-	return finalizeToolResult(h.cachedExecute(ctx, "get_annotation:", map[string]any{"qualified_name": qn, "workspace": request.GetString("workspace", "")}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "get_annotation:", map[string]any{"qualified_name": qn, "namespace": requestNamespace(request)}, func() (string, error) {
 		node, err := h.deps.Store.GetNode(ctx, qn)
 		if err != nil {
 			log.Error("store error", "tool", "get_annotation", trace.SlogError(err))
@@ -219,7 +219,7 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 		return mcp.NewToolResultError(fmt.Sprintf("unknown pattern: %q", pattern)), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "query_graph:", map[string]any{"pattern": pattern, "target": target, "workspace": request.GetString("workspace", "")}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "query_graph:", map[string]any{"pattern": pattern, "target": target, "namespace": requestNamespace(request)}, func() (string, error) {
 		// file_summary는 노드 조회가 불필요
 		if pattern == "file_summary" {
 			if h.deps.QueryService == nil {
@@ -302,8 +302,7 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 	log := h.logger()
 	log.Info("list_graph_stats called")
 
-	ws := request.GetString("workspace", "")
-	return finalizeToolResult(h.cachedExecute(ctx, "list_graph_stats:", map[string]any{"workspace": ws}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "list_graph_stats:", map[string]any{"namespace": requestNamespace(request)}, func() (string, error) {
 		ns := ctxns.FromContext(ctx)
 		nodeQ := h.deps.DB.WithContext(ctx).Model(&model.Node{}).Where("namespace = ?", ns)
 
@@ -399,7 +398,7 @@ func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolR
 		return mcp.NewToolResultError("LargefuncAnalyzer not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "find_large_functions:", map[string]any{"min_lines": minLines, "limit": limit, "path": pathPrefix, "workspace": request.GetString("workspace", "")}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "find_large_functions:", map[string]any{"min_lines": minLines, "limit": limit, "path": pathPrefix, "namespace": requestNamespace(request)}, func() (string, error) {
 		nodes, err := h.deps.LargefuncAnalyzer.Find(ctx, minLines)
 		if err != nil {
 			return "", trace.Wrap(err, "largefunc error")

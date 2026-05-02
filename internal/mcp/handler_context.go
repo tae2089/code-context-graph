@@ -35,7 +35,7 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 		"task":      task,
 		"repo_root": repoRoot,
 		"base":      base,
-		"workspace": request.GetString("workspace", ""),
+		"namespace": requestNamespace(request),
 	}, func() (string, error) {
 		ns := ctxns.FromContext(ctx)
 
