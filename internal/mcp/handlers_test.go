@@ -29,6 +29,8 @@ import (
 )
 
 type recordingGraphStore struct {
+	txCalls          int
+	deleteGraphCalls int
 	ops       []string
 	nextID    uint
 	nodesByFP map[string][]model.Node
@@ -45,12 +47,14 @@ func (r *recordingGraphStore) record(op string) {
 
 
 func (r *recordingGraphStore) WithTx(ctx context.Context, fn func(store.GraphStore) error) error {
+	r.txCalls++
 	return fn(r)
 }
 
 func (r *recordingGraphStore) AutoMigrate() error { return nil }
 
 func (r *recordingGraphStore) DeleteGraph(ctx context.Context) error {
+	r.deleteGraphCalls++
 	r.record("DeleteGraph")
 	r.nodesByFP = make(map[string][]model.Node)
 	return nil
@@ -130,6 +134,16 @@ func (r *recordingGraphStore) DeleteEdgesByFile(ctx context.Context, filePath st
 
 func (r *recordingGraphStore) GetAnnotation(ctx context.Context, nodeID uint) (*model.Annotation, error) {
 	return nil, nil
+}
+
+func countOp(ops []string, want string) int {
+	count := 0
+	for _, op := range ops {
+		if op == want {
+			count++
+		}
+	}
+	return count
 }
 
 func TestMarshalJSON(t *testing.T) {
@@ -308,6 +322,12 @@ func Keep() {}
 	if _, err := h.walkAndParse(context.Background(), dir); err != nil {
 		t.Fatalf("walkAndParse: %v", err)
 	}
+	if fakeStore.txCalls != 1 {
+		t.Fatalf("expected WithTx once, got %d", fakeStore.txCalls)
+	}
+	if fakeStore.deleteGraphCalls != 1 {
+		t.Fatalf("expected DeleteGraph once, got %d", fakeStore.deleteGraphCalls)
+	}
 
 	want := []string{"DeleteGraph", "UpsertNodes", "GetNodesByFile", "UpsertAnnotation", "UpsertEdges"}
 	for i, op := range want[:4] {
@@ -331,6 +351,64 @@ func Keep() {}
 	}
 	if firstEdge <= lastAnn {
 		t.Fatalf("expected UpsertEdges after all UpsertAnnotation calls, got %v", fakeStore.ops)
+	}
+}
+
+func TestHandler_walkAndParse_OrderingSeam_DefersEdgesAcrossFiles(t *testing.T) {
+	deps := setupGraphOnlyTestDeps(t)
+	fakeStore := newRecordingGraphStore()
+	deps.Store = fakeStore
+	parser := &orderingCommentGoParser{}
+	deps.Parser = parser
+	deps.Walkers = map[string]Parser{".go": parser}
+	h := &handlers{deps: deps}
+
+	dir := t.TempDir()
+	for _, name := range []string{"alpha.go", "beta.go"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(`package sample
+
+// @intent keep track
+func Keep() {}
+`), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	if _, err := h.walkAndParse(context.Background(), dir); err != nil {
+		t.Fatalf("walkAndParse: %v", err)
+	}
+	if fakeStore.txCalls != 1 {
+		t.Fatalf("expected WithTx once, got %d", fakeStore.txCalls)
+	}
+	if fakeStore.deleteGraphCalls != 1 {
+		t.Fatalf("expected DeleteGraph once, got %d", fakeStore.deleteGraphCalls)
+	}
+	if got := countOp(fakeStore.ops, "UpsertNodes"); got != 2 {
+		t.Fatalf("expected UpsertNodes twice, got %d (ops=%v)", got, fakeStore.ops)
+	}
+	if got := countOp(fakeStore.ops, "GetNodesByFile"); got != 2 {
+		t.Fatalf("expected GetNodesByFile twice, got %d (ops=%v)", got, fakeStore.ops)
+	}
+	if got := countOp(fakeStore.ops, "UpsertAnnotation"); got != 2 {
+		t.Fatalf("expected UpsertAnnotation twice, got %d (ops=%v)", got, fakeStore.ops)
+	}
+	if got := countOp(fakeStore.ops, "UpsertEdges"); got != 2 {
+		t.Fatalf("expected UpsertEdges twice, got %d (ops=%v)", got, fakeStore.ops)
+	}
+
+	firstEdge := slices.Index(fakeStore.ops, "UpsertEdges")
+	lastAnn := -1
+	for i := len(fakeStore.ops) - 1; i >= 0; i-- {
+		if fakeStore.ops[i] == "UpsertAnnotation" {
+			lastAnn = i
+			break
+		}
+	}
+	if firstEdge == -1 || lastAnn == -1 {
+		t.Fatalf("expected annotations and edges in ops: %v", fakeStore.ops)
+	}
+	if firstEdge <= lastAnn {
+		t.Fatalf("expected all edges deferred until after all annotations, got %v", fakeStore.ops)
 	}
 }
 
