@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -133,6 +134,25 @@ func TestE2EHTTP_RequiresBearerToken(t *testing.T) {
 	initReq.Params.ClientInfo = mcp.Implementation{Name: "unauth-test", Version: "1.0.0"}
 	if _, err := unauthClient.Initialize(ctx, initReq); err == nil {
 		t.Fatal("expected initialize to fail without bearer token")
+	}
+}
+
+func TestE2EHTTP_MCPRequestBodyLimit(t *testing.T) {
+	nextCalled := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(make([]byte, maxMCPRequestBodyBytes+1)))
+	rec := httptest.NewRecorder()
+	LimitHTTPBody(next).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
+	}
+	if nextCalled {
+		t.Fatal("next handler should not be called for oversized MCP request body")
 	}
 }
 

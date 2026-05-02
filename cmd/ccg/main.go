@@ -263,7 +263,7 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 	httpSrv := server.NewStreamableHTTPServer(srv, opts...)
 
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcpAuthMiddleware(cfg.HTTPBearerToken, httpSrv))
+	mux.Handle("/mcp", mcpAuthMiddleware(cfg.HTTPBearerToken, mcpserver.LimitHTTPBody(httpSrv)))
 	mux.HandleFunc("/health", handleHealth)
 
 	var syncQueue *webhook.SyncQueue
