@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -803,6 +804,53 @@ func Other() {}
 	}
 	if !containsStringInSlice(mockSync.existingFiles, filepath.Join("src", "api", "handler.go")) {
 		t.Fatalf("expected replace=false to keep in-scope file, got %v", mockSync.existingFiles)
+	}
+}
+
+func TestBuildOrUpdateGraph_IncrementalSkipsUnreadableFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("broken symlink unreadable path scenario is unix-specific")
+	}
+
+	deps := setupTestDeps(t)
+	mockSync := &mockIncrementalSyncer{
+		result: &incremental.SyncStats{Added: 1, Modified: 0, Skipped: 0, Deleted: 0},
+	}
+	deps.Incremental = mockSync
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "keep.go", `package keep
+func Keep() {}
+`)
+	writeGoFile(t, dir, "temp.go", `package keep
+func Temp() {}
+`)
+	if err := os.Remove(filepath.Join(dir, "temp.go")); err != nil {
+		t.Fatalf("remove file: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "missing.go"), filepath.Join(dir, "temp.go")); err != nil {
+		t.Fatalf("create broken symlink: %v", err)
+	}
+
+	result := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": false,
+		"postprocess":  "none",
+	})
+	if result.IsError {
+		t.Fatalf("expected unreadable file to be skipped during incremental build, got: %s", getTextContent(result))
+	}
+	if !mockSync.syncWithExisting {
+		t.Fatal("expected Incremental.SyncWithExisting to be called")
+	}
+	if len(mockSync.files) != 1 {
+		t.Fatalf("expected only readable file to be synced, got %v", mockSync.files)
+	}
+	if _, ok := mockSync.files["keep.go"]; !ok {
+		t.Fatalf("expected keep.go in sync files, got %v", mockSync.files)
+	}
+	if _, ok := mockSync.files["temp.go"]; ok {
+		t.Fatalf("expected unreadable temp.go to be skipped, got %v", mockSync.files)
 	}
 }
 

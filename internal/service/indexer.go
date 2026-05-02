@@ -322,7 +322,8 @@ func (s *GraphService) Update(ctx context.Context, opts UpdateOptions) (*increme
 
 		info, err := os.Stat(path)
 		if err != nil {
-			return nil, trace.Wrap(err, "stat update file "+relPath)
+			s.logger().Warn("skip unreadable update file", "file", relPath, "error", err)
+			continue
 		}
 		if err := CheckParseFileSize(relPath, info.Size(), opts.MaxFileBytes); err != nil {
 			return nil, err
@@ -333,7 +334,8 @@ func (s *GraphService) Update(ctx context.Context, opts UpdateOptions) (*increme
 
 		content, err := os.ReadFile(path)
 		if err != nil {
-			return nil, trace.Wrap(err, "read update file "+relPath)
+			s.logger().Warn("skip unreadable update file", "file", relPath, "error", err)
+			continue
 		}
 		totalParsedBytes += int64(len(content))
 		if err := CheckTotalParsedBytes(relPath, 0, totalParsedBytes, opts.MaxTotalParsedBytes); err != nil {
