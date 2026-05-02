@@ -27,6 +27,7 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
+	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
@@ -136,6 +137,23 @@ func (r *recordingGraphStore) DeleteEdgesByFile(ctx context.Context, filePath st
 
 func (r *recordingGraphStore) GetAnnotation(ctx context.Context, nodeID uint) (*model.Annotation, error) {
 	return nil, nil
+}
+
+type recordingIncrementalSyncer struct {
+	files         map[string]incremental.FileInfo
+	existingFiles []string
+	result        *incremental.SyncStats
+	err           error
+}
+
+func (r *recordingIncrementalSyncer) Sync(ctx context.Context, files map[string]incremental.FileInfo) (*incremental.SyncStats, error) {
+	panic("unexpected Sync call")
+}
+
+func (r *recordingIncrementalSyncer) SyncWithExisting(ctx context.Context, files map[string]incremental.FileInfo, existingFiles []string) (*incremental.SyncStats, error) {
+	r.files = files
+	r.existingFiles = append([]string(nil), existingFiles...)
+	return r.result, r.err
 }
 
 func TestToBinderComments_PreservesBasicFields(t *testing.T) {
@@ -762,6 +780,241 @@ func TestBuild_MaxTotalParsedBytesRejectsBeforeMutation(t *testing.T) {
 
 	assertFunctionNamesByFile(t, st, ctx, "keep.go", []string{"Keep"})
 	assertFunctionNamesByFile(t, st, ctx, "other.go", nil)
+}
+
+func TestUpdate_SkipsUnreadableFiles(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("broken symlink unreadable path scenario is unix-specific")
+	}
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.Node{}); err != nil {
+		t.Fatalf("migrate nodes: %v", err)
+	}
+
+	svc := &GraphService{
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "keep.go"), []byte("package sample\n\nfunc Keep() {}\n"), 0o644); err != nil {
+		t.Fatalf("write keep file: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(tmpDir, "missing.go"), filepath.Join(tmpDir, "broken.go")); err != nil {
+		t.Fatalf("create broken symlink: %v", err)
+	}
+
+	syncer := &recordingIncrementalSyncer{result: &incremental.SyncStats{}}
+	_, err = svc.Update(context.Background(), UpdateOptions{BuildOptions: BuildOptions{Dir: tmpDir}, Syncer: syncer})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if _, ok := syncer.files["keep.go"]; !ok {
+		t.Fatalf("expected keep.go to be synced, got files=%v", syncer.files)
+	}
+	if _, ok := syncer.files["broken.go"]; ok {
+		t.Fatalf("expected unreadable broken.go to be skipped, got files=%v", syncer.files)
+	}
+}
+
+func TestUpdate_MaxFileBytesRejectsLargeFile(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.Node{}); err != nil {
+		t.Fatalf("migrate nodes: %v", err)
+	}
+
+	svc := &GraphService{
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	tooLarge := []byte("package sample\n\nfunc Oversized() {}\n")
+	goPath := filepath.Join(tmpDir, "oversized.go")
+	if err := os.WriteFile(goPath, tooLarge, 0o644); err != nil {
+		t.Fatalf("write oversized file: %v", err)
+	}
+
+	syncer := &recordingIncrementalSyncer{result: &incremental.SyncStats{}}
+	_, err = svc.Update(context.Background(), UpdateOptions{BuildOptions: BuildOptions{Dir: tmpDir, MaxFileBytes: int64(len(tooLarge) - 1)}, Syncer: syncer})
+	if err == nil {
+		t.Fatal("expected Update to reject file larger than MaxFileBytes")
+	}
+	if !strings.Contains(err.Error(), "exceeds max file bytes") {
+		t.Fatalf("expected max file bytes error, got %v", err)
+	}
+	if syncer.files != nil {
+		t.Fatalf("expected syncer not to run on max file bytes error, got files=%v", syncer.files)
+	}
+}
+
+func TestUpdate_MaxTotalParsedBytesRejectsBeforeSync(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.Node{}); err != nil {
+		t.Fatalf("migrate nodes: %v", err)
+	}
+
+	svc := &GraphService{
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	first := []byte("package sample\n\nfunc Keep() {}\n")
+	second := []byte("package sample\n\nfunc Other() {}\n")
+	if err := os.WriteFile(filepath.Join(tmpDir, "keep.go"), first, 0o644); err != nil {
+		t.Fatalf("write keep file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "other.go"), second, 0o644); err != nil {
+		t.Fatalf("write other file: %v", err)
+	}
+
+	syncer := &recordingIncrementalSyncer{result: &incremental.SyncStats{}}
+	_, err = svc.Update(context.Background(), UpdateOptions{BuildOptions: BuildOptions{Dir: tmpDir, MaxTotalParsedBytes: int64(len(first))}, Syncer: syncer})
+	if err == nil {
+		t.Fatal("expected Update to reject total parsed bytes limit")
+	}
+	if !strings.Contains(err.Error(), "exceeds max total parsed bytes") {
+		t.Fatalf("expected max total parsed bytes error, got %v", err)
+	}
+	if syncer.files != nil {
+		t.Fatalf("expected syncer not to run on max total parsed bytes error, got files=%v", syncer.files)
+	}
+}
+
+func TestUpdate_IncludePaths_FiltersExistingFilesWhenReplaceFalse(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.Node{}); err != nil {
+		t.Fatalf("migrate nodes: %v", err)
+	}
+	if err := db.Create(&model.Node{Namespace: ctxns.DefaultNamespace, FilePath: filepath.Join("src", "api", "handler.go")}).Error; err != nil {
+		t.Fatalf("seed api node: %v", err)
+	}
+	if err := db.Create(&model.Node{Namespace: ctxns.DefaultNamespace, FilePath: filepath.Join("src", "other", "helper.go")}).Error; err != nil {
+		t.Fatalf("seed other node: %v", err)
+	}
+
+	svc := &GraphService{
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	apiDir := filepath.Join(tmpDir, "src", "api")
+	if err := os.MkdirAll(apiDir, 0o755); err != nil {
+		t.Fatalf("mkdir api: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(apiDir, "handler.go"), []byte("package api\n\nfunc Handler() {}\n"), 0o644); err != nil {
+		t.Fatalf("write handler: %v", err)
+	}
+
+	syncer := &recordingIncrementalSyncer{result: &incremental.SyncStats{}}
+	_, err = svc.Update(context.Background(), UpdateOptions{BuildOptions: BuildOptions{Dir: tmpDir, IncludePaths: []string{filepath.Join("src", "api")}}, Syncer: syncer, Replace: false})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if got, want := syncer.existingFiles, []string{filepath.Join("src", "api", "handler.go")}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("existingFiles mismatch: got=%v want=%v", got, want)
+	}
+}
+
+func TestUpdate_ExcludePatterns_LeavesMatchingFilesOutOfSync(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.Node{}); err != nil {
+		t.Fatalf("migrate nodes: %v", err)
+	}
+
+	svc := &GraphService{
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "keep.go"), []byte("package sample\n\nfunc Keep() {}\n"), 0o644); err != nil {
+		t.Fatalf("write keep file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "skip.gen.go"), []byte("package sample\n\nfunc Skip() {}\n"), 0o644); err != nil {
+		t.Fatalf("write skip file: %v", err)
+	}
+
+	syncer := &recordingIncrementalSyncer{result: &incremental.SyncStats{}}
+	_, err = svc.Update(context.Background(), UpdateOptions{
+		BuildOptions: BuildOptions{Dir: tmpDir, ExcludePatterns: []string{"*.gen.go"}},
+		Syncer:       syncer,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if _, ok := syncer.files["keep.go"]; !ok {
+		t.Fatalf("expected keep.go to be synced, got files=%v", syncer.files)
+	}
+	if _, ok := syncer.files["skip.gen.go"]; ok {
+		t.Fatalf("expected skip.gen.go to be excluded, got files=%v", syncer.files)
+	}
+}
+
+func TestUpdate_NoRecursive_SkipsNestedFilesFromSync(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.Node{}); err != nil {
+		t.Fatalf("migrate nodes: %v", err)
+	}
+
+	svc := &GraphService{
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "root.go"), []byte("package sample\n\nfunc Root() {}\n"), 0o644); err != nil {
+		t.Fatalf("write root file: %v", err)
+	}
+	nestedDir := filepath.Join(tmpDir, "nested")
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nestedDir, "nested.go"), []byte("package sample\n\nfunc Nested() {}\n"), 0o644); err != nil {
+		t.Fatalf("write nested file: %v", err)
+	}
+
+	syncer := &recordingIncrementalSyncer{result: &incremental.SyncStats{}}
+	_, err = svc.Update(context.Background(), UpdateOptions{
+		BuildOptions: BuildOptions{Dir: tmpDir, NoRecursive: true},
+		Syncer:       syncer,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if _, ok := syncer.files["root.go"]; !ok {
+		t.Fatalf("expected root.go to be synced, got files=%v", syncer.files)
+	}
+	if _, ok := syncer.files[filepath.Join("nested", "nested.go")]; ok {
+		t.Fatalf("expected nested/nested.go to be skipped, got files=%v", syncer.files)
+	}
 }
 
 func TestBuild_ContextCanceledBeforeMutationPreservesPreviousGraph(t *testing.T) {

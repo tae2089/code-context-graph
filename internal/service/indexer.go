@@ -304,48 +304,42 @@ func (s *GraphService) Update(ctx context.Context, opts UpdateOptions) (*increme
 
 	s.logger().Info("incremental update", "dir", absDir)
 
-	walkCandidates, err := collectWalkCandidates(ctx, absDir, opts.BuildOptions)
-	if err != nil {
-		return nil, trace.Wrap(err, "preflight walk directory")
-	}
-
 	files := make(map[string]incremental.FileInfo)
 	var totalParsedBytes int64
-	for _, path := range walkCandidates {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		relPath, _ := filepath.Rel(absDir, path)
+	if err := walkMatchingFiles(ctx, absDir, opts.BuildOptions, func(path, relPath string) error {
 		if _, ok := s.parserForExt(strings.ToLower(filepath.Ext(path))); !ok {
-			continue
+			return nil
 		}
 
 		info, err := os.Stat(path)
 		if err != nil {
 			s.logger().Warn("skip unreadable update file", "file", relPath, "error", err)
-			continue
+			return nil
 		}
 		if err := CheckParseFileSize(relPath, info.Size(), opts.MaxFileBytes); err != nil {
-			return nil, err
+			return err
 		}
 		if err := CheckTotalParsedBytes(relPath, totalParsedBytes, info.Size(), opts.MaxTotalParsedBytes); err != nil {
-			return nil, err
+			return err
 		}
 
 		content, err := os.ReadFile(path)
 		if err != nil {
 			s.logger().Warn("skip unreadable update file", "file", relPath, "error", err)
-			continue
+			return nil
 		}
 		totalParsedBytes += int64(len(content))
 		if err := CheckTotalParsedBytes(relPath, 0, totalParsedBytes, opts.MaxTotalParsedBytes); err != nil {
-			return nil, err
+			return err
 		}
 		hash := sha256.Sum256(content)
 		files[relPath] = incremental.FileInfo{
 			Hash:    hex.EncodeToString(hash[:]),
 			Content: content,
 		}
+		return nil
+	}); err != nil {
+		return nil, trace.Wrap(err, "walk update directory")
 	}
 
 	existingFiles, err := ExistingGraphFiles(ctx, s.DB)
@@ -440,6 +434,40 @@ func collectWalkCandidates(ctx context.Context, absDir string, opts BuildOptions
 		return nil
 	})
 	return walkCandidates, err
+}
+
+func walkMatchingFiles(ctx context.Context, absDir string, opts BuildOptions, fn func(path, relPath string) error) error {
+	return filepath.Walk(absDir, func(path string, info os.FileInfo, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if err != nil {
+			return err
+		}
+
+		relPath, _ := filepath.Rel(absDir, path)
+
+		if info.IsDir() {
+			if path != absDir && opts.NoRecursive {
+				return filepath.SkipDir
+			}
+			if pathutil.ShouldSkipDir(info.Name()) || pathutil.MatchExcludes(opts.ExcludePatterns, relPath) {
+				return filepath.SkipDir
+			}
+			if len(opts.IncludePaths) > 0 && path != absDir && !pathutil.MatchIncludePaths(relPath, opts.IncludePaths) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if pathutil.MatchExcludes(opts.ExcludePatterns, relPath) {
+			return nil
+		}
+		if len(opts.IncludePaths) > 0 && !pathutil.MatchIncludePaths(relPath, opts.IncludePaths) {
+			return nil
+		}
+		return fn(path, relPath)
+	})
 }
 
 func parseForBuild(ctx context.Context, parser Parser, relPath string, content []byte) ([]model.Node, []model.Edge, []treesitter.CommentBlock, string, error) {
