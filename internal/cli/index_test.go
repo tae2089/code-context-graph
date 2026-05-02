@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 )
@@ -36,6 +37,7 @@ func TestIndexCommand_GeneratesIndexMd(t *testing.T) {
 	deps, stdout, stderr, db := setupIndexTest(t)
 
 	db.Create(&model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "pkg/service.go::Handle",
 		Kind:          model.NodeKindFunction,
 		Name:          "Handle",
@@ -66,6 +68,7 @@ func TestIndexCommand_DoesNotWriteFileDocs(t *testing.T) {
 	deps, stdout, stderr, db := setupIndexTest(t)
 
 	db.Create(&model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "pkg/service.go::Handle",
 		Kind:          model.NodeKindFunction,
 		Name:          "Handle",

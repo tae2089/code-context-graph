@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 )
@@ -37,6 +38,7 @@ func TestDocsCommand_WritesIndexAndFileDocs(t *testing.T) {
 	deps, stdout, stderr, db := setupDocsTest(t)
 
 	fnNode := model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "main.go::main",
 		Kind:          model.NodeKindFunction,
 		Name:          "main",
@@ -80,18 +82,21 @@ func TestDocsCommand_PrunesManagedStaleDocsByDefault(t *testing.T) {
 	deps, stdout, stderr, db := setupDocsTest(t)
 	outDir := t.TempDir()
 
-	oldNode := model.Node{QualifiedName: "pkg.Old", Kind: model.NodeKindFunction, Name: "Old", FilePath: "pkg/old.go", StartLine: 1, EndLine: 5, Hash: "h1", Language: "go"}
+	oldNode := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Old", Kind: model.NodeKindFunction, Name: "Old", FilePath: "pkg/old.go", StartLine: 1, EndLine: 5, Hash: "h1", Language: "go"}
 	db.Create(&oldNode)
 	if err := executeCmd(deps, stdout, stderr, "docs", "--out", outDir); err != nil {
 		t.Fatalf("initial docs: %v", err)
 	}
 
 	userDoc := filepath.Join(outDir, "pkg", "user.go.md")
+	if err := os.MkdirAll(filepath.Dir(userDoc), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(userDoc, []byte("# user doc\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	db.Delete(&oldNode)
-	db.Create(&model.Node{QualifiedName: "pkg.New", Kind: model.NodeKindFunction, Name: "New", FilePath: "pkg/new.go", StartLine: 1, EndLine: 5, Hash: "h2", Language: "go"})
+	db.Create(&model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.New", Kind: model.NodeKindFunction, Name: "New", FilePath: "pkg/new.go", StartLine: 1, EndLine: 5, Hash: "h2", Language: "go"})
 
 	stdout.Reset()
 	stderr.Reset()
@@ -110,13 +115,13 @@ func TestDocsCommand_PruneFlagCanDisableCleanup(t *testing.T) {
 	deps, stdout, stderr, db := setupDocsTest(t)
 	outDir := t.TempDir()
 
-	oldNode := model.Node{QualifiedName: "pkg.Old", Kind: model.NodeKindFunction, Name: "Old", FilePath: "pkg/old.go", StartLine: 1, EndLine: 5, Hash: "h1", Language: "go"}
+	oldNode := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Old", Kind: model.NodeKindFunction, Name: "Old", FilePath: "pkg/old.go", StartLine: 1, EndLine: 5, Hash: "h1", Language: "go"}
 	db.Create(&oldNode)
 	if err := executeCmd(deps, stdout, stderr, "docs", "--out", outDir); err != nil {
 		t.Fatalf("initial docs: %v", err)
 	}
 	db.Delete(&oldNode)
-	db.Create(&model.Node{QualifiedName: "pkg.New", Kind: model.NodeKindFunction, Name: "New", FilePath: "pkg/new.go", StartLine: 1, EndLine: 5, Hash: "h2", Language: "go"})
+	db.Create(&model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.New", Kind: model.NodeKindFunction, Name: "New", FilePath: "pkg/new.go", StartLine: 1, EndLine: 5, Hash: "h2", Language: "go"})
 
 	stdout.Reset()
 	stderr.Reset()

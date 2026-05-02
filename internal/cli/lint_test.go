@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 )
@@ -59,6 +60,7 @@ func TestLintCommand_ReportsMissing(t *testing.T) {
 	deps, stdout, stderr, db := setupLintTest(t)
 
 	db.Create(&model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "pkg/new.go::Fn",
 		Kind:          model.NodeKindFunction,
 		Name:          "Fn",
@@ -83,6 +85,7 @@ func TestLintCommand_ReportsStale(t *testing.T) {
 	deps, stdout, stderr, db := setupLintTest(t)
 
 	db.Create(&model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "pkg/old.go::Fn",
 		Kind:          model.NodeKindFunction,
 		Name:          "Fn",
@@ -113,6 +116,7 @@ func TestLintCommand_CleanReport(t *testing.T) {
 	deps, stdout, stderr, db := setupLintTest(t)
 
 	fn := model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "pkg/ok.go::Fn",
 		Kind:          model.NodeKindFunction,
 		Name:          "Fn",
@@ -148,6 +152,7 @@ func TestLintCommand_ReportsUnannotated(t *testing.T) {
 	deps, stdout, stderr, db := setupLintTest(t)
 
 	db.Create(&model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "pkg/svc.go::Handle",
 		Kind:          model.NodeKindFunction,
 		Name:          "Handle",
@@ -175,6 +180,7 @@ func TestLintCommand_Strict_FailsOnIssues(t *testing.T) {
 	deps, stdout, stderr, db := setupLintTest(t)
 
 	db.Create(&model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "pkg/bare.go::Bare",
 		Kind:          model.NodeKindFunction,
 		Name:          "Bare",
@@ -195,6 +201,7 @@ func TestLintCommand_Strict_PassesWhenClean(t *testing.T) {
 	deps, stdout, stderr, db := setupLintTest(t)
 
 	fn := model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "pkg/ok.go::Ok",
 		Kind:          model.NodeKindFunction,
 		Name:          "Ok",
@@ -226,6 +233,7 @@ func TestLintCommand_ReportsContradiction(t *testing.T) {
 	deps, stdout, stderr, db := setupLintTest(t)
 
 	node := model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "pkg/auth.go::Login",
 		Kind:          model.NodeKindFunction,
 		Name:          "Login",
@@ -261,6 +269,7 @@ func TestLintCommand_ReportsDeadRef(t *testing.T) {
 	deps, stdout, stderr, db := setupLintTest(t)
 
 	node := model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "pkg/pay.go::Pay",
 		Kind:          model.NodeKindFunction,
 		Name:          "Pay",
@@ -295,6 +304,7 @@ func TestLintCommand_ReportsIncomplete(t *testing.T) {
 	deps, stdout, stderr, db := setupLintTest(t)
 
 	node := model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "pkg/util.go::Format",
 		Kind:          model.NodeKindFunction,
 		Name:          "Format",
@@ -328,6 +338,7 @@ func TestLintCommand_IgnoreRule_ExcludedFromStrict(t *testing.T) {
 
 	// Create unannotated node
 	db.Create(&model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "pkg/ignored.go::Ignored",
 		Kind:          model.NodeKindFunction,
 		Name:          "Ignored",
@@ -366,6 +377,7 @@ func TestLintCommand_IgnoreRule_RegexPattern(t *testing.T) {
 
 	// Create two unannotated nodes under pkg/store/
 	db.Create(&model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "pkg/store/user.go::CreateUser",
 		Kind:          model.NodeKindFunction,
 		Name:          "CreateUser",
@@ -374,6 +386,7 @@ func TestLintCommand_IgnoreRule_RegexPattern(t *testing.T) {
 		Hash: "h1", Language: "go",
 	})
 	db.Create(&model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "pkg/store/order.go::CreateOrder",
 		Kind:          model.NodeKindFunction,
 		Name:          "CreateOrder",
@@ -413,6 +426,7 @@ func TestLintCommand_IgnoreRule_RegexDoesNotOverMatch(t *testing.T) {
 
 	// Create two nodes: one should match regex, one should NOT
 	db.Create(&model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "pkg/store/user.go::CreateUser",
 		Kind:          model.NodeKindFunction,
 		Name:          "CreateUser",
@@ -421,6 +435,7 @@ func TestLintCommand_IgnoreRule_RegexDoesNotOverMatch(t *testing.T) {
 		Hash: "h1", Language: "go",
 	})
 	db.Create(&model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "pkg/api/handler.go::HandleRequest",
 		Kind:          model.NodeKindFunction,
 		Name:          "HandleRequest",
@@ -462,6 +477,7 @@ func TestLintCommand_TwiceRule_TriggersOnSecondRun(t *testing.T) {
 
 	// Create an unannotated node
 	db.Create(&model.Node{
+		Namespace:     ctxns.DefaultNamespace,
 		QualifiedName: "pkg/bare.go::Bare",
 		Kind:          model.NodeKindFunction,
 		Name:          "Bare",
