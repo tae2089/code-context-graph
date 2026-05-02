@@ -22,6 +22,10 @@ func (s *evalSpySearchBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 	return nil
 }
 
+func (s *evalSpySearchBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error {
+	return nil
+}
+
 func (s *evalSpySearchBackend) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error) {
 	if s.queryFn != nil {
 		return s.queryFn(ctx, db, query, limit)

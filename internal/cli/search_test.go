@@ -23,6 +23,9 @@ type spySearchBackend struct {
 
 func (s *spySearchBackend) Migrate(db *gorm.DB) error                      { return nil }
 func (s *spySearchBackend) Rebuild(ctx context.Context, db *gorm.DB) error { return nil }
+func (s *spySearchBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error {
+	return nil
+}
 func (s *spySearchBackend) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error) {
 	if s.queryFn != nil {
 		return s.queryFn(ctx, db, query, limit)
