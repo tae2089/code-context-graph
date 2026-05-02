@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -98,7 +99,12 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 				}
 			}
 			// Silently ignore missing config file; all settings have defaults.
-			_ = viper.ReadInConfig()
+			if err := viper.ReadInConfig(); err != nil {
+				var notFound viper.ConfigFileNotFoundError
+				if !errors.As(err, &notFound) && !errors.Is(err, os.ErrNotExist) {
+					return trace.Wrap(err, "read config")
+				}
+			}
 
 			// 3. Initialize Database if InitFunc is provided
 			if deps.InitFunc != nil && !shouldSkipDBInit(cmd) {

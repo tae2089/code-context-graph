@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 func newTestDeps() (*Deps, *bytes.Buffer, *bytes.Buffer) {
@@ -148,4 +149,29 @@ func findSubCmd(root *cobra.Command, name string) *cobra.Command {
 		}
 	}
 	return nil
+}
+
+func TestRoot_MissingConfigFileIsIgnored(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+
+	deps, stdout, stderr := newTestDeps()
+	if err := executeCmd(deps, stdout, stderr, "--config", filepath.Join(t.TempDir(), "missing.yaml"), "version"); err != nil {
+		t.Fatalf("expected missing config to be ignored, got %v", err)
+	}
+}
+
+func TestRoot_MalformedConfigFails(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+
+	deps, stdout, stderr := newTestDeps()
+	configPath := filepath.Join(t.TempDir(), ".ccg.yaml")
+	if err := os.WriteFile(configPath, []byte("db:\n  driver: [unterminated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := executeCmd(deps, stdout, stderr, "--config", configPath, "version"); err == nil {
+		t.Fatal("expected malformed config to fail")
+	}
 }
