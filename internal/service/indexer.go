@@ -70,10 +70,6 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 
 	s.Logger.Info("building graph", "dir", absDir)
 
-	type deferredEdges struct {
-		relPath string
-		edges   []model.Edge
-	}
 	type parsedFile struct {
 		relPath    string
 		content    []byte
@@ -81,7 +77,6 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		edges      []model.Edge
 		tsComments []treesitter.CommentBlock
 	}
-	var allDeferred []deferredEdges
 	var parsedFiles []parsedFile
 	var walkCandidates []string
 
@@ -143,14 +138,14 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		stats.TotalEdges += len(edges)
 	}
 
-	if err := s.Store.DeleteGraph(ctx); err != nil {
-		return stats, trace.Wrap(err, "reset graph state before rebuild")
-	}
+	err = s.Store.WithTx(ctx, func(txStore store.GraphStore) error {
+		if err := txStore.DeleteGraph(ctx); err != nil {
+			return trace.Wrap(err, "reset graph state before rebuild")
+		}
 
-	for _, parsed := range parsedFiles {
-		walker := s.Walkers[strings.ToLower(filepath.Ext(parsed.relPath))]
+		for _, parsed := range parsedFiles {
+			walker := s.Walkers[strings.ToLower(filepath.Ext(parsed.relPath))]
 
-		err = s.Store.WithTx(ctx, func(txStore store.GraphStore) error {
 			if err := txStore.UpsertNodes(ctx, parsed.nodes); err != nil {
 				return trace.Wrap(err, "upsert nodes for "+parsed.relPath)
 			}
@@ -183,24 +178,21 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 					}
 				}
 			}
-			return nil
-		})
-
-		if err != nil {
-			return stats, trace.Wrap(err, "transaction failed for "+parsed.relPath)
 		}
 
-		if len(parsed.edges) > 0 {
-			allDeferred = append(allDeferred, deferredEdges{relPath: parsed.relPath, edges: parsed.edges})
+		for _, parsed := range parsedFiles {
+			if len(parsed.edges) == 0 {
+				continue
+			}
+			if err := txStore.UpsertEdges(ctx, parsed.edges); err != nil {
+				return trace.Wrap(err, "upsert deferred edges for "+parsed.relPath)
+			}
 		}
-	}
 
-	for _, d := range allDeferred {
-		if err := s.Store.WithTx(ctx, func(txStore store.GraphStore) error {
-			return txStore.UpsertEdges(ctx, d.edges)
-		}); err != nil {
-			return stats, trace.Wrap(err, "upsert deferred edges for "+d.relPath)
-		}
+		return nil
+	})
+	if err != nil {
+		return stats, err
 	}
 
 	if s.SearchBackend != nil && s.DB != nil {
@@ -209,10 +201,9 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 			return stats, err
 		}
 		if err := s.SearchBackend.Rebuild(ctx, s.DB); err != nil {
-			s.Logger.Warn("search index rebuild failed", trace.SlogError(err))
-		} else {
-			s.Logger.Info("search index rebuilt", "documents", docCount)
+			return stats, trace.Wrap(err, "rebuild search index")
 		}
+		s.Logger.Info("search index rebuilt", "documents", docCount)
 	}
 
 	s.Logger.Info("build complete", "files", stats.TotalFiles, "nodes", stats.TotalNodes, "edges", stats.TotalEdges)
@@ -249,15 +240,10 @@ func RefreshSearchDocuments(ctx context.Context, db *gorm.DB) (int, error) {
 	}
 	count := 0
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		docsQ := tx.WithContext(ctx)
-		nodesQ := tx.WithContext(ctx).Where("kind IN ?", []string{"function", "class", "type", "test", "file"})
-		if ns != "" {
-			docsQ = docsQ.Where("namespace = ?", ns)
-			nodesQ = nodesQ.Where("namespace = ?", ns)
-		}
-		if ns == "" {
-			docsQ = docsQ.Session(&gorm.Session{AllowGlobalUpdate: true})
-		}
+		docsQ := tx.WithContext(ctx).Where("namespace = ?", ns)
+		nodesQ := tx.WithContext(ctx).
+			Where("kind IN ?", []string{"function", "class", "type", "test", "file"}).
+			Where("namespace = ?", ns)
 		if err := docsQ.Delete(&model.SearchDocument{}).Error; err != nil {
 			return trace.Wrap(err, "clear search documents")
 		}

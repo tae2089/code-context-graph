@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 
 	"gorm.io/driver/sqlite"
@@ -481,6 +482,104 @@ func TestBuild_DoesNotWipeOtherNamespaceSearchDocuments(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected ns-b search docs preserved, got %d", count)
+	}
+}
+
+type failSearchBackend struct {
+	err error
+}
+
+func (f *failSearchBackend) Rebuild(ctx context.Context, db *gorm.DB) error { return f.err }
+func (f *failSearchBackend) Migrate(db *gorm.DB) error                       { return nil }
+func (f *failSearchBackend) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error) {
+	return nil, nil
+}
+
+func TestBuild_PropagatesSearchBackendRebuildError(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:?_pragma=journal_mode(WAL)"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := db.AutoMigrate(&model.SearchDocument{}); err != nil {
+		t.Fatalf("migrate search docs: %v", err)
+	}
+
+	svc := &GraphService{
+		Store:         st,
+		DB:            db,
+		SearchBackend: &failSearchBackend{err: errors.New("fts rebuild boom")},
+		Walkers:       map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:        slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "sample.go"), []byte("package sample\n\nfunc Keep() {}\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	_, err = svc.Build(context.Background(), BuildOptions{Dir: tmpDir})
+	if err == nil {
+		t.Fatal("expected build to fail when search backend rebuild fails")
+	}
+	if !strings.Contains(err.Error(), "rebuild search index") {
+		t.Fatalf("expected rebuild search index error, got %v", err)
+	}
+}
+
+func TestRefreshSearchDocuments_EmptyNamespace_DoesNotTouchOtherNamespaces(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate store: %v", err)
+	}
+	if err := db.AutoMigrate(&model.SearchDocument{}); err != nil {
+		t.Fatalf("migrate search docs: %v", err)
+	}
+
+	defaultNode := model.Node{Namespace: "", QualifiedName: "pkg.Default", Kind: model.NodeKindFunction, Name: "Default", FilePath: "default.go", StartLine: 1, EndLine: 2, Language: "go"}
+	otherNode := model.Node{Namespace: "tenant-a", QualifiedName: "pkg.Other", Kind: model.NodeKindFunction, Name: "Other", FilePath: "other.go", StartLine: 1, EndLine: 2, Language: "go"}
+	if err := db.Create(&defaultNode).Error; err != nil {
+		t.Fatalf("create default node: %v", err)
+	}
+	if err := db.Create(&otherNode).Error; err != nil {
+		t.Fatalf("create other node: %v", err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: "", NodeID: defaultNode.ID, Content: "stale default", Language: "go"}).Error; err != nil {
+		t.Fatalf("seed default doc: %v", err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: "tenant-a", NodeID: otherNode.ID, Content: "keep tenant-a", Language: "go"}).Error; err != nil {
+		t.Fatalf("seed tenant doc: %v", err)
+	}
+
+	count, err := RefreshSearchDocuments(context.Background(), db)
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected only default namespace docs rebuilt, got %d", count)
+	}
+
+	var otherCount int64
+	if err := db.Model(&model.SearchDocument{}).Where("namespace = ?", "tenant-a").Count(&otherCount).Error; err != nil {
+		t.Fatalf("count tenant docs: %v", err)
+	}
+	if otherCount != 1 {
+		t.Fatalf("expected tenant-a docs preserved, got %d", otherCount)
+	}
+
+	var defaultCount int64
+	if err := db.Model(&model.SearchDocument{}).Where("namespace = ?", "").Count(&defaultCount).Error; err != nil {
+		t.Fatalf("count default docs: %v", err)
+	}
+	if defaultCount != 1 {
+		t.Fatalf("expected one rebuilt default doc, got %d", defaultCount)
 	}
 }
 
