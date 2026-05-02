@@ -13,19 +13,64 @@ import (
 	"github.com/tae2089/code-context-graph/internal/ragindex"
 )
 
-// ragIndexPath는 doc-index.json의 실효 경로를 반환한다.
-// deps.RagIndexDir이 비어 있으면 ".ccg"를 기본값으로 사용한다.
-// @intent 문서 인덱스 파일 위치를 한 곳에서 계산해 docs 도구들이 같은 경로를 사용하게 한다.
-// @return doc-index.json의 실제 파일 경로를 반환한다.
-func (h *handlers) ragIndexPath(workspace string) string {
+func (h *handlers) ragIndexRoot() string {
 	dir := h.deps.RagIndexDir
 	if dir == "" {
 		dir = ".ccg"
 	}
-	if workspace != "" {
-		return filepath.Join(dir, workspace, "doc-index.json")
+	return dir
+}
+
+func resolveSafeRoot(root string, create bool) (string, error) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve safe root: %w", err)
 	}
-	return filepath.Join(dir, "doc-index.json")
+	if create {
+		if err := os.MkdirAll(absRoot, 0o755); err != nil {
+			return "", fmt.Errorf("create safe root: %w", err)
+		}
+	}
+	if _, err := os.Stat(absRoot); err == nil {
+		realRoot, err := filepath.EvalSymlinks(absRoot)
+		if err != nil {
+			return "", fmt.Errorf("resolve safe root symlinks: %w", err)
+		}
+		return filepath.Clean(realRoot), nil
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("stat safe root: %w", err)
+	}
+	return filepath.Clean(absRoot), nil
+}
+
+func safePathUnderRoot(root, relPath, field string, createRoot bool, allowMissingLeaf bool) (string, error) {
+	clean := filepath.Clean(relPath)
+	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
+		return "", fmt.Errorf("invalid %s: path traversal not allowed", field)
+	}
+	base, err := resolveSafeRoot(root, createRoot)
+	if err != nil {
+		return "", err
+	}
+	target, err := ensureNoSymlinkInPath(base, clean, allowMissingLeaf)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s: %w", field, err)
+	}
+	target = filepath.Clean(target)
+	if target != base && !strings.HasPrefix(target, base+string(os.PathSeparator)) {
+		return "", fmt.Errorf("%s %q is outside configured safe root", field, relPath)
+	}
+	return target, nil
+}
+
+func (h *handlers) resolvedRagIndexPath(workspace string) (string, error) {
+	if workspace != "" {
+		if err := validateWorkspacePath(workspace, ""); err != nil {
+			return "", err
+		}
+		return safePathUnderRoot(h.ragIndexRoot(), filepath.Join(workspace, "doc-index.json"), "workspace", false, false)
+	}
+	return safePathUnderRoot(h.ragIndexRoot(), "doc-index.json", "file_path", false, false)
 }
 
 // buildRagIndex builds the documentation RAG index from generated docs and communities.
@@ -49,10 +94,13 @@ func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolReques
 	}
 
 	if indexDir == "" {
-		indexDir = h.deps.RagIndexDir
-		if indexDir == "" {
-			indexDir = ".ccg"
+		indexDir = h.ragIndexRoot()
+	} else {
+		resolvedIndexDir, err := safePathUnderRoot(h.ragIndexRoot(), indexDir, "index_dir", true, true)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
 		}
+		indexDir = resolvedIndexDir
 	}
 
 	if workspace != "" {
@@ -85,14 +133,18 @@ func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) 
 	communityID := request.GetString("community_id", "")
 	depth := int(request.GetFloat("depth", 0))
 	workspace := request.GetString("workspace", "")
+	indexPath, err := h.resolvedRagIndexPath(workspace)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
 
 	var indexMtime int64
-	if stat, statErr := os.Stat(h.ragIndexPath(workspace)); statErr == nil {
+	if stat, statErr := os.Stat(indexPath); statErr == nil {
 		indexMtime = stat.ModTime().UnixNano()
 	}
 
 	return finalizeToolResult(h.cachedExecute(ctx, "get_rag_tree:", map[string]any{"community_id": communityID, "depth": depth, "workspace": workspace, "mtime": indexMtime}, func() (string, error) {
-		idx, err := ragindex.LoadIndex(h.ragIndexPath(workspace))
+		idx, err := ragindex.LoadIndex(indexPath)
 		if err != nil {
 			return "", newToolResultErr(fmt.Sprintf("load doc-index: %v", err))
 		}
@@ -146,7 +198,10 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 			return mcp.NewToolResultError(fmt.Sprintf("resolve workspace path: %v", err)), nil
 		}
 	} else {
-		resolvedPath = clean
+		resolvedPath, err = safePathUnderRoot(h.ragIndexRoot(), clean, "file_path", false, false)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
 	}
 
 	const maxDocFileSizeBytes = 1 << 20 // 1 MB
@@ -187,14 +242,18 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 		limit = 10
 	}
 	workspace := request.GetString("workspace", "")
+	indexPath, err := h.resolvedRagIndexPath(workspace)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
 
 	var indexMtime int64
-	if stat, statErr := os.Stat(h.ragIndexPath(workspace)); statErr == nil {
+	if stat, statErr := os.Stat(indexPath); statErr == nil {
 		indexMtime = stat.ModTime().UnixNano()
 	}
 
 	return finalizeToolResult(h.cachedExecute(ctx, "search_docs:", map[string]any{"query": query, "limit": limit, "workspace": workspace, "mtime": indexMtime}, func() (string, error) {
-		idx, err := ragindex.LoadIndex(h.ragIndexPath(workspace))
+		idx, err := ragindex.LoadIndex(indexPath)
 		if err != nil {
 			return "", newToolResultErr(fmt.Sprintf("load doc-index: %v", err))
 		}

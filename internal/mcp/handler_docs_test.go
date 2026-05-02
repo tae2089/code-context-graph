@@ -78,20 +78,19 @@ func TestGetDocContent_NotFound(t *testing.T) {
 
 func TestGetDocContent_HappyPath(t *testing.T) {
 	deps := setupTestDeps(t)
+	deps.RagIndexDir = t.TempDir()
 
-	tmpFile, err := os.CreateTemp(".", "test-doc-*.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpFile.Name())
 	content := "# Test Doc\nHello world"
-	if _, err := tmpFile.WriteString(content); err != nil {
+	docPath := filepath.Join(deps.RagIndexDir, "docs", "test-doc.md")
+	if err := os.MkdirAll(filepath.Dir(docPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	tmpFile.Close()
+	if err := os.WriteFile(docPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	result := callTool(t, deps, "get_doc_content", map[string]any{
-		"file_path": tmpFile.Name(),
+		"file_path": "docs/test-doc.md",
 	})
 	if result.IsError {
 		t.Fatalf("unexpected error: %v", result.Content)
@@ -99,6 +98,50 @@ func TestGetDocContent_HappyPath(t *testing.T) {
 	got := getTextContent(result)
 	if got != content {
 		t.Errorf("want %q, got %q", content, got)
+	}
+}
+
+func TestGetDocContent_NoWorkspaceRejectsOutsideRagIndexDir(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	outside := filepath.Join(tmpDir, "docs", "outside.md")
+	if err := os.MkdirAll(filepath.Dir(outside), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(tmpDir)
+
+	result := callTool(t, deps, "get_doc_content", map[string]any{
+		"file_path": "docs/outside.md",
+	})
+	if !result.IsError {
+		t.Fatal("expected no-workspace get_doc_content to reject paths outside RagIndexDir")
+	}
+}
+
+func TestGetDocContent_NoWorkspaceRejectsSymlinkEscape(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	outside := t.TempDir()
+	if err := os.MkdirAll(deps.RagIndexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret.md"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(deps.RagIndexDir, "link")); err != nil {
+		t.Fatal(err)
+	}
+
+	result := callTool(t, deps, "get_doc_content", map[string]any{
+		"file_path": "link/secret.md",
+	})
+	if !result.IsError {
+		t.Fatal("expected get_doc_content to reject symlink escape under RagIndexDir")
 	}
 }
 
@@ -116,6 +159,14 @@ func TestGetRagTree_InvalidCommunityID(t *testing.T) {
 	})
 	if !result.IsError {
 		t.Fatal("expected error for nonexistent community_id")
+	}
+}
+
+func TestGetRagTree_RejectsInvalidWorkspace(t *testing.T) {
+	deps := setupTestDeps(t)
+	result := callTool(t, deps, "get_rag_tree", map[string]any{"workspace": "../outside"})
+	if !result.IsError {
+		t.Fatal("expected get_rag_tree to reject invalid workspace")
 	}
 }
 
@@ -232,6 +283,14 @@ func TestSearchDocs_NoIndex(t *testing.T) {
 	}
 }
 
+func TestSearchDocs_RejectsInvalidWorkspace(t *testing.T) {
+	deps := setupTestDeps(t)
+	result := callTool(t, deps, "search_docs", map[string]any{"query": "auth", "workspace": "../outside"})
+	if !result.IsError {
+		t.Fatal("expected search_docs to reject invalid workspace")
+	}
+}
+
 func TestBuildRagIndex_WithWorkspace(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()
@@ -250,6 +309,54 @@ func TestBuildRagIndex_WithWorkspace(t *testing.T) {
 	content := getTextContent(result)
 	if !strings.Contains(content, "Built doc-index:") {
 		t.Errorf("expected 'Built doc-index:' in output, got: %s", content)
+	}
+}
+
+func TestBuildRagIndex_NoWorkspaceRejectsIndexDirOutsideSafeRoot(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	outside := filepath.Join(tmpDir, "outside-index")
+
+	result := callTool(t, deps, "build_rag_index", map[string]any{"index_dir": outside})
+	if !result.IsError {
+		t.Fatal("expected build_rag_index to reject index_dir outside RagIndexDir")
+	}
+}
+
+func TestBuildRagIndex_WorkspaceRejectsIndexDirOutsideSafeRoot(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.WorkspaceRoot = filepath.Join(tmpDir, "workspaces")
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	if err := os.MkdirAll(filepath.Join(deps.WorkspaceRoot, "my-service"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	result := callTool(t, deps, "build_rag_index", map[string]any{
+		"workspace": "my-service",
+		"index_dir": filepath.Join(tmpDir, "outside-index"),
+	})
+	if !result.IsError {
+		t.Fatal("expected workspace build_rag_index to reject index_dir outside RagIndexDir")
+	}
+}
+
+func TestBuildRagIndex_RejectsIndexDirSymlinkEscape(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	outside := t.TempDir()
+	if err := os.MkdirAll(deps.RagIndexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(deps.RagIndexDir, "link")); err != nil {
+		t.Fatal(err)
+	}
+
+	result := callTool(t, deps, "build_rag_index", map[string]any{"index_dir": "link"})
+	if !result.IsError {
+		t.Fatal("expected build_rag_index to reject symlink escape under RagIndexDir")
 	}
 }
 
