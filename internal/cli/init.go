@@ -21,6 +21,10 @@ exclude:
 docs:
   out: docs
 
+parse:
+  max_file_bytes: 0
+  max_total_parsed_bytes: 0
+
 `
 
 // newInitCmd creates the default config scaffolding command.
