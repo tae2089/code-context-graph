@@ -57,7 +57,7 @@ func (h *handlers) logger() *slog.Logger {
 }
 
 func (h *handlers) applyWorkspace(ctx context.Context, request mcp.CallToolRequest) context.Context {
-	return ctxns.WithNamespace(ctx, requestNamespace(request))
+	return ctxns.WithNamespace(ctx, resolveNamespace(ctx, requestNamespace(request)))
 }
 
 func resolveNamespace(ctx context.Context, workspace string) string {
@@ -167,8 +167,7 @@ func (h *handlers) cachedExecute(ctx context.Context, prefix string, params map[
 		cacheParams["namespace"] = resolveNamespace(ctx, namespace)
 		delete(cacheParams, "workspace")
 	} else if workspace, ok := cacheParams["workspace"].(string); ok {
-		cacheParams["namespace"] = resolveNamespace(ctx, workspace)
-		delete(cacheParams, "workspace")
+		cacheParams["workspace"] = resolveNamespace(ctx, workspace)
 	}
 
 	key, err := makeCacheKey(prefix, cacheParams)
