@@ -83,7 +83,7 @@ func (h *handlers) resolvedRagIndexPath(workspace string) (string, error) {
 func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	outDir := request.GetString("out_dir", "")
 	indexDir := request.GetString("index_dir", "")
-	workspace := request.GetString("workspace", "")
+	workspace := requestNamespace(request)
 
 	if workspace != "" {
 		if err := validateWorkspacePath(workspace, ""); err != nil {
@@ -132,7 +132,7 @@ func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolReques
 func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	communityID := request.GetString("community_id", "")
 	depth := int(request.GetFloat("depth", 0))
-	workspace := request.GetString("workspace", "")
+	workspace := requestNamespace(request)
 	indexPath, err := h.resolvedRagIndexPath(workspace)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
@@ -143,7 +143,7 @@ func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) 
 		indexMtime = stat.ModTime().UnixNano()
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "get_rag_tree:", map[string]any{"community_id": communityID, "depth": depth, "workspace": workspace, "mtime": indexMtime}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "get_rag_tree:", map[string]any{"community_id": communityID, "depth": depth, "namespace": workspace, "mtime": indexMtime}, func() (string, error) {
 		idx, err := ragindex.LoadIndex(indexPath)
 		if err != nil {
 			return "", newToolResultErr(fmt.Sprintf("load doc-index: %v", err))
@@ -181,7 +181,7 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 	if err != nil {
 		return missingParamResult(err)
 	}
-	workspace := request.GetString("workspace", "")
+	workspace := requestNamespace(request)
 
 	clean := filepath.Clean(filePath)
 	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
@@ -195,7 +195,7 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 		}
 		resolvedPath, err = h.resolveWorkspacePath(workspace, clean, false)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("resolve workspace path: %v", err)), nil
+			return mcp.NewToolResultError(fmt.Sprintf("resolve namespace path: %v", err)), nil
 		}
 	} else {
 		resolvedPath, err = safePathUnderRoot(h.ragIndexRoot(), clean, "file_path", false, false)
@@ -214,7 +214,7 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 		mtime = stat.ModTime().UnixNano()
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "get_doc_content:", map[string]any{"file_path": filePath, "workspace": workspace, "mtime": mtime}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "get_doc_content:", map[string]any{"file_path": filePath, "namespace": workspace, "mtime": mtime}, func() (string, error) {
 		content, err := os.ReadFile(resolvedPath)
 		if err != nil {
 			return "", newToolResultErr(fmt.Sprintf("read file %q: %v. Run 'ccg docs' to generate documentation files.", filePath, err))
@@ -241,7 +241,7 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 	if limit <= 0 {
 		limit = 10
 	}
-	workspace := request.GetString("workspace", "")
+	workspace := requestNamespace(request)
 	indexPath, err := h.resolvedRagIndexPath(workspace)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
@@ -252,7 +252,7 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 		indexMtime = stat.ModTime().UnixNano()
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "search_docs:", map[string]any{"query": query, "limit": limit, "workspace": workspace, "mtime": indexMtime}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "search_docs:", map[string]any{"query": query, "limit": limit, "namespace": workspace, "mtime": indexMtime}, func() (string, error) {
 		idx, err := ragindex.LoadIndex(indexPath)
 		if err != nil {
 			return "", newToolResultErr(fmt.Sprintf("load doc-index: %v", err))

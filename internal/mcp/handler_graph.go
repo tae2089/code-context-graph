@@ -36,7 +36,7 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 		Count  int
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "list_flows:", map[string]any{"sort_by": sortBy, "limit": limit, "workspace": request.GetString("workspace", "")}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "list_flows:", map[string]any{"sort_by": sortBy, "limit": limit, "namespace": requestNamespace(request)}, func() (string, error) {
 		ns := ctxns.FromContext(ctx)
 		var fcRows []flowCount
 		countQ := h.deps.DB.WithContext(ctx).
@@ -126,7 +126,7 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 		Count       int
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "list_communities:", map[string]any{"sort_by": sortBy, "min_size": minSize, "workspace": request.GetString("workspace", "")}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "list_communities:", map[string]any{"sort_by": sortBy, "min_size": minSize, "namespace": requestNamespace(request)}, func() (string, error) {
 		ns := ctxns.FromContext(ctx)
 		var ccRows []commCount
 		countQ := h.deps.DB.WithContext(ctx).
@@ -216,7 +216,7 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 		return mcp.NewToolResultError(fmt.Sprintf("community %d not found", communityID)), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "get_community:", map[string]any{"community_id": communityID, "include_members": includeMembers, "workspace": request.GetString("workspace", "")}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "get_community:", map[string]any{"community_id": communityID, "include_members": includeMembers, "namespace": requestNamespace(request)}, func() (string, error) {
 		ns := ctxns.FromContext(ctx)
 		var memberCount int64
 		memberQ := h.deps.DB.WithContext(ctx).Model(&model.CommunityMembership{}).
@@ -289,7 +289,7 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 	log := h.logger()
 	log.Info("get_architecture_overview called")
 
-	return finalizeToolResult(h.cachedExecute(ctx, "get_architecture_overview:", map[string]any{"workspace": request.GetString("workspace", "")}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "get_architecture_overview:", map[string]any{"namespace": requestNamespace(request)}, func() (string, error) {
 		ns := ctxns.FromContext(ctx)
 		var communities []model.Community
 		communityQ := h.deps.DB.WithContext(ctx).Where("namespace = ?", ns)

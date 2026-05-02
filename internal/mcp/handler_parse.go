@@ -516,7 +516,7 @@ func (h *handlers) validateAnalysisPath(path string) (string, error) {
 	}
 	allowed := h.deps.RepoRoot
 	if allowed == "" {
-		allowed = h.deps.WorkspaceRoot
+		allowed = h.workspaceRoot()
 	}
 	if allowed == "" {
 		return "", fmt.Errorf("analysis root is not configured")

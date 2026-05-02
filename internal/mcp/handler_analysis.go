@@ -48,7 +48,7 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 		return mcp.NewToolResultError("ImpactAnalyzer not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "get_impact_radius:", map[string]any{"qualified_name": qn, "depth": depth, "max_depth": maxDepth, "max_nodes": maxNodes, "workspace": request.GetString("workspace", "")}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "get_impact_radius:", map[string]any{"qualified_name": qn, "depth": depth, "max_depth": maxDepth, "max_nodes": maxNodes, "namespace": requestNamespace(request)}, func() (string, error) {
 		node, err := h.deps.Store.GetNode(ctx, qn)
 		if err != nil {
 			log.Error("store error", "tool", "get_impact_radius", trace.SlogError(err))
@@ -130,7 +130,7 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 	}
 
 	maxNodes := request.GetInt("max_nodes", defaultTraceMaxNodes)
-	return finalizeToolResult(h.cachedExecute(ctx, "trace_flow:", map[string]any{"qualified_name": qn, "max_nodes": maxNodes, "workspace": request.GetString("workspace", "")}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "trace_flow:", map[string]any{"qualified_name": qn, "max_nodes": maxNodes, "namespace": requestNamespace(request)}, func() (string, error) {
 		node, err := h.deps.Store.GetNode(ctx, qn)
 		if err != nil {
 			log.Error("store error", "tool", "trace_flow", trace.SlogError(err))
@@ -220,7 +220,7 @@ func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolReques
 		return mcp.NewToolResultError("ChangesGitClient not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "detect_changes:", map[string]any{"repo_root": repoRoot, "base": base, "workspace": request.GetString("workspace", "")}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "detect_changes:", map[string]any{"repo_root": repoRoot, "base": base, "namespace": requestNamespace(request)}, func() (string, error) {
 		chSvc := changes.New(h.deps.DB, h.deps.ChangesGitClient)
 		risks, err := chSvc.Analyze(ctx, repoRoot, base)
 		if err != nil {
@@ -278,7 +278,7 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 		return mcp.NewToolResultError("ChangesGitClient not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "get_affected_flows:", map[string]any{"repo_root": repoRoot, "base": base, "workspace": request.GetString("workspace", "")}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "get_affected_flows:", map[string]any{"repo_root": repoRoot, "base": base, "namespace": requestNamespace(request)}, func() (string, error) {
 		chSvc := changes.New(h.deps.DB, h.deps.ChangesGitClient)
 		risks, err := chSvc.Analyze(ctx, repoRoot, base)
 		if err != nil {
@@ -369,7 +369,7 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 		return mcp.NewToolResultError("DeadcodeAnalyzer not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "find_dead_code:", map[string]any{"path": pathPrefix, "kinds": kinds, "workspace": request.GetString("workspace", "")}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "find_dead_code:", map[string]any{"path": pathPrefix, "kinds": kinds, "namespace": requestNamespace(request)}, func() (string, error) {
 		nodes, err := h.deps.DeadcodeAnalyzer.Find(ctx, opts)
 		if err != nil {
 			return "", trace.Wrap(err, "deadcode error")
@@ -398,7 +398,7 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 }
 
 func (h *handlers) validateRepoRoot(repoRoot string) (string, error) {
-	return validateRepoRootWithin(repoRoot, h.deps.RepoRoot, h.deps.WorkspaceRoot)
+	return validateRepoRootWithin(repoRoot, h.deps.RepoRoot, h.workspaceRoot())
 }
 
 func validateRepoRootWithin(repoRoot, configuredRepoRoot, workspaceRoot string) (string, error) {
