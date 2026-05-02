@@ -175,3 +175,16 @@ func TestRoot_MalformedConfigFails(t *testing.T) {
 		t.Fatal("expected malformed config to fail")
 	}
 }
+
+func TestRoot_DefaultNamespaceFlagValue(t *testing.T) {
+	deps, _, _ := newTestDeps()
+	cmd := NewRootCmd(deps)
+
+	got, err := cmd.PersistentFlags().GetString("namespace")
+	if err != nil {
+		t.Fatalf("get namespace flag: %v", err)
+	}
+	if got != "default" {
+		t.Fatalf("namespace default = %q, want %q", got, "default")
+	}
+}

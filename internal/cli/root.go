@@ -12,6 +12,7 @@ import (
 	"github.com/tae2089/trace"
 	"gorm.io/gorm"
 
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 	"github.com/tae2089/code-context-graph/internal/store"
@@ -126,7 +127,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	// Global database configuration flags
 	rootCmd.PersistentFlags().String("db-driver", "sqlite", "Database driver (sqlite, postgres)")
 	rootCmd.PersistentFlags().String("db-dsn", "ccg.db", "Database connection string")
-	rootCmd.PersistentFlags().String("namespace", "", "Namespace for data isolation (e.g. --namespace backend)")
+	rootCmd.PersistentFlags().String("namespace", ctxns.DefaultNamespace, "Namespace for data isolation (e.g. --namespace backend)")
 
 	// Bind flags to viper
 	_ = viper.BindPFlag("db.driver", rootCmd.PersistentFlags().Lookup("db-driver"))
