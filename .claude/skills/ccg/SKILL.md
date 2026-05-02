@@ -60,7 +60,7 @@ Related skills:
   /ccg-analyze              — Code analysis & architecture
   /ccg-annotate             — Annotation system & AI workflow
   /ccg-docs                 — Documentation & RAG indexing
-  /ccg-workspace            — File workspace management
+  /ccg-workspace            — Namespace file management
 ```
 
 ## MCP Tools (7)

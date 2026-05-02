@@ -1,27 +1,29 @@
 ---
 name: ccg-workspace
-description: code-context-graph — file workspace management. Upload, list, and delete files in isolated workspaces for MSA source management.
+description: code-context-graph — namespace file management. Upload, list, and delete files in isolated namespace directories for MSA source management.
 ---
 
-# code-context-graph — File Workspace Management
+# code-context-graph — Namespace File Management
 
-Manage file workspaces for uploading, organizing, and deleting source files. Designed for MSA environments where each workspace represents a service.
+Manage namespace file directories for uploading, organizing, and deleting source files. Designed for MSA environments where each namespace represents a service. The skill name remains `ccg-workspace` as a legacy alias.
 
 ## MCP Tools (6)
 
 | Tool | Description |
 |------|-------------|
-| `upload_file` | Upload a single file to workspace (base64 encoded content) |
-| `upload_files` | Upload multiple files to workspaces in a single call (JSON array) |
-| `list_workspaces` | List all workspaces |
-| `list_files` | List files in a workspace |
-| `delete_file` | Delete a single file from workspace |
-| `delete_workspace` | Delete an entire workspace and all its files |
+| `upload_file` | Upload a single file to namespace (base64 encoded content) |
+| `upload_files` | Upload multiple files to namespaces in a single call (JSON array) |
+| `list_namespaces` | List all namespaces |
+| `list_workspaces` | Deprecated alias for `list_namespaces` |
+| `list_files` | List files in a namespace |
+| `delete_file` | Delete a single file from namespace |
+| `delete_namespace` | Delete an entire namespace and all its files |
+| `delete_workspace` | Deprecated alias for `delete_namespace` |
 
-## File Storage Structure
+## Namespace Directory Structure
 
 ```
-{workspace-root}/
+{namespace-root}/
 ├── payment-svc/
 │   ├── handler.go
 │   └── service.go
@@ -32,44 +34,44 @@ Manage file workspaces for uploading, organizing, and deleting source files. Des
     └── router.go
 ```
 
-- Workspace root is configured via `--workspace-root <dir>` (default: `workspaces`)
-- Each workspace maps to a service/module directory: `{workspace}/{file}.md`
+- Canonical root flag is `--namespace-root <dir>` (default: `workspaces`); `--workspace-root` remains a deprecated alias
+- Each namespace maps to a service/module directory: `{namespace}/{file}`
 - File content is uploaded as base64-encoded strings
 
 ## Usage Examples
 
 ### Upload a single file
 ```
-→ upload_file(workspace: "payment-svc", file_path: "handler.go", content: "<base64>")
+→ upload_file(namespace: "payment-svc", file_path: "handler.go", content: "<base64>")
 ```
 
 ### Bulk upload multiple files
 ```
-→ upload_files(files: '[{"workspace":"payment-svc","file_path":"handler.go","content":"<base64>"},{"workspace":"payment-svc","file_path":"service.go","content":"<base64>"}]')
+→ upload_files(files: '[{"namespace":"payment-svc","file_path":"handler.go","content":"<base64>"},{"namespace":"payment-svc","file_path":"service.go","content":"<base64>"}]')
 ```
 
 Note: `files` parameter is a JSON string containing an array of file entries.
 
-### List all workspaces
+### List all namespaces
 ```
-→ list_workspaces()
+→ list_namespaces()
 → Returns: ["payment-svc", "user-svc", "gateway"]
 ```
 
-### List files in a workspace
+### List files in a namespace
 ```
-→ list_files(workspace: "payment-svc")
+→ list_files(namespace: "payment-svc")
 → Returns: ["handler.go", "service.go"]
 ```
 
 ### Delete a file
 ```
-→ delete_file(workspace: "payment-svc", file_path: "handler.go")
+→ delete_file(namespace: "payment-svc", file_path: "handler.go")
 ```
 
-### Delete entire workspace
+### Delete entire namespace
 ```
-→ delete_workspace(workspace: "payment-svc")
+→ delete_namespace(namespace: "payment-svc")
 → Removes payment-svc/ directory and all files within
 ```
 
@@ -78,25 +80,25 @@ Note: `files` parameter is a JSON string containing an array of file entries.
 After uploading files, build the graph and search:
 
 ```
-1. upload_file(workspace: "payment-svc", file_path: "handler.go", content: "<base64>")
-2. build_or_update_graph(path: "{workspace-root}/payment-svc")  — see /ccg skill
+1. upload_file(namespace: "payment-svc", file_path: "handler.go", content: "<base64>")
+2. build_or_update_graph(path: "{namespace-root}/payment-svc")  — see /ccg skill
 3. search(query: "payment")  — see /ccg skill
 ```
 
 ## E2E Pipeline: Upload Docs → RAG Index → Search → Read
 
-Upload documentation files to a workspace, then build and query the RAG index:
+Upload documentation files to a namespace directory, then build and query the RAG index:
 
 ```
-1. upload_file(workspace: "my-service", file_path: "docs/internal/handler.go.md", content: "<base64>")
-2. build_rag_index(workspace: "my-service")  — see /ccg-docs skill
-3. search_docs(query: "handler", workspace: "my-service")
-4. get_rag_tree(workspace: "my-service")
-5. get_doc_content(workspace: "my-service", file_path: "docs/internal/handler.go.md")
+1. upload_file(namespace: "my-service", file_path: "docs/internal/handler.go.md", content: "<base64>")
+2. build_rag_index(namespace: "my-service")  — see /ccg-docs skill
+3. search_docs(query: "handler", namespace: "my-service")
+4. get_rag_tree(namespace: "my-service")
+5. get_doc_content(namespace: "my-service", file_path: "docs/internal/handler.go.md")
 ```
 
 ## Security
 
-- Path traversal attacks are blocked (`../` in workspace or file_path)
+- Path traversal attacks are blocked (`../` in namespace or file_path)
 - File size is validated before writing
-- Workspace names are sanitized
+- Namespace names are sanitized

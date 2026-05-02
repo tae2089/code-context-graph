@@ -22,10 +22,10 @@ Generate Markdown documentation from code graphs, build RAG indexes for AI consu
 
 | Tool | Description |
 |------|-------------|
-| `build_rag_index` | Build RAG index from docs and communities. Supports `workspace` parameter to read docs from a workspace directory. |
-| `get_rag_tree` | Navigate RAG document tree. Supports `workspace` parameter to read workspace-specific doc-index.json. |
-| `get_doc_content` | Get documentation file content. Supports `workspace` parameter to read from a workspace directory. |
-| `search_docs` | Search RAG document tree by keyword. Supports `workspace` parameter to search workspace-specific doc-index.json. |
+| `build_rag_index` | Build RAG index from docs and communities. Use `namespace` for namespace-specific docs; `workspace` remains a deprecated alias. |
+| `get_rag_tree` | Navigate RAG document tree. Use `namespace` for namespace-specific doc-index.json; `workspace` remains a deprecated alias. |
+| `get_doc_content` | Get documentation file content. Use `namespace` for namespace-scoped docs; `workspace` remains a deprecated alias. |
+| `search_docs` | Search RAG document tree by keyword. Use `namespace` for namespace-specific searches; `workspace` remains a deprecated alias. |
 
 ## Lint Categories (8)
 
@@ -56,13 +56,13 @@ User: "RAG 인덱스 만들어줘"
 → Creates searchable document tree from docs + communities
 ```
 
-### Build RAG index from workspace docs
+### Build RAG index from namespace docs
 ```
-User: "my-service workspace 문서로 RAG 인덱스 만들어줘"
-→ upload_file(workspace: "my-service", file_path: "docs/handler.go.md", content: "<base64>")
-→ build_rag_index(workspace: "my-service")
+User: "my-service namespace 문서로 RAG 인덱스 만들어줘"
+→ upload_file(namespace: "my-service", file_path: "docs/handler.go.md", content: "<base64>")
+→ build_rag_index(namespace: "my-service")
 → search_docs(query: "handler")
-→ get_doc_content(workspace: "my-service", file_path: "docs/handler.go.md")
+→ get_doc_content(namespace: "my-service", file_path: "docs/handler.go.md")
 ```
 
 ### Check documentation quality
