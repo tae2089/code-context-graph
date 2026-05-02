@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/gob"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -37,6 +38,33 @@ type parsedBuildNodeBatch struct {
 type parsedBuildEdgeBatch struct {
 	relPath string
 	edges   []model.Edge
+}
+
+type spooledBuildRecord struct {
+	RelPath     string
+	Nodes       []model.Node
+	Comments    []treesitter.CommentBlock
+	Language    string
+	SourceLines []string
+	Edges       []model.Edge
+	Bytes       int64
+}
+
+type buildSpool struct {
+	dir     string
+	records []string
+	stats   BuildStats
+}
+
+type spooledUpdateRecord struct {
+	Files map[string]incremental.FileInfo
+	Bytes int64
+}
+
+type updateSpool struct {
+	dir          string
+	records      []string
+	currentFiles map[string]struct{}
 }
 
 var testBuildBatchReleaseHook func([]parsedBuildNodeBatch, int)
@@ -197,8 +225,15 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		return stats, err
 	}
 
+	spool, err := s.prepareBuildSpool(ctx, absDir, opts)
+	if err != nil {
+		return stats, err
+	}
+	defer spool.cleanup(s.logger())
+	stats = spool.stats
+
 	err = s.withBuildTx(ctx, opts, func(txStore store.GraphStore, txDB *gorm.DB) error {
-		return s.buildGraphInTx(ctx, txStore, txDB, absDir, opts, &stats)
+		return s.applyBuildSpoolInTx(ctx, txStore, txDB, opts, spool)
 	})
 	if err != nil {
 		return stats, err
@@ -223,16 +258,15 @@ func (s *GraphService) withBuildTx(ctx context.Context, opts BuildOptions, fn fu
 	return txStore.WithTxDB(ctx, fn)
 }
 
-func (s *GraphService) buildGraphInTx(ctx context.Context, txStore store.GraphStore, txDB *gorm.DB, absDir string, opts BuildOptions, stats *BuildStats) error {
-	if err := ctx.Err(); err != nil {
-		return err
+func (s *GraphService) prepareBuildSpool(ctx context.Context, absDir string, opts BuildOptions) (*buildSpool, error) {
+	dir, err := os.MkdirTemp("", "ccg-build-spool-*")
+	if err != nil {
+		return nil, trace.Wrap(err, "create build spool")
 	}
-	if err := txStore.DeleteGraph(ctx); err != nil {
-		return trace.Wrap(err, "reset graph state before rebuild")
-	}
-
-	batch := buildPersistBatch{}
+	spool := &buildSpool{dir: dir}
 	var totalParsedBytes int64
+	var seq int
+
 	if err := walkMatchingFiles(ctx, absDir, opts, func(path, relPath string) error {
 		parser, ok := s.parserForExt(strings.ToLower(filepath.Ext(path)))
 		if !ok {
@@ -265,17 +299,105 @@ func (s *GraphService) buildGraphInTx(ctx context.Context, txStore store.GraphSt
 			return trace.Wrap(err, "parse build file "+relPath)
 		}
 
-		batch.add(newParsedBuildNodeBatch(relPath, content, nodes, tsComments, language), newParsedBuildEdgeBatch(relPath, edges), contentBytes)
-		stats.TotalFiles++
-		stats.TotalNodes += len(nodes)
-		stats.TotalEdges += len(edges)
-
-		if batch.shouldFlush() {
-			return s.flushBuildBatch(ctx, txStore, &batch)
+		nodeBatch := newParsedBuildNodeBatch(relPath, content, nodes, tsComments, language)
+		record := spooledBuildRecord{
+			RelPath:     relPath,
+			Nodes:       nodes,
+			Comments:    tsComments,
+			Language:    language,
+			SourceLines: nodeBatch.sourceLines,
+			Edges:       edges,
+			Bytes:       contentBytes,
 		}
+		if err := spool.writeRecord(seq, record); err != nil {
+			return err
+		}
+		seq++
+		spool.stats.TotalFiles++
+		spool.stats.TotalNodes += len(nodes)
+		spool.stats.TotalEdges += len(edges)
 		return nil
 	}); err != nil {
-		return trace.Wrap(err, "walk build directory")
+		spool.cleanup(s.logger())
+		return nil, trace.Wrap(err, "walk build directory")
+	}
+
+	return spool, nil
+}
+
+func (b *buildSpool) writeRecord(seq int, record spooledBuildRecord) error {
+	path := filepath.Join(b.dir, fmt.Sprintf("%06d.gob", seq))
+	file, err := os.Create(path)
+	if err != nil {
+		return trace.Wrap(err, "create build spool record")
+	}
+	encErr := gob.NewEncoder(file).Encode(record)
+	closeErr := file.Close()
+	if encErr != nil {
+		return trace.Wrap(encErr, "encode build spool record")
+	}
+	if closeErr != nil {
+		return trace.Wrap(closeErr, "close build spool record")
+	}
+	b.records = append(b.records, path)
+	return nil
+}
+
+func (b *buildSpool) readRecord(path string) (spooledBuildRecord, error) {
+	var record spooledBuildRecord
+	file, err := os.Open(path)
+	if err != nil {
+		return record, trace.Wrap(err, "open build spool record")
+	}
+	decodeErr := gob.NewDecoder(file).Decode(&record)
+	closeErr := file.Close()
+	if decodeErr != nil {
+		return record, trace.Wrap(decodeErr, "decode build spool record")
+	}
+	if closeErr != nil {
+		return record, trace.Wrap(closeErr, "close build spool record")
+	}
+	return record, nil
+}
+
+func (b *buildSpool) cleanup(logger *slog.Logger) {
+	if b == nil || b.dir == "" {
+		return
+	}
+	if err := os.RemoveAll(b.dir); err != nil && logger != nil {
+		logger.Warn("cleanup build spool failed", "dir", b.dir, "error", err)
+	}
+}
+
+func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.GraphStore, txDB *gorm.DB, opts BuildOptions, spool *buildSpool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := txStore.DeleteGraph(ctx); err != nil {
+		return trace.Wrap(err, "reset graph state before rebuild")
+	}
+
+	batch := buildPersistBatch{}
+	for _, path := range spool.records {
+		record, err := spool.readRecord(path)
+		if err != nil {
+			return err
+		}
+		batch.add(parsedBuildNodeBatch{
+			relPath:     record.RelPath,
+			nodes:       record.Nodes,
+			tsComments:  record.Comments,
+			language:    record.Language,
+			sourceLines: record.SourceLines,
+		}, parsedBuildEdgeBatch{
+			relPath: record.RelPath,
+			edges:   record.Edges,
+		}, record.Bytes)
+		if batch.shouldFlush() {
+			if err := s.flushBuildBatch(ctx, txStore, &batch); err != nil {
+				return err
+			}
+		}
 	}
 	if err := s.flushBuildBatch(ctx, txStore, &batch); err != nil {
 		return err
@@ -367,10 +489,20 @@ func (s *GraphService) Update(ctx context.Context, opts UpdateOptions) (*increme
 
 	s.logger().Info("incremental update", "dir", absDir)
 
+	if _, ok := opts.Syncer.(transactionalIncrementalSyncer); !ok || s.Store == nil {
+		return s.updateGraphWithoutTx(ctx, absDir, opts)
+	}
+
+	spool, err := s.prepareUpdateSpool(ctx, absDir, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer spool.cleanup(s.logger())
+
 	stats := &incremental.SyncStats{}
 	err = s.withUpdateTx(ctx, opts, func(txStore store.GraphStore, txDB *gorm.DB) error {
 		var err error
-		stats, err = s.updateGraphInTx(ctx, txStore, txDB, absDir, opts)
+		stats, err = s.applyUpdateSpoolInTx(ctx, txStore, txDB, opts, spool)
 		return err
 	})
 	if err != nil {
@@ -405,27 +537,26 @@ func (s *GraphService) withUpdateTx(ctx context.Context, opts UpdateOptions, fn 
 	return txStore.WithTxDB(ctx, fn)
 }
 
-func (s *GraphService) updateGraphInTx(ctx context.Context, txStore store.GraphStore, txDB *gorm.DB, absDir string, opts UpdateOptions) (*incremental.SyncStats, error) {
-	if txStore == nil {
-		return s.updateGraphWithoutTx(ctx, absDir, opts)
+func (s *GraphService) prepareUpdateSpool(ctx context.Context, absDir string, opts UpdateOptions) (*updateSpool, error) {
+	dir, err := os.MkdirTemp("", "ccg-update-spool-*")
+	if err != nil {
+		return nil, trace.Wrap(err, "create update spool")
 	}
-
-	syncer := opts.Syncer
-	stats := &incremental.SyncStats{}
+	spool := &updateSpool{dir: dir, currentFiles: make(map[string]struct{})}
 	batch := make(map[string]incremental.FileInfo)
-	currentFiles := make(map[string]struct{})
 	var batchBytes int64
 	var totalParsedBytes int64
+	var seq int
 
-	flush := func(existingFiles []string) error {
-		if len(batch) == 0 && len(existingFiles) == 0 {
+	flush := func() error {
+		if len(batch) == 0 {
 			return nil
 		}
-		batchStats, err := syncIncrementalBatch(ctx, syncer, txStore, batch, existingFiles)
-		if err != nil {
-			return trace.Wrap(err, "incremental sync")
+		record := spooledUpdateRecord{Files: batch, Bytes: batchBytes}
+		if err := spool.writeRecord(seq, record); err != nil {
+			return err
 		}
-		addSyncStats(stats, batchStats)
+		seq++
 		batch = make(map[string]incremental.FileInfo)
 		batchBytes = 0
 		return nil
@@ -463,17 +594,41 @@ func (s *GraphService) updateGraphInTx(ctx context.Context, txStore store.GraphS
 			Hash:    hex.EncodeToString(hash[:]),
 			Content: content,
 		}
-		currentFiles[relPath] = struct{}{}
+		spool.currentFiles[relPath] = struct{}{}
 		batchBytes += contentBytes
 		if len(batch) >= buildFlushFileBatchSize || batchBytes >= buildFlushParsedBytes {
-			return flush(nil)
+			return flush()
 		}
 		return nil
 	}); err != nil {
+		spool.cleanup(s.logger())
 		return nil, trace.Wrap(err, "walk update directory")
 	}
-	if err := flush(nil); err != nil {
+	if err := flush(); err != nil {
+		spool.cleanup(s.logger())
 		return nil, err
+	}
+	return spool, nil
+}
+
+func (s *GraphService) applyUpdateSpoolInTx(ctx context.Context, txStore store.GraphStore, txDB *gorm.DB, opts UpdateOptions, spool *updateSpool) (*incremental.SyncStats, error) {
+	if txStore == nil {
+		return nil, trace.New("incremental update requires transaction-scoped store")
+	}
+
+	syncer := opts.Syncer
+	stats := &incremental.SyncStats{}
+
+	for _, path := range spool.records {
+		record, err := spool.readRecord(path)
+		if err != nil {
+			return nil, err
+		}
+		batchStats, err := syncIncrementalBatch(ctx, syncer, txStore, record.Files, nil)
+		if err != nil {
+			return nil, trace.Wrap(err, "incremental sync")
+		}
+		addSyncStats(stats, batchStats)
 	}
 
 	existingFiles, err := ExistingGraphFiles(ctx, txDBForExistingFiles(txDB, s.DB))
@@ -491,12 +646,16 @@ func (s *GraphService) updateGraphInTx(ctx context.Context, txStore store.GraphS
 	}
 	deletedFiles := make([]string, 0, len(existingFiles))
 	for _, fp := range existingFiles {
-		if _, ok := currentFiles[fp]; !ok {
+		if _, ok := spool.currentFiles[fp]; !ok {
 			deletedFiles = append(deletedFiles, fp)
 		}
 	}
-	if err := flush(deletedFiles); err != nil {
-		return nil, err
+	if len(deletedFiles) > 0 {
+		batchStats, err := syncIncrementalBatch(ctx, syncer, txStore, nil, deletedFiles)
+		if err != nil {
+			return nil, trace.Wrap(err, "incremental sync")
+		}
+		addSyncStats(stats, batchStats)
 	}
 
 	if !opts.SkipSearchRebuild && s.SearchBackend != nil && s.DB != nil {
@@ -508,6 +667,50 @@ func (s *GraphService) updateGraphInTx(ctx context.Context, txStore store.GraphS
 		}
 	}
 	return stats, nil
+}
+
+func (u *updateSpool) writeRecord(seq int, record spooledUpdateRecord) error {
+	path := filepath.Join(u.dir, fmt.Sprintf("%06d.gob", seq))
+	file, err := os.Create(path)
+	if err != nil {
+		return trace.Wrap(err, "create update spool record")
+	}
+	encErr := gob.NewEncoder(file).Encode(record)
+	closeErr := file.Close()
+	if encErr != nil {
+		return trace.Wrap(encErr, "encode update spool record")
+	}
+	if closeErr != nil {
+		return trace.Wrap(closeErr, "close update spool record")
+	}
+	u.records = append(u.records, path)
+	return nil
+}
+
+func (u *updateSpool) readRecord(path string) (spooledUpdateRecord, error) {
+	var record spooledUpdateRecord
+	file, err := os.Open(path)
+	if err != nil {
+		return record, trace.Wrap(err, "open update spool record")
+	}
+	decodeErr := gob.NewDecoder(file).Decode(&record)
+	closeErr := file.Close()
+	if decodeErr != nil {
+		return record, trace.Wrap(decodeErr, "decode update spool record")
+	}
+	if closeErr != nil {
+		return record, trace.Wrap(closeErr, "close update spool record")
+	}
+	return record, nil
+}
+
+func (u *updateSpool) cleanup(logger *slog.Logger) {
+	if u == nil || u.dir == "" {
+		return
+	}
+	if err := os.RemoveAll(u.dir); err != nil && logger != nil {
+		logger.Warn("cleanup update spool failed", "dir", u.dir, "error", err)
+	}
 }
 
 func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, opts UpdateOptions) (*incremental.SyncStats, error) {

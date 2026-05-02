@@ -1073,6 +1073,30 @@ func Run() {}
 	}
 }
 
+func TestBuildOrUpdateGraph_FailClosedOnCommunityFailure(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.CommunityBuilder = &mockCommunityBuilder{err: errors.New("community rebuild boom")}
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "svc.go", `package svc
+
+func Run() {}
+`)
+
+	result := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":               dir,
+		"full_rebuild":       true,
+		"postprocess":        "full",
+		"postprocess_policy": "fail_closed",
+	})
+	if !result.IsError {
+		t.Fatalf("expected fail_closed community failure to return tool error, got: %s", getTextContent(result))
+	}
+	if !strings.Contains(getTextContent(result), "community rebuild boom") {
+		t.Fatalf("unexpected error: %s", getTextContent(result))
+	}
+}
+
 func TestBuildOrUpdateGraph_DegradedOnSearchDocumentRefreshFailure(t *testing.T) {
 	deps := setupTestDeps(t)
 	origRefresh := refreshSearchDocuments

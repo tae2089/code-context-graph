@@ -119,7 +119,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 	if postprocess != "full" && postprocess != "minimal" && postprocess != "none" {
 		return mcp.NewToolResultError("postprocess must be full, minimal, or none"), nil
 	}
-	failClosedSearch := postprocessPolicy == "fail_closed" && postprocess != "none"
+	failClosed := postprocessPolicy == "fail_closed" && postprocess != "none"
 
 	log.Info("build_or_update_graph called", "path", dirPath, "full_rebuild", fullRebuild, "postprocess", postprocess, "postprocess_policy", postprocessPolicy)
 
@@ -138,7 +138,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 			IncludePaths:        includePaths,
 			MaxFileBytes:        h.deps.MaxFileBytes,
 			MaxTotalParsedBytes: h.deps.MaxTotalParsedBytes,
-			SkipSearchRebuild:   !failClosedSearch,
+			SkipSearchRebuild:   !failClosed,
 		})
 		if err != nil {
 			return nil, err
@@ -153,7 +153,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 				IncludePaths:        includePaths,
 				MaxFileBytes:        h.deps.MaxFileBytes,
 				MaxTotalParsedBytes: h.deps.MaxTotalParsedBytes,
-				SkipSearchRebuild:   !failClosedSearch,
+				SkipSearchRebuild:   !failClosed,
 			},
 			Syncer:  h.deps.Incremental,
 			Replace: replace,
@@ -178,12 +178,15 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		if h.deps.CommunityBuilder != nil {
 			_, err := h.deps.CommunityBuilder.Rebuild(ctx, community.Config{Depth: 2})
 			if err != nil {
+				if failClosed {
+					return mcp.NewToolResultError(err.Error()), nil
+				}
 				log.Warn("community rebuild failed", trace.SlogError(err))
 				failedSteps = append(failedSteps, "communities")
 			}
 		}
 		// search 재빌드
-		if h.deps.SearchBackend != nil && !failClosedSearch {
+		if h.deps.SearchBackend != nil && !failClosed {
 			if _, err := refreshSearchDocuments(ctx, h.deps.DB); err != nil {
 				log.Warn("search document refresh failed", trace.SlogError(err))
 				failedSteps = append(failedSteps, "search_documents")
@@ -196,7 +199,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 	case "minimal":
 		skippedSteps = append(skippedSteps, "communities", "flows")
 		// search만 재빌드
-		if h.deps.SearchBackend != nil && !failClosedSearch {
+		if h.deps.SearchBackend != nil && !failClosed {
 			if _, err := refreshSearchDocuments(ctx, h.deps.DB); err != nil {
 				log.Warn("search document refresh failed", trace.SlogError(err))
 				failedSteps = append(failedSteps, "search_documents")

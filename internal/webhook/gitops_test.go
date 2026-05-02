@@ -137,6 +137,51 @@ func TestGitOps_CloneRepo(t *testing.T) {
 	}
 }
 
+func TestGitOps_CloneFailurePreservesExistingNonRepoDir(t *testing.T) {
+	destRoot := t.TempDir()
+	ns := "test-ns"
+	dest := RepoDir(destRoot, ns)
+	if err := os.MkdirAll(dest, 0755); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(dest, "keep.txt")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := CloneOrPullBranch(context.Background(), "file:///does/not/exist", destRoot, ns, "main", nil)
+	if err == nil {
+		t.Fatal("expected CloneOrPullBranch to fail")
+	}
+	data, readErr := os.ReadFile(sentinel)
+	if readErr != nil {
+		t.Fatalf("existing file should remain after clone failure: %v", readErr)
+	}
+	if string(data) != "keep" {
+		t.Fatalf("existing file content = %q, want keep", string(data))
+	}
+}
+
+func TestGitOps_CloneFailureRemovesOnlyTempDir(t *testing.T) {
+	destRoot := t.TempDir()
+	ns := "test-ns"
+
+	err := CloneOrPullBranch(context.Background(), "file:///does/not/exist", destRoot, ns, "main", nil)
+	if err == nil {
+		t.Fatal("expected CloneOrPullBranch to fail")
+	}
+	if _, statErr := os.Stat(RepoDir(destRoot, ns)); !os.IsNotExist(statErr) {
+		t.Fatalf("dest should not be created on clone failure, stat err=%v", statErr)
+	}
+	entries, readErr := os.ReadDir(filepath.Join(destRoot, ".tmp"))
+	if readErr != nil {
+		t.Fatalf("read temp root: %v", readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected clone temp dir cleanup, found %d entries", len(entries))
+	}
+}
+
 func TestGitOps_PullUpdates(t *testing.T) {
 	bareDir := initBareRepo(t)
 	destRoot := t.TempDir()

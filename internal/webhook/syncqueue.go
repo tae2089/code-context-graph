@@ -50,22 +50,28 @@ type SyncQueue struct {
 	failureTotal    int64
 	lastError       string
 	lastErrorTime   time.Time
+	enqueuedAt      map[string]time.Time
+	processingAt    map[string]time.Time
+	lastSuccessTime time.Time
 	cond            *sync.Cond
 	shutdown        bool
 	wg              sync.WaitGroup
 }
 
 type SyncQueueStats struct {
-	Queued          int       `json:"queued"`
-	Dirty           int       `json:"dirty"`
-	Processing      int       `json:"processing"`
-	TrackedRepos    int       `json:"tracked_repos"`
-	MaxTrackedRepos int       `json:"max_tracked_repos"`
-	QueueFullTotal  int64     `json:"queue_full_total"`
-	FailureTotal    int64     `json:"failure_total"`
-	LastError       string    `json:"last_error,omitempty"`
-	LastErrorTime   time.Time `json:"last_error_time,omitempty"`
-	Shutdown        bool      `json:"shutdown"`
+	Queued              int           `json:"queued"`
+	Dirty               int           `json:"dirty"`
+	Processing          int           `json:"processing"`
+	TrackedRepos        int           `json:"tracked_repos"`
+	MaxTrackedRepos     int           `json:"max_tracked_repos"`
+	QueueFullTotal      int64         `json:"queue_full_total"`
+	FailureTotal        int64         `json:"failure_total"`
+	LastError           string        `json:"last_error,omitempty"`
+	LastErrorTime       time.Time     `json:"last_error_time,omitempty"`
+	OldestQueuedAge     time.Duration `json:"oldest_queued_age"`
+	OldestProcessingAge time.Duration `json:"oldest_processing_age"`
+	LastSuccessTime     time.Time     `json:"last_success_time,omitempty"`
+	Shutdown            bool          `json:"shutdown"`
 }
 
 func NewSyncQueue(workers int, handler SyncHandlerFunc) *SyncQueue {
@@ -103,6 +109,8 @@ func NewSyncQueueWithConfig(ctx context.Context, workers int, handler SyncHandle
 		dirty:           make(map[string]bool),
 		processing:      make(map[string]bool),
 		payloads:        make(map[string]syncPayload),
+		enqueuedAt:      make(map[string]time.Time),
+		processingAt:    make(map[string]time.Time),
 	}
 	q.cond = sync.NewCond(&q.mu)
 
@@ -138,11 +146,13 @@ func (q *SyncQueue) Add(ctx context.Context, repoFullName, cloneURL, branch stri
 	}
 	q.payloads[repoFullName] = syncPayload{ctx: ctx, repoFullName: repoFullName, cloneURL: cloneURL, branch: branch}
 
+	now := time.Now()
 	if q.dirty[repoFullName] {
 		return nil
 	}
 
 	q.dirty[repoFullName] = true
+	q.enqueuedAt[repoFullName] = now
 
 	if !q.processing[repoFullName] {
 		q.queue = append(q.queue, repoFullName)
@@ -179,18 +189,36 @@ func (q *SyncQueue) Shutdown() {
 func (q *SyncQueue) Stats() SyncQueueStats {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	now := time.Now()
 	return SyncQueueStats{
-		Queued:          len(q.queue),
-		Dirty:           len(q.dirty),
-		Processing:      len(q.processing),
-		TrackedRepos:    len(q.payloads),
-		MaxTrackedRepos: q.maxTrackedRepos,
-		QueueFullTotal:  q.queueFullTotal,
-		FailureTotal:    q.failureTotal,
-		LastError:       q.lastError,
-		LastErrorTime:   q.lastErrorTime,
-		Shutdown:        q.shutdown,
+		Queued:              len(q.queue),
+		Dirty:               len(q.dirty),
+		Processing:          len(q.processing),
+		TrackedRepos:        len(q.payloads),
+		MaxTrackedRepos:     q.maxTrackedRepos,
+		QueueFullTotal:      q.queueFullTotal,
+		FailureTotal:        q.failureTotal,
+		LastError:           q.lastError,
+		LastErrorTime:       q.lastErrorTime,
+		OldestQueuedAge:     q.oldestAgeLocked(now, q.enqueuedAt),
+		OldestProcessingAge: q.oldestAgeLocked(now, q.processingAt),
+		LastSuccessTime:     q.lastSuccessTime,
+		Shutdown:            q.shutdown,
 	}
+}
+
+func (q *SyncQueue) oldestAgeLocked(now time.Time, times map[string]time.Time) time.Duration {
+	var oldest time.Duration
+	for _, started := range times {
+		if started.IsZero() {
+			continue
+		}
+		age := now.Sub(started)
+		if age > oldest {
+			oldest = age
+		}
+	}
+	return oldest
 }
 
 func (q *SyncQueue) worker() {
@@ -203,25 +231,28 @@ func (q *SyncQueue) worker() {
 		}
 
 		slog.Info("sync queue processing", "repo", repo)
-		q.safeHandle(repo, payload)
+		success := q.safeHandle(repo, payload)
 		q.done(repo)
+		if success {
+			q.recordSuccess()
+		}
 	}
 }
 
-func (q *SyncQueue) safeHandle(repo string, payload syncPayload) {
+func (q *SyncQueue) safeHandle(repo string, payload syncPayload) bool {
 	cfg := q.retryConfig
 	delay := cfg.BaseDelay
 
 	for attempt := 1; attempt <= cfg.MaxAttempts; attempt++ {
 		err := q.tryHandle(repo, payload)
 		if err == nil {
-			return
+			return true
 		}
 
 		if attempt == cfg.MaxAttempts {
 			slog.Error("sync handler failed, giving up", "repo", repo, "attempts", attempt, "error", err)
 			q.recordFailure(repo, err)
-			return
+			return false
 		}
 
 		slog.Warn("sync handler failed, retrying", "repo", repo, "attempt", attempt, "retryIn", delay, "error", err)
@@ -229,10 +260,10 @@ func (q *SyncQueue) safeHandle(repo string, payload syncPayload) {
 		select {
 		case <-q.ctx.Done():
 			slog.Warn("sync retry cancelled", "repo", repo, "attempt", attempt)
-			return
+			return false
 		case <-payload.ctx.Done():
 			slog.Warn("sync retry cancelled by payload context", "repo", repo, "attempt", attempt)
-			return
+			return false
 		case <-time.After(delay):
 		}
 
@@ -241,6 +272,7 @@ func (q *SyncQueue) safeHandle(repo string, payload syncPayload) {
 			delay = cfg.MaxDelay
 		}
 	}
+	return false
 }
 
 func (q *SyncQueue) recordFailure(repo string, err error) {
@@ -249,6 +281,12 @@ func (q *SyncQueue) recordFailure(repo string, err error) {
 	q.failureTotal++
 	q.lastError = fmt.Sprintf("%s: %v", repo, err)
 	q.lastErrorTime = time.Now()
+}
+
+func (q *SyncQueue) recordSuccess() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.lastSuccessTime = time.Now()
 }
 
 func (q *SyncQueue) tryHandle(repo string, payload syncPayload) (err error) {
@@ -277,7 +315,9 @@ func (q *SyncQueue) get() (string, syncPayload, bool) {
 	repo := q.queue[0]
 	q.queue = q.queue[1:]
 	q.processing[repo] = true
+	q.processingAt[repo] = time.Now()
 	delete(q.dirty, repo)
+	delete(q.enqueuedAt, repo)
 
 	payload := q.payloads[repo]
 	return repo, payload, true
@@ -288,9 +328,13 @@ func (q *SyncQueue) done(repo string) {
 	defer q.mu.Unlock()
 
 	delete(q.processing, repo)
+	delete(q.processingAt, repo)
 
 	if q.dirty[repo] {
 		q.queue = append(q.queue, repo)
+		if q.enqueuedAt[repo].IsZero() {
+			q.enqueuedAt[repo] = time.Now()
+		}
 		q.cond.Signal()
 	} else {
 		delete(q.payloads, repo)

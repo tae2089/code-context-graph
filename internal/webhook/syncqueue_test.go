@@ -566,3 +566,50 @@ func TestSyncQueueStats_ReportsFinalFailure(t *testing.T) {
 	}
 	t.Fatalf("failure stats were not recorded: %+v", q.Stats())
 }
+
+func TestSyncQueueStats_ReportsAgesAndLastSuccess(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{})
+	q := NewSyncQueueWithConfig(context.Background(), 1, func(context.Context, string, string, string) error {
+		close(started)
+		<-release
+		return nil
+	}, QueueConfig{
+		RetryConfig:     RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 2,
+	})
+	defer q.Shutdown()
+
+	if err := q.Add(context.Background(), "org/one", "url-one", "main"); err != nil {
+		t.Fatalf("Add org/one returned error: %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for handler")
+	}
+	if err := q.Add(context.Background(), "org/two", "url-two", "main"); err != nil {
+		t.Fatalf("Add org/two returned error: %v", err)
+	}
+	time.Sleep(20 * time.Millisecond)
+
+	stats := q.Stats()
+	if stats.OldestProcessingAge <= 0 {
+		t.Fatalf("OldestProcessingAge = %v, want > 0", stats.OldestProcessingAge)
+	}
+	if stats.OldestQueuedAge <= 0 {
+		t.Fatalf("OldestQueuedAge = %v, want > 0", stats.OldestQueuedAge)
+	}
+	if !stats.LastSuccessTime.IsZero() {
+		t.Fatalf("LastSuccessTime before success = %v, want zero", stats.LastSuccessTime)
+	}
+
+	close(release)
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		if !q.Stats().LastSuccessTime.IsZero() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("LastSuccessTime was not recorded: %+v", q.Stats())
+}

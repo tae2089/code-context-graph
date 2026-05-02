@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -112,6 +113,40 @@ func TestStatusHandler_ReportsWebhookQueueFull(t *testing.T) {
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestStatusHandler_ReportsWebhookQueueAges(t *testing.T) {
+	q := webhook.NewSyncQueueWithConfig(nil, 0, func(context.Context, string, string, string) error {
+		return nil
+	}, webhook.QueueConfig{
+		RetryConfig:     webhook.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 2,
+	})
+	defer q.Shutdown()
+	if err := q.Add(nil, "org/one", "url", "main"); err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	rec := httptest.NewRecorder()
+
+	statusHandler(func(r *http.Request) error { return nil }, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	webhookBody, ok := body["webhook"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing webhook body: %v", body)
+	}
+	if got, _ := webhookBody["oldest_queued_age"].(float64); got <= 0 {
+		t.Fatalf("oldest_queued_age = %v, want > 0", webhookBody["oldest_queued_age"])
 	}
 }
 

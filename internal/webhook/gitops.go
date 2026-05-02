@@ -173,7 +173,12 @@ func CloneOrPullBranch(ctx context.Context, repoURL, repoRoot, namespace, branch
 
 	repo, err := git.PlainOpen(dest)
 	if err == git.ErrRepositoryNotExists {
-		return cloneRepo(ctx, repoURL, dest, branch, auth)
+		if _, statErr := os.Stat(dest); statErr == nil {
+			return fmt.Errorf("repo path exists but is not a git repository: %s", dest)
+		} else if !os.IsNotExist(statErr) {
+			return fmt.Errorf("stat repo path %s: %w", dest, statErr)
+		}
+		return cloneRepo(ctx, repoURL, repoRoot, dest, namespace, branch, auth)
 	}
 	if err != nil {
 		return fmt.Errorf("open repo %s: %w", dest, err)
@@ -202,7 +207,7 @@ func sanitizeURL(raw string) string {
 	return u.String()
 }
 
-func cloneRepo(ctx context.Context, repoURL, dest, branch string, auth transport.AuthMethod) error {
+func cloneRepo(ctx context.Context, repoURL, repoRoot, dest, namespace, branch string, auth transport.AuthMethod) error {
 	slog.Info("cloning repository", "url", sanitizeURL(repoURL), "dest", dest)
 
 	opts := &git.CloneOptions{
@@ -217,11 +222,32 @@ func cloneRepo(ctx context.Context, repoURL, dest, branch string, auth transport
 		opts.Auth = auth
 	}
 
-	_, err := git.PlainCloneContext(ctx, dest, false, opts)
+	tmpRoot := filepath.Join(repoRoot, ".tmp")
+	if err := os.MkdirAll(tmpRoot, 0755); err != nil {
+		return fmt.Errorf("create clone temp root: %w", err)
+	}
+	tmpDir, err := os.MkdirTemp(tmpRoot, lockFileName(namespace)+"-*")
 	if err != nil {
-		os.RemoveAll(dest)
+		return fmt.Errorf("create clone temp dir: %w", err)
+	}
+	cleanupTemp := true
+	defer func() {
+		if cleanupTemp {
+			_ = os.RemoveAll(tmpDir)
+		}
+	}()
+
+	_, err = git.PlainCloneContext(ctx, tmpDir, false, opts)
+	if err != nil {
 		return fmt.Errorf("clone %s: %w", sanitizeURL(repoURL), err)
 	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+		return fmt.Errorf("create repo parent: %w", err)
+	}
+	if err := os.Rename(tmpDir, dest); err != nil {
+		return fmt.Errorf("promote cloned repo: %w", err)
+	}
+	cleanupTemp = false
 	return nil
 }
 
