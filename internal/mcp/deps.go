@@ -139,6 +139,7 @@ type Deps struct {
 	// RagProjectDesc — root 노드 summary에 사용되는 프로젝트 설명
 	RagProjectDesc string
 
+	NamespaceRoot string
 	WorkspaceRoot string
 	RepoRoot      string
 }
