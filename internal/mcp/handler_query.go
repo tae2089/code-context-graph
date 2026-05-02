@@ -3,13 +3,13 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/pathutil"
 )
 
 // getNode returns detailed metadata for a graph node by qualified name.
@@ -101,7 +101,7 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 		if pathPrefix != "" {
 			filtered := nodes[:0]
 			for _, n := range nodes {
-				if strings.HasPrefix(n.FilePath, pathPrefix) {
+				if pathutil.HasPathPrefix(n.FilePath, pathPrefix) {
 					filtered = append(filtered, n)
 				}
 			}
@@ -423,7 +423,7 @@ func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolR
 		if pathPrefix != "" {
 			filtered := nodes[:0]
 			for _, n := range nodes {
-				if strings.HasPrefix(n.FilePath, pathPrefix) {
+				if pathutil.HasPathPrefix(n.FilePath, pathPrefix) {
 					filtered = append(filtered, n)
 				}
 			}

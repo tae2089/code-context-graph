@@ -265,6 +265,38 @@ func TestHandler_Search_PathFilter(t *testing.T) {
 	}
 }
 
+func TestHandler_Search_PathFilter_RespectsPathBoundary(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+
+	deps.Store.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "internal/api/handler.go::Handle", Kind: model.NodeKindFunction, Name: "Handle", FilePath: "internal/api/handler.go", StartLine: 1, EndLine: 10, Language: "go"},
+		{QualifiedName: "internal/api2/handler.go::Handle2", Kind: model.NodeKindFunction, Name: "Handle2", FilePath: "internal/api2/handler.go", StartLine: 1, EndLine: 10, Language: "go"},
+	})
+	apiNode, _ := deps.Store.GetNode(ctx, "internal/api/handler.go::Handle")
+	api2Node, _ := deps.Store.GetNode(ctx, "internal/api2/handler.go::Handle2")
+
+	deps.DB.Create(&model.SearchDocument{NodeID: apiNode.ID, Content: "handle api request", Language: "go"})
+	deps.DB.Create(&model.SearchDocument{NodeID: api2Node.ID, Content: "handle api request", Language: "go"})
+	deps.SearchBackend.Rebuild(ctx, deps.DB)
+
+	result := callTool(t, deps, "search", map[string]any{"query": "handle", "path": "internal/api"})
+	if result.IsError {
+		t.Fatalf("search returned error: %s", getTextContent(result))
+	}
+
+	var nodes []map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &nodes); err != nil {
+		t.Fatalf("expected JSON array, got: %s", getTextContent(result))
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 boundary-safe result, got %d", len(nodes))
+	}
+	if got := nodes[0]["file_path"]; got != "internal/api/handler.go" {
+		t.Fatalf("unexpected file_path: %v", got)
+	}
+}
+
 func TestHandler_GetAnnotation(t *testing.T) {
 	deps := setupTestDeps(t)
 	ctx := context.Background()
@@ -1459,6 +1491,32 @@ func TestFindLargeFunctions_InvalidLimit(t *testing.T) {
 	}
 	if !strings.Contains(getTextContent(result), "limit must be > 0") {
 		t.Fatalf("unexpected error: %s", getTextContent(result))
+	}
+}
+
+func TestFindLargeFunctions_PathFilter_RespectsPathBoundary(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.LargefuncAnalyzer = &mockLargefuncAnalyzer{result: []model.Node{
+		{QualifiedName: "pkg.API", Kind: model.NodeKindFunction, Name: "API", FilePath: "internal/api/handler.go", StartLine: 1, EndLine: 100},
+		{QualifiedName: "pkg.API2", Kind: model.NodeKindFunction, Name: "API2", FilePath: "internal/api2/handler.go", StartLine: 1, EndLine: 120},
+	}}
+
+	result := callTool(t, deps, "find_large_functions", map[string]any{"path": "internal/api"})
+	if result.IsError {
+		t.Fatalf("find_large_functions error: %s", getTextContent(result))
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+		t.Fatalf("expected JSON, got: %s", getTextContent(result))
+	}
+	if resp["count"].(float64) != 1 {
+		t.Fatalf("expected 1 boundary-safe result, got %v", resp["count"])
+	}
+	results := resp["results"].([]any)
+	entry := results[0].(map[string]any)
+	if entry["file"] != "internal/api/handler.go" {
+		t.Fatalf("unexpected file: %v", entry["file"])
 	}
 }
 
