@@ -265,6 +265,36 @@ func TestSQLiteFTS_Rebuild_EmptyNamespace_PreservesOtherRows(t *testing.T) {
 	}
 }
 
+func TestSQLiteFTS_PurgeNamespace_RemovesOnlyTargetNamespace(t *testing.T) {
+	db := setupTestDB(t)
+	backend := NewSQLiteBackend()
+	if err := backend.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.Exec("INSERT INTO search_fts(node_id, content, language, namespace) VALUES (?, ?, ?, ?), (?, ?, ?, ?)", 1, "alpha", "go", "ns-a", 2, "beta", "go", "ns-b").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := backend.PurgeNamespace(ctxns.WithNamespace(context.Background(), "ns-a"), db); err != nil {
+		t.Fatal(err)
+	}
+
+	var countA, countB int64
+	if err := db.Raw("SELECT count(*) FROM search_fts WHERE namespace = ?", "ns-a").Scan(&countA).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Raw("SELECT count(*) FROM search_fts WHERE namespace = ?", "ns-b").Scan(&countB).Error; err != nil {
+		t.Fatal(err)
+	}
+	if countA != 0 {
+		t.Fatalf("expected ns-a rows purged, got %d", countA)
+	}
+	if countB != 1 {
+		t.Fatalf("expected ns-b rows preserved, got %d", countB)
+	}
+}
+
 func TestSQLiteFTS_Query_SanitizesSpecialCharacters(t *testing.T) {
 	db := setupTestDB(t)
 	seedNodes(t, db)
