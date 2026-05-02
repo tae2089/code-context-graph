@@ -4,7 +4,7 @@ DATE     ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 PKG       = github.com/tae2089/code-context-graph/cmd/ccg
 LDFLAGS   = -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-.PHONY: build install test clean
+.PHONY: build install test test-integration-helpers clean
 
 build:
 	CGO_ENABLED=1 go build -tags "fts5" -ldflags '$(LDFLAGS)' -o ccg ./cmd/ccg/
@@ -12,8 +12,12 @@ build:
 install:
 	CGO_ENABLED=1 go install -tags "fts5" -ldflags '$(LDFLAGS)' ./cmd/ccg/
 
-test:
+test: test-integration-helpers
 	CGO_ENABLED=1 go test -tags "fts5" ./...
+	bash ./scripts/integration-test-helpers_test.sh
+
+test-integration-helpers:
+	bash ./scripts/integration-test-helpers_test.sh
 
 clean:
 	rm -f ccg

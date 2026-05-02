@@ -2,6 +2,7 @@
 set -euo pipefail
 
 COMPOSE_FILE="docker-compose.integration.yml"
+COMPOSE_CMD=${COMPOSE_CMD:-"docker compose"}
 GITEA_URL="http://localhost:3000"
 CCG_URL="http://localhost:18080"
 ADMIN_USER="testadmin"
@@ -13,6 +14,11 @@ REPO_NAME="sample-go"
 REPO2_NAME="sample-calc"
 TMPDIR_CLONE=""
 TMPDIR_CLONE2=""
+KEEP_CONTAINERS=${KEEP_CONTAINERS:-0}
+ARTIFACT_DIR=${ARTIFACT_DIR:-"artifacts/integration-$(date +%Y%m%d-%H%M%S)"}
+DUMP_ON_SUCCESS=${DUMP_ON_SUCCESS:-0}
+WEBHOOK_WAIT_SECONDS=${WEBHOOK_WAIT_SECONDS:-60}
+CCG_E2E_ALLOW_MCP_LOG_FALLBACK=${CCG_E2E_ALLOW_MCP_LOG_FALLBACK:-0}
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -23,13 +29,53 @@ info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 fail()  { echo -e "${RED}[FAIL]${NC} $*"; exit 1; }
 
+compose() {
+    local -a cmd
+    # shellcheck disable=SC2206
+    cmd=( $COMPOSE_CMD )
+    "${cmd[@]}" -f "$COMPOSE_FILE" "$@"
+}
+
+prepare_artifact_dir() {
+    mkdir -p "$ARTIFACT_DIR"
+}
+
+dump_text_artifact() {
+    local name="$1" content="$2"
+    prepare_artifact_dir
+    printf '%s\n' "$content" > "${ARTIFACT_DIR}/${name}"
+}
+
+capture_artifacts() {
+    local reason="$1"
+    prepare_artifact_dir
+    info "Capturing integration artifacts (${reason}) in ${ARTIFACT_DIR}"
+    compose ps > "${ARTIFACT_DIR}/compose-ps.txt" 2>&1 || true
+    compose logs --no-color > "${ARTIFACT_DIR}/compose.log" 2>&1 || true
+    compose logs --no-color ccg > "${ARTIFACT_DIR}/ccg.log" 2>&1 || true
+    compose logs --no-color gitea > "${ARTIFACT_DIR}/gitea.log" 2>&1 || true
+    compose logs --no-color postgres > "${ARTIFACT_DIR}/postgres.log" 2>&1 || true
+}
+
 cleanup() {
+    local status=$?
+    if [ "$status" -ne 0 ] || [ "$DUMP_ON_SUCCESS" = "1" ]; then
+        capture_artifacts "$([ "$status" -eq 0 ] && printf success || printf failure)"
+    fi
     info "Cleaning up..."
     [ -n "$TMPDIR_CLONE" ] && rm -rf "$TMPDIR_CLONE"
     [ -n "$TMPDIR_CLONE2" ] && rm -rf "$TMPDIR_CLONE2"
-    docker compose -f "$COMPOSE_FILE" down -v --remove-orphans 2>/dev/null || true
+    if [ "$KEEP_CONTAINERS" = "1" ]; then
+        warn "KEEP_CONTAINERS=1 set; leaving Docker containers running"
+        return "$status"
+    fi
+    compose down -v --remove-orphans 2>/dev/null || true
+    return "$status"
 }
-trap cleanup EXIT
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    trap cleanup EXIT
+fi
 
 wait_for_health() {
     local url="$1" max="$2" label="$3"
@@ -70,7 +116,17 @@ mcp_call() {
 # Extract text content from MCP response
 mcp_text() {
     local resp="$1"
-    echo "$resp" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['result']['content'][0]['text'])" 2>/dev/null
+    printf '%s' "$resp" | python3 -c '
+import json, sys
+r = json.load(sys.stdin)
+content = r["result"]["content"]
+if not isinstance(content, list) or not content:
+    raise KeyError("missing result.content[0]")
+text = content[0]["text"]
+if not isinstance(text, str):
+    raise TypeError("result.content[0].text must be a string")
+print(text)
+' 2>/dev/null
 }
 
 # Assert MCP response is not an error
@@ -79,13 +135,32 @@ assert_mcp_ok() {
     if [ -z "$resp" ]; then
         fail "❌ ${tool}: empty response"
     fi
-    local is_error
-    is_error=$(echo "$resp" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('result',{}).get('isError',False))" 2>/dev/null) || is_error=""
-    if [ "$is_error" = "True" ]; then
-        local text
-        text=$(mcp_text "$resp")
-        fail "❌ ${tool}: error response: ${text}"
-    fi
+    local validation_error
+    validation_error=$(printf '%s' "$resp" | python3 -c '
+import json, sys
+try:
+    r = json.load(sys.stdin)
+except Exception as exc:
+    print(f"malformed JSON: {exc}", file=sys.stderr)
+    sys.exit(2)
+if not isinstance(r, dict):
+    print("response is not a JSON object", file=sys.stderr)
+    sys.exit(2)
+if r.get("error") is not None:
+    print(f"JSON-RPC error: {r.get('error')}", file=sys.stderr)
+    sys.exit(3)
+result = r.get("result")
+if not isinstance(result, dict):
+    print("missing result object", file=sys.stderr)
+    sys.exit(4)
+if result.get("isError") is True:
+    text = ""
+    content = result.get("content")
+    if isinstance(content, list) and content and isinstance(content[0], dict):
+        text = str(content[0].get("text", ""))
+    print(f"MCP result.isError=true: {text}", file=sys.stderr)
+    sys.exit(5)
+' 2>&1 >/dev/null) || fail "❌ ${tool}: ${validation_error}"
     info "✅ ${tool}: OK"
 }
 
@@ -93,8 +168,9 @@ assert_mcp_ok() {
 assert_mcp_contains() {
     local tool="$1" resp="$2" expected="$3"
     local text
-    text=$(mcp_text "$resp")
-    if echo "$text" | grep -q "$expected"; then
+    assert_mcp_ok "$tool" "$resp"
+    text=$(mcp_text "$resp") || fail "❌ ${tool}: missing result.content[0].text"
+    if [[ "$text" == *"$expected"* ]]; then
         info "✅ ${tool}: contains '${expected}'"
     else
         fail "❌ ${tool}: expected '${expected}' in response, got: ${text:0:200}"
@@ -105,7 +181,13 @@ assert_mcp_contains() {
 assert_mcp_gt0() {
     local tool="$1" resp="$2" field="$3"
     local val
-    val=$(echo "$resp" | python3 -c "import sys,json; r=json.load(sys.stdin); d=json.loads(r['result']['content'][0]['text']); print(d.get('${field}',0))" 2>/dev/null) || val=0
+    assert_mcp_ok "$tool" "$resp"
+    val=$(printf '%s' "$resp" | FIELD="$field" python3 -c '
+import json, os, sys
+r = json.load(sys.stdin)
+d = json.loads(r["result"]["content"][0]["text"])
+print(d.get(os.environ["FIELD"], 0))
+' 2>/dev/null) || val=0
     if [ "${val:-0}" -gt 0 ] 2>/dev/null; then
         info "✅ ${tool}: ${field}=${val}"
     else
@@ -113,19 +195,102 @@ assert_mcp_gt0() {
     fi
 }
 
+graph_nodes_for_workspace() {
+    local workspace="$1" resp total
+    [ -n "${MCP_SESSION:-}" ] || return 1
+    resp=$(mcp_call "list_graph_stats" "{\"workspace\":\"${workspace}\"}")
+    [ -n "$resp" ] || return 1
+    total=$(echo "$resp" | python3 -c "import sys,json; r=json.load(sys.stdin); d=json.loads(r['result']['content'][0]['text']); print(d.get('total_nodes',0))" 2>/dev/null) || total=0
+    [ "${total:-0}" -gt 0 ] 2>/dev/null
+}
+
+extract_mcp_session_id() {
+    local init_resp="$1" line key lower_key value
+    while IFS= read -r line; do
+        line=${line%$'\r'}
+        key=${line%%:*}
+        lower_key=$(printf '%s' "$key" | tr '[:upper:]' '[:lower:]')
+        if [ "$lower_key" = "mcp-session-id" ]; then
+            value=${line#*:}
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            printf '%s\n' "$value"
+            return 0
+        fi
+    done <<< "$init_resp"
+}
+
+mcp_session_required() {
+    local session="$1"
+    [ -n "$session" ] || [ "${CCG_E2E_ALLOW_MCP_LOG_FALLBACK:-0}" = "1" ]
+}
+
+extract_last_webhook_node_count() {
+    local logs="$1"
+    printf '%s' "$logs" | python3 -c '
+import re, sys
+matches = re.findall(r"webhook sync completed[^\n]*nodes=(\d+)", sys.stdin.read())
+print(matches[-1] if matches else "0")
+'
+}
+
+webhook_logs_completed() {
+    local logs="$1" workspace="$2"
+    if [ -n "$workspace" ]; then
+        [[ "$logs" == *"webhook sync completed"*"$workspace"* ]] && return 0
+        [ "$workspace" = "$REPO_NAME" ] && [[ "$logs" == *"webhook sync completed"* ]]
+    else
+        [[ "$logs" == *"webhook sync completed"* ]]
+    fi
+}
+
+webhook_logs_failed() {
+    local logs="$1" workspace="$2"
+    if [ -n "$workspace" ]; then
+        [[ "$logs" == *"webhook build failed"*"$workspace"* ]] && return 0
+        [ "$workspace" = "$REPO_NAME" ] && [[ "$logs" == *"webhook build failed"* ]]
+    else
+        [[ "$logs" == *"webhook build failed"* ]]
+    fi
+}
+
+wait_for_webhook_sync() {
+    local workspace="$1" max_seconds="${2:-$WEBHOOK_WAIT_SECONDS}" label="${3:-$workspace}"
+    local deadline=$((SECONDS + max_seconds)) logs
+    while [ $SECONDS -lt $deadline ]; do
+        if graph_nodes_for_workspace "$workspace"; then
+            info "${label} webhook sync observable via MCP"
+            return 0
+        fi
+
+        logs=$(compose logs ccg 2>/dev/null || true)
+        if webhook_logs_failed "$logs" "$workspace"; then
+            fail "ccg build failed for ${label}. See ${ARTIFACT_DIR}/ccg.log after cleanup. Recent logs:\n$(printf '%s\n' "$logs" | tail -20)"
+        fi
+        if webhook_logs_completed "$logs" "$workspace"; then
+            info "${label} webhook sync observed via logs"
+            return 0
+        fi
+        sleep 2
+    done
+    fail "Timed out waiting for ${label} webhook sync"
+}
+
+run_integration_test() {
+
 # ── Phase 1: Start containers ──
 info "Starting containers..."
-docker compose -f "$COMPOSE_FILE" up -d --build
+compose up -d --build
 
 info "Waiting for Gitea..."
 wait_for_health "$GITEA_URL/api/v1/version" 30 "Gitea"
 
 info "Waiting for ccg..."
-wait_for_health "$CCG_URL/health" 30 "ccg"
+wait_for_health "$CCG_URL/ready" 30 "ccg"
 
 # ── Phase 2: Create Gitea admin user ──
 info "Creating Gitea admin user..."
-docker compose -f "$COMPOSE_FILE" exec -T gitea \
+compose exec -T gitea \
     gitea admin user create \
         --username "$ADMIN_USER" \
         --password "$ADMIN_PASS" \
@@ -205,21 +370,7 @@ git push -q origin main
 popd >/dev/null
 
 # ── Phase 6: Wait for ccg to process ──
-info "Waiting for webhook sync + build (max 60s)..."
-DEADLINE=$((SECONDS + 60))
-BUILD_OK=false
-while [ $SECONDS -lt $DEADLINE ]; do
-    LOGS=$(docker compose -f "$COMPOSE_FILE" logs ccg 2>/dev/null)
-    if echo "$LOGS" | grep -q "webhook sync completed"; then
-        BUILD_OK=true
-        break
-    fi
-    if echo "$LOGS" | grep -q "webhook build failed"; then
-        fail "ccg build failed. Logs:\n$(echo "$LOGS" | tail -20)"
-    fi
-    sleep 2
-done
-$BUILD_OK || fail "Timed out waiting for webhook sync"
+info "Waiting for webhook sync + build (max ${WEBHOOK_WAIT_SECONDS}s)..."
 
 # ── Phase 7: Verify graph data via MCP (initialize → tools/call) ──
 info "Initializing MCP session..."
@@ -228,16 +379,21 @@ INIT_RESP=$(curl -sS -D - -X POST "${CCG_URL}/mcp" \
     -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"integration-test","version":"1.0.0"}}}' 2>/dev/null) || INIT_RESP=""
 
-MCP_SESSION=$(echo "$INIT_RESP" | grep -i "mcp-session-id" | tr -d '\r' | awk '{print $2}')
+MCP_SESSION=$(extract_mcp_session_id "$INIT_RESP")
 
 if [ -z "$MCP_SESSION" ]; then
-    warn "MCP session init failed — falling back to log-based verification"
-    LOGS=$(docker compose -f "$COMPOSE_FILE" logs ccg 2>/dev/null)
-    NODE_COUNT=$(echo "$LOGS" | grep "webhook sync completed" | grep -o 'nodes=[0-9]*' | tail -1 | cut -d= -f2)
+    if ! mcp_session_required "$MCP_SESSION"; then
+        fail "MCP session init failed; refusing log-only false green (set CCG_E2E_ALLOW_MCP_LOG_FALLBACK=1 for local debugging only)"
+    fi
+    warn "MCP session init failed — using log-based webhook smoke check only because CCG_E2E_ALLOW_MCP_LOG_FALLBACK=1"
+    wait_for_webhook_sync "$REPO_NAME" "$WEBHOOK_WAIT_SECONDS" "$REPO_NAME"
+    LOGS=$(compose logs ccg 2>/dev/null)
+    NODE_COUNT=$(extract_last_webhook_node_count "$LOGS")
     info "Build reported nodes=${NODE_COUNT:-0}"
     [ "${NODE_COUNT:-0}" -gt 0 ] || fail "Expected nodes > 0"
 else
     info "MCP session: ${MCP_SESSION:0:16}..."
+    wait_for_webhook_sync "$REPO_NAME" "$WEBHOOK_WAIT_SECONDS" "$REPO_NAME"
     STATS_RESP=$(curl -fsS -X POST "${CCG_URL}/mcp" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
@@ -251,7 +407,8 @@ else
     info "MCP list_graph_stats response:"
     echo "$STATS_RESP" | python3 -m json.tool 2>/dev/null || echo "$STATS_RESP"
 
-    TOTAL_NODES=$(echo "$STATS_RESP" | python3 -c "import sys,json; r=json.load(sys.stdin); d=json.loads(r['result']['content'][0]['text']); print(d.get('total_nodes',0))" 2>/dev/null) || TOTAL_NODES=0
+    assert_mcp_ok "list_graph_stats" "$STATS_RESP"
+    TOTAL_NODES=$(printf '%s' "$STATS_RESP" | python3 -c "import sys,json; r=json.load(sys.stdin); d=json.loads(r['result']['content'][0]['text']); print(d.get('total_nodes',0))" 2>/dev/null) || TOTAL_NODES=0
     [ "${TOTAL_NODES:-0}" -gt 0 ] || fail "Expected total_nodes > 0, got ${TOTAL_NODES:-0}"
     info "Verified via MCP: total_nodes=${TOTAL_NODES}"
 fi
@@ -313,21 +470,8 @@ info "Pushing ${REPO2_NAME} to Gitea (triggers webhook)..."
 git push -q origin main
 popd >/dev/null
 
-info "Waiting for ${REPO2_NAME} webhook sync (max 60s)..."
-DEADLINE2=$((SECONDS + 60))
-BUILD2_OK=false
-while [ $SECONDS -lt $DEADLINE2 ]; do
-    LOGS2=$(docker compose -f "$COMPOSE_FILE" logs ccg 2>/dev/null)
-    if echo "$LOGS2" | grep -q "webhook sync completed.*${REPO2_NAME}"; then
-        BUILD2_OK=true
-        break
-    fi
-    if echo "$LOGS2" | grep -q "webhook build failed.*${REPO2_NAME}"; then
-        fail "ccg build failed for ${REPO2_NAME}. Logs:\n$(echo "$LOGS2" | tail -20)"
-    fi
-    sleep 2
-done
-$BUILD2_OK || fail "Timed out waiting for ${REPO2_NAME} webhook sync"
+info "Waiting for ${REPO2_NAME} webhook sync (max ${WEBHOOK_WAIT_SECONDS}s)..."
+wait_for_webhook_sync "$REPO2_NAME" "$WEBHOOK_WAIT_SECONDS" "$REPO2_NAME"
 info "${REPO2_NAME} sync completed"
 
 # Namespace isolation verification via MCP
@@ -425,7 +569,7 @@ if [ -n "$MCP_SESSION" ]; then
 
     info "Namespace isolation verified ✅"
 else
-    warn "MCP session unavailable — skipping namespace isolation test"
+    warn "MCP session unavailable under local debug override — skipping namespace isolation test"
 fi
 
 # ── Phase 9: Check webhook delivery status (best-effort) ──
@@ -473,7 +617,7 @@ if [ -n "$MCP_SESSION" ]; then
 
     info "Phase 10 complete ✅"
 else
-    warn "MCP session unavailable — skipping Phase 10"
+    warn "MCP session unavailable under local debug override — skipping Phase 10"
 fi
 
 # ── Phase 11: Analysis tools ──
@@ -506,7 +650,7 @@ if [ -n "$MCP_SESSION" ]; then
 
     info "Phase 11 complete ✅"
 else
-    warn "MCP session unavailable — skipping Phase 11"
+    warn "MCP session unavailable under local debug override — skipping Phase 11"
 fi
 
 # ── Phase 12: Graph structure tools ──
@@ -545,7 +689,7 @@ print(comms[0]['id'] if comms else 0)
 
     info "Phase 12 complete ✅"
 else
-    warn "MCP session unavailable — skipping Phase 12"
+    warn "MCP session unavailable under local debug override — skipping Phase 12"
 fi
 
 # ── Phase 13: Workspace/File management tools ──
@@ -585,7 +729,7 @@ if [ -n "$MCP_SESSION" ]; then
 
     info "Phase 13 complete ✅"
 else
-    warn "MCP session unavailable — skipping Phase 13"
+    warn "MCP session unavailable under local debug override — skipping Phase 13"
 fi
 
 # ── Phase 14: Docs/RAG tools (search_docs, get_doc_content) ──
@@ -627,7 +771,7 @@ print(find_file(tree))
 
     info "Phase 14 complete ✅"
 else
-    warn "MCP session unavailable — skipping Phase 14"
+    warn "MCP session unavailable under local debug override — skipping Phase 14"
 fi
 
 # ── Phase 15: Build tools (parse_project, build_or_update_graph) ──
@@ -643,7 +787,7 @@ if [ -n "$MCP_SESSION" ]; then
     mcp_call "upload_file" "{\"workspace\":\"${BUILD_WS}\",\"file_path\":\"util.go\",\"content\":\"${B64_UTIL}\"}" >/dev/null
 
     # parse_project — parse the uploaded workspace
-    WS_ROOT=$(docker compose -f "$COMPOSE_FILE" exec -T ccg printenv WORKSPACE_ROOT 2>/dev/null | tr -d '\r') || WS_ROOT=""
+    WS_ROOT=$(compose exec -T ccg printenv WORKSPACE_ROOT 2>/dev/null | tr -d '\r') || WS_ROOT=""
     if [ -z "$WS_ROOT" ]; then
         WS_ROOT="workspaces"
     fi
@@ -668,7 +812,7 @@ if [ -n "$MCP_SESSION" ]; then
 
     info "Phase 15 complete ✅"
 else
-    warn "MCP session unavailable — skipping Phase 15"
+    warn "MCP session unavailable under local debug override — skipping Phase 15"
 fi
 
 # ── Summary ──
@@ -679,8 +823,17 @@ fi
 
 echo ""
 echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}  Integration test PASSED — ${TOOLS_TESTED}/29 MCP tools verified${NC}"
+if [ -n "$MCP_SESSION" ]; then
+    echo -e "${GREEN}  Integration test PASSED — ${TOOLS_TESTED}/29 MCP tools verified${NC}"
+else
+    echo -e "${YELLOW}  Integration webhook smoke completed — 0/29 MCP tools verified (local debug override)${NC}"
+fi
 echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
 echo ""
 info "Pipeline: Gitea push → webhook → ccg clone → build → DB ✅"
 info "MCP tools: graph query, analysis, structure, workspace, docs, build ✅"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    run_integration_test "$@"
+fi
