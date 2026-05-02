@@ -120,10 +120,7 @@ func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPro
 	ctx = ctxns.WithNamespace(ctx, resolveNamespace(ctx, request.Params.Arguments["workspace"]))
 	ns := ctxns.FromContext(ctx)
 	var communities []model.Community
-	query := p.deps.DB.WithContext(ctx)
-	if ns != "" {
-		query = query.Where("namespace = ?", ns)
-	}
+	query := p.deps.DB.WithContext(ctx).Where("namespace = ?", ns)
 	if err := query.Find(&communities).Error; err != nil {
 		return nil, trace.Wrap(err, "query communities")
 	}
@@ -140,10 +137,8 @@ func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPro
 		var memberCount int64
 		memberQ := p.deps.DB.WithContext(ctx).Model(&model.CommunityMembership{}).
 			Joins("JOIN communities ON communities.id = community_memberships.community_id").
-			Where("community_id = ?", c.ID)
-		if ns != "" {
-			memberQ = memberQ.Where("communities.namespace = ?", ns)
-		}
+			Where("community_id = ?", c.ID).
+			Where("communities.namespace = ?", ns)
 		if err := memberQ.Count(&memberCount).Error; err != nil {
 			log.Warn("count community members failed", "community", c.ID, trace.SlogError(err))
 		}
@@ -254,10 +249,7 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 	log := p.deps.Logger
 	ns := ctxns.FromContext(ctx)
 	var nodeCount int64
-	nodeQ := p.deps.DB.WithContext(ctx).Model(&model.Node{})
-	if ns != "" {
-		nodeQ = nodeQ.Where("namespace = ?", ns)
-	}
+	nodeQ := p.deps.DB.WithContext(ctx).Model(&model.Node{}).Where("namespace = ?", ns)
 	if err := nodeQ.Count(&nodeCount).Error; err != nil {
 		return nil, trace.Wrap(err, "count nodes")
 	}
@@ -267,10 +259,7 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 	}
 
 	var edgeCount int64
-	edgeQ := p.deps.DB.WithContext(ctx).Model(&model.Edge{})
-	if ns != "" {
-		edgeQ = edgeQ.Where("namespace = ?", ns)
-	}
+	edgeQ := p.deps.DB.WithContext(ctx).Model(&model.Edge{}).Where("namespace = ?", ns)
 	if err := edgeQ.Count(&edgeCount).Error; err != nil {
 		log.Warn("count edges failed", trace.SlogError(err))
 	}
@@ -282,10 +271,7 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 		Count    int64
 	}
 	var langs []langStat
-	langQ := p.deps.DB.WithContext(ctx).Model(&model.Node{})
-	if ns != "" {
-		langQ = langQ.Where("namespace = ?", ns)
-	}
+	langQ := p.deps.DB.WithContext(ctx).Model(&model.Node{}).Where("namespace = ?", ns)
 	if err := langQ.
 		Select("language, COUNT(*) as count").
 		Group("language").
@@ -304,10 +290,7 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 	}
 
 	var communities []model.Community
-	commQ := p.deps.DB.WithContext(ctx)
-	if ns != "" {
-		commQ = commQ.Where("namespace = ?", ns)
-	}
+	commQ := p.deps.DB.WithContext(ctx).Where("namespace = ?", ns)
 	if err := commQ.Find(&communities).Error; err != nil {
 		log.Warn("find communities failed", trace.SlogError(err))
 	}

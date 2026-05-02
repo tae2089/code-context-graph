@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,8 +17,16 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/store"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 )
+
+type failDeleteGraphStore struct {
+	store.GraphStore
+	err error
+}
+
+func (f *failDeleteGraphStore) DeleteGraph(ctx context.Context) error { return f.err }
 
 func workspaceHandlers(t *testing.T) (*handlers, string) {
 	t.Helper()
@@ -537,6 +546,35 @@ func TestDeleteWorkspace_PurgesNamespaceGraphRAGAndCache(t *testing.T) {
 	}
 	if otherFlowCount != 1 {
 		t.Fatalf("control flow should remain, got %d", otherFlowCount)
+	}
+}
+
+func TestDeleteWorkspace_PreservesFilesWhenDBPurgeFails(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	h := &handlers{
+		deps: &Deps{
+			WorkspaceRoot: workspaceRoot,
+			Store:         &failDeleteGraphStore{err: errors.New("boom")},
+		},
+	}
+
+	wsDir := filepath.Join(workspaceRoot, "svc")
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(wsDir, "file.go"), []byte("package svc"), 0o644); err != nil {
+		t.Fatalf("write workspace file: %v", err)
+	}
+
+	req := makeCallToolRequest(t, map[string]any{"workspace": "svc"})
+	result, err := h.deleteWorkspace(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultIsError(t, result)
+
+	if _, err := os.Stat(wsDir); err != nil {
+		t.Fatalf("workspace directory should remain on DB purge failure: %v", err)
 	}
 }
 

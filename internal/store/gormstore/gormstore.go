@@ -423,7 +423,9 @@ func (s *Store) UpsertAnnotation(ctx context.Context, ann *model.Annotation) err
 		First(&existing)
 
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		return s.db.WithContext(ctx).Create(ann).Error
+		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			return tx.Create(ann).Error
+		})
 	}
 	if result.Error != nil {
 		return result.Error

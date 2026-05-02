@@ -7,6 +7,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
@@ -20,7 +21,7 @@ func setupDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Node{}, &model.Edge{}, &model.Community{}, &model.CommunityMembership{}); err != nil {
+	if err := gormstore.New(db).AutoMigrate(); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	return db
@@ -248,5 +249,102 @@ func TestRebuild_RespectsNamespace(t *testing.T) {
 	}
 	if totalNodes != 2 {
 		t.Errorf("expected 2 nodes in ns-a communities, got %d", totalNodes)
+	}
+}
+
+func TestRebuild_EmptyNamespace_DoesNotDeleteOtherNamespaceCommunities(t *testing.T) {
+	db := setupDB(t)
+	seedNodeNS(t, db, 1, "Default", "default/a.go", "")
+	seedNodeNS(t, db, 2, "Tenant", "tenant/b.go", "tenant-a")
+
+	foreignCommunity := model.Community{Namespace: "tenant-a", Key: "tenant-a/core", Label: "tenant-a/core", Strategy: "directory"}
+	if err := db.Create(&foreignCommunity).Error; err != nil {
+		t.Fatalf("seed foreign community: %v", err)
+	}
+	if err := db.Create(&model.CommunityMembership{CommunityID: foreignCommunity.ID, NodeID: 2}).Error; err != nil {
+		t.Fatalf("seed foreign membership: %v", err)
+	}
+
+	b := New(db)
+	stats, err := b.Rebuild(context.Background(), Config{Depth: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 default-namespace community, got %d", len(stats))
+	}
+
+	var foreignCount int64
+	if err := db.Model(&model.Community{}).Where("namespace = ?", "tenant-a").Count(&foreignCount).Error; err != nil {
+		t.Fatalf("count foreign communities: %v", err)
+	}
+	if foreignCount != 1 {
+		t.Fatalf("expected tenant-a community preserved, got %d", foreignCount)
+	}
+}
+
+func TestRebuild_EmptyNamespace_DeletesStaleDefaultNamespaceParents(t *testing.T) {
+	db := setupDB(t)
+	seedNodeNS(t, db, 1, "Default", "default/a.go", "")
+
+	stale := model.Community{Namespace: "", Key: "stale", Label: "stale", Strategy: "directory"}
+	if err := db.Create(&stale).Error; err != nil {
+		t.Fatalf("seed stale community: %v", err)
+	}
+
+	b := New(db)
+	stats, err := b.Rebuild(context.Background(), Config{Depth: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 rebuilt default-namespace community, got %d", len(stats))
+	}
+
+	var staleCount int64
+	if err := db.Model(&model.Community{}).Where("id = ?", stale.ID).Count(&staleCount).Error; err != nil {
+		t.Fatalf("count stale community: %v", err)
+	}
+	if staleCount != 0 {
+		t.Fatalf("expected stale default-namespace parent deleted, got %d", staleCount)
+	}
+}
+
+func TestRebuild_AfterDeleteGraph_CleansStaleParentsAndRecreatesCommunity(t *testing.T) {
+	db := setupDB(t)
+	store := gormstore.New(db)
+	ctx := context.Background()
+
+	seedNodeNS(t, db, 1, "Default", "default/a.go", "")
+
+	stale := model.Community{Namespace: "", Key: "default", Label: "default", Strategy: "directory"}
+	if err := db.Create(&stale).Error; err != nil {
+		t.Fatalf("seed stale community: %v", err)
+	}
+	if err := db.Create(&model.CommunityMembership{CommunityID: stale.ID, NodeID: 1}).Error; err != nil {
+		t.Fatalf("seed stale membership: %v", err)
+	}
+
+	if err := store.DeleteGraph(ctx); err != nil {
+		t.Fatalf("DeleteGraph: %v", err)
+	}
+
+	seedNodeNS(t, db, 2, "DefaultNew", "default/b.go", "")
+
+	b := New(db)
+	stats, err := b.Rebuild(ctx, Config{Depth: 1})
+	if err != nil {
+		t.Fatalf("Rebuild after DeleteGraph: %v", err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 rebuilt community, got %d", len(stats))
+	}
+
+	var count int64
+	if err := db.Model(&model.Community{}).Where("namespace = ? AND key = ?", "", "default").Count(&count).Error; err != nil {
+		t.Fatalf("count rebuilt communities: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly 1 default/default community after rebuild, got %d", count)
 	}
 }

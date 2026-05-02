@@ -629,7 +629,7 @@ func TestBuilder_NamespaceFilter(t *testing.T) {
 	if err := db.Create(&nodeA).Error; err != nil {
 		t.Fatalf("create nodeA: %v", err)
 	}
-	commA := model.Community{Key: "auth-a", Label: "Auth A", Strategy: "auto", Description: "repo-a auth"}
+	commA := model.Community{Namespace: "repo-a", Key: "auth-a", Label: "Auth A", Strategy: "auto", Description: "repo-a auth"}
 	if err := db.Create(&commA).Error; err != nil {
 		t.Fatalf("create commA: %v", err)
 	}
@@ -657,7 +657,7 @@ func TestBuilder_NamespaceFilter(t *testing.T) {
 	if err := db.Create(&nodeB).Error; err != nil {
 		t.Fatalf("create nodeB: %v", err)
 	}
-	commB := model.Community{Key: "pay-b", Label: "Payment B", Strategy: "auto", Description: "repo-b payment"}
+	commB := model.Community{Namespace: "repo-b", Key: "pay-b", Label: "Payment B", Strategy: "auto", Description: "repo-b payment"}
 	if err := db.Create(&commB).Error; err != nil {
 		t.Fatalf("create commB: %v", err)
 	}
@@ -716,21 +716,31 @@ func TestBuilder_NamespaceFilter(t *testing.T) {
 	}
 }
 
-// TestBuilder_NamespaceFilter_EmptyNS: namespace 비어있으면 전체 데이터 반환 (기존 동작 유지).
+// TestBuilder_NamespaceFilter_EmptyNS: namespace 비어있으면 literal default namespace만 포함한다.
 func TestBuilder_NamespaceFilter_EmptyNS(t *testing.T) {
 	db := setupDB(t)
 	tmpDir := t.TempDir()
 
-	// 두 namespace에 데이터 생성
-	for _, ns := range []string{"ns-1", "ns-2"} {
+	// default namespace와 named namespace에 데이터 생성
+	for _, ns := range []string{"", "ns-1"} {
+		qname := "/func"
+		filePath := "default/main.go"
+		key := "default"
+		label := "default"
+		if ns != "" {
+			qname = ns + "/func"
+			filePath = ns + "/main.go"
+			key = ns
+			label = ns
+		}
 		node := model.Node{
-			Namespace: ns, QualifiedName: ns + "/func", Kind: model.NodeKindFunction,
-			Name: "Func", FilePath: ns + "/main.go", StartLine: 1, EndLine: 5, Language: "go",
+			Namespace: ns, QualifiedName: qname, Kind: model.NodeKindFunction,
+			Name: "Func", FilePath: filePath, StartLine: 1, EndLine: 5, Language: "go",
 		}
 		if err := db.Create(&node).Error; err != nil {
 			t.Fatalf("create node %s: %v", ns, err)
 		}
-		comm := model.Community{Key: ns, Label: ns, Strategy: "auto"}
+		comm := model.Community{Namespace: ns, Key: key, Label: label, Strategy: "auto"}
 		if err := db.Create(&comm).Error; err != nil {
 			t.Fatalf("create comm %s: %v", ns, err)
 		}
@@ -739,14 +749,27 @@ func TestBuilder_NamespaceFilter_EmptyNS(t *testing.T) {
 		}
 	}
 
-	// namespace 없는 context → 전체 반환
+	// namespace 없는 context → literal default namespace만 반환
 	b := &ragindex.Builder{DB: db, OutDir: filepath.Join(tmpDir, "docs"), IndexDir: filepath.Join(tmpDir, ".ccg")}
 	communities, _, err := b.Build(context.Background())
 	if err != nil {
 		t.Fatalf("Build() error: %v", err)
 	}
-	if communities != 2 {
-		t.Errorf("communities = %d, want 2 (all namespaces)", communities)
+	if communities != 1 {
+		t.Errorf("communities = %d, want 1 (default namespace only)", communities)
+	}
+
+	indexPath := filepath.Join(tmpDir, ".ccg", "doc-index.json")
+	idx, err := ragindex.LoadIndex(indexPath)
+	if err != nil {
+		t.Fatalf("LoadIndex() error: %v", err)
+	}
+
+	if len(idx.Root.Children) != 1 {
+		t.Fatalf("root.Children len = %d, want 1", len(idx.Root.Children))
+	}
+	if idx.Root.Children[0].Label != "default" {
+		t.Errorf("default namespace community label = %q, want %q", idx.Root.Children[0].Label, "default")
 	}
 }
 

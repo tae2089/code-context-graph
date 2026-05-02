@@ -305,19 +305,13 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 	ws := request.GetString("workspace", "")
 	return finalizeToolResult(h.cachedExecute(ctx, "list_graph_stats:", map[string]any{"workspace": ws}, func() (string, error) {
 		ns := ctxns.FromContext(ctx)
-		nodeQ := h.deps.DB.WithContext(ctx).Model(&model.Node{})
-		if ns != "" {
-			nodeQ = nodeQ.Where("namespace = ?", ns)
-		}
+		nodeQ := h.deps.DB.WithContext(ctx).Model(&model.Node{}).Where("namespace = ?", ns)
 
 		var nodeCount, edgeCount int64
 		if err := nodeQ.Count(&nodeCount).Error; err != nil {
 			return "", trace.Wrap(err, "count nodes")
 		}
-		edgeQ := h.deps.DB.WithContext(ctx).Model(&model.Edge{})
-		if ns != "" {
-			edgeQ = edgeQ.Where("namespace = ?", ns)
-		}
+		edgeQ := h.deps.DB.WithContext(ctx).Model(&model.Edge{}).Where("namespace = ?", ns)
 		if err := edgeQ.Count(&edgeCount).Error; err != nil {
 			return "", trace.Wrap(err, "count edges")
 		}
@@ -329,10 +323,7 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 			Count int64
 		}
 
-		nodesByKindQ := h.deps.DB.WithContext(ctx).Model(&model.Node{})
-		if ns != "" {
-			nodesByKindQ = nodesByKindQ.Where("namespace = ?", ns)
-		}
+		nodesByKindQ := h.deps.DB.WithContext(ctx).Model(&model.Node{}).Where("namespace = ?", ns)
 		var nodesByKind []kindCount
 		if err := nodesByKindQ.
 			Select("kind, COUNT(*) as count").
@@ -340,10 +331,7 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 			return "", trace.Wrap(err, "group nodes by kind")
 		}
 
-		nodesByLangQ := h.deps.DB.WithContext(ctx).Model(&model.Node{})
-		if ns != "" {
-			nodesByLangQ = nodesByLangQ.Where("namespace = ?", ns)
-		}
+		nodesByLangQ := h.deps.DB.WithContext(ctx).Model(&model.Node{}).Where("namespace = ?", ns)
 		var nodesByLang []kindCount
 		if err := nodesByLangQ.
 			Select("language as kind, COUNT(*) as count").
@@ -352,10 +340,7 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 			return "", trace.Wrap(err, "group nodes by language")
 		}
 
-		edgesByKindQ := h.deps.DB.WithContext(ctx).Model(&model.Edge{})
-		if ns != "" {
-			edgesByKindQ = edgesByKindQ.Where("namespace = ?", ns)
-		}
+		edgesByKindQ := h.deps.DB.WithContext(ctx).Model(&model.Edge{}).Where("namespace = ?", ns)
 		var edgesByKind []kindCount
 		if err := edgesByKindQ.
 			Select("kind, COUNT(*) as count").

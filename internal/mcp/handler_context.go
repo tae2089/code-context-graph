@@ -39,28 +39,19 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 	}, func() (string, error) {
 		ns := ctxns.FromContext(ctx)
 
-		nodeQ := h.deps.DB.WithContext(ctx).Model(&model.Node{})
-		if ns != "" {
-			nodeQ = nodeQ.Where("namespace = ?", ns)
-		}
+		nodeQ := h.deps.DB.WithContext(ctx).Model(&model.Node{}).Where("namespace = ?", ns)
 		var nodeCount, edgeCount int64
 		if err := nodeQ.Count(&nodeCount).Error; err != nil {
 			return "", trace.Wrap(err, "count nodes")
 		}
-		edgeQ := h.deps.DB.WithContext(ctx).Model(&model.Edge{})
-		if ns != "" {
-			edgeQ = edgeQ.Where("namespace = ?", ns)
-		}
+		edgeQ := h.deps.DB.WithContext(ctx).Model(&model.Edge{}).Where("namespace = ?", ns)
 		if err := edgeQ.Count(&edgeCount).Error; err != nil {
 			return "", trace.Wrap(err, "count edges")
 		}
 
 		type fileCount struct{ Count int64 }
 		var fc fileCount
-		fileQ := h.deps.DB.WithContext(ctx).Model(&model.Node{}).Select("COUNT(DISTINCT file_path) as count")
-		if ns != "" {
-			fileQ = fileQ.Where("namespace = ?", ns)
-		}
+		fileQ := h.deps.DB.WithContext(ctx).Model(&model.Node{}).Select("COUNT(DISTINCT file_path) as count").Where("namespace = ?", ns)
 		if err := fileQ.Scan(&fc).Error; err != nil {
 			return "", trace.Wrap(err, "count files")
 		}
@@ -104,10 +95,8 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 					hasTest := false
 					var testEdges int64
 					testEdgeQ := h.deps.DB.WithContext(ctx).Model(&model.Edge{}).
-						Where("to_node_id = ? AND kind = ?", r.Node.ID, model.EdgeKindTestedBy)
-					if ns != "" {
-						testEdgeQ = testEdgeQ.Where("namespace = ?", ns)
-					}
+						Where("to_node_id = ? AND kind = ?", r.Node.ID, model.EdgeKindTestedBy).
+						Where("namespace = ?", ns)
 					testEdgeQ.Count(&testEdges)
 					if testEdges > 0 {
 						hasTest = true
@@ -129,10 +118,8 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 		var ccRows []commCount
 		commCountQ := h.deps.DB.WithContext(ctx).
 			Model(&model.CommunityMembership{}).
-			Joins("JOIN communities ON communities.id = community_memberships.community_id")
-		if ns != "" {
-			commCountQ = commCountQ.Where("communities.namespace = ?", ns)
-		}
+			Joins("JOIN communities ON communities.id = community_memberships.community_id").
+			Where("communities.namespace = ?", ns)
 		if err := commCountQ.
 			Select("community_id, COUNT(*) as count").
 			Group("community_id").
@@ -145,10 +132,7 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 		}
 
 		var communities []model.Community
-		communityQ := h.deps.DB.WithContext(ctx)
-		if ns != "" {
-			communityQ = communityQ.Where("namespace = ?", ns)
-		}
+		communityQ := h.deps.DB.WithContext(ctx).Where("namespace = ?", ns)
 		if err := communityQ.Find(&communities).Error; err != nil {
 			return "", trace.Wrap(err, "find communities")
 		}
@@ -174,10 +158,8 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 		}
 		var fcRows []flowCount
 		flowCountQ := h.deps.DB.WithContext(ctx).
-			Model(&model.FlowMembership{})
-		if ns != "" {
-			flowCountQ = flowCountQ.Where("namespace = ?", ns)
-		}
+			Model(&model.FlowMembership{}).
+			Where("namespace = ?", ns)
 		if err := flowCountQ.
 			Select("flow_id, COUNT(*) as count").
 			Group("flow_id").
@@ -190,10 +172,7 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 		}
 
 		var flowList []model.Flow
-		flowQ := h.deps.DB.WithContext(ctx)
-		if ns != "" {
-			flowQ = flowQ.Where("namespace = ?", ns)
-		}
+		flowQ := h.deps.DB.WithContext(ctx).Where("namespace = ?", ns)
 		if err := flowQ.Find(&flowList).Error; err != nil {
 			return "", trace.Wrap(err, "find flows")
 		}

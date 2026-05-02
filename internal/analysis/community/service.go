@@ -85,18 +85,10 @@ func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 }
 
 func deleteCommunities(tx *gorm.DB, ns string) error {
-	if ns == "" {
-		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&model.CommunityMembership{}).Error; err != nil {
-			return err
-		}
-		return tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&model.Community{}).Error
-	}
 	var ids []uint
-	if err := tx.Table("community_memberships").
-		Select("DISTINCT community_id").
-		Joins("JOIN nodes ON nodes.id = community_memberships.node_id").
-		Where("nodes.namespace = ?", ns).
-		Pluck("community_id", &ids).Error; err != nil {
+	if err := tx.Model(&model.Community{}).
+		Where("namespace = ?", ns).
+		Pluck("id", &ids).Error; err != nil {
 		return err
 	}
 	if len(ids) == 0 {
@@ -167,10 +159,7 @@ func countEdgesByCommunity(tx *gorm.DB, ns string, groups map[string][]model.Nod
 	}
 
 	var batchEdges []model.Edge
-	edgesQ := tx.Model(&model.Edge{})
-	if ns != "" {
-		edgesQ = edgesQ.Where("namespace = ?", ns)
-	}
+	edgesQ := tx.Model(&model.Edge{}).Where("namespace = ?", ns)
 	if err := edgesQ.FindInBatches(&batchEdges, 500, func(tx *gorm.DB, batch int) error {
 		for _, e := range batchEdges {
 			fromKey, fromOK := nodeComm[e.FromNodeID]

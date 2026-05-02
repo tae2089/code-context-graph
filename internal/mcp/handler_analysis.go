@@ -300,10 +300,7 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 		ns := ctxns.FromContext(ctx)
 
 		var memberships []model.FlowMembership
-		q := h.deps.DB.WithContext(ctx).Where("node_id IN ?", changedNodeIDs)
-		if ns != "" {
-			q = q.Where("namespace = ?", ns)
-		}
+		q := h.deps.DB.WithContext(ctx).Where("node_id IN ?", changedNodeIDs).Where("namespace = ?", ns)
 		if err := q.Find(&memberships).Error; err != nil {
 			return "", trace.Wrap(err, "find affected flow memberships")
 		}
@@ -327,10 +324,7 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 		}
 
 		var flowList []model.Flow
-		flowQ := h.deps.DB.WithContext(ctx).Where("id IN ?", flowIDs)
-		if ns != "" {
-			flowQ = flowQ.Where("namespace = ?", ns)
-		}
+		flowQ := h.deps.DB.WithContext(ctx).Where("id IN ?", flowIDs).Where("namespace = ?", ns)
 		if err := flowQ.Find(&flowList).Error; err != nil {
 			return "", trace.Wrap(err, "find affected flows")
 		}

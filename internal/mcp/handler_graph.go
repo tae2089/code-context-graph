@@ -40,10 +40,8 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 		ns := ctxns.FromContext(ctx)
 		var fcRows []flowCount
 		countQ := h.deps.DB.WithContext(ctx).
-			Model(&model.FlowMembership{})
-		if ns != "" {
-			countQ = countQ.Where("namespace = ?", ns)
-		}
+			Model(&model.FlowMembership{}).
+			Where("namespace = ?", ns)
 		if err := countQ.
 			Select("flow_id, COUNT(*) as count").
 			Group("flow_id").
@@ -57,10 +55,7 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 		}
 
 		var flowList []model.Flow
-		flowQ := h.deps.DB.WithContext(ctx)
-		if ns != "" {
-			flowQ = flowQ.Where("namespace = ?", ns)
-		}
+		flowQ := h.deps.DB.WithContext(ctx).Where("namespace = ?", ns)
 		if err := flowQ.Find(&flowList).Error; err != nil {
 			return "", trace.Wrap(err, "find flows")
 		}
@@ -136,10 +131,8 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 		var ccRows []commCount
 		countQ := h.deps.DB.WithContext(ctx).
 			Model(&model.CommunityMembership{}).
-			Joins("JOIN communities ON communities.id = community_memberships.community_id")
-		if ns != "" {
-			countQ = countQ.Where("communities.namespace = ?", ns)
-		}
+			Joins("JOIN communities ON communities.id = community_memberships.community_id").
+			Where("communities.namespace = ?", ns)
 		if err := countQ.
 			Select("community_id, COUNT(*) as count").
 			Group("community_id").
@@ -153,10 +146,7 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 		}
 
 		var communities []model.Community
-		communityQ := h.deps.DB.WithContext(ctx)
-		if ns != "" {
-			communityQ = communityQ.Where("namespace = ?", ns)
-		}
+		communityQ := h.deps.DB.WithContext(ctx).Where("namespace = ?", ns)
 		if err := communityQ.Find(&communities).Error; err != nil {
 			return "", trace.Wrap(err, "find communities")
 		}
@@ -221,10 +211,7 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 	log.Info("get_community called", "community_id", communityID, "include_members", includeMembers)
 
 	var comm model.Community
-	commQ := h.deps.DB.WithContext(ctx)
-	if ns := ctxns.FromContext(ctx); ns != "" {
-		commQ = commQ.Where("namespace = ?", ns)
-	}
+	commQ := h.deps.DB.WithContext(ctx).Where("namespace = ?", ctxns.FromContext(ctx))
 	if err := commQ.First(&comm, communityID).Error; err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("community %d not found", communityID)), nil
 	}
@@ -234,10 +221,8 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 		var memberCount int64
 		memberQ := h.deps.DB.WithContext(ctx).Model(&model.CommunityMembership{}).
 			Joins("JOIN communities ON communities.id = community_memberships.community_id").
-			Where("community_id = ?", comm.ID)
-		if ns != "" {
-			memberQ = memberQ.Where("communities.namespace = ?", ns)
-		}
+			Where("community_id = ?", comm.ID).
+			Where("communities.namespace = ?", ns)
 		if err := memberQ.Count(&memberCount).Error; err != nil {
 			return "", trace.Wrap(err, "count community members")
 		}
@@ -260,10 +245,8 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 			var memberships []model.CommunityMembership
 			membershipQ := h.deps.DB.WithContext(ctx).
 				Joins("JOIN communities ON communities.id = community_memberships.community_id").
-				Where("community_id = ?", comm.ID)
-			if ns != "" {
-				membershipQ = membershipQ.Where("communities.namespace = ?", ns)
-			}
+				Where("community_id = ?", comm.ID).
+				Where("communities.namespace = ?", ns)
 			if err := membershipQ.Find(&memberships).Error; err != nil {
 				return "", trace.Wrap(err, "find community memberships")
 			}
@@ -275,10 +258,7 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 
 			var nodes []model.Node
 			if len(nodeIDs) > 0 {
-				nodesQ := h.deps.DB.WithContext(ctx).Where("id IN ?", nodeIDs)
-				if ns := ctxns.FromContext(ctx); ns != "" {
-					nodesQ = nodesQ.Where("namespace = ?", ns)
-				}
+				nodesQ := h.deps.DB.WithContext(ctx).Where("id IN ?", nodeIDs).Where("namespace = ?", ns)
 				if err := nodesQ.Find(&nodes).Error; err != nil {
 					return "", trace.Wrap(err, "find community nodes")
 				}
@@ -312,10 +292,7 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 	return finalizeToolResult(h.cachedExecute(ctx, "get_architecture_overview:", map[string]any{"workspace": request.GetString("workspace", "")}, func() (string, error) {
 		ns := ctxns.FromContext(ctx)
 		var communities []model.Community
-		communityQ := h.deps.DB.WithContext(ctx)
-		if ns != "" {
-			communityQ = communityQ.Where("namespace = ?", ns)
-		}
+		communityQ := h.deps.DB.WithContext(ctx).Where("namespace = ?", ns)
 		if err := communityQ.Find(&communities).Error; err != nil {
 			return "", trace.Wrap(err, "find communities for architecture overview")
 		}
@@ -342,10 +319,8 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 		var archCCRows []archCommCount
 		archCountQ := h.deps.DB.WithContext(ctx).
 			Model(&model.CommunityMembership{}).
-			Joins("JOIN communities ON communities.id = community_memberships.community_id")
-		if ns != "" {
-			archCountQ = archCountQ.Where("communities.namespace = ?", ns)
-		}
+			Joins("JOIN communities ON communities.id = community_memberships.community_id").
+			Where("communities.namespace = ?", ns)
 		if err := archCountQ.
 			Select("community_id, COUNT(*) as count").
 			Group("community_id").

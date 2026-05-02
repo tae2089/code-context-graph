@@ -8,6 +8,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+    gormschema "gorm.io/gorm/schema"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -559,6 +560,64 @@ func TestGetAnnotation_WithTags(t *testing.T) {
 	got, _ := s.GetAnnotation(ctx, node.ID)
 	if len(got.Tags) != 3 {
 		t.Fatalf("expected 3 tags, got %d", len(got.Tags))
+	}
+}
+
+type failFirstDocTagCreatePlugin struct{}
+
+func (p *failFirstDocTagCreatePlugin) Name() string { return "fail-first-doc-tag-create" }
+
+func (p *failFirstDocTagCreatePlugin) Initialize(db *gorm.DB) error {
+	return db.Callback().Create().Before("gorm:create").Register("fail-first-doc-tag-create", func(tx *gorm.DB) {
+		if tx.Statement == nil || tx.Statement.Schema == nil {
+			return
+		}
+		if tx.Statement.Schema.Name == "DocTag" {
+			tx.AddError(fmt.Errorf("boom"))
+		}
+	})
+}
+
+func TestUpsertAnnotation_Insert_RollsBackOnTagFailure(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		Logger:                 logger.Discard,
+		SkipDefaultTransaction: true,
+		NamingStrategy:         gormschema.NamingStrategy{},
+	})
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	if err := db.Use(&failFirstDocTagCreatePlugin{}); err != nil {
+		t.Fatalf("register plugin: %v", err)
+	}
+	s := New(db)
+	if err := s.AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := s.UpsertNodes(ctx, []model.Node{{QualifiedName: "pkg.F", Kind: model.NodeKindFunction, Name: "F", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"}}); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+	node, _ := s.GetNode(ctx, "pkg.F")
+
+	err = s.UpsertAnnotation(ctx, &model.Annotation{
+		NodeID:  node.ID,
+		Summary: "does something",
+		Tags: []model.DocTag{
+			{Kind: model.TagParam, Name: "x", Value: "input value", Ordinal: 0},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected UpsertAnnotation insert to fail")
+	}
+
+	var annCount int64
+	if err := db.Model(&model.Annotation{}).Where("node_id = ?", node.ID).Count(&annCount).Error; err != nil {
+		t.Fatalf("count annotations: %v", err)
+	}
+	if annCount != 0 {
+		t.Fatalf("expected annotation insert to roll back, got %d rows", annCount)
 	}
 }
 

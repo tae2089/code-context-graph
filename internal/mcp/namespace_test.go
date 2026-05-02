@@ -11,6 +11,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
@@ -69,8 +70,11 @@ func TestMCPHandler_SearchWithNamespace(t *testing.T) {
 			t.Fatalf("create SearchDocument for %s: %v", ns, err)
 		}
 	}
-	if err := deps.SearchBackend.Rebuild(context.Background(), deps.DB); err != nil {
-		t.Fatalf("rebuild search index: %v", err)
+	for _, ns := range []string{"ns-a", "ns-b"} {
+		ctx := ctxns.WithNamespace(context.Background(), ns)
+		if err := deps.SearchBackend.Rebuild(ctx, deps.DB); err != nil {
+			t.Fatalf("rebuild search index for %s: %v", ns, err)
+		}
 	}
 
 	result := callTool(t, deps, "search", map[string]any{"query": "SearchMe", "workspace": "ns-a"})
@@ -102,6 +106,27 @@ func TestMCPHandler_GraphWithNamespace(t *testing.T) {
 	totalNodes, ok := stats["total_nodes"].(float64)
 	if !ok || int(totalNodes) != 2 {
 		t.Errorf("expected 2 nodes for ns-a, got %v", stats["total_nodes"])
+	}
+}
+
+func TestMCPHandler_ListGraphStats_EmptyNamespaceDoesNotIncludeOtherNamespaces(t *testing.T) {
+	deps := setupTestDeps(t)
+	seedNodeWithNamespace(t, deps.DB, "", "pkg.Default", "function", "default.go")
+	seedNodeWithNamespace(t, deps.DB, "ns-a", "pkg.Other", "function", "other.go")
+
+	result := callTool(t, deps, "list_graph_stats", map[string]any{})
+	if result.IsError {
+		t.Fatalf("list_graph_stats returned error: %v", getTextContent(result))
+	}
+	text := getTextContent(result)
+
+	var stats map[string]any
+	if err := json.Unmarshal([]byte(text), &stats); err != nil {
+		t.Fatalf("unmarshal stats: %v", err)
+	}
+	totalNodes, ok := stats["total_nodes"].(float64)
+	if !ok || int(totalNodes) != 1 {
+		t.Fatalf("expected 1 default-namespace node, got %v", stats["total_nodes"])
 	}
 }
 

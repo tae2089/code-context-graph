@@ -51,11 +51,9 @@ func (s *Service) Analyze(ctx context.Context) ([]CouplingPair, error) {
 		Select("cm1.community_id as from_comm_id, cm2.community_id as to_comm_id, COUNT(*) as edge_count").
 		Joins("JOIN community_memberships cm1 ON cm1.node_id = edges.from_node_id").
 		Joins("JOIN community_memberships cm2 ON cm2.node_id = edges.to_node_id").
+		Joins("JOIN nodes n1 ON n1.id = edges.from_node_id").
 		Where("cm1.community_id != cm2.community_id")
-	if ns != "" {
-		q = q.Joins("JOIN nodes n1 ON n1.id = edges.from_node_id").
-			Where("edges.namespace = ? AND n1.namespace = ?", ns, ns)
-	}
+	q = q.Where("edges.namespace = ? AND n1.namespace = ?", ns, ns)
 	if err := q.Group("cm1.community_id, cm2.community_id").
 		Scan(&rows).Error; err != nil {
 		return nil, err

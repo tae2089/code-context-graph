@@ -434,10 +434,6 @@ func (h *handlers) deleteWorkspace(ctx context.Context, request mcp.CallToolRequ
 		return mcp.NewToolResultError(fmt.Sprintf("workspace %q not found", workspace)), nil
 	}
 
-	if err := os.RemoveAll(wsDir); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("delete workspace: %v", err)), nil
-	}
-
 	if h.deps != nil && h.deps.Store != nil {
 		if err := h.deps.Store.DeleteGraph(ctxns.WithNamespace(ctx, workspace)); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("purge workspace graph: %v", err)), nil
@@ -461,6 +457,10 @@ func (h *handlers) deleteWorkspace(ctx context.Context, request mcp.CallToolRequ
 		return mcp.NewToolResultError(fmt.Sprintf("resolve rag index path: %v", err)), nil
 	} else if err := os.Remove(indexPath); err != nil && !os.IsNotExist(err) {
 		return mcp.NewToolResultError(fmt.Sprintf("delete workspace rag index: %v", err)), nil
+	}
+
+	if err := os.RemoveAll(wsDir); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("delete workspace: %v", err)), nil
 	}
 
 	if h.cache != nil {

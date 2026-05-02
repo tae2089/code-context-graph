@@ -106,8 +106,8 @@ func TestRagIndexCmd_NamespaceFiltersDocIndex(t *testing.T) {
 	tmpDir := t.TempDir()
 	indexDir := filepath.Join(tmpDir, ".ccg")
 
-	backendComm := model.Community{Key: "backend", Label: "Backend", Strategy: "auto"}
-	frontendComm := model.Community{Key: "frontend", Label: "Frontend", Strategy: "auto"}
+	backendComm := model.Community{Namespace: "backend", Key: "backend", Label: "Backend", Strategy: "auto"}
+	frontendComm := model.Community{Namespace: "frontend", Key: "frontend", Label: "Frontend", Strategy: "auto"}
 	if err := deps.DB.Create(&backendComm).Error; err != nil {
 		t.Fatalf("create backend community: %v", err)
 	}
