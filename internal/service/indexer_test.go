@@ -30,8 +30,8 @@ import (
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
-	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 	"github.com/tae2089/code-context-graph/internal/store"
+	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 	storesearch "github.com/tae2089/code-context-graph/internal/store/search"
 )
 
@@ -218,7 +218,7 @@ func TestNewParsedBuildNodeBatch_DropsRawContentAndOnlyBuildsSourceLinesWhenNeed
 		t.Fatal("parsedBuildNodeBatch must not retain raw content")
 	}
 
-	noComments := newParsedBuildNodeBatch("sample.go", []byte("package sample\nfunc Keep() {}\n"), nil, nil)
+	noComments := newParsedBuildNodeBatch("sample.go", []byte("package sample\nfunc Keep() {}\n"), nil, nil, "")
 	if noComments.sourceLines != nil {
 		t.Fatalf("expected no sourceLines without comments, got %#v", noComments.sourceLines)
 	}
@@ -228,6 +228,7 @@ func TestNewParsedBuildNodeBatch_DropsRawContentAndOnlyBuildsSourceLinesWhenNeed
 		[]byte("package sample\n// hello\nfunc Keep() {}\n"),
 		nil,
 		[]treesitter.CommentBlock{{StartLine: 2, EndLine: 2, Text: "// hello"}},
+		"go",
 	)
 	if withComments.sourceLines == nil {
 		t.Fatal("expected sourceLines when tsComments exist")
@@ -461,18 +462,18 @@ func Keep() {}
 
 func TestBuild_ReleasesBatchCommentStateAfterBinding(t *testing.T) {
 	var snapshots []struct {
-		batch        int
+		batch         int
 		tsCommentsNil bool
 		sourceNil     bool
 	}
 	prevHook := testBuildBatchReleaseHook
 	testBuildBatchReleaseHook = func(batches []parsedBuildNodeBatch, idx int) {
 		snapshots = append(snapshots, struct {
-			batch        int
+			batch         int
 			tsCommentsNil bool
 			sourceNil     bool
 		}{
-			batch:        idx,
+			batch:         idx,
 			tsCommentsNil: batches[idx].tsComments == nil,
 			sourceNil:     batches[idx].sourceLines == nil,
 		})

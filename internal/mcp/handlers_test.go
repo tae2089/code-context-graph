@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -24,127 +23,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
-	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
-	"github.com/tae2089/code-context-graph/internal/store"
 )
-
-type recordingGraphStore struct {
-	txCalls          int
-	deleteGraphCalls int
-	ops       []string
-	nextID    uint
-	nodesByFP map[string][]model.Node
-}
-
-func newRecordingGraphStore() *recordingGraphStore {
-	return &recordingGraphStore{nodesByFP: make(map[string][]model.Node)}
-}
-
-
-func (r *recordingGraphStore) record(op string) {
-	r.ops = append(r.ops, op)
-}
-
-
-func (r *recordingGraphStore) WithTx(ctx context.Context, fn func(store.GraphStore) error) error {
-	r.txCalls++
-	return fn(r)
-}
-
-func (r *recordingGraphStore) AutoMigrate() error { return nil }
-
-func (r *recordingGraphStore) DeleteGraph(ctx context.Context) error {
-	r.deleteGraphCalls++
-	r.record("DeleteGraph")
-	r.nodesByFP = make(map[string][]model.Node)
-	return nil
-}
-
-func (r *recordingGraphStore) UpsertNodes(ctx context.Context, nodes []model.Node) error {
-	r.record("UpsertNodes")
-	for i := range nodes {
-		r.nextID++
-		nodes[i].ID = r.nextID
-		r.nodesByFP[nodes[i].FilePath] = append(r.nodesByFP[nodes[i].FilePath], nodes[i])
-	}
-	return nil
-}
-
-func (r *recordingGraphStore) GetNodesByFile(ctx context.Context, filePath string) ([]model.Node, error) {
-	r.record("GetNodesByFile")
-	nodes := r.nodesByFP[filePath]
-	out := make([]model.Node, len(nodes))
-	copy(out, nodes)
-	return out, nil
-}
-
-func (r *recordingGraphStore) UpsertAnnotation(ctx context.Context, ann *model.Annotation) error {
-	r.record("UpsertAnnotation")
-	return nil
-}
-
-func (r *recordingGraphStore) UpsertEdges(ctx context.Context, edges []model.Edge) error {
-	r.record("UpsertEdges")
-	return nil
-}
-
-func (r *recordingGraphStore) GetNode(ctx context.Context, qualifiedName string) (*model.Node, error) {
-	return nil, nil
-}
-
-func (r *recordingGraphStore) GetNodeByID(ctx context.Context, id uint) (*model.Node, error) {
-	return nil, nil
-}
-
-func (r *recordingGraphStore) GetNodesByIDs(ctx context.Context, ids []uint) ([]model.Node, error) {
-	return nil, nil
-}
-
-func (r *recordingGraphStore) GetNodesByQualifiedNames(ctx context.Context, names []string) (map[string][]model.Node, error) {
-	return nil, nil
-}
-
-func (r *recordingGraphStore) GetNodesByFiles(ctx context.Context, filePaths []string) (map[string][]model.Node, error) {
-	return nil, nil
-}
-
-func (r *recordingGraphStore) GetEdgesFrom(ctx context.Context, nodeID uint) ([]model.Edge, error) {
-	return nil, nil
-}
-
-func (r *recordingGraphStore) GetEdgesFromNodes(ctx context.Context, nodeIDs []uint) ([]model.Edge, error) {
-	return nil, nil
-}
-
-func (r *recordingGraphStore) GetEdgesTo(ctx context.Context, nodeID uint) ([]model.Edge, error) {
-	return nil, nil
-}
-
-func (r *recordingGraphStore) GetEdgesToNodes(ctx context.Context, nodeIDs []uint) ([]model.Edge, error) {
-	return nil, nil
-}
-
-func (r *recordingGraphStore) DeleteNodesByFile(ctx context.Context, filePath string) error {
-	return nil
-}
-
-func (r *recordingGraphStore) DeleteEdgesByFile(ctx context.Context, filePath string) error {
-	return nil
-}
-
-func (r *recordingGraphStore) GetAnnotation(ctx context.Context, nodeID uint) (*model.Annotation, error) {
-	return nil, nil
-}
-
-func countOp(ops []string, want string) int {
-	count := 0
-	for _, op := range ops {
-		if op == want {
-			count++
-		}
-	}
-	return count
-}
 
 func TestMarshalJSON(t *testing.T) {
 	data := map[string]any{"key": "value", "num": 42}
@@ -198,46 +77,6 @@ func Hello() string {
 	}
 }
 
-type orderingCommentGoParser struct{}
-
-func (p *orderingCommentGoParser) Parse(filePath string, content []byte) ([]model.Node, []model.Edge, error) {
-	nodes, edges, _, err := p.ParseWithComments(context.Background(), filePath, content)
-	return nodes, edges, err
-}
-
-func (p *orderingCommentGoParser) ParseWithContext(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, error) {
-	nodes, edges, _, err := p.ParseWithComments(ctx, filePath, content)
-	return nodes, edges, err
-}
-
-func (p *orderingCommentGoParser) ParseWithComments(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []treesitter.CommentBlock, error) {
-	nodes := []model.Node{{
-		QualifiedName: "sample.Keep",
-		Kind:          model.NodeKindFunction,
-		Name:          "Keep",
-		FilePath:      filepath.Base(filePath),
-		StartLine:     4,
-		EndLine:       5,
-		Language:      "go",
-	}}
-	edges := []model.Edge{{
-		Kind:        model.EdgeKindCalls,
-		FilePath:     filepath.Base(filePath),
-		Line:         5,
-		Fingerprint:  "calls:sample.Keep:sample.Helper",
-	}}
-	comments := []treesitter.CommentBlock{{
-		StartLine:      2,
-		EndLine:        2,
-		Text:           "// @intent keep track",
-		IsDocstring:    true,
-		OwnerStartLine: 4,
-	}}
-	return nodes, edges, comments, nil
-}
-
-func (p *orderingCommentGoParser) Language() string { return "go" }
-
 func TestParseProject_RejectsPathOutsideConfiguredRoot(t *testing.T) {
 	deps := setupTestDeps(t)
 	deps.RepoRoot = t.TempDir()
@@ -264,204 +103,6 @@ func Hello() {}
 	result := callTool(t, deps, "parse_project", map[string]any{"path": dir})
 	if !result.IsError {
 		t.Fatal("expected parse_project to fail closed without RepoRoot or WorkspaceRoot")
-	}
-}
-
-func TestNewParsedWalkEdgeBatch_DoesNotRetainNodeSideState(t *testing.T) {
-	typ := reflect.TypeFor[parsedWalkEdgeBatch]()
-	for _, name := range []string{"nodes", "comments", "sourceLines"} {
-		if _, ok := typ.FieldByName(name); ok {
-			t.Fatalf("parsedWalkEdgeBatch must not retain %s", name)
-		}
-	}
-}
-
-func TestNewParsedWalkNodeBatch_DropsRawContentAndOnlyBuildsSourceLinesWhenNeeded(t *testing.T) {
-	typ := reflect.TypeFor[parsedWalkNodeBatch]()
-	if _, ok := typ.FieldByName("content"); ok {
-		t.Fatal("parsedWalkNodeBatch must not retain raw content")
-	}
-
-	content := []byte("package main\n\nfunc Hello() {}\n")
-	parsedWithoutComments := newParsedWalkNodeBatch("main.go", content, nil, nil)
-	if parsedWithoutComments.sourceLines != nil {
-		t.Fatalf("expected no sourceLines without comments, got %v", parsedWithoutComments.sourceLines)
-	}
-
-	comments := []treesitter.CommentBlock{{StartLine: 3, EndLine: 3, Text: "Hello", IsDocstring: true, OwnerStartLine: 3}}
-	parsedWithComments := newParsedWalkNodeBatch("main.go", content, nil, comments)
-	if got, want := parsedWithComments.sourceLines, strings.Split(string(content), "\n"); len(got) != len(want) {
-		t.Fatalf("expected sourceLines length %d, got %d", len(want), len(got))
-	} else {
-		for i := range want {
-			if got[i] != want[i] {
-				t.Fatalf("expected sourceLines[%d] = %q, got %q", i, want[i], got[i])
-			}
-		}
-	}
-}
-
-func TestHandler_walkAndParse_OrderingSeam(t *testing.T) {
-	deps := setupGraphOnlyTestDeps(t)
-	fakeStore := newRecordingGraphStore()
-	deps.Store = fakeStore
-	parser := &orderingCommentGoParser{}
-	deps.Parser = parser
-	deps.Walkers = map[string]Parser{".go": parser}
-	h := &handlers{deps: deps}
-
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "sample.go"), []byte(`package sample
-
-// @intent keep track
-func Keep() {}
-`), 0o644); err != nil {
-		t.Fatalf("write file: %v", err)
-	}
-
-	if _, err := h.walkAndParse(context.Background(), dir); err != nil {
-		t.Fatalf("walkAndParse: %v", err)
-	}
-	if fakeStore.txCalls != 1 {
-		t.Fatalf("expected WithTx once, got %d", fakeStore.txCalls)
-	}
-	if fakeStore.deleteGraphCalls != 1 {
-		t.Fatalf("expected DeleteGraph once, got %d", fakeStore.deleteGraphCalls)
-	}
-
-	want := []string{"DeleteGraph", "UpsertNodes", "GetNodesByFile", "UpsertAnnotation", "UpsertEdges"}
-	for i, op := range want[:4] {
-		if len(fakeStore.ops) <= i {
-			t.Fatalf("ops too short: got %v", fakeStore.ops)
-		}
-		if fakeStore.ops[i] != op {
-			t.Fatalf("op[%d]=%q want %q (all=%v)", i, fakeStore.ops[i], op, fakeStore.ops)
-		}
-	}
-	firstEdge := slices.Index(fakeStore.ops, "UpsertEdges")
-	lastAnn := -1
-	for i := len(fakeStore.ops) - 1; i >= 0; i-- {
-		if fakeStore.ops[i] == "UpsertAnnotation" {
-			lastAnn = i
-			break
-		}
-	}
-	if firstEdge == -1 || lastAnn == -1 {
-		t.Fatalf("expected annotations and edges in ops: %v", fakeStore.ops)
-	}
-	if firstEdge <= lastAnn {
-		t.Fatalf("expected UpsertEdges after all UpsertAnnotation calls, got %v", fakeStore.ops)
-	}
-}
-
-func TestHandler_walkAndParse_OrderingSeam_DefersEdgesAcrossFiles(t *testing.T) {
-	deps := setupGraphOnlyTestDeps(t)
-	fakeStore := newRecordingGraphStore()
-	deps.Store = fakeStore
-	parser := &orderingCommentGoParser{}
-	deps.Parser = parser
-	deps.Walkers = map[string]Parser{".go": parser}
-	h := &handlers{deps: deps}
-
-	dir := t.TempDir()
-	for _, name := range []string{"alpha.go", "beta.go"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(`package sample
-
-// @intent keep track
-func Keep() {}
-`), 0o644); err != nil {
-			t.Fatalf("write %s: %v", name, err)
-		}
-	}
-
-	if _, err := h.walkAndParse(context.Background(), dir); err != nil {
-		t.Fatalf("walkAndParse: %v", err)
-	}
-	if fakeStore.txCalls != 1 {
-		t.Fatalf("expected WithTx once, got %d", fakeStore.txCalls)
-	}
-	if fakeStore.deleteGraphCalls != 1 {
-		t.Fatalf("expected DeleteGraph once, got %d", fakeStore.deleteGraphCalls)
-	}
-	if got := countOp(fakeStore.ops, "UpsertNodes"); got != 2 {
-		t.Fatalf("expected UpsertNodes twice, got %d (ops=%v)", got, fakeStore.ops)
-	}
-	if got := countOp(fakeStore.ops, "GetNodesByFile"); got != 2 {
-		t.Fatalf("expected GetNodesByFile twice, got %d (ops=%v)", got, fakeStore.ops)
-	}
-	if got := countOp(fakeStore.ops, "UpsertAnnotation"); got != 2 {
-		t.Fatalf("expected UpsertAnnotation twice, got %d (ops=%v)", got, fakeStore.ops)
-	}
-	if got := countOp(fakeStore.ops, "UpsertEdges"); got != 2 {
-		t.Fatalf("expected UpsertEdges twice, got %d (ops=%v)", got, fakeStore.ops)
-	}
-
-	firstEdge := slices.Index(fakeStore.ops, "UpsertEdges")
-	lastAnn := -1
-	for i := len(fakeStore.ops) - 1; i >= 0; i-- {
-		if fakeStore.ops[i] == "UpsertAnnotation" {
-			lastAnn = i
-			break
-		}
-	}
-	if firstEdge == -1 || lastAnn == -1 {
-		t.Fatalf("expected annotations and edges in ops: %v", fakeStore.ops)
-	}
-	if firstEdge <= lastAnn {
-		t.Fatalf("expected all edges deferred until after all annotations, got %v", fakeStore.ops)
-	}
-}
-
-func TestHandler_walkAndParse_ReleasesBatchCommentStateAfterBinding(t *testing.T) {
-	var snapshots []struct {
-		batch       int
-		commentsNil bool
-		sourceNil   bool
-	}
-	prevHook := testWalkBatchReleaseHook
-	testWalkBatchReleaseHook = func(batches []parsedWalkNodeBatch, idx int) {
-		snapshots = append(snapshots, struct {
-			batch       int
-			commentsNil bool
-			sourceNil   bool
-		}{
-			batch:       idx,
-			commentsNil: batches[idx].comments == nil,
-			sourceNil:   batches[idx].sourceLines == nil,
-		})
-	}
-	defer func() { testWalkBatchReleaseHook = prevHook }()
-
-	deps := setupGraphOnlyTestDeps(t)
-	fakeStore := newRecordingGraphStore()
-	deps.Store = fakeStore
-	parser := &orderingCommentGoParser{}
-	deps.Parser = parser
-	deps.Walkers = map[string]Parser{".go": parser}
-	h := &handlers{deps: deps}
-
-	dir := t.TempDir()
-	for _, name := range []string{"alpha.go", "beta.go"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(`package sample
-
-// @intent keep track
-func Keep() {}
-`), 0o644); err != nil {
-			t.Fatalf("write %s: %v", name, err)
-		}
-	}
-
-	if _, err := h.walkAndParse(context.Background(), dir); err != nil {
-		t.Fatalf("walkAndParse: %v", err)
-	}
-
-	if len(snapshots) != 2 {
-		t.Fatalf("expected 2 batch release snapshots, got %d", len(snapshots))
-	}
-	for _, snap := range snapshots {
-		if !snap.commentsNil || !snap.sourceNil {
-			t.Fatalf("expected batch %d comment state released, got commentsNil=%v sourceNil=%v", snap.batch, snap.commentsNil, snap.sourceNil)
-		}
 	}
 }
 
@@ -3087,6 +2728,32 @@ func MyService() {}
 	}
 	if len(nodes) == 0 {
 		t.Fatal("expected at least 1 search result after build_or_update_graph refreshed search documents")
+	}
+}
+
+func TestBuildOrUpdateGraph_PostprocessNone_DoesNotRefreshSearchDocuments(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "svc.go", `package svc
+func NotIndexedYet() {}
+`)
+
+	result := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": true,
+		"postprocess":  "none",
+	})
+	if result.IsError {
+		t.Fatalf("build_or_update_graph returned error: %s", getTextContent(result))
+	}
+
+	var count int64
+	if err := deps.DB.Model(&model.SearchDocument{}).Count(&count).Error; err != nil {
+		t.Fatalf("failed to count search_documents: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected postprocess=none not to refresh search_documents, got %d", count)
 	}
 }
 

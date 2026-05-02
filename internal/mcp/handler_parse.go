@@ -2,13 +2,10 @@ package mcp
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -16,258 +13,10 @@ import (
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/community"
-	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
-	"github.com/tae2089/code-context-graph/internal/ctxns"
-	"github.com/tae2089/code-context-graph/internal/model"
-	"github.com/tae2089/code-context-graph/internal/parse"
-	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
-	"github.com/tae2089/code-context-graph/internal/pathutil"
 	"github.com/tae2089/code-context-graph/internal/service"
-	"github.com/tae2089/code-context-graph/internal/store"
 )
 
 var refreshSearchDocuments = service.RefreshSearchDocuments
-
-// walkParseStats accumulates file parsing progress for build handlers.
-// @intent 디렉터리 순회 중 생성된 파일·노드·엣지 수와 오류 수를 집계한다.
-type walkParseStats struct {
-	Files  int
-	Nodes  int
-	Edges  int
-	Errors int
-}
-
-type parsedWalkNodeBatch struct {
-	path        string
-	nodes       []model.Node
-	comments    []treesitter.CommentBlock
-	sourceLines []string
-}
-
-type parsedWalkEdgeBatch struct {
-	path  string
-	edges []model.Edge
-}
-
-var testWalkBatchReleaseHook func([]parsedWalkNodeBatch, int)
-
-func newParsedWalkNodeBatch(path string, content []byte, nodes []model.Node, comments []treesitter.CommentBlock) parsedWalkNodeBatch {
-	out := parsedWalkNodeBatch{
-		path:     path,
-		nodes:    nodes,
-		comments: comments,
-	}
-	if len(comments) > 0 {
-		out.sourceLines = strings.Split(string(content), "\n")
-	}
-	return out
-}
-
-func newParsedWalkEdgeBatch(path string, edges []model.Edge) parsedWalkEdgeBatch {
-	return parsedWalkEdgeBatch{path: path, edges: edges}
-}
-
-func (h *handlers) bindAndReleaseWalkBatch(ctx context.Context, txStore store.GraphStore, batches []parsedWalkNodeBatch, idx int) error {
-	parsed := &batches[idx]
-	if len(parsed.nodes) > 0 {
-		if err := txStore.UpsertNodes(ctx, parsed.nodes); err != nil {
-			return trace.Wrap(err, "upsert nodes")
-		}
-	}
-
-	if len(parsed.comments) > 0 {
-		ext := strings.ToLower(filepath.Ext(parsed.path))
-		cp, ok := h.deps.Walkers[ext].(commentParserWithLanguage)
-		if ok {
-			binderComments := toMCPBinderComments(parsed.comments)
-			binder := parse.NewBinder()
-			bindings := binder.Bind(binderComments, parsed.nodes, cp.Language(), parsed.sourceLines)
-
-			storedNodes, err := txStore.GetNodesByFile(ctx, parsed.path)
-			if err != nil {
-				return trace.Wrap(err, "get stored nodes for annotations")
-			}
-			storedMap := make(map[string]*model.Node, len(storedNodes))
-			for i := range storedNodes {
-				key := storedNodes[i].QualifiedName + ":" + strconv.Itoa(storedNodes[i].StartLine)
-				storedMap[key] = &storedNodes[i]
-			}
-
-			for _, b := range bindings {
-				key := b.Node.QualifiedName + ":" + strconv.Itoa(b.Node.StartLine)
-				stored := storedMap[key]
-				if stored == nil {
-					continue
-				}
-				b.Annotation.NodeID = stored.ID
-				if err := txStore.UpsertAnnotation(ctx, b.Annotation); err != nil {
-					return trace.Wrap(err, "upsert annotation for "+stored.QualifiedName)
-				}
-			}
-		}
-	}
-
-	parsed.comments = nil
-	parsed.sourceLines = nil
-	if testWalkBatchReleaseHook != nil {
-		testWalkBatchReleaseHook(batches, idx)
-	}
-	return nil
-}
-
-type commentParserWithLanguage interface {
-	ParseWithComments(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []treesitter.CommentBlock, error)
-	Language() string
-}
-
-// walkAndParse walks a directory, parses supported files, and stores graph data.
-// @intent 프로젝트 디렉터리를 순회하며 지원 언어만 파싱해 그래프 저장소를 채운다.
-// @param dirPath 파싱할 프로젝트 루트 디렉터리다.
-// @requires h.deps.Store와 h.deps.Walkers가 구성되어 있어야 한다.
-// @ensures 반환 통계에는 처리된 파일과 저장된 노드/엣지 수가 반영된다.
-// @sideEffect 파일 시스템 읽기와 그래프 저장소 쓰기를 수행한다.
-// @mutates walkParseStats, graph store state
-func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePaths ...string) (walkParseStats, error) {
-	var stats walkParseStats
-
-	absDir, err := filepath.Abs(dirPath)
-	if err != nil {
-		return stats, trace.Wrap(err, "resolve path")
-	}
-	if _, err := os.Stat(absDir); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return stats, trace.Wrap(err, "parse root does not exist")
-		}
-		return stats, trace.Wrap(err, "stat parse root")
-	}
-	dirPath = absDir
-
-	var walkFiles []string
-	err = filepath.Walk(absDir, func(fp string, info os.FileInfo, err error) error {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			if pathutil.ShouldSkipDir(info.Name()) {
-				return filepath.SkipDir
-			}
-			if len(includePaths) > 0 && fp != absDir {
-				relPath, _ := filepath.Rel(absDir, fp)
-				if !pathutil.MatchIncludePaths(relPath, includePaths) {
-					return filepath.SkipDir
-				}
-			}
-			return nil
-		}
-
-		if len(includePaths) > 0 {
-			relPath, _ := filepath.Rel(absDir, fp)
-			if !pathutil.MatchIncludePaths(relPath, includePaths) {
-				return nil
-			}
-		}
-		walkFiles = append(walkFiles, fp)
-		return nil
-	})
-	if err != nil {
-		return stats, trace.Wrap(err, "preflight walk dir")
-	}
-
-	nodeBatches := make([]parsedWalkNodeBatch, 0, len(walkFiles))
-	edgeBatches := make([]parsedWalkEdgeBatch, 0, len(walkFiles))
-	var totalParsedBytes int64
-	for _, fp := range walkFiles {
-		if err := ctx.Err(); err != nil {
-			return stats, err
-		}
-		ext := strings.ToLower(filepath.Ext(fp))
-		walker, ok := h.deps.Walkers[ext]
-		if !ok {
-			continue
-		}
-
-		relPath, _ := filepath.Rel(absDir, fp)
-		info, err := os.Stat(fp)
-		if err != nil {
-			return stats, trace.Wrap(err, "stat parse file "+relPath)
-		}
-		if err := service.CheckParseFileSize(relPath, info.Size(), h.deps.MaxFileBytes); err != nil {
-			return stats, err
-		}
-		if err := service.CheckTotalParsedBytes(relPath, totalParsedBytes, info.Size(), h.deps.MaxTotalParsedBytes); err != nil {
-			return stats, err
-		}
-
-		content, err := os.ReadFile(fp)
-		if err != nil {
-			return stats, trace.Wrap(err, "read parse file "+relPath)
-		}
-		totalParsedBytes += int64(len(content))
-		if err := service.CheckTotalParsedBytes(relPath, 0, totalParsedBytes, h.deps.MaxTotalParsedBytes); err != nil {
-			return stats, err
-		}
-
-		var nodes []model.Node
-		var edges []model.Edge
-		var comments []treesitter.CommentBlock
-
-		if tw, ok := walker.(commentParserWithLanguage); ok {
-			nodes, edges, comments, err = tw.ParseWithComments(ctx, relPath, content)
-		} else {
-			nodes, edges, err = walker.ParseWithContext(ctx, relPath, content)
-		}
-		if err != nil {
-			return stats, trace.Wrap(err, "parse file "+relPath)
-		}
-		nodeBatches = append(nodeBatches, newParsedWalkNodeBatch(relPath, content, nodes, comments))
-		edgeBatches = append(edgeBatches, newParsedWalkEdgeBatch(relPath, edges))
-		stats.Files++
-		stats.Nodes += len(nodes)
-		stats.Edges += len(edges)
-	}
-
-	if err := ctx.Err(); err != nil {
-		return stats, err
-	}
-
-	if err := h.deps.Store.WithTx(ctx, func(txStore store.GraphStore) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := txStore.DeleteGraph(ctx); err != nil {
-			return trace.Wrap(err, "reset graph state before parse")
-		}
-
-		for i := range nodeBatches {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if err := h.bindAndReleaseWalkBatch(ctx, txStore, nodeBatches, i); err != nil {
-				return err
-			}
-		}
-
-		nodeBatches = nil
-
-		for _, parsed := range edgeBatches {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if len(parsed.edges) > 0 {
-				if err := txStore.UpsertEdges(ctx, parsed.edges); err != nil {
-					return trace.Wrap(err, "upsert edges")
-				}
-			}
-		}
-		return nil
-	}); err != nil {
-		return stats, err
-	}
-	return stats, nil
-}
 
 func (h *handlers) withParseLimitsFromRequest(request mcp.CallToolRequest) *handlers {
 	maxFileBytes := int64(request.GetInt("max_file_bytes", int(h.deps.MaxFileBytes)))
@@ -283,18 +32,18 @@ func (h *handlers) withParseLimitsFromRequest(request mcp.CallToolRequest) *hand
 	return &hCopy
 }
 
-func toMCPBinderComments(tsComments []treesitter.CommentBlock) []parse.CommentBlock {
-	out := make([]parse.CommentBlock, len(tsComments))
-	for i, c := range tsComments {
-		out[i] = parse.CommentBlock{
-			StartLine:      c.StartLine,
-			EndLine:        c.EndLine,
-			Text:           c.Text,
-			IsDocstring:    c.IsDocstring,
-			OwnerStartLine: c.OwnerStartLine,
-		}
+func (h *handlers) graphService() *service.GraphService {
+	walkers := make(map[string]service.Parser, len(h.deps.Walkers))
+	for ext, parser := range h.deps.Walkers {
+		walkers[ext] = parser
 	}
-	return out
+	return &service.GraphService{
+		Store:         h.deps.Store,
+		DB:            h.deps.DB,
+		SearchBackend: h.deps.SearchBackend,
+		Parsers:       walkers,
+		Logger:        h.logger(),
+	}
 }
 
 // parseProject parses a project directory and stores discovered graph elements.
@@ -322,16 +71,22 @@ func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest
 	dirPath = validatedPath
 
 	includePaths := request.GetStringSlice("include_paths", nil)
-	stats, err := h.walkAndParse(ctx, dirPath, includePaths...)
+	stats, err := h.graphService().Build(ctx, service.BuildOptions{
+		Dir:                 dirPath,
+		IncludePaths:        includePaths,
+		MaxFileBytes:        h.deps.MaxFileBytes,
+		MaxTotalParsedBytes: h.deps.MaxTotalParsedBytes,
+		SkipSearchRebuild:   true,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	log.Info("parse_project completed", "parsed", stats.Files, "errors", stats.Errors)
+	log.Info("parse_project completed", "parsed", stats.TotalFiles, "errors", 0)
 	if h.cache != nil {
 		h.cache.Flush()
 	}
-	return mcp.NewToolResultText(fmt.Sprintf(`{"parsed":%d,"errors":%d}`, stats.Files, stats.Errors)), nil
+	return mcp.NewToolResultText(fmt.Sprintf(`{"parsed":%d,"errors":%d}`, stats.TotalFiles, 0)), nil
 }
 
 // buildOrUpdateGraph builds the graph fully or incrementally and runs postprocessing.
@@ -369,90 +124,33 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 	var nodeCount, edgeCount, fileCount int
 
 	if fullRebuild || h.deps.Incremental == nil {
-		stats, err := h.walkAndParse(ctx, dirPath, includePaths...)
+		stats, err := h.graphService().Build(ctx, service.BuildOptions{
+			Dir:                 dirPath,
+			IncludePaths:        includePaths,
+			MaxFileBytes:        h.deps.MaxFileBytes,
+			MaxTotalParsedBytes: h.deps.MaxTotalParsedBytes,
+			SkipSearchRebuild:   true,
+		})
 		if err != nil {
 			return nil, err
 		}
-		nodeCount = stats.Nodes
-		edgeCount = stats.Edges
-		fileCount = stats.Files
+		nodeCount = stats.TotalNodes
+		edgeCount = stats.TotalEdges
+		fileCount = stats.TotalFiles
 	} else {
-		// 증분 빌드
-		absDir, _ := filepath.Abs(dirPath)
-		files := map[string]incremental.FileInfo{}
-		existingFiles := []string{}
-		ns := ctxns.FromContext(ctx)
-		if err := h.deps.DB.Model(&model.Node{}).Where("namespace = ?", ns).Distinct().Pluck("file_path", &existingFiles).Error; err != nil {
-			return nil, trace.Wrap(err, "load existing file paths")
-		}
-		if !replace && len(includePaths) > 0 {
-			filtered := make([]string, 0, len(existingFiles))
-			for _, fp := range existingFiles {
-				if pathutil.MatchIncludePaths(fp, includePaths) {
-					filtered = append(filtered, fp)
-				}
-			}
-			existingFiles = filtered
-		}
-		var totalParsedBytes int64
-		err := filepath.Walk(absDir, func(fp string, info os.FileInfo, err error) error {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return ctxErr
-			}
-			if err != nil {
-				return err
-			}
-			if info.IsDir() {
-				name := info.Name()
-				if pathutil.ShouldSkipDir(name) {
-					return filepath.SkipDir
-				}
-				if len(includePaths) > 0 && fp != dirPath && fp != absDir {
-					relPath, _ := filepath.Rel(absDir, fp)
-					if !pathutil.MatchIncludePaths(relPath, includePaths) {
-						return filepath.SkipDir
-					}
-				}
-				return nil
-			}
-			relPath, _ := filepath.Rel(absDir, fp)
-			if len(includePaths) > 0 {
-				if !pathutil.MatchIncludePaths(relPath, includePaths) {
-					return nil
-				}
-			}
-			ext := strings.ToLower(filepath.Ext(fp))
-			if _, ok := h.deps.Walkers[ext]; !ok {
-				return nil
-			}
-			if err := service.CheckParseFileSize(relPath, info.Size(), h.deps.MaxFileBytes); err != nil {
-				return err
-			}
-			if err := service.CheckTotalParsedBytes(relPath, totalParsedBytes, info.Size(), h.deps.MaxTotalParsedBytes); err != nil {
-				return err
-			}
-			content, err := os.ReadFile(fp)
-			if err != nil {
-				return nil
-			}
-			totalParsedBytes += int64(len(content))
-			if err := service.CheckTotalParsedBytes(relPath, 0, totalParsedBytes, h.deps.MaxTotalParsedBytes); err != nil {
-				return err
-			}
-			hash := sha256.Sum256(content)
-			files[relPath] = incremental.FileInfo{
-				Hash:    hex.EncodeToString(hash[:]),
-				Content: content,
-			}
-			return nil
+		stats, err := h.graphService().Update(ctx, service.UpdateOptions{
+			BuildOptions: service.BuildOptions{
+				Dir:                 dirPath,
+				IncludePaths:        includePaths,
+				MaxFileBytes:        h.deps.MaxFileBytes,
+				MaxTotalParsedBytes: h.deps.MaxTotalParsedBytes,
+				SkipSearchRebuild:   true,
+			},
+			Syncer:  h.deps.Incremental,
+			Replace: replace,
 		})
 		if err != nil {
-			return nil, trace.Wrap(err, "walk error")
-		}
-
-		stats, err := h.deps.Incremental.SyncWithExisting(ctx, files, existingFiles)
-		if err != nil {
-			return nil, trace.Wrap(err, "incremental sync error")
+			return nil, err
 		}
 		fileCount = stats.Added + stats.Modified
 	}

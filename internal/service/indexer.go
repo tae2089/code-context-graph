@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/tae2089/trace"
 
+	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/parse"
@@ -27,6 +30,7 @@ type parsedBuildNodeBatch struct {
 	relPath     string
 	nodes       []model.Node
 	tsComments  []treesitter.CommentBlock
+	language    string
 	sourceLines []string
 }
 
@@ -37,11 +41,12 @@ type parsedBuildEdgeBatch struct {
 
 var testBuildBatchReleaseHook func([]parsedBuildNodeBatch, int)
 
-func newParsedBuildNodeBatch(relPath string, content []byte, nodes []model.Node, tsComments []treesitter.CommentBlock) parsedBuildNodeBatch {
+func newParsedBuildNodeBatch(relPath string, content []byte, nodes []model.Node, tsComments []treesitter.CommentBlock, language string) parsedBuildNodeBatch {
 	out := parsedBuildNodeBatch{
 		relPath:    relPath,
 		nodes:      nodes,
 		tsComments: tsComments,
+		language:   language,
 	}
 	if len(tsComments) > 0 {
 		out.sourceLines = strings.Split(string(content), "\n")
@@ -55,7 +60,6 @@ func newParsedBuildEdgeBatch(relPath string, edges []model.Edge) parsedBuildEdge
 
 func (s *GraphService) bindAndReleaseNodeBatch(ctx context.Context, txStore store.GraphStore, batches []parsedBuildNodeBatch, idx int) error {
 	parsed := &batches[idx]
-	walker := s.Walkers[strings.ToLower(filepath.Ext(parsed.relPath))]
 
 	if err := txStore.UpsertNodes(ctx, parsed.nodes); err != nil {
 		return trace.Wrap(err, "upsert nodes for "+parsed.relPath)
@@ -64,7 +68,7 @@ func (s *GraphService) bindAndReleaseNodeBatch(ctx context.Context, txStore stor
 	if len(parsed.tsComments) > 0 {
 		binderComments := toBinderComments(parsed.tsComments)
 		binder := parse.NewBinder()
-		bindings := binder.Bind(binderComments, parsed.nodes, walker.Language(), parsed.sourceLines)
+		bindings := binder.Bind(binderComments, parsed.nodes, parsed.language, parsed.sourceLines)
 
 		storedNodes, err := txStore.GetNodesByFile(ctx, parsed.relPath)
 		if err != nil {
@@ -97,6 +101,25 @@ func (s *GraphService) bindAndReleaseNodeBatch(ctx context.Context, txStore stor
 	return nil
 }
 
+// Parser defines the minimum parser behavior required by graph builds.
+// @intent let CLI, MCP, and tests share the same build policy with their parser implementations
+type Parser interface {
+	Parse(filePath string, content []byte) ([]model.Node, []model.Edge, error)
+	ParseWithContext(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, error)
+}
+
+type commentParserWithLanguage interface {
+	Parser
+	ParseWithComments(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []treesitter.CommentBlock, error)
+	Language() string
+}
+
+// IncrementalSyncer defines the sync operation GraphService.Update delegates to.
+// @intent keep filesystem/build policy in service while preserving the existing incremental engine
+type IncrementalSyncer interface {
+	SyncWithExisting(ctx context.Context, files map[string]incremental.FileInfo, existingFiles []string) (*incremental.SyncStats, error)
+}
+
 // GraphService orchestrates graph building and search document refresh.
 // @intent 파싱 결과 저장과 검색 인덱스 재구성을 하나의 서비스로 묶는다.
 type GraphService struct {
@@ -104,6 +127,7 @@ type GraphService struct {
 	DB            *gorm.DB
 	SearchBackend search.Backend
 	Walkers       map[string]*treesitter.Walker
+	Parsers       map[string]Parser
 	Logger        *slog.Logger
 }
 
@@ -116,6 +140,7 @@ type BuildOptions struct {
 	IncludePaths        []string
 	MaxFileBytes        int64
 	MaxTotalParsedBytes int64
+	SkipSearchRebuild   bool
 }
 
 // BuildStats reports how much content a build processed.
@@ -124,6 +149,14 @@ type BuildStats struct {
 	TotalFiles int
 	TotalNodes int
 	TotalEdges int
+}
+
+// UpdateOptions configures one incremental graph sync run.
+// @intent reuse GraphService traversal and parse limit policy for CLI and MCP updates
+type UpdateOptions struct {
+	BuildOptions
+	Syncer  IncrementalSyncer
+	Replace bool
 }
 
 // Build walks source files, stores parsed graph data, and rebuilds search docs.
@@ -145,48 +178,15 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		return stats, trace.Wrap(err, "stat build root")
 	}
 
-	s.Logger.Info("building graph", "dir", absDir)
+	s.logger().Info("building graph", "dir", absDir)
 
-	var nodeBatches []parsedBuildNodeBatch
-	var edgeBatches []parsedBuildEdgeBatch
-	var walkCandidates []string
-
-	err = filepath.Walk(absDir, func(path string, info os.FileInfo, err error) error {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
-		if err != nil {
-			return err
-		}
-
-		relPath, _ := filepath.Rel(absDir, path)
-
-		if info.IsDir() {
-			if path != absDir && opts.NoRecursive {
-				return filepath.SkipDir
-			}
-			if pathutil.ShouldSkipDir(info.Name()) || pathutil.MatchExcludes(opts.ExcludePatterns, relPath) {
-				return filepath.SkipDir
-			}
-			if len(opts.IncludePaths) > 0 && path != absDir && !pathutil.MatchIncludePaths(relPath, opts.IncludePaths) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		if pathutil.MatchExcludes(opts.ExcludePatterns, relPath) {
-			return nil
-		}
-		if len(opts.IncludePaths) > 0 && !pathutil.MatchIncludePaths(relPath, opts.IncludePaths) {
-			return nil
-		}
-		walkCandidates = append(walkCandidates, path)
-		return nil
-	})
+	walkCandidates, err := collectWalkCandidates(ctx, absDir, opts)
 	if err != nil {
 		return stats, trace.Wrap(err, "preflight walk directory")
 	}
 
+	var nodeBatches []parsedBuildNodeBatch
+	var edgeBatches []parsedBuildEdgeBatch
 	var totalParsedBytes int64
 	for _, path := range walkCandidates {
 		if err := ctx.Err(); err != nil {
@@ -195,7 +195,7 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		relPath, _ := filepath.Rel(absDir, path)
 
 		ext := strings.ToLower(filepath.Ext(path))
-		walker, ok := s.Walkers[ext]
+		walker, ok := s.parserForExt(ext)
 		if !ok {
 			continue
 		}
@@ -220,12 +220,12 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 			return stats, err
 		}
 
-		nodes, edges, tsComments, err := walker.ParseWithComments(ctx, relPath, content)
+		nodes, edges, tsComments, language, err := parseForBuild(ctx, walker, relPath, content)
 		if err != nil {
 			return stats, trace.Wrap(err, "parse build file "+relPath)
 		}
 
-		nodeBatches = append(nodeBatches, newParsedBuildNodeBatch(relPath, content, nodes, tsComments))
+		nodeBatches = append(nodeBatches, newParsedBuildNodeBatch(relPath, content, nodes, tsComments, language))
 		edgeBatches = append(edgeBatches, newParsedBuildEdgeBatch(relPath, edges))
 		stats.TotalFiles++
 		stats.TotalNodes += len(nodes)
@@ -273,20 +273,197 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		return stats, err
 	}
 
-	if s.SearchBackend != nil && s.DB != nil {
-		docCount, err := RefreshSearchDocuments(ctx, s.DB)
-		if err != nil {
+	if !opts.SkipSearchRebuild {
+		if err := s.rebuildSearch(ctx); err != nil {
 			return stats, err
 		}
-		if err := s.SearchBackend.Rebuild(ctx, s.DB); err != nil {
-			return stats, trace.Wrap(err, "rebuild search index")
-		}
-		s.Logger.Info("search index rebuilt", "documents", docCount)
 	}
 
-	s.Logger.Info("build complete", "files", stats.TotalFiles, "nodes", stats.TotalNodes, "edges", stats.TotalEdges)
+	s.logger().Info("build complete", "files", stats.TotalFiles, "nodes", stats.TotalNodes, "edges", stats.TotalEdges)
 
 	return stats, nil
+}
+
+// Update incrementally syncs changed files into the graph and optionally rebuilds search.
+// @intent centralize file collection, include path, parse limit, and search policy for update callers
+func (s *GraphService) Update(ctx context.Context, opts UpdateOptions) (*incremental.SyncStats, error) {
+	if opts.Syncer == nil {
+		return nil, trace.New("incremental syncer is not configured")
+	}
+
+	absDir, err := filepath.Abs(opts.Dir)
+	if err != nil {
+		return nil, trace.Wrap(err, "resolve path")
+	}
+	if _, err := os.Stat(absDir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, trace.Wrap(err, "update root does not exist")
+		}
+		return nil, trace.Wrap(err, "stat update root")
+	}
+
+	s.logger().Info("incremental update", "dir", absDir)
+
+	walkCandidates, err := collectWalkCandidates(ctx, absDir, opts.BuildOptions)
+	if err != nil {
+		return nil, trace.Wrap(err, "preflight walk directory")
+	}
+
+	files := make(map[string]incremental.FileInfo)
+	var totalParsedBytes int64
+	for _, path := range walkCandidates {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		relPath, _ := filepath.Rel(absDir, path)
+		if _, ok := s.parserForExt(strings.ToLower(filepath.Ext(path))); !ok {
+			continue
+		}
+
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, trace.Wrap(err, "stat update file "+relPath)
+		}
+		if err := CheckParseFileSize(relPath, info.Size(), opts.MaxFileBytes); err != nil {
+			return nil, err
+		}
+		if err := CheckTotalParsedBytes(relPath, totalParsedBytes, info.Size(), opts.MaxTotalParsedBytes); err != nil {
+			return nil, err
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil, trace.Wrap(err, "read update file "+relPath)
+		}
+		totalParsedBytes += int64(len(content))
+		if err := CheckTotalParsedBytes(relPath, 0, totalParsedBytes, opts.MaxTotalParsedBytes); err != nil {
+			return nil, err
+		}
+		hash := sha256.Sum256(content)
+		files[relPath] = incremental.FileInfo{
+			Hash:    hex.EncodeToString(hash[:]),
+			Content: content,
+		}
+	}
+
+	existingFiles, err := ExistingGraphFiles(ctx, s.DB)
+	if err != nil {
+		return nil, trace.Wrap(err, "load existing graph files")
+	}
+	if !opts.Replace && len(opts.IncludePaths) > 0 {
+		filtered := make([]string, 0, len(existingFiles))
+		for _, fp := range existingFiles {
+			if pathutil.MatchIncludePaths(fp, opts.IncludePaths) {
+				filtered = append(filtered, fp)
+			}
+		}
+		existingFiles = filtered
+	}
+
+	stats, err := opts.Syncer.SyncWithExisting(ctx, files, existingFiles)
+	if err != nil {
+		return nil, trace.Wrap(err, "incremental sync")
+	}
+	if !opts.SkipSearchRebuild {
+		if err := s.rebuildSearch(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return stats, nil
+}
+
+func (s *GraphService) logger() *slog.Logger {
+	if s.Logger != nil {
+		return s.Logger
+	}
+	return slog.Default()
+}
+
+func (s *GraphService) parserForExt(ext string) (Parser, bool) {
+	if s.Parsers != nil {
+		parser, ok := s.Parsers[ext]
+		return parser, ok
+	}
+	parser, ok := s.Walkers[ext]
+	return parser, ok
+}
+
+func (s *GraphService) rebuildSearch(ctx context.Context) error {
+	if s.SearchBackend == nil || s.DB == nil {
+		return nil
+	}
+	docCount, err := RefreshSearchDocuments(ctx, s.DB)
+	if err != nil {
+		return err
+	}
+	if err := s.SearchBackend.Rebuild(ctx, s.DB); err != nil {
+		return trace.Wrap(err, "rebuild search index")
+	}
+	s.logger().Info("search index rebuilt", "documents", docCount)
+	return nil
+}
+
+func collectWalkCandidates(ctx context.Context, absDir string, opts BuildOptions) ([]string, error) {
+	var walkCandidates []string
+	err := filepath.Walk(absDir, func(path string, info os.FileInfo, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if err != nil {
+			return err
+		}
+
+		relPath, _ := filepath.Rel(absDir, path)
+
+		if info.IsDir() {
+			if path != absDir && opts.NoRecursive {
+				return filepath.SkipDir
+			}
+			if pathutil.ShouldSkipDir(info.Name()) || pathutil.MatchExcludes(opts.ExcludePatterns, relPath) {
+				return filepath.SkipDir
+			}
+			if len(opts.IncludePaths) > 0 && path != absDir && !pathutil.MatchIncludePaths(relPath, opts.IncludePaths) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if pathutil.MatchExcludes(opts.ExcludePatterns, relPath) {
+			return nil
+		}
+		if len(opts.IncludePaths) > 0 && !pathutil.MatchIncludePaths(relPath, opts.IncludePaths) {
+			return nil
+		}
+		walkCandidates = append(walkCandidates, path)
+		return nil
+	})
+	return walkCandidates, err
+}
+
+func parseForBuild(ctx context.Context, parser Parser, relPath string, content []byte) ([]model.Node, []model.Edge, []treesitter.CommentBlock, string, error) {
+	if cp, ok := parser.(commentParserWithLanguage); ok {
+		nodes, edges, comments, err := cp.ParseWithComments(ctx, relPath, content)
+		return nodes, edges, comments, cp.Language(), err
+	}
+	nodes, edges, err := parser.ParseWithContext(ctx, relPath, content)
+	return nodes, edges, nil, "", err
+}
+
+// ExistingGraphFiles returns namespace-scoped graph file paths currently stored.
+// @intent share deletion-scope discovery across CLI and MCP incremental updates
+func ExistingGraphFiles(ctx context.Context, db *gorm.DB) ([]string, error) {
+	if db == nil {
+		return nil, nil
+	}
+
+	ns := ctxns.FromContext(ctx)
+	query := db.WithContext(ctx).Model(&model.Node{}).Where("namespace = ?", ns)
+
+	var filePaths []string
+	if err := query.Distinct().Pluck("file_path", &filePaths).Error; err != nil {
+		return nil, err
+	}
+	return filePaths, nil
 }
 
 func CheckParseFileSize(relPath string, size int64, maxFileBytes int64) error {
