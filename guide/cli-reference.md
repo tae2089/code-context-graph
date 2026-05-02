@@ -34,6 +34,7 @@ ccg update ./backend --namespace backend
 | `ccg init` | Generate default `.ccg.yaml` in current directory |
 | `ccg init --project` | Generate `.ccg.yaml` in current directory (explicit) |
 | `ccg init --user` | Generate `.ccg.yaml` in `~/.config/ccg/` (global) |
+| `ccg migrate` | Run database schema and search index migrations |
 | `ccg build [dir]` | Parse and build code graph |
 | `ccg build --exclude <pat>` | Exclude files/paths (repeatable) |
 | `ccg build --no-recursive [dir]` | Only parse top-level directory |
@@ -52,6 +53,8 @@ ccg update ./backend --namespace backend
 | `ccg lint --strict` | Exit 1 on issues (for CI/pre-commit) |
 | `ccg version` | Print build version, commit, date |
 | `ccg benchmark token-bench` | Measure token reduction: naive vs graph search (no LLM) |
+
+Run `ccg migrate` explicitly before `build`, `update`, `search`, or `serve` when creating a new database or after upgrading CCG. Runtime commands do not auto-migrate the database schema.
 
 ### Serve
 

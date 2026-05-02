@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -20,6 +21,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
@@ -62,6 +64,11 @@ var (
 	date    = "unknown"
 )
 
+const (
+	schemaVersionKey      = "schema"
+	requiredSchemaVersion = 1
+)
+
 // main wires CLI dependencies and executes the root command.
 // @intent 애플리케이션 시작 시 DB, 워커, MCP 실행 의존성을 구성해 CLI를 실행한다.
 // @sideEffect 시그널 핸들러를 등록하고 명령 실행 중 필요한 리소스를 초기화한다.
@@ -92,22 +99,15 @@ func main() {
 		if err != nil {
 			return trace.Wrap(err, "open database")
 		}
+		if err := checkSchemaVersion(db); err != nil {
+			if sqlDB, dbErr := db.DB(); dbErr == nil {
+				sqlDB.Close()
+			}
+			return err
+		}
 
 		st := gormstore.New(db)
-		if err := st.AutoMigrate(); err != nil {
-			return trace.Wrap(err, "auto-migrate store")
-		}
-		if err := db.AutoMigrate(&model.SearchDocument{}, &model.Flow{}, &model.FlowMembership{}); err != nil {
-			return trace.Wrap(err, "migrate extra models")
-		}
-		if err := migrateLegacyDefaultNamespace(db); err != nil {
-			return trace.Wrap(err, "migrate legacy namespace")
-		}
-
 		sb := newSearchBackend(driver)
-		if err := sb.Migrate(db); err != nil {
-			return trace.Wrap(err, "migrate search backend")
-		}
 
 		parsers := make(map[string]incremental.Parser, len(deps.Walkers))
 		for ext, walker := range deps.Walkers {
@@ -131,6 +131,19 @@ func main() {
 		return nil
 	}
 
+	deps.MigrateFunc = func(driver, dsn string) error {
+		db, err := openDB(driver, dsn)
+		if err != nil {
+			return trace.Wrap(err, "open database")
+		}
+		defer func() {
+			if sqlDB, err := db.DB(); err == nil {
+				sqlDB.Close()
+			}
+		}()
+		return runMigrations(db, driver)
+	}
+
 	deps.ServeFunc = func(cfg cli.ServeConfig) error {
 		return runServe(deps, cfg)
 	}
@@ -143,6 +156,58 @@ func main() {
 		os.Exit(1)
 	}
 	runCleanup()
+}
+
+func runMigrations(db *gorm.DB, driver string) error {
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		return trace.Wrap(err, "auto-migrate store")
+	}
+	if err := db.AutoMigrate(&model.SearchDocument{}, &model.Flow{}, &model.FlowMembership{}); err != nil {
+		return trace.Wrap(err, "migrate extra models")
+	}
+	if err := migrateLegacyDefaultNamespace(db); err != nil {
+		return trace.Wrap(err, "migrate legacy namespace")
+	}
+
+	sb := newSearchBackend(driver)
+	if err := sb.Migrate(db); err != nil {
+		return trace.Wrap(err, "migrate search backend")
+	}
+	if err := setSchemaVersion(db, requiredSchemaVersion); err != nil {
+		return trace.Wrap(err, "record schema version")
+	}
+	return nil
+}
+
+func checkSchemaVersion(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&model.SchemaVersion{}) {
+		return fmt.Errorf("database schema is not initialized; run `ccg migrate` first")
+	}
+
+	var current model.SchemaVersion
+	err := db.Where("key = ?", schemaVersionKey).First(&current).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("database schema version is missing; run `ccg migrate` first")
+		}
+		return trace.Wrap(err, "check schema version")
+	}
+	if current.Version != requiredSchemaVersion {
+		return fmt.Errorf("database schema version %d is incompatible with required version %d; run `ccg migrate`", current.Version, requiredSchemaVersion)
+	}
+	return nil
+}
+
+func setSchemaVersion(db *gorm.DB, version int) error {
+	if err := db.AutoMigrate(&model.SchemaVersion{}); err != nil {
+		return trace.Wrap(err, "migrate schema version table")
+	}
+	record := model.SchemaVersion{Key: schemaVersionKey, Version: version}
+	return db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"version", "updated_at"}),
+	}).Create(&record).Error
 }
 
 func migrateLegacyDefaultNamespace(db *gorm.DB) error {

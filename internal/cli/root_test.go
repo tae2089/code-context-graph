@@ -122,6 +122,39 @@ func TestRoot_DBDependentCommandsStillCallInitFunc(t *testing.T) {
 	}
 }
 
+func TestRoot_MigrateCommandCallsMigrateFuncOnly(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+	initCalled := 0
+	migrateCalled := 0
+	deps.InitFunc = func(dbDriver, dsn string) error {
+		initCalled++
+		return nil
+	}
+	deps.MigrateFunc = func(dbDriver, dsn string) error {
+		migrateCalled++
+		if dbDriver != "sqlite" {
+			t.Fatalf("dbDriver = %q, want sqlite", dbDriver)
+		}
+		if dsn != "ccg.db" {
+			t.Fatalf("dsn = %q, want ccg.db", dsn)
+		}
+		return nil
+	}
+
+	if err := executeCmd(deps, stdout, stderr, "migrate"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if initCalled != 0 {
+		t.Fatalf("InitFunc called %d times, want 0", initCalled)
+	}
+	if migrateCalled != 1 {
+		t.Fatalf("MigrateFunc called %d times, want 1", migrateCalled)
+	}
+	if got := stdout.String(); got != "Migration complete\n" {
+		t.Fatalf("stdout = %q, want migration completion", got)
+	}
+}
+
 func TestRoot_HooksInstallSkipsInitFuncViaParentAnnotation(t *testing.T) {
 	deps, stdout, stderr := newTestDeps()
 	called := 0

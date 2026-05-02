@@ -42,6 +42,9 @@ make build
 ## Quick Start
 
 ```bash
+# Initialize or upgrade the database schema
+ccg migrate
+
 # Parse your project
 ccg build .
 # Build complete: 70 files, 749 nodes, 7387 edges

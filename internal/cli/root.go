@@ -45,6 +45,7 @@ type Deps struct {
 	Syncer        *incremental.Syncer
 	ServeFunc     func(cfg ServeConfig) error
 	InitFunc      func(dbDriver, dsn string) error
+	MigrateFunc   func(dbDriver, dsn string) error
 	CleanupFunc   func()
 	Version       VersionInfo
 }
@@ -140,6 +141,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 
 	rootCmd.AddCommand(
 		newInitCmd(deps),
+		newMigrateCmd(deps),
 		newBuildCmd(deps),
 		newUpdateCmd(deps),
 		newStatusCmd(deps),

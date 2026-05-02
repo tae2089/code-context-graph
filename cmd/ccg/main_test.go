@@ -28,6 +28,48 @@ func setupNamespaceMigrationDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+func TestSetSchemaVersion_AllowsRuntimeSchemaCheck(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+
+	if err := checkSchemaVersion(db); err == nil {
+		t.Fatal("expected schema check to fail before migrate")
+	}
+	if err := setSchemaVersion(db, requiredSchemaVersion); err != nil {
+		t.Fatalf("set schema version: %v", err)
+	}
+	if err := checkSchemaVersion(db); err != nil {
+		t.Fatalf("schema check after version set: %v", err)
+	}
+
+	var version model.SchemaVersion
+	if err := db.Where("key = ?", schemaVersionKey).First(&version).Error; err != nil {
+		t.Fatalf("load schema version: %v", err)
+	}
+	if version.Version != requiredSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", version.Version, requiredSchemaVersion)
+	}
+}
+
+func TestCheckSchemaVersion_FailsOnIncompatibleVersion(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.SchemaVersion{}); err != nil {
+		t.Fatalf("migrate schema version table: %v", err)
+	}
+	if err := db.Create(&model.SchemaVersion{Key: schemaVersionKey, Version: requiredSchemaVersion - 1}).Error; err != nil {
+		t.Fatalf("create old schema version: %v", err)
+	}
+
+	if err := checkSchemaVersion(db); err == nil {
+		t.Fatal("expected incompatible schema version error")
+	}
+}
+
 func TestMigrateLegacyDefaultNamespace_BackfillsEmptyNamespaceRows(t *testing.T) {
 	db := setupNamespaceMigrationDB(t)
 
