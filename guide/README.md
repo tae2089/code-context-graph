@@ -11,4 +11,5 @@ Documentation index for code-context-graph.
 | [Docker](docker.md) | Docker image build, MCP server setup, PostgreSQL integration |
 | [Architecture](architecture.md) | System architecture, data flow, DB schema |
 | [Development](development.md) | Build, test, integration test (Gitea + PostgreSQL) |
+| [Namespace Migration](namespace-migration.md) | Default namespace change and migration guide |
 | [CLAUDE.md Guide](claude-md-guide.md) | CLAUDE.md template for projects using CCG |

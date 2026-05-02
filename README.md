@@ -206,6 +206,7 @@ See [Architecture Details](guide/architecture.md) for component breakdown and DB
 | [Webhook](guide/webhook.md) | Webhook sync, branch filtering, HMAC, graceful shutdown |
 | [Docker](guide/docker.md) | Docker build, MCP server, PostgreSQL deployment |
 | [Development](guide/development.md) | Dev guide, integration test, project structure |
+| [Namespace Migration](guide/namespace-migration.md) | Default namespace change and migration guide |
 | [Architecture](guide/architecture.md) | Data flow, components, DB schema |
 | [CLAUDE.md Guide](guide/claude-md-guide.md) | Template for projects using CCG |
 
