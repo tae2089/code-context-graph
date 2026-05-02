@@ -90,6 +90,66 @@ func TestNaiveTokens_EmptyDir(t *testing.T) {
 	}
 }
 
+func TestNaiveTokensWithOptions_SkipsDefaultDirs(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "vendor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "vendor", "skip.go"), []byte("abcdefgh"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("abcd"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := NaiveTokensWithOptions(dir, []string{".go"}, NaiveTokensOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 1 {
+		t.Fatalf("want only main.go counted, got %d", got)
+	}
+}
+
+func TestNaiveTokensWithOptions_RespectsExcludes(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "gen"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "gen", "skip.go"), []byte("abcdefgh"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("abcd"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := NaiveTokensWithOptions(dir, []string{".go"}, NaiveTokensOptions{Excludes: []string{"gen"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 1 {
+		t.Fatalf("want only main.go counted after exclude, got %d", got)
+	}
+}
+
+func TestNaiveTokensWithOptions_SkipsLargeFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "small.go"), []byte("abcd"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "large.go"), []byte("abcdefgh"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := NaiveTokensWithOptions(dir, []string{".go"}, NaiveTokensOptions{MaxFileBytes: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 1 {
+		t.Fatalf("want only small.go counted under size cap, got %d", got)
+	}
+}
+
 func TestGraphTokens_SumNodeText(t *testing.T) {
 	backend := &mockSearchBackend{
 		nodes: []model.Node{

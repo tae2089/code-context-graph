@@ -12,7 +12,15 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/pathutil"
 )
+
+const DefaultNaiveTokensMaxFileBytes int64 = 1 << 20
+
+type NaiveTokensOptions struct {
+	Excludes     []string
+	MaxFileBytes int64
+}
 
 // SearchBackend는 FTS 검색 백엔드 추상화다.
 type SearchBackend interface {
@@ -34,16 +42,45 @@ func EstimateTokens(text string) int {
 
 // NaiveTokens는 repoRoot 아래 exts 확장자를 가진 모든 파일의 토큰 수 합계를 반환한다.
 func NaiveTokens(repoRoot string, exts []string) (int, error) {
+	return NaiveTokensWithOptions(repoRoot, exts, NaiveTokensOptions{})
+}
+
+// NaiveTokensWithOptions는 repoRoot 아래 exts 확장자를 가진 파일 중 옵션에 맞는 파일만 집계한다.
+func NaiveTokensWithOptions(repoRoot string, exts []string, opts NaiveTokensOptions) (int, error) {
 	extSet := make(map[string]struct{}, len(exts))
 	for _, e := range exts {
 		extSet[e] = struct{}{}
 	}
+	maxFileBytes := opts.MaxFileBytes
+	if maxFileBytes <= 0 {
+		maxFileBytes = DefaultNaiveTokensMaxFileBytes
+	}
 	var total int
 	err := filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
 			return err
 		}
+		if d.IsDir() {
+			if pathutil.ShouldSkipDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		relPath, relErr := filepath.Rel(repoRoot, path)
+		if relErr != nil {
+			return relErr
+		}
+		if pathutil.MatchExcludes(opts.Excludes, relPath) {
+			return nil
+		}
 		if _, ok := extSet[filepath.Ext(path)]; !ok {
+			return nil
+		}
+		info, statErr := d.Info()
+		if statErr != nil {
+			return nil
+		}
+		if info.Size() > maxFileBytes {
 			return nil
 		}
 		data, rerr := os.ReadFile(path)
@@ -54,6 +91,10 @@ func NaiveTokens(repoRoot string, exts []string) (int, error) {
 		return nil
 	})
 	return total, err
+}
+
+type RunTokenBenchOptions struct {
+	Naive NaiveTokensOptions
 }
 
 // TokenBenchResult는 단일 쿼리에 대한 토큰 벤치마크 결과다.
@@ -239,7 +280,11 @@ func computeRecall(filesHit, filesTotal, symbolsHit, symbolsTotal int) float64 {
 // 검색은 항상 Description을 사용하며, expected_symbols/files는 정답 매칭에만 사용한다.
 // limit은 쿼리당 총 결과 예산이며 단어 수에 반비례해 단어당 limit이 자동 조정된다.
 func RunTokenBench(ctx context.Context, db *gorm.DB, backend SearchBackend, expander NodeExpander, corpus *Corpus, repoRoot string, exts []string, limit int) ([]TokenBenchResult, error) {
-	naive, err := NaiveTokens(repoRoot, exts)
+	return RunTokenBenchWithOptions(ctx, db, backend, expander, corpus, repoRoot, exts, limit, RunTokenBenchOptions{})
+}
+
+func RunTokenBenchWithOptions(ctx context.Context, db *gorm.DB, backend SearchBackend, expander NodeExpander, corpus *Corpus, repoRoot string, exts []string, limit int, opts RunTokenBenchOptions) ([]TokenBenchResult, error) {
+	naive, err := NaiveTokensWithOptions(repoRoot, exts, opts.Naive)
 	if err != nil {
 		return nil, err
 	}

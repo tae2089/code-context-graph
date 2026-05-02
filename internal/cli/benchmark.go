@@ -255,6 +255,7 @@ func loadBenchmarkRun(path string) (*benchmark.BenchmarkRun, error) {
 func newBenchmarkTokenBenchCmd(deps *Deps) *cobra.Command {
 	var corpusPath, repoRoot, outPath string
 	var exts []string
+	var excludePatterns []string
 	var limit int
 	cmd := &cobra.Command{
 		Use:   "token-bench",
@@ -268,7 +269,9 @@ func newBenchmarkTokenBenchCmd(deps *Deps) *cobra.Command {
 				return trace.Wrap(err, "load corpus")
 			}
 			backend := storesearch.NewSQLiteBackend()
-			results, err := benchmark.RunTokenBench(cmd.Context(), deps.DB, backend, gormstore.New(deps.DB), corpus, repoRoot, exts, limit)
+			results, err := benchmark.RunTokenBenchWithOptions(cmd.Context(), deps.DB, backend, gormstore.New(deps.DB), corpus, repoRoot, exts, limit, benchmark.RunTokenBenchOptions{
+				Naive: benchmark.NaiveTokensOptions{Excludes: resolveExcludes(excludePatterns)},
+			})
 			if err != nil {
 				return trace.Wrap(err, "run token bench")
 			}
@@ -291,6 +294,7 @@ func newBenchmarkTokenBenchCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().StringVar(&repoRoot, "repo", ".", "Repository root to measure naive tokens")
 	cmd.Flags().StringVar(&outPath, "out", "", "Output JSON file; defaults to stdout")
 	cmd.Flags().StringSliceVar(&exts, "exts", []string{".go"}, "Source file extensions to count")
+	cmd.Flags().StringArrayVar(&excludePatterns, "exclude", nil, "Exclude files/paths from naive token baseline (repeatable)")
 	cmd.Flags().IntVar(&limit, "limit", 30, "Total result budget per query (auto-split across terms)")
 	return cmd
 }
