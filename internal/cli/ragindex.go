@@ -46,9 +46,8 @@ func newRagIndexCmd(deps *Deps) *cobra.Command {
 			}
 
 			ctx := cmd.Context()
-			if ns, _ := cmd.Flags().GetString("namespace"); ns != "" {
-				ctx = ctxns.WithNamespace(ctx, ns)
-			}
+			ns, _ := cmd.Flags().GetString("namespace")
+			ctx = ctxns.WithNamespace(ctx, ns)
 
 			communities, files, err := b.Build(ctx)
 			if err != nil {

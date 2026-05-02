@@ -49,9 +49,8 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 			}
 
 			ctx := context.Background()
-			if ns, _ := cmd.Flags().GetString("namespace"); ns != "" {
-				ctx = ctxns.WithNamespace(ctx, ns)
-			}
+			ns, _ := cmd.Flags().GetString("namespace")
+			ctx = ctxns.WithNamespace(ctx, ns)
 			stats, err := svc.Build(ctx, opts)
 			if err != nil {
 				return trace.Wrap(err, "build project")

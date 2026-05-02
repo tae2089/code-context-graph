@@ -75,9 +75,8 @@ func newUpdateCmd(deps *Deps) *cobra.Command {
 			}
 
 			ctx := cmd.Context()
-			if ns, _ := cmd.Flags().GetString("namespace"); ns != "" {
-				ctx = ctxns.WithNamespace(ctx, ns)
-			}
+			ns, _ := cmd.Flags().GetString("namespace")
+			ctx = ctxns.WithNamespace(ctx, ns)
 			existingFiles, err := existingGraphFiles(ctx, deps.DB)
 			if err != nil {
 				return trace.Wrap(err, "load existing graph files")
@@ -111,12 +110,7 @@ func existingGraphFiles(ctx context.Context, db *gorm.DB) ([]string, error) {
 	}
 
 	ns := ctxns.FromContext(ctx)
-	query := db.WithContext(ctx).Model(&model.Node{})
-	if ns != "" {
-		query = query.Where("namespace = ?", ns)
-	} else {
-		query = query.Where("namespace = ?", "")
-	}
+	query := db.WithContext(ctx).Model(&model.Node{}).Where("namespace = ?", ns)
 
 	var filePaths []string
 	if err := query.Distinct().Pluck("file_path", &filePaths).Error; err != nil {

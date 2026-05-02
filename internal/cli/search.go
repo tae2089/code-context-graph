@@ -28,9 +28,8 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 				return fmt.Errorf("limit must be > 0, got %d", limit)
 			}
 			ctx := cmd.Context()
-			if ns, _ := cmd.Flags().GetString("namespace"); ns != "" {
-				ctx = ctxns.WithNamespace(ctx, ns)
-			}
+			ns, _ := cmd.Flags().GetString("namespace")
+			ctx = ctxns.WithNamespace(ctx, ns)
 
 			fetchLimit := limit
 			if pathPrefix != "" {
