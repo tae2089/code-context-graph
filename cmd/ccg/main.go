@@ -327,6 +327,7 @@ func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 		Cache:             cache,
 		RagIndexDir:       viper.GetString("rag.index_dir"),
 		RagProjectDesc:    viper.GetString("rag.description"),
+		NamespaceRoot:     cfg.NamespaceRoot,
 		WorkspaceRoot:     cfg.WorkspaceRoot,
 		RepoRoot:          cfg.RepoRoot,
 	}

@@ -21,6 +21,7 @@ type ServeConfig struct {
 	HTTPBearerToken string
 	InsecureHTTP  bool
 	Stateless     bool   // stateless session management for multi-instance deployments
+	NamespaceRoot string // root directory for file namespaces (default "workspaces")
 	WorkspaceRoot string // root directory for file workspaces (default "workspaces")
 	WebhookWorkers int
 	AllowRepo     []string
@@ -90,13 +91,21 @@ func newServeCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().StringVar(&cfg.HTTPBearerToken, "http-bearer-token", os.Getenv("CCG_HTTP_BEARER_TOKEN"), "Bearer token required for MCP HTTP requests when set")
 	cmd.Flags().BoolVar(&cfg.InsecureHTTP, "insecure-http", false, "Allow externally bound HTTP transport without bearer token (unsafe; testing only)")
 	cmd.Flags().BoolVar(&cfg.Stateless, "stateless", false, "Stateless session management (for multi-instance deployments)")
-	cmd.Flags().StringVar(&cfg.WorkspaceRoot, "workspace-root", "workspaces", "Root directory for file workspaces")
+	cmd.Flags().StringVar(&cfg.NamespaceRoot, "namespace-root", "workspaces", "Root directory for file namespaces")
+	cmd.Flags().StringVar(&cfg.WorkspaceRoot, "workspace-root", "", "Deprecated alias for --namespace-root")
 	cmd.Flags().IntVar(&cfg.WebhookWorkers, "webhook-workers", 4, "Number of webhook sync workers")
 	cmd.Flags().StringSliceVar(&cfg.AllowRepo, "allow-repo", nil, "Allowed repo patterns for webhook sync (repeatable, e.g. org/*, !org/private)")
 	cmd.Flags().StringVar(&cfg.WebhookSecret, "webhook-secret", "", "HMAC secret for GitHub webhook signature verification")
 	cmd.Flags().BoolVar(&cfg.InsecureWebhook, "insecure-webhook", false, "Allow unsigned webhook requests (unsafe; testing only)")
 	cmd.Flags().StringVar(&cfg.RepoCloneBaseURL, "repo-clone-base-url", "", "Canonical base URL used to reconstruct clone targets for allowed repos")
 	cmd.Flags().StringVar(&cfg.RepoRoot, "repo-root", os.Getenv("CCG_REPO_ROOT"), "Root directory for cloned repositories")
+
+	cmd.PreRun = func(cmd *cobra.Command, args []string) {
+		if cmd.Flags().Changed("workspace-root") && !cmd.Flags().Changed("namespace-root") {
+			cfg.NamespaceRoot = cfg.WorkspaceRoot
+		}
+		cfg.WorkspaceRoot = cfg.NamespaceRoot
+	}
 
 	return cmd
 }

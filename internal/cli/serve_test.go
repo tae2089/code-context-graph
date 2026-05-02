@@ -217,6 +217,69 @@ func TestServeCmd_DefaultHTTPAddrIsLoopback(t *testing.T) {
 	}
 }
 
+func TestServeCmdFlags_NamespaceRoot(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+
+	var got ServeConfig
+	deps.ServeFunc = func(cfg ServeConfig) error {
+		got = cfg
+		return nil
+	}
+
+	err := executeCmd(deps, stdout, stderr, "serve", "--namespace-root", "/var/namespaces")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.NamespaceRoot != "/var/namespaces" {
+		t.Fatalf("NamespaceRoot = %q, want %q", got.NamespaceRoot, "/var/namespaces")
+	}
+	if got.WorkspaceRoot != got.NamespaceRoot {
+		t.Fatalf("WorkspaceRoot compatibility alias = %q, want %q", got.WorkspaceRoot, got.NamespaceRoot)
+	}
+}
+
+func TestServeCmdFlags_WorkspaceRootAlias(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+
+	var got ServeConfig
+	deps.ServeFunc = func(cfg ServeConfig) error {
+		got = cfg
+		return nil
+	}
+
+	err := executeCmd(deps, stdout, stderr, "serve", "--workspace-root", "/var/workspaces")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.NamespaceRoot != "/var/workspaces" {
+		t.Fatalf("NamespaceRoot from workspace alias = %q, want %q", got.NamespaceRoot, "/var/workspaces")
+	}
+	if got.WorkspaceRoot != "/var/workspaces" {
+		t.Fatalf("WorkspaceRoot = %q, want %q", got.WorkspaceRoot, "/var/workspaces")
+	}
+}
+
+func TestServeCmdFlags_NamespaceRootWinsOverWorkspaceRoot(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+
+	var got ServeConfig
+	deps.ServeFunc = func(cfg ServeConfig) error {
+		got = cfg
+		return nil
+	}
+
+	err := executeCmd(deps, stdout, stderr, "serve", "--namespace-root", "/var/namespaces", "--workspace-root", "/var/workspaces")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.NamespaceRoot != "/var/namespaces" {
+		t.Fatalf("NamespaceRoot = %q, want %q", got.NamespaceRoot, "/var/namespaces")
+	}
+	if got.WorkspaceRoot != "/var/namespaces" {
+		t.Fatalf("WorkspaceRoot compatibility value = %q, want %q", got.WorkspaceRoot, "/var/namespaces")
+	}
+}
+
 func TestServeCmdFlags_WebhookWorkers(t *testing.T) {
 	deps, stdout, stderr := newTestDeps()
 
