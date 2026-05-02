@@ -20,6 +20,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/store"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
+	storesearch "github.com/tae2089/code-context-graph/internal/store/search"
 )
 
 type failDeleteGraphStore struct {
@@ -28,6 +29,19 @@ type failDeleteGraphStore struct {
 }
 
 func (f *failDeleteGraphStore) DeleteGraph(ctx context.Context) error { return f.err }
+
+type spySearchBackend struct {
+	storesearch.Backend
+	purgeCalls []string
+	purgeErr   error
+	lastDB     *gorm.DB
+}
+
+func (s *spySearchBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error {
+	s.purgeCalls = append(s.purgeCalls, ctxns.FromContext(ctx))
+	s.lastDB = db
+	return s.purgeErr
+}
 
 func workspaceHandlers(t *testing.T) (*handlers, string) {
 	t.Helper()
@@ -64,6 +78,50 @@ func TestUploadFile_Basic(t *testing.T) {
 	}
 	if string(written) != content {
 		t.Errorf("content mismatch: got %q, want %q", string(written), content)
+	}
+}
+
+func TestUploadFile_AcceptsNamespace(t *testing.T) {
+	h, root := workspaceHandlers(t)
+	encoded := base64.StdEncoding.EncodeToString([]byte("hello"))
+
+	req := makeCallToolRequest(t, map[string]any{
+		"namespace": "my-service",
+		"file_path": "docs/readme.md",
+		"content":   encoded,
+	})
+
+	result, err := h.uploadFile(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultNotError(t, result)
+	if _, err := os.Stat(filepath.Join(root, "my-service", "docs", "readme.md")); err != nil {
+		t.Fatalf("file not written via namespace: %v", err)
+	}
+}
+
+func TestUploadFile_NamespaceWinsOverWorkspace(t *testing.T) {
+	h, root := workspaceHandlers(t)
+	encoded := base64.StdEncoding.EncodeToString([]byte("hello"))
+
+	req := makeCallToolRequest(t, map[string]any{
+		"namespace": "new-service",
+		"workspace": "old-service",
+		"file_path": "file.txt",
+		"content":   encoded,
+	})
+
+	result, err := h.uploadFile(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultNotError(t, result)
+	if _, err := os.Stat(filepath.Join(root, "new-service", "file.txt")); err != nil {
+		t.Fatalf("namespace path not written: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "old-service", "file.txt")); !os.IsNotExist(err) {
+		t.Fatalf("workspace alias should not win when namespace is present: %v", err)
 	}
 }
 
@@ -481,6 +539,7 @@ func TestDeleteWorkspace_PurgesNamespaceGraphRAGAndCache(t *testing.T) {
 			RagIndexDir:   ragRoot,
 			Store:         st,
 			DB:            db,
+			SearchBackend: &spySearchBackend{},
 		},
 		cache: cache,
 	}
@@ -570,12 +629,18 @@ func TestDeleteWorkspace_PurgesNamespaceGraphRAGAndCache(t *testing.T) {
 		t.Fatal("out-of-workspace graph should remain")
 	}
 
-	var svcCommunityCount, svcFlowCount, otherCommunityCount, otherFlowCount int64
+	var svcCommunityCount, svcFlowCount, svcCommunityMembershipCount, svcFlowMembershipCount, otherCommunityCount, otherFlowCount int64
 	if err := db.Model(&model.Community{}).Where("namespace = ?", "svc").Count(&svcCommunityCount).Error; err != nil {
 		t.Fatalf("count svc communities: %v", err)
 	}
 	if err := db.Model(&model.Flow{}).Where("namespace = ?", "svc").Count(&svcFlowCount).Error; err != nil {
 		t.Fatalf("count svc flows: %v", err)
+	}
+	if err := db.Model(&model.CommunityMembership{}).Where("community_id = ?", svcCommunity.ID).Count(&svcCommunityMembershipCount).Error; err != nil {
+		t.Fatalf("count svc community memberships: %v", err)
+	}
+	if err := db.Model(&model.FlowMembership{}).Where("flow_id = ?", svcFlow.ID).Count(&svcFlowMembershipCount).Error; err != nil {
+		t.Fatalf("count svc flow memberships: %v", err)
 	}
 	if err := db.Model(&model.Community{}).Where("namespace = ?", "other").Count(&otherCommunityCount).Error; err != nil {
 		t.Fatalf("count other communities: %v", err)
@@ -588,6 +653,12 @@ func TestDeleteWorkspace_PurgesNamespaceGraphRAGAndCache(t *testing.T) {
 	}
 	if svcFlowCount != 0 {
 		t.Fatalf("workspace flows should have been purged, got %d", svcFlowCount)
+	}
+	if svcCommunityMembershipCount != 0 {
+		t.Fatalf("workspace community memberships should have been purged, got %d", svcCommunityMembershipCount)
+	}
+	if svcFlowMembershipCount != 0 {
+		t.Fatalf("workspace flow memberships should have been purged, got %d", svcFlowMembershipCount)
 	}
 	if otherCommunityCount != 1 {
 		t.Fatalf("control community should remain, got %d", otherCommunityCount)
@@ -623,6 +694,104 @@ func TestDeleteWorkspace_PreservesFilesWhenDBPurgeFails(t *testing.T) {
 
 	if _, err := os.Stat(wsDir); err != nil {
 		t.Fatalf("workspace directory should remain on DB purge failure: %v", err)
+	}
+}
+
+func TestDeleteWorkspace_PurgesOrphanMembershipsAndSearchIndex(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	ragRoot := t.TempDir()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate store: %v", err)
+	}
+	if err := db.AutoMigrate(&model.SearchDocument{}, &model.Flow{}, &model.FlowMembership{}, &model.Community{}, &model.CommunityMembership{}); err != nil {
+		t.Fatalf("migrate extras: %v", err)
+	}
+	backend := &spySearchBackend{}
+
+	h := &handlers{deps: &Deps{WorkspaceRoot: workspaceRoot, RagIndexDir: ragRoot, Store: st, DB: db, SearchBackend: backend}}
+	wsDir := filepath.Join(workspaceRoot, "svc")
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+
+	svcCommunity := model.Community{Namespace: "svc", Key: "svc/core", Label: "svc/core", Strategy: "directory"}
+	svcFlow := model.Flow{Namespace: "svc", Name: "svc-flow"}
+	if err := db.Create(&svcCommunity).Error; err != nil {
+		t.Fatalf("seed svc community: %v", err)
+	}
+	if err := db.Create(&svcFlow).Error; err != nil {
+		t.Fatalf("seed svc flow: %v", err)
+	}
+	if err := db.Create(&model.CommunityMembership{CommunityID: svcCommunity.ID, NodeID: 424242}).Error; err != nil {
+		t.Fatalf("seed orphan community membership: %v", err)
+	}
+	if err := db.Create(&model.FlowMembership{Namespace: ctxns.DefaultNamespace, FlowID: svcFlow.ID, NodeID: 353535, Ordinal: 0}).Error; err != nil {
+		t.Fatalf("seed orphan flow membership: %v", err)
+	}
+
+	req := makeCallToolRequest(t, map[string]any{"workspace": "svc"})
+	result, err := h.deleteWorkspace(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultNotError(t, result)
+
+	var communityMembershipCount, flowMembershipCount int64
+	if err := db.Model(&model.CommunityMembership{}).Where("community_id = ?", svcCommunity.ID).Count(&communityMembershipCount).Error; err != nil {
+		t.Fatalf("count orphan community memberships: %v", err)
+	}
+	if err := db.Model(&model.FlowMembership{}).Where("flow_id = ?", svcFlow.ID).Count(&flowMembershipCount).Error; err != nil {
+		t.Fatalf("count orphan flow memberships: %v", err)
+	}
+	if communityMembershipCount != 0 {
+		t.Fatalf("expected orphan community memberships purged, got %d", communityMembershipCount)
+	}
+	if flowMembershipCount != 0 {
+		t.Fatalf("expected orphan flow memberships purged, got %d", flowMembershipCount)
+	}
+	if len(backend.purgeCalls) != 1 || backend.purgeCalls[0] != "svc" {
+		t.Fatalf("expected one purge call for svc, got %#v", backend.purgeCalls)
+	}
+	if backend.lastDB == nil || backend.lastDB == db {
+		t.Fatal("expected search purge to run inside workspace transaction handle")
+	}
+}
+
+func TestDeleteWorkspace_PreservesFilesWhenSearchPurgeFails(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	ragRoot := t.TempDir()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate store: %v", err)
+	}
+	backend := &spySearchBackend{purgeErr: errors.New("fts purge boom")}
+	h := &handlers{deps: &Deps{WorkspaceRoot: workspaceRoot, RagIndexDir: ragRoot, Store: st, DB: db, SearchBackend: backend}}
+
+	wsDir := filepath.Join(workspaceRoot, "svc")
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+
+	req := makeCallToolRequest(t, map[string]any{"workspace": "svc"})
+	result, err := h.deleteWorkspace(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultIsError(t, result)
+
+	if _, err := os.Stat(wsDir); err != nil {
+		t.Fatalf("workspace directory should remain on search purge failure: %v", err)
 	}
 }
 

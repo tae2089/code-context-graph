@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"gorm.io/gorm"
+
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
@@ -26,11 +28,21 @@ const (
 // @intent 파일 업로드 도구들이 동일한 작업공간 루트를 사용하게 한다.
 // @return 설정값이 없으면 기본 workspaces 디렉터리를 반환한다.
 func (h *handlers) workspaceRoot() string {
-	root := h.deps.WorkspaceRoot
+	root := h.deps.NamespaceRoot
+	if root == "" {
+		root = h.deps.WorkspaceRoot
+	}
 	if root == "" {
 		root = "workspaces"
 	}
 	return root
+}
+
+func requestWorkspace(request mcp.CallToolRequest) (string, error) {
+	if namespace := request.GetString("namespace", ""); namespace != "" {
+		return namespace, nil
+	}
+	return request.RequireString("workspace")
 }
 
 // validateWorkspacePath validates workspace and file paths against traversal.
@@ -155,7 +167,7 @@ func safeWriteFile(path string, data []byte, perm os.FileMode) error {
 // @domainRule 업로드 파일은 10MB를 초과할 수 없다.
 // @sideEffect 디렉터리 생성과 파일 쓰기를 수행한다.
 func (h *handlers) uploadFile(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	workspace, err := request.RequireString("workspace")
+	workspace, err := requestWorkspace(request)
 	if err != nil {
 		return missingParamResult(err)
 	}
@@ -197,6 +209,7 @@ func (h *handlers) uploadFile(ctx context.Context, request mcp.CallToolRequest) 
 
 	result := map[string]any{
 		"status":    "ok",
+		"namespace": workspace,
 		"workspace": workspace,
 		"file_path": filePath,
 		"size":      len(decoded),
@@ -218,7 +231,7 @@ func (h *handlers) listWorkspaces(ctx context.Context, request mcp.CallToolReque
 			jsonStr, _ := marshalJSON([]string{})
 			return mcp.NewToolResultText(jsonStr), nil
 		}
-		return mcp.NewToolResultError(fmt.Sprintf("read workspace root: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("read namespace root: %v", err)), nil
 	}
 
 	var workspaces []string
@@ -242,7 +255,7 @@ func (h *handlers) listWorkspaces(ctx context.Context, request mcp.CallToolReque
 // @ensures 성공 시 작업공간 내부 상대 파일 경로 배열을 반환한다.
 // @sideEffect 파일 시스템 순회를 수행한다.
 func (h *handlers) listFiles(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	workspace, err := request.RequireString("workspace")
+	workspace, err := requestWorkspace(request)
 	if err != nil {
 		return missingParamResult(err)
 	}
@@ -257,7 +270,7 @@ func (h *handlers) listFiles(ctx context.Context, request mcp.CallToolRequest) (
 			jsonStr, _ := marshalJSON([]string{})
 			return mcp.NewToolResultText(jsonStr), nil
 		}
-		return mcp.NewToolResultError(fmt.Sprintf("resolve workspace path: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("resolve namespace path: %v", err)), nil
 	}
 
 	var files []string
@@ -282,7 +295,7 @@ func (h *handlers) listFiles(ctx context.Context, request mcp.CallToolRequest) (
 		return nil
 	})
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("walk workspace: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("walk namespace: %v", err)), nil
 	}
 	if files == nil {
 		files = []string{}
@@ -299,7 +312,7 @@ func (h *handlers) listFiles(ctx context.Context, request mcp.CallToolRequest) (
 // @ensures 성공 시 삭제된 파일 정보를 반환한다.
 // @sideEffect 파일 시스템에서 실제 파일을 삭제한다.
 func (h *handlers) deleteFile(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	workspace, err := request.RequireString("workspace")
+	workspace, err := requestWorkspace(request)
 	if err != nil {
 		return missingParamResult(err)
 	}
@@ -314,11 +327,11 @@ func (h *handlers) deleteFile(ctx context.Context, request mcp.CallToolRequest) 
 
 	target, err := h.resolveWorkspacePath(workspace, filePath, false)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resolve workspace path: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("resolve namespace path: %v", err)), nil
 	}
 
 	if _, err := os.Stat(target); os.IsNotExist(err) {
-		return mcp.NewToolResultError(fmt.Sprintf("file %q not found in workspace %q", filePath, workspace)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("file %q not found in namespace %q", filePath, workspace)), nil
 	}
 
 	if err := os.Remove(target); err != nil {
@@ -327,6 +340,7 @@ func (h *handlers) deleteFile(ctx context.Context, request mcp.CallToolRequest) 
 
 	result := map[string]any{
 		"status":    "deleted",
+		"namespace": workspace,
 		"workspace": workspace,
 		"file_path": filePath,
 	}
@@ -337,6 +351,7 @@ func (h *handlers) deleteFile(ctx context.Context, request mcp.CallToolRequest) 
 // uploadFileEntry describes one file payload for bulk workspace uploads.
 // @intent 다중 파일 업로드 요청의 각 항목을 역직렬화한다.
 type uploadFileEntry struct {
+	Namespace string `json:"namespace"`
 	Workspace string `json:"workspace"`
 	FilePath  string `json:"file_path"`
 	Content   string `json:"content"`
@@ -376,11 +391,15 @@ func (h *handlers) uploadFiles(ctx context.Context, request mcp.CallToolRequest)
 	prepared := make([]preparedUploadFile, 0, len(entries))
 	totalDecoded := 0
 	for i, e := range entries {
-		if e.Workspace == "" || e.FilePath == "" || e.Content == "" {
-			return mcp.NewToolResultError(fmt.Sprintf("entry %d: workspace, file_path, and content are required", i)), nil
+		workspace := e.Namespace
+		if workspace == "" {
+			workspace = e.Workspace
+		}
+		if workspace == "" || e.FilePath == "" || e.Content == "" {
+			return mcp.NewToolResultError(fmt.Sprintf("entry %d: namespace, file_path, and content are required", i)), nil
 		}
 
-		if err := validateWorkspacePath(e.Workspace, e.FilePath); err != nil {
+		if err := validateWorkspacePath(workspace, e.FilePath); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("entry %d: %v", i, err)), nil
 		}
 
@@ -397,9 +416,10 @@ func (h *handlers) uploadFiles(ctx context.Context, request mcp.CallToolRequest)
 		}
 		totalDecoded += len(decoded)
 
-		target, err := h.resolveWorkspacePath(e.Workspace, e.FilePath, true)
+		e.Workspace = workspace
+		target, err := h.resolveWorkspacePath(workspace, e.FilePath, true)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("entry %d: resolve workspace path: %v", i, err)), nil
+			return mcp.NewToolResultError(fmt.Sprintf("entry %d: resolve namespace path: %v", i, err)), nil
 		}
 		prepared = append(prepared, preparedUploadFile{entry: e, decoded: decoded, target: target})
 	}
@@ -411,13 +431,14 @@ func (h *handlers) uploadFiles(ctx context.Context, request mcp.CallToolRequest)
 			return mcp.NewToolResultError(fmt.Sprintf("entry %d: create directory: %v", i, err)), nil
 		}
 		if _, err := h.resolveWorkspacePath(file.entry.Workspace, file.entry.FilePath, true); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("entry %d: revalidate workspace path: %v", i, err)), nil
+			return mcp.NewToolResultError(fmt.Sprintf("entry %d: revalidate namespace path: %v", i, err)), nil
 		}
 		if err := safeWriteFile(target, file.decoded, 0o644); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("entry %d: write file: %v", i, err)), nil
 		}
 
 		results = append(results, map[string]any{
+			"namespace": file.entry.Workspace,
 			"workspace": file.entry.Workspace,
 			"file_path": file.entry.FilePath,
 			"size":      len(file.decoded),
@@ -440,7 +461,7 @@ func (h *handlers) uploadFiles(ctx context.Context, request mcp.CallToolRequest)
 // @ensures 성공 시 삭제된 작업공간 이름을 반환한다.
 // @sideEffect 파일 시스템에서 작업공간 디렉터리를 재귀 삭제한다.
 func (h *handlers) deleteWorkspace(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	workspace, err := request.RequireString("workspace")
+	workspace, err := requestWorkspace(request)
 	if err != nil {
 		return missingParamResult(err)
 	}
@@ -451,40 +472,62 @@ func (h *handlers) deleteWorkspace(ctx context.Context, request mcp.CallToolRequ
 
 	wsDir, err := h.resolveWorkspacePath(workspace, "", false)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resolve workspace path: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("resolve namespace path: %v", err)), nil
 	}
 
 	if _, err := os.Stat(wsDir); os.IsNotExist(err) {
-		return mcp.NewToolResultError(fmt.Sprintf("workspace %q not found", workspace)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("namespace %q not found", workspace)), nil
 	}
 
 	if h.deps != nil && h.deps.Store != nil {
 		if err := h.deps.Store.DeleteGraph(ctxns.WithNamespace(ctx, workspace)); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("purge workspace graph: %v", err)), nil
+			return mcp.NewToolResultError(fmt.Sprintf("purge namespace graph: %v", err)), nil
 		}
 	}
 	if h.deps != nil && h.deps.DB != nil {
-		mig := h.deps.DB.Migrator()
-		if mig.HasTable(&model.Community{}) {
-			if err := h.deps.DB.WithContext(ctx).Where("namespace = ?", workspace).Delete(&model.Community{}).Error; err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("purge workspace communities: %v", err)), nil
+		if err := h.deps.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			mig := tx.Migrator()
+			if mig.HasTable(&model.Community{}) {
+				communityIDs := tx.Model(&model.Community{}).Select("id").Where("namespace = ?", workspace)
+				if mig.HasTable(&model.CommunityMembership{}) {
+					if err := tx.Where("community_id IN (?)", communityIDs).Delete(&model.CommunityMembership{}).Error; err != nil {
+						return fmt.Errorf("purge namespace community memberships: %w", err)
+					}
+				}
+				if err := tx.Where("namespace = ?", workspace).Delete(&model.Community{}).Error; err != nil {
+					return fmt.Errorf("purge namespace communities: %w", err)
+				}
 			}
-		}
-		if mig.HasTable(&model.Flow{}) {
-			if err := h.deps.DB.WithContext(ctx).Where("namespace = ?", workspace).Delete(&model.Flow{}).Error; err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("purge workspace flows: %v", err)), nil
+			if mig.HasTable(&model.Flow{}) {
+				flowIDs := tx.Model(&model.Flow{}).Select("id").Where("namespace = ?", workspace)
+				if mig.HasTable(&model.FlowMembership{}) {
+					if err := tx.Where("flow_id IN (?) OR namespace = ?", flowIDs, workspace).Delete(&model.FlowMembership{}).Error; err != nil {
+						return fmt.Errorf("purge namespace flow memberships: %w", err)
+					}
+				}
+				if err := tx.Where("namespace = ?", workspace).Delete(&model.Flow{}).Error; err != nil {
+					return fmt.Errorf("purge namespace flows: %w", err)
+				}
 			}
+			if h.deps != nil && h.deps.SearchBackend != nil {
+				if err := h.deps.SearchBackend.PurgeNamespace(ctxns.WithNamespace(ctx, workspace), tx); err != nil {
+					return fmt.Errorf("purge namespace search index: %w", err)
+				}
+			}
+			return nil
+		}); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
 		}
 	}
 
 	if indexPath, err := h.resolvedRagIndexPath(workspace); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("resolve rag index path: %v", err)), nil
 	} else if err := os.Remove(indexPath); err != nil && !os.IsNotExist(err) {
-		return mcp.NewToolResultError(fmt.Sprintf("delete workspace rag index: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("delete namespace rag index: %v", err)), nil
 	}
 
 	if err := os.RemoveAll(wsDir); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("delete workspace: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("delete namespace: %v", err)), nil
 	}
 
 	if h.cache != nil {
@@ -493,6 +536,7 @@ func (h *handlers) deleteWorkspace(ctx context.Context, request mcp.CallToolRequ
 
 	delResult := map[string]any{
 		"status":    "deleted",
+		"namespace": workspace,
 		"workspace": workspace,
 	}
 	jsonStr, _ := marshalJSON(delResult)

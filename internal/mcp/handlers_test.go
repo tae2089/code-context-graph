@@ -2480,6 +2480,10 @@ func (f *failSearchBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 	return f.err
 }
 
+func (f *failSearchBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error {
+	return f.err
+}
+
 func (f *failSearchBackend) Migrate(db *gorm.DB) error { return nil }
 
 func (f *failSearchBackend) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error) {
