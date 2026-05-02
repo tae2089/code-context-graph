@@ -45,7 +45,7 @@ type Deps struct {
 	Syncer        *incremental.Syncer
 	ServeFunc     func(cfg ServeConfig) error
 	InitFunc      func(dbDriver, dsn string) error
-	MigrateFunc   func(dbDriver, dsn string) error
+	MigrateFunc   func(cfg MigrateConfig) error
 	CleanupFunc   func()
 	Version       VersionInfo
 }

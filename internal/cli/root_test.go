@@ -130,13 +130,16 @@ func TestRoot_MigrateCommandCallsMigrateFuncOnly(t *testing.T) {
 		initCalled++
 		return nil
 	}
-	deps.MigrateFunc = func(dbDriver, dsn string) error {
+	deps.MigrateFunc = func(cfg MigrateConfig) error {
 		migrateCalled++
-		if dbDriver != "sqlite" {
-			t.Fatalf("dbDriver = %q, want sqlite", dbDriver)
+		if cfg.DBDriver != "sqlite" {
+			t.Fatalf("dbDriver = %q, want sqlite", cfg.DBDriver)
 		}
-		if dsn != "ccg.db" {
-			t.Fatalf("dsn = %q, want ccg.db", dsn)
+		if cfg.DBDSN != "ccg.db" {
+			t.Fatalf("dsn = %q, want ccg.db", cfg.DBDSN)
+		}
+		if cfg.MigrationsDir != "migrations" {
+			t.Fatalf("migrationsDir = %q, want migrations", cfg.MigrationsDir)
 		}
 		return nil
 	}
@@ -152,6 +155,22 @@ func TestRoot_MigrateCommandCallsMigrateFuncOnly(t *testing.T) {
 	}
 	if got := stdout.String(); got != "Migration complete\n" {
 		t.Fatalf("stdout = %q, want migration completion", got)
+	}
+}
+
+func TestRoot_MigrateCommandPassesMigrationsDirFlag(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+	var got MigrateConfig
+	deps.MigrateFunc = func(cfg MigrateConfig) error {
+		got = cfg
+		return nil
+	}
+
+	if err := executeCmd(deps, stdout, stderr, "migrate", "--migrations-dir", "/tmp/ccg-migrations"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.MigrationsDir != "/tmp/ccg-migrations" {
+		t.Fatalf("migrationsDir = %q, want flag value", got.MigrationsDir)
 	}
 }
 

@@ -9,12 +9,19 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
 
+	gomigrate "github.com/golang-migrate/migrate/v4"
+	migratedb "github.com/golang-migrate/migrate/v4/database"
+	migratepostgres "github.com/golang-migrate/migrate/v4/database/postgres"
+	migratesqlite3 "github.com/golang-migrate/migrate/v4/database/sqlite3"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/viper"
 	"github.com/tae2089/trace"
@@ -22,7 +29,6 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
@@ -67,6 +73,7 @@ var (
 
 const (
 	schemaVersionKey      = "schema"
+	legacySchemaTable     = "ccg_schema_versions"
 	requiredSchemaVersion = 1
 )
 
@@ -132,8 +139,8 @@ func main() {
 		return nil
 	}
 
-	deps.MigrateFunc = func(driver, dsn string) error {
-		db, err := openDB(driver, dsn)
+	deps.MigrateFunc = func(cfg cli.MigrateConfig) error {
+		db, err := openDB(cfg.DBDriver, cfg.DBDSN)
 		if err != nil {
 			return trace.Wrap(err, "open database")
 		}
@@ -142,7 +149,7 @@ func main() {
 				sqlDB.Close()
 			}
 		}()
-		return runMigrations(db, driver)
+		return runMigrations(db, cfg.DBDriver, cfg.MigrationsDir)
 	}
 
 	deps.ServeFunc = func(cfg cli.ServeConfig) error {
@@ -159,56 +166,143 @@ func main() {
 	runCleanup()
 }
 
-func runMigrations(db *gorm.DB, driver string) error {
-	st := gormstore.New(db)
-	if err := st.AutoMigrate(); err != nil {
-		return trace.Wrap(err, "auto-migrate store")
-	}
-	if err := db.AutoMigrate(&model.SearchDocument{}, &model.Flow{}, &model.FlowMembership{}); err != nil {
-		return trace.Wrap(err, "migrate extra models")
-	}
-	if err := migrateLegacyDefaultNamespace(db); err != nil {
-		return trace.Wrap(err, "migrate legacy namespace")
+func runMigrations(db *gorm.DB, driver, migrationsDir string) error {
+	migrator, err := newMigrator(db, driver, migrationsDir)
+	if err != nil {
+		return err
 	}
 
-	sb := newSearchBackend(driver)
-	if err := sb.Migrate(db); err != nil {
-		return trace.Wrap(err, "migrate search backend")
+	if err := baselineLegacySchemaVersion(db); err != nil {
+		return err
 	}
-	if err := setSchemaVersion(db, requiredSchemaVersion); err != nil {
-		return trace.Wrap(err, "record schema version")
+	err = migrator.Up()
+	if err != nil && !errors.Is(err, gomigrate.ErrNoChange) {
+		return trace.Wrap(err, "run database migrations")
 	}
 	return nil
 }
 
 func checkSchemaVersion(db *gorm.DB) error {
-	if !db.Migrator().HasTable(&model.SchemaVersion{}) {
+	if !db.Migrator().HasTable("schema_migrations") {
 		return fmt.Errorf("database schema is not initialized; run `ccg migrate` first")
 	}
 
-	var current model.SchemaVersion
-	err := db.Where("key = ?", schemaVersionKey).First(&current).Error
+	var current migrateSchemaVersion
+	err := db.Table("schema_migrations").First(&current).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("database schema version is missing; run `ccg migrate` first")
 		}
 		return trace.Wrap(err, "check schema version")
 	}
-	if current.Version != requiredSchemaVersion {
+	if current.Dirty {
+		return fmt.Errorf("database schema migration is dirty at version %d; resolve the failed migration and run `ccg migrate`", current.Version)
+	}
+	if int(current.Version) != requiredSchemaVersion {
 		return fmt.Errorf("database schema version %d is incompatible with required version %d; run `ccg migrate`", current.Version, requiredSchemaVersion)
 	}
 	return nil
 }
 
-func setSchemaVersion(db *gorm.DB, version int) error {
-	if err := db.AutoMigrate(&model.SchemaVersion{}); err != nil {
-		return trace.Wrap(err, "migrate schema version table")
+type migrateSchemaVersion struct {
+	Version uint `gorm:"column:version"`
+	Dirty   bool `gorm:"column:dirty"`
+}
+
+func newMigrator(db *gorm.DB, driver, migrationsDir string) (*gomigrate.Migrate, error) {
+	sourceURL, err := migrationSourceURL(migrationsDir, driver)
+	if err != nil {
+		return nil, err
 	}
-	record := model.SchemaVersion{Key: schemaVersionKey, Version: version}
-	return db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "key"}},
-		DoUpdates: clause.AssignmentColumns([]string{"version", "updated_at"}),
-	}).Create(&record).Error
+
+	databaseDriver, databaseName, err := migrateDatabaseDriver(db, driver)
+	if err != nil {
+		return nil, err
+	}
+	migrator, err := gomigrate.NewWithDatabaseInstance(sourceURL, databaseName, databaseDriver)
+	if err != nil {
+		return nil, trace.Wrap(err, "create migrator")
+	}
+	return migrator, nil
+}
+
+func migrationSourceURL(migrationsDir, driver string) (string, error) {
+	dir := filepath.Join(migrationsDir, driver)
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", trace.Wrap(err, "resolve migration directory")
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", trace.Wrap(err, "stat migration directory")
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("migration path %q is not a directory", abs)
+	}
+	return (&url.URL{Scheme: "file", Path: abs}).String(), nil
+}
+
+func migrateDatabaseDriver(db *gorm.DB, driver string) (migratedb.Driver, string, error) {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, "", trace.Wrap(err, "get sql database")
+	}
+	switch driver {
+	case "sqlite":
+		d, err := migratesqlite3.WithInstance(sqlDB, &migratesqlite3.Config{})
+		if err != nil {
+			return nil, "", trace.Wrap(err, "create sqlite migration driver")
+		}
+		return d, "sqlite3", nil
+	case "postgres":
+		d, err := migratepostgres.WithInstance(sqlDB, &migratepostgres.Config{})
+		if err != nil {
+			return nil, "", trace.Wrap(err, "create postgres migration driver")
+		}
+		return d, "postgres", nil
+	default:
+		return nil, "", fmt.Errorf("unsupported database driver %q", driver)
+	}
+}
+
+func baselineLegacySchemaVersion(db *gorm.DB) error {
+	if db.Migrator().HasTable("schema_migrations") {
+		var count int64
+		if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
+			return trace.Wrap(err, "check migrate schema version")
+		}
+		if count > 0 {
+			return nil
+		}
+	}
+	if !db.Migrator().HasTable(legacySchemaTable) {
+		return nil
+	}
+
+	var current model.SchemaVersion
+	err := db.Table(legacySchemaTable).Where("key = ?", schemaVersionKey).First(&current).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return trace.Wrap(err, "check legacy schema version")
+	}
+	if current.Version != requiredSchemaVersion {
+		return nil
+	}
+	if err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (version uint64, dirty bool)`).Error; err != nil {
+		return trace.Wrap(err, "create migrate schema version table")
+	}
+	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS version_unique ON schema_migrations (version)`).Error; err != nil {
+		return trace.Wrap(err, "create migrate schema version index")
+	}
+	if err := db.Exec(`DELETE FROM schema_migrations`).Error; err != nil {
+		return trace.Wrap(err, "clear migrate schema version")
+	}
+	if err := db.Exec(`INSERT INTO schema_migrations(version, dirty) VALUES (?, ?)`, requiredSchemaVersion, false).Error; err != nil {
+		return trace.Wrap(err, "baseline legacy schema version")
+	}
+	return nil
 }
 
 func migrateLegacyDefaultNamespace(db *gorm.DB) error {

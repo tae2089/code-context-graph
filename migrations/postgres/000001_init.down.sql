@@ -1,0 +1,11 @@
+DROP TRIGGER IF EXISTS trg_search_documents_tsv ON search_documents;
+DROP FUNCTION IF EXISTS search_documents_tsv_trigger();
+DROP TABLE IF EXISTS search_documents;
+DROP TABLE IF EXISTS flow_memberships;
+DROP TABLE IF EXISTS flows;
+DROP TABLE IF EXISTS community_memberships;
+DROP TABLE IF EXISTS communities;
+DROP TABLE IF EXISTS doc_tags;
+DROP TABLE IF EXISTS annotations;
+DROP TABLE IF EXISTS edges;
+DROP TABLE IF EXISTS nodes;
