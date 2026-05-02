@@ -100,6 +100,9 @@ func main() {
 		if err := db.AutoMigrate(&model.SearchDocument{}, &model.Flow{}, &model.FlowMembership{}); err != nil {
 			return trace.Wrap(err, "migrate extra models")
 		}
+		if err := migrateLegacyDefaultNamespace(db); err != nil {
+			return trace.Wrap(err, "migrate legacy namespace")
+		}
 
 		sb := newSearchBackend(driver)
 		if err := sb.Migrate(db); err != nil {
@@ -140,6 +143,116 @@ func main() {
 		os.Exit(1)
 	}
 	runCleanup()
+}
+
+func migrateLegacyDefaultNamespace(db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := failOnLegacyNamespaceCollisions(tx); err != nil {
+			return err
+		}
+
+		updates := []struct {
+			name string
+			model any
+		}{
+			{name: "nodes", model: &model.Node{}},
+			{name: "edges", model: &model.Edge{}},
+			{name: "search_documents", model: &model.SearchDocument{}},
+			{name: "communities", model: &model.Community{}},
+			{name: "flows", model: &model.Flow{}},
+			{name: "flow_memberships", model: &model.FlowMembership{}},
+		}
+
+		for _, update := range updates {
+			if err := tx.Model(update.model).Where("namespace = ?", "").Update("namespace", ctxns.DefaultNamespace).Error; err != nil {
+				return trace.Wrap(err, "backfill "+update.name)
+			}
+		}
+
+		return nil
+	})
+}
+
+func failOnLegacyNamespaceCollisions(db *gorm.DB) error {
+	type nodeCollision struct {
+		QualifiedName string
+		FilePath      string
+		StartLine     int
+	}
+
+	var nodeCollisions []nodeCollision
+	if err := db.Raw(`
+		SELECT legacy.qualified_name, legacy.file_path, legacy.start_line
+		FROM nodes AS legacy
+		INNER JOIN nodes AS current
+			ON current.namespace = ?
+			AND legacy.namespace = ''
+			AND current.qualified_name = legacy.qualified_name
+			AND current.file_path = legacy.file_path
+			AND current.start_line = legacy.start_line
+	`, ctxns.DefaultNamespace).Scan(&nodeCollisions).Error; err != nil {
+		return trace.Wrap(err, "check node namespace collisions")
+	}
+	if len(nodeCollisions) > 0 {
+		collision := nodeCollisions[0]
+		return fmt.Errorf("legacy namespace collision for node %s (%s:%d)", collision.QualifiedName, collision.FilePath, collision.StartLine)
+	}
+
+	type edgeCollision struct {
+		Fingerprint string
+	}
+	var edgeCollisions []edgeCollision
+	if err := db.Raw(`
+		SELECT legacy.fingerprint
+		FROM edges AS legacy
+		INNER JOIN edges AS current
+			ON current.namespace = ?
+			AND legacy.namespace = ''
+			AND current.fingerprint = legacy.fingerprint
+	`, ctxns.DefaultNamespace).Scan(&edgeCollisions).Error; err != nil {
+		return trace.Wrap(err, "check edge namespace collisions")
+	}
+	if len(edgeCollisions) > 0 {
+		return fmt.Errorf("legacy namespace collision for edge %s", edgeCollisions[0].Fingerprint)
+	}
+
+	type searchDocCollision struct {
+		NodeID uint
+	}
+	var searchDocCollisions []searchDocCollision
+	if err := db.Raw(`
+		SELECT legacy.node_id
+		FROM search_documents AS legacy
+		INNER JOIN search_documents AS current
+			ON current.namespace = ?
+			AND legacy.namespace = ''
+			AND current.node_id = legacy.node_id
+	`, ctxns.DefaultNamespace).Scan(&searchDocCollisions).Error; err != nil {
+		return trace.Wrap(err, "check search document namespace collisions")
+	}
+	if len(searchDocCollisions) > 0 {
+		return fmt.Errorf("legacy namespace collision for search document node_id=%d", searchDocCollisions[0].NodeID)
+	}
+
+	type communityCollision struct {
+		Key string
+	}
+	var communityCollisions []communityCollision
+	if err := db.Raw(`
+		SELECT legacy.key
+		FROM communities AS legacy
+		INNER JOIN communities AS current
+			ON current.namespace = ?
+			AND legacy.namespace = ''
+			AND current.key = legacy.key
+	`, ctxns.DefaultNamespace).Scan(&communityCollisions).Error; err != nil {
+		return trace.Wrap(err, "check community namespace collisions")
+	}
+	if len(communityCollisions) > 0 {
+		return fmt.Errorf("legacy namespace collision for community %s", communityCollisions[0].Key)
+	}
+
+	return nil
 }
 
 // buildWalkers creates a Walker for each supported language extension.
