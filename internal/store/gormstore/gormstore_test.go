@@ -1195,3 +1195,79 @@ func TestDeleteGraph_CleansMemberships(t *testing.T) {
 		t.Fatalf("expected flow memberships to be deleted, got %d", flowCount)
 	}
 }
+
+func TestDeleteGraph_LeavesCommunityParentsUntilExplicitCleanup(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := ctxns.WithNamespace(context.Background(), "ns-x")
+
+	if err := s.UpsertNodes(ctx, []model.Node{{
+		QualifiedName: "pkg.B",
+		Kind:          model.NodeKindFunction,
+		Name:          "B",
+		FilePath:      "b.go",
+		StartLine:     1,
+		EndLine:       2,
+		Language:      "go",
+	}}); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+	node, _ := s.GetNode(ctx, "pkg.B")
+
+	community := model.Community{Namespace: "ns-x", Key: "ns-x/core", Label: "ns-x/core", Strategy: "directory"}
+	if err := s.db.Create(&community).Error; err != nil {
+		t.Fatalf("insert community: %v", err)
+	}
+	if err := s.db.Create(&model.CommunityMembership{CommunityID: community.ID, NodeID: node.ID}).Error; err != nil {
+		t.Fatalf("insert community membership: %v", err)
+	}
+
+	if err := s.DeleteGraph(ctx); err != nil {
+		t.Fatalf("DeleteGraph: %v", err)
+	}
+
+	var parentCount int64
+	if err := s.db.Model(&model.Community{}).Where("id = ?", community.ID).Count(&parentCount).Error; err != nil {
+		t.Fatalf("count community parent: %v", err)
+	}
+	if parentCount != 1 {
+		t.Fatalf("expected community parent row to remain for explicit cleanup, got %d", parentCount)
+	}
+}
+
+func TestDeleteGraph_LeavesFlowParentsUntilExplicitCleanup(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := ctxns.WithNamespace(context.Background(), "ns-x")
+
+	if err := s.UpsertNodes(ctx, []model.Node{{
+		QualifiedName: "pkg.B",
+		Kind:          model.NodeKindFunction,
+		Name:          "B",
+		FilePath:      "b.go",
+		StartLine:     1,
+		EndLine:       2,
+		Language:      "go",
+	}}); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+	node, _ := s.GetNode(ctx, "pkg.B")
+
+	flow := model.Flow{Namespace: "ns-x", Name: "checkout-flow"}
+	if err := s.db.Create(&flow).Error; err != nil {
+		t.Fatalf("insert flow: %v", err)
+	}
+	if err := s.db.Create(&model.FlowMembership{Namespace: "ns-x", FlowID: flow.ID, NodeID: node.ID, Ordinal: 0}).Error; err != nil {
+		t.Fatalf("insert flow membership: %v", err)
+	}
+
+	if err := s.DeleteGraph(ctx); err != nil {
+		t.Fatalf("DeleteGraph: %v", err)
+	}
+
+	var parentCount int64
+	if err := s.db.Model(&model.Flow{}).Where("id = ?", flow.ID).Count(&parentCount).Error; err != nil {
+		t.Fatalf("count flow parent: %v", err)
+	}
+	if parentCount != 1 {
+		t.Fatalf("expected flow parent row to remain for explicit cleanup, got %d", parentCount)
+	}
+}
