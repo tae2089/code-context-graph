@@ -45,7 +45,7 @@ func TestAutoMigrate_SQLite(t *testing.T) {
 	}
 
 	sqlDB, _ := db.DB()
-	tables := []string{"nodes", "edges", "annotations", "doc_tags"}
+	tables := []string{"nodes", "edges", "annotations", "doc_tags", "communities", "community_memberships", "flows", "flow_memberships"}
 	for _, table := range tables {
 		var count int
 		row := sqlDB.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", table)
@@ -1082,6 +1082,51 @@ func TestDeleteNodesByFile_CleansSearchDocuments(t *testing.T) {
 	}
 }
 
+func TestDeleteNodesByFile_CleansMemberships(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := context.Background()
+
+	s.UpsertNodes(ctx, []model.Node{{
+		QualifiedName: "pkg.A",
+		Kind:          model.NodeKindFunction,
+		Name:          "A",
+		FilePath:      "a.go",
+		StartLine:     1,
+		EndLine:       2,
+		Language:      "go",
+	}})
+	node, _ := s.GetNode(ctx, "pkg.A")
+
+	community := model.Community{Key: "core", Label: "core", Strategy: "directory"}
+	flow := model.Flow{Name: "login-flow"}
+	if err := s.db.Create(&community).Error; err != nil {
+		t.Fatalf("insert community: %v", err)
+	}
+	if err := s.db.Create(&flow).Error; err != nil {
+		t.Fatalf("insert flow: %v", err)
+	}
+	if err := s.db.Create(&model.CommunityMembership{CommunityID: community.ID, NodeID: node.ID}).Error; err != nil {
+		t.Fatalf("insert community membership: %v", err)
+	}
+	if err := s.db.Create(&model.FlowMembership{FlowID: flow.ID, NodeID: node.ID, Ordinal: 0}).Error; err != nil {
+		t.Fatalf("insert flow membership: %v", err)
+	}
+
+	if err := s.DeleteNodesByFile(ctx, "a.go"); err != nil {
+		t.Fatalf("DeleteNodesByFile: %v", err)
+	}
+
+	var communityCount, flowCount int64
+	s.db.Model(&model.CommunityMembership{}).Where("node_id = ?", node.ID).Count(&communityCount)
+	s.db.Model(&model.FlowMembership{}).Where("node_id = ?", node.ID).Count(&flowCount)
+	if communityCount != 0 {
+		t.Fatalf("expected community memberships to be deleted, got %d", communityCount)
+	}
+	if flowCount != 0 {
+		t.Fatalf("expected flow memberships to be deleted, got %d", flowCount)
+	}
+}
+
 func TestDeleteGraph_CleansSearchDocuments(t *testing.T) {
 	s := setupTestDB(t)
 	ctx := ctxns.WithNamespace(context.Background(), "ns-x")
@@ -1103,5 +1148,50 @@ func TestDeleteGraph_CleansSearchDocuments(t *testing.T) {
 	s.db.Model(&model.SearchDocument{}).Where("node_id = ?", node.ID).Count(&count)
 	if count != 0 {
 		t.Errorf("expected search_documents to be deleted after DeleteGraph, got %d rows", count)
+	}
+}
+
+func TestDeleteGraph_CleansMemberships(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := ctxns.WithNamespace(context.Background(), "ns-x")
+
+	s.UpsertNodes(ctx, []model.Node{{
+		QualifiedName: "pkg.B",
+		Kind:          model.NodeKindFunction,
+		Name:          "B",
+		FilePath:      "b.go",
+		StartLine:     1,
+		EndLine:       2,
+		Language:      "go",
+	}})
+	node, _ := s.GetNode(ctx, "pkg.B")
+
+	community := model.Community{Namespace: "ns-x", Key: "ns-x/core", Label: "ns-x/core", Strategy: "directory"}
+	flow := model.Flow{Namespace: "ns-x", Name: "checkout-flow"}
+	if err := s.db.Create(&community).Error; err != nil {
+		t.Fatalf("insert community: %v", err)
+	}
+	if err := s.db.Create(&flow).Error; err != nil {
+		t.Fatalf("insert flow: %v", err)
+	}
+	if err := s.db.Create(&model.CommunityMembership{CommunityID: community.ID, NodeID: node.ID}).Error; err != nil {
+		t.Fatalf("insert community membership: %v", err)
+	}
+	if err := s.db.Create(&model.FlowMembership{Namespace: "ns-x", FlowID: flow.ID, NodeID: node.ID, Ordinal: 0}).Error; err != nil {
+		t.Fatalf("insert flow membership: %v", err)
+	}
+
+	if err := s.DeleteGraph(ctx); err != nil {
+		t.Fatalf("DeleteGraph: %v", err)
+	}
+
+	var communityCount, flowCount int64
+	s.db.Model(&model.CommunityMembership{}).Where("node_id = ?", node.ID).Count(&communityCount)
+	s.db.Model(&model.FlowMembership{}).Where("node_id = ?", node.ID).Count(&flowCount)
+	if communityCount != 0 {
+		t.Fatalf("expected community memberships to be deleted, got %d", communityCount)
+	}
+	if flowCount != 0 {
+		t.Fatalf("expected flow memberships to be deleted, got %d", flowCount)
 	}
 }

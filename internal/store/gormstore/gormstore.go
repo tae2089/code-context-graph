@@ -38,6 +38,8 @@ func (s *Store) AutoMigrate() error {
 		&model.DocTag{},
 		&model.Community{},
 		&model.CommunityMembership{},
+		&model.Flow{},
+		&model.FlowMembership{},
 	); err != nil {
 		return err
 	}
@@ -215,6 +217,20 @@ func (s *Store) DeleteNodesByFile(ctx context.Context, filePath string) error {
 			return trace.Wrap(err, "cascade delete annotations")
 		}
 
+		if err := tx.
+			Where("node_id IN ?", nodeIDs).
+			Delete(&model.CommunityMembership{}).Error; err != nil {
+			return trace.Wrap(err, "cascade delete community memberships")
+		}
+
+		if tx.Migrator().HasTable(&model.FlowMembership{}) {
+			if err := tx.
+				Where("node_id IN ?", nodeIDs).
+				Delete(&model.FlowMembership{}).Error; err != nil {
+				return trace.Wrap(err, "cascade delete flow memberships")
+			}
+		}
+
 		if tx.Migrator().HasTable(&model.SearchDocument{}) {
 			if err := tx.
 				Where("node_id IN ?", nodeIDs).
@@ -269,6 +285,20 @@ func (s *Store) DeleteGraph(ctx context.Context) error {
 				Where("node_id IN ?", nodeIDs).
 				Delete(&model.Annotation{}).Error; err != nil {
 				return trace.Wrap(err, "delete namespace annotations")
+			}
+
+			if err := tx.
+				Where("node_id IN ?", nodeIDs).
+				Delete(&model.CommunityMembership{}).Error; err != nil {
+				return trace.Wrap(err, "delete namespace community memberships")
+			}
+
+			if tx.Migrator().HasTable(&model.FlowMembership{}) {
+				if err := tx.
+					Where("node_id IN ?", nodeIDs).
+					Delete(&model.FlowMembership{}).Error; err != nil {
+					return trace.Wrap(err, "delete namespace flow memberships")
+				}
 			}
 
 			if tx.Migrator().HasTable(&model.SearchDocument{}) {
