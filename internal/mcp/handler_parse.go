@@ -70,6 +70,7 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 		}
 		return stats, trace.Wrap(err, "stat parse root")
 	}
+	dirPath = absDir
 
 	var walkFiles []string
 	err = filepath.Walk(absDir, func(fp string, info os.FileInfo, err error) error {
@@ -359,7 +360,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 			existingFiles = filtered
 		}
 		var totalParsedBytes int64
-		err := filepath.Walk(dirPath, func(fp string, info os.FileInfo, err error) error {
+		err := filepath.Walk(absDir, func(fp string, info os.FileInfo, err error) error {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return ctxErr
 			}
@@ -589,7 +590,7 @@ func (h *handlers) validateAnalysisPath(path string) (string, error) {
 	if allowed == "" {
 		return "", fmt.Errorf("analysis root is not configured")
 	}
-	target, err := canonicalPath(path)
+	target, err := canonicalExistingPath(path)
 	if err != nil {
 		return "", fmt.Errorf("invalid path: %w", err)
 	}
@@ -601,4 +602,26 @@ func (h *handlers) validateAnalysisPath(path string) (string, error) {
 		return "", fmt.Errorf("path %q is outside configured analysis root", path)
 	}
 	return target, nil
+}
+
+func canonicalExistingPath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	clean := filepath.Clean(abs)
+	real, err := filepath.EvalSymlinks(clean)
+	if err == nil {
+		return filepath.Clean(real), nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	parent := filepath.Dir(clean)
+	base := filepath.Base(clean)
+	parentReal, parentErr := filepath.EvalSymlinks(parent)
+	if parentErr != nil {
+		return "", err
+	}
+	return filepath.Join(parentReal, base), nil
 }

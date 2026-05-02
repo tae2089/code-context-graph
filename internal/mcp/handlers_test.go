@@ -665,9 +665,8 @@ func Other() {}
 	}
 
 	for fp := range mockSync.files {
-		rel, _ := filepath.Rel(dir, fp)
-		if !strings.HasPrefix(rel, filepath.Join("src", "api")) {
-			t.Errorf("incremental sync received file outside include_paths: %s", rel)
+		if !strings.HasPrefix(filepath.ToSlash(fp), "src/api/") {
+			t.Errorf("incremental sync received file outside include_paths: %s", fp)
 		}
 	}
 
