@@ -138,6 +138,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	// Also explicitly bind env vars just in case AutomaticEnv needs a hint
 	_ = viper.BindEnv("db.driver", "CCG_DB_DRIVER")
 	_ = viper.BindEnv("db.dsn", "CCG_DB_DSN")
+	_ = viper.BindEnv("migrations.dir", "CCG_MIGRATIONS_DIR")
 
 	rootCmd.AddCommand(
 		newInitCmd(deps),

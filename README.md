@@ -42,10 +42,8 @@ make build
 ## Quick Start
 
 ```bash
-# Initialize or upgrade the database schema
-ccg migrate
-
-# Parse your project
+# Parse your project. The default local SQLite database (ccg.db) is created
+# and migrated automatically on first use.
 ccg build .
 # Build complete: 70 files, 749 nodes, 7387 edges
 

@@ -92,6 +92,53 @@ func TestRunMigrations_AllowsRuntimeSchemaCheck(t *testing.T) {
 	}
 }
 
+func TestEnsureSchemaVersion_AutoMigratesLocalSQLiteDefault(t *testing.T) {
+	requireSQLiteFTS5(t)
+
+	dbPath := filepath.Join(t.TempDir(), "ccg.db")
+	db, err := openDB("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer func() {
+		sqlDB, _ := db.DB()
+		if sqlDB != nil {
+			_ = sqlDB.Close()
+		}
+	}()
+
+	if err := ensureSchemaVersion(db, "sqlite", dbPath, repoMigrationsDir(t)); err != nil {
+		t.Fatalf("ensure schema version: %v", err)
+	}
+	if err := checkSchemaVersion(db); err != nil {
+		t.Fatalf("schema check after auto migrate: %v", err)
+	}
+	if !db.Migrator().HasTable(&model.Node{}) {
+		t.Fatal("expected nodes table after auto migrate")
+	}
+}
+
+func TestEnsureSchemaVersion_DoesNotAutoMigrateCustomSQLiteDSN(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "custom.db")
+	db, err := openDB("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer func() {
+		sqlDB, _ := db.DB()
+		if sqlDB != nil {
+			_ = sqlDB.Close()
+		}
+	}()
+
+	if err := ensureSchemaVersion(db, "sqlite", dbPath, repoMigrationsDir(t)); err == nil {
+		t.Fatal("expected custom sqlite dsn to require explicit migration")
+	}
+	if db.Migrator().HasTable("schema_migrations") {
+		t.Fatal("did not expect custom sqlite dsn to be auto migrated")
+	}
+}
+
 func TestCheckSchemaVersion_FailsOnIncompatibleVersion(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {

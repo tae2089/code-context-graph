@@ -54,7 +54,7 @@ ccg update ./backend --namespace backend
 | `ccg version` | Print build version, commit, date |
 | `ccg benchmark token-bench` | Measure token reduction: naive vs graph search (no LLM) |
 
-Run `ccg migrate` explicitly before `build`, `update`, `search`, or `serve` when creating a new database or after upgrading CCG. Runtime commands do not auto-migrate the database schema.
+For the default local SQLite database (`ccg.db`), runtime commands auto-run migrations when the schema is missing. Run `ccg migrate` explicitly for PostgreSQL, custom SQLite DSNs, or controlled upgrades.
 
 ### Serve
 

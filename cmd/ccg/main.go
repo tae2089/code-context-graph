@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -107,7 +108,7 @@ func main() {
 		if err != nil {
 			return trace.Wrap(err, "open database")
 		}
-		if err := checkSchemaVersion(db); err != nil {
+		if err := ensureSchemaVersion(db, driver, dsn, configuredMigrationsDir()); err != nil {
 			if sqlDB, dbErr := db.DB(); dbErr == nil {
 				sqlDB.Close()
 			}
@@ -180,6 +181,42 @@ func runMigrations(db *gorm.DB, driver, migrationsDir string) error {
 		return trace.Wrap(err, "run database migrations")
 	}
 	return nil
+}
+
+func ensureSchemaVersion(db *gorm.DB, driver, dsn, migrationsDir string) error {
+	if err := checkSchemaVersion(db); err == nil {
+		return nil
+	}
+
+	if !shouldAutoMigrateLocalSQLite(driver, dsn) || db.Migrator().HasTable("schema_migrations") {
+		return checkSchemaVersion(db)
+	}
+	if err := runMigrations(db, driver, migrationsDir); err != nil {
+		return trace.Wrap(err, "auto-migrate local sqlite database")
+	}
+	return checkSchemaVersion(db)
+}
+
+func shouldAutoMigrateLocalSQLite(driver, dsn string) bool {
+	if driver != "sqlite" {
+		return false
+	}
+	path := strings.TrimSpace(dsn)
+	path = strings.TrimPrefix(path, "file:")
+	if idx := strings.Index(path, "?"); idx >= 0 {
+		path = path[:idx]
+	}
+	return filepath.Base(path) == "ccg.db"
+}
+
+func configuredMigrationsDir() string {
+	if dir := strings.TrimSpace(viper.GetString("migrations.dir")); dir != "" {
+		return dir
+	}
+	if dir := strings.TrimSpace(os.Getenv("CCG_MIGRATIONS_DIR")); dir != "" {
+		return dir
+	}
+	return "migrations"
 }
 
 func checkSchemaVersion(db *gorm.DB) error {
