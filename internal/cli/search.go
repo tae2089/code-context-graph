@@ -2,12 +2,12 @@ package cli
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/pathutil"
 )
 
 // newSearchCmd creates the full-text search command.
@@ -47,7 +47,7 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 			if pathPrefix != "" {
 				filtered := nodes[:0]
 				for _, n := range nodes {
-					if strings.HasPrefix(n.FilePath, pathPrefix) {
+					if pathutil.HasPathPrefix(n.FilePath, pathPrefix) {
 						filtered = append(filtered, n)
 					}
 				}

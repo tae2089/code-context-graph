@@ -185,6 +185,28 @@ func TestSearchCommand_PathFilter_NoMatch(t *testing.T) {
 	}
 }
 
+func TestSearchCommand_PathFilter_RespectsPathBoundary(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+	deps.SearchBackend = &spySearchBackend{queryFn: func(ctx context.Context, db *gorm.DB, query string, queryLimit int) ([]model.Node, error) {
+		return []model.Node{
+			{QualifiedName: "internal/api/handler.go::Handle", Kind: model.NodeKindFunction, FilePath: "internal/api/handler.go", StartLine: 1},
+			{QualifiedName: "internal/api2/handler.go::Handle2", Kind: model.NodeKindFunction, FilePath: "internal/api2/handler.go", StartLine: 1},
+		}, nil
+	}}
+
+	if err := executeCmd(deps, stdout, stderr, "search", "--path", "internal/api", "handle"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "internal/api/handler.go::Handle") {
+		t.Fatalf("expected internal/api result, got:\n%s", out)
+	}
+	if strings.Contains(out, "internal/api2/handler.go::Handle2") {
+		t.Fatalf("did not expect sibling path match, got:\n%s", out)
+	}
+}
+
 func TestSearchCommand_NamespaceIsolation(t *testing.T) {
 	deps, _, _, db := setupSearchTest(t)
 	ctxA := ctxns.WithNamespace(context.Background(), "ns-a")
