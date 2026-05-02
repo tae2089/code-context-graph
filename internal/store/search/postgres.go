@@ -83,12 +83,9 @@ func (p *PostgresBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 	ns := ctxns.FromContext(ctx)
 	query := `
 		UPDATE search_documents
-		SET tsv = to_tsvector('simple', COALESCE(content, ''))`
-	args := []any{}
-	if ns != "" {
-		query += ` WHERE namespace = ?`
-		args = append(args, ns)
-	}
+		SET tsv = to_tsvector('simple', COALESCE(content, ''))
+		WHERE namespace = ?`
+	args := []any{ns}
 	return db.WithContext(ctx).Exec(query, args...).Error
 }
 
@@ -114,12 +111,9 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 	querySQL := `
 		SELECT sd.node_id
 		FROM search_documents sd
-		WHERE sd.tsv @@ to_tsquery('simple', ?)`
-	args := []any{tsQuery}
-	if ns != "" {
-		querySQL += ` AND sd.namespace = ?`
-		args = append(args, ns)
-	}
+		WHERE sd.tsv @@ to_tsquery('simple', ?)
+		AND sd.namespace = ?`
+	args := []any{tsQuery, ns}
 	querySQL += `
 		ORDER BY ts_rank(sd.tsv, to_tsquery('simple', ?)) DESC
 		LIMIT ?`
@@ -138,10 +132,7 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 	}
 
 	var nodes []model.Node
-	nodesQ := db.WithContext(ctx).Where("id IN ?", nodeIDs)
-	if ns != "" {
-		nodesQ = nodesQ.Where("namespace = ?", ns)
-	}
+	nodesQ := db.WithContext(ctx).Where("id IN ?", nodeIDs).Where("namespace = ?", ns)
 	if err := nodesQ.Find(&nodes).Error; err != nil {
 		return nil, trace.Wrap(err, "load nodes")
 	}

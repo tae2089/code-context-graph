@@ -76,21 +76,14 @@ func (s *SQLiteBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 
 func (s *SQLiteBackend) rebuildTable(ctx context.Context, db *gorm.DB, tableName string) error {
 	ns := ctxns.FromContext(ctx)
-	clearSQL := fmt.Sprintf("DELETE FROM %s", tableName)
-	clearArgs := []any{}
-	if ns != "" {
-		clearSQL += " WHERE namespace = ?"
-		clearArgs = append(clearArgs, ns)
-	}
+	clearSQL := fmt.Sprintf("DELETE FROM %s WHERE namespace = ?", tableName)
+	clearArgs := []any{ns}
 	return db.WithContext(ctx).Transaction(func(outerTx *gorm.DB) error {
 		if err := outerTx.Exec(clearSQL, clearArgs...).Error; err != nil {
 			return trace.Wrap(err, "clear fts")
 		}
 
-		docsQ := outerTx.WithContext(ctx)
-		if ns != "" {
-			docsQ = docsQ.Where("namespace = ?", ns)
-		}
+		docsQ := outerTx.WithContext(ctx).Where("namespace = ?", ns)
 
 		var batchDocs []model.SearchDocument
 		result := docsQ.FindInBatches(&batchDocs, sqliteFTSRebuildBatchSize, func(batchTx *gorm.DB, batch int) error {
@@ -156,12 +149,8 @@ func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, li
 	var rows []ftsRow
 	querySQL := `SELECT CAST(node_id AS INTEGER) AS node_id
 		 FROM search_fts
-		 WHERE search_fts MATCH ?`
-	args := []any{ftsQuery}
-	if ns != "" {
-		querySQL += ` AND namespace = ?`
-		args = append(args, ns)
-	}
+		 WHERE search_fts MATCH ? AND namespace = ?`
+	args := []any{ftsQuery, ns}
 	querySQL += ` ORDER BY rank LIMIT ?`
 	args = append(args, limit)
 	if err := db.WithContext(ctx).Raw(querySQL, args...).Scan(&rows).Error; err != nil {
@@ -178,10 +167,7 @@ func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, li
 	}
 
 	var nodes []model.Node
-	nodesQ := db.WithContext(ctx).Where("id IN ?", nodeIDs)
-	if ns != "" {
-		nodesQ = nodesQ.Where("namespace = ?", ns)
-	}
+	nodesQ := db.WithContext(ctx).Where("id IN ?", nodeIDs).Where("namespace = ?", ns)
 	if err := nodesQ.Find(&nodes).Error; err != nil {
 		return nil, trace.Wrap(err, "load nodes")
 	}

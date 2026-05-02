@@ -158,6 +158,36 @@ func TestPostgresFTS_Query_NamespaceIsolation(t *testing.T) {
 	}
 }
 
+func TestPostgresFTS_Query_EmptyNamespace_IsLiteralFilter(t *testing.T) {
+	db := setupPostgresDB(t)
+	backend := NewPostgresBackend()
+	if err := backend.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+
+	defaultNode := model.Node{Namespace: "", QualifiedName: "pkg.Default", Kind: model.NodeKindFunction, Name: "Default", FilePath: "default.go", StartLine: 1, EndLine: 2, Language: "go"}
+	otherNode := model.Node{Namespace: "ns-b", QualifiedName: "pkg.Other", Kind: model.NodeKindFunction, Name: "Other", FilePath: "other.go", StartLine: 1, EndLine: 2, Language: "go"}
+	db.Create(&defaultNode)
+	db.Create(&otherNode)
+	db.Create(&model.SearchDocument{Namespace: "", NodeID: defaultNode.ID, Content: "sharedterm default", Language: "go"})
+	db.Create(&model.SearchDocument{Namespace: "ns-b", NodeID: otherNode.ID, Content: "sharedterm other", Language: "go"})
+
+	if err := backend.Rebuild(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.Rebuild(ctxns.WithNamespace(context.Background(), "ns-b"), db); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := backend.Query(context.Background(), db, "sharedterm", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Namespace != "" {
+		t.Fatalf("expected only default namespace result, got %#v", results)
+	}
+}
+
 func TestPostgresFTS_Query_DefensivelyFiltersNodeNamespace(t *testing.T) {
 	db := setupPostgresDB(t)
 	backend := NewPostgresBackend()
