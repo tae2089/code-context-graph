@@ -866,6 +866,76 @@ func Add(a, b int) int { return a + b }
 	}
 }
 
+func TestParseProject_MaxFileBytesPreservesExistingGraph(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.MaxFileBytes = 32
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "calc.go", `package calc
+
+func Add(a, b int) int { return a + b }
+`)
+
+	deps.MaxFileBytes = 0
+	result := callTool(t, deps, "parse_project", map[string]any{"path": dir})
+	if result.IsError {
+		t.Fatalf("initial parse_project error: %s", getTextContent(result))
+	}
+
+	deps.MaxFileBytes = 32
+	writeGoFile(t, dir, "large.go", `package calc
+
+func ThisFileIsTooLargeForTheConfiguredParseLimit() string { return "oversized" }
+`)
+
+	h := &handlers{deps: deps, cache: NewCache(5 * time.Minute)}
+	_, err := h.parseProject(context.Background(), makeToolRequest("parse_project", map[string]any{"path": dir}))
+	if err == nil {
+		t.Fatal("expected parse_project to fail on max file bytes")
+	}
+	if !strings.Contains(err.Error(), "exceeds max file bytes") {
+		t.Fatalf("expected max file bytes error, got %v", err)
+	}
+
+	node, err := deps.Store.GetNode(context.Background(), "calc.Add")
+	if err != nil || node == nil {
+		t.Fatal("expected existing graph to remain after max file bytes failure")
+	}
+}
+
+func TestParseProject_ContextCanceledPreservesExistingGraph(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "calc.go", `package calc
+
+func Add(a, b int) int { return a + b }
+`)
+
+	result := callTool(t, deps, "parse_project", map[string]any{"path": dir})
+	if result.IsError {
+		t.Fatalf("initial parse_project error: %s", getTextContent(result))
+	}
+
+	writeGoFile(t, dir, "calc.go", `package calc
+
+func Replaced() {}
+`)
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	h := &handlers{deps: deps, cache: NewCache(5 * time.Minute)}
+	_, err := h.parseProject(canceled, makeToolRequest("parse_project", map[string]any{"path": dir}))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+
+	node, err := deps.Store.GetNode(context.Background(), "calc.Add")
+	if err != nil || node == nil {
+		t.Fatal("expected existing graph to remain after cancellation")
+	}
+}
+
 func TestBuildOrUpdateGraph_PostprocessFull(t *testing.T) {
 	deps := setupTestDeps(t)
 

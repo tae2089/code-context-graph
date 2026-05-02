@@ -12,10 +12,9 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"gorm.io/gorm"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
-	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/service"
 )
 
 const (
@@ -480,43 +479,9 @@ func (h *handlers) deleteWorkspace(ctx context.Context, request mcp.CallToolRequ
 	}
 
 	if h.deps != nil && h.deps.Store != nil {
-		if err := h.deps.Store.DeleteGraph(ctxns.WithNamespace(ctx, workspace)); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("purge namespace graph: %v", err)), nil
-		}
-	}
-	if h.deps != nil && h.deps.DB != nil {
-		if err := h.deps.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			mig := tx.Migrator()
-			if mig.HasTable(&model.Community{}) {
-				communityIDs := tx.Model(&model.Community{}).Select("id").Where("namespace = ?", workspace)
-				if mig.HasTable(&model.CommunityMembership{}) {
-					if err := tx.Where("community_id IN (?)", communityIDs).Delete(&model.CommunityMembership{}).Error; err != nil {
-						return fmt.Errorf("purge namespace community memberships: %w", err)
-					}
-				}
-				if err := tx.Where("namespace = ?", workspace).Delete(&model.Community{}).Error; err != nil {
-					return fmt.Errorf("purge namespace communities: %w", err)
-				}
-			}
-			if mig.HasTable(&model.Flow{}) {
-				flowIDs := tx.Model(&model.Flow{}).Select("id").Where("namespace = ?", workspace)
-				if mig.HasTable(&model.FlowMembership{}) {
-					if err := tx.Where("flow_id IN (?) OR namespace = ?", flowIDs, workspace).Delete(&model.FlowMembership{}).Error; err != nil {
-						return fmt.Errorf("purge namespace flow memberships: %w", err)
-					}
-				}
-				if err := tx.Where("namespace = ?", workspace).Delete(&model.Flow{}).Error; err != nil {
-					return fmt.Errorf("purge namespace flows: %w", err)
-				}
-			}
-			if h.deps != nil && h.deps.SearchBackend != nil {
-				if err := h.deps.SearchBackend.PurgeNamespace(ctxns.WithNamespace(ctx, workspace), tx); err != nil {
-					return fmt.Errorf("purge namespace search index: %w", err)
-				}
-			}
-			return nil
-		}); err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		purger := service.NewNamespacePurger(h.deps.Store, h.deps.DB, h.deps.SearchBackend)
+		if err := purger.Purge(ctxns.WithNamespace(ctx, workspace)); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("purge namespace: %v", err)), nil
 		}
 	}
 
