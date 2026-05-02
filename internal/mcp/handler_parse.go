@@ -49,6 +49,8 @@ type parsedWalkEdgeBatch struct {
 	edges []model.Edge
 }
 
+var testWalkBatchReleaseHook func([]parsedWalkNodeBatch, int)
+
 func newParsedWalkNodeBatch(path string, content []byte, nodes []model.Node, comments []treesitter.CommentBlock) parsedWalkNodeBatch {
 	out := parsedWalkNodeBatch{
 		path:     path,
@@ -63,6 +65,54 @@ func newParsedWalkNodeBatch(path string, content []byte, nodes []model.Node, com
 
 func newParsedWalkEdgeBatch(path string, edges []model.Edge) parsedWalkEdgeBatch {
 	return parsedWalkEdgeBatch{path: path, edges: edges}
+}
+
+func (h *handlers) bindAndReleaseWalkBatch(ctx context.Context, txStore store.GraphStore, batches []parsedWalkNodeBatch, idx int) error {
+	parsed := &batches[idx]
+	if len(parsed.nodes) > 0 {
+		if err := txStore.UpsertNodes(ctx, parsed.nodes); err != nil {
+			return trace.Wrap(err, "upsert nodes")
+		}
+	}
+
+	if len(parsed.comments) > 0 {
+		ext := strings.ToLower(filepath.Ext(parsed.path))
+		cp, ok := h.deps.Walkers[ext].(commentParserWithLanguage)
+		if ok {
+			binderComments := toMCPBinderComments(parsed.comments)
+			binder := parse.NewBinder()
+			bindings := binder.Bind(binderComments, parsed.nodes, cp.Language(), parsed.sourceLines)
+
+			storedNodes, err := txStore.GetNodesByFile(ctx, parsed.path)
+			if err != nil {
+				return trace.Wrap(err, "get stored nodes for annotations")
+			}
+			storedMap := make(map[string]*model.Node, len(storedNodes))
+			for i := range storedNodes {
+				key := storedNodes[i].QualifiedName + ":" + strconv.Itoa(storedNodes[i].StartLine)
+				storedMap[key] = &storedNodes[i]
+			}
+
+			for _, b := range bindings {
+				key := b.Node.QualifiedName + ":" + strconv.Itoa(b.Node.StartLine)
+				stored := storedMap[key]
+				if stored == nil {
+					continue
+				}
+				b.Annotation.NodeID = stored.ID
+				if err := txStore.UpsertAnnotation(ctx, b.Annotation); err != nil {
+					return trace.Wrap(err, "upsert annotation for "+stored.QualifiedName)
+				}
+			}
+		}
+	}
+
+	parsed.comments = nil
+	parsed.sourceLines = nil
+	if testWalkBatchReleaseHook != nil {
+		testWalkBatchReleaseHook(batches, idx)
+	}
+	return nil
 }
 
 type commentParserWithLanguage interface {
@@ -191,46 +241,12 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 			return trace.Wrap(err, "reset graph state before parse")
 		}
 
-		for _, parsed := range nodeBatches {
+		for i := range nodeBatches {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if len(parsed.nodes) > 0 {
-				if err := txStore.UpsertNodes(ctx, parsed.nodes); err != nil {
-					return trace.Wrap(err, "upsert nodes")
-				}
-			}
-
-			if len(parsed.comments) > 0 {
-				ext := strings.ToLower(filepath.Ext(parsed.path))
-				cp, ok := h.deps.Walkers[ext].(commentParserWithLanguage)
-				if ok {
-					binderComments := toMCPBinderComments(parsed.comments)
-					binder := parse.NewBinder()
-					bindings := binder.Bind(binderComments, parsed.nodes, cp.Language(), parsed.sourceLines)
-
-					storedNodes, err := txStore.GetNodesByFile(ctx, parsed.path)
-					if err != nil {
-						return trace.Wrap(err, "get stored nodes for annotations")
-					}
-					storedMap := make(map[string]*model.Node, len(storedNodes))
-					for i := range storedNodes {
-						key := storedNodes[i].QualifiedName + ":" + strconv.Itoa(storedNodes[i].StartLine)
-						storedMap[key] = &storedNodes[i]
-					}
-
-					for _, b := range bindings {
-						key := b.Node.QualifiedName + ":" + strconv.Itoa(b.Node.StartLine)
-						stored := storedMap[key]
-						if stored == nil {
-							continue
-						}
-						b.Annotation.NodeID = stored.ID
-						if err := txStore.UpsertAnnotation(ctx, b.Annotation); err != nil {
-							return trace.Wrap(err, "upsert annotation for "+stored.QualifiedName)
-						}
-					}
-				}
+			if err := h.bindAndReleaseWalkBatch(ctx, txStore, nodeBatches, i); err != nil {
+				return err
 			}
 		}
 

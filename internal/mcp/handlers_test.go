@@ -412,6 +412,59 @@ func Keep() {}
 	}
 }
 
+func TestHandler_walkAndParse_ReleasesBatchCommentStateAfterBinding(t *testing.T) {
+	var snapshots []struct {
+		batch       int
+		commentsNil bool
+		sourceNil   bool
+	}
+	prevHook := testWalkBatchReleaseHook
+	testWalkBatchReleaseHook = func(batches []parsedWalkNodeBatch, idx int) {
+		snapshots = append(snapshots, struct {
+			batch       int
+			commentsNil bool
+			sourceNil   bool
+		}{
+			batch:       idx,
+			commentsNil: batches[idx].comments == nil,
+			sourceNil:   batches[idx].sourceLines == nil,
+		})
+	}
+	defer func() { testWalkBatchReleaseHook = prevHook }()
+
+	deps := setupGraphOnlyTestDeps(t)
+	fakeStore := newRecordingGraphStore()
+	deps.Store = fakeStore
+	parser := &orderingCommentGoParser{}
+	deps.Parser = parser
+	deps.Walkers = map[string]Parser{".go": parser}
+	h := &handlers{deps: deps}
+
+	dir := t.TempDir()
+	for _, name := range []string{"alpha.go", "beta.go"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(`package sample
+
+// @intent keep track
+func Keep() {}
+`), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	if _, err := h.walkAndParse(context.Background(), dir); err != nil {
+		t.Fatalf("walkAndParse: %v", err)
+	}
+
+	if len(snapshots) != 2 {
+		t.Fatalf("expected 2 batch release snapshots, got %d", len(snapshots))
+	}
+	for _, snap := range snapshots {
+		if !snap.commentsNil || !snap.sourceNil {
+			t.Fatalf("expected batch %d comment state released, got commentsNil=%v sourceNil=%v", snap.batch, snap.commentsNil, snap.sourceNil)
+		}
+	}
+}
+
 func TestHandler_GetNode(t *testing.T) {
 	deps := setupTestDeps(t)
 	ctx := context.Background()

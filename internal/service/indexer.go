@@ -35,6 +35,8 @@ type parsedBuildEdgeBatch struct {
 	edges   []model.Edge
 }
 
+var testBuildBatchReleaseHook func([]parsedBuildNodeBatch, int)
+
 func newParsedBuildNodeBatch(relPath string, content []byte, nodes []model.Node, tsComments []treesitter.CommentBlock) parsedBuildNodeBatch {
 	out := parsedBuildNodeBatch{
 		relPath:    relPath,
@@ -49,6 +51,50 @@ func newParsedBuildNodeBatch(relPath string, content []byte, nodes []model.Node,
 
 func newParsedBuildEdgeBatch(relPath string, edges []model.Edge) parsedBuildEdgeBatch {
 	return parsedBuildEdgeBatch{relPath: relPath, edges: edges}
+}
+
+func (s *GraphService) bindAndReleaseNodeBatch(ctx context.Context, txStore store.GraphStore, batches []parsedBuildNodeBatch, idx int) error {
+	parsed := &batches[idx]
+	walker := s.Walkers[strings.ToLower(filepath.Ext(parsed.relPath))]
+
+	if err := txStore.UpsertNodes(ctx, parsed.nodes); err != nil {
+		return trace.Wrap(err, "upsert nodes for "+parsed.relPath)
+	}
+
+	if len(parsed.tsComments) > 0 {
+		binderComments := toBinderComments(parsed.tsComments)
+		binder := parse.NewBinder()
+		bindings := binder.Bind(binderComments, parsed.nodes, walker.Language(), parsed.sourceLines)
+
+		storedNodes, err := txStore.GetNodesByFile(ctx, parsed.relPath)
+		if err != nil {
+			return trace.Wrap(err, "get stored nodes for annotations")
+		}
+		storedMap := make(map[string]*model.Node, len(storedNodes))
+		for i := range storedNodes {
+			key := storedNodes[i].QualifiedName + ":" + strconv.Itoa(storedNodes[i].StartLine)
+			storedMap[key] = &storedNodes[i]
+		}
+
+		for _, b := range bindings {
+			key := b.Node.QualifiedName + ":" + strconv.Itoa(b.Node.StartLine)
+			stored := storedMap[key]
+			if stored == nil {
+				continue
+			}
+			b.Annotation.NodeID = stored.ID
+			if err := txStore.UpsertAnnotation(ctx, b.Annotation); err != nil {
+				return trace.Wrap(err, "upsert annotation for "+stored.QualifiedName)
+			}
+		}
+	}
+
+	parsed.tsComments = nil
+	parsed.sourceLines = nil
+	if testBuildBatchReleaseHook != nil {
+		testBuildBatchReleaseHook(batches, idx)
+	}
+	return nil
 }
 
 // GraphService orchestrates graph building and search document refresh.
@@ -198,42 +244,12 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 			return trace.Wrap(err, "reset graph state before rebuild")
 		}
 
-		for _, parsed := range nodeBatches {
+		for i := range nodeBatches {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			walker := s.Walkers[strings.ToLower(filepath.Ext(parsed.relPath))]
-
-			if err := txStore.UpsertNodes(ctx, parsed.nodes); err != nil {
-				return trace.Wrap(err, "upsert nodes for "+parsed.relPath)
-			}
-
-			if len(parsed.tsComments) > 0 {
-				binderComments := toBinderComments(parsed.tsComments)
-				binder := parse.NewBinder()
-				bindings := binder.Bind(binderComments, parsed.nodes, walker.Language(), parsed.sourceLines)
-
-				storedNodes, err := txStore.GetNodesByFile(ctx, parsed.relPath)
-				if err != nil {
-					return trace.Wrap(err, "get stored nodes for annotations")
-				}
-				storedMap := make(map[string]*model.Node, len(storedNodes))
-				for i := range storedNodes {
-					key := storedNodes[i].QualifiedName + ":" + strconv.Itoa(storedNodes[i].StartLine)
-					storedMap[key] = &storedNodes[i]
-				}
-
-				for _, b := range bindings {
-					key := b.Node.QualifiedName + ":" + strconv.Itoa(b.Node.StartLine)
-					stored := storedMap[key]
-					if stored == nil {
-						continue
-					}
-					b.Annotation.NodeID = stored.ID
-					if err := txStore.UpsertAnnotation(ctx, b.Annotation); err != nil {
-						return trace.Wrap(err, "upsert annotation for "+stored.QualifiedName)
-					}
-				}
+			if err := s.bindAndReleaseNodeBatch(ctx, txStore, nodeBatches, i); err != nil {
+				return err
 			}
 		}
 

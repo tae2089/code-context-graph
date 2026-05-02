@@ -459,6 +459,60 @@ func Keep() {}
 	}
 }
 
+func TestBuild_ReleasesBatchCommentStateAfterBinding(t *testing.T) {
+	var snapshots []struct {
+		batch        int
+		tsCommentsNil bool
+		sourceNil     bool
+	}
+	prevHook := testBuildBatchReleaseHook
+	testBuildBatchReleaseHook = func(batches []parsedBuildNodeBatch, idx int) {
+		snapshots = append(snapshots, struct {
+			batch        int
+			tsCommentsNil bool
+			sourceNil     bool
+		}{
+			batch:        idx,
+			tsCommentsNil: batches[idx].tsComments == nil,
+			sourceNil:     batches[idx].sourceLines == nil,
+		})
+	}
+	defer func() { testBuildBatchReleaseHook = prevHook }()
+
+	fakeStore := newRecordingGraphStore(t)
+	svc := &GraphService{
+		Store: fakeStore,
+		Walkers: map[string]*treesitter.Walker{
+			".go": treesitter.NewWalker(treesitter.GoSpec),
+		},
+		Logger: slog.Default(),
+	}
+
+	dir := t.TempDir()
+	for _, name := range []string{"alpha.go", "beta.go"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(`package sample
+
+// @intent keep track of the function
+func Keep() {}
+`), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	if _, err := svc.Build(context.Background(), BuildOptions{Dir: dir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	if len(snapshots) != 2 {
+		t.Fatalf("expected 2 batch release snapshots, got %d", len(snapshots))
+	}
+	for _, snap := range snapshots {
+		if !snap.tsCommentsNil || !snap.sourceNil {
+			t.Fatalf("expected batch %d comment state released, got tsCommentsNil=%v sourceNil=%v", snap.batch, snap.tsCommentsNil, snap.sourceNil)
+		}
+	}
+}
+
 func TestBuild_IncludePaths_ReplacesPreviousGraphScope(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {
