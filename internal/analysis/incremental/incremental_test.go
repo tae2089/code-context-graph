@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 )
 
 type recordingStore struct {
@@ -13,6 +14,7 @@ type recordingStore struct {
 	upserted     []string
 	deleted      []string
 	upsertedEdge int
+	annotations  []*model.Annotation
 }
 
 func (r *recordingStore) GetNodesByFile(_ context.Context, filePath string) ([]model.Node, error) {
@@ -66,6 +68,11 @@ func (r *recordingStore) DeleteNodesByFile(_ context.Context, filePath string) e
 	return nil
 }
 
+func (r *recordingStore) UpsertAnnotation(_ context.Context, ann *model.Annotation) error {
+	r.annotations = append(r.annotations, ann)
+	return nil
+}
+
 type staticParser struct {
 	result map[string]parseResult
 	called []string
@@ -75,6 +82,12 @@ type parseResult struct {
 	nodes []model.Node
 	edges []model.Edge
 	err   error
+}
+
+type commentParseResult struct {
+	parseResult
+	comments []treesitter.CommentBlock
+	language string
 }
 
 func (p *staticParser) Parse(filePath string, _ []byte) ([]model.Node, []model.Edge, error) {
@@ -87,6 +100,44 @@ func (p *staticParser) Parse(filePath string, _ []byte) ([]model.Node, []model.E
 		return nil, nil, r.err
 	}
 	return r.nodes, r.edges, nil
+}
+
+type commentAwareParser struct {
+	result map[string]commentParseResult
+	called []string
+}
+
+func (p *commentAwareParser) Parse(filePath string, _ []byte) ([]model.Node, []model.Edge, error) {
+	p.called = append(p.called, filePath)
+	r, ok := p.result[filePath]
+	if !ok {
+		return nil, nil, nil
+	}
+	if r.err != nil {
+		return nil, nil, r.err
+	}
+	return r.nodes, r.edges, nil
+}
+
+func (p *commentAwareParser) ParseWithComments(_ context.Context, filePath string, _ []byte) ([]model.Node, []model.Edge, []treesitter.CommentBlock, error) {
+	p.called = append(p.called, filePath)
+	r, ok := p.result[filePath]
+	if !ok {
+		return nil, nil, nil, nil
+	}
+	if r.err != nil {
+		return nil, nil, nil, r.err
+	}
+	return r.nodes, r.edges, r.comments, nil
+}
+
+func (p *commentAwareParser) Language() string {
+	for _, r := range p.result {
+		if r.language != "" {
+			return r.language
+		}
+	}
+	return ""
 }
 
 func newStore() *recordingStore {
@@ -209,6 +260,40 @@ func TestIncremental_DeletedFile(t *testing.T) {
 	}
 	if len(st.deleted) != 1 || st.deleted[0] != "gone.go" {
 		t.Errorf("expected delete for gone.go, got %v", st.deleted)
+	}
+}
+
+func TestSyncWithExisting_RestoresAnnotationsForModifiedFile(t *testing.T) {
+	st := newStore()
+	st.nodes["pkg.Old"] = &model.Node{ID: 1, QualifiedName: "pkg.Old", Kind: model.NodeKindFunction, Name: "Old", FilePath: "mod.go", StartLine: 3, EndLine: 5, Hash: "old_hash", Language: "go"}
+
+	parser := &commentAwareParser{result: map[string]commentParseResult{
+		"mod.go": {
+			parseResult: parseResult{
+				nodes: []model.Node{{QualifiedName: "mod.go", Kind: model.NodeKindFile, Name: "mod.go", FilePath: "mod.go", StartLine: 1, EndLine: 5, Hash: "new_hash", Language: "go"}, {QualifiedName: "pkg.Updated", Kind: model.NodeKindFunction, Name: "Updated", FilePath: "mod.go", StartLine: 3, EndLine: 5, Hash: "new_hash", Language: "go"}},
+			},
+			comments: []treesitter.CommentBlock{{StartLine: 1, EndLine: 1, Text: "// @intent 복원 테스트"}},
+			language: "go",
+		},
+	}}
+
+	syncer := New(st, parser)
+	files := map[string]FileInfo{
+		"mod.go": {Hash: "new_hash", Content: []byte("// @intent 복원 테스트\nfunc Updated() {}")},
+	}
+
+	stats, err := syncer.Sync(context.Background(), files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Modified != 1 {
+		t.Fatalf("expected 1 modified, got %d", stats.Modified)
+	}
+	if len(st.annotations) != 1 {
+		t.Fatalf("expected 1 restored annotation, got %d", len(st.annotations))
+	}
+	if len(st.annotations[0].Tags) != 1 || st.annotations[0].Tags[0].Kind != model.TagIntent {
+		t.Fatalf("expected restored @intent tag, got %#v", st.annotations[0].Tags)
 	}
 }
 

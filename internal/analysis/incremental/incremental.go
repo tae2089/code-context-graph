@@ -4,9 +4,12 @@ import (
 	"context"
 	"log/slog"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/parse"
+	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 )
 
 // Store defines persistence operations needed for incremental sync.
@@ -23,6 +26,18 @@ type Store interface {
 // @intent decouple incremental sync from language-specific parsing logic
 type Parser interface {
 	Parse(filePath string, content []byte) ([]model.Node, []model.Edge, error)
+}
+
+// AnnotatingParser exposes richer parse output needed to restore annotations.
+// @intent allow incremental sync to reuse comment-aware parsing when available
+type AnnotatingParser interface {
+	Parser
+	ParseWithComments(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []treesitter.CommentBlock, error)
+	Language() string
+}
+
+type annotationWriter interface {
+	UpsertAnnotation(ctx context.Context, ann *model.Annotation) error
 }
 
 // FileInfo holds change-tracking data for one file.
@@ -138,7 +153,17 @@ func (s *Syncer) SyncWithExisting(ctx context.Context, files map[string]FileInfo
 			continue
 		}
 
-		nodes, edges, err := parser.Parse(filePath, info.Content)
+		var nodes []model.Node
+		var edges []model.Edge
+		var comments []treesitter.CommentBlock
+		language := ""
+
+		if annotatingParser, ok := parser.(AnnotatingParser); ok {
+			nodes, edges, comments, err = annotatingParser.ParseWithComments(ctx, filePath, info.Content)
+			language = annotatingParser.Language()
+		} else {
+			nodes, edges, err = parser.Parse(filePath, info.Content)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -157,6 +182,11 @@ func (s *Syncer) SyncWithExisting(ctx context.Context, files map[string]FileInfo
 		if len(nodes) > 0 {
 			if err := s.store.UpsertNodes(ctx, nodes); err != nil {
 				return nil, err
+			}
+			if len(comments) > 0 {
+				if err := s.restoreAnnotations(ctx, filePath, info.Content, nodes, comments, language); err != nil {
+					return nil, err
+				}
 			}
 		}
 		if len(edges) > 0 {
@@ -194,4 +224,54 @@ func (s *Syncer) resolveParser(filePath string) Parser {
 		}
 	}
 	return s.parser
+}
+
+func (s *Syncer) restoreAnnotations(ctx context.Context, filePath string, content []byte, nodes []model.Node, comments []treesitter.CommentBlock, language string) error {
+	writer, ok := s.store.(annotationWriter)
+	if !ok || language == "" {
+		return nil
+	}
+
+	binder := parse.NewBinder()
+	bindingComments := make([]parse.CommentBlock, len(comments))
+	for i, c := range comments {
+		bindingComments[i] = parse.CommentBlock{
+			StartLine:      c.StartLine,
+			EndLine:        c.EndLine,
+			Text:           c.Text,
+			IsDocstring:    c.IsDocstring,
+			OwnerStartLine: c.OwnerStartLine,
+		}
+	}
+	sourceLines := strings.Split(string(content), "\n")
+	bindings := binder.Bind(bindingComments, nodes, language, sourceLines)
+	if len(bindings) == 0 {
+		return nil
+	}
+
+	storedNodes, err := s.store.GetNodesByFile(ctx, filePath)
+	if err != nil {
+		return err
+	}
+	storedByKey := make(map[string]*model.Node, len(storedNodes))
+	for i := range storedNodes {
+		storedByKey[annotationBindingKey(storedNodes[i].QualifiedName, storedNodes[i].StartLine)] = &storedNodes[i]
+	}
+
+	for _, binding := range bindings {
+		stored := storedByKey[annotationBindingKey(binding.Node.QualifiedName, binding.Node.StartLine)]
+		if stored == nil {
+			continue
+		}
+		binding.Annotation.NodeID = stored.ID
+		if err := writer.UpsertAnnotation(ctx, binding.Annotation); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func annotationBindingKey(qualifiedName string, startLine int) string {
+	return qualifiedName + ":" + strconv.Itoa(startLine)
 }
