@@ -26,8 +26,8 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
-	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 	storesearch "github.com/tae2089/code-context-graph/internal/store/search"
@@ -430,6 +430,138 @@ func TestBuild_MissingRoot_DoesNotDeleteExistingGraph(t *testing.T) {
 	assertFunctionNamesByFile(t, st, ctx, "sample.go", []string{"Keep"})
 }
 
+func TestBuild_MaxFileBytesRejectsLargeFileAndPreservesPreviousGraph(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{
+		Store:   st,
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	goPath := filepath.Join(tmpDir, "sample.go")
+	if err := os.WriteFile(goPath, []byte("package sample\n\nfunc Keep() {}\n"), 0o644); err != nil {
+		t.Fatalf("write initial file: %v", err)
+	}
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("first Build: %v", err)
+	}
+	assertFunctionNamesByFile(t, st, ctx, "sample.go", []string{"Keep"})
+
+	tooLarge := "package sample\n\nfunc Oversized() {}\n"
+	if err := os.WriteFile(goPath, []byte(tooLarge), 0o644); err != nil {
+		t.Fatalf("write oversized file: %v", err)
+	}
+
+	_, err = svc.Build(ctx, BuildOptions{Dir: tmpDir, MaxFileBytes: int64(len(tooLarge) - 1)})
+	if err == nil {
+		t.Fatal("expected Build to reject file larger than MaxFileBytes")
+	}
+	if !strings.Contains(err.Error(), "exceeds max file bytes") {
+		t.Fatalf("expected max file bytes error, got %v", err)
+	}
+
+	assertFunctionNamesByFile(t, st, ctx, "sample.go", []string{"Keep"})
+}
+
+func TestBuild_MaxTotalParsedBytesRejectsBeforeMutation(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{
+		Store:   st,
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "keep.go"), []byte("package sample\n\nfunc Keep() {}\n"), 0o644); err != nil {
+		t.Fatalf("write keep file: %v", err)
+	}
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("first Build: %v", err)
+	}
+	assertFunctionNamesByFile(t, st, ctx, "keep.go", []string{"Keep"})
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "other.go"), []byte("package sample\n\nfunc Other() {}\n"), 0o644); err != nil {
+		t.Fatalf("write other file: %v", err)
+	}
+
+	_, err = svc.Build(ctx, BuildOptions{Dir: tmpDir, MaxTotalParsedBytes: 1})
+	if err == nil {
+		t.Fatal("expected Build to reject total parsed bytes limit")
+	}
+	if !strings.Contains(err.Error(), "exceeds max total parsed bytes") {
+		t.Fatalf("expected max total parsed bytes error, got %v", err)
+	}
+
+	assertFunctionNamesByFile(t, st, ctx, "keep.go", []string{"Keep"})
+	assertFunctionNamesByFile(t, st, ctx, "other.go", nil)
+}
+
+func TestBuild_ContextCanceledBeforeMutationPreservesPreviousGraph(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{
+		Store:   st,
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	goPath := filepath.Join(tmpDir, "sample.go")
+	if err := os.WriteFile(goPath, []byte("package sample\n\nfunc Keep() {}\n"), 0o644); err != nil {
+		t.Fatalf("write initial file: %v", err)
+	}
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("first Build: %v", err)
+	}
+	assertFunctionNamesByFile(t, st, ctx, "sample.go", []string{"Keep"})
+
+	if err := os.WriteFile(goPath, []byte("package sample\n\nfunc Replaced() {}\n"), 0o644); err != nil {
+		t.Fatalf("write replacement file: %v", err)
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err = svc.Build(canceled, BuildOptions{Dir: tmpDir})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+
+	assertFunctionNamesByFile(t, st, ctx, "sample.go", []string{"Keep"})
+}
+
 func TestBuild_DoesNotWipeOtherNamespaceSearchDocuments(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:?_pragma=journal_mode(WAL)"), &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {
@@ -493,7 +625,7 @@ func (f *failSearchBackend) Rebuild(ctx context.Context, db *gorm.DB) error { re
 func (f *failSearchBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error {
 	return f.err
 }
-func (f *failSearchBackend) Migrate(db *gorm.DB) error                       { return nil }
+func (f *failSearchBackend) Migrate(db *gorm.DB) error { return nil }
 func (f *failSearchBackend) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error) {
 	return nil, nil
 }

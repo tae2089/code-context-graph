@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -35,10 +36,12 @@ type GraphService struct {
 // BuildOptions configures one graph build run.
 // @intent 빌드 대상 경로와 탐색 범위를 호출자에서 제어하게 한다.
 type BuildOptions struct {
-	Dir             string
-	NoRecursive     bool
-	ExcludePatterns []string
-	IncludePaths    []string
+	Dir                 string
+	NoRecursive         bool
+	ExcludePatterns     []string
+	IncludePaths        []string
+	MaxFileBytes        int64
+	MaxTotalParsedBytes int64
 }
 
 // BuildStats reports how much content a build processed.
@@ -81,6 +84,9 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 	var walkCandidates []string
 
 	err = filepath.Walk(absDir, func(path string, info os.FileInfo, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil {
 			return err
 		}
@@ -113,7 +119,11 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		return stats, trace.Wrap(err, "preflight walk directory")
 	}
 
+	var totalParsedBytes int64
 	for _, path := range walkCandidates {
+		if err := ctx.Err(); err != nil {
+			return stats, err
+		}
 		relPath, _ := filepath.Rel(absDir, path)
 
 		ext := strings.ToLower(filepath.Ext(path))
@@ -122,9 +132,24 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 			continue
 		}
 
+		info, err := os.Stat(path)
+		if err != nil {
+			return stats, trace.Wrap(err, "stat build file "+relPath)
+		}
+		if err := CheckParseFileSize(relPath, info.Size(), opts.MaxFileBytes); err != nil {
+			return stats, err
+		}
+		if err := CheckTotalParsedBytes(relPath, totalParsedBytes, info.Size(), opts.MaxTotalParsedBytes); err != nil {
+			return stats, err
+		}
+
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return stats, trace.Wrap(err, "read build file "+relPath)
+		}
+		totalParsedBytes += int64(len(content))
+		if err := CheckTotalParsedBytes(relPath, 0, totalParsedBytes, opts.MaxTotalParsedBytes); err != nil {
+			return stats, err
 		}
 
 		nodes, edges, tsComments, err := walker.ParseWithComments(ctx, relPath, content)
@@ -138,12 +163,22 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		stats.TotalEdges += len(edges)
 	}
 
+	if err := ctx.Err(); err != nil {
+		return stats, err
+	}
+
 	err = s.Store.WithTx(ctx, func(txStore store.GraphStore) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := txStore.DeleteGraph(ctx); err != nil {
 			return trace.Wrap(err, "reset graph state before rebuild")
 		}
 
 		for _, parsed := range parsedFiles {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			walker := s.Walkers[strings.ToLower(filepath.Ext(parsed.relPath))]
 
 			if err := txStore.UpsertNodes(ctx, parsed.nodes); err != nil {
@@ -181,6 +216,9 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		}
 
 		for _, parsed := range parsedFiles {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if len(parsed.edges) == 0 {
 				continue
 			}
@@ -209,6 +247,20 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 	s.Logger.Info("build complete", "files", stats.TotalFiles, "nodes", stats.TotalNodes, "edges", stats.TotalEdges)
 
 	return stats, nil
+}
+
+func CheckParseFileSize(relPath string, size int64, maxFileBytes int64) error {
+	if maxFileBytes > 0 && size > maxFileBytes {
+		return fmt.Errorf("parse file %s exceeds max file bytes: %d > %d", relPath, size, maxFileBytes)
+	}
+	return nil
+}
+
+func CheckTotalParsedBytes(relPath string, current int64, next int64, maxTotalBytes int64) error {
+	if maxTotalBytes > 0 && current+next > maxTotalBytes {
+		return fmt.Errorf("parse file %s exceeds max total parsed bytes: %d > %d", relPath, current+next, maxTotalBytes)
+	}
+	return nil
 }
 
 // RefreshSearchDocuments rebuilds namespace-scoped search_documents from current graph nodes.
