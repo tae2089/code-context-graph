@@ -61,7 +61,8 @@ ccg update ./backend --namespace backend
 | `ccg serve --transport streamable-http` | Start MCP server over HTTP |
 | `ccg serve --http-addr :9090` | Custom HTTP listen address (default `:8080`) |
 | `ccg serve --stateless` | Stateless session mode (multi-instance deployments) |
-| `ccg serve --workspace-root <dir>` | Root directory for file workspaces (default `workspaces`) |
+| `ccg serve --namespace-root <dir>` | Root directory for file namespaces (default `workspaces`) |
+| `ccg serve --workspace-root <dir>` | Deprecated alias for `--namespace-root` |
 | `ccg serve --allow-repo <pat>` | Allowed repo patterns for webhook sync (e.g. `org/*`, `org/api:main,develop`) |
 | `ccg serve --webhook-secret <s>` | HMAC secret for webhook signature verification |
 | `ccg serve --repo-root <dir>` | Root directory for cloned repositories |

@@ -35,7 +35,7 @@ get_minimal_context          ← always start here (graph state + recommended to
 
 - `search` covers annotations (`@intent`, `@domainRule`, etc.) as well as code
 - Narrow the scope with a path: `search(path: "internal/auth")`
-- In MSA environments, use the `workspace` parameter on all tools to isolate services
+- In MSA environments, use the `namespace` parameter on all tools to isolate services (`workspace` remains a deprecated alias)
 ````
 
 ---

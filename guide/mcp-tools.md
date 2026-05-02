@@ -1,6 +1,6 @@
 # MCP Tools
 
-code-context-graph provides 29 MCP tools. Automatically connects from Claude Code after configuring `.mcp.json`.
+code-context-graph provides 31 MCP tools. Automatically connects from Claude Code after configuring `.mcp.json`.
 
 ## Setup
 
@@ -30,7 +30,7 @@ code-context-graph provides 29 MCP tools. Automatically connects from Claude Cod
 }
 ```
 
-## Tools (29)
+## Tools (31)
 
 ### Core
 
@@ -70,21 +70,23 @@ code-context-graph provides 29 MCP tools. Automatically connects from Claude Cod
 | Tool | Description |
 |------|-------------|
 | `get_annotation` | Get annotation and doc tags |
-| `build_rag_index` | Build RAG index from docs and communities (supports workspace) |
-| `get_rag_tree` | Navigate RAG document tree (supports workspace) |
-| `get_doc_content` | Get documentation file content (supports workspace) |
-| `search_docs` | Search RAG document tree by keyword (supports workspace) |
+| `build_rag_index` | Build RAG index from docs and communities (supports namespace) |
+| `get_rag_tree` | Navigate RAG document tree (supports namespace) |
+| `get_doc_content` | Get documentation file content (supports namespace) |
+| `search_docs` | Search RAG document tree by keyword (supports namespace) |
 
-### Workspace
+### Namespace File Management
 
 | Tool | Description |
 |------|-------------|
-| `upload_file` | Upload file to workspace (base64) |
-| `upload_files` | Upload multiple files to workspaces in a single call |
-| `list_workspaces` | List all workspaces |
-| `list_files` | List files in a workspace |
-| `delete_file` | Delete file from workspace |
-| `delete_workspace` | Delete an entire workspace and all its files |
+| `upload_file` | Upload file to namespace (base64) |
+| `upload_files` | Upload multiple files to namespaces in a single call |
+| `list_namespaces` | List all namespaces |
+| `list_workspaces` | Deprecated alias for `list_namespaces` |
+| `list_files` | List files in a namespace |
+| `delete_file` | Delete file from namespace |
+| `delete_namespace` | Delete an entire namespace and all its files |
+| `delete_workspace` | Deprecated alias for `delete_namespace` |
 
 ## Claude Code Skills (5)
 
@@ -94,7 +96,7 @@ code-context-graph provides 29 MCP tools. Automatically connects from Claude Cod
 | `/ccg-analyze` | Code analysis — impact radius, flow tracing, dead code, architecture |
 | `/ccg-annotate` | Annotation system — AI-driven annotation workflow, tag reference |
 | `/ccg-docs` | Documentation — generate docs, RAG indexing, lint |
-| `/ccg-workspace` | File workspace — upload, list, delete files and workspaces |
+| `/ccg-workspace` | Namespace file management — upload, list, and delete files and namespace directories (legacy skill name) |
 
 ### Usage
 
@@ -106,5 +108,5 @@ code-context-graph provides 29 MCP tools. Automatically connects from Claude Cod
 /ccg-docs lint                   — Check docs health + annotation coverage
 /ccg languages                   — List supported languages
 /ccg-annotate annotate internal/ — AI-generate annotations
-/ccg-workspace                   — Manage file workspaces
+/ccg-workspace                   — Manage namespace files and directories (legacy skill name)
 ```
