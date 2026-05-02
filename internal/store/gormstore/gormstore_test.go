@@ -852,7 +852,7 @@ func TestUpsertNodes_SetsNamespaceFromContext(t *testing.T) {
 	}
 }
 
-func TestUpsertNodes_EmptyNamespace_BackwardCompatible(t *testing.T) {
+func TestUpsertNodes_DefaultNamespace_WhenContextHasNoNamespace(t *testing.T) {
 	s := setupTestDB(t)
 	ctx := context.Background()
 
@@ -865,8 +865,8 @@ func TestUpsertNodes_EmptyNamespace_BackwardCompatible(t *testing.T) {
 
 	var got model.Node
 	s.db.First(&got, "qualified_name = ?", "pkg.A")
-	if got.Namespace != "" {
-		t.Errorf("Namespace = %q, want empty string", got.Namespace)
+	if got.Namespace != ctxns.DefaultNamespace {
+		t.Errorf("Namespace = %q, want %q", got.Namespace, ctxns.DefaultNamespace)
 	}
 }
 
@@ -897,7 +897,7 @@ func TestGetNode_FiltersByNamespace(t *testing.T) {
 	}
 }
 
-func TestGetNode_EmptyNamespace_FindsLegacyNodes(t *testing.T) {
+func TestGetNode_DefaultNamespace_FindsDefaultNodes(t *testing.T) {
 	s := setupTestDB(t)
 	ctx := context.Background()
 
@@ -910,7 +910,7 @@ func TestGetNode_EmptyNamespace_FindsLegacyNodes(t *testing.T) {
 		t.Fatalf("GetNode: %v", err)
 	}
 	if got == nil {
-		t.Fatal("expected legacy node with empty namespace, got nil")
+		t.Fatal("expected node in default namespace, got nil")
 	}
 }
 

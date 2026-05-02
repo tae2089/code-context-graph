@@ -543,7 +543,7 @@ func TestRefreshSearchDocuments_EmptyNamespace_DoesNotTouchOtherNamespaces(t *te
 		t.Fatalf("migrate search docs: %v", err)
 	}
 
-	defaultNode := model.Node{Namespace: "", QualifiedName: "pkg.Default", Kind: model.NodeKindFunction, Name: "Default", FilePath: "default.go", StartLine: 1, EndLine: 2, Language: "go"}
+	defaultNode := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Default", Kind: model.NodeKindFunction, Name: "Default", FilePath: "default.go", StartLine: 1, EndLine: 2, Language: "go"}
 	otherNode := model.Node{Namespace: "tenant-a", QualifiedName: "pkg.Other", Kind: model.NodeKindFunction, Name: "Other", FilePath: "other.go", StartLine: 1, EndLine: 2, Language: "go"}
 	if err := db.Create(&defaultNode).Error; err != nil {
 		t.Fatalf("create default node: %v", err)
@@ -551,7 +551,7 @@ func TestRefreshSearchDocuments_EmptyNamespace_DoesNotTouchOtherNamespaces(t *te
 	if err := db.Create(&otherNode).Error; err != nil {
 		t.Fatalf("create other node: %v", err)
 	}
-	if err := db.Create(&model.SearchDocument{Namespace: "", NodeID: defaultNode.ID, Content: "stale default", Language: "go"}).Error; err != nil {
+	if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: defaultNode.ID, Content: "stale default", Language: "go"}).Error; err != nil {
 		t.Fatalf("seed default doc: %v", err)
 	}
 	if err := db.Create(&model.SearchDocument{Namespace: "tenant-a", NodeID: otherNode.ID, Content: "keep tenant-a", Language: "go"}).Error; err != nil {
@@ -575,7 +575,7 @@ func TestRefreshSearchDocuments_EmptyNamespace_DoesNotTouchOtherNamespaces(t *te
 	}
 
 	var defaultCount int64
-	if err := db.Model(&model.SearchDocument{}).Where("namespace = ?", "").Count(&defaultCount).Error; err != nil {
+	if err := db.Model(&model.SearchDocument{}).Where("namespace = ?", ctxns.DefaultNamespace).Count(&defaultCount).Error; err != nil {
 		t.Fatalf("count default docs: %v", err)
 	}
 	if defaultCount != 1 {
@@ -600,7 +600,7 @@ func TestRefreshSearchDocuments_TransactionRollsBackOnInsertFailure(t *testing.T
 	if err := db.Create(&node).Error; err != nil {
 		t.Fatalf("create node: %v", err)
 	}
-	seed := model.SearchDocument{Namespace: "", NodeID: 9999, Content: "seed", Language: "go"}
+	seed := model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: 9999, Content: "seed", Language: "go"}
 	if err := db.Create(&seed).Error; err != nil {
 		t.Fatalf("seed search doc: %v", err)
 	}

@@ -165,11 +165,11 @@ func TestPostgresFTS_Query_EmptyNamespace_IsLiteralFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	defaultNode := model.Node{Namespace: "", QualifiedName: "pkg.Default", Kind: model.NodeKindFunction, Name: "Default", FilePath: "default.go", StartLine: 1, EndLine: 2, Language: "go"}
+	defaultNode := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Default", Kind: model.NodeKindFunction, Name: "Default", FilePath: "default.go", StartLine: 1, EndLine: 2, Language: "go"}
 	otherNode := model.Node{Namespace: "ns-b", QualifiedName: "pkg.Other", Kind: model.NodeKindFunction, Name: "Other", FilePath: "other.go", StartLine: 1, EndLine: 2, Language: "go"}
 	db.Create(&defaultNode)
 	db.Create(&otherNode)
-	db.Create(&model.SearchDocument{Namespace: "", NodeID: defaultNode.ID, Content: "sharedterm default", Language: "go"})
+	db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: defaultNode.ID, Content: "sharedterm default", Language: "go"})
 	db.Create(&model.SearchDocument{Namespace: "ns-b", NodeID: otherNode.ID, Content: "sharedterm other", Language: "go"})
 
 	if err := backend.Rebuild(context.Background(), db); err != nil {
@@ -183,7 +183,7 @@ func TestPostgresFTS_Query_EmptyNamespace_IsLiteralFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 || results[0].Namespace != "" {
+	if len(results) != 1 || results[0].Namespace != ctxns.DefaultNamespace {
 		t.Fatalf("expected only default namespace result, got %#v", results)
 	}
 }

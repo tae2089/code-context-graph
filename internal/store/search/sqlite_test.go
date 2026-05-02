@@ -188,7 +188,7 @@ func TestSQLiteFTS_Query_EmptyNamespace_IsLiteralFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	defaultNode := model.Node{Namespace: "", QualifiedName: "pkg.Default", Kind: model.NodeKindFunction, Name: "Default", FilePath: "default.go", StartLine: 1, EndLine: 2, Language: "go"}
+	defaultNode := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Default", Kind: model.NodeKindFunction, Name: "Default", FilePath: "default.go", StartLine: 1, EndLine: 2, Language: "go"}
 	otherNode := model.Node{Namespace: "ns-b", QualifiedName: "pkg.Other", Kind: model.NodeKindFunction, Name: "Other", FilePath: "other.go", StartLine: 1, EndLine: 2, Language: "go"}
 	if err := db.Create(&defaultNode).Error; err != nil {
 		t.Fatal(err)
@@ -196,13 +196,13 @@ func TestSQLiteFTS_Query_EmptyNamespace_IsLiteralFilter(t *testing.T) {
 	if err := db.Create(&otherNode).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&model.SearchDocument{Namespace: "", NodeID: defaultNode.ID, Content: "sharedterm default", Language: "go"}).Error; err != nil {
+	if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: defaultNode.ID, Content: "sharedterm default", Language: "go"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&model.SearchDocument{Namespace: "ns-b", NodeID: otherNode.ID, Content: "sharedterm other", Language: "go"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := backend.Rebuild(ctxns.WithNamespace(context.Background(), ""), db); err != nil {
+	if err := backend.Rebuild(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	if err := backend.Rebuild(ctxns.WithNamespace(context.Background(), "ns-b"), db); err != nil {
@@ -213,7 +213,7 @@ func TestSQLiteFTS_Query_EmptyNamespace_IsLiteralFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 || results[0].Namespace != "" {
+	if len(results) != 1 || results[0].Namespace != ctxns.DefaultNamespace {
 		t.Fatalf("expected only default namespace result, got %#v", results)
 	}
 }
@@ -225,7 +225,7 @@ func TestSQLiteFTS_Rebuild_EmptyNamespace_PreservesOtherRows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	defaultNode := model.Node{Namespace: "", QualifiedName: "pkg.Default", Kind: model.NodeKindFunction, Name: "Default", FilePath: "default.go", StartLine: 1, EndLine: 1, Language: "go"}
+	defaultNode := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Default", Kind: model.NodeKindFunction, Name: "Default", FilePath: "default.go", StartLine: 1, EndLine: 1, Language: "go"}
 	otherNode := model.Node{Namespace: "ns-b", QualifiedName: "pkg.Other", Kind: model.NodeKindFunction, Name: "Other", FilePath: "other.go", StartLine: 1, EndLine: 1, Language: "go"}
 	if err := db.Create(&defaultNode).Error; err != nil {
 		t.Fatal(err)
@@ -233,7 +233,7 @@ func TestSQLiteFTS_Rebuild_EmptyNamespace_PreservesOtherRows(t *testing.T) {
 	if err := db.Create(&otherNode).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&model.SearchDocument{Namespace: "", NodeID: defaultNode.ID, Content: "default term", Language: "go"}).Error; err != nil {
+	if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: defaultNode.ID, Content: "default term", Language: "go"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&model.SearchDocument{Namespace: "ns-b", NodeID: otherNode.ID, Content: "other term", Language: "go"}).Error; err != nil {
@@ -251,7 +251,7 @@ func TestSQLiteFTS_Rebuild_EmptyNamespace_PreservesOtherRows(t *testing.T) {
 	}
 
 	var defaultCount, otherCount int64
-	if err := db.Raw("SELECT count(*) FROM search_fts WHERE namespace = ?", "").Scan(&defaultCount).Error; err != nil {
+	if err := db.Raw("SELECT count(*) FROM search_fts WHERE namespace = ?", ctxns.DefaultNamespace).Scan(&defaultCount).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Raw("SELECT count(*) FROM search_fts WHERE namespace = ?", "ns-b").Scan(&otherCount).Error; err != nil {
