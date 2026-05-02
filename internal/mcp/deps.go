@@ -142,4 +142,7 @@ type Deps struct {
 	NamespaceRoot string
 	WorkspaceRoot string
 	RepoRoot      string
+
+	MaxFileBytes        int64
+	MaxTotalParsedBytes int64
 }

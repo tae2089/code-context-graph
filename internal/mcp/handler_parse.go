@@ -73,6 +73,9 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 
 	var walkFiles []string
 	err = filepath.Walk(absDir, func(fp string, info os.FileInfo, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil {
 			return err
 		}
@@ -103,7 +106,11 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 	}
 
 	parsedFiles := make([]parsedWalkFile, 0, len(walkFiles))
+	var totalParsedBytes int64
 	for _, fp := range walkFiles {
+		if err := ctx.Err(); err != nil {
+			return stats, err
+		}
 		ext := strings.ToLower(filepath.Ext(fp))
 		walker, ok := h.deps.Walkers[ext]
 		if !ok {
@@ -111,10 +118,24 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 		}
 
 		relPath, _ := filepath.Rel(absDir, fp)
+		info, err := os.Stat(fp)
+		if err != nil {
+			return stats, trace.Wrap(err, "stat parse file "+relPath)
+		}
+		if err := service.CheckParseFileSize(relPath, info.Size(), h.deps.MaxFileBytes); err != nil {
+			return stats, err
+		}
+		if err := service.CheckTotalParsedBytes(relPath, totalParsedBytes, info.Size(), h.deps.MaxTotalParsedBytes); err != nil {
+			return stats, err
+		}
 
 		content, err := os.ReadFile(fp)
 		if err != nil {
 			return stats, trace.Wrap(err, "read parse file "+relPath)
+		}
+		totalParsedBytes += int64(len(content))
+		if err := service.CheckTotalParsedBytes(relPath, 0, totalParsedBytes, h.deps.MaxTotalParsedBytes); err != nil {
+			return stats, err
 		}
 
 		var nodes []model.Node
@@ -135,12 +156,22 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 		stats.Edges += len(edges)
 	}
 
-	if err := h.deps.Store.DeleteGraph(ctx); err != nil {
-		return stats, trace.Wrap(err, "reset graph state before parse")
+	if err := ctx.Err(); err != nil {
+		return stats, err
 	}
 
-	for _, parsed := range parsedFiles {
-		if err := h.deps.Store.WithTx(ctx, func(txStore store.GraphStore) error {
+	if err := h.deps.Store.WithTx(ctx, func(txStore store.GraphStore) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := txStore.DeleteGraph(ctx); err != nil {
+			return trace.Wrap(err, "reset graph state before parse")
+		}
+
+		for _, parsed := range parsedFiles {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if len(parsed.nodes) > 0 {
 				if err := txStore.UpsertNodes(ctx, parsed.nodes); err != nil {
 					return trace.Wrap(err, "upsert nodes")
@@ -179,18 +210,37 @@ func (h *handlers) walkAndParse(ctx context.Context, dirPath string, includePath
 					}
 				}
 			}
-			return nil
-		}); err != nil {
-			return stats, trace.Wrap(err, "transaction failed for "+parsed.path)
 		}
 
-		if len(parsed.edges) > 0 {
-			if err := h.deps.Store.UpsertEdges(ctx, parsed.edges); err != nil {
-				return stats, trace.Wrap(err, "upsert edges")
+		for _, parsed := range parsedFiles {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if len(parsed.edges) > 0 {
+				if err := txStore.UpsertEdges(ctx, parsed.edges); err != nil {
+					return trace.Wrap(err, "upsert edges")
+				}
 			}
 		}
+		return nil
+	}); err != nil {
+		return stats, err
 	}
 	return stats, nil
+}
+
+func (h *handlers) withParseLimitsFromRequest(request mcp.CallToolRequest) *handlers {
+	maxFileBytes := int64(request.GetInt("max_file_bytes", int(h.deps.MaxFileBytes)))
+	maxTotalParsedBytes := int64(request.GetInt("max_total_parsed_bytes", int(h.deps.MaxTotalParsedBytes)))
+	if maxFileBytes == h.deps.MaxFileBytes && maxTotalParsedBytes == h.deps.MaxTotalParsedBytes {
+		return h
+	}
+	depsCopy := *h.deps
+	depsCopy.MaxFileBytes = maxFileBytes
+	depsCopy.MaxTotalParsedBytes = maxTotalParsedBytes
+	hCopy := *h
+	hCopy.deps = &depsCopy
+	return &hCopy
 }
 
 func toMCPBinderComments(tsComments []treesitter.CommentBlock) []parse.CommentBlock {
@@ -214,6 +264,7 @@ func toMCPBinderComments(tsComments []treesitter.CommentBlock) []parse.CommentBl
 // @ensures 성공 시 파싱된 파일 수와 오류 수를 JSON으로 반환한다.
 // @sideEffect 파일 시스템 읽기, 그래프 저장소 쓰기, 로그 기록을 수행한다.
 func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	h = h.withParseLimitsFromRequest(request)
 	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 
@@ -252,6 +303,7 @@ func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest
 // @sideEffect 파일 시스템 읽기, 그래프 저장소 갱신, 검색 인덱스/커뮤니티 재빌드를 수행할 수 있다.
 // @mutates graph store state, search index state, community state, h.cache
 func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	h = h.withParseLimitsFromRequest(request)
 	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 
@@ -306,7 +358,11 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 			}
 			existingFiles = filtered
 		}
+		var totalParsedBytes int64
 		err := filepath.Walk(dirPath, func(fp string, info os.FileInfo, err error) error {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			if err != nil {
 				return err
 			}
@@ -323,8 +379,8 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 				}
 				return nil
 			}
+			relPath, _ := filepath.Rel(absDir, fp)
 			if len(includePaths) > 0 {
-				relPath, _ := filepath.Rel(absDir, fp)
 				if !pathutil.MatchIncludePaths(relPath, includePaths) {
 					return nil
 				}
@@ -333,11 +389,20 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 			if _, ok := h.deps.Walkers[ext]; !ok {
 				return nil
 			}
+			if err := service.CheckParseFileSize(relPath, info.Size(), h.deps.MaxFileBytes); err != nil {
+				return err
+			}
+			if err := service.CheckTotalParsedBytes(relPath, totalParsedBytes, info.Size(), h.deps.MaxTotalParsedBytes); err != nil {
+				return err
+			}
 			content, err := os.ReadFile(fp)
 			if err != nil {
 				return nil
 			}
-			relPath, _ := filepath.Rel(absDir, fp)
+			totalParsedBytes += int64(len(content))
+			if err := service.CheckTotalParsedBytes(relPath, 0, totalParsedBytes, h.deps.MaxTotalParsedBytes); err != nil {
+				return err
+			}
 			hash := sha256.Sum256(content)
 			files[relPath] = incremental.FileInfo{
 				Hash:    hex.EncodeToString(hash[:]),
@@ -354,6 +419,9 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 			return nil, trace.Wrap(err, "incremental sync error")
 		}
 		fileCount = stats.Added + stats.Modified
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	// 후처리
