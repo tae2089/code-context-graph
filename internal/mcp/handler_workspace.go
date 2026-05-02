@@ -16,7 +16,11 @@ import (
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
-const maxUploadSizeBytes = 10 << 20 // 10 MB
+const (
+	maxUploadSizeBytes         = 10 << 20 // 10 MB
+	maxUploadFilesRequestBytes = 50 << 20 // 50 MB
+	maxUploadFilesTotalBytes   = 20 << 20 // 20 MB
+)
 
 // workspaceRoot returns the filesystem root used for workspace storage.
 // @intent 파일 업로드 도구들이 동일한 작업공간 루트를 사용하게 한다.
@@ -338,17 +342,26 @@ type uploadFileEntry struct {
 	Content   string `json:"content"`
 }
 
+type preparedUploadFile struct {
+	entry   uploadFileEntry
+	decoded []byte
+	target  string
+}
+
 // uploadFiles writes multiple base64-encoded files in one request.
 // @intent 여러 작업공간 파일을 한 번의 MCP 호출로 업로드해 왕복 비용을 줄인다.
 // @param request files는 uploadFileEntry 배열을 담은 JSON 문자열이다.
 // @requires files 배열은 비어 있지 않아야 하며 각 항목이 유효해야 한다.
 // @ensures 성공 시 업로드된 파일 수와 각 파일 정보를 반환한다.
-// @domainRule 각 파일은 10MB를 초과할 수 없고 모든 경로는 안전해야 한다.
+// @domainRule 각 파일은 10MB, 전체 decoded payload는 20MB, raw request는 50MB를 초과할 수 없고 모든 경로는 안전해야 한다.
 // @sideEffect 디렉터리 생성과 다중 파일 쓰기를 수행한다.
 func (h *handlers) uploadFiles(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	filesRaw, err := request.RequireString("files")
 	if err != nil {
 		return missingParamResult(err)
+	}
+	if len(filesRaw) > maxUploadFilesRequestBytes {
+		return mcp.NewToolResultError(fmt.Sprintf("total upload request exceeds %d MB size limit", maxUploadFilesRequestBytes>>20)), nil
 	}
 
 	var entries []uploadFileEntry
@@ -360,7 +373,8 @@ func (h *handlers) uploadFiles(ctx context.Context, request mcp.CallToolRequest)
 		return mcp.NewToolResultError("files array must not be empty"), nil
 	}
 
-	var results []map[string]any
+	prepared := make([]preparedUploadFile, 0, len(entries))
+	totalDecoded := 0
 	for i, e := range entries {
 		if e.Workspace == "" || e.FilePath == "" || e.Content == "" {
 			return mcp.NewToolResultError(fmt.Sprintf("entry %d: workspace, file_path, and content are required", i)), nil
@@ -378,25 +392,35 @@ func (h *handlers) uploadFiles(ctx context.Context, request mcp.CallToolRequest)
 		if len(decoded) > maxUploadSizeBytes {
 			return mcp.NewToolResultError(fmt.Sprintf("entry %d: file exceeds %d MB size limit", i, maxUploadSizeBytes>>20)), nil
 		}
+		if totalDecoded+len(decoded) > maxUploadFilesTotalBytes {
+			return mcp.NewToolResultError(fmt.Sprintf("entry %d: total decoded upload exceeds %d MB size limit", i, maxUploadFilesTotalBytes>>20)), nil
+		}
+		totalDecoded += len(decoded)
 
 		target, err := h.resolveWorkspacePath(e.Workspace, e.FilePath, true)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("entry %d: resolve workspace path: %v", i, err)), nil
 		}
+		prepared = append(prepared, preparedUploadFile{entry: e, decoded: decoded, target: target})
+	}
+
+	results := make([]map[string]any, 0, len(prepared))
+	for i, file := range prepared {
+		target := file.target
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("entry %d: create directory: %v", i, err)), nil
 		}
-		if _, err := h.resolveWorkspacePath(e.Workspace, e.FilePath, true); err != nil {
+		if _, err := h.resolveWorkspacePath(file.entry.Workspace, file.entry.FilePath, true); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("entry %d: revalidate workspace path: %v", i, err)), nil
 		}
-		if err := safeWriteFile(target, decoded, 0o644); err != nil {
+		if err := safeWriteFile(target, file.decoded, 0o644); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("entry %d: write file: %v", i, err)), nil
 		}
 
 		results = append(results, map[string]any{
-			"workspace": e.Workspace,
-			"file_path": e.FilePath,
-			"size":      len(decoded),
+			"workspace": file.entry.Workspace,
+			"file_path": file.entry.FilePath,
+			"size":      len(file.decoded),
 		})
 	}
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -352,6 +353,53 @@ func TestUploadFiles_PathTraversal(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	assertToolResultIsError(t, result)
+}
+
+func TestUploadFiles_RejectsOversizedRawRequest(t *testing.T) {
+	h, _ := workspaceHandlers(t)
+	req := makeCallToolRequest(t, map[string]any{
+		"files": strings.Repeat("x", maxUploadFilesRequestBytes+1),
+	})
+
+	result, err := h.uploadFiles(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultIsError(t, result)
+	if got := getTextContent(result); !strings.Contains(got, "total upload request exceeds") {
+		t.Fatalf("expected total request size error, got %q", got)
+	}
+}
+
+func TestUploadFiles_RejectsOversizedTotalDecodedContent(t *testing.T) {
+	h, root := workspaceHandlers(t)
+	first := base64.StdEncoding.EncodeToString(make([]byte, maxUploadSizeBytes))
+	second := base64.StdEncoding.EncodeToString(make([]byte, maxUploadSizeBytes))
+	third := base64.StdEncoding.EncodeToString([]byte("a"))
+	filesJSON, _ := json.Marshal([]map[string]string{
+		{"workspace": "svc-a", "file_path": "a.txt", "content": first},
+		{"workspace": "svc-b", "file_path": "b.txt", "content": second},
+		{"workspace": "svc-c", "file_path": "c.txt", "content": third},
+	})
+	req := makeCallToolRequest(t, map[string]any{"files": string(filesJSON)})
+
+	result, err := h.uploadFiles(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultIsError(t, result)
+	if got := getTextContent(result); !strings.Contains(got, "total decoded upload exceeds") {
+		t.Fatalf("expected total decoded size error, got %q", got)
+	}
+	for _, path := range []string{
+		filepath.Join(root, "svc-a", "a.txt"),
+		filepath.Join(root, "svc-b", "b.txt"),
+		filepath.Join(root, "svc-c", "c.txt"),
+	} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("expected oversized bulk upload to leave no files, path=%s stat err=%v", path, statErr)
+		}
+	}
 }
 
 func TestUploadFiles_MultipleWorkspaces(t *testing.T) {
