@@ -39,7 +39,8 @@ protected with `--http-bearer-token`, but operational endpoints such as
 `/health`, `/ready`, and `/status` are intended for internal health checks and
 may expose runtime state. When deploying behind an ingress, reverse proxy, or
 load balancer, restrict those endpoints to internal callers or block them from
-public internet access.
+public internet access. See the [Operations Guide](operations.md#http-exposure)
+for ingress and readiness guidance.
 
 ## Per-Repo Branch Filtering
 
@@ -124,6 +125,7 @@ Consecutive pushes to the same repo are automatically merged in the SyncQueue:
 - SQLite webhook deployments default to 1 worker unless `--webhook-workers` or `CCG_WEBHOOK_WORKERS` is set explicitly
 - Different repos are processed in parallel
 - Same repo is processed sequentially (dirty requeue)
+- For team or always-on webhook deployments, prefer PostgreSQL and size workers by queue age, repository update time, and database capacity
 
 ### Retry / Backoff
 
@@ -167,6 +169,16 @@ file in the cloned repository unless `include_paths` narrows the scope.
 If a deployment needs a parse budget for large repositories, configure it
 explicitly with `--max-file-bytes`, `--max-total-parsed-bytes`, or the matching
 `.ccg.yaml` parse settings. CCG does not impose default webhook parse limits.
+
+## Operational Signals
+
+Use `/ready` for traffic gating and `/status` for diagnosis. A queue full or
+stalled queue can make `/ready` return `not_ready`; a failed latest webhook sync
+can make `/status` report `degraded` without necessarily removing the instance
+from service.
+
+For deployment profiles, database choice, namespace size guidance, and common
+failure modes, see [Operations](operations.md).
 
 ## Panic Recovery
 

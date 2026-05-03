@@ -25,7 +25,8 @@ The image's default HTTP command binds to `:8080`, so you must provide
 If this container is exposed through an ingress, reverse proxy, or load
 balancer, keep health and status endpoints internal. `/health`, `/ready`, and
 `/status` are intended for trusted operational checks and should not be exposed
-to the public internet.
+to the public internet. See the [Operations Guide](operations.md#http-exposure)
+for endpoint exposure guidance.
 
 Run migrations only when creating a new database or upgrading CCG:
 
@@ -67,7 +68,9 @@ Use PostgreSQL when CCG is operated as a service:
 
 For larger deployments, PostgreSQL should be treated as the default. At around
 300k+ graph nodes, multiple always-synced repositories, or frequent webhook
-updates, SQLite is likely to become an operational bottleneck.
+updates, SQLite is likely to become an operational bottleneck. See
+[Operations](operations.md#database-choice) for deployment profiles and scale
+signals.
 
 ## Run with PostgreSQL
 

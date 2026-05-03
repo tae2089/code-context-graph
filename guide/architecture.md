@@ -9,7 +9,7 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
                                         ↓
                                    FTS Search
                                         ↓
-                              MCP Server (29 tools)
+                              MCP Server (31 tools)
                                     ↓         ↓
                               stdio       Streamable HTTP
                                 ↓              ↓
@@ -44,6 +44,10 @@ Per-database full-text search backends:
 - **SQLite**: FTS5
 - **PostgreSQL**: tsvector + GIN index
 
+Full builds and explicit postprocess runs rebuild namespace search state.
+Incremental updates refresh only affected search documents and FTS rows, while
+community and flow postprocessing can still be namespace-wide.
+
 ### Analysis (`internal/analysis/`)
 
 | Module | Description |
@@ -70,7 +74,7 @@ Golden corpus-based parser accuracy and search quality evaluation framework.
 
 ### MCP Server (`internal/mcp/`)
 
-Exposes 29 tools via MCP protocol. Supports two transport modes: stdio and Streamable HTTP.
+Exposes 31 tools via MCP protocol. Supports two transport modes: stdio and Streamable HTTP.
 
 ### Reliability
 

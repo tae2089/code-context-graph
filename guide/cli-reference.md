@@ -66,7 +66,8 @@ database, or when operational backup/restore matters.
 As a rough scale guide, consider PostgreSQL once a namespace reaches about 50k
 search documents or 100k graph nodes. For 300k+ graph nodes, multiple
 always-synced repositories, or frequent webhook updates, PostgreSQL is the
-recommended default.
+recommended default. See [Operations](operations.md#database-choice) for
+deployment profiles and runtime signals.
 
 ### Serve
 
