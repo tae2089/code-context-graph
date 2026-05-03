@@ -1,3 +1,4 @@
+// @index Flow tracing engine that walks call edges into reusable flow records.
 package flows
 
 import (
@@ -21,10 +22,14 @@ type Tracer struct {
 	store EdgeReader
 }
 
+// TraceOptions bounds how far a single flow trace is allowed to expand.
+// @intent let callers cap traversal cost when tracing large call graphs
 type TraceOptions struct {
 	MaxNodes int
 }
 
+// TraceResult wraps a built flow with the metadata needed to detect truncation.
+// @intent communicate truncation status alongside the produced flow
 type TraceResult struct {
 	Flow          *model.Flow
 	Truncated     bool
@@ -52,6 +57,13 @@ func (t *Tracer) TraceFlow(ctx context.Context, startNodeID uint) (*model.Flow, 
 	return result.Flow, nil
 }
 
+// TraceFlowBounded performs the BFS traversal that backs TraceFlow with explicit limits.
+// @intent expose a flow trace variant that can stop early when MaxNodes is reached
+// @param startNodeID graph node where traversal begins
+// @param opts traversal limits applied during BFS
+// @return TraceResult with the built flow and truncation metadata
+// @domainRule only calls edges enqueue new BFS nodes
+// @ensures Truncated is true only when MaxNodes stopped traversal
 func (t *Tracer) TraceFlowBounded(ctx context.Context, startNodeID uint, opts TraceOptions) (*TraceResult, error) {
 	visited := map[uint]bool{}
 	var members []model.FlowMembership

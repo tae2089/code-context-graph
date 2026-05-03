@@ -36,6 +36,8 @@ type AnnotatingParser interface {
 	Language() string
 }
 
+// annotationWriter is the optional store capability needed to persist comment-derived annotations.
+// @intent allow incremental sync to skip annotation writes when the underlying store does not support them.
 type annotationWriter interface {
 	UpsertAnnotation(ctx context.Context, ann *model.Annotation) error
 }
@@ -66,6 +68,9 @@ type Syncer struct {
 	logger  *slog.Logger
 }
 
+// releaseContent drops the in-memory file content for one path so the sync loop can free memory early.
+// @intent prevent the FileInfo map from holding all source bytes after a file has been processed.
+// @mutates files[filePath].Content
 func releaseContent(files map[string]FileInfo, filePath string) {
 	info, ok := files[filePath]
 	if !ok {
@@ -147,6 +152,10 @@ func (s *Syncer) SyncWithExistingStore(ctx context.Context, syncStore Store, fil
 	return s.syncWithExisting(ctx, syncStore, files, existingFiles)
 }
 
+// syncWithExisting performs the actual diff-and-apply pass against the supplied store.
+// @intent compare hashes for known files, parse new/changed ones, and remove deleted entries in one pass.
+// @sideEffect upserts nodes/edges/annotations and deletes removed files through syncStore.
+// @mutates graph nodes, edges, annotations
 func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files map[string]FileInfo, existingFiles []string) (*SyncStats, error) {
 	stats := &SyncStats{}
 
@@ -242,6 +251,8 @@ func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files ma
 	return stats, nil
 }
 
+// resolveParser picks an extension-specific parser when configured, otherwise the legacy single parser.
+// @intent let multi-language projects sync without losing the single-parser fallback for callers using New.
 func (s *Syncer) resolveParser(filePath string) Parser {
 	if len(s.parsers) > 0 {
 		ext := strings.ToLower(filepath.Ext(filePath))
@@ -252,6 +263,10 @@ func (s *Syncer) resolveParser(filePath string) Parser {
 	return s.parser
 }
 
+// restoreAnnotations re-binds parsed comment blocks to the freshly persisted nodes for one file.
+// @intent keep doc comments associated with their owning declarations after incremental reparses.
+// @sideEffect upserts annotation rows through the store's annotation writer.
+// @mutates graph annotations
 func (s *Syncer) restoreAnnotations(ctx context.Context, syncStore Store, filePath string, content []byte, nodes []model.Node, comments []treesitter.CommentBlock, language string) error {
 	writer, ok := syncStore.(annotationWriter)
 	if !ok || language == "" {
@@ -298,6 +313,8 @@ func (s *Syncer) restoreAnnotations(ctx context.Context, syncStore Store, filePa
 	return nil
 }
 
+// annotationBindingKey produces a stable lookup key combining qualified name and start line.
+// @intent disambiguate overloaded or repeated declarations sharing the same qualified name.
 func annotationBindingKey(qualifiedName string, startLine int) string {
 	return qualifiedName + ":" + strconv.Itoa(startLine)
 }

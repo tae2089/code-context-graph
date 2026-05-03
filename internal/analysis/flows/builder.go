@@ -79,6 +79,9 @@ func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 	return result, err
 }
 
+// deleteFlows removes all flows and memberships within the namespace.
+// @intent clear stale flow records before a fresh rebuild
+// @sideEffect deletes rows from flow_memberships and flows tables
 func deleteFlows(tx *gorm.DB, ns string) error {
 	var ids []uint
 	if err := tx.Model(&model.Flow{}).Where("namespace = ?", ns).Pluck("id", &ids).Error; err != nil {
@@ -93,6 +96,8 @@ func deleteFlows(tx *gorm.DB, ns string) error {
 	return tx.Where("id IN ?", ids).Delete(&model.Flow{}).Error
 }
 
+// findEntrypoints returns function and test nodes with no inbound calls edges.
+// @intent locate likely flow entry points by selecting nodes nothing else calls
 func findEntrypoints(tx *gorm.DB, ns string) ([]model.Node, error) {
 	var nodes []model.Node
 	inboundCalls := tx.Model(&model.Edge{}).

@@ -24,11 +24,15 @@ type Analyzer struct {
 	store EdgeReader
 }
 
+// RadiusOptions caps how far ImpactRadiusBounded is allowed to expand.
+// @intent let callers limit BFS depth and visited node count for safety
 type RadiusOptions struct {
 	MaxDepth int
 	MaxNodes int
 }
 
+// RadiusResult reports the resolved nodes and whether limits truncated traversal.
+// @intent surface the visited node set together with truncation metadata
 type RadiusResult struct {
 	Nodes         []model.Node
 	Truncated     bool
@@ -60,6 +64,14 @@ func (a *Analyzer) ImpactRadius(ctx context.Context, nodeID uint, depth int) ([]
 	return result.Nodes, nil
 }
 
+// ImpactRadiusBounded performs the bidirectional BFS that backs ImpactRadius with explicit caps.
+// @intent expose a limit-aware blast radius traversal for cost-sensitive callers
+// @param nodeID starting node for the BFS
+// @param depth maximum BFS hop count (further capped by opts.MaxDepth)
+// @param opts traversal limits applied during BFS
+// @return RadiusResult with visited nodes and truncation metadata
+// @domainRule traverses outgoing and incoming edges in lock step at each depth
+// @ensures Truncated is true when MaxNodes stopped traversal or post-trim
 func (a *Analyzer) ImpactRadiusBounded(ctx context.Context, nodeID uint, depth int, opts RadiusOptions) (*RadiusResult, error) {
 	if opts.MaxDepth > 0 && depth > opts.MaxDepth {
 		depth = opts.MaxDepth
