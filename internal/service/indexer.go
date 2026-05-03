@@ -82,11 +82,15 @@ type updateSpool struct {
 	forceFiles    map[string]struct{}
 }
 
-var testBuildBatchReleaseHook func([]parsedBuildNodeBatch, int)
+var (
+	testBuildBatchReleaseHook func([]parsedBuildNodeBatch, int)
+	resolveBuildEdges          = edgeresolve.Resolve
+)
 
 const (
 	buildFlushFileBatchSize   = 100
 	buildFlushParsedBytes     = 16 << 20
+	buildEdgeResolveChunkSize = 400
 	forceReparseEdgeChunkSize = 400
 	scopedINQueryChunkSize    = 400
 )
@@ -548,29 +552,73 @@ func (s *GraphService) flushBuildBatch(ctx context.Context, txStore store.GraphS
 // @sideEffect upserts graph edges through the transaction-scoped store.
 // @mutates graph edges
 func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphStore, edgeBatches []parsedBuildEdgeBatch) error {
-	var allEdges []model.Edge
-	for _, parsed := range edgeBatches {
-		allEdges = append(allEdges, parsed.edges...)
-	}
-	resolved, err := edgeresolve.Resolve(ctx, txStore, allEdges)
-	if err != nil {
-		return trace.Wrap(err, "resolve deferred edges")
-	}
-	offset := 0
-	for _, parsed := range edgeBatches {
+	implementsEdges, otherBatches := partitionBuildEdges(edgeBatches)
+	for start := 0; start < len(implementsEdges); start += buildEdgeResolveChunkSize {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if len(parsed.edges) == 0 {
-			continue
+		end := min(start+buildEdgeResolveChunkSize, len(implementsEdges))
+		resolved, err := resolveBuildEdges(ctx, txStore, implementsEdges[start:end])
+		if err != nil {
+			return trace.Wrap(err, "resolve deferred implements edges")
 		}
-		edges := resolved[offset : offset+len(parsed.edges)]
-		offset += len(parsed.edges)
-		if err := txStore.UpsertEdges(ctx, edges); err != nil {
-			return trace.Wrap(err, "upsert deferred edges for "+parsed.relPath)
+		if err := txStore.UpsertEdges(ctx, resolved); err != nil {
+			return trace.Wrap(err, "upsert deferred implements edges")
+		}
+	}
+
+	for _, parsed := range otherBatches {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		for start := 0; start < len(parsed.edges); start += buildEdgeResolveChunkSize {
+			end := min(start+buildEdgeResolveChunkSize, len(parsed.edges))
+			chunk := parsed.edges[start:end]
+			resolveInput := append(append([]model.Edge(nil), implementsEdges...), chunk...)
+			resolved, err := resolveBuildEdges(ctx, txStore, resolveInput)
+			if err != nil {
+				return trace.Wrap(err, "resolve deferred edges for "+parsed.relPath)
+			}
+			if err := txStore.UpsertEdges(ctx, resolved[len(implementsEdges):]); err != nil {
+				return trace.Wrap(err, "upsert deferred edges for "+parsed.relPath)
+			}
 		}
 	}
 	return nil
+}
+
+// partitionBuildEdges keeps implements edges available before resolving call edges in later bounded chunks.
+// @intent preserve Go interface dispatch resolution after build edge resolution starts streaming by file.
+func partitionBuildEdges(edgeBatches []parsedBuildEdgeBatch) ([]model.Edge, []parsedBuildEdgeBatch) {
+	var implementsEdges []model.Edge
+	otherBatches := make([]parsedBuildEdgeBatch, 0, len(edgeBatches))
+	otherByPath := make(map[string][]model.Edge, len(edgeBatches))
+	var paths []string
+	for _, parsed := range edgeBatches {
+		parsedImplements, otherEdges := splitImplementsEdges(parsed.edges)
+		implementsEdges = append(implementsEdges, parsedImplements...)
+		if len(otherEdges) > 0 {
+			otherByPath[parsed.relPath] = append(otherByPath[parsed.relPath], otherEdges...)
+			paths = append(paths, parsed.relPath)
+		}
+	}
+	for _, path := range paths {
+		otherBatches = append(otherBatches, parsedBuildEdgeBatch{relPath: path, edges: otherByPath[path]})
+	}
+	return implementsEdges, otherBatches
+}
+
+func splitImplementsEdges(edges []model.Edge) ([]model.Edge, []model.Edge) {
+	var implementsEdges []model.Edge
+	var otherEdges []model.Edge
+	for _, edge := range edges {
+		if edge.Kind == model.EdgeKindImplements {
+			implementsEdges = append(implementsEdges, edge)
+			continue
+		}
+		otherEdges = append(otherEdges, edge)
+	}
+	return implementsEdges, otherEdges
 }
 
 // Update incrementally syncs changed files into the graph and optionally rebuilds search.
@@ -1288,6 +1336,43 @@ func forceReparseFiles(ctx context.Context, db *gorm.DB, existingNodesByFile map
 		}
 		for _, filePath := range chunkFiles {
 			edgeFileSeen[filePath] = struct{}{}
+		}
+
+		var relatedImplements []model.Edge
+		if err := db.WithContext(ctx).
+			Model(&model.Edge{}).
+			Where("namespace = ? AND kind = ? AND file_path <> '' AND (from_node_id IN ? OR to_node_id IN ?)", ns, model.EdgeKindImplements, chunk, chunk).
+			Find(&relatedImplements).Error; err != nil {
+			return nil, err
+		}
+		var relatedTypeIDs []uint
+		seenTypeID := make(map[uint]struct{}, len(relatedImplements)*2)
+		for _, edge := range relatedImplements {
+			for _, id := range []uint{edge.FromNodeID, edge.ToNodeID} {
+				if id == 0 {
+					continue
+				}
+				if _, ok := seenTypeID[id]; ok {
+					continue
+				}
+				seenTypeID[id] = struct{}{}
+				relatedTypeIDs = append(relatedTypeIDs, id)
+			}
+		}
+		for relatedStart := 0; relatedStart < len(relatedTypeIDs); relatedStart += forceReparseEdgeChunkSize {
+			relatedEnd := min(relatedStart+forceReparseEdgeChunkSize, len(relatedTypeIDs))
+			relatedChunk := relatedTypeIDs[relatedStart:relatedEnd]
+			var dispatchFiles []string
+			if err := db.WithContext(ctx).
+				Model(&model.Edge{}).
+				Where("namespace = ? AND kind = ? AND file_path <> '' AND (from_node_id IN ? OR to_node_id IN ?)", ns, model.EdgeKindCalls, relatedChunk, relatedChunk).
+				Distinct().
+				Pluck("file_path", &dispatchFiles).Error; err != nil {
+				return nil, err
+			}
+			for _, filePath := range dispatchFiles {
+				edgeFileSeen[filePath] = struct{}{}
+			}
 		}
 	}
 	for filePath := range edgeFileSeen {

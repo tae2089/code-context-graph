@@ -34,6 +34,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/edgeresolve"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 	"github.com/tae2089/code-context-graph/internal/store"
@@ -84,6 +85,8 @@ type recordingGraphStore struct {
 	ops       []string
 	nextID    uint
 	nodesByFP map[string][]model.Node
+	edges         []model.Edge
+	upsertedEdges [][]model.Edge
 }
 
 func newRecordingGraphStore(t *testing.T) *recordingGraphStore {
@@ -131,6 +134,9 @@ func (r *recordingGraphStore) UpsertAnnotation(ctx context.Context, ann *model.A
 
 func (r *recordingGraphStore) UpsertEdges(ctx context.Context, edges []model.Edge) error {
 	r.record("UpsertEdges")
+	batch := append([]model.Edge(nil), edges...)
+	r.upsertedEdges = append(r.upsertedEdges, batch)
+	r.edges = append(r.edges, batch...)
 	return nil
 }
 
@@ -203,7 +209,17 @@ func (r *recordingGraphStore) GetEdgesTo(ctx context.Context, nodeID uint) ([]mo
 }
 
 func (r *recordingGraphStore) GetEdgesToNodes(ctx context.Context, nodeIDs []uint) ([]model.Edge, error) {
-	return nil, nil
+	set := make(map[uint]bool, len(nodeIDs))
+	for _, id := range nodeIDs {
+		set[id] = true
+	}
+	var result []model.Edge
+	for _, e := range r.edges {
+		if set[e.ToNodeID] {
+			result = append(result, e)
+		}
+	}
+	return result, nil
 }
 
 func (r *recordingGraphStore) DeleteNodesByFile(ctx context.Context, filePath string) error {
@@ -352,6 +368,52 @@ func TestNewParsedBuildEdgeBatch_DoesNotRetainNodeSideState(t *testing.T) {
 		if _, ok := typ.FieldByName(name); ok {
 			t.Fatalf("parsedBuildEdgeBatch must not retain %s", name)
 		}
+	}
+}
+
+func TestFlushBuildEdges_ResolvesAndUpsertsBoundedBatches(t *testing.T) {
+	ctx := context.Background()
+	st := newRecordingGraphStore(t)
+	st.nodesByFP["a.go"] = []model.Node{
+		{ID: 1, QualifiedName: "main.Run", Name: "Run", Kind: model.NodeKindFunction, FilePath: "a.go", StartLine: 1, EndLine: 100, Language: "go"},
+	}
+	st.nodesByFP["b.go"] = []model.Node{
+		{ID: 2, QualifiedName: "mcp.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "b.go", StartLine: 3, EndLine: 5, Language: "go"},
+		{ID: 3, QualifiedName: "flows.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "b.go", StartLine: 7, EndLine: 7, Language: "go"},
+		{ID: 4, QualifiedName: "flows.Tracer.TraceFlow", Name: "TraceFlow", Kind: model.NodeKindFunction, FilePath: "b.go", StartLine: 9, EndLine: 11, Language: "go"},
+	}
+
+	var resolveSizes []int
+	oldResolve := resolveBuildEdges
+	resolveBuildEdges = func(ctx context.Context, lookup edgeresolve.NodeLookup, edges []model.Edge) ([]model.Edge, error) {
+		resolveSizes = append(resolveSizes, len(edges))
+		if len(edges) > buildEdgeResolveChunkSize {
+			t.Fatalf("resolve batch exceeded limit: got %d want <= %d", len(edges), buildEdgeResolveChunkSize)
+		}
+		return oldResolve(ctx, lookup, edges)
+	}
+	t.Cleanup(func() { resolveBuildEdges = oldResolve })
+
+	batches := []parsedBuildEdgeBatch{
+		{relPath: "a.go", edges: []model.Edge{{Kind: model.EdgeKindCalls, FilePath: "a.go", Line: 2, Fingerprint: "calls:a.go:h.deps.FlowTracer.TraceFlow:2"}}},
+		{relPath: "b.go", edges: []model.Edge{{Kind: model.EdgeKindImplements, FilePath: "b.go", Line: 7, Fingerprint: "implements:b.go:flows.Tracer:mcp.FlowTracer"}}},
+	}
+
+	svc := &GraphService{}
+	if err := svc.flushBuildEdges(ctx, st, batches); err != nil {
+		t.Fatalf("flushBuildEdges: %v", err)
+	}
+	if got, want := resolveSizes, []int{1, 2}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("resolve sizes: got=%v want=%v", got, want)
+	}
+	if len(st.upsertedEdges) != 2 {
+		t.Fatalf("expected 2 upserted edge batches, got %d", len(st.upsertedEdges))
+	}
+	if st.upsertedEdges[0][0].Kind != model.EdgeKindImplements || st.upsertedEdges[0][0].FromNodeID != 3 || st.upsertedEdges[0][0].ToNodeID != 2 {
+		t.Fatalf("implements edge mismatch: %+v", st.upsertedEdges[0][0])
+	}
+	if st.upsertedEdges[1][0].Kind != model.EdgeKindCalls || st.upsertedEdges[1][0].FromNodeID != 1 || st.upsertedEdges[1][0].ToNodeID != 4 {
+		t.Fatalf("call edge mismatch: %+v", st.upsertedEdges[1][0])
 	}
 }
 
@@ -1426,6 +1488,50 @@ func TestForceReparseFiles_IncludesUnchangedEdgeSourceForChangedTarget(t *testin
 	}
 	if _, ok := forceFiles["target.go"]; ok {
 		t.Fatalf("did not expect changed target file to be forced, got %v", forceFiles)
+	}
+}
+
+func TestForceReparseFiles_IncludesUnchangedInterfaceDispatchCallSite(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.Node{}, &model.Edge{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	ctx := context.Background()
+	callSite := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "main.Run", Kind: model.NodeKindFunction, Name: "Run", FilePath: "main.go", StartLine: 10, EndLine: 20, Hash: "same", Language: "go"}
+	iface := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "mcp.FlowTracer", Kind: model.NodeKindType, Name: "FlowTracer", FilePath: "mcp.go", StartLine: 3, EndLine: 5, Hash: "old", Language: "go"}
+	impl := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "flows.Tracer", Kind: model.NodeKindClass, Name: "Tracer", FilePath: "flows.go", StartLine: 3, EndLine: 3, Hash: "same", Language: "go"}
+	for _, node := range []*model.Node{&callSite, &iface, &impl} {
+		if err := db.Create(node).Error; err != nil {
+			t.Fatalf("seed node: %v", err)
+		}
+	}
+	if err := db.Create(&model.Edge{Namespace: ctxns.DefaultNamespace, FromNodeID: impl.ID, ToNodeID: iface.ID, Kind: model.EdgeKindImplements, FilePath: "main.go", Fingerprint: "implements:main.go:flows.Tracer:mcp.FlowTracer"}).Error; err != nil {
+		t.Fatalf("seed implements edge: %v", err)
+	}
+	if err := db.Create(&model.Edge{Namespace: ctxns.DefaultNamespace, FromNodeID: callSite.ID, ToNodeID: 0, Kind: model.EdgeKindCalls, FilePath: "main.go", Fingerprint: "calls:main.go:h.deps.FlowTracer.TraceFlow:12"}).Error; err != nil {
+		t.Fatalf("seed call edge: %v", err)
+	}
+
+	_, nodesByFile, err := existingGraphFileState(ctx, db)
+	if err != nil {
+		t.Fatalf("existing state: %v", err)
+	}
+	forceFiles, err := forceReparseFiles(ctx, db, nodesByFile, map[string]string{
+		"main.go":  "same",
+		"mcp.go":   "new",
+		"flows.go": "same",
+	})
+	if err != nil {
+		t.Fatalf("force files: %v", err)
+	}
+	if _, ok := forceFiles["main.go"]; !ok {
+		t.Fatalf("expected unchanged interface dispatch call site to be forced, got %v", forceFiles)
+	}
+	if _, ok := forceFiles["mcp.go"]; ok {
+		t.Fatalf("did not expect changed interface file to be forced, got %v", forceFiles)
 	}
 }
 
