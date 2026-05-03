@@ -315,11 +315,73 @@ func handle(dep any) {
 }
 
 func TestLanguageSemantics_DefaultCallRewriterNoop(t *testing.T) {
-	rewriter := semanticsOrDefault(PythonSpec).CallRewriter(SemanticContext{})
+	rewriter := callRewriterOrDefault(semanticsOrDefault(PythonSpec), SemanticContext{})
 	got := rewriter.RewriteCall(CallRewriteContext{Callee: "client.get", Line: 1})
 	if got != "client.get" {
 		t.Fatalf("default call rewriter changed callee: got %q", got)
 	}
+}
+
+func TestLanguageSemantics_DefaultsForUnimplementedLanguages(t *testing.T) {
+	tests := []struct {
+		name string
+		spec *LangSpec
+	}{
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			semantics := semanticsOrDefault(tc.spec)
+			if semantics == nil {
+				t.Fatal("expected non-nil semantics")
+			}
+
+			edges := semantics.AdditionalEdges(SemanticContext{FilePath: "sample"})
+			if edges != nil {
+				t.Fatalf("expected nil additional edges for default semantics, got %+v", edges)
+			}
+
+			rewriter := callRewriterOrDefault(semantics, SemanticContext{})
+			if rewriter == nil {
+				t.Fatal("expected non-nil call rewriter")
+			}
+
+			got := rewriter.RewriteCall(CallRewriteContext{Callee: "client.get", Line: 1})
+			if got != "client.get" {
+				t.Fatalf("default call rewriter changed callee: got %q", got)
+			}
+		})
+	}
+	if len(tests) != 0 {
+		return
+	}
+}
+
+func TestParseGo_TypeAssertionCallRewriteUsesRepoPackageName(t *testing.T) {
+	src := `package main
+
+import dep "github.com/example/project/internal/api"
+
+func handle(value any) {
+	service := value.(dep.Service)
+	service.Run()
+}
+`
+	w := NewWalker(GoSpec)
+	ctx := WithGoImportPackages(context.Background(), map[string]string{
+		"github.com/example/project/internal/api": "contracts",
+	})
+	_, edges, _, err := w.ParseWithComments(ctx, "main.go", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
+	for _, e := range callEdges {
+		if e.Fingerprint == "calls:main.go:contracts.Service.Run:7" {
+			return
+		}
+	}
+	t.Fatalf("expected repo-local type assertion call rewrite edge, got %#v", callEdges)
 }
 
 func TestParseGo_Import(t *testing.T) {
@@ -821,6 +883,30 @@ func TestParsePython_Class(t *testing.T) {
 	}
 }
 
+func TestParsePython_ClassInheritsEdge(t *testing.T) {
+	src := `class Base:
+    pass
+
+class User(Base):
+    pass
+`
+	w := NewWalker(PythonSpec)
+	_, edges, err := w.Parse("models.py", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	inheritEdges := filterEdgesByKind(edges, model.EdgeKindInherits)
+	if len(inheritEdges) == 0 {
+		t.Fatal("expected at least 1 INHERITS edge, got 0")
+	}
+	for _, e := range inheritEdges {
+		if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Base") {
+			return
+		}
+	}
+	t.Fatalf("expected INHERITS edge linking User to Base, got %+v", inheritEdges)
+}
+
 func TestParseTypeScript_Function(t *testing.T) {
 	src := `function greet(): string {
     return "hello";
@@ -862,6 +948,36 @@ func TestParseTypeScript_Class(t *testing.T) {
 	}
 }
 
+func TestParseTypeScript_ExtendsAndImplementsEdges(t *testing.T) {
+	src := `class User extends Base implements Authenticated, Named {
+}
+`
+	w := NewWalker(TypeScriptSpec)
+	_, edges, err := w.Parse("models.ts", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var foundInherits, foundAuth, foundNamed bool
+	for _, e := range edges {
+		switch e.Kind {
+		case model.EdgeKindInherits:
+			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Base") {
+				foundInherits = true
+			}
+		case model.EdgeKindImplements:
+			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Authenticated") {
+				foundAuth = true
+			}
+			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Named") {
+				foundNamed = true
+			}
+		}
+	}
+	if !foundInherits || !foundAuth || !foundNamed {
+		t.Fatalf("expected inherits+implements edges, got %+v", edges)
+	}
+}
+
 func TestParseJava_Class(t *testing.T) {
 	src := `public class User {
     private String name;
@@ -881,6 +997,58 @@ func TestParseJava_Class(t *testing.T) {
 	}
 	if classNodes[0].Name != "User" {
 		t.Errorf("Name = %q, want %q", classNodes[0].Name, "User")
+	}
+}
+
+func TestParseJava_QualifiedNameIncludesPackage(t *testing.T) {
+	src := `package com.example.auth;
+
+public class User {
+}
+`
+	w := NewWalker(JavaSpec)
+	nodes, _, err := w.Parse("User.java", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	classNodes := filterByKind(nodes, model.NodeKindClass)
+	if len(classNodes) != 1 {
+		t.Fatalf("expected 1 class node, got %d", len(classNodes))
+	}
+	if classNodes[0].QualifiedName != "com.example.auth.User" {
+		t.Fatalf("QualifiedName = %q, want %q", classNodes[0].QualifiedName, "com.example.auth.User")
+	}
+}
+
+func TestParseJava_ExtendsAndImplementsEdges(t *testing.T) {
+	src := `package com.example.auth;
+
+public class User extends Base implements Authenticated, Named {
+}
+`
+	w := NewWalker(JavaSpec)
+	_, edges, err := w.Parse("User.java", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var foundInherits, foundAuth, foundNamed bool
+	for _, e := range edges {
+		switch e.Kind {
+		case model.EdgeKindInherits:
+			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Base") {
+				foundInherits = true
+			}
+		case model.EdgeKindImplements:
+			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Authenticated") {
+				foundAuth = true
+			}
+			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Named") {
+				foundNamed = true
+			}
+		}
+	}
+	if !foundInherits || !foundAuth || !foundNamed {
+		t.Fatalf("expected inherits+implements edges, got %+v", edges)
 	}
 }
 
@@ -1056,6 +1224,27 @@ func TestParseJS_Class(t *testing.T) {
 	if classNodes[0].Name != "Foo" {
 		t.Errorf("Name = %q, want %q", classNodes[0].Name, "Foo")
 	}
+}
+
+func TestParseJavaScript_ExtendsEdge(t *testing.T) {
+	src := `class User extends Base {
+}
+`
+	w := NewWalker(JavaScriptSpec)
+	_, edges, err := w.Parse("app.js", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	inheritEdges := filterEdgesByKind(edges, model.EdgeKindInherits)
+	if len(inheritEdges) == 0 {
+		t.Fatal("expected at least 1 INHERITS edge, got 0")
+	}
+	for _, e := range inheritEdges {
+		if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Base") {
+			return
+		}
+	}
+	t.Fatalf("expected INHERITS edge linking User to Base, got %+v", inheritEdges)
 }
 
 func TestParseJS_Import(t *testing.T) {
@@ -1242,6 +1431,85 @@ end
 	}
 	if funcNodes[0].Name != "foo" {
 		t.Errorf("Name = %q, want %q", funcNodes[0].Name, "foo")
+	}
+}
+
+func TestParseKotlin_QualifiedNameIncludesPackage(t *testing.T) {
+	src := `package com.example.auth
+
+class User {
+}
+`
+	w := NewWalker(KotlinSpec)
+	nodes, _, err := w.Parse("User.kt", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	classNodes := filterByKind(nodes, model.NodeKindClass)
+	if len(classNodes) != 1 {
+		t.Fatalf("expected 1 class node, got %d", len(classNodes))
+	}
+	if classNodes[0].QualifiedName != "com.example.auth.User" {
+		t.Fatalf("QualifiedName = %q, want %q", classNodes[0].QualifiedName, "com.example.auth.User")
+	}
+}
+
+func TestParseKotlin_SupertypeEdges(t *testing.T) {
+	src := `package com.example.auth
+
+class User : Base(), Authenticated, Named
+`
+	w := NewWalker(KotlinSpec)
+	_, edges, err := w.Parse("User.kt", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var foundInherits, foundAuth, foundNamed bool
+	for _, e := range edges {
+		switch e.Kind {
+		case model.EdgeKindInherits:
+			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Base") {
+				foundInherits = true
+			}
+		case model.EdgeKindImplements:
+			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Authenticated") {
+				foundAuth = true
+			}
+			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Named") {
+				foundNamed = true
+			}
+		}
+	}
+	if !foundInherits || !foundAuth || !foundNamed {
+		t.Fatalf("expected inherits+implements edges, got %+v", edges)
+	}
+}
+
+func TestParseKotlin_SupertypeEdges_WithPrimaryConstructorTypes(t *testing.T) {
+	src := `package com.example.auth
+
+class User(val id: String) : Base(), Authenticated
+`
+	w := NewWalker(KotlinSpec)
+	_, edges, err := w.Parse("User.kt", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var foundInherits, foundAuth bool
+	for _, e := range edges {
+		switch e.Kind {
+		case model.EdgeKindInherits:
+			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Base") {
+				foundInherits = true
+			}
+		case model.EdgeKindImplements:
+			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Authenticated") {
+				foundAuth = true
+			}
+		}
+	}
+	if !foundInherits || !foundAuth {
+		t.Fatalf("expected constructor-safe supertype edges, got %+v", edges)
 	}
 }
 
