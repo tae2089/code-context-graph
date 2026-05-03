@@ -212,7 +212,7 @@ func cloneRepo(ctx context.Context, repoURL, repoRoot, dest, namespace, branch s
 
 	opts := &git.CloneOptions{
 		URL:   repoURL,
-		Depth: 1,
+		Depth: 2,
 	}
 	if branch != "" {
 		opts.ReferenceName = plumbing.NewBranchReferenceName(branch)

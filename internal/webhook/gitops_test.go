@@ -137,6 +137,24 @@ func TestGitOps_CloneRepo(t *testing.T) {
 	}
 }
 
+func TestGitOps_CloneRepo_KeepsParentCommitForHEADTildeOne(t *testing.T) {
+	bareDir := initBareRepo(t)
+	addFileToBareRepo(t, bareDir, "second.txt", "second")
+	destRoot := t.TempDir()
+	ns := "test-ns"
+
+	if err := CloneOrPullBranch(context.Background(), bareDir, destRoot, ns, "main", nil); err != nil {
+		t.Fatalf("CloneOrPullBranch failed: %v", err)
+	}
+
+	dest := RepoDir(destRoot, ns)
+	cmd := exec.Command("git", "rev-parse", "HEAD~1")
+	cmd.Dir = dest
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("expected HEAD~1 to exist in cloned webhook repo: %v\n%s", err, out)
+	}
+}
+
 func TestGitOps_CloneFailurePreservesExistingNonRepoDir(t *testing.T) {
 	destRoot := t.TempDir()
 	ns := "test-ns"
