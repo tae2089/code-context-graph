@@ -25,6 +25,8 @@ var errDBNotInitialized = trace.New("database not initialized")
 
 const skipDBInitAnnotation = "skipDBInit"
 
+// shouldSkipDBInit checks if the command requires skipping database initialization.
+// @intent 특정 커맨드나 플래그 설정에 따라 DB 초기화 단계를 건너뛸지 결정한다.
 func shouldSkipDBInit(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
 		if c.Annotations[skipDBInitAnnotation] == "true" {
@@ -220,6 +222,8 @@ func resolveExcludes(flagPatterns []string) []string {
 	return combined
 }
 
+// resolveIncludePaths merges include paths from the config file and the command-line flag.
+// @intent 전역 설정과 CLI로 입력받은 포함 경로들을 하나로 병합하여 분석 대상을 결정한다.
 func resolveIncludePaths(flagPaths []string) []string {
 	cfgPaths := viper.GetStringSlice("include_paths")
 	if len(cfgPaths) == 0 {
@@ -234,6 +238,8 @@ func resolveIncludePaths(flagPaths []string) []string {
 	return combined
 }
 
+// resolveMaxFileBytes returns the maximum file size in bytes to be parsed.
+// @intent 분석 대상 단일 파일의 최대 크기 제한을 설정 파일 혹은 플래그로부터 결정한다.
 func resolveMaxFileBytes(flagValue int64) int64 {
 	if flagValue != 0 {
 		return flagValue
@@ -241,6 +247,8 @@ func resolveMaxFileBytes(flagValue int64) int64 {
 	return viper.GetInt64("parse.max_file_bytes")
 }
 
+// resolveMaxTotalParsedBytes returns the maximum total bytes to be parsed.
+// @intent 전체 분석 과정에서 파싱할 소스 코드의 총량(Byte) 제한을 결정한다.
 func resolveMaxTotalParsedBytes(flagValue int64) int64 {
 	if flagValue != 0 {
 		return flagValue
