@@ -37,9 +37,10 @@ operational bottleneck.
 
 ## Namespace Size
 
-Namespace size affects postprocessing more than query routing. Search, flow, and
+Namespace size affects postprocessing more than query routing. Search and
 community rebuilds operate inside the namespace, so very large namespaces make
-updates slower even when only one repository changed.
+updates slower even when only one repository changed. Stored flows do not have a
+bulk rebuild path; `trace_flow` remains a per-entry-point operation.
 
 Practical guidance:
 
@@ -52,7 +53,7 @@ Practical guidance:
   operating concern rather than an occasional large update.
 
 Incremental updates rebuild only affected search documents and FTS rows. Full
-builds, explicit `run_postprocess`, and community/flow rebuilds can still be
+builds, explicit `run_postprocess`, and community rebuilds can still be
 namespace-wide, so namespace boundaries remain the main cost control.
 
 ## HTTP Exposure
@@ -93,11 +94,19 @@ creating multiple concurrent writers against the same SQLite database. With
 PostgreSQL, worker count should be sized by repository update time, database
 capacity, and acceptable queue age.
 
+Use `--webhook-max-tracked-repos` to bound queue memory. When the queue is at
+capacity, new repositories are rejected with `429 Too Many Requests`; repeated
+hits should be treated as a scaling or scoping problem.
+
 Webhook request body size is separate from source parse size. The webhook
 payload is small and capped by the HTTP receiver, but the clone/build step has
 no default source parse budget. Use `include_paths`, `--max-file-bytes`, or
 `--max-total-parsed-bytes` when large repositories need an explicit parsing
 budget.
+
+Unreadable source files are logged and skipped by default during webhook graph
+updates. Enable `--webhook-fail-on-unreadable` when partial graphs are not
+acceptable and the sync should fail/retry instead.
 
 Invalid repository configuration, such as malformed `.ccg.yaml` `include_paths`,
 is treated as non-retryable for the current event. Fix the repository config and
@@ -122,6 +131,17 @@ Recommended checks:
 | `/status` is `degraded` | Last webhook or postprocess state needs attention | Inspect failed repo/config and retry with a new push or manual update. |
 | Queue age grows steadily | Workers cannot keep up with incoming pushes | Reduce repo scope, increase workers on PostgreSQL, or split namespaces. |
 | Search results look stale | Search postprocess may have failed or been skipped | Run `run_postprocess` with `fts=true` or rebuild/update the namespace. |
+
+For alerting, prefer these `/status.webhook` fields:
+
+| Field | Alert Use |
+|-------|-----------|
+| `oldest_queued_age` | Queue delay and worker capacity pressure |
+| `oldest_processing_age` | Stalled clone/update detection |
+| `queue_full_total` | Capacity limit hits since process start |
+| `failure_total` | Sync failure rate since process start |
+| `recent_repos[].last_error` | Repo-specific unresolved failures |
+| `recent_repos[].queued` / `processing` | Which repository is waiting or running now |
 
 ## Timeouts and Shutdown
 

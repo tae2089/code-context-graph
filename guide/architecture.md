@@ -46,7 +46,8 @@ Per-database full-text search backends:
 
 Full builds and explicit postprocess runs rebuild namespace search state.
 Incremental updates refresh only affected search documents and FTS rows, while
-community and flow postprocessing can still be namespace-wide.
+community postprocessing can still be namespace-wide. Persisted flow rebuild is
+not implemented; use `trace_flow` for per-entry-point flow tracing.
 
 ### Analysis (`internal/analysis/`)
 

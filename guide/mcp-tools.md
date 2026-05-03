@@ -38,12 +38,18 @@ code-context-graph provides 31 MCP tools. Automatically connects from Claude Cod
 |------|-------------|
 | `parse_project` | Parse source files |
 | `build_or_update_graph` | Full/incremental build with postprocessing |
-| `run_postprocess` | Run flows/communities/search rebuild |
+| `run_postprocess` | Run communities/search rebuild and report stored flow rebuild as skipped |
 | `get_node` | Get node by qualified name |
 | `search` | Full-text search |
 | `query_graph` | Predefined graph queries (callers, callees, imports, etc.) |
 | `list_graph_stats` | Node/edge/file counts |
 | `get_minimal_context` | Lightweight summary (~100 tokens) for AI agent entry point — graph stats, risk, top communities/flows, tool suggestions |
+
+`run_postprocess` is primarily used to refresh derived state after graph
+changes. Full-text search and communities are rebuilt when enabled; requested
+stored flow rebuild is currently reported as skipped because persisted flows do
+not yet have a bulk rebuild path. Use `trace_flow` for per-entry-point flow
+tracing.
 
 ### Analysis
 
