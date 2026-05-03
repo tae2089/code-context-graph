@@ -33,8 +33,8 @@ func parseTools(h *handlers) []server.ServerTool {
 		},
 		{
 			Tool: mcp.NewTool("run_postprocess", withNamespaceParam(
-				mcp.WithDescription("Run postprocessing steps independently: flows, communities, and/or full-text search indexing"),
-				mcp.WithBoolean("flows", mcp.Description("Rebuild flow traces (default: true)")),
+				mcp.WithDescription("Run postprocessing steps independently: communities and/or full-text search indexing, while reporting stored flow rebuild as skipped"),
+				mcp.WithBoolean("flows", mcp.Description("Report persisted flow rebuild as skipped; trace_flow still works per entry point (default: true)")),
 				mcp.WithBoolean("communities", mcp.Description("Rebuild community detection (default: true)")),
 				mcp.WithBoolean("fts", mcp.Description("Rebuild full-text search index (default: true)")),
 				mcp.WithNumber("community_depth", mcp.Description("Directory depth for community detection (default: 2)")),

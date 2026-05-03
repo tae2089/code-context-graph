@@ -240,7 +240,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 }
 
 // runPostprocess rebuilds selected graph-derived artifacts without reparsing code.
-// @intent 기존 그래프 데이터에서 커뮤니티와 검색 인덱스를 독립적으로 재생성한다.
+// @intent 기존 그래프 데이터에서 커뮤니티와 검색 인덱스를 독립적으로 재생성하고 flow bulk rebuild 가용성을 보고한다.
 // @param request flows, communities, fts 플래그로 후처리 대상을 선택한다.
 // @ensures 성공 시 수행된 후처리 결과 요약을 반환한다.
 // @sideEffect 커뮤니티 재계산, 검색 인덱스 재생성, 캐시 비우기를 수행할 수 있다.
@@ -263,7 +263,8 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 	var failedSteps []string
 	var skippedSteps []string
 
-	// TODO: doFlows — FlowTracer operates per-node; bulk rebuild not yet implemented
+	// Flows remain a requested-but-skipped step until persisted bulk rebuild exists.
+	// trace_flow still works per entry point, but run_postprocess does not repopulate stored flows.
 	if doFlows {
 		skippedSteps = append(skippedSteps, "flows")
 	}
