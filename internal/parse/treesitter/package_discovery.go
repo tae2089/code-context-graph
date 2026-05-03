@@ -357,16 +357,29 @@ type nodePackageDiscoveryConfig struct {
 // nodePackageJSON is the subset of package.json used for import-path discovery.
 // @intent keep package metadata parsing minimal while deriving package-node qualified names.
 type nodePackageJSON struct {
-	Name string `json:"name"`
+	Name      string          `json:"name"`
+	Workspaces json.RawMessage `json:"workspaces"`
 }
 
 // nodeTSConfig is the subset of tsconfig.json used for path alias discovery.
 // @intent derive additional package-node import paths from compiler aliases.
 type nodeTSConfig struct {
+	Extends         string `json:"extends"`
 	CompilerOptions struct {
 		BaseURL string              `json:"baseUrl"`
 		Paths   map[string][]string `json:"paths"`
 	} `json:"compilerOptions"`
+}
+
+type nodePackageScope struct {
+	rootDir    string
+	importPath string
+}
+
+type nodeAliasScope struct {
+	scopeDir     string
+	targetPrefix string
+	aliasPrefix  string
 }
 
 // discoverNodePackages discovers JS/TS package nodes from directory layout, package.json, and optional tsconfig aliases.
@@ -378,11 +391,15 @@ func discoverNodePackages(ctx context.Context, opts PackageDiscoveryOptions, cfg
 	if opts.WalkFiles == nil {
 		return nil, nil
 	}
-	baseImportPath, err := readNodePackageName(filepath.Join(opts.RootDir, "package.json"))
+	rootManifest, err := readNodePackageManifest(filepath.Join(opts.RootDir, "package.json"))
 	if err != nil {
 		return nil, err
 	}
-	aliasMap, err := readTSConfigAliasPrefixes(filepath.Join(opts.RootDir, "tsconfig.json"))
+	packageScopes, err := discoverNodePackageScopes(opts.RootDir, rootManifest)
+	if err != nil {
+		return nil, err
+	}
+	aliasScopes, err := discoverTSConfigAliasScopes(opts.RootDir)
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +417,17 @@ func discoverNodePackages(ctx context.Context, opts PackageDiscoveryOptions, cfg
 		if dir == "." {
 			return nil
 		}
-		for _, importPath := range nodeImportPathsForPath(filepath.ToSlash(relPath), baseImportPath, aliasMap, cfg.tsconfigAlias) {
+		relPath = filepath.ToSlash(relPath)
+		scope := bestNodePackageScope(relPath, packageScopes)
+		packageRelPath := relPath
+		baseImportPath := rootManifest.Name
+		if scope.importPath != "" {
+			baseImportPath = scope.importPath
+		}
+		if scope.rootDir != "" && pathMatchesPrefix(relPath, scope.rootDir) {
+			packageRelPath = strings.TrimPrefix(relPath, strings.Trim(scope.rootDir, "/")+"/")
+		}
+		for _, importPath := range nodeImportPathsForPath(relPath, packageRelPath, baseImportPath, aliasScopes, cfg.tsconfigAlias) {
 			rememberPackage(packages, ambiguous, PackageInfo{
 				ImportPath: importPath,
 				Name:       pathBaseName(dir, "/"),
@@ -421,26 +448,39 @@ func discoverNodePackages(ctx context.Context, opts PackageDiscoveryOptions, cfg
 	return packages, nil
 }
 
-// readNodePackageName extracts the package.json name field when present.
-// @intent use the repository package name as the root import prefix for JS/TS package nodes.
-func readNodePackageName(path string) (string, error) {
+// readNodePackageManifest extracts the package.json name and workspace globs when present.
+// @intent use repository and workspace manifest metadata to build Node-family import paths.
+func readNodePackageManifest(path string) (nodePackageJSON, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return "", nil
+			return nodePackageJSON{}, nil
 		}
-		return "", err
+		return nodePackageJSON{}, err
 	}
 	var pkg nodePackageJSON
 	if err := json.Unmarshal(data, &pkg); err != nil {
-		return "", err
+		return nodePackageJSON{}, err
 	}
-	return strings.TrimSpace(pkg.Name), nil
+	pkg.Name = strings.TrimSpace(pkg.Name)
+	return pkg, nil
 }
 
 // readTSConfigAliasPrefixes parses tsconfig path aliases into path-prefix mappings.
 // @intent derive alternate package-node import paths for aliased TypeScript imports.
-func readTSConfigAliasPrefixes(path string) (map[string]string, error) {
+func readTSConfigAliasPrefixes(rootDir, path string) (map[string]string, error) {
+	return readTSConfigAliasPrefixesSeen(rootDir, path, map[string]struct{}{})
+}
+
+func readTSConfigAliasPrefixesSeen(rootDir, path string, seen map[string]struct{}) (map[string]string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := seen[absPath]; ok {
+		return nil, nil
+	}
+	seen[absPath] = struct{}{}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -454,18 +494,40 @@ func readTSConfigAliasPrefixes(path string) (map[string]string, error) {
 		return nil, err
 	}
 	aliases := make(map[string]string)
+	if cfg.Extends != "" {
+		parentPath := resolveTSConfigExtends(path, cfg.Extends)
+		if parentPath != "" {
+			parentAliases, err := readTSConfigAliasPrefixesSeen(rootDir, parentPath, seen)
+			if err != nil {
+				return nil, err
+			}
+			for k, v := range parentAliases {
+				aliases[k] = v
+			}
+		}
+	}
+	configDir := filepath.Dir(path)
+	configRelDir, err := filepath.Rel(rootDir, configDir)
+	if err != nil {
+		return nil, err
+	}
+	configRelDir = filepath.ToSlash(configRelDir)
+	if configRelDir == "." {
+		configRelDir = ""
+	}
 	baseURL := trimNodeWildcard(cfg.CompilerOptions.BaseURL)
 	if baseURL == "." {
 		baseURL = ""
 	}
+	basePrefix := joinNodeImportPath(configRelDir, baseURL)
 	for alias, targets := range cfg.CompilerOptions.Paths {
 		aliasPrefix := trimNodeWildcard(alias)
 		if aliasPrefix == "" || len(targets) == 0 {
 			continue
 		}
 		targetPrefix := trimNodeWildcard(targets[0])
-		if baseURL != "" {
-			targetPrefix = joinNodeImportPath(baseURL, targetPrefix)
+		if basePrefix != "" {
+			targetPrefix = joinNodeImportPath(basePrefix, targetPrefix)
 		}
 		if targetPrefix == "" {
 			continue
@@ -480,17 +542,24 @@ func readTSConfigAliasPrefixes(path string) (map[string]string, error) {
 
 // nodeImportPathsForPath returns all import paths that should refer to one JS/TS source path.
 // @intent register both directory package nodes and file-level alias nodes for Node ecosystem imports.
-func nodeImportPathsForPath(relPath, baseImportPath string, aliasPrefixes map[string]string, includeAliases bool) []string {
+func nodeImportPathsForPath(relPath, packageRelPath, baseImportPath string, aliasScopes []nodeAliasScope, includeAliases bool) []string {
 	relPath = strings.Trim(filepath.ToSlash(relPath), "/")
-	dir := filepath.ToSlash(filepath.Dir(relPath))
+	packageRelPath = strings.Trim(filepath.ToSlash(packageRelPath), "/")
+	dir := filepath.ToSlash(filepath.Dir(packageRelPath))
+	rootDir := filepath.ToSlash(filepath.Dir(relPath))
 	var paths []string
 	if baseImportPath != "" {
 		paths = append(paths, joinNodeImportPath(baseImportPath, dir))
 	}
 	if includeAliases {
-		for targetPrefix, aliasPrefix := range aliasPrefixes {
-			if dirMatchesPrefix(dir, targetPrefix) {
-				dirRemainder := strings.TrimPrefix(dir, targetPrefix)
+		for _, scope := range aliasScopes {
+			if scope.scopeDir != "" && !pathMatchesPrefix(relPath, scope.scopeDir) {
+				continue
+			}
+			targetPrefix := scope.targetPrefix
+			aliasPrefix := scope.aliasPrefix
+			if dirMatchesPrefix(rootDir, targetPrefix) {
+				dirRemainder := strings.TrimPrefix(rootDir, targetPrefix)
 				dirRemainder = strings.TrimPrefix(dirRemainder, "/")
 				paths = append(paths, joinNodeImportPath(aliasPrefix, dirRemainder))
 			}
@@ -510,6 +579,185 @@ func nodeImportPathsForPath(relPath, baseImportPath string, aliasPrefixes map[st
 		}
 	}
 	return appendUniquePackageFile(nil, paths...)
+}
+
+// discoverNodePackageScopes collects root and workspace package scopes used for JS/TS import path generation.
+// @intent pick the nearest package.json name for monorepo files instead of assuming the repository root package applies everywhere.
+func discoverNodePackageScopes(rootDir string, rootManifest nodePackageJSON) ([]nodePackageScope, error) {
+	scopes := []nodePackageScope{{importPath: rootManifest.Name}}
+	workspaceGlobs := appendUniquePackageFile(parseNodeWorkspaces(rootManifest.Workspaces), readPNPMWorkspacePatterns(filepath.Join(rootDir, "pnpm-workspace.yaml"))...)
+	for _, relDir := range workspacePackageRoots(rootDir, workspaceGlobs) {
+		manifest, err := readNodePackageManifest(filepath.Join(rootDir, relDir, "package.json"))
+		if err != nil {
+			return nil, err
+		}
+		if manifest.Name == "" {
+			continue
+		}
+		scopes = append(scopes, nodePackageScope{rootDir: filepath.ToSlash(relDir), importPath: manifest.Name})
+	}
+	slices.SortFunc(scopes, func(a, b nodePackageScope) int {
+		return len(strings.Trim(b.rootDir, "/")) - len(strings.Trim(a.rootDir, "/"))
+	})
+	return scopes, nil
+}
+
+// discoverTSConfigAliasScopes collects alias mappings from every tsconfig.json under the repository.
+// @intent let nested packages contribute their own alias prefixes for monorepo-local imports.
+func discoverTSConfigAliasScopes(rootDir string) ([]nodeAliasScope, error) {
+	var scopes []nodeAliasScope
+	err := filepath.WalkDir(rootDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if name == "node_modules" || name == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() != "tsconfig.json" {
+			return nil
+		}
+		aliases, err := readTSConfigAliasPrefixes(rootDir, path)
+		if err != nil {
+			return err
+		}
+		configDir, err := filepath.Rel(rootDir, filepath.Dir(path))
+		if err != nil {
+			return err
+		}
+		configDir = filepath.ToSlash(configDir)
+		if configDir == "." {
+			configDir = ""
+		}
+		for targetPrefix, aliasPrefix := range aliases {
+			scopes = append(scopes, nodeAliasScope{
+				scopeDir:     configDir,
+				targetPrefix: targetPrefix,
+				aliasPrefix:  aliasPrefix,
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	slices.SortFunc(scopes, func(a, b nodeAliasScope) int {
+		return len(strings.Trim(b.scopeDir, "/")) - len(strings.Trim(a.scopeDir, "/"))
+	})
+	return scopes, nil
+}
+
+// bestNodePackageScope returns the nearest package scope containing relPath.
+// @intent prefer workspace package names over the root package when files live under nested package roots.
+func bestNodePackageScope(relPath string, scopes []nodePackageScope) nodePackageScope {
+	relPath = strings.Trim(filepath.ToSlash(relPath), "/")
+	for _, scope := range scopes {
+		if scope.rootDir == "" || pathMatchesPrefix(relPath, scope.rootDir) {
+			return scope
+		}
+	}
+	return nodePackageScope{}
+}
+
+// parseNodeWorkspaces extracts workspace glob patterns from package.json workspaces shapes.
+// @intent support both array and object forms used by npm/Yarn/Bun workspace configs.
+func parseNodeWorkspaces(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var direct []string
+	if err := json.Unmarshal(raw, &direct); err == nil {
+		return appendUniquePackageFile(nil, direct...)
+	}
+	var wrapped struct {
+		Packages []string `json:"packages"`
+	}
+	if err := json.Unmarshal(raw, &wrapped); err == nil {
+		return appendUniquePackageFile(nil, wrapped.Packages...)
+	}
+	return nil
+}
+
+// readPNPMWorkspacePatterns parses pnpm-workspace.yaml package globs.
+// @intent include pnpm-managed workspace package roots in Node-family package discovery.
+func readPNPMWorkspacePatterns(path string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var patterns []string
+	inPackages := false
+	for _, rawLine := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if line == "packages:" {
+			inPackages = true
+			continue
+		}
+		if !inPackages {
+			continue
+		}
+		if !strings.HasPrefix(line, "-") {
+			if strings.HasSuffix(line, ":") {
+				break
+			}
+			continue
+		}
+		pattern := strings.TrimSpace(strings.TrimPrefix(line, "-"))
+		pattern = strings.Trim(pattern, "\"'")
+		if pattern != "" {
+			patterns = append(patterns, pattern)
+		}
+	}
+	return appendUniquePackageFile(nil, patterns...)
+}
+
+// workspacePackageRoots resolves workspace glob patterns to package roots that contain a package.json.
+// @intent map workspace manifests to concrete package directories without parsing unrelated nested packages.
+func workspacePackageRoots(rootDir string, globs []string) []string {
+	var roots []string
+	for _, pattern := range globs {
+		matches, err := filepath.Glob(filepath.Join(rootDir, filepath.FromSlash(pattern)))
+		if err != nil {
+			continue
+		}
+		for _, match := range matches {
+			info, err := os.Stat(match)
+			if err != nil || !info.IsDir() {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(match, "package.json")); err != nil {
+				continue
+			}
+			rel, err := filepath.Rel(rootDir, match)
+			if err != nil {
+				continue
+			}
+			roots = append(roots, filepath.ToSlash(rel))
+		}
+	}
+	return appendUniquePackageFile(nil, roots...)
+}
+
+// resolveTSConfigExtends resolves a tsconfig extends entry to a local file path when possible.
+// @intent let nested tsconfig files inherit baseUrl/paths from local parent configs.
+func resolveTSConfigExtends(configPath, extends string) string {
+	extends = strings.TrimSpace(extends)
+	if extends == "" || (!strings.HasPrefix(extends, ".") && !strings.HasPrefix(extends, "/")) {
+		return ""
+	}
+	if filepath.Ext(extends) == "" {
+		extends += ".json"
+	}
+	if filepath.IsAbs(extends) {
+		return extends
+	}
+	return filepath.Join(filepath.Dir(configPath), extends)
 }
 
 // joinNodeImportPath joins an import prefix and a relative directory using slash separators.

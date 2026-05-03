@@ -360,6 +360,157 @@ func TestJavaScriptPackageDiscovery_BuildsPackageImportPathsFromPackageJSON(t *t
 	}
 }
 
+func TestTypeScriptPackageDiscovery_DiscoversWorkspacePackagesAndNestedAliases(t *testing.T) {
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("packages/core/src/utils")
+	mustMkdir("apps/web/src/components")
+	mustWrite("package.json", `{"name":"monorepo-root","workspaces":["packages/*","apps/*"]}`)
+	mustWrite("tsconfig.json", `{"compilerOptions":{"baseUrl":".","paths":{"@root/*":["shared/*"]}}}`)
+	mustWrite("packages/core/package.json", `{"name":"@acme/core"}`)
+	mustWrite("packages/core/tsconfig.json", `{"compilerOptions":{"baseUrl":".","paths":{"@core/*":["src/*"]}}}`)
+	mustWrite("packages/core/src/utils/math.ts", "export const add = (a: number, b: number) => a + b;\n")
+	mustWrite("apps/web/package.json", `{"name":"@acme/web"}`)
+	mustWrite("apps/web/tsconfig.json", `{"compilerOptions":{"baseUrl":".","paths":{"@web/*":["src/*"]}}}`)
+	mustWrite("apps/web/src/components/button.ts", "export const button = true;\n")
+
+	packages, err := (TypeScriptPackageDiscovery{}).DiscoverPackages(context.Background(), PackageDiscoveryOptions{
+		RootDir: tmpDir,
+		WalkFiles: func(fn func(path, relPath string) error) error {
+			return filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info == nil || info.IsDir() {
+					return err
+				}
+				relPath, err := filepath.Rel(tmpDir, path)
+				if err != nil {
+					return err
+				}
+				return fn(path, relPath)
+			})
+		},
+		HasParser: func(ext string) bool {
+			return ext == ".ts"
+		},
+	})
+	if err != nil {
+		t.Fatalf("DiscoverPackages: %v", err)
+	}
+	got := sortedPackageKeys(packages)
+	wantSubset := []string{
+		"@acme/core/src/utils",
+		"@core/utils",
+		"@core/utils/math",
+		"@acme/web/src/components",
+		"@web/components",
+		"@web/components/button",
+	}
+	for _, want := range wantSubset {
+		if _, ok := packages[want]; !ok {
+			t.Fatalf("expected package %q in %v", want, got)
+		}
+	}
+}
+
+func TestJavaScriptPackageDiscovery_UsesWorkspacePackageNames(t *testing.T) {
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("packages/ui/lib/core")
+	mustWrite("package.json", `{"name":"root","workspaces":["packages/*"]}`)
+	mustWrite("packages/ui/package.json", `{"name":"@acme/ui"}`)
+	mustWrite("packages/ui/lib/core/index.js", "export function run() {}\n")
+
+	packages, err := (JavaScriptPackageDiscovery{}).DiscoverPackages(context.Background(), PackageDiscoveryOptions{
+		RootDir: tmpDir,
+		WalkFiles: func(fn func(path, relPath string) error) error {
+			return filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info == nil || info.IsDir() {
+					return err
+				}
+				relPath, err := filepath.Rel(tmpDir, path)
+				if err != nil {
+					return err
+				}
+				return fn(path, relPath)
+			})
+		},
+		HasParser: func(ext string) bool {
+			return ext == ".js"
+		},
+	})
+	if err != nil {
+		t.Fatalf("DiscoverPackages: %v", err)
+	}
+	if _, ok := packages["@acme/ui/lib/core"]; !ok {
+		t.Fatalf("expected workspace package import path, got %v", sortedPackageKeys(packages))
+	}
+}
+
+func TestTypeScriptPackageDiscovery_RespectsPnpmWorkspacePackages(t *testing.T) {
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("packages/shared/src")
+	mustWrite("pnpm-workspace.yaml", "packages:\n  - 'packages/*'\n")
+	mustWrite("package.json", `{"name":"root"}`)
+	mustWrite("packages/shared/package.json", `{"name":"@acme/shared"}`)
+	mustWrite("packages/shared/tsconfig.json", `{"compilerOptions":{"baseUrl":".","paths":{"@shared/*":["src/*"]}}}`)
+	mustWrite("packages/shared/src/index.ts", "export const shared = true;\n")
+
+	packages, err := (TypeScriptPackageDiscovery{}).DiscoverPackages(context.Background(), PackageDiscoveryOptions{
+		RootDir: tmpDir,
+		WalkFiles: func(fn func(path, relPath string) error) error {
+			return filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info == nil || info.IsDir() {
+					return err
+				}
+				relPath, err := filepath.Rel(tmpDir, path)
+				if err != nil {
+					return err
+				}
+				return fn(path, relPath)
+			})
+		},
+		HasParser: func(ext string) bool {
+			return ext == ".ts"
+		},
+	})
+	if err != nil {
+		t.Fatalf("DiscoverPackages: %v", err)
+	}
+	if _, ok := packages["@acme/shared/src"]; !ok {
+		t.Fatalf("expected pnpm workspace package import path, got %v", sortedPackageKeys(packages))
+	}
+	if _, ok := packages["@shared/index"]; !ok {
+		t.Fatalf("expected nested tsconfig alias import path, got %v", sortedPackageKeys(packages))
+	}
+}
+
 func TestJavaPackageDiscovery_GroupsByPackageDeclaration(t *testing.T) {
 	tmpDir := t.TempDir()
 	mustMkdir := func(rel string) {
