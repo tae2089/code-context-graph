@@ -922,6 +922,26 @@ func TestAdd(t *testing.T) {
 	t.Fatalf("expected TESTED_BY candidate for Add call in TestAdd, got %+v", edges)
 }
 
+func TestParseGo_TestedByPreservesQualifiedCallee(t *testing.T) {
+	src := `package main
+
+func TestAdd(t *testing.T) {
+	calc.Add(1, 2)
+}
+`
+	w := NewWalker(GoSpec)
+	_, edges, err := w.Parse("main_test.go", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, e := range filterEdgesByKind(edges, model.EdgeKindTestedBy) {
+		if containsSubstring(e.Fingerprint, "calc.Add") && containsSubstring(e.Fingerprint, "TestAdd") {
+			return
+		}
+	}
+	t.Fatalf("expected TESTED_BY candidate to preserve calc.Add call, got %+v", edges)
+}
+
 // --- Phase 12.1: JavaScript ---
 
 func TestParseJS_Function(t *testing.T) {

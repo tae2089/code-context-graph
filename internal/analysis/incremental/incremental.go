@@ -231,6 +231,7 @@ func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files ma
 			if err != nil {
 				return nil, err
 			}
+			resolved = edgeresolve.FilterResolved(resolved)
 			if err := syncStore.UpsertEdges(ctx, resolved); err != nil {
 				return nil, err
 			}

@@ -99,6 +99,22 @@ func Resolve(ctx context.Context, lookup NodeLookup, edges []model.Edge) ([]mode
 	return out, nil
 }
 
+// FilterResolved returns only edges that have both persisted endpoints.
+// @intent prevent unresolved syntax candidates from occupying fingerprints before they become traversable
+func FilterResolved(edges []model.Edge) []model.Edge {
+	if len(edges) == 0 {
+		return nil
+	}
+	out := make([]model.Edge, 0, len(edges))
+	for _, edge := range edges {
+		if edge.FromNodeID == 0 || edge.ToNodeID == 0 {
+			continue
+		}
+		out = append(out, edge)
+	}
+	return out
+}
+
 func edgeFiles(edges []model.Edge) []string {
 	seen := make(map[string]bool)
 	var files []string
@@ -313,6 +329,11 @@ func resolveImportsFrom(ctx context.Context, lookup NodeLookup, edge *model.Edge
 	if !ok {
 		return
 	}
+	if target := uniquePackageNode(st.qnIndex[importPath]); target != nil {
+		edge.ToNodeID = target.ID
+		st.loadImportFileNodes(ctx, lookup, importPath)
+		return
+	}
 	if target := uniqueFileNode(st.qnIndex[importPath]); target != nil {
 		edge.ToNodeID = target.ID
 		st.loadFileNodes(ctx, lookup, target.FilePath)
@@ -321,6 +342,20 @@ func resolveImportsFrom(ctx context.Context, lookup NodeLookup, edge *model.Edge
 	if target := resolveImportFile(ctx, lookup, st, importPath); target != nil {
 		edge.ToNodeID = target.ID
 		st.loadFileNodes(ctx, lookup, target.FilePath)
+	}
+}
+
+func (st *resolveState) loadImportFileNodes(ctx context.Context, lookup NodeLookup, importPath string) {
+	prefixLookup, ok := lookup.(filePrefixLookup)
+	if !ok || importPath == "" {
+		return
+	}
+	nodes, err := prefixLookup.GetFileNodesByPathSuffix(ctx, importPath)
+	if err != nil {
+		return
+	}
+	for _, node := range uniqueFileNodes(nodes) {
+		st.loadFileNodes(ctx, lookup, node.FilePath)
 	}
 }
 
@@ -408,6 +443,27 @@ func representativeImportFile(nodes []model.Node) *model.Node {
 	return &files[0]
 }
 
+func uniquePackageNode(nodes []model.Node) *model.Node {
+	var found *model.Node
+	seen := make(map[uint]bool)
+	for i := range nodes {
+		if nodes[i].Kind != model.NodeKindPackage {
+			continue
+		}
+		if nodes[i].ID != 0 && seen[nodes[i].ID] {
+			continue
+		}
+		if nodes[i].ID != 0 {
+			seen[nodes[i].ID] = true
+		}
+		if found != nil {
+			return nil
+		}
+		found = &nodes[i]
+	}
+	return found
+}
+
 func uniqueFileNodes(nodes []model.Node) []model.Node {
 	seen := make(map[uint]bool)
 	var files []model.Node
@@ -458,19 +514,23 @@ func resolveInherits(edge *model.Edge, st *resolveState) {
 }
 
 func resolveTestedBy(edge *model.Edge, st *resolveState) {
-	bare, testQN, ok := testedByEndpoints(*edge)
+	callee, testQN, ok := testedByEndpoints(*edge)
 	if !ok {
 		return
 	}
 	if from := uniqueCallable(st.qnIndex[testQN]); from != nil {
 		edge.FromNodeID = from.ID
 	}
-	if to := resolveProductionFunction(st, edge.FilePath, bare); to != nil {
+	if to := resolveProductionFunction(st, edge.FilePath, callee); to != nil {
 		edge.ToNodeID = to.ID
 	}
 }
 
-func resolveProductionFunction(st *resolveState, testFilePath, bare string) *model.Node {
+func resolveProductionFunction(st *resolveState, testFilePath, callee string) *model.Node {
+	if target := uniqueCallable(st.qnIndex[callee]); target != nil {
+		return target
+	}
+	bare := lastSegment(callee)
 	pkg := packageForFile(st.nodesByFile[testFilePath])
 	if pkg != "" {
 		if target := uniqueCallable(st.qnIndex[pkg+"."+bare]); target != nil {

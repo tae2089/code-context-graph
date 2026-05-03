@@ -34,6 +34,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
+	querypkg "github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/edgeresolve"
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -659,6 +660,93 @@ func TestBuild_SuppressesRepoLocalPackageClauseCorrectionOnConflict(t *testing.T
 		if edge.Kind == model.EdgeKindImplements && (edge.ToNodeID == iface.ID || edge.ToNodeID == otherIface.ID) {
 			t.Fatalf("expected conflicting package clauses to suppress alias correction, got implements edge %+v", edge)
 		}
+	}
+}
+
+func TestBuild_ImportsFromTargetsPackageNodeForMultiFileGoPackage(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{Store: st, DB: db, Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustWrite("go.mod", "module github.com/example/project\n\ngo 1.25.0\n")
+	mustMkdir("cmd")
+	mustMkdir("internal/mcp")
+	mustWrite("cmd/main.go", "package main\n\nimport \"github.com/example/project/internal/mcp\"\n\nfunc main() { mcp.Run() }\n")
+	mustWrite("internal/mcp/a.go", "package mcp\n\nfunc Run() {}\n")
+	mustWrite("internal/mcp/b.go", "package mcp\n\nfunc Other() {}\n")
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	importer, err := st.GetNode(ctx, "cmd/main.go")
+	if err != nil || importer == nil {
+		t.Fatalf("GetNode importer: node=%v err=%v", importer, err)
+	}
+	pkgNode, err := st.GetNode(ctx, "github.com/example/project/internal/mcp")
+	if err != nil || pkgNode == nil {
+		t.Fatalf("GetNode package: node=%v err=%v", pkgNode, err)
+	}
+	if pkgNode.Kind != model.NodeKindPackage {
+		t.Fatalf("package node kind=%q, want %q", pkgNode.Kind, model.NodeKindPackage)
+	}
+
+	qs := querypkg.New(db)
+	imports, err := qs.ImportsOf(ctx, importer.ID)
+	if err != nil {
+		t.Fatalf("ImportsOf: %v", err)
+	}
+	if len(imports) != 1 || imports[0].ID != pkgNode.ID {
+		t.Fatalf("expected imports_of to return package node %+v, got %+v", pkgNode, imports)
+	}
+	children, err := qs.ChildrenOf(ctx, pkgNode.ID)
+	if err != nil {
+		t.Fatalf("ChildrenOf: %v", err)
+	}
+	childPaths := make([]string, 0, len(children))
+	for _, child := range children {
+		childPaths = append(childPaths, child.FilePath)
+	}
+	slices.Sort(childPaths)
+	if !slices.Equal(childPaths, []string{"internal/mcp/a.go", "internal/mcp/b.go"}) {
+		t.Fatalf("expected package children to be mcp files, got %+v", children)
+	}
+}
+
+func TestPackageNodesPreservePackageLanguage(t *testing.T) {
+	nodes := packageNodes(map[string]languagePackageInfo{
+		"example/pkg": {
+			ImportPath: "example/pkg",
+			Name:       "pkg",
+			Dir:        "pkg",
+			Language:   "examplelang",
+			Files:      []string{"pkg/a.example"},
+		},
+	})
+	if len(nodes) != 1 {
+		t.Fatalf("expected one package node, got %+v", nodes)
+	}
+	if nodes[0].Language != "examplelang" {
+		t.Fatalf("expected package language to be preserved, got %q", nodes[0].Language)
 	}
 }
 

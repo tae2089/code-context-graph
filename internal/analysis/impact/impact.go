@@ -72,7 +72,7 @@ func (a *Analyzer) ImpactRadius(ctx context.Context, nodeID uint, depth int) ([]
 // @param opts traversal limits applied during BFS
 // @return RadiusResult with visited nodes and truncation metadata
 // @domainRule traverses outgoing and incoming edges in lock step at each depth
-// @ensures Truncated is true when MaxNodes stopped traversal or post-trim
+// @ensures Truncated is true when MaxNodes stopped traversal before adding another node
 func (a *Analyzer) ImpactRadiusBounded(ctx context.Context, nodeID uint, depth int, opts RadiusOptions) (*RadiusResult, error) {
 	if opts.MaxDepth > 0 && depth > opts.MaxDepth {
 		depth = opts.MaxDepth

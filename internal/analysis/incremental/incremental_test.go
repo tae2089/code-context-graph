@@ -500,6 +500,40 @@ func TestSyncWithExisting_ReleasesContentAfterProcessing(t *testing.T) {
 	}
 }
 
+func TestSyncWithExisting_DoesNotPersistUnresolvedEdges(t *testing.T) {
+	st := newStore()
+	parser := &staticParser{result: map[string]parseResult{
+		"main.go": {
+			nodes: []model.Node{{
+				QualifiedName: "pkg.Main",
+				Kind:          model.NodeKindFunction,
+				Name:          "Main",
+				FilePath:      "main.go",
+				StartLine:     1,
+				EndLine:       3,
+				Hash:          "hash",
+				Language:      "go",
+			}},
+			edges: []model.Edge{{
+				Kind:        model.EdgeKindCalls,
+				FilePath:    "main.go",
+				Line:        2,
+				Fingerprint: "calls:main.go:pkg.Missing:2",
+			}},
+		},
+	}}
+	syncer := New(st, parser)
+	_, err := syncer.Sync(context.Background(), map[string]FileInfo{
+		"main.go": {Hash: "hash", Content: []byte("package pkg\nfunc Main(){ Missing() }")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.upsertedEdges) != 0 {
+		t.Fatalf("expected unresolved edge to be skipped, got %+v", st.upsertedEdges)
+	}
+}
+
 func TestSyncWithExisting_ReleasesContentForUnchangedAndUnparsedFiles(t *testing.T) {
 	st := newStore()
 	st.nodes["pkg.Existing"] = &model.Node{QualifiedName: "pkg.Existing", Kind: model.NodeKindFunction, Name: "Existing", FilePath: "exist.go", Hash: "same123", Language: "go"}

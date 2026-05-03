@@ -105,6 +105,14 @@ func NewWalker(spec *LangSpec, opts ...WalkerOption) *Walker {
 	return w
 }
 
+// Spec returns the language specification backing this walker.
+func (w *Walker) Spec() *LangSpec {
+	if w == nil {
+		return nil
+	}
+	return w.spec
+}
+
 // Close releases CGo resources held by the underlying tree-sitter parser.
 // It should be called when the Walker is no longer needed.
 // @intent free parser-side native resources once file parsing is complete
@@ -186,13 +194,13 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 			return nil, nil, nil, err
 		}
 		edges = append(edges, semanticsOrDefault(w.spec).AdditionalEdges(SemanticContext{
-			Root:       root,
-			Content:    content,
-			FilePath:   filePath,
-			Package:    pkgName,
-			GoPackages: goImportPackagesFromContext(ctx),
-			Nodes:      nodes,
-			Interfaces: interfaces,
+			Root:           root,
+			Content:        content,
+			FilePath:       filePath,
+			Package:        pkgName,
+			ImportPackages: importPackagesFromContext(ctx),
+			Nodes:          nodes,
+			Interfaces:     interfaces,
 		})...)
 	}
 
@@ -601,16 +609,13 @@ func (w *Walker) resolveTestedBy(nodes []model.Node, edges *[]model.Edge, filePa
 		}
 		callee := parts[2]
 
-		calleeParts := strings.Split(callee, ".")
-		bareCallee := calleeParts[len(calleeParts)-1]
-
 		for testQName, testNode := range testNodes {
 			if e.Line >= testNode.StartLine && e.Line <= testNode.EndLine {
 				*edges = append(*edges, model.Edge{
 					Kind:        model.EdgeKindTestedBy,
 					FilePath:    filePath,
 					Line:        e.Line,
-					Fingerprint: fmt.Sprintf("tested_by:%s:%s:%s", filePath, bareCallee, testQName),
+					Fingerprint: fmt.Sprintf("tested_by:%s:%s:%s", filePath, callee, testQName),
 				})
 			}
 		}

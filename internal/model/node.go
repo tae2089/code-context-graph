@@ -8,6 +8,7 @@ type NodeKind string
 
 const (
 	NodeKindFile     NodeKind = "file"
+	NodeKindPackage  NodeKind = "package"
 	NodeKindClass    NodeKind = "class"
 	NodeKindFunction NodeKind = "function"
 	NodeKindType     NodeKind = "type"

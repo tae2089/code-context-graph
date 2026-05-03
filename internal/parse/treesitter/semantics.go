@@ -22,20 +22,20 @@ type LanguageSemantics interface {
 // SemanticContext carries parsed state into language-specific enrichment hooks.
 // @intent avoid expanding Walker with one-off language branches as graph inference grows.
 type SemanticContext struct {
-	Root       *sitter.Node
-	Content    []byte
-	FilePath   string
-	Package    string
-	GoPackages map[string]string
-	Nodes      []model.Node
-	Interfaces []interfaceInfo
+	Root           *sitter.Node
+	Content        []byte
+	FilePath       string
+	Package        string
+	ImportPackages map[string]string
+	Nodes          []model.Node
+	Interfaces     []interfaceInfo
 }
 
-type goImportPackagesContextKey struct{}
+type importPackagesContextKey struct{}
 
-// WithGoImportPackages stores repo-local Go import-path to package-name mappings in ctx.
+// WithImportPackages stores repo-local import-path to package-name mappings in ctx.
 // @intent let build/update provide package-clause-aware import normalization without widening parser interfaces.
-func WithGoImportPackages(ctx context.Context, packages map[string]string) context.Context {
+func WithImportPackages(ctx context.Context, packages map[string]string) context.Context {
 	if len(packages) == 0 {
 		return ctx
 	}
@@ -49,14 +49,20 @@ func WithGoImportPackages(ctx context.Context, packages map[string]string) conte
 	if len(cloned) == 0 {
 		return ctx
 	}
-	return context.WithValue(ctx, goImportPackagesContextKey{}, cloned)
+	return context.WithValue(ctx, importPackagesContextKey{}, cloned)
 }
 
-func goImportPackagesFromContext(ctx context.Context) map[string]string {
+// WithGoImportPackages stores repo-local Go import-path to package-name mappings in ctx.
+// @intent preserve compatibility for callers using the original Go-specific helper.
+func WithGoImportPackages(ctx context.Context, packages map[string]string) context.Context {
+	return WithImportPackages(ctx, packages)
+}
+
+func importPackagesFromContext(ctx context.Context) map[string]string {
 	if ctx == nil {
 		return nil
 	}
-	packages, _ := ctx.Value(goImportPackagesContextKey{}).(map[string]string)
+	packages, _ := ctx.Value(importPackagesContextKey{}).(map[string]string)
 	return packages
 }
 
@@ -75,7 +81,7 @@ type GoSemantics struct{}
 func (GoSemantics) AdditionalEdges(ctx SemanticContext) []model.Edge {
 	var edges []model.Edge
 	edges = append(edges, goStructuralImplements(ctx.Nodes, ctx.Interfaces, ctx.FilePath)...)
-	edges = append(edges, goAssertionImplements(ctx.Root, ctx.Content, ctx.FilePath, ctx.GoPackages)...)
+	edges = append(edges, goAssertionImplements(ctx.Root, ctx.Content, ctx.FilePath, ctx.ImportPackages)...)
 	return edges
 }
 

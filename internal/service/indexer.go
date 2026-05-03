@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/gob"
@@ -11,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -46,6 +46,8 @@ type parsedBuildEdgeBatch struct {
 	edges   []model.Edge
 }
 
+type languagePackageInfo = treesitter.PackageInfo
+
 // spooledBuildRecord is the on-disk representation of one parsed file used by the build spool.
 // @intent let the build transaction stream parsed input from disk instead of holding all files in memory.
 type spooledBuildRecord struct {
@@ -61,9 +63,10 @@ type spooledBuildRecord struct {
 // buildSpool is the temporary on-disk staging area for parsed build records.
 // @intent decouple parsing from the build transaction so the DB tx only opens once parsing succeeds.
 type buildSpool struct {
-	dir     string
-	records []string
-	stats   BuildStats
+	dir      string
+	records  []string
+	packages map[string]languagePackageInfo
+	stats    BuildStats
 }
 
 // spooledUpdateRecord is one batch of file inputs persisted before the incremental update transaction starts.
@@ -80,6 +83,7 @@ type updateSpool struct {
 	records       []string
 	currentFiles  map[string]struct{}
 	currentHashes map[string]string
+	packages      map[string]languagePackageInfo
 	forceFiles    map[string]struct{}
 }
 
@@ -285,14 +289,18 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		return stats, err
 	}
 
-	ctx = s.withGoImportPackageContext(ctx, absDir, opts)
+	packages := s.collectLanguagePackages(ctx, absDir, opts)
+	ctx = s.withImportPackageContext(ctx, packages)
 
 	spool, err := s.prepareBuildSpool(ctx, absDir, opts)
 	if err != nil {
 		return stats, err
 	}
 	defer spool.cleanup(s.logger())
+	spool.packages = packages
 	stats = spool.stats
+	stats.TotalNodes += len(packageNodes(packages))
+	stats.TotalEdges += packageContainsEdgeCount(packages)
 
 	err = s.withBuildTx(ctx, opts, func(txStore store.GraphStore, txDB *gorm.DB) error {
 		return s.applyBuildSpoolInTx(ctx, txStore, txDB, opts, spool)
@@ -453,6 +461,9 @@ func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.Gr
 	if err := txStore.DeleteGraph(ctx); err != nil {
 		return trace.Wrap(err, "reset graph state before rebuild")
 	}
+	if err := upsertPackageNodes(ctx, txStore, spool.packages); err != nil {
+		return trace.Wrap(err, "upsert package nodes")
+	}
 
 	batch := buildPersistBatch{}
 	var edgeBatches []parsedBuildEdgeBatch
@@ -480,6 +491,9 @@ func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.Gr
 	}
 	if err := s.flushBuildBatch(ctx, txStore, &batch); err != nil {
 		return err
+	}
+	if err := upsertPackageContainsEdges(ctx, txStore, spool.packages); err != nil {
+		return trace.Wrap(err, "upsert package file edges")
 	}
 	if err := s.flushBuildEdges(ctx, txStore, edgeBatches); err != nil {
 		return err
@@ -566,6 +580,7 @@ func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphS
 		if err != nil {
 			return trace.Wrap(err, "resolve deferred implements edges")
 		}
+		resolved = edgeresolve.FilterResolved(resolved)
 		if err := txStore.UpsertEdges(ctx, resolved); err != nil {
 			return trace.Wrap(err, "upsert deferred implements edges")
 		}
@@ -583,7 +598,8 @@ func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphS
 			if err != nil {
 				return trace.Wrap(err, "resolve deferred edges for "+parsed.relPath)
 			}
-			if err := txStore.UpsertEdges(ctx, resolved[len(resolveInput)-len(chunk):]); err != nil {
+			resolvedChunk := edgeresolve.FilterResolved(resolved[len(resolveInput)-len(chunk):])
+			if err := txStore.UpsertEdges(ctx, resolvedChunk); err != nil {
 				return trace.Wrap(err, "upsert deferred edges for "+parsed.relPath)
 			}
 		}
@@ -676,10 +692,11 @@ func (s *GraphService) Update(ctx context.Context, opts UpdateOptions) (*increme
 	}
 
 	s.logger().Info("incremental update", "dir", absDir)
-	ctx = s.withGoImportPackageContext(ctx, absDir, opts.BuildOptions)
+	packages := s.collectLanguagePackages(ctx, absDir, opts.BuildOptions)
+	ctx = s.withImportPackageContext(ctx, packages)
 
 	if _, ok := opts.Syncer.(transactionalIncrementalSyncer); !ok || s.Store == nil {
-		return s.updateGraphWithoutTx(ctx, absDir, opts)
+		return s.updateGraphWithoutTx(ctx, absDir, opts, packages)
 	}
 
 	spool, err := s.prepareUpdateSpool(ctx, absDir, opts)
@@ -687,6 +704,7 @@ func (s *GraphService) Update(ctx context.Context, opts UpdateOptions) (*increme
 		return nil, err
 	}
 	defer spool.cleanup(s.logger())
+	spool.packages = packages
 
 	stats := &incremental.SyncStats{}
 	err = s.withUpdateTx(ctx, opts, func(txStore store.GraphStore, txDB *gorm.DB) error {
@@ -837,6 +855,9 @@ func (s *GraphService) applyUpdateSpoolInTx(ctx context.Context, txStore store.G
 	if !opts.Replace && len(opts.IncludePaths) > 0 {
 		existingFiles, existingNodesByFile = filterExistingStateByInclude(existingFiles, existingNodesByFile, opts.IncludePaths)
 	}
+	if err := upsertPackageNodes(ctx, txStore, spool.packages); err != nil {
+		return nil, trace.Wrap(err, "upsert package nodes")
+	}
 	forceFiles, err := forceReparseFiles(ctx, txDBForExistingFiles(txDB, s.DB), existingNodesByFile, spool.currentHashes)
 	if err != nil {
 		return nil, trace.Wrap(err, "load edge source files for changed graph")
@@ -887,6 +908,9 @@ func (s *GraphService) applyUpdateSpoolInTx(ctx context.Context, txStore store.G
 			return nil, trace.Wrap(err, "incremental force sync")
 		}
 		addSyncStats(stats, batchStats)
+	}
+	if err := upsertPackageContainsEdges(ctx, txStore, spool.packages); err != nil {
+		return nil, trace.Wrap(err, "upsert package file edges")
 	}
 
 	if !opts.SkipSearchRebuild && s.SearchBackend != nil && s.DB != nil {
@@ -957,7 +981,7 @@ func (u *updateSpool) cleanup(logger *slog.Logger) {
 }
 
 // @intent run incremental sync without a shared DB transaction when the configured syncer or store cannot provide one.
-func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, opts UpdateOptions) (*incremental.SyncStats, error) {
+func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, opts UpdateOptions, packages map[string]languagePackageInfo) (*incremental.SyncStats, error) {
 	files := make(map[string]incremental.FileInfo)
 	currentHashes := make(map[string]string)
 	var totalParsedBytes int64
@@ -1019,6 +1043,11 @@ func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, 
 	if err != nil {
 		return nil, trace.Wrap(err, "load edge source files for changed graph")
 	}
+	if s.Store != nil {
+		if err := upsertPackageNodes(ctx, s.Store, packages); err != nil {
+			return nil, trace.Wrap(err, "upsert package nodes")
+		}
+	}
 
 	normalFiles, forcedFiles := splitForcedFiles(files, forceFiles)
 	stats, err := opts.Syncer.SyncWithExisting(ctx, normalFiles, existingFiles)
@@ -1031,6 +1060,11 @@ func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, 
 			return nil, trace.Wrap(err, "incremental force sync")
 		}
 		addSyncStats(stats, forcedStats)
+	}
+	if s.Store != nil {
+		if err := upsertPackageContainsEdges(ctx, s.Store, packages); err != nil {
+			return nil, trace.Wrap(err, "upsert package file edges")
+		}
 	}
 	if !opts.SkipSearchRebuild {
 		nodeIDs, err := affectedNodeIDsForUpdate(ctx, s.DB, existingNodesByFile, affectedUpdateFiles(currentHashes, existingNodesByFile, forceFiles), existingFilesMissingFrom(files, existingFiles))
@@ -1279,115 +1313,249 @@ func parseForBuild(ctx context.Context, parser Parser, relPath string, content [
 	return nodes, edges, nil, "", err
 }
 
-func (s *GraphService) withGoImportPackageContext(ctx context.Context, absDir string, opts BuildOptions) context.Context {
-	packages, err := collectGoImportPackages(absDir, opts, s.parserForExt)
-	if err != nil {
-		s.logger().Debug("skip go import package context", "dir", absDir, "error", err)
-		return ctx
-	}
-	return treesitter.WithGoImportPackages(ctx, packages)
-}
-
-func collectGoImportPackages(absDir string, opts BuildOptions, parserForExt func(string) (Parser, bool)) (map[string]string, error) {
-	modulePath, err := readGoModulePath(filepath.Join(absDir, "go.mod"))
-	if err != nil || modulePath == "" {
-		return nil, err
-	}
-	packages := make(map[string]string)
+func (s *GraphService) collectLanguagePackages(ctx context.Context, absDir string, opts BuildOptions) map[string]languagePackageInfo {
+	merged := make(map[string]languagePackageInfo)
 	ambiguous := make(map[string]struct{})
-	err = walkMatchingFiles(context.Background(), absDir, opts, func(path, relPath string) error {
-		if strings.ToLower(filepath.Ext(path)) != ".go" {
-			return nil
+	for _, spec := range s.packageDiscoverySpecs() {
+		discovery := treesitter.PackageDiscoveryOrDefault(spec)
+		packages, err := discovery.DiscoverPackages(ctx, treesitter.PackageDiscoveryOptions{
+			RootDir: absDir,
+			WalkFiles: func(fn func(path, relPath string) error) error {
+				return walkMatchingFiles(ctx, absDir, opts, fn)
+			},
+			HasParser: func(ext string) bool {
+				_, ok := s.parserForExt(ext)
+				return ok
+			},
+		})
+		if err != nil {
+			s.logger().Debug("skip language package context", "dir", absDir, "language", spec.Name, "error", err)
+			continue
 		}
-		if strings.HasSuffix(relPath, "_test.go") {
-			return nil
-		}
-		if _, ok := parserForExt(".go"); !ok {
-			return nil
-		}
-		pkgName, err := readGoPackageClause(path)
-		if err != nil || pkgName == "" {
-			return err
-		}
-		if strings.HasSuffix(pkgName, "_test") {
-			return nil
-		}
-		dir := filepath.ToSlash(filepath.Dir(relPath))
-		importPath := modulePath
-		if dir == "." {
-			rememberGoImportPackage(packages, ambiguous, importPath, pkgName)
-			return nil
-		}
-		importPath = modulePath + "/" + dir
-		rememberGoImportPackage(packages, ambiguous, importPath, pkgName)
+		mergeLanguagePackages(merged, ambiguous, packages)
+	}
+	if len(merged) == 0 {
 		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
-	return packages, nil
+	return merged
 }
 
-
-func rememberGoImportPackage(packages map[string]string, ambiguous map[string]struct{}, importPath, pkgName string) {
-	if _, blocked := ambiguous[importPath]; blocked {
-		return
+func (s *GraphService) packageDiscoverySpecs() []*treesitter.LangSpec {
+	if len(s.Walkers) == 0 && len(s.Parsers) == 0 {
+		return nil
 	}
-	if existing, ok := packages[importPath]; ok && existing != pkgName {
-		delete(packages, importPath)
-		ambiguous[importPath] = struct{}{}
-		return
+	type parserWithSpec interface {
+		Spec() *treesitter.LangSpec
 	}
-	packages[importPath] = pkgName
-}
-
-func readGoModulePath(goModPath string) (string, error) {
-	file, err := os.Open(goModPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", nil
+	addSpec := func(specs *[]*treesitter.LangSpec, seen map[string]struct{}, spec *treesitter.LangSpec) {
+		if spec == nil || spec.Name == "" {
+			return
 		}
-		return "", err
+		if _, ok := seen[spec.Name]; ok {
+			return
+		}
+		seen[spec.Name] = struct{}{}
+		*specs = append(*specs, spec)
 	}
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(line, "module ") {
+
+	exts := make([]string, 0, len(s.Walkers)+len(s.Parsers))
+	for ext := range s.Parsers {
+		exts = append(exts, ext)
+	}
+	for ext := range s.Walkers {
+		exts = append(exts, ext)
+	}
+	slices.Sort(exts)
+	seen := make(map[string]struct{}, len(exts))
+	specs := make([]*treesitter.LangSpec, 0, len(exts))
+	for _, ext := range exts {
+		if parser, ok := s.Parsers[ext].(parserWithSpec); ok {
+			addSpec(&specs, seen, parser.Spec())
 			continue
 		}
-		return strings.TrimSpace(strings.TrimPrefix(line, "module ")), nil
-	}
-	if err := scanner.Err(); err != nil {
-		return "", err
-	}
-	return "", nil
-}
-
-func readGoPackageClause(filePath string) (string, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "//") {
+		walker := s.Walkers[ext]
+		if walker == nil {
 			continue
 		}
-		if strings.HasPrefix(line, "package ") {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 {
-				return fields[1], nil
+		addSpec(&specs, seen, walker.Spec())
+	}
+	return specs
+}
+
+func (s *GraphService) withImportPackageContext(ctx context.Context, packages map[string]languagePackageInfo) context.Context {
+	return treesitter.WithImportPackages(ctx, importPackageNames(packages))
+}
+
+func mergeLanguagePackages(dst map[string]languagePackageInfo, ambiguous map[string]struct{}, src map[string]languagePackageInfo) {
+	for importPath, pkg := range src {
+		if importPath == "" {
+			continue
+		}
+		if _, blocked := ambiguous[importPath]; blocked {
+			continue
+		}
+		if existing, ok := dst[importPath]; ok {
+			if existing.Language != pkg.Language || existing.Name != pkg.Name || existing.Dir != pkg.Dir {
+				delete(dst, importPath)
+				ambiguous[importPath] = struct{}{}
+				continue
 			}
+			existing.Files = appendUniqueStrings(existing.Files, pkg.Files...)
+			dst[importPath] = existing
+			continue
 		}
-		break
+		pkg.Files = appendUniqueStrings(nil, pkg.Files...)
+		slices.Sort(pkg.Files)
+		dst[importPath] = pkg
 	}
-	if err := scanner.Err(); err != nil {
-		return "", err
+}
+
+func importPackageNames(packages map[string]languagePackageInfo) map[string]string {
+	if len(packages) == 0 {
+		return nil
 	}
-	return "", nil
+	names := make(map[string]string, len(packages))
+	for importPath, pkg := range packages {
+		if importPath != "" && pkg.Name != "" {
+			names[importPath] = pkg.Name
+		}
+	}
+	return names
+}
+
+func packageNodes(packages map[string]languagePackageInfo) []model.Node {
+	if len(packages) == 0 {
+		return nil
+	}
+	importPaths := sortedPackageImportPaths(packages)
+	nodes := make([]model.Node, 0, len(importPaths))
+	for _, importPath := range importPaths {
+		pkg := packages[importPath]
+		nodes = append(nodes, model.Node{
+			QualifiedName: pkg.ImportPath,
+			Kind:          model.NodeKindPackage,
+			Name:          pkg.Name,
+			FilePath:      pkg.Dir,
+			StartLine:     1,
+			EndLine:       1,
+			Language:      pkg.Language,
+		})
+	}
+	return nodes
+}
+
+func packageContainsEdgeCount(packages map[string]languagePackageInfo) int {
+	count := 0
+	for _, pkg := range packages {
+		count += len(pkg.Files)
+	}
+	return count
+}
+
+func upsertPackageNodes(ctx context.Context, txStore store.GraphStore, packages map[string]languagePackageInfo) error {
+	nodes := packageNodes(packages)
+	if len(nodes) == 0 {
+		return nil
+	}
+	return txStore.UpsertNodes(ctx, nodes)
+}
+
+func upsertPackageContainsEdges(ctx context.Context, txStore store.GraphStore, packages map[string]languagePackageInfo) error {
+	if len(packages) == 0 {
+		return nil
+	}
+	importPaths := sortedPackageImportPaths(packages)
+	pkgNodes, err := txStore.GetNodesByQualifiedNames(ctx, importPaths)
+	if err != nil {
+		return err
+	}
+	filePaths := packageFilePaths(packages)
+	nodesByFile, err := txStore.GetNodesByFiles(ctx, filePaths)
+	if err != nil {
+		return err
+	}
+	var edges []model.Edge
+	for _, importPath := range importPaths {
+		pkgNode := singleNodeOfKind(pkgNodes[importPath], model.NodeKindPackage)
+		if pkgNode == nil {
+			continue
+		}
+		for _, filePath := range packages[importPath].Files {
+			fileNode := singleNodeOfKind(nodesByFile[filePath], model.NodeKindFile)
+			if fileNode == nil {
+				continue
+			}
+			edges = append(edges, model.Edge{
+				FromNodeID:  pkgNode.ID,
+				ToNodeID:    fileNode.ID,
+				Kind:        model.EdgeKindContains,
+				FilePath:    filePath,
+				Line:        1,
+				Fingerprint: packageContainsFingerprint(importPath, filePath),
+			})
+		}
+	}
+	return txStore.UpsertEdges(ctx, edges)
+}
+
+func sortedPackageImportPaths(packages map[string]languagePackageInfo) []string {
+	paths := make([]string, 0, len(packages))
+	for importPath := range packages {
+		paths = append(paths, importPath)
+	}
+	slices.Sort(paths)
+	return paths
+}
+
+func packageFilePaths(packages map[string]languagePackageInfo) []string {
+	seen := make(map[string]struct{})
+	var paths []string
+	for _, pkg := range packages {
+		for _, filePath := range pkg.Files {
+			if _, ok := seen[filePath]; ok {
+				continue
+			}
+			seen[filePath] = struct{}{}
+			paths = append(paths, filePath)
+		}
+	}
+	slices.Sort(paths)
+	return paths
+}
+
+func singleNodeOfKind(nodes []model.Node, kind model.NodeKind) *model.Node {
+	var found *model.Node
+	for i := range nodes {
+		if nodes[i].Kind != kind {
+			continue
+		}
+		if found != nil {
+			return nil
+		}
+		found = &nodes[i]
+	}
+	return found
+}
+
+func packageContainsFingerprint(importPath, filePath string) string {
+	sum := sha256.Sum256([]byte(importPath + "\x00" + filePath))
+	return fmt.Sprintf("contains:package:%x", sum)
+}
+
+func appendUniqueString(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func appendUniqueStrings(values []string, add ...string) []string {
+	for _, value := range add {
+		values = appendUniqueString(values, value)
+	}
+	return values
 }
 
 // ExistingGraphFiles returns namespace-scoped graph file paths currently stored.

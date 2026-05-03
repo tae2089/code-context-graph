@@ -331,6 +331,27 @@ func TestResolveImportsFromBindsLexicographicRepresentativeForMultiFilePackage(t
 	}
 }
 
+func TestResolveImportsFromPrefersPackageNodeOverFileRepresentative(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 10, QualifiedName: "cmd/main.go", Name: "cmd/main.go", Kind: model.NodeKindFile, FilePath: "cmd/main.go", Language: "go"},
+		{ID: 20, QualifiedName: "internal/mcp/a.go", Name: "internal/mcp/a.go", Kind: model.NodeKindFile, FilePath: "internal/mcp/a.go", Language: "go"},
+		{ID: 21, QualifiedName: "internal/mcp/z.go", Name: "internal/mcp/z.go", Kind: model.NodeKindFile, FilePath: "internal/mcp/z.go", Language: "go"},
+		{ID: 30, QualifiedName: "github.com/example/project/internal/mcp", Name: "mcp", Kind: model.NodeKindPackage, FilePath: "internal/mcp", Language: "go"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{{
+		Kind:        model.EdgeKindImportsFrom,
+		FilePath:    "cmd/main.go",
+		Line:        2,
+		Fingerprint: "imports_from:cmd/main.go:github.com/example/project/internal/mcp:2",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := edges[0].ToNodeID; got != 30 {
+		t.Fatalf("ToNodeID=%d, want package node 30", got)
+	}
+}
+
 func TestResolveImportsFromLeavesAmbiguousSuffixUnresolved(t *testing.T) {
 	lookup := fakeLookup{nodes: []model.Node{
 		{ID: 10, QualifiedName: "cmd/main.go", Name: "cmd/main.go", Kind: model.NodeKindFile, FilePath: "cmd/main.go", Language: "go"},
@@ -383,6 +404,42 @@ func TestResolveTestedByBindsTestAndProductionEndpoints(t *testing.T) {
 		FilePath:    "add_test.go",
 		Line:        5,
 		Fingerprint: "tested_by:add_test.go:Add:pkg.TestAdd",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := edges[0].FromNodeID; got != 2 {
+		t.Fatalf("FromNodeID=%d, want test node 2", got)
+	}
+	if got := edges[0].ToNodeID; got != 1 {
+		t.Fatalf("ToNodeID=%d, want production node 1", got)
+	}
+}
+
+func TestFilterResolvedDropsEdgesWithMissingEndpoints(t *testing.T) {
+	edges := FilterResolved([]model.Edge{
+		{FromNodeID: 1, ToNodeID: 2, Kind: model.EdgeKindCalls, Fingerprint: "resolved"},
+		{FromNodeID: 0, ToNodeID: 2, Kind: model.EdgeKindCalls, Fingerprint: "missing-from"},
+		{FromNodeID: 1, ToNodeID: 0, Kind: model.EdgeKindCalls, Fingerprint: "missing-to"},
+	})
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 resolved edge, got %d: %+v", len(edges), edges)
+	}
+	if edges[0].Fingerprint != "resolved" {
+		t.Fatalf("expected resolved edge to remain, got %+v", edges[0])
+	}
+}
+
+func TestResolveTestedByBindsQualifiedProductionEndpoint(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "calc.Add", Name: "Add", Kind: model.NodeKindFunction, FilePath: "add.go", StartLine: 3, EndLine: 5, Language: "go"},
+		{ID: 2, QualifiedName: "calc_test.TestAdd", Name: "TestAdd", Kind: model.NodeKindTest, FilePath: "add_test.go", StartLine: 3, EndLine: 7, Language: "go"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{{
+		Kind:        model.EdgeKindTestedBy,
+		FilePath:    "add_test.go",
+		Line:        5,
+		Fingerprint: "tested_by:add_test.go:calc.Add:calc_test.TestAdd",
 	}})
 	if err != nil {
 		t.Fatal(err)
