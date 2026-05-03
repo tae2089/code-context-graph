@@ -32,8 +32,11 @@ func collectDocstringsFromContent(t *testing.T, content []byte) []CommentBlock {
 	defer tree.Close()
 
 	root := tree.RootNode()
-	// nodes는 OwnerStartLine 결정에 사용하지 않아도 되므로 빈 슬라이스 전달
-	return w.collectDocstrings(root, content, nil)
+	return additionalCommentsOrDefault(semanticsOrDefault(PythonSpec), CommentContext{
+		Root:    root,
+		Content: content,
+		Nodes:   nil,
+	})
 }
 
 // TestWalker_CollectDocstrings_FuncDouble 은 """...""" 함수 docstring이

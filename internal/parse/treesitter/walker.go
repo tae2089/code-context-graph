@@ -190,11 +190,12 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 	nodes = append(nodes, fileNode)
 
 	if w.query != nil {
-		nodes, edges, pkgName, interfaces, err = w.executeQueries(root, content, filePath, nodes, edges)
+		nodes, edges, pkgName, interfaces, err = w.executeQueries(root, content, filePath, importPackagesFromContext(ctx), nodes, edges)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		edges = append(edges, semanticsOrDefault(w.spec).AdditionalEdges(SemanticContext{
+		semantics := semanticsOrDefault(w.spec)
+		edges = append(edges, semantics.AdditionalEdges(SemanticContext{
 			Root:           root,
 			Content:        content,
 			FilePath:       filePath,
@@ -220,12 +221,13 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 	w.resolveTestedBy(nodes, &edges, filePath)
 	w.collectComments(root, content, &comments)
 
-	// Python 전용: docstring을 CommentBlock으로 수집 후 StartLine 오름차순 병합.
-	// docstring은 IsDocstring=true, OwnerStartLine=소속 심볼 StartLine으로 설정되어
-	// binder가 gap 로직 대신 OwnerStartLine 일치로 바인딩한다.
-	if w.spec.Name == "python" {
-		docstrings := w.collectDocstrings(root, content, nodes)
-		comments = mergeCommentBlocks(comments, docstrings)
+	if extra := additionalCommentsOrDefault(semanticsOrDefault(w.spec), CommentContext{
+		Root:     root,
+		Content:  content,
+		FilePath: filePath,
+		Nodes:    nodes,
+	}); len(extra) > 0 {
+		comments = mergeCommentBlocks(comments, extra)
 	}
 
 	w.logger.Debug("parse completed", "file", filePath, "nodes", len(nodes), "edges", len(edges))
@@ -238,7 +240,7 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 // @mutates nodes and edges slices through appended parse results
 // @requires w.query is compiled for w.spec.Name
 // @return pkgName is the detected package/module name when the grammar exposes one
-func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath string, nodes []model.Node, edges []model.Edge) ([]model.Node, []model.Edge, string, []interfaceInfo, error) {
+func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath string, importPackages map[string]string, nodes []model.Node, edges []model.Edge) ([]model.Node, []model.Edge, string, []interfaceInfo, error) {
 	// w.query는 NewWalker에서 이미 컴파일됨 (불변이므로 공유 안전)
 	// QueryCursor는 스레드 안전하지 않아 매번 새로 생성한다.
 	qc := sitter.NewQueryCursor()
@@ -272,10 +274,12 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 
 	// import dedup: "importPath:line" → true
 	importSeen := make(map[string]bool)
-	callRewriter := semanticsOrDefault(w.spec).CallRewriter(SemanticContext{
-		Root:     root,
-		Content:  content,
-		FilePath: filePath,
+	semantics := semanticsOrDefault(w.spec)
+	callRewriter := callRewriterOrDefault(semantics, SemanticContext{
+		Root:           root,
+		Content:        content,
+		FilePath:       filePath,
+		ImportPackages: importPackages,
 	})
 
 	for {
@@ -337,23 +341,16 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 
 			kind := w.mapDefTypeToNodeKind(defType, name)
 
-			// Handle struct embeddings and interface methods for Go
-			if w.spec.Name == "go" {
-				switch defType {
-				case "interface":
-					typeNode := w.extractTypeNode(defNode)
-					if typeNode != nil && typeNode.Type() == "interface_type" {
-						methods := w.extractInterfaceMethods(typeNode, content)
-						interfaces = append(interfaces, interfaceInfo{name: name, methods: methods})
-					}
-				case "class":
-					typeNode := w.extractTypeNode(defNode)
-					if typeNode != nil && typeNode.Type() == "struct_type" {
-						embeddedEdges := w.extractEmbeddings(typeNode, content, filePath, name)
-						edges = append(edges, embeddedEdges...)
-					}
-				}
-			}
+			result := definitionResultOrDefault(semantics, DefinitionContext{
+				Definition:     defNode,
+				DefinitionType: defType,
+				Name:           name,
+				QualifiedName:  qName,
+				Content:        content,
+				FilePath:       filePath,
+			})
+			interfaces = append(interfaces, result.Interfaces...)
+			edges = append(edges, result.Edges...)
 
 			// O(1) dedup via map. Queries can match multiple times if overlapping.
 			key := nodeKey{name, startLine, endLine}
@@ -451,20 +448,6 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 	return nodes, edges, pkgName, interfaces, nil
 }
 
-// extractTypeNode returns the underlying type node from a declaration capture.
-// @intent normalize Go type declarations so downstream extractors see the concrete type form
-func (w *Walker) extractTypeNode(defNode *sitter.Node) *sitter.Node {
-	if defNode.Type() == "type_declaration" {
-		for i := 0; i < int(defNode.ChildCount()); i++ {
-			child := defNode.Child(i)
-			if child.Type() == "type_spec" {
-				return child.ChildByFieldName("type")
-			}
-		}
-	}
-	return defNode.ChildByFieldName("type")
-}
-
 // extractCallName extracts the callable expression text from a call node.
 // @intent derive stable callee names for call edge fingerprints across grammars
 func (w *Walker) extractCallName(callNode *sitter.Node, content []byte) string {
@@ -475,82 +458,6 @@ func (w *Walker) extractCallName(callNode *sitter.Node, content []byte) string {
 		}
 	}
 	return callNode.Content(content)
-}
-
-// extractInterfaceMethods lists method names declared by an interface node.
-// @intent gather interface contracts for later structural implementation matching
-// @return method names declared directly on the interface node
-func (w *Walker) extractInterfaceMethods(ifaceNode *sitter.Node, content []byte) []string {
-	var methods []string
-	for i := 0; i < int(ifaceNode.ChildCount()); i++ {
-		child := ifaceNode.Child(i)
-		if child == nil {
-			continue
-		}
-		if child.Type() == "method_spec" || child.Type() == "method_elem" {
-			nameNode := child.ChildByFieldName("name")
-			if nameNode == nil {
-				for j := 0; j < int(child.ChildCount()); j++ {
-					gc := child.Child(j)
-					if gc != nil && gc.Type() == "field_identifier" {
-						methods = append(methods, gc.Content(content))
-						break
-					}
-				}
-			} else {
-				methods = append(methods, nameNode.Content(content))
-			}
-		}
-	}
-	return methods
-}
-
-// extractEmbeddings builds inherits edges for embedded Go struct fields.
-// @intent capture composition-style inheritance encoded by anonymous embedded fields
-// @return edges representing embedded type relationships for the struct
-func (w *Walker) extractEmbeddings(structNode *sitter.Node, content []byte, filePath, structName string) []model.Edge {
-	var edges []model.Edge
-	for i := 0; i < int(structNode.ChildCount()); i++ {
-		child := structNode.Child(i)
-		if child == nil {
-			continue
-		}
-		if child.Type() == "field_declaration_list" {
-			for j := 0; j < int(child.ChildCount()); j++ {
-				field := child.Child(j)
-				if field == nil || field.Type() != "field_declaration" {
-					continue
-				}
-				hasFieldName := false
-				var typeName string
-				for k := 0; k < int(field.ChildCount()); k++ {
-					fc := field.Child(k)
-					if fc == nil {
-						continue
-					}
-					if fc.Type() == "field_identifier" {
-						hasFieldName = true
-					}
-					if fc.Type() == "type_identifier" {
-						typeName = fc.Content(content)
-					}
-					if fc.Type() == "pointer_type" {
-						typeName = strings.TrimPrefix(fc.Content(content), "*")
-					}
-				}
-				if !hasFieldName && typeName != "" {
-					line := int(field.StartPoint().Row) + 1
-					edges = append(edges, model.Edge{
-						Kind:        model.EdgeKindInherits,
-						FilePath:    filePath,
-						Line:        line,
-						Fingerprint: fmt.Sprintf("inherits:%s:%s:%s", filePath, structName, typeName),
-					})
-				}
-			}
-		}
-	}
-	return edges
 }
 
 // extractReceiverStr normalizes receiver text for qualified-name construction.
@@ -745,204 +652,6 @@ func (w *Walker) collectComments(node *sitter.Node, content []byte, comments *[]
 			w.collectComments(child, content, comments)
 		}
 	}
-}
-
-// collectDocstrings는 Python AST를 탐색하여 docstring CommentBlock 목록을 반환한다.
-//
-// 수집 조건 (Python PEP 257 기반):
-//   - 노드 타입이 expression_statement이고
-//   - 유일한 named child가 string 타입이며
-//   - 부모가 block 또는 module인 경우:
-//   - block: 부모 체인에 function_definition 또는 class_definition이 있어야 하고
-//     block 내 첫 번째 expression_statement>string만 수집한다.
-//   - module: 모듈 레벨 docstring (OwnerStartLine=0)
-//
-// @intent Python docstring 노드를 CommentBlock으로 승격하여 binder가 처리할 수 있게 준비
-// @sideEffect nodes 슬라이스를 참조하여 심볼 StartLine을 조회함 (변경 없음)
-// @requires w.spec.Name == "python"
-func (w *Walker) collectDocstrings(root *sitter.Node, content []byte, nodes []model.Node) []CommentBlock {
-	// 심볼 StartLine → 노드 인덱스 맵 (OwnerStartLine 결정에 사용)
-	startLineToNode := make(map[int]model.Node, len(nodes))
-	for _, n := range nodes {
-		if n.Kind != model.NodeKindFile {
-			startLineToNode[n.StartLine] = n
-		}
-	}
-
-	var results []CommentBlock
-	w.walkDocstrings(root, content, &results)
-	return results
-}
-
-// walkDocstrings는 AST를 재귀 탐색하며 Python docstring을 수집한다.
-// @intent collectDocstrings의 재귀 탐색 구현
-func (w *Walker) walkDocstrings(node *sitter.Node, content []byte, results *[]CommentBlock) {
-	if node == nil {
-		return
-	}
-
-	nodeType := node.Type()
-
-	// expression_statement 발견 시 docstring 여부 판별
-	if nodeType == "expression_statement" {
-		if cb, ok := w.tryExtractDocstring(node, content); ok {
-			*results = append(*results, cb)
-			// docstring 이후 자식은 탐색할 필요 없음
-			return
-		}
-	}
-
-	// 자식 노드 재귀 탐색
-	for i := 0; i < int(node.ChildCount()); i++ {
-		child := node.Child(i)
-		if child != nil {
-			w.walkDocstrings(child, content, results)
-		}
-	}
-}
-
-// tryExtractDocstring은 expression_statement 노드가 docstring 조건을 충족하면
-// CommentBlock을 반환한다. 조건 불충족 시 두 번째 반환값이 false.
-//
-// 조건:
-//  1. named child가 정확히 1개이고 그 타입이 "string"
-//  2. 부모가 "block" 또는 "module"
-//  3. block인 경우: block의 부모가 function_definition 또는 class_definition
-//     (decorated_definition으로 감싸진 경우 decorated_definition.StartLine 사용)
-//  4. block 안에서 첫 번째 expression_statement>string만 수집
-//
-// @intent Python docstring 수집 조건 판별과 CommentBlock 생성을 단일 함수로 캡슐화
-func (w *Walker) tryExtractDocstring(exprStmt *sitter.Node, content []byte) (CommentBlock, bool) {
-	// 조건 1: named child가 정확히 1개이고 타입이 "string"
-	if int(exprStmt.NamedChildCount()) != 1 {
-		return CommentBlock{}, false
-	}
-	stringNode := exprStmt.NamedChild(0)
-	if stringNode == nil || stringNode.Type() != "string" {
-		return CommentBlock{}, false
-	}
-
-	// 조건 2: 부모 타입 확인
-	parent := exprStmt.Parent()
-	if parent == nil {
-		return CommentBlock{}, false
-	}
-	parentType := parent.Type()
-
-	startLine := int(stringNode.StartPoint().Row) + 1
-	endLine := int(stringNode.EndPoint().Row) + 1
-	text := stringNode.Content(content)
-	if !isSupportedPythonDocstringLiteral(text) {
-		return CommentBlock{}, false
-	}
-
-	switch parentType {
-	case "module":
-		// 모듈 docstring: OwnerStartLine=0
-		// 모듈 내 첫 번째 expression_statement>string인지 확인
-		if !isFirstStringExprStmt(exprStmt, parent) {
-			return CommentBlock{}, false
-		}
-		w.logger.Debug("Python 모듈 docstring 수집",
-			"startLine", startLine, "endLine", endLine)
-		return CommentBlock{
-			StartLine:      startLine,
-			EndLine:        endLine,
-			Text:           text,
-			IsDocstring:    true,
-			OwnerStartLine: 0,
-		}, true
-
-	case "block":
-		// 조건 3: block의 부모가 function_definition 또는 class_definition
-		blockParent := parent.Parent()
-		if blockParent == nil {
-			return CommentBlock{}, false
-		}
-		blockParentType := blockParent.Type()
-		if blockParentType != "function_definition" && blockParentType != "class_definition" {
-			return CommentBlock{}, false
-		}
-
-		// 조건 4: block 내 첫 번째 expression_statement>string만 수집
-		if !isFirstStringExprStmt(exprStmt, parent) {
-			return CommentBlock{}, false
-		}
-
-		// OwnerStartLine 결정:
-		// function_definition/class_definition의 부모가 decorated_definition이면
-		// decorated_definition의 StartLine을 사용 (결정 A와 일치).
-		ownerNode := blockParent
-		if grandParent := blockParent.Parent(); grandParent != nil &&
-			grandParent.Type() == "decorated_definition" {
-			ownerNode = grandParent
-		}
-		ownerStartLine := int(ownerNode.StartPoint().Row) + 1
-
-		w.logger.Debug("Python 함수/클래스 docstring 수집",
-			"ownerType", blockParentType,
-			"ownerStartLine", ownerStartLine,
-			"startLine", startLine,
-			"endLine", endLine)
-
-		return CommentBlock{
-			StartLine:      startLine,
-			EndLine:        endLine,
-			Text:           text,
-			IsDocstring:    true,
-			OwnerStartLine: ownerStartLine,
-		}, true
-
-	default:
-		return CommentBlock{}, false
-	}
-}
-
-// @intent accept only Python string literal forms that can legally act as docstrings.
-func isSupportedPythonDocstringLiteral(text string) bool {
-	lower := strings.ToLower(text)
-	for _, quote := range []string{"\"\"\"", "'''"} {
-		idx := strings.Index(lower, quote)
-		if idx < 0 {
-			continue
-		}
-		prefix := lower[:idx]
-		if prefix == "" || prefix == "r" || prefix == "u" {
-			return true
-		}
-		return false
-	}
-	return false
-}
-
-// isFirstStringExprStmt는 exprStmt가 parentNode의 자식 중
-// 첫 번째 expression_statement>string 노드인지 확인한다.
-// @intent block 또는 module 내에서 두 번째 이후 string expression은 docstring이 아님
-func isFirstStringExprStmt(exprStmt *sitter.Node, parentNode *sitter.Node) bool {
-	for i := 0; i < int(parentNode.ChildCount()); i++ {
-		child := parentNode.Child(i)
-		if child == nil {
-			continue
-		}
-		if child.Type() != "expression_statement" {
-			// 비-expression_statement 노드는 건너뜀 (주석, 데코레이터 등)
-			continue
-		}
-		// 첫 번째 expression_statement를 발견했을 때 exprStmt와 동일한지 확인
-		if child.StartPoint().Row == exprStmt.StartPoint().Row &&
-			child.StartPoint().Column == exprStmt.StartPoint().Column {
-			// 이 expression_statement가 string을 유일한 named child로 갖는지도 재확인
-			if int(child.NamedChildCount()) == 1 {
-				nc := child.NamedChild(0)
-				if nc != nil && nc.Type() == "string" {
-					return true
-				}
-			}
-		}
-		// 첫 번째 expression_statement가 string이 아니거나 exprStmt와 다르면 false
-		return false
-	}
-	return false
 }
 
 // mergeCommentBlocks는 기존 comments와 새 docstrings를 StartLine 오름차순으로 병합한다.
