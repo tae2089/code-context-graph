@@ -205,8 +205,24 @@ type BuildStats struct {
 // @intent reuse GraphService traversal and parse limit policy for CLI and MCP updates
 type UpdateOptions struct {
 	BuildOptions
-	Syncer  IncrementalSyncer
-	Replace bool
+	Syncer           IncrementalSyncer
+	Replace          bool
+	FailOnUnreadable bool
+}
+
+// UnreadableFilesError signals that the update path encountered files it could
+// not stat or read while FailOnUnreadable was enabled.
+// @intent give webhook/server callers a structured failure they can surface instead of silent partial sync
+type UnreadableFilesError struct {
+	Files []string
+}
+
+func (e *UnreadableFilesError) Error() string {
+	if e == nil || len(e.Files) == 0 {
+		return "unreadable files encountered during update"
+	}
+	sample := e.Files[0]
+	return fmt.Sprintf("unreadable files encountered during update: count=%d sample=%s", len(e.Files), sample)
 }
 
 // Build walks source files, stores parsed graph data, and rebuilds search docs.
@@ -627,6 +643,12 @@ func (s *GraphService) prepareUpdateSpool(ctx context.Context, absDir string, op
 		return nil, err
 	}
 	unreadable.log(s.logger(), "update")
+	if opts.FailOnUnreadable {
+		if errUnreadable := unreadable.asError(); errUnreadable != nil {
+			spool.cleanup(s.logger())
+			return nil, errUnreadable
+		}
+	}
 	return spool, nil
 }
 
@@ -700,7 +722,11 @@ func (s *GraphService) applyUpdateSpoolInTx(ctx context.Context, txStore store.G
 		if txDB == nil {
 			return nil, trace.New("search rebuild requires transaction DB handle")
 		}
-		if err := s.rebuildSearchWithDB(ctx, txDB); err != nil {
+		nodeIDs, err := affectedNodeIDsForUpdate(ctx, txDB, existingNodesByFile, affectedUpdateFiles(spool.currentHashes, existingNodesByFile, spool.forceFiles), deletedFiles)
+		if err != nil {
+			return nil, trace.Wrap(err, "load affected search nodes")
+		}
+		if err := s.rebuildSearchNodesWithDB(ctx, txDB, nodeIDs); err != nil {
 			return nil, err
 		}
 	}
@@ -796,6 +822,11 @@ func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, 
 		return nil, trace.Wrap(err, "walk update directory")
 	}
 	unreadable.log(s.logger(), "update")
+	if opts.FailOnUnreadable {
+		if errUnreadable := unreadable.asError(); errUnreadable != nil {
+			return nil, errUnreadable
+		}
+	}
 
 	existingFiles, existingNodesByFile, err := existingGraphFileState(ctx, s.DB)
 	if err != nil {
@@ -822,11 +853,80 @@ func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, 
 		addSyncStats(stats, forcedStats)
 	}
 	if !opts.SkipSearchRebuild {
-		if err := s.rebuildSearch(ctx); err != nil {
+		nodeIDs, err := affectedNodeIDsForUpdate(ctx, s.DB, existingNodesByFile, affectedUpdateFiles(currentHashes, existingNodesByFile, forceFiles), existingFilesMissingFrom(files, existingFiles))
+		if err != nil {
+			return nil, trace.Wrap(err, "load affected search nodes")
+		}
+		if err := s.rebuildSearchNodes(ctx, nodeIDs); err != nil {
 			return nil, err
 		}
 	}
 	return stats, nil
+}
+
+func affectedUpdateFiles(currentHashes map[string]string, existingNodesByFile map[string][]model.Node, forceFiles map[string]struct{}) []string {
+	files := make([]string, 0)
+	for filePath, hash := range currentHashes {
+		existing := existingNodesByFile[filePath]
+		_, forced := forceFiles[filePath]
+		if forced || len(existing) == 0 || existing[0].Hash != hash {
+			files = append(files, filePath)
+		}
+	}
+	return files
+}
+
+func existingFilesMissingFrom(files map[string]incremental.FileInfo, existingFiles []string) []string {
+	deleted := make([]string, 0)
+	for _, fp := range existingFiles {
+		if _, ok := files[fp]; !ok {
+			deleted = append(deleted, fp)
+		}
+	}
+	return deleted
+}
+
+func affectedNodeIDsForUpdate(ctx context.Context, db *gorm.DB, existingNodesByFile map[string][]model.Node, changedFiles, deletedFiles []string) ([]uint, error) {
+	seen := make(map[uint]struct{})
+	add := func(id uint) {
+		if id != 0 {
+			seen[id] = struct{}{}
+		}
+	}
+	for _, fp := range changedFiles {
+		for _, node := range existingNodesByFile[fp] {
+			add(node.ID)
+		}
+	}
+	for _, fp := range deletedFiles {
+		for _, node := range existingNodesByFile[fp] {
+			add(node.ID)
+		}
+	}
+	currentIDs, err := currentNodeIDsForFiles(ctx, db, changedFiles)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range currentIDs {
+		add(id)
+	}
+	ids := make([]uint, 0, len(seen))
+	for id := range seen {
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func currentNodeIDsForFiles(ctx context.Context, db *gorm.DB, filePaths []string) ([]uint, error) {
+	if db == nil || len(filePaths) == 0 {
+		return nil, nil
+	}
+	ns := ctxns.FromContext(ctx)
+	var ids []uint
+	if err := db.WithContext(ctx).Model(&model.Node{}).Where("namespace = ? AND file_path IN ?", ns, filePaths).Pluck("id", &ids).Error; err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 func syncIncrementalBatch(ctx context.Context, syncer IncrementalSyncer, txStore store.GraphStore, files map[string]incremental.FileInfo, existingFiles []string) (*incremental.SyncStats, error) {
@@ -880,6 +980,13 @@ func (s *GraphService) rebuildSearch(ctx context.Context) error {
 	return s.rebuildSearchWithDB(ctx, s.DB)
 }
 
+func (s *GraphService) rebuildSearchNodes(ctx context.Context, nodeIDs []uint) error {
+	if s.SearchBackend == nil || s.DB == nil {
+		return nil
+	}
+	return s.rebuildSearchNodesWithDB(ctx, s.DB, nodeIDs)
+}
+
 func (s *GraphService) rebuildSearchWithDB(ctx context.Context, db *gorm.DB) error {
 	if s.SearchBackend == nil || db == nil {
 		return nil
@@ -892,6 +999,21 @@ func (s *GraphService) rebuildSearchWithDB(ctx context.Context, db *gorm.DB) err
 		return trace.Wrap(err, "rebuild search index")
 	}
 	s.logger().Info("search index rebuilt", "documents", docCount)
+	return nil
+}
+
+func (s *GraphService) rebuildSearchNodesWithDB(ctx context.Context, db *gorm.DB, nodeIDs []uint) error {
+	if s.SearchBackend == nil || db == nil || len(nodeIDs) == 0 {
+		return nil
+	}
+	docCount, err := RefreshSearchDocumentsFor(ctx, db, nodeIDs)
+	if err != nil {
+		return err
+	}
+	if err := s.SearchBackend.RebuildNodes(ctx, db, nodeIDs); err != nil {
+		return trace.Wrap(err, "rebuild scoped search index")
+	}
+	s.logger().Info("search index partially rebuilt", "documents", docCount, "nodes", len(nodeIDs))
 	return nil
 }
 
@@ -1065,6 +1187,7 @@ func splitForcedFiles(files map[string]incremental.FileInfo, forceFiles map[stri
 type unreadableFileSummary struct {
 	count  int
 	sample string
+	files  []string
 }
 
 func (s *unreadableFileSummary) add(relPath string) {
@@ -1072,6 +1195,7 @@ func (s *unreadableFileSummary) add(relPath string) {
 	if s.sample == "" {
 		s.sample = relPath
 	}
+	s.files = append(s.files, relPath)
 }
 
 func (s unreadableFileSummary) log(logger *slog.Logger, phase string) {
@@ -1079,6 +1203,14 @@ func (s unreadableFileSummary) log(logger *slog.Logger, phase string) {
 		return
 	}
 	logger.Warn("skipped unreadable files", "phase", phase, "count", s.count, "sample", s.sample)
+}
+
+func (s unreadableFileSummary) asError() error {
+	if s.count == 0 {
+		return nil
+	}
+	files := append([]string(nil), s.files...)
+	return &UnreadableFilesError{Files: files}
 }
 
 func CheckParseFileSize(relPath string, size int64, maxFileBytes int64) error {
@@ -1098,6 +1230,19 @@ func CheckTotalParsedBytes(relPath string, current int64, next int64, maxTotalBy
 // RefreshSearchDocuments rebuilds namespace-scoped search_documents from current graph nodes.
 // @intent keep derived search documents consistent with graph state before FTS rebuilds
 func RefreshSearchDocuments(ctx context.Context, db *gorm.DB) (int, error) {
+	return refreshSearchDocuments(ctx, db, nil, false)
+}
+
+// RefreshSearchDocumentsFor rebuilds search_documents for the specified node IDs only.
+// @intent incremental update 경로에서 영향받은 문서만 갱신한다.
+func RefreshSearchDocumentsFor(ctx context.Context, db *gorm.DB, nodeIDs []uint) (int, error) {
+	if len(nodeIDs) == 0 {
+		return 0, nil
+	}
+	return refreshSearchDocuments(ctx, db, nodeIDs, true)
+}
+
+func refreshSearchDocuments(ctx context.Context, db *gorm.DB, nodeIDs []uint, scoped bool) (int, error) {
 	ns := ctxns.FromContext(ctx)
 	buildContent := func(n model.Node, annByNode map[uint]*model.Annotation) string {
 		var sb strings.Builder
@@ -1128,6 +1273,10 @@ func RefreshSearchDocuments(ctx context.Context, db *gorm.DB) (int, error) {
 		nodesQ := tx.WithContext(ctx).
 			Where("kind IN ?", []string{"function", "class", "type", "test", "file"}).
 			Where("namespace = ?", ns)
+		if scoped {
+			docsQ = docsQ.Where("node_id IN ?", nodeIDs)
+			nodesQ = nodesQ.Where("id IN ?", nodeIDs)
+		}
 		if err := docsQ.Delete(&model.SearchDocument{}).Error; err != nil {
 			return trace.Wrap(err, "clear search documents")
 		}

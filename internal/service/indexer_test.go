@@ -11,6 +11,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -155,6 +157,27 @@ func (r *recordingIncrementalSyncer) SyncWithExisting(ctx context.Context, files
 	r.files = files
 	r.existingFiles = append([]string(nil), existingFiles...)
 	return r.result, r.err
+}
+
+type scopedSearchBackendSpy struct {
+	rebuildCalls      int
+	rebuildNodesCalls int
+	nodeIDs           []uint
+}
+
+func (s *scopedSearchBackendSpy) Migrate(db *gorm.DB) error { return nil }
+func (s *scopedSearchBackendSpy) Rebuild(ctx context.Context, db *gorm.DB) error {
+	s.rebuildCalls++
+	return nil
+}
+func (s *scopedSearchBackendSpy) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs []uint) error {
+	s.rebuildNodesCalls++
+	s.nodeIDs = append([]uint(nil), nodeIDs...)
+	return nil
+}
+func (s *scopedSearchBackendSpy) PurgeNamespace(ctx context.Context, db *gorm.DB) error { return nil }
+func (s *scopedSearchBackendSpy) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error) {
+	return nil, nil
 }
 
 type failingBuildParser struct {
@@ -1269,6 +1292,140 @@ func TestForceReparseFiles_ChunksLargeChangedNodeLookup(t *testing.T) {
 	}
 }
 
+func TestUpdate_SearchRefreshIsScopedToAffectedNodes(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:?_pragma=journal_mode(WAL)"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate store: %v", err)
+	}
+	if err := db.AutoMigrate(&model.SearchDocument{}); err != nil {
+		t.Fatalf("migrate search docs: %v", err)
+	}
+
+	changed := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Changed", Kind: model.NodeKindFunction, Name: "Changed", FilePath: "changed.stub", StartLine: 1, EndLine: 1, Hash: "old", Language: "stub"}
+	untouched := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Untouched", Kind: model.NodeKindFunction, Name: "Untouched", FilePath: "untouched.stub", StartLine: 1, EndLine: 1, Hash: "same", Language: "stub"}
+	for _, node := range []*model.Node{&changed, &untouched} {
+		if err := db.Create(node).Error; err != nil {
+			t.Fatalf("create node: %v", err)
+		}
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: changed.ID, Content: "stale changed", Language: "stub"}).Error; err != nil {
+		t.Fatalf("seed changed doc: %v", err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: untouched.ID, Content: "keep untouched", Language: "stub"}).Error; err != nil {
+		t.Fatalf("seed untouched doc: %v", err)
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "changed.stub"), []byte("new"), 0o644); err != nil {
+		t.Fatalf("write changed: %v", err)
+	}
+	if err := db.Model(&model.Node{}).Where("id = ?", changed.ID).Update("hash", "old").Error; err != nil {
+		t.Fatalf("reset changed hash: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "untouched.stub"), []byte("same"), 0o644); err != nil {
+		t.Fatalf("write untouched: %v", err)
+	}
+	untouchedHash := sha256.Sum256([]byte("same"))
+	if err := db.Model(&model.Node{}).Where("id = ?", untouched.ID).Update("hash", hex.EncodeToString(untouchedHash[:])).Error; err != nil {
+		t.Fatalf("update untouched hash: %v", err)
+	}
+	backend := &scopedSearchBackendSpy{}
+	svc := &GraphService{
+		Store:         st,
+		DB:            db,
+		SearchBackend: backend,
+		Parsers:       map[string]Parser{".stub": failingBuildParser{}},
+		Logger:        slog.Default(),
+	}
+	syncer := incremental.NewWithRegistry(st, map[string]incremental.Parser{".stub": failingBuildParser{}}, incremental.WithLogger(slog.Default()))
+
+	stats, err := svc.Update(context.Background(), UpdateOptions{BuildOptions: BuildOptions{Dir: dir}, Syncer: syncer})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if stats.Modified != 1 || stats.Skipped != 1 {
+		t.Fatalf("expected one modified and one skipped file, got %+v", stats)
+	}
+	if backend.rebuildCalls != 0 {
+		t.Fatalf("expected no full search rebuild, got %d", backend.rebuildCalls)
+	}
+	if backend.rebuildNodesCalls != 1 {
+		t.Fatalf("expected one scoped search rebuild, got %d", backend.rebuildNodesCalls)
+	}
+
+	var newChanged model.Node
+	if err := db.Where("file_path = ? AND hash = ?", "changed.stub", "new").First(&newChanged).Error; err != nil {
+		t.Fatalf("load new changed node: %v", err)
+	}
+	if slices.Contains(backend.nodeIDs, untouched.ID) {
+		t.Fatalf("expected untouched node not to be scoped, got %v", backend.nodeIDs)
+	}
+	if !slices.Contains(backend.nodeIDs, changed.ID) || !slices.Contains(backend.nodeIDs, newChanged.ID) {
+		t.Fatalf("expected old and new changed node ids in scope, got %v old=%d new=%d", backend.nodeIDs, changed.ID, newChanged.ID)
+	}
+
+	var untouchedDoc model.SearchDocument
+	if err := db.Where("node_id = ?", untouched.ID).First(&untouchedDoc).Error; err != nil {
+		t.Fatalf("load untouched doc: %v", err)
+	}
+	if untouchedDoc.Content != "keep untouched" {
+		t.Fatalf("expected skipped file search doc preserved, got %q", untouchedDoc.Content)
+	}
+}
+
+func TestUpdate_SearchRefreshEmptyScopeIsNoOp(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:?_pragma=journal_mode(WAL)"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate store: %v", err)
+	}
+	if err := db.AutoMigrate(&model.SearchDocument{}); err != nil {
+		t.Fatalf("migrate search docs: %v", err)
+	}
+	node := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Keep", Kind: model.NodeKindFunction, Name: "Keep", FilePath: "keep.stub", StartLine: 1, EndLine: 1, Hash: "same", Language: "stub"}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: node.ID, Content: "keep doc", Language: "stub"}).Error; err != nil {
+		t.Fatalf("seed doc: %v", err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "keep.stub"), []byte("same"), 0o644); err != nil {
+		t.Fatalf("write keep: %v", err)
+	}
+	keepHash := sha256.Sum256([]byte("same"))
+	if err := db.Model(&model.Node{}).Where("id = ?", node.ID).Update("hash", hex.EncodeToString(keepHash[:])).Error; err != nil {
+		t.Fatalf("update keep hash: %v", err)
+	}
+	backend := &scopedSearchBackendSpy{}
+	svc := &GraphService{
+		Store:         st,
+		DB:            db,
+		SearchBackend: backend,
+		Parsers:       map[string]Parser{".stub": failingBuildParser{}},
+		Logger:        slog.Default(),
+	}
+	syncer := incremental.NewWithRegistry(st, map[string]incremental.Parser{".stub": failingBuildParser{}}, incremental.WithLogger(slog.Default()))
+
+	stats, err := svc.Update(context.Background(), UpdateOptions{BuildOptions: BuildOptions{Dir: dir}, Syncer: syncer})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if stats.Skipped != 1 {
+		t.Fatalf("expected file skipped, got %+v", stats)
+	}
+	if backend.rebuildCalls != 0 || backend.rebuildNodesCalls != 0 {
+		t.Fatalf("expected empty search scope no-op, full=%d scoped=%d", backend.rebuildCalls, backend.rebuildNodesCalls)
+	}
+}
+
 func TestBuild_ContextCanceledBeforeMutationPreservesPreviousGraph(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {
@@ -1372,6 +1529,9 @@ type failSearchBackend struct {
 }
 
 func (f *failSearchBackend) Rebuild(ctx context.Context, db *gorm.DB) error { return f.err }
+func (f *failSearchBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs []uint) error {
+	return f.err
+}
 func (f *failSearchBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error {
 	return f.err
 }
@@ -1599,6 +1759,103 @@ func TestRefreshSearchDocuments_TransactionRollsBackOnInsertFailure(t *testing.T
 	}
 }
 
+func TestRefreshSearchDocumentsFor_RefreshesOnlyScopedNodes(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate store: %v", err)
+	}
+	if err := db.AutoMigrate(&model.SearchDocument{}); err != nil {
+		t.Fatalf("migrate search docs: %v", err)
+	}
+
+	changed := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Changed", Kind: model.NodeKindFunction, Name: "Changed", FilePath: "changed.go", StartLine: 1, EndLine: 2, Language: "go"}
+	untouched := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Untouched", Kind: model.NodeKindFunction, Name: "Untouched", FilePath: "untouched.go", StartLine: 1, EndLine: 2, Language: "go"}
+	foreign := model.Node{Namespace: "tenant-a", QualifiedName: "pkg.Foreign", Kind: model.NodeKindFunction, Name: "Foreign", FilePath: "foreign.go", StartLine: 1, EndLine: 2, Language: "go"}
+	for _, node := range []*model.Node{&changed, &untouched, &foreign} {
+		if err := db.Create(node).Error; err != nil {
+			t.Fatalf("create node: %v", err)
+		}
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: changed.ID, Content: "stale changed", Language: "go"}).Error; err != nil {
+		t.Fatalf("seed changed doc: %v", err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: untouched.ID, Content: "keep untouched", Language: "go"}).Error; err != nil {
+		t.Fatalf("seed untouched doc: %v", err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: "tenant-a", NodeID: foreign.ID, Content: "keep foreign", Language: "go"}).Error; err != nil {
+		t.Fatalf("seed foreign doc: %v", err)
+	}
+
+	count, err := RefreshSearchDocumentsFor(context.Background(), db, []uint{changed.ID, foreign.ID})
+	if err != nil {
+		t.Fatalf("refresh scoped: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected one default namespace doc refreshed, got %d", count)
+	}
+
+	var changedDoc, untouchedDoc, foreignDoc model.SearchDocument
+	if err := db.Where("node_id = ?", changed.ID).First(&changedDoc).Error; err != nil {
+		t.Fatalf("load changed doc: %v", err)
+	}
+	if err := db.Where("node_id = ?", untouched.ID).First(&untouchedDoc).Error; err != nil {
+		t.Fatalf("load untouched doc: %v", err)
+	}
+	if err := db.Where("node_id = ?", foreign.ID).First(&foreignDoc).Error; err != nil {
+		t.Fatalf("load foreign doc: %v", err)
+	}
+	if changedDoc.Content == "stale changed" || !strings.Contains(changedDoc.Content, "pkg.Changed") {
+		t.Fatalf("expected changed doc rebuilt, got %q", changedDoc.Content)
+	}
+	if untouchedDoc.Content != "keep untouched" {
+		t.Fatalf("expected untouched doc preserved, got %q", untouchedDoc.Content)
+	}
+	if foreignDoc.Content != "keep foreign" {
+		t.Fatalf("expected foreign doc preserved, got %q", foreignDoc.Content)
+	}
+}
+
+func TestRefreshSearchDocumentsFor_EmptyScopeIsNoOp(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate store: %v", err)
+	}
+	if err := db.AutoMigrate(&model.SearchDocument{}); err != nil {
+		t.Fatalf("migrate search docs: %v", err)
+	}
+	node := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Keep", Kind: model.NodeKindFunction, Name: "Keep", FilePath: "keep.go", StartLine: 1, EndLine: 2, Language: "go"}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: node.ID, Content: "stale keep", Language: "go"}).Error; err != nil {
+		t.Fatalf("seed doc: %v", err)
+	}
+
+	count, err := RefreshSearchDocumentsFor(context.Background(), db, nil)
+	if err != nil {
+		t.Fatalf("refresh empty scope: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected empty scope no-op count, got %d", count)
+	}
+
+	var doc model.SearchDocument
+	if err := db.Where("node_id = ?", node.ID).First(&doc).Error; err != nil {
+		t.Fatalf("load doc: %v", err)
+	}
+	if doc.Content != "stale keep" {
+		t.Fatalf("expected stale doc preserved for empty scope, got %q", doc.Content)
+	}
+}
+
 func TestRefreshSearchDocuments_RebuildsPerBatchWithoutAccumulatingGlobalSlice(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {
@@ -1669,5 +1926,102 @@ func assertFunctionNamesByFile(t *testing.T, st *gormstore.Store, ctx context.Co
 	sort.Strings(want)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("function names in %s: got=%v want=%v", filePath, got, want)
+	}
+}
+
+func TestUpdate_FailOnUnreadable_FailsFastWithTypedError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("broken symlink unreadable path scenario is unix-specific")
+	}
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.Node{}); err != nil {
+		t.Fatalf("migrate nodes: %v", err)
+	}
+
+	svc := &GraphService{
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "keep.go"), []byte("package sample\n\nfunc Keep() {}\n"), 0o644); err != nil {
+		t.Fatalf("write keep file: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(tmpDir, "missing.go"), filepath.Join(tmpDir, "broken.go")); err != nil {
+		t.Fatalf("create broken symlink: %v", err)
+	}
+
+	syncer := &recordingIncrementalSyncer{result: &incremental.SyncStats{}}
+	_, err = svc.Update(context.Background(), UpdateOptions{
+		BuildOptions:      BuildOptions{Dir: tmpDir},
+		Syncer:            syncer,
+		FailOnUnreadable:  true,
+	})
+	if err == nil {
+		t.Fatal("expected fail-fast error on unreadable file")
+	}
+	var unreadable *UnreadableFilesError
+	if !errors.As(err, &unreadable) {
+		t.Fatalf("expected *UnreadableFilesError, got %T: %v", err, err)
+	}
+	if len(unreadable.Files) == 0 {
+		t.Fatal("expected at least one unreadable file in error")
+	}
+	foundBroken := false
+	for _, f := range unreadable.Files {
+		if f == "broken.go" {
+			foundBroken = true
+		}
+	}
+	if !foundBroken {
+		t.Fatalf("expected broken.go in unreadable files, got %v", unreadable.Files)
+	}
+	if syncer.files != nil {
+		t.Fatalf("expected syncer not to run when failing fast, got files=%v", syncer.files)
+	}
+}
+
+func TestUpdate_FailOnUnreadable_DefaultStillWarnsAndSkips(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("broken symlink unreadable path scenario is unix-specific")
+	}
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.Node{}); err != nil {
+		t.Fatalf("migrate nodes: %v", err)
+	}
+
+	svc := &GraphService{
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "keep.go"), []byte("package sample\n\nfunc Keep() {}\n"), 0o644); err != nil {
+		t.Fatalf("write keep file: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(tmpDir, "missing.go"), filepath.Join(tmpDir, "broken.go")); err != nil {
+		t.Fatalf("create broken symlink: %v", err)
+	}
+
+	syncer := &recordingIncrementalSyncer{result: &incremental.SyncStats{}}
+	_, err = svc.Update(context.Background(), UpdateOptions{
+		BuildOptions: BuildOptions{Dir: tmpDir},
+		Syncer:       syncer,
+	})
+	if err != nil {
+		t.Fatalf("expected default warn-and-skip, got error: %v", err)
+	}
+	if _, ok := syncer.files["keep.go"]; !ok {
+		t.Fatalf("expected keep.go to be synced under default policy, got %v", syncer.files)
 	}
 }
