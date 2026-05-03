@@ -352,6 +352,26 @@ func TestResolveImportsFromPrefersPackageNodeOverFileRepresentative(t *testing.T
 	}
 }
 
+func TestResolveImportsFromPrefersAliasPackageNodeOverFiles(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 10, QualifiedName: "src/app/main.ts", Name: "src/app/main.ts", Kind: model.NodeKindFile, FilePath: "src/app/main.ts", Language: "typescript"},
+		{ID: 20, QualifiedName: "src/utils/math.ts", Name: "src/utils/math.ts", Kind: model.NodeKindFile, FilePath: "src/utils/math.ts", Language: "typescript"},
+		{ID: 30, QualifiedName: "@app/utils", Name: "utils", Kind: model.NodeKindPackage, FilePath: "src/utils", Language: "typescript"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{{
+		Kind:        model.EdgeKindImportsFrom,
+		FilePath:    "src/app/main.ts",
+		Line:        1,
+		Fingerprint: "imports_from:src/app/main.ts:@app/utils:1",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := edges[0].ToNodeID; got != 30 {
+		t.Fatalf("ToNodeID=%d, want alias package node 30", got)
+	}
+}
+
 func TestResolveImportsFromLeavesAmbiguousSuffixUnresolved(t *testing.T) {
 	lookup := fakeLookup{nodes: []model.Node{
 		{ID: 10, QualifiedName: "cmd/main.go", Name: "cmd/main.go", Kind: model.NodeKindFile, FilePath: "cmd/main.go", Language: "go"},
@@ -382,6 +402,28 @@ func TestResolveInheritsBindsTypeEndpoints(t *testing.T) {
 		FilePath:    "child.go",
 		Line:        4,
 		Fingerprint: "inherits:child.go:Child:Parent",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := edges[0].FromNodeID; got != 1 {
+		t.Fatalf("FromNodeID=%d, want 1", got)
+	}
+	if got := edges[0].ToNodeID; got != 2 {
+		t.Fatalf("ToNodeID=%d, want 2", got)
+	}
+}
+
+func TestResolveInheritsBindsQualifiedTypeEndpoints(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "com.example.auth.User", Name: "User", Kind: model.NodeKindClass, FilePath: "User.kt", StartLine: 3, EndLine: 5, Language: "kotlin"},
+		{ID: 2, QualifiedName: "com.example.auth.Base", Name: "Base", Kind: model.NodeKindClass, FilePath: "Base.kt", StartLine: 3, EndLine: 5, Language: "kotlin"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{{
+		Kind:        model.EdgeKindInherits,
+		FilePath:    "User.kt",
+		Line:        3,
+		Fingerprint: "inherits:User.kt:com.example.auth.User:Base",
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -558,3 +600,33 @@ func TestResolveInterfaceSelectorIsGoOnly(t *testing.T) {
 		t.Fatalf("non-Go interface selector ToNodeID=%d, want unresolved 0", edges[1].ToNodeID)
 	}
 }
+
+func TestPackagePrefixUsesLanguageDispatchWhenRegistered(t *testing.T) {
+	original := languageDispatchRegistry
+	languageDispatchRegistry = map[string]languageDispatch{
+		"python": stubLanguageDispatch{},
+	}
+	defer func() {
+		languageDispatchRegistry = original
+	}()
+
+	node := model.Node{QualifiedName: "ignored.value", Name: "value", Language: "python"}
+	if got := packagePrefix(node); got != "stub.pkg" {
+		t.Fatalf("packagePrefix=%q, want stub.pkg", got)
+	}
+}
+
+type stubLanguageDispatch struct{}
+
+func (stubLanguageDispatch) Language() string { return "python" }
+func (stubLanguageDispatch) CollectQualifiedCallCandidates(model.Node, string) []string { return nil }
+func (stubLanguageDispatch) EnsureDispatchTargets(*model.Node, string, *resolveState) []string {
+	return nil
+}
+func (stubLanguageDispatch) ResolveSameReceiverCall(*model.Node, string, *resolveState) *model.Node {
+	return nil
+}
+func (stubLanguageDispatch) ResolveInterfaceDispatch(*model.Node, string, *resolveState) *model.Node {
+	return nil
+}
+func (stubLanguageDispatch) PackagePrefix(model.Node) string { return "stub.pkg" }

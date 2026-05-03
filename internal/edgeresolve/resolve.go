@@ -215,9 +215,9 @@ func collectQualifiedCandidates(edges []model.Edge, st *resolveState) []string {
 				if pkg != "" && bare != "" {
 					addName(&names, seen, pkg+"."+bare)
 				}
-				if caller.Language == "go" {
-					if iface, _, ok := interfaceMethodSelector(callee); ok && pkg != "" {
-						addName(&names, seen, pkg+"."+iface)
+				if dispatch := dispatchForLanguage(caller.Language); dispatch != nil {
+					for _, candidate := range dispatch.CollectQualifiedCallCandidates(*caller, callee) {
+						addName(&names, seen, candidate)
 					}
 				}
 			}
@@ -738,16 +738,12 @@ func (st *resolveState) ensureDispatchTargets(ctx context.Context, lookup NodeLo
 			continue
 		}
 		caller := enclosingCallable(st.nodesByFile[e.FilePath], e.Line)
-		if caller == nil || caller.Language != "go" {
+		dispatch := dispatchForLanguage(callerLanguage(caller))
+		if caller == nil || dispatch == nil {
 			continue
 		}
-		if receiver := receiverPrefix(*caller); receiver != "" {
-			addName(&names, seen, receiver+"."+lastSegment(callee))
-		}
-		if iface, method, ok := interfaceMethodSelector(callee); ok {
-			for _, impl := range st.goImplementersFor(caller, iface) {
-				addName(&names, seen, impl.QualifiedName+"."+method)
-			}
+		for _, candidate := range dispatch.EnsureDispatchTargets(caller, callee, st) {
+			addName(&names, seen, candidate)
 		}
 	}
 	if len(names) == 0 {
@@ -797,22 +793,6 @@ func (st *resolveState) addImplementer(iface model.Node, concrete model.Node) {
 	st.implementsBy[iface.Name] = appendUniqueNode(st.implementsBy[iface.Name], concrete)
 }
 
-// goImplementersFor finds known implementers of an interface for a given caller context.
-// @intent support Go interface method dispatch by finding candidate concrete types.
-func (st *resolveState) goImplementersFor(caller *model.Node, iface string) []model.Node {
-	if caller == nil || caller.Language != "go" {
-		return nil
-	}
-	var impls []model.Node
-	if pkg := packagePrefix(*caller); pkg != "" {
-		impls = append(impls, st.implementsBy[pkg+"."+iface]...)
-	}
-	if isExportedName(iface) {
-		impls = append(impls, st.implementsBy[iface]...)
-	}
-	return uniqueNodes(impls)
-}
-
 // resolveTypeEndpoint finds a type node (class/interface) by name or QN.
 // @intent resolve symbol references to physical type nodes in the graph.
 func resolveTypeEndpoint(st *resolveState, filePath, endpoint string) *model.Node {
@@ -835,41 +815,21 @@ func resolveTypeEndpoint(st *resolveState, filePath, endpoint string) *model.Nod
 // resolveSameReceiverCall attempts to resolve method calls within the same type.
 // @intent optimize resolution of 'this' or same-receiver method calls in Go.
 func resolveSameReceiverCall(caller *model.Node, callee string, st *resolveState) *model.Node {
-	if caller == nil || caller.Language != "go" {
+	dispatch := dispatchForLanguage(callerLanguage(caller))
+	if dispatch == nil {
 		return nil
 	}
-	receiver := receiverPrefix(*caller)
-	if receiver == "" {
-		return nil
-	}
-	return uniqueCallable(st.qnIndex[receiver+"."+lastSegment(callee)])
+	return dispatch.ResolveSameReceiverCall(caller, callee, st)
 }
 
 // resolveGoInterfaceDispatch attempts to resolve method calls through an interface.
 // @intent provide best-effort resolution for polymorphic calls by checking implementations.
 func resolveGoInterfaceDispatch(caller *model.Node, callee string, st *resolveState) *model.Node {
-	if caller == nil || caller.Language != "go" {
+	dispatch := dispatchForLanguage(callerLanguage(caller))
+	if dispatch == nil {
 		return nil
 	}
-	iface, method, ok := interfaceMethodSelector(callee)
-	if !ok {
-		return nil
-	}
-	callerPkg := packagePrefix(*caller)
-	requireSamePkg := !isExportedName(iface) || !isExportedName(method)
-	if requireSamePkg && callerPkg == "" {
-		return nil
-	}
-	var candidates []model.Node
-	for _, impl := range st.goImplementersFor(caller, iface) {
-		if requireSamePkg && packagePrefix(impl) != callerPkg {
-			continue
-		}
-		if target := uniqueCallable(st.qnIndex[impl.QualifiedName+"."+method]); target != nil {
-			candidates = append(candidates, *target)
-		}
-	}
-	return uniqueCallable(candidates)
+	return dispatch.ResolveInterfaceDispatch(caller, callee, st)
 }
 
 // implementsEndpoints parses an implementation edge fingerprint to extract endpoints.
@@ -887,34 +847,6 @@ func implementsEndpoints(edge model.Edge) (string, string, bool) {
 	impl := rest[:idx]
 	iface := rest[idx+1:]
 	return impl, iface, impl != "" && iface != ""
-}
-
-// interfaceMethodSelector parses a callee string into interface and method parts.
-// @intent identify polymorphic call targets in Go selector expressions.
-func interfaceMethodSelector(callee string) (string, string, bool) {
-	parts := strings.Split(callee, ".")
-	if len(parts) < 2 {
-		return "", "", false
-	}
-	iface := parts[len(parts)-2]
-	method := parts[len(parts)-1]
-	if iface == "" || method == "" {
-		return "", "", false
-	}
-	return iface, method, true
-}
-
-// receiverPrefix extracts the receiver type QN from a method's QN.
-// @intent identify the type a method belongs to in Go.
-func receiverPrefix(node model.Node) string {
-	if node.Language != "go" {
-		return ""
-	}
-	parts := strings.Split(node.QualifiedName, ".")
-	if len(parts) < 3 {
-		return ""
-	}
-	return strings.Join(parts[:len(parts)-1], ".")
 }
 
 // packageForFile identifies the package name for a given file based on its nodes.
@@ -1001,17 +933,23 @@ func containsTarget(edge model.Edge) (string, bool) {
 // packagePrefix extracts the package or module prefix from a node's QN.
 // @intent determine the logical namespace for a symbol.
 func packagePrefix(node model.Node) string {
-	if node.Language == "go" {
-		if idx := strings.Index(node.QualifiedName, "."); idx > 0 {
-			return node.QualifiedName[:idx]
-		}
-		return ""
+	if dispatch := dispatchForLanguage(node.Language); dispatch != nil {
+		return dispatch.PackagePrefix(node)
 	}
 	suffix := "." + node.Name
 	if strings.HasSuffix(node.QualifiedName, suffix) {
 		return strings.TrimSuffix(node.QualifiedName, suffix)
 	}
 	return ""
+}
+
+// callerLanguage safely returns the caller language when available.
+// @intent avoid repeated nil checks before dispatch strategy lookup.
+func callerLanguage(caller *model.Node) string {
+	if caller == nil {
+		return ""
+	}
+	return caller.Language
 }
 
 // lastSegment returns the final part of a dot-separated QN.
