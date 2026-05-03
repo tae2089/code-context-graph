@@ -52,3 +52,6 @@ rules:
   - pattern: "testdata/.*"
     category: orphan
     action: ignore
+  - pattern: npm/.*
+    category: orphan
+    action: ignore

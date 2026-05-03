@@ -50,6 +50,40 @@ func TestLint_DetectsOrphanDocs(t *testing.T) {
 	}
 }
 
+func TestLint_ExcludesDocFilesFromOrphans(t *testing.T) {
+	db := newLintTestDB(t)
+	outDir := t.TempDir()
+
+	pkgDir := filepath.Join(outDir, "pkg")
+	scriptsDir := filepath.Join(outDir, "scripts")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "service_test.go.md"), []byte("# pkg/service_test.go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scriptsDir, "deploy.sh.md"), []byte("# scripts/deploy.sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	gen := &Generator{
+		DB:      db,
+		OutDir:  outDir,
+		Exclude: []string{".*_test\\.go$", ".*\\.sh$"},
+	}
+	report, err := gen.Lint()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(report.Orphans) != 0 {
+		t.Fatalf("expected excluded docs not to be reported as orphans, got %v", report.Orphans)
+	}
+}
+
 func TestLint_DetectsMissingDocs(t *testing.T) {
 	db := newLintTestDB(t)
 	outDir := t.TempDir()

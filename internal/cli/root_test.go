@@ -122,6 +122,37 @@ func TestRoot_DBDependentCommandsStillCallInitFunc(t *testing.T) {
 	}
 }
 
+func TestRoot_LintMigrateAutoRulesSkipsDBInit(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+	initCalled := 0
+	deps.InitFunc = func(dbDriver, dsn string) error {
+		initCalled++
+		return nil
+	}
+
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, ".ccg.yaml")
+	if err := os.WriteFile(cfgFile, []byte(`rules:
+  - pattern: "pkg/auto.go::Move"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-05-03"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := executeCmd(deps, stdout, stderr, "--config", cfgFile, "lint", "--history-dir", dir, "--migrate-auto-rules"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if initCalled != 0 {
+		t.Fatalf("InitFunc called %d times, want 0", initCalled)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "auto-rules.yaml")); err != nil {
+		t.Fatalf("expected auto-rules.yaml to be created: %v", err)
+	}
+}
+
 func TestRoot_MigrateCommandCallsMigrateFuncOnly(t *testing.T) {
 	deps, stdout, stderr := newTestDeps()
 	initCalled := 0

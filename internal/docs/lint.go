@@ -71,6 +71,9 @@ func (g *Generator) Lint() (*LintReport, error) {
 
 			// Strip .md suffix to get the source path.
 			srcPath := strings.TrimSuffix(rel, ".md")
+			if len(g.Exclude) > 0 && pathutil.MatchExcludes(g.Exclude, srcPath) {
+				return nil
+			}
 			docFiles[srcPath] = info
 			return nil
 		})

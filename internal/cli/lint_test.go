@@ -56,6 +56,41 @@ func TestLintCommand_ReportsOrphan(t *testing.T) {
 	}
 }
 
+func TestLintCommand_IgnoreRule_FiltersOrphanReport(t *testing.T) {
+	deps, stdout, stderr, _ := setupLintTest(t)
+
+	outDir := t.TempDir()
+	orphanDir := filepath.Join(outDir, "pkg")
+	if err := os.MkdirAll(orphanDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(orphanDir, "gone_test.go.md"), []byte("# pkg/gone_test.go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfgFile := filepath.Join(t.TempDir(), ".ccg.yaml")
+	if err := os.WriteFile(cfgFile, []byte(`rules:
+  - pattern: ".*_test\\.go$"
+    category: Orphan
+    action: ignore
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	histDir := t.TempDir()
+	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--config", cfgFile, "--history-dir", histDir); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := stdout.String()
+	if strings.Contains(out, "pkg/gone_test.go") {
+		t.Errorf("expected ignored orphan to be filtered from output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "All docs are clean") {
+		t.Errorf("expected clean report after ignore rule filtering, got:\n%s", out)
+	}
+}
+
 func TestLintCommand_ReportsMissing(t *testing.T) {
 	deps, stdout, stderr, db := setupLintTest(t)
 
