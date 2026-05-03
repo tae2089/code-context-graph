@@ -518,6 +518,32 @@ var _ y3.Marshaler = (*MyType)(nil)
 	t.Fatalf("expected explicit versioned-import alias to normalize to yaml, got %#v", implEdges)
 }
 
+func TestParseGo_RepoLocalImportUsesPackageClauseName(t *testing.T) {
+	src := `package main
+
+import dep "github.com/example/project/internal/api"
+
+type MyType struct{}
+
+var _ dep.Service = (*MyType)(nil)
+`
+	w := NewWalker(GoSpec)
+	ctx := WithGoImportPackages(context.Background(), map[string]string{
+		"github.com/example/project/internal/api": "contracts",
+	})
+	_, edges, _, err := w.ParseWithComments(ctx, "main.go", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
+	for _, e := range implEdges {
+		if e.Fingerprint == "implements:main.go:MyType:contracts.Service" {
+			return
+		}
+	}
+	t.Fatalf("expected repo-local import alias to use package clause name, got %#v", implEdges)
+}
+
 func TestParseGo_StructEmbedding(t *testing.T) {
 	src := `package main
 

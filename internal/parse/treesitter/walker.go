@@ -190,6 +190,7 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 			Content:    content,
 			FilePath:   filePath,
 			Package:    pkgName,
+			GoPackages: goImportPackagesFromContext(ctx),
 			Nodes:      nodes,
 			Interfaces: interfaces,
 		})...)

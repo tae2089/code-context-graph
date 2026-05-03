@@ -1,6 +1,7 @@
 package treesitter
 
 import (
+	"context"
 	"fmt"
 	"path"
 	"regexp"
@@ -25,8 +26,38 @@ type SemanticContext struct {
 	Content    []byte
 	FilePath   string
 	Package    string
+	GoPackages map[string]string
 	Nodes      []model.Node
 	Interfaces []interfaceInfo
+}
+
+type goImportPackagesContextKey struct{}
+
+// WithGoImportPackages stores repo-local Go import-path to package-name mappings in ctx.
+// @intent let build/update provide package-clause-aware import normalization without widening parser interfaces.
+func WithGoImportPackages(ctx context.Context, packages map[string]string) context.Context {
+	if len(packages) == 0 {
+		return ctx
+	}
+	cloned := make(map[string]string, len(packages))
+	for importPath, pkgName := range packages {
+		if importPath == "" || pkgName == "" {
+			continue
+		}
+		cloned[importPath] = pkgName
+	}
+	if len(cloned) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, goImportPackagesContextKey{}, cloned)
+}
+
+func goImportPackagesFromContext(ctx context.Context) map[string]string {
+	if ctx == nil {
+		return nil
+	}
+	packages, _ := ctx.Value(goImportPackagesContextKey{}).(map[string]string)
+	return packages
 }
 
 // NoopSemantics is the default implementation for languages without extra inference.
@@ -44,7 +75,7 @@ type GoSemantics struct{}
 func (GoSemantics) AdditionalEdges(ctx SemanticContext) []model.Edge {
 	var edges []model.Edge
 	edges = append(edges, goStructuralImplements(ctx.Nodes, ctx.Interfaces, ctx.FilePath)...)
-	edges = append(edges, goAssertionImplements(ctx.Root, ctx.Content, ctx.FilePath)...)
+	edges = append(edges, goAssertionImplements(ctx.Root, ctx.Content, ctx.FilePath, ctx.GoPackages)...)
 	return edges
 }
 
@@ -97,11 +128,11 @@ func goStructuralImplements(nodes []model.Node, ifaces []interfaceInfo, filePath
 	return edges
 }
 
-func goAssertionImplements(root *sitter.Node, content []byte, filePath string) []model.Edge {
+func goAssertionImplements(root *sitter.Node, content []byte, filePath string, repoPackages map[string]string) []model.Edge {
 	if root == nil {
 		return nil
 	}
-	importAliases := goImportAliases(root, content)
+	importAliases := goImportAliases(root, content, repoPackages)
 	var edges []model.Edge
 	var walk func(*sitter.Node)
 	walk = func(n *sitter.Node) {
@@ -126,7 +157,7 @@ func goAssertionImplements(root *sitter.Node, content []byte, filePath string) [
 	return edges
 }
 
-func goImportAliases(root *sitter.Node, content []byte) map[string]string {
+func goImportAliases(root *sitter.Node, content []byte, repoPackages map[string]string) map[string]string {
 	aliases := make(map[string]string)
 	var walk func(*sitter.Node)
 	walk = func(n *sitter.Node) {
@@ -139,6 +170,9 @@ func goImportAliases(root *sitter.Node, content []byte) map[string]string {
 				importPath = strings.Trim(pathNode.Content(content), "\"`")
 			}
 			pkg := defaultGoImportName(importPath)
+			if repoPkg := repoPackages[importPath]; repoPkg != "" {
+				pkg = repoPkg
+			}
 			if pkg != "." && pkg != "/" && pkg != "" {
 				alias := pkg
 				if nameNode := n.ChildByFieldName("name"); nameNode != nil {
