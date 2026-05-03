@@ -6,6 +6,10 @@
 (interface_declaration
   name: (identifier) @name.interface) @definition.interface
 
+; Package
+(package_declaration
+  (scoped_identifier) @name.package) @definition.package
+
 ; Methods
 (method_declaration
   name: (identifier) @name.function) @definition.function

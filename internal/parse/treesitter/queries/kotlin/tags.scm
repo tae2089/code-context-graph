@@ -6,6 +6,10 @@
 (object_declaration
   (type_identifier) @name.class) @definition.class
 
+; Package
+(package_header
+  (identifier) @name.package) @definition.package
+
 ; Functions
 (function_declaration
   (simple_identifier) @name.function) @definition.function

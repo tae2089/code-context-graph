@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -71,4 +72,537 @@ func TestGoPackageDiscoverySuppressesAmbiguousPackageClauses(t *testing.T) {
 	if _, ok := packages["github.com/example/project/internal/api"]; ok {
 		t.Fatalf("expected conflicting package clauses to suppress package, got %+v", packages)
 	}
+}
+
+func TestPythonPackageDiscovery_BuildsPackagesFromPythonFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("pkg/sub")
+	mustWrite("pkg/__init__.py", "")
+	mustWrite("pkg/sub/module.py", "class Service: pass\n")
+
+	packages, err := (PythonPackageDiscovery{}).DiscoverPackages(context.Background(), PackageDiscoveryOptions{
+		RootDir: tmpDir,
+		WalkFiles: func(fn func(path, relPath string) error) error {
+			return filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info == nil || info.IsDir() {
+					return err
+				}
+				relPath, err := filepath.Rel(tmpDir, path)
+				if err != nil {
+					return err
+				}
+				return fn(path, relPath)
+			})
+		},
+		HasParser: func(ext string) bool {
+			return ext == ".py"
+		},
+	})
+	if err != nil {
+		t.Fatalf("DiscoverPackages: %v", err)
+	}
+	if len(packages) != 2 {
+		t.Fatalf("expected 2 packages, got %+v", packages)
+	}
+	pkg, ok := packages["pkg"]
+	if !ok {
+		t.Fatalf("expected package pkg, got %+v", packages)
+	}
+	if pkg.Name != "pkg" || pkg.Dir != "pkg" || pkg.Language != "python" {
+		t.Fatalf("unexpected pkg metadata: %+v", pkg)
+	}
+	if len(pkg.Files) != 1 || pkg.Files[0] != "pkg/__init__.py" {
+		t.Fatalf("unexpected pkg files: %+v", pkg.Files)
+	}
+	sub, ok := packages["pkg.sub"]
+	if !ok {
+		t.Fatalf("expected package pkg.sub, got %+v", packages)
+	}
+	if sub.Name != "sub" || sub.Dir != "pkg/sub" || sub.Language != "python" {
+		t.Fatalf("unexpected pkg.sub metadata: %+v", sub)
+	}
+	if len(sub.Files) != 1 || sub.Files[0] != "pkg/sub/module.py" {
+		t.Fatalf("unexpected pkg.sub files: %+v", sub.Files)
+	}
+}
+
+func TestPythonPackageDiscovery_UsesRepoRelativeSrcLayoutPackageNames(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpDir, "src", "pkg"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "src", "pkg", "module.py"), []byte("class Service: pass\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	packages, err := (PythonPackageDiscovery{}).DiscoverPackages(context.Background(), PackageDiscoveryOptions{
+		RootDir: tmpDir,
+		WalkFiles: func(fn func(path, relPath string) error) error {
+			return filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info == nil || info.IsDir() {
+					return err
+				}
+				relPath, err := filepath.Rel(tmpDir, path)
+				if err != nil {
+					return err
+				}
+				return fn(path, relPath)
+			})
+		},
+		HasParser: func(ext string) bool {
+			return ext == ".py"
+		},
+	})
+	if err != nil {
+		t.Fatalf("DiscoverPackages: %v", err)
+	}
+	if _, ok := packages["src.pkg"]; !ok {
+		t.Fatalf("expected src.pkg package, got %+v", packages)
+	}
+	if _, ok := packages["pkg"]; ok {
+		t.Fatalf("did not expect runtime-style pkg package, got %+v", packages)
+	}
+}
+
+func TestPythonPackageDiscovery_DoesNotSynthesizeParentNamespacePackages(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpDir, "pkg", "sub"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "pkg", "sub", "module.py"), []byte("class Service: pass\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	packages, err := (PythonPackageDiscovery{}).DiscoverPackages(context.Background(), PackageDiscoveryOptions{
+		RootDir: tmpDir,
+		WalkFiles: func(fn func(path, relPath string) error) error {
+			return filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info == nil || info.IsDir() {
+					return err
+				}
+				relPath, err := filepath.Rel(tmpDir, path)
+				if err != nil {
+					return err
+				}
+				return fn(path, relPath)
+			})
+		},
+		HasParser: func(ext string) bool {
+			return ext == ".py"
+		},
+	})
+	if err != nil {
+		t.Fatalf("DiscoverPackages: %v", err)
+	}
+	if _, ok := packages["pkg.sub"]; !ok {
+		t.Fatalf("expected pkg.sub package, got %+v", packages)
+	}
+	if _, ok := packages["pkg"]; ok {
+		t.Fatalf("did not expect synthesized parent pkg package, got %+v", packages)
+	}
+}
+
+func TestTypeScriptPackageDiscovery_BuildsPackageAndAliasImportPaths(t *testing.T) {
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("src/utils")
+	mustWrite("package.json", `{"name":"@acme/app"}`)
+	mustWrite("tsconfig.json", `{"compilerOptions":{"baseUrl":".","paths":{"@app/*":["src/*"]}}}`)
+	mustWrite("src/utils/math.ts", "export const add = (a: number, b: number) => a + b;\n")
+
+	packages, err := (TypeScriptPackageDiscovery{}).DiscoverPackages(context.Background(), PackageDiscoveryOptions{
+		RootDir: tmpDir,
+		WalkFiles: func(fn func(path, relPath string) error) error {
+			return filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info == nil || info.IsDir() {
+					return err
+				}
+				relPath, err := filepath.Rel(tmpDir, path)
+				if err != nil {
+					return err
+				}
+				return fn(path, relPath)
+			})
+		},
+		HasParser: func(ext string) bool {
+			return ext == ".ts"
+		},
+	})
+	if err != nil {
+		t.Fatalf("DiscoverPackages: %v", err)
+	}
+	got := sortedPackageKeys(packages)
+	want := []string{"@acme/app/src/utils", "@app/utils", "@app/utils/math"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("package keys = %v, want %v", got, want)
+	}
+	for _, key := range want {
+		pkg := packages[key]
+		if pkg.Name != "utils" || pkg.Dir != "src/utils" || pkg.Language != "typescript" {
+			t.Fatalf("unexpected package metadata for %s: %+v", key, pkg)
+		}
+		if len(pkg.Files) != 1 || pkg.Files[0] != "src/utils/math.ts" {
+			t.Fatalf("unexpected package files for %s: %+v", key, pkg.Files)
+		}
+	}
+}
+
+func TestTypeScriptPackageDiscovery_RespectsBaseURLAndJSONCPaths(t *testing.T) {
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("src/utils")
+	mustWrite("package.json", `{"name":"@acme/app"}`)
+	mustWrite("tsconfig.json", "{\n  // comment\n  \"compilerOptions\": {\n    \"baseUrl\": \"src\",\n    \"paths\": {\n      \"@app/*\": [\"*\"]\n    }\n  }\n}\n")
+	mustWrite("src/utils/math.ts", "export const add = (a: number, b: number) => a + b;\n")
+
+	packages, err := (TypeScriptPackageDiscovery{}).DiscoverPackages(context.Background(), PackageDiscoveryOptions{
+		RootDir: tmpDir,
+		WalkFiles: func(fn func(path, relPath string) error) error {
+			return filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info == nil || info.IsDir() {
+					return err
+				}
+				relPath, err := filepath.Rel(tmpDir, path)
+				if err != nil {
+					return err
+				}
+				return fn(path, relPath)
+			})
+		},
+		HasParser: func(ext string) bool {
+			return ext == ".ts"
+		},
+	})
+	if err != nil {
+		t.Fatalf("DiscoverPackages: %v", err)
+	}
+	got := sortedPackageKeys(packages)
+	want := []string{"@acme/app/src/utils", "@app/utils", "@app/utils/math"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("package keys = %v, want %v", got, want)
+	}
+}
+
+func TestJavaScriptPackageDiscovery_BuildsPackageImportPathsFromPackageJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("lib/core")
+	mustWrite("package.json", `{"name":"acme-web"}`)
+	mustWrite("lib/core/index.js", "export function run() {}\n")
+
+	packages, err := (JavaScriptPackageDiscovery{}).DiscoverPackages(context.Background(), PackageDiscoveryOptions{
+		RootDir: tmpDir,
+		WalkFiles: func(fn func(path, relPath string) error) error {
+			return filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info == nil || info.IsDir() {
+					return err
+				}
+				relPath, err := filepath.Rel(tmpDir, path)
+				if err != nil {
+					return err
+				}
+				return fn(path, relPath)
+			})
+		},
+		HasParser: func(ext string) bool {
+			return ext == ".js"
+		},
+	})
+	if err != nil {
+		t.Fatalf("DiscoverPackages: %v", err)
+	}
+	got := sortedPackageKeys(packages)
+	want := []string{"acme-web/lib/core"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("package keys = %v, want %v", got, want)
+	}
+	pkg := packages[want[0]]
+	if pkg.Name != "core" || pkg.Dir != "lib/core" || pkg.Language != "javascript" {
+		t.Fatalf("unexpected package metadata: %+v", pkg)
+	}
+	if len(pkg.Files) != 1 || pkg.Files[0] != "lib/core/index.js" {
+		t.Fatalf("unexpected package files: %+v", pkg.Files)
+	}
+}
+
+func TestJavaPackageDiscovery_GroupsByPackageDeclaration(t *testing.T) {
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("src/main/java/com/example/auth")
+	mustWrite("pom.xml", "<project/>\n")
+	mustWrite("src/main/java/com/example/auth/User.java", "package com.example.auth;\npublic class User {}\n")
+
+	packages, err := (JavaPackageDiscovery{}).DiscoverPackages(context.Background(), PackageDiscoveryOptions{
+		RootDir: tmpDir,
+		WalkFiles: func(fn func(path, relPath string) error) error {
+			return filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info == nil || info.IsDir() {
+					return err
+				}
+				relPath, err := filepath.Rel(tmpDir, path)
+				if err != nil {
+					return err
+				}
+				return fn(path, relPath)
+			})
+		},
+		HasParser: func(ext string) bool {
+			return ext == ".java"
+		},
+	})
+	if err != nil {
+		t.Fatalf("DiscoverPackages: %v", err)
+	}
+	got := sortedPackageKeys(packages)
+	want := []string{"com.example.auth"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("package keys = %v, want %v", got, want)
+	}
+	pkg := packages[want[0]]
+	if pkg.Name != "auth" || pkg.Dir != "com/example/auth" || pkg.Language != "java" {
+		t.Fatalf("unexpected package metadata: %+v", pkg)
+	}
+	if len(pkg.Files) != 1 || pkg.Files[0] != "src/main/java/com/example/auth/User.java" {
+		t.Fatalf("unexpected package files: %+v", pkg.Files)
+	}
+}
+
+func TestJavaPackageDiscovery_MergesSamePackageAcrossSourceRoots(t *testing.T) {
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("src/main/java/com/example/auth")
+	mustMkdir("src/test/java/com/example/auth")
+	mustWrite("src/main/java/com/example/auth/User.java", "package com.example.auth;\npublic class User {}\n")
+	mustWrite("src/test/java/com/example/auth/UserTest.java", "package com.example.auth;\npublic class UserTest {}\n")
+
+	packages, err := (JavaPackageDiscovery{}).DiscoverPackages(context.Background(), PackageDiscoveryOptions{
+		RootDir: tmpDir,
+		WalkFiles: func(fn func(path, relPath string) error) error {
+			return filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info == nil || info.IsDir() {
+					return err
+				}
+				relPath, err := filepath.Rel(tmpDir, path)
+				if err != nil {
+					return err
+				}
+				return fn(path, relPath)
+			})
+		},
+		HasParser: func(ext string) bool {
+			return ext == ".java"
+		},
+	})
+	if err != nil {
+		t.Fatalf("DiscoverPackages: %v", err)
+	}
+	pkg, ok := packages["com.example.auth"]
+	if !ok {
+		t.Fatalf("expected merged package, got %+v", packages)
+	}
+	if got := sortedPackageKeys(packages); !slices.Equal(got, []string{"com.example.auth"}) {
+		t.Fatalf("package keys = %v, want [com.example.auth]", got)
+	}
+	if got := append([]string(nil), pkg.Files...); !slices.Equal(got, []string{"src/main/java/com/example/auth/User.java", "src/test/java/com/example/auth/UserTest.java"}) {
+		t.Fatalf("merged package files = %v", got)
+	}
+}
+
+func TestKotlinPackageDiscovery_GroupsByPackageHeader(t *testing.T) {
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("src/main/kotlin/com/example/auth")
+	mustWrite("build.gradle.kts", "plugins {}\n")
+	mustWrite("src/main/kotlin/com/example/auth/User.kt", "package com.example.auth\nclass User\n")
+
+	packages, err := (KotlinPackageDiscovery{}).DiscoverPackages(context.Background(), PackageDiscoveryOptions{
+		RootDir: tmpDir,
+		WalkFiles: func(fn func(path, relPath string) error) error {
+			return filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info == nil || info.IsDir() {
+					return err
+				}
+				relPath, err := filepath.Rel(tmpDir, path)
+				if err != nil {
+					return err
+				}
+				return fn(path, relPath)
+			})
+		},
+		HasParser: func(ext string) bool {
+			return ext == ".kt"
+		},
+	})
+	if err != nil {
+		t.Fatalf("DiscoverPackages: %v", err)
+	}
+	got := sortedPackageKeys(packages)
+	want := []string{"com.example.auth"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("package keys = %v, want %v", got, want)
+	}
+	pkg := packages[want[0]]
+	if pkg.Name != "auth" || pkg.Dir != "com/example/auth" || pkg.Language != "kotlin" {
+		t.Fatalf("unexpected package metadata: %+v", pkg)
+	}
+	if len(pkg.Files) != 1 || pkg.Files[0] != "src/main/kotlin/com/example/auth/User.kt" {
+		t.Fatalf("unexpected package files: %+v", pkg.Files)
+	}
+}
+
+func TestKotlinPackageDiscovery_MergesSamePackageAcrossSourceRoots(t *testing.T) {
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("src/main/kotlin/com/example/auth")
+	mustMkdir("src/test/kotlin/com/example/auth")
+	mustWrite("src/main/kotlin/com/example/auth/User.kt", "package com.example.auth\nclass User\n")
+	mustWrite("src/test/kotlin/com/example/auth/UserTest.kt", "package com.example.auth\nclass UserTest\n")
+
+	packages, err := (KotlinPackageDiscovery{}).DiscoverPackages(context.Background(), PackageDiscoveryOptions{
+		RootDir: tmpDir,
+		WalkFiles: func(fn func(path, relPath string) error) error {
+			return filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info == nil || info.IsDir() {
+					return err
+				}
+				relPath, err := filepath.Rel(tmpDir, path)
+				if err != nil {
+					return err
+				}
+				return fn(path, relPath)
+			})
+		},
+		HasParser: func(ext string) bool {
+			return ext == ".kt"
+		},
+	})
+	if err != nil {
+		t.Fatalf("DiscoverPackages: %v", err)
+	}
+	pkg, ok := packages["com.example.auth"]
+	if !ok {
+		t.Fatalf("expected merged package, got %+v", packages)
+	}
+	if got := sortedPackageKeys(packages); !slices.Equal(got, []string{"com.example.auth"}) {
+		t.Fatalf("package keys = %v, want [com.example.auth]", got)
+	}
+	if got := append([]string(nil), pkg.Files...); !slices.Equal(got, []string{"src/main/kotlin/com/example/auth/User.kt", "src/test/kotlin/com/example/auth/UserTest.kt"}) {
+		t.Fatalf("merged package files = %v", got)
+	}
+}
+
+func TestPackageDiscoveryOrDefault_DefaultsForUnimplementedLanguages(t *testing.T) {
+	tests := []struct {
+		name string
+		spec *LangSpec
+	}{
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			discovery := PackageDiscoveryOrDefault(tc.spec)
+			if discovery == nil {
+				t.Fatal("expected non-nil package discovery")
+			}
+
+			packages, err := discovery.DiscoverPackages(context.Background(), PackageDiscoveryOptions{
+				RootDir: t.TempDir(),
+				WalkFiles: func(func(path, relPath string) error) error {
+					return nil
+				},
+				HasParser: func(string) bool {
+					return true
+				},
+			})
+			if err != nil {
+				t.Fatalf("DiscoverPackages: %v", err)
+			}
+			if packages != nil {
+				t.Fatalf("expected nil packages for default discovery, got %+v", packages)
+			}
+		})
+	}
+	if len(tests) != 0 {
+		return
+	}
+}
+
+func sortedPackageKeys(packages map[string]PackageInfo) []string {
+	keys := make([]string, 0, len(packages))
+	for key := range packages {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys
 }
