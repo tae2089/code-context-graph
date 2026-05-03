@@ -505,4 +505,176 @@ func TestLintCommand_TwiceRule_TriggersOnSecondRun(t *testing.T) {
 	if !strings.Contains(out, "Twice Rule") {
 		t.Errorf("expected 'Twice Rule' in output on second run, got:\n%s", out)
 	}
+	autoRulesPath := filepath.Join(histDir, "auto-rules.yaml")
+	data, err := os.ReadFile(autoRulesPath)
+	if err != nil {
+		t.Fatalf("expected auto rules file to be created: %v", err)
+	}
+	if !strings.Contains(string(data), "pkg/bare.go::Bare") {
+		t.Fatalf("expected triggered rule in auto rules file, got:\n%s", string(data))
+	}
+}
+
+func TestLintCommand_TwiceRule_DoesNotMutateManualConfig(t *testing.T) {
+	deps, stdout, stderr, db := setupLintTest(t)
+
+	db.Create(&model.Node{
+		Namespace:     ctxns.DefaultNamespace,
+		QualifiedName: "pkg/bare.go::Bare",
+		Kind:          model.NodeKindFunction,
+		Name:          "Bare",
+		FilePath:      "pkg/bare.go",
+		StartLine:     1, EndLine: 5,
+		Hash: "h1", Language: "go",
+	})
+
+	histDir := t.TempDir()
+	outDir := t.TempDir()
+	cfgFile := filepath.Join(t.TempDir(), ".ccg.yaml")
+	original := "exclude:\n  - vendor\n"
+	if err := os.WriteFile(cfgFile, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--config", cfgFile, "--history-dir", histDir); err != nil {
+		t.Fatalf("first run unexpected error: %v", err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+
+	if err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--config", cfgFile, "--history-dir", histDir); err != nil {
+		t.Fatalf("second run unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(cfgFile)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if string(data) != original {
+		t.Fatalf("expected manual config to remain unchanged, got:\n%s", string(data))
+	}
+}
+
+func TestLintCommand_MergesAutoRulesIntoStrictEvaluation(t *testing.T) {
+	deps, stdout, stderr, db := setupLintTest(t)
+
+	db.Create(&model.Node{
+		Namespace:     ctxns.DefaultNamespace,
+		QualifiedName: "pkg/ignored.go::Ignored",
+		Kind:          model.NodeKindFunction,
+		Name:          "Ignored",
+		FilePath:      "pkg/ignored.go",
+		StartLine:     1, EndLine: 5,
+		Hash: "h1", Language: "go",
+	})
+
+	outDir := t.TempDir()
+	histDir := t.TempDir()
+	docDir := filepath.Join(outDir, "pkg")
+	if err := os.MkdirAll(docDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docDir, "ignored.go.md"), []byte("# pkg/ignored.go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(histDir, "auto-rules.yaml"), []byte(`rules:
+  - pattern: "pkg/ignored.go::Ignored"
+    category: unannotated
+    action: ignore
+    auto: true
+    created: "2026-05-03"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := executeCmd(deps, stdout, stderr, "lint", "--out", outDir, "--strict", "--history-dir", histDir)
+	if err != nil {
+		t.Fatalf("expected auto-rules ignore to be merged into strict evaluation, got: %v", err)
+	}
+}
+
+func TestLintCommand_MigrateAutoRules_MovesGeneratedRulesOutOfConfig(t *testing.T) {
+	deps, stdout, stderr, _ := setupLintTest(t)
+	histDir := t.TempDir()
+	cfgFile := filepath.Join(t.TempDir(), ".ccg.yaml")
+	original := `exclude:
+  - vendor
+rules:
+  - pattern: "pkg/manual.go::Keep"
+    category: unannotated
+    action: ignore
+    auto: false
+    created: "2026-05-03"
+  - pattern: "pkg/auto.go::Move"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-05-03"
+`
+	if err := os.WriteFile(cfgFile, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := executeCmd(deps, stdout, stderr, "lint", "--config", cfgFile, "--history-dir", histDir, "--migrate-auto-rules")
+	if err != nil {
+		t.Fatalf("expected migrate-auto-rules to succeed, got: %v", err)
+	}
+
+	configData, err := os.ReadFile(cfgFile)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	configText := string(configData)
+	if strings.Contains(configText, "pkg/auto.go::Move") {
+		t.Fatalf("expected auto rule to be removed from config, got:\n%s", configText)
+	}
+	if !strings.Contains(configText, "pkg/manual.go::Keep") {
+		t.Fatalf("expected manual rule to remain in config, got:\n%s", configText)
+	}
+
+	autoData, err := os.ReadFile(filepath.Join(histDir, "auto-rules.yaml"))
+	if err != nil {
+		t.Fatalf("expected auto-rules.yaml to be created: %v", err)
+	}
+	autoText := string(autoData)
+	if !strings.Contains(autoText, "pkg/auto.go::Move") {
+		t.Fatalf("expected migrated auto rule in generated state, got:\n%s", autoText)
+	}
+	if strings.Contains(autoText, "pkg/manual.go::Keep") {
+		t.Fatalf("expected manual rule not to be copied into generated state, got:\n%s", autoText)
+	}
+}
+
+func TestLintCommand_MigrateAutoRules_PreservesNonRuleConfig(t *testing.T) {
+	deps, stdout, stderr, _ := setupLintTest(t)
+	histDir := t.TempDir()
+	cfgFile := filepath.Join(t.TempDir(), ".ccg.yaml")
+	config := `exclude:
+  - vendor
+docs:
+  out: docs
+rules:
+  - pattern: "pkg/auto.go::Move"
+    category: unannotated
+    action: warn
+    auto: true
+    created: "2026-05-03"
+`
+	if err := os.WriteFile(cfgFile, []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := executeCmd(deps, stdout, stderr, "lint", "--config", cfgFile, "--history-dir", histDir, "--migrate-auto-rules")
+	if err != nil {
+		t.Fatalf("expected migrate-auto-rules to succeed, got: %v", err)
+	}
+
+	data, err := os.ReadFile(cfgFile)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "exclude:") || !strings.Contains(text, "docs:") || !strings.Contains(text, "out: docs") {
+		t.Fatalf("expected non-rule config to be preserved, got:\n%s", text)
+	}
 }
