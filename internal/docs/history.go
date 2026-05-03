@@ -88,6 +88,7 @@ func (h *History) Save(path string) error {
 	return atomicWriteFile(path, data, 0o644)
 }
 
+// Deprecated: use AutoRuleSet.Save under .ccg/auto-rules.yaml for generated lint state.
 // WriteYamlRules appends Twice-Rule-triggered entries to .ccg.yaml rules section.
 // Idempotent: skips rules whose pattern already exists in the file.
 // Creates the file if it doesn't exist.
