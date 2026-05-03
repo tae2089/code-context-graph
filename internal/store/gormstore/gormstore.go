@@ -221,6 +221,8 @@ func (s *Store) GetFileNodesByPathSuffix(ctx context.Context, suffix string) ([]
 	return out, nil
 }
 
+// commonPathSuffixDepth calculates the depth of common directory suffix between two paths.
+// @intent identify the best matching directory for an import path based on trailing segments.
 func commonPathSuffixDepth(a, b string) int {
 	a = strings.Trim(a, "/")
 	b = strings.Trim(b, "/")

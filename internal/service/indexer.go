@@ -1,3 +1,4 @@
+// @index Graph building service that orchestrates parsing, persistence, and search indexing.
 package service
 
 import (
@@ -265,10 +266,8 @@ func (e *UnreadableFilesError) Error() string {
 }
 
 // Build walks source files, stores parsed graph data, and rebuilds search docs.
-// @intent 지원 언어 소스를 그래프와 검색 문서로 일괄 동기화한다.
+// @intent perform a full graph build from the specified directory.
 // @sideEffect 파일 시스템을 읽고 그래프 저장소·DB·검색 인덱스를 갱신한다.
-// @requires s.Store, s.Walkers가 초기화되어 있어야 한다.
-// @mutates 그래프 노드/엣지/어노테이션, search_documents
 func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats, error) {
 	var stats BuildStats
 
@@ -628,6 +627,8 @@ func partitionBuildEdges(edgeBatches []parsedBuildEdgeBatch) ([]model.Edge, []pa
 	return implementsEdges, otherBatches
 }
 
+// splitImplementsEdges separates implements edges from other relationship types.
+// @intent ensure interface fulfillment edges are handled before call dispatch resolution.
 func splitImplementsEdges(edges []model.Edge) ([]model.Edge, []model.Edge) {
 	var implementsEdges []model.Edge
 	var otherEdges []model.Edge
@@ -641,6 +642,8 @@ func splitImplementsEdges(edges []model.Edge) ([]model.Edge, []model.Edge) {
 	return implementsEdges, otherEdges
 }
 
+// importEdgesByFile groups import-from edges by their source file path.
+// @intent optimize edge resolution by pre-loading import context for each file.
 func importEdgesByFile(edgeBatches []parsedBuildEdgeBatch) map[string][]model.Edge {
 	byFile := make(map[string][]model.Edge, len(edgeBatches))
 	for _, batch := range edgeBatches {
@@ -654,6 +657,8 @@ func importEdgesByFile(edgeBatches []parsedBuildEdgeBatch) map[string][]model.Ed
 	return byFile
 }
 
+// chunkWithImportWarmup combines a chunk of call edges with their file's import edges.
+// @intent ensure the edge resolver has enough context to resolve call targets through imports.
 func chunkWithImportWarmup(chunk []model.Edge, imports []model.Edge) []model.Edge {
 	if len(chunk) == 0 {
 		return nil
@@ -1313,6 +1318,8 @@ func parseForBuild(ctx context.Context, parser Parser, relPath string, content [
 	return nodes, edges, nil, "", err
 }
 
+// collectLanguagePackages discovers language-specific package information within the build directory.
+// @intent identify package boundaries and file memberships to populate the graph's package structure.
 func (s *GraphService) collectLanguagePackages(ctx context.Context, absDir string, opts BuildOptions) map[string]languagePackageInfo {
 	merged := make(map[string]languagePackageInfo)
 	ambiguous := make(map[string]struct{})
@@ -1340,10 +1347,14 @@ func (s *GraphService) collectLanguagePackages(ctx context.Context, absDir strin
 	return merged
 }
 
+// packageDiscoverySpecs collects language specifications for all active parsers and walkers.
+// @intent provide a unique set of discovery rules for all supported source languages.
 func (s *GraphService) packageDiscoverySpecs() []*treesitter.LangSpec {
 	if len(s.Walkers) == 0 && len(s.Parsers) == 0 {
 		return nil
 	}
+	// parserWithSpec exposes language metadata from parsers that own a LangSpec.
+	// @intent let package discovery collect language specs without depending on a concrete parser type.
 	type parserWithSpec interface {
 		Spec() *treesitter.LangSpec
 	}
@@ -1382,10 +1393,14 @@ func (s *GraphService) packageDiscoverySpecs() []*treesitter.LangSpec {
 	return specs
 }
 
+// withImportPackageContext attaches discovered package names to the context for use during edge resolution.
+// @intent ensure cross-package imports can be resolved using their semantic names.
 func (s *GraphService) withImportPackageContext(ctx context.Context, packages map[string]languagePackageInfo) context.Context {
 	return treesitter.WithImportPackages(ctx, importPackageNames(packages))
 }
 
+// mergeLanguagePackages aggregates discovered packages into a central map while filtering ambiguous paths.
+// @intent consolidate package discovery results while discarding conflicting definitions.
 func mergeLanguagePackages(dst map[string]languagePackageInfo, ambiguous map[string]struct{}, src map[string]languagePackageInfo) {
 	for importPath, pkg := range src {
 		if importPath == "" {
@@ -1410,6 +1425,8 @@ func mergeLanguagePackages(dst map[string]languagePackageInfo, ambiguous map[str
 	}
 }
 
+// importPackageNames extracts a mapping of import paths to package names.
+// @intent allow the edge resolver to look up package names by their source import paths.
 func importPackageNames(packages map[string]languagePackageInfo) map[string]string {
 	if len(packages) == 0 {
 		return nil
@@ -1423,6 +1440,8 @@ func importPackageNames(packages map[string]languagePackageInfo) map[string]stri
 	return names
 }
 
+// packageNodes converts discovered package info into graph nodes.
+// @intent project package metadata into the graph schema for persistence.
 func packageNodes(packages map[string]languagePackageInfo) []model.Node {
 	if len(packages) == 0 {
 		return nil
@@ -1444,6 +1463,8 @@ func packageNodes(packages map[string]languagePackageInfo) []model.Node {
 	return nodes
 }
 
+// packageContainsEdgeCount returns the total number of file-to-package containment relationships.
+// @intent estimate the edge overhead for package structural nodes.
 func packageContainsEdgeCount(packages map[string]languagePackageInfo) int {
 	count := 0
 	for _, pkg := range packages {
@@ -1452,6 +1473,8 @@ func packageContainsEdgeCount(packages map[string]languagePackageInfo) int {
 	return count
 }
 
+// upsertPackageNodes persists discovered package nodes into the graph store.
+// @intent ensure package nodes exist before their member files are linked.
 func upsertPackageNodes(ctx context.Context, txStore store.GraphStore, packages map[string]languagePackageInfo) error {
 	nodes := packageNodes(packages)
 	if len(nodes) == 0 {
@@ -1460,6 +1483,8 @@ func upsertPackageNodes(ctx context.Context, txStore store.GraphStore, packages 
 	return txStore.UpsertNodes(ctx, nodes)
 }
 
+// upsertPackageContainsEdges links package nodes to their member file nodes.
+// @intent populate the graph's structural hierarchy by connecting packages to their source files.
 func upsertPackageContainsEdges(ctx context.Context, txStore store.GraphStore, packages map[string]languagePackageInfo) error {
 	if len(packages) == 0 {
 		return nil
@@ -1498,6 +1523,8 @@ func upsertPackageContainsEdges(ctx context.Context, txStore store.GraphStore, p
 	return txStore.UpsertEdges(ctx, edges)
 }
 
+// sortedPackageImportPaths returns a deterministic list of all discovered import paths.
+// @intent keep package-related database operations stable across build runs.
 func sortedPackageImportPaths(packages map[string]languagePackageInfo) []string {
 	paths := make([]string, 0, len(packages))
 	for importPath := range packages {
@@ -1507,6 +1534,8 @@ func sortedPackageImportPaths(packages map[string]languagePackageInfo) []string 
 	return paths
 }
 
+// packageFilePaths extracts all unique file paths belonging to the discovered packages.
+// @intent collect all files that need to be linked to their containing package nodes.
 func packageFilePaths(packages map[string]languagePackageInfo) []string {
 	seen := make(map[string]struct{})
 	var paths []string
@@ -1523,6 +1552,8 @@ func packageFilePaths(packages map[string]languagePackageInfo) []string {
 	return paths
 }
 
+// singleNodeOfKind returns the first node in a list that matches the specified kind, or nil if none or multiple exist.
+// @intent ensure unambiguous node selection during structural edge linking.
 func singleNodeOfKind(nodes []model.Node, kind model.NodeKind) *model.Node {
 	var found *model.Node
 	for i := range nodes {
@@ -1537,11 +1568,15 @@ func singleNodeOfKind(nodes []model.Node, kind model.NodeKind) *model.Node {
 	return found
 }
 
+// packageContainsFingerprint generates a stable identifier for a package-to-file relationship.
+// @intent ensure package structural edges can be upserted without duplication.
 func packageContainsFingerprint(importPath, filePath string) string {
 	sum := sha256.Sum256([]byte(importPath + "\x00" + filePath))
 	return fmt.Sprintf("contains:package:%x", sum)
 }
 
+// appendUniqueString appends a string to a slice only if it is not already present.
+// @intent maintain a unique set of strings while preserving insertion order for small sets.
 func appendUniqueString(values []string, value string) []string {
 	for _, existing := range values {
 		if existing == value {
@@ -1551,6 +1586,8 @@ func appendUniqueString(values []string, value string) []string {
 	return append(values, value)
 }
 
+// appendUniqueStrings appends multiple strings to a slice, ensuring each is unique.
+// @intent aggregate strings from multiple sources while filtering duplicates.
 func appendUniqueStrings(values []string, add ...string) []string {
 	for _, value := range add {
 		values = appendUniqueString(values, value)

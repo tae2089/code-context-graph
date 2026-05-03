@@ -106,6 +106,7 @@ func NewWalker(spec *LangSpec, opts ...WalkerOption) *Walker {
 }
 
 // Spec returns the language specification backing this walker.
+// @intent expose the configured language rules and query paths for this walker instance
 func (w *Walker) Spec() *LangSpec {
 	if w == nil {
 		return nil
@@ -271,6 +272,11 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 
 	// import dedup: "importPath:line" → true
 	importSeen := make(map[string]bool)
+	callRewriter := semanticsOrDefault(w.spec).CallRewriter(SemanticContext{
+		Root:     root,
+		Content:  content,
+		FilePath: filePath,
+	})
 
 	for {
 		m, ok := qc.NextMatch()
@@ -407,6 +413,14 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 			callee := w.extractCallName(callNode, content)
 			if callee != "" {
 				line := int(callNode.StartPoint().Row) + 1
+				callee = callRewriter.RewriteCall(CallRewriteContext{
+					Root:     root,
+					Node:     callNode,
+					Content:  content,
+					FilePath: filePath,
+					Callee:   callee,
+					Line:     line,
+				})
 				edges = append(edges, model.Edge{
 					Kind:        model.EdgeKindCalls,
 					FilePath:    filePath,

@@ -463,6 +463,42 @@ var (
 	}
 }
 
+func TestParseGo_InterfaceAssertionsFromMainCommand(t *testing.T) {
+	src, err := os.ReadFile("../../../cmd/ccg/main.go")
+	if err != nil {
+		t.Fatalf("read cmd main: %v", err)
+	}
+	ctx := WithImportPackages(context.Background(), map[string]string{
+		"github.com/tae2089/code-context-graph/internal/analysis/flows":  "flows",
+		"github.com/tae2089/code-context-graph/internal/analysis/impact": "impact",
+		"github.com/tae2089/code-context-graph/internal/analysis/query":  "query",
+		"github.com/tae2089/code-context-graph/internal/mcp":             "mcp",
+	})
+	w := NewWalker(GoSpec)
+	_, edges, err := w.ParseWithContext(ctx, "cmd/ccg/main.go", src)
+	if err != nil {
+		t.Fatalf("parse cmd main: %v", err)
+	}
+	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
+	wantFingerprints := []string{
+		"implements:cmd/ccg/main.go:impact.Analyzer:mcp.ImpactAnalyzer",
+		"implements:cmd/ccg/main.go:flows.Tracer:mcp.FlowTracer",
+		"implements:cmd/ccg/main.go:query.Service:mcp.QueryService",
+	}
+	for _, want := range wantFingerprints {
+		found := false
+		for _, e := range implEdges {
+			if e.Fingerprint == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected fingerprint %q in cmd main assertion edges, got %#v", want, implEdges)
+		}
+	}
+}
+
 func TestParseGo_ImportAliasVersionedPath(t *testing.T) {
 	// When the import path ends with a version segment like ".v3", the canonical
 	// package name is the segment before the version (e.g. "yaml" for "gopkg.in/yaml.v3").
