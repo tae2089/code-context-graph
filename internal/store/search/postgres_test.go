@@ -11,8 +11,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 func setupPostgresDB(t *testing.T) *gorm.DB {
@@ -91,6 +91,79 @@ func TestPostgresFTS_Rebuild(t *testing.T) {
 	db.Raw("SELECT COUNT(*) FROM search_documents WHERE tsv IS NOT NULL").Scan(&nonNull)
 	if nonNull != 3 {
 		t.Errorf("expected 3 rows with tsv populated, got %d", nonNull)
+	}
+}
+
+func TestPostgresFTS_RebuildNodes_RefreshesOnlyScopedRows(t *testing.T) {
+	db := setupPostgresDB(t)
+	backend := NewPostgresBackend()
+	if err := backend.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+
+	changed := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Changed", Kind: model.NodeKindFunction, Name: "Changed", FilePath: "changed.go", StartLine: 1, EndLine: 1, Language: "go"}
+	untouched := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Untouched", Kind: model.NodeKindFunction, Name: "Untouched", FilePath: "untouched.go", StartLine: 1, EndLine: 1, Language: "go"}
+	foreign := model.Node{Namespace: "ns-b", QualifiedName: "pkg.Foreign", Kind: model.NodeKindFunction, Name: "Foreign", FilePath: "foreign.go", StartLine: 1, EndLine: 1, Language: "go"}
+	for _, node := range []*model.Node{&changed, &untouched, &foreign} {
+		if err := db.Create(node).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: changed.ID, Content: "fresh changed", Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: untouched.ID, Content: "fresh untouched", Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: "ns-b", NodeID: foreign.ID, Content: "fresh foreign", Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("UPDATE search_documents SET tsv = to_tsvector('simple', 'stale')").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := backend.RebuildNodes(context.Background(), db, []uint{changed.ID, foreign.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	var changedMatches, untouchedMatches, foreignMatches int64
+	db.Raw("SELECT COUNT(*) FROM search_documents WHERE node_id = ? AND tsv @@ to_tsquery('simple', 'fresh')", changed.ID).Scan(&changedMatches)
+	db.Raw("SELECT COUNT(*) FROM search_documents WHERE node_id = ? AND tsv @@ to_tsquery('simple', 'fresh')", untouched.ID).Scan(&untouchedMatches)
+	db.Raw("SELECT COUNT(*) FROM search_documents WHERE node_id = ? AND tsv @@ to_tsquery('simple', 'fresh')", foreign.ID).Scan(&foreignMatches)
+	if changedMatches != 1 {
+		t.Fatalf("expected changed row tsv refreshed, got %d", changedMatches)
+	}
+	if untouchedMatches != 0 {
+		t.Fatalf("expected untouched row tsv preserved, got %d", untouchedMatches)
+	}
+	if foreignMatches != 0 {
+		t.Fatalf("expected foreign namespace row tsv preserved, got %d", foreignMatches)
+	}
+}
+
+func TestPostgresFTS_RebuildNodes_EmptyScopeIsNoOp(t *testing.T) {
+	db := setupPostgresDB(t)
+	backend := NewPostgresBackend()
+	if err := backend.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	node := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Keep", Kind: model.NodeKindFunction, Name: "Keep", FilePath: "keep.go", StartLine: 1, EndLine: 1, Language: "go"}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: node.ID, Content: "fresh keep", Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("UPDATE search_documents SET tsv = to_tsvector('simple', 'stale')").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.RebuildNodes(context.Background(), db, nil); err != nil {
+		t.Fatal(err)
+	}
+	var freshMatches int64
+	db.Raw("SELECT COUNT(*) FROM search_documents WHERE node_id = ? AND tsv @@ to_tsquery('simple', 'fresh')", node.ID).Scan(&freshMatches)
+	if freshMatches != 0 {
+		t.Fatalf("expected empty scope to leave stale tsv, got fresh matches %d", freshMatches)
 	}
 }
 
