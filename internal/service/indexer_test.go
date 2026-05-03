@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -38,6 +39,44 @@ import (
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 	storesearch "github.com/tae2089/code-context-graph/internal/store/search"
 )
+
+type serviceINQueryCaptureLogger struct {
+	gormlogger.Interface
+	needle string
+	maxIDs int
+	hits   int
+}
+
+func (l *serviceINQueryCaptureLogger) LogMode(level gormlogger.LogLevel) gormlogger.Interface {
+	return l
+}
+func (l *serviceINQueryCaptureLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
+	sql, _ := fc()
+	if strings.Contains(sql, l.needle) && strings.Contains(sql, " IN (") {
+		l.hits++
+		ids := countServiceSQLInList(sql)
+		if ids > l.maxIDs {
+			l.maxIDs = ids
+		}
+	}
+}
+
+func countServiceSQLInList(sql string) int {
+	start := strings.Index(sql, " IN (")
+	if start < 0 {
+		return 0
+	}
+	start += len(" IN (")
+	end := strings.Index(sql[start:], ")")
+	if end < 0 {
+		return 0
+	}
+	list := strings.TrimSpace(sql[start : start+end])
+	if list == "" {
+		return 0
+	}
+	return strings.Count(list, ",") + 1
+}
 
 type recordingGraphStore struct {
 	t         *testing.T
@@ -1292,6 +1331,40 @@ func TestForceReparseFiles_ChunksLargeChangedNodeLookup(t *testing.T) {
 	}
 }
 
+func TestCurrentNodeIDsForFiles_ChunksLargePathScopes(t *testing.T) {
+	capture := &serviceINQueryCaptureLogger{Interface: gormlogger.Discard, needle: "file_path"}
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: capture})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.Node{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	filePaths := make([]string, 0, scopedINQueryChunkSize+1)
+	for i := range scopedINQueryChunkSize + 1 {
+		filePath := fmt.Sprintf("file-%03d.go", i)
+		filePaths = append(filePaths, filePath)
+		node := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: fmt.Sprintf("pkg.Node%d", i), Kind: model.NodeKindFunction, Name: fmt.Sprintf("Node%d", i), FilePath: filePath, StartLine: 1, EndLine: 1, Language: "go"}
+		if err := db.Create(&node).Error; err != nil {
+			t.Fatalf("create node %d: %v", i, err)
+		}
+	}
+
+	ids, err := currentNodeIDsForFiles(context.Background(), db, filePaths)
+	if err != nil {
+		t.Fatalf("current node ids: %v", err)
+	}
+	if len(ids) != len(filePaths) {
+		t.Fatalf("expected %d ids, got %d", len(filePaths), len(ids))
+	}
+	if capture.maxIDs > scopedINQueryChunkSize {
+		t.Fatalf("expected file_path IN queries to be chunked to <= %d paths, got %d", scopedINQueryChunkSize, capture.maxIDs)
+	}
+	if capture.hits < 2 {
+		t.Fatalf("expected multiple file_path IN queries, got %d", capture.hits)
+	}
+}
+
 func TestUpdate_SearchRefreshIsScopedToAffectedNodes(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:?_pragma=journal_mode(WAL)"), &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {
@@ -1856,6 +1929,47 @@ func TestRefreshSearchDocumentsFor_EmptyScopeIsNoOp(t *testing.T) {
 	}
 }
 
+func TestRefreshSearchDocumentsFor_ChunksLargeNodeScopes(t *testing.T) {
+	capture := &serviceINQueryCaptureLogger{Interface: gormlogger.Discard, needle: "nodes"}
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: capture})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate store: %v", err)
+	}
+	if err := db.AutoMigrate(&model.SearchDocument{}); err != nil {
+		t.Fatalf("migrate search docs: %v", err)
+	}
+
+	nodeIDs := make([]uint, 0, scopedINQueryChunkSize+1)
+	for i := range scopedINQueryChunkSize + 1 {
+		node := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: fmt.Sprintf("pkg.Node%d", i), Kind: model.NodeKindFunction, Name: fmt.Sprintf("Node%d", i), FilePath: fmt.Sprintf("node-%d.go", i), StartLine: 1, EndLine: 1, Language: "go"}
+		if err := db.Create(&node).Error; err != nil {
+			t.Fatalf("create node %d: %v", i, err)
+		}
+		nodeIDs = append(nodeIDs, node.ID)
+		if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: node.ID, Content: "stale", Language: "go"}).Error; err != nil {
+			t.Fatalf("seed doc %d: %v", i, err)
+		}
+	}
+
+	count, err := RefreshSearchDocumentsFor(context.Background(), db, nodeIDs)
+	if err != nil {
+		t.Fatalf("refresh scoped: %v", err)
+	}
+	if count != len(nodeIDs) {
+		t.Fatalf("expected %d docs refreshed, got %d", len(nodeIDs), count)
+	}
+	if capture.maxIDs > scopedINQueryChunkSize {
+		t.Fatalf("expected scoped node IN queries to be chunked to <= %d IDs, got %d", scopedINQueryChunkSize, capture.maxIDs)
+	}
+	if capture.hits < 2 {
+		t.Fatalf("expected multiple scoped node IN queries, got %d", capture.hits)
+	}
+}
+
 func TestRefreshSearchDocuments_RebuildsPerBatchWithoutAccumulatingGlobalSlice(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {
@@ -1958,9 +2072,9 @@ func TestUpdate_FailOnUnreadable_FailsFastWithTypedError(t *testing.T) {
 
 	syncer := &recordingIncrementalSyncer{result: &incremental.SyncStats{}}
 	_, err = svc.Update(context.Background(), UpdateOptions{
-		BuildOptions:      BuildOptions{Dir: tmpDir},
-		Syncer:            syncer,
-		FailOnUnreadable:  true,
+		BuildOptions:     BuildOptions{Dir: tmpDir},
+		Syncer:           syncer,
+		FailOnUnreadable: true,
 	})
 	if err == nil {
 		t.Fatal("expected fail-fast error on unreadable file")
