@@ -218,6 +218,7 @@ See [Architecture Details](guide/architecture.md) for component breakdown and DB
 | [Webhook](guide/webhook.md) | Webhook sync, branch filtering, HMAC, graceful shutdown |
 | [Docker](guide/docker.md) | Docker build, MCP server, PostgreSQL deployment |
 | [Operations](guide/operations.md) | Deployment profiles, database choice, readiness, webhook operations |
+| [Postprocess Failure Policy](guide/postprocess-failure-policy.md) | Status rules, failure causes, and automatic degraded/fail_closed policy for build and postprocess tools |
 | [Development](guide/development.md) | Dev guide, integration test, project structure |
 | [Namespace Migration](guide/namespace-migration.md) | Default namespace change and migration guide |
 | [Architecture](guide/architecture.md) | Data flow, components, DB schema |
