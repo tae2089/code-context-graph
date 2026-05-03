@@ -83,6 +83,80 @@ func TestSQLiteFTS_Rebuild(t *testing.T) {
 	}
 }
 
+func TestSQLiteFTS_RebuildNodes_RefreshesOnlyScopedNodeRows(t *testing.T) {
+	db := setupTestDB(t)
+	backend := NewSQLiteBackend()
+	if err := backend.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+
+	changed := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Changed", Kind: model.NodeKindFunction, Name: "Changed", FilePath: "changed.go", StartLine: 1, EndLine: 1, Language: "go"}
+	untouched := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Untouched", Kind: model.NodeKindFunction, Name: "Untouched", FilePath: "untouched.go", StartLine: 1, EndLine: 1, Language: "go"}
+	foreign := model.Node{Namespace: "ns-b", QualifiedName: "pkg.Foreign", Kind: model.NodeKindFunction, Name: "Foreign", FilePath: "foreign.go", StartLine: 1, EndLine: 1, Language: "go"}
+	for _, node := range []*model.Node{&changed, &untouched, &foreign} {
+		if err := db.Create(node).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Exec("INSERT INTO search_fts(node_id, content, language, namespace) VALUES (?, ?, ?, ?), (?, ?, ?, ?), (?, ?, ?, ?)", changed.ID, "stale changed", "go", ctxns.DefaultNamespace, untouched.ID, "keep untouched", "go", ctxns.DefaultNamespace, foreign.ID, "keep foreign", "go", "ns-b").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: changed.ID, Content: "fresh changed", Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: untouched.ID, Content: "fresh untouched", Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.SearchDocument{Namespace: "ns-b", NodeID: foreign.ID, Content: "fresh foreign", Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := backend.RebuildNodes(context.Background(), db, []uint{changed.ID, foreign.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	var changedContent, untouchedContent, foreignContent string
+	if err := db.Raw("SELECT content FROM search_fts WHERE node_id = ? AND namespace = ?", changed.ID, ctxns.DefaultNamespace).Scan(&changedContent).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Raw("SELECT content FROM search_fts WHERE node_id = ? AND namespace = ?", untouched.ID, ctxns.DefaultNamespace).Scan(&untouchedContent).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Raw("SELECT content FROM search_fts WHERE node_id = ? AND namespace = ?", foreign.ID, "ns-b").Scan(&foreignContent).Error; err != nil {
+		t.Fatal(err)
+	}
+	if changedContent != "fresh changed" {
+		t.Fatalf("expected changed row refreshed, got %q", changedContent)
+	}
+	if untouchedContent != "keep untouched" {
+		t.Fatalf("expected untouched row preserved, got %q", untouchedContent)
+	}
+	if foreignContent != "keep foreign" {
+		t.Fatalf("expected foreign namespace row preserved, got %q", foreignContent)
+	}
+}
+
+func TestSQLiteFTS_RebuildNodes_EmptyScopeIsNoOp(t *testing.T) {
+	db := setupTestDB(t)
+	backend := NewSQLiteBackend()
+	if err := backend.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("INSERT INTO search_fts(node_id, content, language, namespace) VALUES (?, ?, ?, ?)", 1, "keep", "go", ctxns.DefaultNamespace).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.RebuildNodes(context.Background(), db, nil); err != nil {
+		t.Fatal(err)
+	}
+	var count int64
+	if err := db.Raw("SELECT count(*) FROM search_fts").Scan(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("expected empty scope to preserve rows, got %d", count)
+	}
+}
+
 func TestSQLiteFTS_Query(t *testing.T) {
 	db := setupTestDB(t)
 	seedNodes(t, db)
