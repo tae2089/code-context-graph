@@ -73,6 +73,22 @@ func TestRunMigrations_PostgresSmoke(t *testing.T) {
 			t.Fatalf("expected %s.%s to be NOT NULL", tc.table, tc.column)
 		}
 	}
+	for _, tc := range []struct {
+		table  string
+		column string
+		want   string
+	}{
+		{table: "ccg_postprocess_run_logs", column: "failed_steps", want: "jsonb"},
+		{table: "ccg_postprocess_run_logs", column: "skipped_steps", want: "jsonb"},
+	} {
+		got, err := postgresColumnDataType(db, tc.table, tc.column)
+		if err != nil {
+			t.Fatalf("inspect %s.%s type: %v", tc.table, tc.column, err)
+		}
+		if got != tc.want {
+			t.Fatalf("expected %s.%s type %q, got %q", tc.table, tc.column, tc.want, got)
+		}
+	}
 }
 
 func TestRunMigrations_PostgresBackfillsVersionOneNulls(t *testing.T) {
@@ -135,7 +151,7 @@ func TestRunMigrations_PostgresDownRestoresNullableColumns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
 	}
-	if err := migrator.Steps(-1); err != nil {
+	if err := migrator.Steps(-2); err != nil {
 		t.Fatalf("run down migration: %v", err)
 	}
 
@@ -155,5 +171,34 @@ func TestRunMigrations_PostgresDownRestoresNullableColumns(t *testing.T) {
 		if notNull {
 			t.Fatalf("expected %s.%s to be nullable after down", tc.table, tc.column)
 		}
+	}
+}
+
+func TestRunMigrations_PostgresDownFromVersionThreeDropsPolicyTables(t *testing.T) {
+	db := setupPostgresMigrationDB(t)
+
+	if err := runMigrations(db, "postgres", ""); err != nil {
+		t.Fatalf("run postgres migrations: %v", err)
+	}
+	migrator, _, err := newMigrator(db, "postgres", "")
+	if err != nil {
+		t.Fatalf("create migrator: %v", err)
+	}
+	if err := migrator.Steps(-1); err != nil {
+		t.Fatalf("run down migration: %v", err)
+	}
+
+	var version migrateSchemaVersion
+	if err := db.Table("schema_migrations").First(&version).Error; err != nil {
+		t.Fatalf("load schema version: %v", err)
+	}
+	if version.Version != 2 {
+		t.Fatalf("schema version = %d, want 2", version.Version)
+	}
+	if db.Migrator().HasTable("ccg_postprocess_policy_state") {
+		t.Fatal("expected ccg_postprocess_policy_state to be dropped after stepping down from version 3")
+	}
+	if db.Migrator().HasTable("ccg_postprocess_run_logs") {
+		t.Fatal("expected ccg_postprocess_run_logs to be dropped after stepping down from version 3")
 	}
 }

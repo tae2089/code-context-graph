@@ -50,6 +50,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/migrationfs"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
+	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 	"github.com/tae2089/code-context-graph/internal/pathutil"
 	"github.com/tae2089/code-context-graph/internal/service"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
@@ -78,7 +79,7 @@ var (
 const (
 	schemaVersionKey      = "schema"
 	legacySchemaTable     = "ccg_schema_versions"
-	requiredSchemaVersion = 2
+	requiredSchemaVersion = 3
 )
 
 // main wires CLI dependencies and executes the root command.
@@ -426,6 +427,8 @@ func requiredSchemaTables() []string {
 		"community_memberships",
 		"flows",
 		"flow_memberships",
+		"ccg_postprocess_policy_state",
+		"ccg_postprocess_run_logs",
 		"search_documents",
 	}
 }
@@ -446,6 +449,18 @@ func modelNullabilityColumns() []schemaColumn {
 		{"flows", "name"},
 		{"flow_memberships", "flow_id"},
 		{"flow_memberships", "node_id"},
+		{"ccg_postprocess_policy_state", "namespace"},
+		{"ccg_postprocess_policy_state", "tool"},
+		{"ccg_postprocess_policy_state", "policy"},
+		{"ccg_postprocess_policy_state", "updated_at"},
+		{"ccg_postprocess_run_logs", "namespace"},
+		{"ccg_postprocess_run_logs", "tool"},
+		{"ccg_postprocess_run_logs", "policy"},
+		{"ccg_postprocess_run_logs", "source"},
+		{"ccg_postprocess_run_logs", "status"},
+		{"ccg_postprocess_run_logs", "failed_steps"},
+		{"ccg_postprocess_run_logs", "skipped_steps"},
+		{"ccg_postprocess_run_logs", "created_at"},
 	}
 }
 
@@ -553,7 +568,25 @@ func validatePostgresSchemaParity(db *gorm.DB) error {
 	} else if !ok {
 		return fmt.Errorf("required trigger %q is missing", "trg_search_documents_tsv")
 	}
+	for _, tc := range []schemaTypeCheck{
+		{table: "ccg_postprocess_run_logs", column: "failed_steps", dataType: "jsonb"},
+		{table: "ccg_postprocess_run_logs", column: "skipped_steps", dataType: "jsonb"},
+	} {
+		dataType, err := postgresColumnDataType(db, tc.table, tc.column)
+		if err != nil {
+			return trace.Wrap(err, "inspect postgres column type")
+		}
+		if dataType != tc.dataType {
+			return fmt.Errorf("required column %q.%q type is %q, want %q", tc.table, tc.column, dataType, tc.dataType)
+		}
+	}
 	return nil
+}
+
+type schemaTypeCheck struct {
+	table    string
+	column   string
+	dataType string
 }
 
 func postgresColumnNotNull(db *gorm.DB, tableName, columnName string) (bool, error) {
@@ -569,6 +602,21 @@ func postgresColumnNotNull(db *gorm.DB, tableName, columnName string) (bool, err
 		return false, err
 	}
 	return nullable == "NO", nil
+}
+
+func postgresColumnDataType(db *gorm.DB, tableName, columnName string) (string, error) {
+	var dataType string
+	err := db.Raw(`
+		SELECT data_type
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		AND table_name = ?
+		AND column_name = ?
+	`, tableName, columnName).Scan(&dataType).Error
+	if err != nil {
+		return "", err
+	}
+	return dataType, nil
 }
 
 func postgresIndexExists(db *gorm.DB, indexName string) (bool, error) {
@@ -772,6 +820,7 @@ func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 		CommunityBuilder:    community.New(deps.DB),
 		FlowBuilder:         flows.NewBuilder(deps.DB, deps.Store),
 		Incremental:         deps.Syncer,
+		PostprocessPolicy:   newMCPPostprocessPolicy(deps.DB),
 		Logger:              deps.Logger,
 		Cache:               cache,
 		RagIndexDir:         viper.GetString("rag.index_dir"),
@@ -806,6 +855,29 @@ func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 		}
 		return nil
 	}
+}
+
+type mcpPostprocessPolicy struct {
+	engine *postprocesspolicy.Engine
+	store  *postprocesspolicy.Store
+}
+
+func newMCPPostprocessPolicy(db *gorm.DB) *mcpPostprocessPolicy {
+	if db == nil {
+		return nil
+	}
+	return &mcpPostprocessPolicy{
+		engine: &postprocesspolicy.Engine{},
+		store:  postprocesspolicy.NewStore(db),
+	}
+}
+
+func (p *mcpPostprocessPolicy) Resolve(ctx context.Context, input postprocesspolicy.DecisionInput) (string, string, error) {
+	return p.engine.Resolve(ctx, p.store, input)
+}
+
+func (p *mcpPostprocessPolicy) RecordRun(ctx context.Context, record postprocesspolicy.RunRecord) error {
+	return p.store.RecordRun(ctx, record)
 }
 
 // serveStreamableHTTP serves the MCP server over streamable HTTP.
