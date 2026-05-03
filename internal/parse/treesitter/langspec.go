@@ -86,7 +86,8 @@ var PythonSpec = &LangSpec{
 	ImportTypes:      []string{"import_statement", "import_from_statement"},
 	CallTypes:        []string{"call"},
 	TestPrefix:       "test_",
-	PackageDiscovery: NoopPackageDiscovery{},
+	Semantics:        PythonSemantics{},
+	PackageDiscovery: PythonPackageDiscovery{},
 }
 
 var TypeScriptSpec = &LangSpec{
@@ -96,7 +97,8 @@ var TypeScriptSpec = &LangSpec{
 	ImportTypes:      []string{"import_statement"},
 	CallTypes:        []string{"call_expression"},
 	TestPrefix:       "test",
-	PackageDiscovery: NoopPackageDiscovery{},
+	Semantics:        TypeScriptSemantics{},
+	PackageDiscovery: TypeScriptPackageDiscovery{},
 }
 
 var JavaSpec = &LangSpec{
@@ -107,7 +109,8 @@ var JavaSpec = &LangSpec{
 	ImportTypes:      []string{"import_declaration"},
 	CallTypes:        []string{"method_invocation"},
 	TestPrefix:       "test",
-	PackageDiscovery: NoopPackageDiscovery{},
+	Semantics:        JavaSemantics{},
+	PackageDiscovery: JavaPackageDiscovery{},
 }
 
 var CSpec = &LangSpec{
@@ -151,7 +154,8 @@ var JavaScriptSpec = &LangSpec{
 	ImportTypes:      []string{"import_statement"},
 	CallTypes:        []string{"call_expression"},
 	TestPrefix:       "test",
-	PackageDiscovery: NoopPackageDiscovery{},
+	Semantics:        JavaScriptSemantics{},
+	PackageDiscovery: JavaScriptPackageDiscovery{},
 }
 
 var RubySpec = &LangSpec{
@@ -172,7 +176,8 @@ var KotlinSpec = &LangSpec{
 	ImportTypes:      []string{"import_header"},
 	CallTypes:        []string{"call_expression"},
 	TestPrefix:       "test",
-	PackageDiscovery: NoopPackageDiscovery{},
+	Semantics:        KotlinSemantics{},
+	PackageDiscovery: KotlinPackageDiscovery{},
 }
 
 var PHPSpec = &LangSpec{
