@@ -28,6 +28,7 @@ type NamespacePurger struct {
 // @param graphStore namespace 단위 graph 정리를 수행할 저장소.
 // @param db Community/Flow 등 service-level 테이블을 정리할 DB. nil이면 해당 단계는 skip 한다.
 // @param backend FTS 등 검색 백엔드. nil이면 해당 단계는 skip 한다.
+// @intent assemble one namespace purge entry point that can remove graph, service, and search state together.
 func NewNamespacePurger(graphStore store.NodeWriter, db *gorm.DB, backend storesearch.Backend) *NamespacePurger {
 	return &NamespacePurger{store: graphStore, db: db, backend: backend}
 }
@@ -59,6 +60,8 @@ func (p *NamespacePurger) Purge(ctx context.Context) error {
 	})
 }
 
+// @intent clean namespace-scoped service tables and search backend state after the graph rows are deleted.
+// @sideEffect deletes community, flow, membership, and search index records for the active namespace.
 func (p *NamespacePurger) purgeServiceState(ctx context.Context, tx *gorm.DB) error {
 	ns := ctxns.FromContext(ctx)
 	mig := tx.Migrator()

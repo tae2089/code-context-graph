@@ -1,3 +1,4 @@
+// @index GORM models for persisted automatic postprocess policy state.
 package model
 
 import "time"
@@ -11,6 +12,8 @@ type PostprocessPolicyState struct {
 	UpdatedAt time.Time `gorm:"not null"`
 }
 
+// TableName pins PostprocessPolicyState to the shared policy state table name.
+// @intent keep migration-managed table names stable across refactors and GORM defaults.
 func (PostprocessPolicyState) TableName() string {
 	return "ccg_postprocess_policy_state"
 }
@@ -29,6 +32,8 @@ type PostprocessRunLog struct {
 	CreatedAt    time.Time `gorm:"not null;index:idx_pp_log_ns_tool_time,priority:3,sort:desc"`
 }
 
+// TableName pins PostprocessRunLog to the shared postprocess run log table name.
+// @intent preserve schema compatibility for policy history queries and migrations.
 func (PostprocessRunLog) TableName() string {
 	return "ccg_postprocess_run_logs"
 }

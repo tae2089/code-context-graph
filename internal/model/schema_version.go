@@ -1,3 +1,4 @@
+// @index GORM models for runtime schema compatibility checks.
 package model
 
 import "time"
@@ -10,6 +11,8 @@ type SchemaVersion struct {
 	UpdatedAt time.Time
 }
 
+// TableName pins SchemaVersion to the migration-managed schema version table.
+// @intent keep runtime schema checks aligned with explicit migration bookkeeping.
 func (SchemaVersion) TableName() string {
 	return "ccg_schema_versions"
 }

@@ -1,3 +1,4 @@
+// @index Automatic postprocess policy state, decision logic, and persistence.
 package policy
 
 import (
@@ -32,12 +33,14 @@ const (
 	DefaultStatusLimit     = 5
 )
 
+// @intent scope policy status queries by namespace, tool, and recent-run history length.
 type StatusOptions struct {
 	Namespace   string
 	Tool        string
 	RecentLimit int
 }
 
+// @intent expose the latest persisted automatic policy state for one namespace and tool.
 type StateSnapshot struct {
 	Namespace           string    `json:"namespace"`
 	Tool                string    `json:"tool"`
@@ -46,6 +49,7 @@ type StateSnapshot struct {
 	ConsecutiveFailures int       `json:"consecutive_failures"`
 }
 
+// @intent describe one recorded postprocess run for status and failure inspection.
 type RunSnapshot struct {
 	Namespace    string    `json:"namespace"`
 	Tool         string    `json:"tool"`
@@ -57,17 +61,20 @@ type RunSnapshot struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// @intent bundle fail-closed state and recent failures into one operator-facing policy summary.
 type StatusSummary struct {
 	Status         string          `json:"status"`
 	FailClosed     []StateSnapshot `json:"fail_closed,omitempty"`
 	RecentFailures []RunSnapshot   `json:"recent_failures,omitempty"`
 }
 
+// @intent carry the inputs that influence automatic postprocess policy resolution.
 type DecisionInput struct {
 	Tool           string
 	ExplicitPolicy string
 }
 
+// @intent capture the outcome and policy metadata of one postprocess execution.
 type RunRecord struct {
 	Tool         string
 	Policy       string
@@ -78,17 +85,23 @@ type RunRecord struct {
 	CreatedAt    time.Time
 }
 
+// @intent resolve effective postprocess policy from explicit input plus stored failure history.
 type Engine struct{}
 
+// @intent persist and query namespace-scoped postprocess policy state and run history.
 type Store struct {
 	db              *gorm.DB
 	runLogRetention int
 }
 
+// NewStore creates a persistence helper for postprocess policy state and run logs.
+// @intent keep policy decisions and failure streaks queryable across build and postprocess executions.
 func NewStore(db *gorm.DB) *Store {
 	return &Store{db: db, runLogRetention: DefaultRunLogRetention}
 }
 
+// Resolve selects the effective postprocess policy for the current namespace and tool.
+// @intent default to degraded execution while escalating to fail_closed after repeated recent failures.
 func (e *Engine) Resolve(ctx context.Context, store *Store, input DecisionInput) (string, string, error) {
 	if input.ExplicitPolicy != "" {
 		return input.ExplicitPolicy, SourceExplicit, nil
@@ -106,6 +119,8 @@ func (e *Engine) Resolve(ctx context.Context, store *Store, input DecisionInput)
 	return PolicyDegraded, SourceAuto, nil
 }
 
+// GetState returns the latest stored postprocess policy for the active namespace and tool.
+// @intent expose the current automatic policy decision without scanning historical runs.
 func (s *Store) GetState(ctx context.Context, tool string) (*model.PostprocessPolicyState, error) {
 	var state model.PostprocessPolicyState
 	ns := ctxns.FromContext(ctx)
@@ -119,6 +134,9 @@ func (s *Store) GetState(ctx context.Context, tool string) (*model.PostprocessPo
 	return &state, nil
 }
 
+// RecordRun appends one postprocess execution result and updates the latest policy snapshot.
+// @intent preserve the audit trail needed for failure escalation while keeping a cheap current-state lookup.
+// @sideEffect writes a run log row and upserts namespace-scoped policy state.
 func (s *Store) RecordRun(ctx context.Context, record RunRecord) error {
 	ns := ctxns.FromContext(ctx)
 	createdAt := record.CreatedAt
@@ -166,6 +184,8 @@ func (s *Store) RecordRun(ctx context.Context, record RunRecord) error {
 	})
 }
 
+// Reset records a successful reset marker for the named postprocess tool.
+// @intent clear automatic fail_closed escalation after an operator has remediated the underlying issue.
 func (s *Store) Reset(ctx context.Context, tool string) error {
 	if !ValidTool(tool) {
 		return trace.New("invalid postprocess tool")
@@ -179,6 +199,8 @@ func (s *Store) Reset(ctx context.Context, tool string) error {
 	})
 }
 
+// Status summarizes fail-closed state and recent failures for the requested scope.
+// @intent give operators one status view that explains why automatic postprocess execution is degraded.
 func (s *Store) Status(ctx context.Context, opts StatusOptions) (*StatusSummary, error) {
 	limit := opts.RecentLimit
 	if limit <= 0 {
@@ -238,6 +260,8 @@ func (s *Store) Status(ctx context.Context, opts StatusOptions) (*StatusSummary,
 	return summary, nil
 }
 
+// ConsecutiveFailures counts recent non-success runs for the active namespace and tool.
+// @intent power escalation decisions without leaking cross-namespace failure history.
 func (s *Store) ConsecutiveFailures(ctx context.Context, tool string, limit int) (int, error) {
 	if limit <= 0 {
 		return 0, nil
@@ -246,6 +270,8 @@ func (s *Store) ConsecutiveFailures(ctx context.Context, tool string, limit int)
 	return s.consecutiveFailuresScoped(ctx, ns, tool, limit)
 }
 
+// ValidTool reports whether a tool participates in automatic postprocess policy tracking.
+// @intent reject arbitrary tool names before they can create inconsistent policy rows.
 func ValidTool(tool string) bool {
 	switch tool {
 	case ToolBuildOrUpdateGraph, ToolRunPostprocess:
@@ -255,6 +281,7 @@ func ValidTool(tool string) bool {
 	}
 }
 
+// @intent count trailing failures for one namespace and tool without crossing reset or success boundaries.
 func (s *Store) consecutiveFailuresScoped(ctx context.Context, namespace, tool string, limit int) (int, error) {
 	var logs []model.PostprocessRunLog
 	if err := s.db.WithContext(ctx).
@@ -275,6 +302,7 @@ func (s *Store) consecutiveFailuresScoped(ctx context.Context, namespace, tool s
 	return count, nil
 }
 
+// @intent list stored postprocess policy states for the requested namespace and tool scope.
 func (s *Store) listStates(ctx context.Context, namespace, tool string) ([]model.PostprocessPolicyState, error) {
 	query := s.db.WithContext(ctx).Model(&model.PostprocessPolicyState{})
 	if namespace != "" {
@@ -290,6 +318,7 @@ func (s *Store) listStates(ctx context.Context, namespace, tool string) ([]model
 	return states, nil
 }
 
+// @intent retrieve the most recent failed runs used to explain degraded or fail-closed policy status.
 func (s *Store) listLatestFailedRuns(ctx context.Context, namespace, tool string, limit int) ([]RunSnapshot, error) {
 	if limit <= 0 {
 		return nil, nil
@@ -327,6 +356,7 @@ func (s *Store) listLatestFailedRuns(ctx context.Context, namespace, tool string
 	return runs, nil
 }
 
+// @intent cap run log growth per namespace and tool while preserving the newest history.
 func (s *Store) pruneRunLogs(tx *gorm.DB, namespace, tool string) error {
 	if s.runLogRetention <= 0 {
 		return nil
@@ -352,6 +382,7 @@ func (s *Store) pruneRunLogs(tx *gorm.DB, namespace, tool string) error {
 	}
 }
 
+// @intent serialize failed and skipped step lists into the JSON strings stored in policy tables.
 func marshalStringSlice(values []string) (string, error) {
 	if len(values) == 0 {
 		return "[]", nil
@@ -363,6 +394,7 @@ func marshalStringSlice(values []string) (string, error) {
 	return string(raw), nil
 }
 
+// @intent decode stored JSON step lists back into slices for status reporting.
 func unmarshalStringSlice(raw string) ([]string, error) {
 	if raw == "" {
 		return nil, nil

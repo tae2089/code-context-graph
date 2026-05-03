@@ -27,6 +27,8 @@ import (
 	"github.com/tae2089/code-context-graph/internal/store/search"
 )
 
+// parsedBuildNodeBatch carries per-file parsed nodes plus comment-binding inputs through the build pipeline.
+// @intent keep node persistence and annotation binding aligned to the same source snapshot.
 type parsedBuildNodeBatch struct {
 	relPath     string
 	nodes       []model.Node
@@ -35,11 +37,15 @@ type parsedBuildNodeBatch struct {
 	sourceLines []string
 }
 
+// parsedBuildEdgeBatch carries per-file parsed edges deferred until after node upserts.
+// @intent persist edges only after their referenced nodes exist in the graph.
 type parsedBuildEdgeBatch struct {
 	relPath string
 	edges   []model.Edge
 }
 
+// spooledBuildRecord is the on-disk representation of one parsed file used by the build spool.
+// @intent let the build transaction stream parsed input from disk instead of holding all files in memory.
 type spooledBuildRecord struct {
 	RelPath     string
 	Nodes       []model.Node
@@ -50,17 +56,23 @@ type spooledBuildRecord struct {
 	Bytes       int64
 }
 
+// buildSpool is the temporary on-disk staging area for parsed build records.
+// @intent decouple parsing from the build transaction so the DB tx only opens once parsing succeeds.
 type buildSpool struct {
 	dir     string
 	records []string
 	stats   BuildStats
 }
 
+// spooledUpdateRecord is one batch of file inputs persisted before the incremental update transaction starts.
+// @intent stream incremental sync inputs from disk to bound peak memory.
 type spooledUpdateRecord struct {
 	Files map[string]incremental.FileInfo
 	Bytes int64
 }
 
+// updateSpool is the temporary on-disk staging area for an incremental update pass.
+// @intent capture the current file set, hashes, and force-reparse decisions before the update transaction begins.
 type updateSpool struct {
 	dir           string
 	records       []string
@@ -78,12 +90,16 @@ const (
 	scopedINQueryChunkSize    = 400
 )
 
+// graphFileNodeState is a minimal projection of model.Node used to discover existing graph files cheaply.
+// @intent avoid loading full node rows when only id, file path, and content hash are needed.
 type graphFileNodeState struct {
 	ID       uint
 	FilePath string
 	Hash     string
 }
 
+// newParsedBuildNodeBatch packages parsed nodes plus comment metadata for later persistence.
+// @intent defer comment binding until storage time while keeping per-file source line context available.
 func newParsedBuildNodeBatch(relPath string, content []byte, nodes []model.Node, tsComments []treesitter.CommentBlock, language string) parsedBuildNodeBatch {
 	out := parsedBuildNodeBatch{
 		relPath:    relPath,
@@ -97,10 +113,16 @@ func newParsedBuildNodeBatch(relPath string, content []byte, nodes []model.Node,
 	return out
 }
 
+// newParsedBuildEdgeBatch wraps parsed edges so they can be persisted after their owning nodes.
+// @intent defer edge upserts until referenced nodes exist in the graph store.
 func newParsedBuildEdgeBatch(relPath string, edges []model.Edge) parsedBuildEdgeBatch {
 	return parsedBuildEdgeBatch{relPath: relPath, edges: edges}
 }
 
+// bindAndReleaseNodeBatch upserts a parsed file's nodes and binds its comment annotations within a transaction-scoped store.
+// @intent persist nodes and their annotation bindings atomically per file before releasing comment buffers.
+// @sideEffect writes graph nodes and annotation rows via the transaction-scoped store.
+// @mutates graph nodes and annotations
 func (s *GraphService) bindAndReleaseNodeBatch(ctx context.Context, txStore store.GraphStore, batches []parsedBuildNodeBatch, idx int) error {
 	parsed := &batches[idx]
 
@@ -151,6 +173,8 @@ type Parser interface {
 	ParseWithContext(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, error)
 }
 
+// commentParserWithLanguage is the optional contract a Parser may satisfy to expose comment blocks plus its source language.
+// @intent let the build pipeline collect docstring/comment blocks alongside nodes and edges when the parser supports it.
 type commentParserWithLanguage interface {
 	Parser
 	ParseWithComments(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []treesitter.CommentBlock, error)
@@ -163,10 +187,12 @@ type IncrementalSyncer interface {
 	SyncWithExisting(ctx context.Context, files map[string]incremental.FileInfo, existingFiles []string) (*incremental.SyncStats, error)
 }
 
+// @intent allow incremental sync implementations to participate in the same transaction-scoped store used by GraphService updates.
 type transactionalIncrementalSyncer interface {
 	SyncWithExistingStore(ctx context.Context, syncStore incremental.Store, files map[string]incremental.FileInfo, existingFiles []string) (*incremental.SyncStats, error)
 }
 
+// @intent expose a graph-store transaction that also hands back the matching gorm DB handle for coupled search rebuilds.
 type transactionalDBStore interface {
 	WithTxDB(ctx context.Context, fn func(store.GraphStore, *gorm.DB) error) error
 }
@@ -218,6 +244,8 @@ type UnreadableFilesError struct {
 	Files []string
 }
 
+// Error formats the unreadable file failure with a count and a representative sample path.
+// @intent give operators a stable, single-line summary they can grep instead of dumping every path.
 func (e *UnreadableFilesError) Error() string {
 	if e == nil || len(e.Files) == 0 {
 		return "unreadable files encountered during update"
@@ -270,6 +298,8 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 	return stats, nil
 }
 
+// withBuildTx opens the appropriate transaction scope for a build, picking a DB-aware tx when search rebuild is enabled.
+// @intent reuse one transaction across graph writes and the coupled search index rebuild.
 func (s *GraphService) withBuildTx(ctx context.Context, opts BuildOptions, fn func(store.GraphStore, *gorm.DB) error) error {
 	if opts.SkipSearchRebuild || s.SearchBackend == nil || s.DB == nil {
 		return s.Store.WithTx(ctx, func(txStore store.GraphStore) error {
@@ -284,6 +314,7 @@ func (s *GraphService) withBuildTx(ctx context.Context, opts BuildOptions, fn fu
 	return txStore.WithTxDB(ctx, fn)
 }
 
+// @intent pre-parse eligible files into spool records so the later build transaction can persist graph state from a stable snapshot.
 func (s *GraphService) prepareBuildSpool(ctx context.Context, absDir string, opts BuildOptions) (*buildSpool, error) {
 	dir, err := os.MkdirTemp("", "ccg-build-spool-*")
 	if err != nil {
@@ -351,6 +382,9 @@ func (s *GraphService) prepareBuildSpool(ctx context.Context, absDir string, opt
 	return spool, nil
 }
 
+// writeRecord encodes one parsed file as a gob-serialized spool record on disk.
+// @intent persist parsed input for later transactional replay without holding it in memory.
+// @sideEffect creates a file under the spool directory.
 func (b *buildSpool) writeRecord(seq int, record spooledBuildRecord) error {
 	path := filepath.Join(b.dir, fmt.Sprintf("%06d.gob", seq))
 	file, err := os.Create(path)
@@ -369,6 +403,8 @@ func (b *buildSpool) writeRecord(seq int, record spooledBuildRecord) error {
 	return nil
 }
 
+// readRecord decodes a previously-written build spool record from disk.
+// @intent stream parsed input back into the build transaction one file at a time.
 func (b *buildSpool) readRecord(path string) (spooledBuildRecord, error) {
 	var record spooledBuildRecord
 	file, err := os.Open(path)
@@ -386,6 +422,9 @@ func (b *buildSpool) readRecord(path string) (spooledBuildRecord, error) {
 	return record, nil
 }
 
+// cleanup removes the spool directory and logs a warning on failure.
+// @intent reclaim spool disk space whether the build succeeded or failed.
+// @sideEffect deletes the temporary spool directory.
 func (b *buildSpool) cleanup(logger *slog.Logger) {
 	if b == nil || b.dir == "" {
 		return
@@ -395,6 +434,10 @@ func (b *buildSpool) cleanup(logger *slog.Logger) {
 	}
 }
 
+// applyBuildSpoolInTx replays spool records into the transaction-scoped graph store and triggers search rebuild.
+// @intent rebuild the graph from scratch atomically so partial failures cannot leave stale state.
+// @sideEffect resets and repopulates graph nodes/edges/annotations and may rebuild search documents.
+// @mutates graph nodes, edges, annotations, and search_documents
 func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.GraphStore, txDB *gorm.DB, opts BuildOptions, spool *buildSpool) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -441,6 +484,8 @@ func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.Gr
 	return nil
 }
 
+// buildPersistBatch accumulates parsed file batches until a flush threshold is reached.
+// @intent amortize transaction overhead by persisting groups of files together while bounding memory.
 type buildPersistBatch struct {
 	nodeBatches []parsedBuildNodeBatch
 	edgeBatches []parsedBuildEdgeBatch
@@ -448,6 +493,9 @@ type buildPersistBatch struct {
 	bytes       int64
 }
 
+// add appends one parsed file's nodes and edges to the in-flight build batch and tracks size.
+// @intent accumulate work between flushes so persistence happens in bounded chunks.
+// @mutates batch.nodeBatches, batch.edgeBatches, batch.files, batch.bytes
 func (b *buildPersistBatch) add(nodeBatch parsedBuildNodeBatch, edgeBatch parsedBuildEdgeBatch, parsedBytes int64) {
 	b.nodeBatches = append(b.nodeBatches, nodeBatch)
 	b.edgeBatches = append(b.edgeBatches, edgeBatch)
@@ -455,10 +503,15 @@ func (b *buildPersistBatch) add(nodeBatch parsedBuildNodeBatch, edgeBatch parsed
 	b.bytes += parsedBytes
 }
 
+// shouldFlush reports whether the batch reached the file count or parsed byte threshold.
+// @intent bound transaction size so long builds do not balloon memory or transaction logs.
 func (b *buildPersistBatch) shouldFlush() bool {
 	return b.files >= buildFlushFileBatchSize || b.bytes >= buildFlushParsedBytes
 }
 
+// reset clears the batch for reuse after a successful flush.
+// @intent recycle the batch struct without reallocating to keep build loops allocation-light.
+// @mutates batch.nodeBatches, batch.edgeBatches, batch.files, batch.bytes
 func (b *buildPersistBatch) reset() {
 	b.nodeBatches = nil
 	b.edgeBatches = nil
@@ -466,6 +519,10 @@ func (b *buildPersistBatch) reset() {
 	b.bytes = 0
 }
 
+// flushBuildBatch persists the buffered nodes and deferred edges for the current batch.
+// @intent persist nodes before edges so foreign-key style references can resolve.
+// @sideEffect upserts graph nodes, annotations, and edges through the transaction-scoped store.
+// @mutates graph nodes, edges, and annotations
 func (s *GraphService) flushBuildBatch(ctx context.Context, txStore store.GraphStore, batch *buildPersistBatch) error {
 	if batch.files == 0 {
 		return nil
@@ -537,6 +594,8 @@ func (s *GraphService) Update(ctx context.Context, opts UpdateOptions) (*increme
 	return stats, nil
 }
 
+// withUpdateTx selects the right transaction scope for incremental update based on syncer and store capability.
+// @intent prefer a single coupled tx for graph and search rebuild while gracefully degrading when the syncer or store cannot participate.
 func (s *GraphService) withUpdateTx(ctx context.Context, opts UpdateOptions, fn func(store.GraphStore, *gorm.DB) error) error {
 	if s.Store == nil {
 		return fn(nil, s.DB)
@@ -563,6 +622,7 @@ func (s *GraphService) withUpdateTx(ctx context.Context, opts UpdateOptions, fn 
 	return txStore.WithTxDB(ctx, fn)
 }
 
+// @intent capture the current update input set and file hashes before transactional incremental sync begins.
 func (s *GraphService) prepareUpdateSpool(ctx context.Context, absDir string, opts UpdateOptions) (*updateSpool, error) {
 	dir, err := os.MkdirTemp("", "ccg-update-spool-*")
 	if err != nil {
@@ -653,6 +713,10 @@ func (s *GraphService) prepareUpdateSpool(ctx context.Context, absDir string, op
 	return spool, nil
 }
 
+// applyUpdateSpoolInTx replays the update spool through the incremental syncer and refreshes affected search docs.
+// @intent stage normal-changed files first, then deletions, then forced reparses so edge-source files always observe up-to-date nodes.
+// @sideEffect adds, modifies, and deletes graph nodes/edges/annotations for changed files and refreshes affected search documents.
+// @mutates graph nodes, edges, annotations, and search_documents
 func (s *GraphService) applyUpdateSpoolInTx(ctx context.Context, txStore store.GraphStore, txDB *gorm.DB, opts UpdateOptions, spool *updateSpool) (*incremental.SyncStats, error) {
 	if txStore == nil {
 		return nil, trace.New("incremental update requires transaction-scoped store")
@@ -734,6 +798,9 @@ func (s *GraphService) applyUpdateSpoolInTx(ctx context.Context, txStore store.G
 	return stats, nil
 }
 
+// writeRecord encodes one batch of update inputs as a gob-serialized spool record on disk.
+// @intent persist update inputs for transactional replay without holding all batches in memory.
+// @sideEffect creates a file under the spool directory.
 func (u *updateSpool) writeRecord(seq int, record spooledUpdateRecord) error {
 	path := filepath.Join(u.dir, fmt.Sprintf("%06d.gob", seq))
 	file, err := os.Create(path)
@@ -752,6 +819,8 @@ func (u *updateSpool) writeRecord(seq int, record spooledUpdateRecord) error {
 	return nil
 }
 
+// readRecord decodes a previously-written update spool record from disk.
+// @intent stream update inputs back into the update transaction in batches.
 func (u *updateSpool) readRecord(path string) (spooledUpdateRecord, error) {
 	var record spooledUpdateRecord
 	file, err := os.Open(path)
@@ -769,6 +838,9 @@ func (u *updateSpool) readRecord(path string) (spooledUpdateRecord, error) {
 	return record, nil
 }
 
+// cleanup removes the update spool directory and logs a warning on failure.
+// @intent reclaim spool disk space whether the update succeeded or failed.
+// @sideEffect deletes the temporary spool directory.
 func (u *updateSpool) cleanup(logger *slog.Logger) {
 	if u == nil || u.dir == "" {
 		return
@@ -778,6 +850,7 @@ func (u *updateSpool) cleanup(logger *slog.Logger) {
 	}
 }
 
+// @intent run incremental sync without a shared DB transaction when the configured syncer or store cannot provide one.
 func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, opts UpdateOptions) (*incremental.SyncStats, error) {
 	files := make(map[string]incremental.FileInfo)
 	currentHashes := make(map[string]string)
@@ -865,6 +938,8 @@ func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, 
 	return stats, nil
 }
 
+// affectedUpdateFiles selects files whose stored hash differs from the current input or that are forced to reparse.
+// @intent identify which files contributed nodes that need to be re-indexed for search after an incremental update.
 func affectedUpdateFiles(currentHashes map[string]string, existingNodesByFile map[string][]model.Node, forceFiles map[string]struct{}) []string {
 	files := make([]string, 0)
 	for filePath, hash := range currentHashes {
@@ -877,6 +952,8 @@ func affectedUpdateFiles(currentHashes map[string]string, existingNodesByFile ma
 	return files
 }
 
+// existingFilesMissingFrom returns paths that were previously stored but are no longer present on disk.
+// @intent identify deletions so the incremental syncer can remove their nodes and edges.
 func existingFilesMissingFrom(files map[string]incremental.FileInfo, existingFiles []string) []string {
 	deleted := make([]string, 0)
 	for _, fp := range existingFiles {
@@ -887,6 +964,8 @@ func existingFilesMissingFrom(files map[string]incremental.FileInfo, existingFil
 	return deleted
 }
 
+// affectedNodeIDsForUpdate collects node IDs whose search documents must be refreshed for a given change set.
+// @intent merge previously stored node IDs with newly created ones so the search index sees both removals and additions.
 func affectedNodeIDsForUpdate(ctx context.Context, db *gorm.DB, existingNodesByFile map[string][]model.Node, changedFiles, deletedFiles []string) ([]uint, error) {
 	seen := make(map[uint]struct{})
 	add := func(id uint) {
@@ -918,6 +997,8 @@ func affectedNodeIDsForUpdate(ctx context.Context, db *gorm.DB, existingNodesByF
 	return ids, nil
 }
 
+// currentNodeIDsForFiles loads node IDs for the given file paths in the active namespace using chunked IN queries.
+// @intent avoid SQL parameter limits while collecting node IDs that need search index refresh.
 func currentNodeIDsForFiles(ctx context.Context, db *gorm.DB, filePaths []string) ([]uint, error) {
 	if db == nil || len(filePaths) == 0 {
 		return nil, nil
@@ -936,6 +1017,8 @@ func currentNodeIDsForFiles(ctx context.Context, db *gorm.DB, filePaths []string
 	return ids, nil
 }
 
+// syncIncrementalBatch dispatches one batch to the configured incremental syncer using a transaction store when available.
+// @intent route changes through the transactional syncer so all updates land in the same DB transaction as graph writes.
 func syncIncrementalBatch(ctx context.Context, syncer IncrementalSyncer, txStore store.GraphStore, files map[string]incremental.FileInfo, existingFiles []string) (*incremental.SyncStats, error) {
 	if txStore != nil {
 		txSyncer, ok := syncer.(transactionalIncrementalSyncer)
@@ -947,6 +1030,9 @@ func syncIncrementalBatch(ctx context.Context, syncer IncrementalSyncer, txStore
 	return syncer.SyncWithExisting(ctx, files, existingFiles)
 }
 
+// addSyncStats sums batch-level sync counters into a running total.
+// @intent let the update loop aggregate per-batch results without each call site touching every field.
+// @mutates dst.Added, dst.Modified, dst.Skipped, dst.Deleted
 func addSyncStats(dst, src *incremental.SyncStats) {
 	if dst == nil || src == nil {
 		return
@@ -957,6 +1043,8 @@ func addSyncStats(dst, src *incremental.SyncStats) {
 	dst.Deleted += src.Deleted
 }
 
+// txDBForExistingFiles picks the transaction-scoped DB if available, otherwise falls back to the base handle.
+// @intent keep existing-file lookups inside the same transaction as graph writes when one is active.
 func txDBForExistingFiles(txDB, db *gorm.DB) *gorm.DB {
 	if txDB != nil {
 		return txDB
@@ -964,6 +1052,8 @@ func txDBForExistingFiles(txDB, db *gorm.DB) *gorm.DB {
 	return db
 }
 
+// logger returns the configured slog.Logger or the process default when none was supplied.
+// @intent keep service code logging-safe even when callers leave Logger nil.
 func (s *GraphService) logger() *slog.Logger {
 	if s.Logger != nil {
 		return s.Logger
@@ -971,6 +1061,8 @@ func (s *GraphService) logger() *slog.Logger {
 	return slog.Default()
 }
 
+// parserForExt resolves a Parser for the given file extension, preferring an explicit Parsers map over Walkers.
+// @intent let tests inject custom parsers while still using the production walker registry by default.
 func (s *GraphService) parserForExt(ext string) (Parser, bool) {
 	if s.Parsers != nil {
 		parser, ok := s.Parsers[ext]
@@ -980,6 +1072,7 @@ func (s *GraphService) parserForExt(ext string) (Parser, bool) {
 	return parser, ok
 }
 
+// @intent rebuild the namespace-scoped search index after graph mutations when a search backend is configured.
 func (s *GraphService) rebuildSearch(ctx context.Context) error {
 	if s.SearchBackend == nil || s.DB == nil {
 		return nil
@@ -987,6 +1080,8 @@ func (s *GraphService) rebuildSearch(ctx context.Context) error {
 	return s.rebuildSearchWithDB(ctx, s.DB)
 }
 
+// rebuildSearchNodes refreshes search documents for the given node IDs when a search backend is configured.
+// @intent perform incremental search index updates after changed-node sets are known.
 func (s *GraphService) rebuildSearchNodes(ctx context.Context, nodeIDs []uint) error {
 	if s.SearchBackend == nil || s.DB == nil {
 		return nil
@@ -994,6 +1089,10 @@ func (s *GraphService) rebuildSearchNodes(ctx context.Context, nodeIDs []uint) e
 	return s.rebuildSearchNodesWithDB(ctx, s.DB, nodeIDs)
 }
 
+// rebuildSearchWithDB refreshes all search documents and rebuilds the backend index against the supplied DB handle.
+// @intent let build paths share one transaction across search document refresh and FTS rebuild.
+// @sideEffect rewrites search_documents and rebuilds the search backend index.
+// @mutates search_documents
 func (s *GraphService) rebuildSearchWithDB(ctx context.Context, db *gorm.DB) error {
 	if s.SearchBackend == nil || db == nil {
 		return nil
@@ -1009,6 +1108,10 @@ func (s *GraphService) rebuildSearchWithDB(ctx context.Context, db *gorm.DB) err
 	return nil
 }
 
+// rebuildSearchNodesWithDB refreshes search documents for the given node IDs and updates the backend index scope.
+// @intent keep the FTS index incrementally consistent with the latest changed nodes.
+// @sideEffect rewrites the affected search_documents rows and updates the search backend.
+// @mutates search_documents
 func (s *GraphService) rebuildSearchNodesWithDB(ctx context.Context, db *gorm.DB, nodeIDs []uint) error {
 	if s.SearchBackend == nil || db == nil || len(nodeIDs) == 0 {
 		return nil
@@ -1024,6 +1127,7 @@ func (s *GraphService) rebuildSearchNodesWithDB(ctx context.Context, db *gorm.DB
 	return nil
 }
 
+// @intent walk candidate source files once while applying recursion, exclude, and include-path policy before parsing.
 func walkMatchingFiles(ctx context.Context, absDir string, opts BuildOptions, fn func(path, relPath string) error) error {
 	return filepath.Walk(absDir, func(path string, info os.FileInfo, err error) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -1058,6 +1162,8 @@ func walkMatchingFiles(ctx context.Context, absDir string, opts BuildOptions, fn
 	})
 }
 
+// parseForBuild parses one source file using the comment-aware parser when available.
+// @intent surface comment blocks and language alongside nodes/edges so the binder can attach annotations.
 func parseForBuild(ctx context.Context, parser Parser, relPath string, content []byte) ([]model.Node, []model.Edge, []treesitter.CommentBlock, string, error) {
 	if cp, ok := parser.(commentParserWithLanguage); ok {
 		nodes, edges, comments, err := cp.ParseWithComments(ctx, relPath, content)
@@ -1074,6 +1180,8 @@ func ExistingGraphFiles(ctx context.Context, db *gorm.DB) ([]string, error) {
 	return filePaths, err
 }
 
+// existingGraphFileState loads the namespace-scoped current graph state grouped by file path.
+// @intent provide both deletion-scope file paths and per-file node projections from a single query.
 func existingGraphFileState(ctx context.Context, db *gorm.DB) ([]string, map[string][]model.Node, error) {
 	if db == nil {
 		return nil, map[string][]model.Node{}, nil
@@ -1102,6 +1210,8 @@ func existingGraphFileState(ctx context.Context, db *gorm.DB) ([]string, map[str
 	return filePaths, nodesByFile, nil
 }
 
+// filterExistingStateByInclude restricts existing graph state to file paths that match the include filter.
+// @intent prevent partial-scope updates from deleting files that live outside the requested include paths.
 func filterExistingStateByInclude(filePaths []string, nodesByFile map[string][]model.Node, includePaths []string) ([]string, map[string][]model.Node) {
 	filteredFiles := make([]string, 0, len(filePaths))
 	filteredNodes := make(map[string][]model.Node)
@@ -1115,6 +1225,8 @@ func filterExistingStateByInclude(filePaths []string, nodesByFile map[string][]m
 	return filteredFiles, filteredNodes
 }
 
+// forceReparseFiles finds files whose edges reference nodes from changed files and therefore must be reparsed.
+// @intent keep cross-file edges consistent by reparsing edge-source files when their referenced nodes change.
 func forceReparseFiles(ctx context.Context, db *gorm.DB, existingNodesByFile map[string][]model.Node, currentHashes map[string]string) (map[string]struct{}, error) {
 	forceFiles := make(map[string]struct{})
 	if db == nil || len(existingNodesByFile) == 0 || len(currentHashes) == 0 {
@@ -1171,6 +1283,8 @@ func forceReparseFiles(ctx context.Context, db *gorm.DB, existingNodesByFile map
 	return forceFiles, nil
 }
 
+// splitForcedFiles partitions inputs into normal and forced-reparse buckets and marks the forced ones.
+// @intent process unchanged-hash forced files separately so the syncer can bypass its hash short-circuit.
 func splitForcedFiles(files map[string]incremental.FileInfo, forceFiles map[string]struct{}) (map[string]incremental.FileInfo, map[string]incremental.FileInfo) {
 	if len(files) == 0 {
 		return nil, nil
@@ -1191,12 +1305,17 @@ func splitForcedFiles(files map[string]incremental.FileInfo, forceFiles map[stri
 	return normal, forced
 }
 
+// unreadableFileSummary aggregates files that could not be stat-ed or read during a build or update pass.
+// @intent let callers surface a single structured failure or warning instead of one log entry per file.
 type unreadableFileSummary struct {
 	count  int
 	sample string
 	files  []string
 }
 
+// add records one more unreadable file, keeping the first occurrence as the sample.
+// @intent collect every offending path while keeping summary output bounded for logs.
+// @mutates s.count, s.sample, s.files
 func (s *unreadableFileSummary) add(relPath string) {
 	s.count++
 	if s.sample == "" {
@@ -1205,6 +1324,9 @@ func (s *unreadableFileSummary) add(relPath string) {
 	s.files = append(s.files, relPath)
 }
 
+// log emits a single warning describing how many files were skipped during a phase.
+// @intent prevent log spam by collapsing per-file warnings into one phase-tagged entry.
+// @sideEffect writes a warn-level log entry when the summary is non-empty.
 func (s unreadableFileSummary) log(logger *slog.Logger, phase string) {
 	if s.count == 0 || logger == nil {
 		return
@@ -1212,6 +1334,8 @@ func (s unreadableFileSummary) log(logger *slog.Logger, phase string) {
 	logger.Warn("skipped unreadable files", "phase", phase, "count", s.count, "sample", s.sample)
 }
 
+// asError converts the summary into an UnreadableFilesError when at least one file failed.
+// @intent let callers escalate skipped reads into a structured failure when FailOnUnreadable is set.
 func (s unreadableFileSummary) asError() error {
 	if s.count == 0 {
 		return nil
@@ -1220,6 +1344,7 @@ func (s unreadableFileSummary) asError() error {
 	return &UnreadableFilesError{Files: files}
 }
 
+// @intent reject individual files that exceed the configured per-file parse budget before loading them into memory.
 func CheckParseFileSize(relPath string, size int64, maxFileBytes int64) error {
 	if maxFileBytes > 0 && size > maxFileBytes {
 		return fmt.Errorf("parse file %s exceeds max file bytes: %d > %d", relPath, size, maxFileBytes)
@@ -1227,6 +1352,7 @@ func CheckParseFileSize(relPath string, size int64, maxFileBytes int64) error {
 	return nil
 }
 
+// @intent stop one build or update pass once cumulative parsed bytes would exceed the configured safety limit.
 func CheckTotalParsedBytes(relPath string, current int64, next int64, maxTotalBytes int64) error {
 	if maxTotalBytes > 0 && current+next > maxTotalBytes {
 		return fmt.Errorf("parse file %s exceeds max total parsed bytes: %d > %d", relPath, current+next, maxTotalBytes)
@@ -1249,6 +1375,10 @@ func RefreshSearchDocumentsFor(ctx context.Context, db *gorm.DB, nodeIDs []uint)
 	return refreshSearchDocuments(ctx, db, nodeIDs, true)
 }
 
+// refreshSearchDocuments rebuilds the namespace-scoped search_documents table either fully or for a node-id scope.
+// @intent regenerate FTS content from the latest nodes and annotations in batches to bound memory.
+// @sideEffect deletes and re-inserts rows in search_documents within a DB transaction.
+// @mutates search_documents
 func refreshSearchDocuments(ctx context.Context, db *gorm.DB, nodeIDs []uint, scoped bool) (int, error) {
 	ns := ctxns.FromContext(ctx)
 	buildContent := func(n model.Node, annByNode map[uint]*model.Annotation) string {
@@ -1377,6 +1507,8 @@ func refreshSearchDocuments(ctx context.Context, db *gorm.DB, nodeIDs []uint, sc
 	return count, nil
 }
 
+// scopedNodeIDsForChunk slices a node ID list using the configured IN-query chunk size.
+// @intent keep search rebuild SQL within the SQLite/Postgres parameter limit.
 func scopedNodeIDsForChunk(nodeIDs []uint, start int) []uint {
 	end := min(start+scopedINQueryChunkSize, len(nodeIDs))
 	return nodeIDs[start:end]
