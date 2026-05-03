@@ -842,13 +842,23 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 
 	var syncQueue *webhook.SyncQueue
 	syncCtx, syncCancel := context.WithCancel(context.Background())
-	defer syncCancel()
+	var syncCleanupOnce sync.Once
+	cleanupSyncQueue := func() {
+		syncCleanupOnce.Do(func() {
+			syncCancel()
+			if syncQueue != nil {
+				deps.Logger.Info("cancelling sync context and draining workers")
+				syncQueue.Shutdown()
+			}
+		})
+	}
+	defer cleanupSyncQueue()
 
 	mux.Handle("/ready", readyHandler(func(r *http.Request) error {
 		if err := dbReadyCheck(r); err != nil {
 			return err
 		}
-		if err := webhookReadyCheck(syncQueue, cfg.WebhookAttemptTimeout); err != nil {
+		if err := webhookBlockingReadyCheck(syncQueue, cfg.WebhookAttemptTimeout); err != nil {
 			return err
 		}
 		return nil
@@ -932,7 +942,7 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
+		WriteTimeout:      0,
 		IdleTimeout:       120 * time.Second,
 	}
 
@@ -968,11 +978,7 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			return trace.Wrap(err, "HTTP server shutdown")
 		}
-		if syncQueue != nil {
-			deps.Logger.Info("cancelling sync context and draining workers")
-			syncCancel()
-			syncQueue.Shutdown()
-		}
+		cleanupSyncQueue()
 		return nil
 	}
 }
@@ -1092,9 +1098,11 @@ func statusHandler(dbCheck func(*http.Request) error, webhookTimeout time.Durati
 			if q := queue(); q != nil {
 				stats := q.Stats()
 				resp.Webhook = &stats
-				if err := webhookStatsReady(stats, webhookTimeout); err != nil {
+				if err := webhookStatsBlockingReady(stats, webhookTimeout); err != nil {
 					resp.Status = "not_ready"
 					code = http.StatusServiceUnavailable
+				} else if webhookStatsDegraded(stats) {
+					resp.Status = "degraded"
 				}
 			}
 		}
@@ -1107,14 +1115,14 @@ func statusHandler(dbCheck func(*http.Request) error, webhookTimeout time.Durati
 	})
 }
 
-func webhookReadyCheck(q *webhook.SyncQueue, timeout time.Duration) error {
+func webhookBlockingReadyCheck(q *webhook.SyncQueue, timeout time.Duration) error {
 	if q == nil {
 		return nil
 	}
-	return webhookStatsReady(q.Stats(), timeout)
+	return webhookStatsBlockingReady(q.Stats(), timeout)
 }
 
-func webhookStatsReady(stats webhook.SyncQueueStats, timeout time.Duration) error {
+func webhookStatsBlockingReady(stats webhook.SyncQueueStats, timeout time.Duration) error {
 	if stats.MaxTrackedRepos > 0 && stats.TrackedRepos >= stats.MaxTrackedRepos {
 		return fmt.Errorf("webhook sync queue full")
 	}
@@ -1126,10 +1134,14 @@ func webhookStatsReady(stats webhook.SyncQueueStats, timeout time.Duration) erro
 			return fmt.Errorf("webhook sync processing delayed for %s", stats.OldestProcessingAge)
 		}
 	}
-	if !stats.LastErrorTime.IsZero() && (stats.LastSuccessTime.IsZero() || stats.LastSuccessTime.Before(stats.LastErrorTime)) {
-		return fmt.Errorf("webhook sync has unresolved failure")
-	}
 	return nil
+}
+
+func webhookStatsDegraded(stats webhook.SyncQueueStats) bool {
+	if !stats.LastErrorTime.IsZero() && (stats.LastSuccessTime.IsZero() || stats.LastSuccessTime.Before(stats.LastErrorTime)) {
+		return true
+	}
+	return false
 }
 
 // openDB opens a GORM connection for the configured driver.

@@ -167,7 +167,7 @@ func TestReadyHandler_ReportsWebhookQueueDelay(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	readyHandler(func(r *http.Request) error {
-		return webhookReadyCheck(q, time.Millisecond)
+		return webhookBlockingReadyCheck(q, time.Millisecond)
 	}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
@@ -205,8 +205,29 @@ func TestStatusHandler_ReportsUnresolvedWebhookFailure(t *testing.T) {
 
 	statusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	if got := body["status"]; got != "degraded" {
+		t.Fatalf("expected degraded status, got %v body=%s", got, rec.Body.String())
+	}
+}
+
+func TestReadyHandler_IgnoresUnresolvedWebhookFailure(t *testing.T) {
+	stats := webhook.SyncQueueStats{LastErrorTime: time.Now()}
+	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	rec := httptest.NewRecorder()
+
+	readyHandler(func(r *http.Request) error {
+		return webhookStatsBlockingReady(stats, time.Minute)
+	}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
