@@ -98,10 +98,16 @@ func (g *ExecGitClient) DiffHunks(ctx context.Context, repoDir, baseRef string, 
 	return hunks, nil
 }
 
+// runGitLimited runs a git subcommand with the default output size cap.
+// @intent share a single bounded git invocation helper across diff operations
 func runGitLimited(ctx context.Context, repoDir string, args []string) ([]byte, error) {
 	return runGitLimitedWithMax(ctx, repoDir, args, MaxGitOutputSize)
 }
 
+// runGitLimitedWithMax executes git with a deadline and a hard stdout byte limit.
+// @intent prevent runaway git output from exhausting memory while preserving original errors
+// @sideEffect spawns a git child process inside repoDir
+// @ensures returns an error when stdout would exceed maxOutput bytes
 func runGitLimitedWithMax(ctx context.Context, repoDir string, args []string, maxOutput int64) ([]byte, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc

@@ -71,6 +71,7 @@ func (s *Service) Analyze(ctx context.Context, repoDir, baseRef string) ([]RiskE
 
 // collectDiffHunks retrieves changed files and their diff hunks from git,
 // returning hunks grouped by file path.
+// @intent gather the minimal diff context needed before matching git changes back to graph nodes.
 func (s *Service) collectDiffHunks(ctx context.Context, repoDir, baseRef string) (map[string][]Hunk, []string, error) {
 	files, err := s.git.ChangedFiles(ctx, repoDir, baseRef)
 	if err != nil {
@@ -96,12 +97,14 @@ func (s *Service) collectDiffHunks(ctx context.Context, repoDir, baseRef string)
 }
 
 // hitInfo pairs a graph node with the number of overlapping diff hunks.
+// @intent keep per-node diff overlap counts available until final risk scoring runs.
 type hitInfo struct {
 	node      model.Node
 	hunkCount int
 }
 
 // matchHunksToNodes finds graph nodes whose line ranges overlap with diff hunks.
+// @intent translate file-level diff hunks into the graph nodes that were actually touched.
 func matchHunksToNodes(db *gorm.DB, ctx context.Context, files []string, hunksByFile map[string][]Hunk) (map[uint]*hitInfo, error) {
 	var allNodes []model.Node
 	if err := db.WithContext(ctx).Where("namespace = ? AND file_path IN ?", ctxns.FromContext(ctx), files).Find(&allNodes).Error; err != nil {
@@ -124,18 +127,21 @@ func matchHunksToNodes(db *gorm.DB, ctx context.Context, files []string, hunksBy
 	return hits, nil
 }
 
+// outCount aggregates outgoing edge counts per node for risk weighting.
+// @intent carry GROUP BY results from the edge query into the risk score loop.
+type outCount struct {
+	FromNodeID uint
+	Count      int64
+}
+
 // computeRiskScores calculates risk for each hit node based on outgoing edge count.
+// @intent weight changed nodes by both diff overlap and graph connectivity to prioritize risky edits.
 func computeRiskScores(db *gorm.DB, ctx context.Context, hits map[uint]*hitInfo) ([]RiskEntry, error) {
 	nodeIDs := make([]uint, 0, len(hits))
 	for id := range hits {
 		nodeIDs = append(nodeIDs, id)
 	}
 	ns := ctxns.FromContext(ctx)
-
-	type outCount struct {
-		FromNodeID uint
-		Count      int64
-	}
 	var outCounts []outCount
 	if err := db.WithContext(ctx).
 		Model(&model.Edge{}).

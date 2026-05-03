@@ -84,6 +84,9 @@ func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 	return result, err
 }
 
+// deleteCommunities removes existing communities and memberships for the namespace.
+// @intent clear prior community state before a full rebuild
+// @sideEffect deletes rows from community_memberships and communities tables
 func deleteCommunities(tx *gorm.DB, ns string) error {
 	var ids []uint
 	if err := tx.Model(&model.Community{}).
@@ -100,6 +103,8 @@ func deleteCommunities(tx *gorm.DB, ns string) error {
 	return tx.Where("id IN ?", ids).Delete(&model.Community{}).Error
 }
 
+// groupNodesByDirectory loads namespace nodes and buckets them by directory key.
+// @intent produce the directory-keyed node groups that drive community creation
 func groupNodesByDirectory(tx *gorm.DB, ctx context.Context, depth int) (map[string][]model.Node, error) {
 	var nodes []model.Node
 	ns := ctxns.FromContext(ctx)
@@ -115,6 +120,11 @@ func groupNodesByDirectory(tx *gorm.DB, ctx context.Context, depth int) (map[str
 	return groups, nil
 }
 
+// createCommunitiesAndMemberships persists one community per directory key
+// and attaches every grouped node as a membership row.
+// @intent materialize community and membership rows used by downstream analysis
+// @sideEffect inserts into communities and community_memberships tables
+// @return community lookup by key plus per-node directory key map
 func createCommunitiesAndMemberships(tx *gorm.DB, groups map[string][]model.Node, ns string) (map[string]*model.Community, map[uint]string, error) {
 	communityMap := map[string]*model.Community{}
 	for key := range groups {
@@ -147,11 +157,15 @@ func createCommunitiesAndMemberships(tx *gorm.DB, groups map[string][]model.Node
 	return communityMap, nodeComm, nil
 }
 
+// edgeCounts holds internal vs external edge tallies for one community.
+// @intent track per-community edge counts used to compute cohesion
 type edgeCounts struct {
 	internal int64
 	external int64
 }
 
+// countEdgesByCommunity tallies internal and cross-community edges in batches.
+// @intent classify edges as internal or external relative to community membership
 func countEdgesByCommunity(tx *gorm.DB, ns string, groups map[string][]model.Node, nodeComm map[uint]string) (map[string]*edgeCounts, error) {
 	counts := map[string]*edgeCounts{}
 	for key := range groups {
@@ -181,6 +195,9 @@ func countEdgesByCommunity(tx *gorm.DB, ns string, groups map[string][]model.Nod
 	return counts, nil
 }
 
+// aggregateDescriptions joins file-level @index tags into a community description.
+// @intent surface human-readable module summaries on each community row
+// @sideEffect updates Community.Description fields in the database
 func aggregateDescriptions(tx *gorm.DB, groups map[string][]model.Node, communityMap map[string]*model.Community) error {
 	fileNodeIDs := []uint{}
 	for _, ns := range groups {
@@ -228,6 +245,8 @@ func aggregateDescriptions(tx *gorm.DB, groups map[string][]model.Node, communit
 	return nil
 }
 
+// buildStats assembles the per-community Stats records returned to callers.
+// @intent compute cohesion and pack community results for the Rebuild response
 func buildStats(groups map[string][]model.Node, communityMap map[string]*model.Community, counts map[string]*edgeCounts) []Stats {
 	var result []Stats
 	for key, c := range communityMap {
