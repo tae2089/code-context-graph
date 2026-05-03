@@ -82,10 +82,10 @@ func countServiceSQLInList(sql string) int {
 }
 
 type recordingGraphStore struct {
-	t         *testing.T
-	ops       []string
-	nextID    uint
-	nodesByFP map[string][]model.Node
+	t             *testing.T
+	ops           []string
+	nextID        uint
+	nodesByFP     map[string][]model.Node
 	edges         []model.Edge
 	upsertedEdges [][]model.Edge
 }
@@ -602,6 +602,64 @@ func TestBuild_UsesRepoLocalPackageClauseForGoImportAssertions(t *testing.T) {
 		}
 	}
 	t.Fatalf("expected implements edge from %d to contracts.Service %d, got %+v", impl.ID, iface.ID, edges)
+}
+
+func TestBuild_SuppressesRepoLocalPackageClauseCorrectionOnConflict(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{Store: st, DB: db, Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustWrite("go.mod", "module github.com/example/project\n\ngo 1.25.0\n")
+	mustMkdir("internal/api")
+	mustMkdir("mainpkg")
+	mustWrite("internal/api/a.go", "package contracts\n\ntype Service interface {\n\tRun()\n}\n")
+	mustWrite("internal/api/b.go", "package other\n\ntype Service interface {\n\tRun()\n}\n")
+	mustWrite("mainpkg/main.go", "package mainpkg\n\nimport dep \"github.com/example/project/internal/api\"\n\ntype MyType struct{}\n\nfunc (MyType) Run() {}\n\nvar _ dep.Service = MyType{}\n")
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	impl, err := st.GetNode(ctx, "mainpkg.MyType")
+	if err != nil || impl == nil {
+		t.Fatalf("GetNode impl: node=%v err=%v", impl, err)
+	}
+	iface, err := st.GetNode(ctx, "contracts.Service")
+	if err != nil || iface == nil {
+		t.Fatalf("GetNode iface: node=%v err=%v", iface, err)
+	}
+	otherIface, err := st.GetNode(ctx, "other.Service")
+	if err != nil || otherIface == nil {
+		t.Fatalf("GetNode other iface: node=%v err=%v", otherIface, err)
+	}
+	edges, err := st.GetEdgesFrom(ctx, impl.ID)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom: %v", err)
+	}
+	for _, edge := range edges {
+		if edge.Kind == model.EdgeKindImplements && (edge.ToNodeID == iface.ID || edge.ToNodeID == otherIface.ID) {
+			t.Fatalf("expected conflicting package clauses to suppress alias correction, got implements edge %+v", edge)
+		}
+	}
 }
 
 func TestNewParsedBuildNodeBatch_DropsRawContentAndOnlyBuildsSourceLinesWhenNeeded(t *testing.T) {

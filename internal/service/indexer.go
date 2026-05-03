@@ -1,11 +1,11 @@
 package service
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/gob"
 	"encoding/hex"
-	"bufio"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -85,7 +85,7 @@ type updateSpool struct {
 
 var (
 	testBuildBatchReleaseHook func([]parsedBuildNodeBatch, int)
-	resolveBuildEdges          = edgeresolve.Resolve
+	resolveBuildEdges         = edgeresolve.Resolve
 )
 
 const (
@@ -1294,6 +1294,7 @@ func collectGoImportPackages(absDir string, opts BuildOptions, parserForExt func
 		return nil, err
 	}
 	packages := make(map[string]string)
+	ambiguous := make(map[string]struct{})
 	err = walkMatchingFiles(context.Background(), absDir, opts, func(path, relPath string) error {
 		if strings.ToLower(filepath.Ext(path)) != ".go" {
 			return nil
@@ -1312,17 +1313,32 @@ func collectGoImportPackages(absDir string, opts BuildOptions, parserForExt func
 			return nil
 		}
 		dir := filepath.ToSlash(filepath.Dir(relPath))
+		importPath := modulePath
 		if dir == "." {
-			packages[modulePath] = pkgName
+			rememberGoImportPackage(packages, ambiguous, importPath, pkgName)
 			return nil
 		}
-		packages[modulePath+"/"+dir] = pkgName
+		importPath = modulePath + "/" + dir
+		rememberGoImportPackage(packages, ambiguous, importPath, pkgName)
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return packages, nil
+}
+
+
+func rememberGoImportPackage(packages map[string]string, ambiguous map[string]struct{}, importPath, pkgName string) {
+	if _, blocked := ambiguous[importPath]; blocked {
+		return
+	}
+	if existing, ok := packages[importPath]; ok && existing != pkgName {
+		delete(packages, importPath)
+		ambiguous[importPath] = struct{}{}
+		return
+	}
+	packages[importPath] = pkgName
 }
 
 func readGoModulePath(goModPath string) (string, error) {
