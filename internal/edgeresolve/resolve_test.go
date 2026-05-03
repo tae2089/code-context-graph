@@ -311,11 +311,11 @@ func TestResolveImportsFromPrefersExactDirectoryMatch(t *testing.T) {
 	}
 }
 
-func TestResolveImportsFromLeavesAmbiguousExactDirectoryUnresolved(t *testing.T) {
+func TestResolveImportsFromBindsLexicographicRepresentativeForMultiFilePackage(t *testing.T) {
 	lookup := fakeLookup{nodes: []model.Node{
 		{ID: 10, QualifiedName: "cmd/main.go", Name: "cmd/main.go", Kind: model.NodeKindFile, FilePath: "cmd/main.go", Language: "go"},
-		{ID: 20, QualifiedName: "internal/mcp/deps.go", Name: "internal/mcp/deps.go", Kind: model.NodeKindFile, FilePath: "internal/mcp/deps.go", Language: "go"},
-		{ID: 21, QualifiedName: "internal/mcp/extra.go", Name: "internal/mcp/extra.go", Kind: model.NodeKindFile, FilePath: "internal/mcp/extra.go", Language: "go"},
+		{ID: 21, QualifiedName: "internal/mcp/z.go", Name: "internal/mcp/z.go", Kind: model.NodeKindFile, FilePath: "internal/mcp/z.go", Language: "go"},
+		{ID: 20, QualifiedName: "internal/mcp/a.go", Name: "internal/mcp/a.go", Kind: model.NodeKindFile, FilePath: "internal/mcp/a.go", Language: "go"},
 	}}
 	edges, err := Resolve(context.Background(), lookup, []model.Edge{{
 		Kind:        model.EdgeKindImportsFrom,
@@ -326,8 +326,8 @@ func TestResolveImportsFromLeavesAmbiguousExactDirectoryUnresolved(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := edges[0].ToNodeID; got != 0 {
-		t.Fatalf("ToNodeID=%d, want unresolved 0 for ambiguous exact dir", got)
+	if got := edges[0].ToNodeID; got != 20 {
+		t.Fatalf("ToNodeID=%d, want lexicographic representative 20", got)
 	}
 }
 

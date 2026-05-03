@@ -4,6 +4,7 @@ package edgeresolve
 import (
 	"context"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -351,7 +352,7 @@ func resolveImportFile(ctx context.Context, lookup NodeLookup, st *resolveState,
 	if prefixLookup, ok := lookup.(filePrefixLookup); ok {
 		queried, err := prefixLookup.GetFileNodesByPathSuffix(ctx, importPath)
 		if err == nil {
-			return uniqueFileNode(queried)
+			return representativeImportFile(queried)
 		}
 	}
 	return nil
@@ -381,13 +382,48 @@ func bestImportFileMatch(fileNodeByPath map[string]model.Node, importPath string
 			}
 		}
 	}
-	if target := uniqueFileNode(exact); target != nil {
+	if target := representativeImportFile(exact); target != nil {
 		return target
 	}
 	if len(exact) > 0 {
 		return nil
 	}
-	return uniqueFileNode(candidates)
+	return representativeImportFile(candidates)
+}
+
+func representativeImportFile(nodes []model.Node) *model.Node {
+	files := uniqueFileNodes(nodes)
+	if len(files) == 0 {
+		return nil
+	}
+	firstDir := strings.Trim(path.Dir(files[0].FilePath), "/")
+	for _, node := range files[1:] {
+		if strings.Trim(path.Dir(node.FilePath), "/") != firstDir {
+			return nil
+		}
+	}
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].FilePath < files[j].FilePath
+	})
+	return &files[0]
+}
+
+func uniqueFileNodes(nodes []model.Node) []model.Node {
+	seen := make(map[uint]bool)
+	var files []model.Node
+	for _, node := range nodes {
+		if node.Kind != model.NodeKindFile {
+			continue
+		}
+		if node.ID != 0 && seen[node.ID] {
+			continue
+		}
+		if node.ID != 0 {
+			seen[node.ID] = true
+		}
+		files = append(files, node)
+	}
+	return files
 }
 
 func commonSuffixDepth(a, b string) int {
