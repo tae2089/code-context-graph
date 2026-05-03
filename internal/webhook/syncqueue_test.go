@@ -669,8 +669,15 @@ func TestSyncQueueStats_RecentRepos_RecordsFailureAndError(t *testing.T) {
 		stats := q.Stats()
 		if len(stats.RecentRepos) > 0 {
 			r := stats.RecentRepos[0]
+			if r.LastError == "" || r.LastErrorTime.IsZero() {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
 			if r.Repo != "org/failrepo" {
 				t.Fatalf("repo = %q, want %q", r.Repo, "org/failrepo")
+			}
+			if r.Branch != "main" {
+				t.Fatalf("branch = %q, want %q", r.Branch, "main")
 			}
 			if r.LastError == "" {
 				t.Fatalf("LastError is empty, want non-empty")
@@ -778,9 +785,10 @@ func TestSyncQueueStats_RecentRepos_CappedAtMaxRecentRepos(t *testing.T) {
 func TestSyncQueueStats_RecentRepos_ShowsQueuedAndProcessingState(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
+	var once sync.Once
 
 	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
-		close(started)
+		once.Do(func() { close(started) })
 		<-release
 		return nil
 	}
@@ -815,6 +823,70 @@ func TestSyncQueueStats_RecentRepos_ShowsQueuedAndProcessingState(t *testing.T) 
 		if !queued.Queued {
 			t.Fatalf("org/queued should have Queued=true, got %+v", queued)
 		}
+	}
+
+	close(release)
+}
+
+func TestSyncQueueStats_RecentRepos_IncludesQueuedAndProcessingBeforeFirstOutcome(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
+		once.Do(func() { close(started) })
+		<-release
+		return nil
+	}
+
+	q := NewSyncQueueWithConfig(context.Background(), 1, handler, QueueConfig{
+		RetryConfig:     RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 10,
+	})
+	defer q.Shutdown()
+
+	if err := q.Add(context.Background(), "org/processing", "url", "feature/processing"); err != nil {
+		t.Fatalf("Add processing returned error: %v", err)
+	}
+	if err := q.Add(context.Background(), "org/queued", "url2", "feature/queued"); err != nil {
+		t.Fatalf("Add queued returned error: %v", err)
+	}
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for handler to start")
+	}
+
+	stats := q.Stats()
+	if len(stats.RecentRepos) < 2 {
+		t.Fatalf("expected queued and processing repos in RecentRepos, got %+v", stats.RecentRepos)
+	}
+	repoMap := make(map[string]RepoStats)
+	for _, r := range stats.RecentRepos {
+		repoMap[r.Repo] = r
+	}
+
+	proc, ok := repoMap["org/processing"]
+	if !ok {
+		t.Fatalf("processing repo missing from RecentRepos: %+v", stats.RecentRepos)
+	}
+	if !proc.Processing {
+		t.Fatalf("processing repo should have Processing=true, got %+v", proc)
+	}
+	if proc.Branch != "feature/processing" {
+		t.Fatalf("processing repo branch = %q, want %q", proc.Branch, "feature/processing")
+	}
+
+	queued, ok := repoMap["org/queued"]
+	if !ok {
+		t.Fatalf("queued repo missing from RecentRepos: %+v", stats.RecentRepos)
+	}
+	if !queued.Queued {
+		t.Fatalf("queued repo should have Queued=true, got %+v", queued)
+	}
+	if queued.Branch != "feature/queued" {
+		t.Fatalf("queued repo branch = %q, want %q", queued.Branch, "feature/queued")
 	}
 
 	close(release)

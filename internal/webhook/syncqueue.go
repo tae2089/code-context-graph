@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 )
@@ -231,7 +232,7 @@ func (q *SyncQueue) Shutdown() {
 	case <-done:
 	case <-time.After(30 * time.Second):
 		slog.Error("sync queue shutdown timed out after 30s, abandoning workers")
-		q.recordFailure("shutdown", errors.New("sync queue shutdown timed out after 30s"))
+		q.recordFailure("shutdown", "", errors.New("sync queue shutdown timed out after 30s"))
 	}
 }
 
@@ -258,35 +259,93 @@ func (q *SyncQueue) Stats() SyncQueueStats {
 }
 
 func (q *SyncQueue) buildRecentReposLocked() []RepoStats {
-	if len(q.repoStatsOrder) == 0 {
+	if len(q.repoStatsOrder) == 0 && len(q.payloads) == 0 {
 		return nil
 	}
-	result := make([]RepoStats, 0, len(q.repoStatsOrder))
-	for i := len(q.repoStatsOrder) - 1; i >= 0; i-- {
-		repo := q.repoStatsOrder[i]
-		entry := q.repoStats[repo]
-		branch := entry.branch
-		if p, ok := q.payloads[repo]; ok && p.branch != "" {
-			branch = p.branch
+	seen := make(map[string]struct{}, len(q.repoStatsOrder)+len(q.payloads))
+	repos := make([]string, 0, len(q.repoStatsOrder)+len(q.payloads))
+	addRepo := func(repo string) {
+		if _, ok := seen[repo]; ok || repo == "" {
+			return
 		}
-		rs := RepoStats{
-			Repo:            repo,
-			Branch:          branch,
-			Queued:          q.dirty[repo] && !q.processing[repo],
-			Processing:      q.processing[repo],
-			LastSuccessTime: entry.lastSuccessTime,
-			LastErrorTime:   entry.lastErrorTime,
-			LastError:       entry.lastError,
+		seen[repo] = struct{}{}
+		repos = append(repos, repo)
+	}
+	for _, repo := range q.repoStatsOrder {
+		addRepo(repo)
+	}
+	for repo := range q.payloads {
+		addRepo(repo)
+	}
+	for repo := range q.dirty {
+		addRepo(repo)
+	}
+	for repo := range q.processing {
+		addRepo(repo)
+	}
+
+	result := make([]RepoStats, 0, len(repos))
+	for _, repo := range repos {
+		result = append(result, q.recentRepoStatsLocked(repo))
+	}
+	sort.Slice(result, func(i, j int) bool {
+		left := recentRepoActivityTime(result[i])
+		right := recentRepoActivityTime(result[j])
+		if !left.Equal(right) {
+			return left.After(right)
 		}
-		if t, ok := q.enqueuedAt[repo]; ok {
-			rs.EnqueuedAt = t
-		}
-		if t, ok := q.processingAt[repo]; ok {
-			rs.ProcessingAt = t
-		}
-		result = append(result, rs)
+		return result[i].Repo < result[j].Repo
+	})
+	if len(result) > maxRecentRepos {
+		result = result[:maxRecentRepos]
 	}
 	return result
+}
+
+func (q *SyncQueue) recentRepoStatsLocked(repo string) RepoStats {
+	var entry *repoStatEntry
+	if q.repoStats != nil {
+		entry = q.repoStats[repo]
+	}
+	branch := ""
+	if entry != nil {
+		branch = entry.branch
+	}
+	if p, ok := q.payloads[repo]; ok && p.branch != "" {
+		branch = p.branch
+	}
+	rs := RepoStats{
+		Repo:       repo,
+		Branch:     branch,
+		Queued:     q.dirty[repo] && !q.processing[repo],
+		Processing: q.processing[repo],
+	}
+	if entry != nil {
+		rs.LastSuccessTime = entry.lastSuccessTime
+		rs.LastErrorTime = entry.lastErrorTime
+		rs.LastError = entry.lastError
+	}
+	if t, ok := q.enqueuedAt[repo]; ok {
+		rs.EnqueuedAt = t
+	}
+	if t, ok := q.processingAt[repo]; ok {
+		rs.ProcessingAt = t
+	}
+	return rs
+}
+
+func recentRepoActivityTime(stats RepoStats) time.Time {
+	latest := stats.EnqueuedAt
+	if stats.ProcessingAt.After(latest) {
+		latest = stats.ProcessingAt
+	}
+	if stats.LastSuccessTime.After(latest) {
+		latest = stats.LastSuccessTime
+	}
+	if stats.LastErrorTime.After(latest) {
+		latest = stats.LastErrorTime
+	}
+	return latest
 }
 
 func (q *SyncQueue) oldestAgeLocked(now time.Time, times map[string]time.Time) time.Duration {
@@ -332,13 +391,13 @@ func (q *SyncQueue) safeHandle(repo string, payload syncPayload) bool {
 		}
 		if IsNonRetryable(err) {
 			slog.Error("sync handler failed with non-retryable error", "repo", repo, "error", err)
-			q.recordFailure(repo, err)
+			q.recordFailure(repo, payload.branch, err)
 			return false
 		}
 
 		if attempt == cfg.MaxAttempts {
 			slog.Error("sync handler failed, giving up", "repo", repo, "attempts", attempt, "error", err)
-			q.recordFailure(repo, err)
+			q.recordFailure(repo, payload.branch, err)
 			return false
 		}
 
@@ -362,13 +421,13 @@ func (q *SyncQueue) safeHandle(repo string, payload syncPayload) bool {
 	return false
 }
 
-func (q *SyncQueue) recordFailure(repo string, err error) {
+func (q *SyncQueue) recordFailure(repo string, branch string, err error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.failureTotal++
 	q.lastError = fmt.Sprintf("%s: %v", repo, err)
 	q.lastErrorTime = time.Now()
-	q.upsertRepoStatLocked(repo, "", func(e *repoStatEntry) {
+	q.upsertRepoStatLocked(repo, branch, func(e *repoStatEntry) {
 		e.lastError = err.Error()
 		e.lastErrorTime = q.lastErrorTime
 	})
