@@ -19,9 +19,6 @@ exclude:
   - "testdata/.*"
   - ".*\\.gen\\.go$"
   - "scripts/.*"
-  - "root.go"
-  - "main.go"
-  - "cmd/.*"
 
 comment_tags:
   standard:
@@ -54,4 +51,10 @@ rules:
     action: ignore
   - pattern: npm/.*
     category: orphan
+    action: ignore
+  - pattern: "cmd/.*"
+    category: missing
+    action: ignore
+  - pattern: "cmd/.*"
+    category: unannotated
     action: ignore
