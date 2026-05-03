@@ -109,6 +109,8 @@ func (g *Generator) RunIndex() error {
 	return g.writeIndex(groups)
 }
 
+// validateDocGroups checks that every group's output path is safe before writing begins.
+// @intent prevent path-traversal writes before any file I/O is attempted
 func (g *Generator) validateDocGroups(groups []nodeGroup) error {
 	for _, grp := range groups {
 		if _, err := safeDocOutputPath(g.OutDir, grp.FilePath+".md"); err != nil {
@@ -177,6 +179,8 @@ func (g *Generator) loadEdges(nodeIDs []uint) (map[uint][]model.Edge, error) {
 	return result, nil
 }
 
+// generatedFiles builds the list of output paths that this run will produce.
+// @intent track expected output files so the manifest and prune step stay consistent
 func generatedFiles(groups []nodeGroup) []string {
 	files := make([]string, 0, len(groups)+1)
 	for _, grp := range groups {
@@ -186,6 +190,8 @@ func generatedFiles(groups []nodeGroup) []string {
 	return files
 }
 
+// manifestPath returns the namespace-scoped path for the docs manifest file.
+// @intent isolate manifest files per namespace so concurrent namespaces do not collide
 func (g *Generator) manifestPath() string {
 	name := ".ccg-docs-manifest.json"
 	if g.Namespace != "" {
@@ -194,6 +200,8 @@ func (g *Generator) manifestPath() string {
 	return filepath.Join(g.OutDir, name)
 }
 
+// loadManifest reads the previously saved manifest from disk, returning an empty manifest if none exists.
+// @intent restore the prior output file list so Run can compute stale files to prune
 func (g *Generator) loadManifest() (*manifest, error) {
 	m := &manifest{Namespace: g.Namespace}
 	data, err := os.ReadFile(g.manifestPath())
@@ -209,6 +217,9 @@ func (g *Generator) loadManifest() (*manifest, error) {
 	return m, nil
 }
 
+// saveManifest persists the list of generated files to disk for use by the next run's prune step.
+// @intent record which files were written so future runs can detect and remove stale docs
+// @sideEffect writes .ccg-docs-manifest[.namespace].json to g.OutDir
 func (g *Generator) saveManifest(files []string) error {
 	data, err := json.MarshalIndent(manifest{Namespace: g.Namespace, Files: files}, "", "  ")
 	if err != nil {
@@ -220,6 +231,10 @@ func (g *Generator) saveManifest(files []string) error {
 	return atomicWriteFile(g.manifestPath(), data, 0644)
 }
 
+// pruneManaged deletes previously generated docs that are no longer in the current output set,
+// but only if the file starts with the managed marker to avoid removing user-edited files.
+// @intent clean up stale generated docs without touching manually created files
+// @sideEffect removes markdown files from g.OutDir that are no longer part of the current graph
 func (g *Generator) pruneManaged(previous, current []string) error {
 	keep := map[string]bool{}
 	for _, p := range current {

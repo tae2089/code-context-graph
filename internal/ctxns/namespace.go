@@ -3,10 +3,14 @@ package ctxns
 
 import "context"
 
+// ctxKey is the unexported type used as the namespace context key to avoid collisions.
+// @intent isolate the namespace value in the context map from any other package's keys.
 type ctxKey struct{}
 
 const DefaultNamespace = "default"
 
+// Normalize replaces an empty namespace with DefaultNamespace, leaving other values unchanged.
+// @intent guarantee callers always observe a non-empty namespace string for store and query layers.
 func Normalize(ns string) string {
 	if ns == "" {
 		return DefaultNamespace

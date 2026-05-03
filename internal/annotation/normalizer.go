@@ -83,6 +83,8 @@ func stripBlockDelimiters(text string, language string) string {
 	return text
 }
 
+// stripPythonDocstringDelimiters removes triple-quote wrappers from a Python docstring body.
+// @intent expose the raw docstring text by trying both """ and ''' triple-quote forms.
 func stripPythonDocstringDelimiters(text string) (string, bool) {
 	for _, quote := range []string{"\"\"\"", "'''"} {
 		if stripped, ok := stripPythonQuotedString(text, quote); ok {
@@ -92,6 +94,8 @@ func stripPythonDocstringDelimiters(text string) (string, bool) {
 	return "", false
 }
 
+// stripPythonQuotedString removes a matching opening and closing quote pair while validating any string prefix.
+// @intent accept docstrings with optional `r` or `u` prefixes without altering body content.
 func stripPythonQuotedString(text string, quote string) (string, bool) {
 	lower := strings.ToLower(text)
 	idx := strings.Index(lower, quote)
@@ -110,6 +114,8 @@ func stripPythonQuotedString(text string, quote string) (string, bool) {
 	return text[idx+len(quote) : len(text)-len(quote)], true
 }
 
+// isSupportedPythonDocstringPrefix accepts only the empty prefix and the raw/unicode docstring prefixes.
+// @intent avoid stripping byte-string or formatted-string docstrings whose escapes need different handling.
 func isSupportedPythonDocstringPrefix(prefix string) bool {
 	if prefix == "" {
 		return true

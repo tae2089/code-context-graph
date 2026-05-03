@@ -11,6 +11,7 @@ import (
 )
 
 // MigrateConfig contains the database and external migration source settings.
+// @intent carry the driver, DSN, and migration source needed for one explicit schema migration run.
 type MigrateConfig struct {
 	DBDriver      string
 	DBDSN         string
@@ -53,6 +54,7 @@ func newMigrateCmd(deps *Deps) *cobra.Command {
 	return cmd
 }
 
+// @intent resolve migration directory precedence between flag, config, and environment defaults.
 func resolveMigrationsDir(cmd *cobra.Command, flagValue string) string {
 	if cmd.Flags().Changed("migrations-dir") {
 		return flagValue

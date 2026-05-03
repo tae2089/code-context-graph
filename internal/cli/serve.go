@@ -42,6 +42,9 @@ type ServeConfig struct {
 	WebhookFailOnUnreadable bool
 }
 
+// validateServeConfig checks that the serve configuration is self-consistent.
+// @intent reject invalid flag combinations before the server starts
+// @requires cfg.Transport is set; webhook fields are only validated when Transport == "streamable-http"
 func validateServeConfig(cfg ServeConfig) error {
 	if cfg.Transport != "streamable-http" {
 		return nil
@@ -92,6 +95,8 @@ func validateServeConfig(cfg ServeConfig) error {
 	return nil
 }
 
+// configuredCloneBaseURLs merges the singular and plural clone base URL flags into a deduplicated list.
+// @intent normalize clone base URL inputs from both legacy and current flags into a single ordered slice
 func configuredCloneBaseURLs(cfg ServeConfig) []string {
 	baseURLs := append([]string(nil), cfg.RepoCloneBaseURLs...)
 	if cfg.RepoCloneBaseURL != "" {
@@ -171,6 +176,8 @@ func newServeCmd(deps *Deps) *cobra.Command {
 	return cmd
 }
 
+// envInt reads an integer from an environment variable, returning fallback if unset or unparseable.
+// @intent provide env-based defaults for webhook worker flags without panicking on bad input
 func envInt(name string, fallback int) int {
 	raw := strings.TrimSpace(os.Getenv(name))
 	if raw == "" {
@@ -183,11 +190,15 @@ func envInt(name string, fallback int) int {
 	return v
 }
 
+// envIsSet reports whether an environment variable is present in the process environment.
+// @intent distinguish between an unset variable and one explicitly set to empty string
 func envIsSet(name string) bool {
 	_, ok := os.LookupEnv(name)
 	return ok
 }
 
+// envDuration reads a time.Duration from an environment variable, returning fallback if unset or unparseable.
+// @intent provide env-based defaults for webhook timeout and retry delay flags without panicking on bad input
 func envDuration(name string, fallback time.Duration) time.Duration {
 	raw := strings.TrimSpace(os.Getenv(name))
 	if raw == "" {
