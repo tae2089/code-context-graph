@@ -12,9 +12,11 @@ import (
 
 // GoPackageDiscovery discovers repo-local Go packages from go.mod and package clauses.
 // @intent model a Go import path as one package node that contains every non-test file in that package.
+// @index Go package discovery implementation using go.mod and package statements.
 type GoPackageDiscovery struct{}
 
 // DiscoverPackages returns package metadata keyed by import path.
+// @intent walk the repository to identify Go packages and their source files.
 func (GoPackageDiscovery) DiscoverPackages(ctx context.Context, opts PackageDiscoveryOptions) (map[string]PackageInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -69,6 +71,8 @@ func (GoPackageDiscovery) DiscoverPackages(ctx context.Context, opts PackageDisc
 	return packages, nil
 }
 
+// rememberPackage caches a discovered package and merges its files, or marks it as ambiguous on conflict.
+// @intent handle multiple declarations of the same import path by merging files or detecting inconsistencies.
 func rememberPackage(packages map[string]PackageInfo, ambiguous map[string]struct{}, pkg PackageInfo) {
 	if _, blocked := ambiguous[pkg.ImportPath]; blocked {
 		return
@@ -87,6 +91,8 @@ func rememberPackage(packages map[string]PackageInfo, ambiguous map[string]struc
 	packages[pkg.ImportPath] = pkg
 }
 
+// appendUniquePackageFile adds new file paths to a slice if they are not already present.
+// @intent ensure the file list for a package remains unique without duplicates.
 func appendUniquePackageFile(values []string, add ...string) []string {
 	for _, value := range add {
 		seen := false
@@ -103,6 +109,8 @@ func appendUniquePackageFile(values []string, add ...string) []string {
 	return values
 }
 
+// readGoModulePath extracts the module name from a go.mod file.
+// @intent identify the repository's root import path for Go package normalization.
 func readGoModulePath(goModPath string) (string, error) {
 	file, err := os.Open(goModPath)
 	if err != nil {
@@ -123,6 +131,8 @@ func readGoModulePath(goModPath string) (string, error) {
 	return "", scanner.Err()
 }
 
+// readGoPackageClause finds the package name declared at the top of a Go source file.
+// @intent determine the local package name to assist in constructing qualified names.
 func readGoPackageClause(path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {

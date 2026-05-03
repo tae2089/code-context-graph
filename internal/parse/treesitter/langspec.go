@@ -1,3 +1,4 @@
+// @index Language-specific grammar specifications and discovery hooks for the Tree-sitter parser.
 package treesitter
 
 import (
@@ -38,9 +39,11 @@ type PackageDiscovery interface {
 }
 
 // NoopPackageDiscovery is used by languages that do not yet provide package/module discovery.
+// @intent provide a default no-op implementation of the PackageDiscovery interface.
 type NoopPackageDiscovery struct{}
 
 // DiscoverPackages returns no package nodes for unsupported language hooks.
+// @intent let callers reuse one package-discovery flow even when a language has no package model.
 func (NoopPackageDiscovery) DiscoverPackages(context.Context, PackageDiscoveryOptions) (map[string]PackageInfo, error) {
 	return nil, nil
 }
@@ -193,6 +196,8 @@ var LuaSpec = &LangSpec{
 	PackageDiscovery: NoopPackageDiscovery{},
 }
 
+// PackageDiscoveryOrDefault returns the configured discovery hook for a language or a no-op implementation.
+// @intent ensure callers always have a valid PackageDiscovery implementation to call during repository traversal
 func PackageDiscoveryOrDefault(spec *LangSpec) PackageDiscovery {
 	if spec != nil && spec.PackageDiscovery != nil {
 		return spec.PackageDiscovery

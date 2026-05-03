@@ -19,14 +19,20 @@ type NodeLookup interface {
 	GetNodesByQualifiedNames(ctx context.Context, names []string) (map[string][]model.Node, error)
 }
 
+// edgeLookup provides methods to find existing edges in the graph.
+// @intent abstract edge retrieval for resolution state management.
 type edgeLookup interface {
 	GetEdgesToNodes(ctx context.Context, nodeIDs []uint) ([]model.Edge, error)
 }
 
+// filePrefixLookup provides methods to find file nodes by their path suffix.
+// @intent support resolving imports when only partial path information is available.
 type filePrefixLookup interface {
 	GetFileNodesByPathSuffix(ctx context.Context, suffix string) ([]model.Node, error)
 }
 
+// resolveState holds indexed node data to facilitate efficient edge endpoint resolution.
+// @intent cache and index nodes by various keys (file, name, QN) during a single Resolve pass.
 type resolveState struct {
 	nodesByFile    map[string][]model.Node
 	qnIndex        map[string][]model.Node
@@ -115,6 +121,8 @@ func FilterResolved(edges []model.Edge) []model.Edge {
 	return out
 }
 
+// edgeFiles extracts unique file paths from a set of edges.
+// @intent identify all files involved in a resolution pass to batch node lookups.
 func edgeFiles(edges []model.Edge) []string {
 	seen := make(map[string]bool)
 	var files []string
@@ -128,6 +136,8 @@ func edgeFiles(edges []model.Edge) []string {
 	return files
 }
 
+// flattenNodes converts a file-keyed node map into a flat slice.
+// @intent prepare nodes for indexing and state population.
 func flattenNodes(nodesByFile map[string][]model.Node) []model.Node {
 	var nodes []model.Node
 	for _, ns := range nodesByFile {
@@ -136,6 +146,8 @@ func flattenNodes(nodesByFile map[string][]model.Node) []model.Node {
 	return nodes
 }
 
+// indexByQualifiedName groups nodes by their fully qualified names.
+// @intent enable fast lookup of symbols during endpoint resolution.
 func indexByQualifiedName(nodes []model.Node) map[string][]model.Node {
 	index := make(map[string][]model.Node)
 	for _, n := range nodes {
@@ -144,6 +156,8 @@ func indexByQualifiedName(nodes []model.Node) map[string][]model.Node {
 	return index
 }
 
+// indexByID maps nodes by their unique persistence IDs.
+// @intent allow direct node access when IDs are available from previous steps or DB.
 func indexByID(nodes []model.Node) map[uint]model.Node {
 	index := make(map[uint]model.Node)
 	for _, n := range nodes {
@@ -154,6 +168,8 @@ func indexByID(nodes []model.Node) map[uint]model.Node {
 	return index
 }
 
+// indexByNameByFile indexes callable nodes (functions/tests) by name within each file.
+// @intent resolve bare name references when they occur in the same file as the caller.
 func indexByNameByFile(nodes []model.Node) map[string]map[string][]model.Node {
 	index := make(map[string]map[string][]model.Node)
 	for _, n := range nodes {
@@ -168,6 +184,8 @@ func indexByNameByFile(nodes []model.Node) map[string]map[string][]model.Node {
 	return index
 }
 
+// indexFileNodes maps file paths to their corresponding file nodes.
+// @intent provide quick access to file-level metadata during resolution.
 func indexFileNodes(nodes []model.Node) map[string]model.Node {
 	index := make(map[string]model.Node)
 	for _, n := range nodes {
@@ -178,6 +196,8 @@ func indexFileNodes(nodes []model.Node) map[string]model.Node {
 	return index
 }
 
+// collectQualifiedCandidates identifies potential target QNs from edges to pre-fetch.
+// @intent optimize performance by batching node lookups across all edge types.
 func collectQualifiedCandidates(edges []model.Edge, st *resolveState) []string {
 	seen := make(map[string]bool)
 	var names []string
@@ -229,6 +249,8 @@ func collectQualifiedCandidates(edges []model.Edge, st *resolveState) []string {
 	return names
 }
 
+// addName adds a name to the candidate list if not already seen.
+// @intent ensure unique symbol names are collected for batch lookups.
 func addName(names *[]string, seen map[string]bool, name string) {
 	if name == "" || seen[name] {
 		return
@@ -237,6 +259,8 @@ func addName(names *[]string, seen map[string]bool, name string) {
 	*names = append(*names, name)
 }
 
+// addEndpointCandidates adds both bare and package-qualified names to candidates.
+// @intent support resolving local symbols that might be referenced without full qualification.
 func addEndpointCandidates(names *[]string, seen map[string]bool, st *resolveState, filePath, endpoint string) {
 	addName(names, seen, endpoint)
 	if strings.Contains(endpoint, ".") {
@@ -247,6 +271,8 @@ func addEndpointCandidates(names *[]string, seen map[string]bool, st *resolveSta
 	}
 }
 
+// resolveCall attempts to attach node IDs to a function call edge.
+// @intent find the unique caller and callee nodes for a call relationship.
 func resolveCall(edge *model.Edge, st *resolveState) {
 	caller := enclosingCallable(st.nodesByFile[edge.FilePath], edge.Line)
 	if caller != nil {
@@ -288,6 +314,8 @@ func resolveCall(edge *model.Edge, st *resolveState) {
 	}
 }
 
+// resolveContains attaches node IDs to a containment edge (file contains symbol).
+// @intent link file nodes to the top-level symbols they define.
 func resolveContains(edge *model.Edge, st *resolveState) {
 	if fileNode, ok := st.fileNodeByPath[edge.FilePath]; ok {
 		edge.FromNodeID = fileNode.ID
@@ -301,6 +329,8 @@ func resolveContains(edge *model.Edge, st *resolveState) {
 	}
 }
 
+// resolveImplements links a concrete type to an interface it implements.
+// @intent capture implementation relationships and populate implementer cache.
 func resolveImplements(edge *model.Edge, st *resolveState) {
 	impl, iface, ok := implementsEndpoints(*edge)
 	if !ok {
@@ -321,6 +351,8 @@ func resolveImplements(edge *model.Edge, st *resolveState) {
 	}
 }
 
+// resolveImportsFrom attaches node IDs to an import relationship.
+// @intent link importing files to their target packages or files.
 func resolveImportsFrom(ctx context.Context, lookup NodeLookup, edge *model.Edge, st *resolveState) {
 	if fileNode, ok := st.fileNodeByPath[edge.FilePath]; ok {
 		edge.FromNodeID = fileNode.ID
@@ -345,6 +377,8 @@ func resolveImportsFrom(ctx context.Context, lookup NodeLookup, edge *model.Edge
 	}
 }
 
+// loadImportFileNodes fetches file nodes for all files belonging to a package.
+// @intent populate state with file nodes to support deeper resolution of imported symbols.
 func (st *resolveState) loadImportFileNodes(ctx context.Context, lookup NodeLookup, importPath string) {
 	prefixLookup, ok := lookup.(filePrefixLookup)
 	if !ok || importPath == "" {
@@ -359,6 +393,8 @@ func (st *resolveState) loadImportFileNodes(ctx context.Context, lookup NodeLook
 	}
 }
 
+// loadFileNodes fetches all symbols defined in a specific file.
+// @intent ensure target file contents are available for cross-file resolution.
 func (st *resolveState) loadFileNodes(ctx context.Context, lookup NodeLookup, filePath string) {
 	if filePath == "" {
 		return
@@ -373,6 +409,8 @@ func (st *resolveState) loadFileNodes(ctx context.Context, lookup NodeLookup, fi
 	st.addNodes(loaded[filePath])
 }
 
+// resolveImportFile finds a file node matching an import path string.
+// @intent map language-specific import paths to physical file nodes in the graph.
 func resolveImportFile(ctx context.Context, lookup NodeLookup, st *resolveState, importPath string) *model.Node {
 	if importPath == "" {
 		return nil
@@ -393,6 +431,8 @@ func resolveImportFile(ctx context.Context, lookup NodeLookup, st *resolveState,
 	return nil
 }
 
+// bestImportFileMatch finds the most likely file node for an import path by suffix matching.
+// @intent handle cases where import paths don't exactly match file system paths.
 func bestImportFileMatch(fileNodeByPath map[string]model.Node, importPath string) *model.Node {
 	var exact []model.Node
 	var candidates []model.Node
@@ -426,6 +466,8 @@ func bestImportFileMatch(fileNodeByPath map[string]model.Node, importPath string
 	return representativeImportFile(candidates)
 }
 
+// representativeImportFile picks a stable representative file from a set of candidates.
+// @intent ensure deterministic resolution when multiple files match an import path.
 func representativeImportFile(nodes []model.Node) *model.Node {
 	files := uniqueFileNodes(nodes)
 	if len(files) == 0 {
@@ -443,6 +485,8 @@ func representativeImportFile(nodes []model.Node) *model.Node {
 	return &files[0]
 }
 
+// uniquePackageNode extracts a single package node from a list.
+// @intent return nil if multiple ambiguous packages match the QN.
 func uniquePackageNode(nodes []model.Node) *model.Node {
 	var found *model.Node
 	seen := make(map[uint]bool)
@@ -464,6 +508,8 @@ func uniquePackageNode(nodes []model.Node) *model.Node {
 	return found
 }
 
+// uniqueFileNodes filters a list of nodes to unique file-kind nodes.
+// @intent identify distinct files in a set of result nodes.
 func uniqueFileNodes(nodes []model.Node) []model.Node {
 	seen := make(map[uint]bool)
 	var files []model.Node
@@ -482,6 +528,8 @@ func uniqueFileNodes(nodes []model.Node) []model.Node {
 	return files
 }
 
+// commonSuffixDepth calculates the number of matching directory segments from the end.
+// @intent score path similarity for fuzzy import resolution.
 func commonSuffixDepth(a, b string) int {
 	a = strings.Trim(a, "/")
 	b = strings.Trim(b, "/")
@@ -500,6 +548,8 @@ func commonSuffixDepth(a, b string) int {
 	return depth
 }
 
+// resolveInherits attaches node IDs to an inheritance relationship.
+// @intent link subclasses or derived types to their parents.
 func resolveInherits(edge *model.Edge, st *resolveState) {
 	child, parent, ok := inheritsEndpoints(*edge)
 	if !ok {
@@ -513,6 +563,8 @@ func resolveInherits(edge *model.Edge, st *resolveState) {
 	}
 }
 
+// resolveTestedBy links a test function to its production code counterpart.
+// @intent bridge the gap between tests and the symbols they verify.
 func resolveTestedBy(edge *model.Edge, st *resolveState) {
 	callee, testQN, ok := testedByEndpoints(*edge)
 	if !ok {
@@ -526,6 +578,8 @@ func resolveTestedBy(edge *model.Edge, st *resolveState) {
 	}
 }
 
+// resolveProductionFunction finds a production symbol matching a test callee name.
+// @intent locate the tested symbol by checking qualified and bare name matches.
 func resolveProductionFunction(st *resolveState, testFilePath, callee string) *model.Node {
 	if target := uniqueCallable(st.qnIndex[callee]); target != nil {
 		return target
@@ -540,6 +594,8 @@ func resolveProductionFunction(st *resolveState, testFilePath, callee string) *m
 	return uniqueCallable(st.nameByFile[testFilePath][bare])
 }
 
+// uniqueFileNode extracts a single file node from a list.
+// @intent return nil if multiple ambiguous files match.
 func uniqueFileNode(nodes []model.Node) *model.Node {
 	var found *model.Node
 	seen := make(map[uint]bool)
@@ -561,6 +617,8 @@ func uniqueFileNode(nodes []model.Node) *model.Node {
 	return found
 }
 
+// importsFromTarget parses an import edge fingerprint to extract the target path.
+// @intent retrieve the original import string from the persisted fingerprint.
 func importsFromTarget(edge model.Edge) (string, bool) {
 	prefix := "imports_from:" + edge.FilePath + ":"
 	if !strings.HasPrefix(edge.Fingerprint, prefix) {
@@ -578,6 +636,8 @@ func importsFromTarget(edge model.Edge) (string, bool) {
 	return path, path != ""
 }
 
+// inheritsEndpoints parses an inheritance edge fingerprint to extract endpoints.
+// @intent retrieve subclass and parent names from the persisted fingerprint.
 func inheritsEndpoints(edge model.Edge) (string, string, bool) {
 	prefix := "inherits:" + edge.FilePath + ":"
 	if !strings.HasPrefix(edge.Fingerprint, prefix) {
@@ -593,6 +653,8 @@ func inheritsEndpoints(edge model.Edge) (string, string, bool) {
 	return child, parent, child != "" && parent != ""
 }
 
+// testedByEndpoints parses a test edge fingerprint to extract endpoints.
+// @intent retrieve test and production symbol names from the persisted fingerprint.
 func testedByEndpoints(edge model.Edge) (string, string, bool) {
 	prefix := "tested_by:" + edge.FilePath + ":"
 	if !strings.HasPrefix(edge.Fingerprint, prefix) {
@@ -608,6 +670,8 @@ func testedByEndpoints(edge model.Edge) (string, string, bool) {
 	return bare, testQN, bare != "" && testQN != ""
 }
 
+// loadExistingImplements populates implementer cache from existing DB edges.
+// @intent enable cross-file interface resolution by loading historical data.
 func (st *resolveState) loadExistingImplements(ctx context.Context, lookup NodeLookup) error {
 	edgeReader, ok := lookup.(edgeLookup)
 	if !ok {
@@ -660,6 +724,8 @@ func (st *resolveState) loadExistingImplements(ctx context.Context, lookup NodeL
 	return nil
 }
 
+// ensureDispatchTargets pre-fetches potential interface method implementations.
+// @intent batch load nodes needed to resolve polymorphic calls.
 func (st *resolveState) ensureDispatchTargets(ctx context.Context, lookup NodeLookup, edges []model.Edge) error {
 	seen := make(map[string]bool)
 	var names []string
@@ -697,12 +763,16 @@ func (st *resolveState) ensureDispatchTargets(ctx context.Context, lookup NodeLo
 	return nil
 }
 
+// addNodes indexes multiple nodes into the resolution state.
+// @intent batch add nodes to internal indexes.
 func (st *resolveState) addNodes(nodes []model.Node) {
 	for _, n := range nodes {
 		st.indexNode(n)
 	}
 }
 
+// indexNode adds a single node to all relevant resolution indexes.
+// @intent maintain consistent node indexing by ID, QN, file, and name.
 func (st *resolveState) indexNode(n model.Node) {
 	st.qnIndex[n.QualifiedName] = appendUniqueNode(st.qnIndex[n.QualifiedName], n)
 	if n.ID != 0 {
@@ -720,11 +790,15 @@ func (st *resolveState) indexNode(n model.Node) {
 	}
 }
 
+// addImplementer records an implementation link in the local cache.
+// @intent track interface-implementer pairs for method dispatch resolution.
 func (st *resolveState) addImplementer(iface model.Node, concrete model.Node) {
 	st.implementsBy[iface.QualifiedName] = appendUniqueNode(st.implementsBy[iface.QualifiedName], concrete)
 	st.implementsBy[iface.Name] = appendUniqueNode(st.implementsBy[iface.Name], concrete)
 }
 
+// goImplementersFor finds known implementers of an interface for a given caller context.
+// @intent support Go interface method dispatch by finding candidate concrete types.
 func (st *resolveState) goImplementersFor(caller *model.Node, iface string) []model.Node {
 	if caller == nil || caller.Language != "go" {
 		return nil
@@ -739,6 +813,8 @@ func (st *resolveState) goImplementersFor(caller *model.Node, iface string) []mo
 	return uniqueNodes(impls)
 }
 
+// resolveTypeEndpoint finds a type node (class/interface) by name or QN.
+// @intent resolve symbol references to physical type nodes in the graph.
 func resolveTypeEndpoint(st *resolveState, filePath, endpoint string) *model.Node {
 	if target := uniqueTypeNode(st.qnIndex[endpoint]); target != nil {
 		return target
@@ -756,6 +832,8 @@ func resolveTypeEndpoint(st *resolveState, filePath, endpoint string) *model.Nod
 	return nil
 }
 
+// resolveSameReceiverCall attempts to resolve method calls within the same type.
+// @intent optimize resolution of 'this' or same-receiver method calls in Go.
 func resolveSameReceiverCall(caller *model.Node, callee string, st *resolveState) *model.Node {
 	if caller == nil || caller.Language != "go" {
 		return nil
@@ -767,6 +845,8 @@ func resolveSameReceiverCall(caller *model.Node, callee string, st *resolveState
 	return uniqueCallable(st.qnIndex[receiver+"."+lastSegment(callee)])
 }
 
+// resolveGoInterfaceDispatch attempts to resolve method calls through an interface.
+// @intent provide best-effort resolution for polymorphic calls by checking implementations.
 func resolveGoInterfaceDispatch(caller *model.Node, callee string, st *resolveState) *model.Node {
 	if caller == nil || caller.Language != "go" {
 		return nil
@@ -792,6 +872,8 @@ func resolveGoInterfaceDispatch(caller *model.Node, callee string, st *resolveSt
 	return uniqueCallable(candidates)
 }
 
+// implementsEndpoints parses an implementation edge fingerprint to extract endpoints.
+// @intent retrieve concrete and interface symbol names from the persisted fingerprint.
 func implementsEndpoints(edge model.Edge) (string, string, bool) {
 	prefix := "implements:" + edge.FilePath + ":"
 	if !strings.HasPrefix(edge.Fingerprint, prefix) {
@@ -807,6 +889,8 @@ func implementsEndpoints(edge model.Edge) (string, string, bool) {
 	return impl, iface, impl != "" && iface != ""
 }
 
+// interfaceMethodSelector parses a callee string into interface and method parts.
+// @intent identify polymorphic call targets in Go selector expressions.
 func interfaceMethodSelector(callee string) (string, string, bool) {
 	parts := strings.Split(callee, ".")
 	if len(parts) < 2 {
@@ -820,6 +904,8 @@ func interfaceMethodSelector(callee string) (string, string, bool) {
 	return iface, method, true
 }
 
+// receiverPrefix extracts the receiver type QN from a method's QN.
+// @intent identify the type a method belongs to in Go.
 func receiverPrefix(node model.Node) string {
 	if node.Language != "go" {
 		return ""
@@ -831,6 +917,8 @@ func receiverPrefix(node model.Node) string {
 	return strings.Join(parts[:len(parts)-1], ".")
 }
 
+// packageForFile identifies the package name for a given file based on its nodes.
+// @intent determine the logical package context for a physical source file.
 func packageForFile(nodes []model.Node) string {
 	for _, n := range nodes {
 		if n.Kind == model.NodeKindFile {
@@ -843,6 +931,8 @@ func packageForFile(nodes []model.Node) string {
 	return ""
 }
 
+// isExportedName checks if a symbol name starts with an uppercase letter.
+// @intent apply Go visibility rules during symbol resolution.
 func isExportedName(name string) bool {
 	if name == "" {
 		return false
@@ -851,6 +941,8 @@ func isExportedName(name string) bool {
 	return r >= 'A' && r <= 'Z'
 }
 
+// enclosingCallable finds the function or test spanning a specific line number.
+// @intent identify the source symbol (caller) for a relationship originating on a line.
 func enclosingCallable(nodes []model.Node, line int) *model.Node {
 	if line <= 0 {
 		return nil
@@ -871,10 +963,14 @@ func enclosingCallable(nodes []model.Node, line int) *model.Node {
 	return best
 }
 
+// span calculates the line count of a node's body.
+// @intent assist in finding the narrowest enclosing symbol for a given line.
 func span(n model.Node) int {
 	return n.EndLine - n.StartLine
 }
 
+// callCallee parses a call edge fingerprint to extract the target name.
+// @intent retrieve the callee symbol name from the persisted fingerprint.
 func callCallee(edge model.Edge) (string, bool) {
 	prefix := "calls:" + edge.FilePath + ":"
 	if !strings.HasPrefix(edge.Fingerprint, prefix) {
@@ -891,6 +987,8 @@ func callCallee(edge model.Edge) (string, bool) {
 	return rest[:idx], true
 }
 
+// containsTarget parses a containment edge fingerprint to extract the target QN.
+// @intent retrieve the target symbol name from the persisted fingerprint.
 func containsTarget(edge model.Edge) (string, bool) {
 	prefix := "contains:" + edge.FilePath + ":"
 	if !strings.HasPrefix(edge.Fingerprint, prefix) {
@@ -900,6 +998,8 @@ func containsTarget(edge model.Edge) (string, bool) {
 	return qn, qn != ""
 }
 
+// packagePrefix extracts the package or module prefix from a node's QN.
+// @intent determine the logical namespace for a symbol.
 func packagePrefix(node model.Node) string {
 	if node.Language == "go" {
 		if idx := strings.Index(node.QualifiedName, "."); idx > 0 {
@@ -914,6 +1014,8 @@ func packagePrefix(node model.Node) string {
 	return ""
 }
 
+// lastSegment returns the final part of a dot-separated QN.
+// @intent extract the bare symbol name from a fully qualified name.
 func lastSegment(name string) string {
 	if idx := strings.LastIndex(name, "."); idx >= 0 {
 		return name[idx+1:]
@@ -921,6 +1023,8 @@ func lastSegment(name string) string {
 	return name
 }
 
+// uniqueCallable extracts a single callable node (function/test) from a list.
+// @intent return nil if multiple ambiguous functions match the criteria.
 func uniqueCallable(nodes []model.Node) *model.Node {
 	var found *model.Node
 	seen := make(map[uint]bool)
@@ -942,6 +1046,8 @@ func uniqueCallable(nodes []model.Node) *model.Node {
 	return found
 }
 
+// uniqueTypeNode extracts a single type node (class/type) from a list.
+// @intent return nil if multiple ambiguous types match the criteria.
 func uniqueTypeNode(nodes []model.Node) *model.Node {
 	var found *model.Node
 	seen := make(map[uint]bool)
@@ -963,6 +1069,8 @@ func uniqueTypeNode(nodes []model.Node) *model.Node {
 	return found
 }
 
+// uniqueTypeNodeByName finds a unique type node matching a specific bare name.
+// @intent filter nodes by name before applying uniqueness check.
 func uniqueTypeNodeByName(nodes []model.Node, name string) *model.Node {
 	var candidates []model.Node
 	for _, n := range nodes {
@@ -973,6 +1081,8 @@ func uniqueTypeNodeByName(nodes []model.Node, name string) *model.Node {
 	return uniqueTypeNode(candidates)
 }
 
+// uniqueNode extracts a single node of any kind from a list.
+// @intent return nil if the input list contains multiple distinct nodes.
 func uniqueNode(nodes []model.Node) *model.Node {
 	var found *model.Node
 	seen := make(map[uint]bool)
@@ -991,6 +1101,8 @@ func uniqueNode(nodes []model.Node) *model.Node {
 	return found
 }
 
+// appendUniqueNode adds a node to a slice only if it's not already present.
+// @intent prevent duplicate nodes in resolution result sets.
 func appendUniqueNode(nodes []model.Node, node model.Node) []model.Node {
 	for _, n := range nodes {
 		if n.ID != 0 && n.ID == node.ID {
@@ -1003,6 +1115,8 @@ func appendUniqueNode(nodes []model.Node, node model.Node) []model.Node {
 	return append(nodes, node)
 }
 
+// uniqueNodes returns a new slice containing only unique nodes from the input.
+// @intent deduplicate result sets before further processing or resolution.
 func uniqueNodes(nodes []model.Node) []model.Node {
 	var out []model.Node
 	for _, n := range nodes {
