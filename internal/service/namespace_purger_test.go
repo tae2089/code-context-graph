@@ -40,6 +40,10 @@ func (s *purgerSpyBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) erro
 	return s.purgeErr
 }
 
+func (s *purgerSpyBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs []uint) error {
+	return nil
+}
+
 func newPurgerTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})

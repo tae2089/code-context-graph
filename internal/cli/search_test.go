@@ -23,6 +23,9 @@ type spySearchBackend struct {
 
 func (s *spySearchBackend) Migrate(db *gorm.DB) error                      { return nil }
 func (s *spySearchBackend) Rebuild(ctx context.Context, db *gorm.DB) error { return nil }
+func (s *spySearchBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs []uint) error {
+	return nil
+}
 func (s *spySearchBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error {
 	return nil
 }

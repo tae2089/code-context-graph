@@ -89,6 +89,20 @@ func (p *PostgresBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 	return db.WithContext(ctx).Exec(query, args...).Error
 }
 
+// RebuildNodes는 지정된 노드의 tsvector만 다시 계산한다.
+// @intent incremental update 경로에서 namespace 전체 tsv 갱신을 피한다.
+func (p *PostgresBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs []uint) error {
+	if len(nodeIDs) == 0 {
+		return nil
+	}
+	ns := ctxns.FromContext(ctx)
+	query := `
+		UPDATE search_documents
+		SET tsv = to_tsvector('simple', COALESCE(content, ''))
+		WHERE namespace = ? AND node_id IN ?`
+	return db.WithContext(ctx).Exec(query, ns, nodeIDs).Error
+}
+
 // PurgeNamespace는 PostgreSQL search_documents 삭제 이후 별도 물리 정리가 필요 없으므로 no-op이다.
 // @intent Backend 인터페이스를 맞추고 workspace purge 경로를 일관되게 유지한다.
 func (p *PostgresBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error {

@@ -2639,6 +2639,10 @@ func (f *failSearchBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 	return f.err
 }
 
+func (f *failSearchBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs []uint) error {
+	return f.err
+}
+
 func (f *failSearchBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error {
 	return f.err
 }

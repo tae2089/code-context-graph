@@ -22,6 +22,10 @@ func (s *evalSpySearchBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 	return nil
 }
 
+func (s *evalSpySearchBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs []uint) error {
+	return nil
+}
+
 func (s *evalSpySearchBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error {
 	return nil
 }

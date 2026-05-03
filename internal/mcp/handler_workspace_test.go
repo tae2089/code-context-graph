@@ -43,6 +43,10 @@ func (s *spySearchBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) erro
 	return s.purgeErr
 }
 
+func (s *spySearchBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs []uint) error {
+	return nil
+}
+
 func workspaceHandlers(t *testing.T) (*handlers, string) {
 	t.Helper()
 	root := t.TempDir()

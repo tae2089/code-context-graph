@@ -74,6 +74,15 @@ func (s *SQLiteBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 	return s.rebuildTable(ctx, db, sqliteFTSTable)
 }
 
+// RebuildNodes는 지정된 노드의 FTS 행만 search_documents와 동기화한다.
+// @intent incremental update 경로에서 전체 namespace FTS 재적재를 피한다.
+func (s *SQLiteBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs []uint) error {
+	if len(nodeIDs) == 0 {
+		return nil
+	}
+	return s.rebuildTableNodes(ctx, db, sqliteFTSTable, nodeIDs)
+}
+
 // PurgeNamespace는 특정 namespace의 FTS 물리 인덱스를 제거한다.
 // @intent workspace 삭제 등 rebuild 없는 경로에서도 stale FTS row를 정리한다.
 func (s *SQLiteBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error {
@@ -110,6 +119,31 @@ func (s *SQLiteBackend) rebuildTable(ctx context.Context, db *gorm.DB, tableName
 		})
 		if result.Error != nil {
 			return trace.Wrap(result.Error, "load docs")
+		}
+		return nil
+	})
+}
+
+func (s *SQLiteBackend) rebuildTableNodes(ctx context.Context, db *gorm.DB, tableName string, nodeIDs []uint) error {
+	ns := ctxns.FromContext(ctx)
+	return db.WithContext(ctx).Transaction(func(outerTx *gorm.DB) error {
+		if err := outerTx.Exec("DELETE FROM "+tableName+" WHERE namespace = ? AND node_id IN ?", ns, nodeIDs).Error; err != nil {
+			return trace.Wrap(err, "clear scoped fts")
+		}
+
+		docsQ := outerTx.WithContext(ctx).Where("namespace = ? AND node_id IN ?", ns, nodeIDs)
+		var batchDocs []model.SearchDocument
+		result := docsQ.FindInBatches(&batchDocs, sqliteFTSRebuildBatchSize, func(batchTx *gorm.DB, batch int) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := s.batchInserter(ctx, batchTx, tableName, batchDocs); err != nil {
+				return trace.Wrap(err, "insert scoped fts batch "+strconv.Itoa(batch))
+			}
+			return nil
+		})
+		if result.Error != nil {
+			return trace.Wrap(result.Error, "load scoped docs")
 		}
 		return nil
 	})
