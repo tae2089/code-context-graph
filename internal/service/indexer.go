@@ -62,9 +62,11 @@ type spooledUpdateRecord struct {
 }
 
 type updateSpool struct {
-	dir          string
-	records      []string
-	currentFiles map[string]struct{}
+	dir           string
+	records       []string
+	currentFiles  map[string]struct{}
+	currentHashes map[string]string
+	forceFiles    map[string]struct{}
 }
 
 var testBuildBatchReleaseHook func([]parsedBuildNodeBatch, int)
@@ -542,7 +544,11 @@ func (s *GraphService) prepareUpdateSpool(ctx context.Context, absDir string, op
 	if err != nil {
 		return nil, trace.Wrap(err, "create update spool")
 	}
-	spool := &updateSpool{dir: dir, currentFiles: make(map[string]struct{})}
+	spool := &updateSpool{
+		dir:           dir,
+		currentFiles:  make(map[string]struct{}),
+		currentHashes: make(map[string]string),
+	}
 	batch := make(map[string]incremental.FileInfo)
 	var batchBytes int64
 	var totalParsedBytes int64
@@ -590,11 +596,13 @@ func (s *GraphService) prepareUpdateSpool(ctx context.Context, absDir string, op
 			return err
 		}
 		hash := sha256.Sum256(content)
+		hashString := hex.EncodeToString(hash[:])
 		batch[relPath] = incremental.FileInfo{
-			Hash:    hex.EncodeToString(hash[:]),
+			Hash:    hashString,
 			Content: content,
 		}
 		spool.currentFiles[relPath] = struct{}{}
+		spool.currentHashes[relPath] = hashString
 		batchBytes += contentBytes
 		if len(batch) >= buildFlushFileBatchSize || batchBytes >= buildFlushParsedBytes {
 			return flush()
@@ -618,32 +626,35 @@ func (s *GraphService) applyUpdateSpoolInTx(ctx context.Context, txStore store.G
 
 	syncer := opts.Syncer
 	stats := &incremental.SyncStats{}
+	existingFiles, existingNodesByFile, err := existingGraphFileState(ctx, txDBForExistingFiles(txDB, s.DB))
+	if err != nil {
+		return nil, trace.Wrap(err, "load existing graph files")
+	}
+	if !opts.Replace && len(opts.IncludePaths) > 0 {
+		existingFiles, existingNodesByFile = filterExistingStateByInclude(existingFiles, existingNodesByFile, opts.IncludePaths)
+	}
+	forceFiles, err := forceReparseFiles(ctx, txDBForExistingFiles(txDB, s.DB), existingNodesByFile, spool.currentHashes)
+	if err != nil {
+		return nil, trace.Wrap(err, "load edge source files for changed graph")
+	}
+	spool.forceFiles = forceFiles
 
 	for _, path := range spool.records {
 		record, err := spool.readRecord(path)
 		if err != nil {
 			return nil, err
 		}
-		batchStats, err := syncIncrementalBatch(ctx, syncer, txStore, record.Files, nil)
+		normalFiles, _ := splitForcedFiles(record.Files, spool.forceFiles)
+		if len(normalFiles) == 0 {
+			continue
+		}
+		batchStats, err := syncIncrementalBatch(ctx, syncer, txStore, normalFiles, nil)
 		if err != nil {
 			return nil, trace.Wrap(err, "incremental sync")
 		}
 		addSyncStats(stats, batchStats)
 	}
 
-	existingFiles, err := ExistingGraphFiles(ctx, txDBForExistingFiles(txDB, s.DB))
-	if err != nil {
-		return nil, trace.Wrap(err, "load existing graph files")
-	}
-	if !opts.Replace && len(opts.IncludePaths) > 0 {
-		filtered := make([]string, 0, len(existingFiles))
-		for _, fp := range existingFiles {
-			if pathutil.MatchIncludePaths(fp, opts.IncludePaths) {
-				filtered = append(filtered, fp)
-			}
-		}
-		existingFiles = filtered
-	}
 	deletedFiles := make([]string, 0, len(existingFiles))
 	for _, fp := range existingFiles {
 		if _, ok := spool.currentFiles[fp]; !ok {
@@ -654,6 +665,22 @@ func (s *GraphService) applyUpdateSpoolInTx(ctx context.Context, txStore store.G
 		batchStats, err := syncIncrementalBatch(ctx, syncer, txStore, nil, deletedFiles)
 		if err != nil {
 			return nil, trace.Wrap(err, "incremental sync")
+		}
+		addSyncStats(stats, batchStats)
+	}
+
+	for _, path := range spool.records {
+		record, err := spool.readRecord(path)
+		if err != nil {
+			return nil, err
+		}
+		_, forcedFiles := splitForcedFiles(record.Files, spool.forceFiles)
+		if len(forcedFiles) == 0 {
+			continue
+		}
+		batchStats, err := syncIncrementalBatch(ctx, syncer, txStore, forcedFiles, nil)
+		if err != nil {
+			return nil, trace.Wrap(err, "incremental force sync")
 		}
 		addSyncStats(stats, batchStats)
 	}
@@ -715,6 +742,7 @@ func (u *updateSpool) cleanup(logger *slog.Logger) {
 
 func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, opts UpdateOptions) (*incremental.SyncStats, error) {
 	files := make(map[string]incremental.FileInfo)
+	currentHashes := make(map[string]string)
 	var totalParsedBytes int64
 	if err := walkMatchingFiles(ctx, absDir, opts.BuildOptions, func(path, relPath string) error {
 		if _, ok := s.parserForExt(strings.ToLower(filepath.Ext(path))); !ok {
@@ -743,32 +771,40 @@ func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, 
 			return err
 		}
 		hash := sha256.Sum256(content)
+		hashString := hex.EncodeToString(hash[:])
 		files[relPath] = incremental.FileInfo{
-			Hash:    hex.EncodeToString(hash[:]),
+			Hash:    hashString,
 			Content: content,
 		}
+		currentHashes[relPath] = hashString
 		return nil
 	}); err != nil {
 		return nil, trace.Wrap(err, "walk update directory")
 	}
 
-	existingFiles, err := ExistingGraphFiles(ctx, s.DB)
+	existingFiles, existingNodesByFile, err := existingGraphFileState(ctx, s.DB)
 	if err != nil {
 		return nil, trace.Wrap(err, "load existing graph files")
 	}
 	if !opts.Replace && len(opts.IncludePaths) > 0 {
-		filtered := make([]string, 0, len(existingFiles))
-		for _, fp := range existingFiles {
-			if pathutil.MatchIncludePaths(fp, opts.IncludePaths) {
-				filtered = append(filtered, fp)
-			}
-		}
-		existingFiles = filtered
+		existingFiles, existingNodesByFile = filterExistingStateByInclude(existingFiles, existingNodesByFile, opts.IncludePaths)
+	}
+	forceFiles, err := forceReparseFiles(ctx, s.DB, existingNodesByFile, currentHashes)
+	if err != nil {
+		return nil, trace.Wrap(err, "load edge source files for changed graph")
 	}
 
-	stats, err := opts.Syncer.SyncWithExisting(ctx, files, existingFiles)
+	normalFiles, forcedFiles := splitForcedFiles(files, forceFiles)
+	stats, err := opts.Syncer.SyncWithExisting(ctx, normalFiles, existingFiles)
 	if err != nil {
 		return nil, trace.Wrap(err, "incremental sync")
+	}
+	if len(forcedFiles) > 0 {
+		forcedStats, err := opts.Syncer.SyncWithExisting(ctx, forcedFiles, nil)
+		if err != nil {
+			return nil, trace.Wrap(err, "incremental force sync")
+		}
+		addSyncStats(stats, forcedStats)
 	}
 	if !opts.SkipSearchRebuild {
 		if err := s.rebuildSearch(ctx); err != nil {
@@ -890,18 +926,114 @@ func parseForBuild(ctx context.Context, parser Parser, relPath string, content [
 // ExistingGraphFiles returns namespace-scoped graph file paths currently stored.
 // @intent share deletion-scope discovery across CLI and MCP incremental updates
 func ExistingGraphFiles(ctx context.Context, db *gorm.DB) ([]string, error) {
+	filePaths, _, err := existingGraphFileState(ctx, db)
+	return filePaths, err
+}
+
+func existingGraphFileState(ctx context.Context, db *gorm.DB) ([]string, map[string][]model.Node, error) {
 	if db == nil {
-		return nil, nil
+		return nil, map[string][]model.Node{}, nil
 	}
 
 	ns := ctxns.FromContext(ctx)
-	query := db.WithContext(ctx).Model(&model.Node{}).Where("namespace = ?", ns)
+	var nodes []model.Node
+	if err := db.WithContext(ctx).
+		Where("namespace = ?", ns).
+		Find(&nodes).Error; err != nil {
+		return nil, nil, err
+	}
+	nodesByFile := make(map[string][]model.Node)
+	fileSeen := make(map[string]struct{})
+	filePaths := make([]string, 0)
+	for _, node := range nodes {
+		nodesByFile[node.FilePath] = append(nodesByFile[node.FilePath], node)
+		if _, ok := fileSeen[node.FilePath]; !ok {
+			fileSeen[node.FilePath] = struct{}{}
+			filePaths = append(filePaths, node.FilePath)
+		}
+	}
+	return filePaths, nodesByFile, nil
+}
 
-	var filePaths []string
-	if err := query.Distinct().Pluck("file_path", &filePaths).Error; err != nil {
+func filterExistingStateByInclude(filePaths []string, nodesByFile map[string][]model.Node, includePaths []string) ([]string, map[string][]model.Node) {
+	filteredFiles := make([]string, 0, len(filePaths))
+	filteredNodes := make(map[string][]model.Node)
+	for _, fp := range filePaths {
+		if !pathutil.MatchIncludePaths(fp, includePaths) {
+			continue
+		}
+		filteredFiles = append(filteredFiles, fp)
+		filteredNodes[fp] = nodesByFile[fp]
+	}
+	return filteredFiles, filteredNodes
+}
+
+func forceReparseFiles(ctx context.Context, db *gorm.DB, existingNodesByFile map[string][]model.Node, currentHashes map[string]string) (map[string]struct{}, error) {
+	forceFiles := make(map[string]struct{})
+	if db == nil || len(existingNodesByFile) == 0 || len(currentHashes) == 0 {
+		return forceFiles, nil
+	}
+	if !db.Migrator().HasTable(&model.Edge{}) {
+		return forceFiles, nil
+	}
+
+	var changedNodeIDs []uint
+	for filePath, nodes := range existingNodesByFile {
+		if len(nodes) == 0 {
+			continue
+		}
+		currentHash, stillPresent := currentHashes[filePath]
+		if !stillPresent || nodes[0].Hash != currentHash {
+			for _, node := range nodes {
+				changedNodeIDs = append(changedNodeIDs, node.ID)
+			}
+		}
+	}
+	if len(changedNodeIDs) == 0 {
+		return forceFiles, nil
+	}
+
+	ns := ctxns.FromContext(ctx)
+	var edgeFiles []string
+	if err := db.WithContext(ctx).
+		Model(&model.Edge{}).
+		Where("namespace = ? AND file_path <> '' AND (from_node_id IN ? OR to_node_id IN ?)", ns, changedNodeIDs, changedNodeIDs).
+		Distinct().
+		Pluck("file_path", &edgeFiles).Error; err != nil {
 		return nil, err
 	}
-	return filePaths, nil
+	for _, filePath := range edgeFiles {
+		currentHash, stillPresent := currentHashes[filePath]
+		if !stillPresent {
+			continue
+		}
+		nodes := existingNodesByFile[filePath]
+		if len(nodes) == 0 || nodes[0].Hash != currentHash {
+			continue
+		}
+		forceFiles[filePath] = struct{}{}
+	}
+	return forceFiles, nil
+}
+
+func splitForcedFiles(files map[string]incremental.FileInfo, forceFiles map[string]struct{}) (map[string]incremental.FileInfo, map[string]incremental.FileInfo) {
+	if len(files) == 0 {
+		return nil, nil
+	}
+	if len(forceFiles) == 0 {
+		return files, nil
+	}
+	normal := make(map[string]incremental.FileInfo, len(files))
+	forced := make(map[string]incremental.FileInfo)
+	for filePath, info := range files {
+		if _, ok := forceFiles[filePath]; ok {
+			info.Force = true
+			forced[filePath] = info
+			continue
+		}
+		normal[filePath] = info
+	}
+	return normal, forced
 }
 
 func CheckParseFileSize(relPath string, size int64, maxFileBytes int64) error {

@@ -28,7 +28,18 @@ ccg serve --transport streamable-http \
 |------|--------|-------------|
 | `/mcp` | POST | MCP Streamable HTTP |
 | `/health` | GET | Health check (`{"status":"ok"}`) |
+| `/ready` | GET | Readiness check |
+| `/status` | GET | Operational status, including database and webhook queue state |
 | `/webhook` | POST | Webhook receiver (GitHub / Gitea push events) |
+
+### HTTP Exposure
+
+Use the HTTP endpoints inside a trusted network only. The MCP endpoint can be
+protected with `--http-bearer-token`, but operational endpoints such as
+`/health`, `/ready`, and `/status` are intended for internal health checks and
+may expose runtime state. When deploying behind an ingress, reverse proxy, or
+load balancer, restrict those endpoints to internal callers or block them from
+public internet access.
 
 ## Per-Repo Branch Filtering
 
@@ -96,8 +107,8 @@ In-progress clone/build operations receive the context cancel and stop immediate
 ```
 Push Event → HMAC Verify → RepoFilter.IsAllowedRef()
   → SyncQueue.Add() (dedup) → Worker
-    → CloneOrPull (ctx, 10min timeout)
-    → GraphService.Build (ctx, 10min timeout)
+    → CloneOrPull (ctx, 15min timeout)
+    → GraphService.Update (incremental, ctx, 15min timeout)
     → Save to DB
 ```
 
@@ -110,6 +121,7 @@ Consecutive pushes to the same repo are automatically merged in the SyncQueue:
 ### Concurrency
 
 - Default 4 workers
+- SQLite webhook deployments default to 1 worker unless `--webhook-workers` or `CCG_WEBHOOK_WORKERS` is set explicitly
 - Different repos are processed in parallel
 - Same repo is processed sequentially (dirty requeue)
 
@@ -128,6 +140,7 @@ On clone or build failure, automatically retries with exponential backoff:
 - Exponential growth: 1s → 2s → 4s → ... (capped at MaxDelay)
 - Pending retries are immediately cancelled on context cancellation (server shutdown)
 - Panics are treated as errors and are eligible for retry
+- Invalid repository config, such as malformed `.ccg.yaml` `include_paths`, is treated as non-retryable for the current event
 - After exceeding MaxAttempts, logs an `ERROR` and abandons the sync (retryable on next push event)
 
 ## `.ccg.yaml` include_paths Auto-Apply
@@ -143,6 +156,17 @@ include_paths:
 
 - If `.ccg.yaml` is absent or has no `include_paths` key, the entire directory is built
 - Operates independently of the CLI's `--config` flag (direct YAML parsing, no viper)
+
+## Parse Size Limits
+
+Webhook request bodies are limited separately from repository parsing. The
+webhook payload is capped by the server, but the subsequent clone/build step has
+no default source parse size limit. By default, CCG builds every matching source
+file in the cloned repository unless `include_paths` narrows the scope.
+
+If a deployment needs a parse budget for large repositories, configure it
+explicitly with `--max-file-bytes`, `--max-total-parsed-bytes`, or the matching
+`.ccg.yaml` parse settings. CCG does not impose default webhook parse limits.
 
 ## Panic Recovery
 

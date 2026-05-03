@@ -11,6 +11,30 @@ import (
 
 var ErrSyncQueueFull = errors.New("sync queue full")
 
+type nonRetryableError struct {
+	err error
+}
+
+func (e nonRetryableError) Error() string {
+	return e.err.Error()
+}
+
+func (e nonRetryableError) Unwrap() error {
+	return e.err
+}
+
+func NonRetryable(err error) error {
+	if err == nil {
+		return nil
+	}
+	return nonRetryableError{err: err}
+}
+
+func IsNonRetryable(err error) bool {
+	var target nonRetryableError
+	return errors.As(err, &target)
+}
+
 // RetryConfig configures exponential backoff retry for sync handlers.
 type RetryConfig struct {
 	// MaxAttempts is the total number of attempts (1 = no retry). Default: 3.
@@ -247,6 +271,11 @@ func (q *SyncQueue) safeHandle(repo string, payload syncPayload) bool {
 		err := q.tryHandle(repo, payload)
 		if err == nil {
 			return true
+		}
+		if IsNonRetryable(err) {
+			slog.Error("sync handler failed with non-retryable error", "repo", repo, "error", err)
+			q.recordFailure(repo, err)
+			return false
 		}
 
 		if attempt == cfg.MaxAttempts {

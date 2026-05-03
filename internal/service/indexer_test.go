@@ -1144,6 +1144,46 @@ func TestUpdate_NoRecursive_SkipsNestedFilesFromSync(t *testing.T) {
 	}
 }
 
+func TestForceReparseFiles_IncludesUnchangedEdgeSourceForChangedTarget(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.Node{}, &model.Edge{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	ctx := context.Background()
+	source := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Source", Kind: model.NodeKindFunction, Name: "Source", FilePath: "source.go", StartLine: 1, EndLine: 2, Hash: "same", Language: "go"}
+	target := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Target", Kind: model.NodeKindFunction, Name: "Target", FilePath: "target.go", StartLine: 1, EndLine: 2, Hash: "old", Language: "go"}
+	if err := db.Create(&source).Error; err != nil {
+		t.Fatalf("seed source: %v", err)
+	}
+	if err := db.Create(&target).Error; err != nil {
+		t.Fatalf("seed target: %v", err)
+	}
+	if err := db.Create(&model.Edge{Namespace: ctxns.DefaultNamespace, FromNodeID: source.ID, ToNodeID: target.ID, Kind: model.EdgeKindCalls, FilePath: "source.go", Fingerprint: "source-target"}).Error; err != nil {
+		t.Fatalf("seed edge: %v", err)
+	}
+
+	_, nodesByFile, err := existingGraphFileState(ctx, db)
+	if err != nil {
+		t.Fatalf("existing state: %v", err)
+	}
+	forceFiles, err := forceReparseFiles(ctx, db, nodesByFile, map[string]string{
+		"source.go": "same",
+		"target.go": "new",
+	})
+	if err != nil {
+		t.Fatalf("force files: %v", err)
+	}
+	if _, ok := forceFiles["source.go"]; !ok {
+		t.Fatalf("expected unchanged edge source to be forced, got %v", forceFiles)
+	}
+	if _, ok := forceFiles["target.go"]; ok {
+		t.Fatalf("did not expect changed target file to be forced, got %v", forceFiles)
+	}
+}
+
 func TestBuild_ContextCanceledBeforeMutationPreservesPreviousGraph(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {

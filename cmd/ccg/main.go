@@ -848,15 +848,12 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 		if err := dbReadyCheck(r); err != nil {
 			return err
 		}
-		if syncQueue != nil {
-			stats := syncQueue.Stats()
-			if stats.MaxTrackedRepos > 0 && stats.TrackedRepos >= stats.MaxTrackedRepos {
-				return fmt.Errorf("webhook sync queue full")
-			}
+		if err := webhookReadyCheck(syncQueue, cfg.WebhookAttemptTimeout); err != nil {
+			return err
 		}
 		return nil
 	}))
-	mux.Handle("/status", statusHandler(dbReadyCheck, func() *webhook.SyncQueue {
+	mux.Handle("/status", statusHandler(dbReadyCheck, cfg.WebhookAttemptTimeout, func() *webhook.SyncQueue {
 		return syncQueue
 	}))
 
@@ -884,7 +881,7 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 			includePaths, err := pathutil.LoadIncludePathsFromConfig(repoDir)
 			if err != nil {
 				deps.Logger.Error("webhook include_paths config invalid", "repo", repoFullName, "namespace", ns, "error", err)
-				return err
+				return webhook.NonRetryable(err)
 			}
 			graphSvc := &service.GraphService{
 				Store:         deps.Store,
@@ -894,18 +891,22 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 				Logger:        deps.Logger,
 			}
 			buildCtx := ctxns.WithNamespace(attemptCtx, ns)
-			stats, err := graphSvc.Build(buildCtx, service.BuildOptions{
-				Dir:                 repoDir,
-				IncludePaths:        includePaths,
-				MaxFileBytes:        cfg.MaxFileBytes,
-				MaxTotalParsedBytes: cfg.MaxTotalParsedBytes,
+			stats, err := graphSvc.Update(buildCtx, service.UpdateOptions{
+				BuildOptions: service.BuildOptions{
+					Dir:                 repoDir,
+					IncludePaths:        includePaths,
+					MaxFileBytes:        cfg.MaxFileBytes,
+					MaxTotalParsedBytes: cfg.MaxTotalParsedBytes,
+				},
+				Syncer:  deps.Syncer,
+				Replace: true,
 			})
 			if err != nil {
-				deps.Logger.Error("webhook build failed", "repo", repoFullName, "error", err)
+				deps.Logger.Error("webhook update failed", "repo", repoFullName, "error", err)
 				return err
 			}
 			deps.Logger.Info("webhook sync completed", "repo", repoFullName, "namespace", ns,
-				"files", stats.TotalFiles, "nodes", stats.TotalNodes, "edges", stats.TotalEdges)
+				"added", stats.Added, "modified", stats.Modified, "skipped", stats.Skipped, "deleted", stats.Deleted)
 			return nil
 		}
 		syncQueue = webhook.NewSyncQueueWithConfig(syncCtx, cfg.WebhookWorkers, syncHandler, webhook.QueueConfig{
@@ -1073,7 +1074,7 @@ type statusResponse struct {
 	Webhook *webhook.SyncQueueStats `json:"webhook,omitempty"`
 }
 
-func statusHandler(dbCheck func(*http.Request) error, queue func() *webhook.SyncQueue) http.Handler {
+func statusHandler(dbCheck func(*http.Request) error, webhookTimeout time.Duration, queue func() *webhook.SyncQueue) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1091,7 +1092,7 @@ func statusHandler(dbCheck func(*http.Request) error, queue func() *webhook.Sync
 			if q := queue(); q != nil {
 				stats := q.Stats()
 				resp.Webhook = &stats
-				if stats.MaxTrackedRepos > 0 && stats.TrackedRepos >= stats.MaxTrackedRepos {
+				if err := webhookStatsReady(stats, webhookTimeout); err != nil {
 					resp.Status = "not_ready"
 					code = http.StatusServiceUnavailable
 				}
@@ -1104,6 +1105,31 @@ func statusHandler(dbCheck func(*http.Request) error, queue func() *webhook.Sync
 			slog.Error("status check write failed", "error", err)
 		}
 	})
+}
+
+func webhookReadyCheck(q *webhook.SyncQueue, timeout time.Duration) error {
+	if q == nil {
+		return nil
+	}
+	return webhookStatsReady(q.Stats(), timeout)
+}
+
+func webhookStatsReady(stats webhook.SyncQueueStats, timeout time.Duration) error {
+	if stats.MaxTrackedRepos > 0 && stats.TrackedRepos >= stats.MaxTrackedRepos {
+		return fmt.Errorf("webhook sync queue full")
+	}
+	if timeout > 0 {
+		if stats.OldestQueuedAge > timeout {
+			return fmt.Errorf("webhook sync queue delayed for %s", stats.OldestQueuedAge)
+		}
+		if stats.OldestProcessingAge > timeout {
+			return fmt.Errorf("webhook sync processing delayed for %s", stats.OldestProcessingAge)
+		}
+	}
+	if !stats.LastErrorTime.IsZero() && (stats.LastSuccessTime.IsZero() || stats.LastSuccessTime.Before(stats.LastErrorTime)) {
+		return fmt.Errorf("webhook sync has unresolved failure")
+	}
+	return nil
 }
 
 // openDB opens a GORM connection for the configured driver.

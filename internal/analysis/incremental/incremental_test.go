@@ -190,6 +190,35 @@ func TestIncremental_UnchangedFile(t *testing.T) {
 	}
 }
 
+func TestIncremental_ForceReparsesUnchangedFile(t *testing.T) {
+	st := newStore()
+	st.nodes["pkg.Existing"] = &model.Node{QualifiedName: "pkg.Existing", Kind: model.NodeKindFunction, Name: "Existing", FilePath: "exist.go", Hash: "same123", Language: "go"}
+
+	parser := &staticParser{result: map[string]parseResult{
+		"exist.go": {
+			nodes: []model.Node{{QualifiedName: "pkg.Existing", Kind: model.NodeKindFunction, Name: "Existing", FilePath: "exist.go", StartLine: 1, EndLine: 2, Hash: "same123", Language: "go"}},
+		},
+	}}
+
+	syncer := New(st, parser)
+	files := map[string]FileInfo{
+		"exist.go": {Hash: "same123", Content: []byte("package pkg"), Force: true},
+	}
+	stats, err := syncer.Sync(context.Background(), files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Modified != 1 {
+		t.Errorf("expected 1 modified, got %d", stats.Modified)
+	}
+	if len(st.deleted) != 1 || st.deleted[0] != "exist.go" {
+		t.Errorf("expected forced delete/reparse for exist.go, got %v", st.deleted)
+	}
+	if len(parser.called) != 1 || parser.called[0] != "exist.go" {
+		t.Errorf("expected parser to be called for forced file, got %v", parser.called)
+	}
+}
+
 func TestIncremental_ModifiedFile(t *testing.T) {
 	st := newStore()
 	st.nodes["pkg.Old"] = &model.Node{QualifiedName: "pkg.Old", Kind: model.NodeKindFunction, Name: "Old", FilePath: "mod.go", Hash: "old_hash", Language: "go"}
@@ -415,9 +444,9 @@ func TestSyncWithExisting_ReleasesContentForUnchangedAndUnparsedFiles(t *testing
 
 	syncer := NewWithRegistry(st, map[string]Parser{".go": parser})
 	files := map[string]FileInfo{
-		"exist.go":  {Hash: "same123", Content: []byte("package pkg")},
-		"note.txt":  {Hash: "txt1", Content: []byte("hello")},
-		"mod.go":    {Hash: "new_hash", Content: []byte("package pkg\nfunc Updated() {}")},
+		"exist.go": {Hash: "same123", Content: []byte("package pkg")},
+		"note.txt": {Hash: "txt1", Content: []byte("hello")},
+		"mod.go":   {Hash: "new_hash", Content: []byte("package pkg\nfunc Updated() {}")},
 	}
 	stats, err := syncer.Sync(context.Background(), files)
 	if err != nil {

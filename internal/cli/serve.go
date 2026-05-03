@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"github.com/tae2089/trace"
 )
 
@@ -153,6 +154,13 @@ func newServeCmd(deps *Deps) *cobra.Command {
 		if cmd.Flags().Changed("workspace-root") && !cmd.Flags().Changed("namespace-root") {
 			cfg.NamespaceRoot = cfg.WorkspaceRoot
 		}
+		if cfg.Transport == "streamable-http" &&
+			len(cfg.AllowRepo) > 0 &&
+			!cmd.Flags().Changed("webhook-workers") &&
+			!envIsSet("CCG_WEBHOOK_WORKERS") &&
+			viper.GetString("db.driver") == "sqlite" {
+			cfg.WebhookWorkers = 1
+		}
 		cfg.WorkspaceRoot = cfg.NamespaceRoot
 		cfg.MaxFileBytes = resolveMaxFileBytes(cfg.MaxFileBytes)
 		cfg.MaxTotalParsedBytes = resolveMaxTotalParsedBytes(cfg.MaxTotalParsedBytes)
@@ -171,6 +179,11 @@ func envInt(name string, fallback int) int {
 		return fallback
 	}
 	return v
+}
+
+func envIsSet(name string) bool {
+	_, ok := os.LookupEnv(name)
+	return ok
 }
 
 func envDuration(name string, fallback time.Duration) time.Duration {

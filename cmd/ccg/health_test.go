@@ -109,7 +109,7 @@ func TestStatusHandler_ReportsWebhookQueueFull(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
 
-	statusHandler(func(r *http.Request) error { return nil }, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
+	statusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d body=%s", rec.Code, rec.Body.String())
@@ -132,7 +132,7 @@ func TestStatusHandler_ReportsWebhookQueueAges(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
 
-	statusHandler(func(r *http.Request) error { return nil }, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
+	statusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
@@ -147,6 +147,66 @@ func TestStatusHandler_ReportsWebhookQueueAges(t *testing.T) {
 	}
 	if got, _ := webhookBody["oldest_queued_age"].(float64); got <= 0 {
 		t.Fatalf("oldest_queued_age = %v, want > 0", webhookBody["oldest_queued_age"])
+	}
+}
+
+func TestReadyHandler_ReportsWebhookQueueDelay(t *testing.T) {
+	q := webhook.NewSyncQueueWithConfig(nil, 0, func(context.Context, string, string, string) error {
+		return nil
+	}, webhook.QueueConfig{
+		RetryConfig:     webhook.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 2,
+	})
+	defer q.Shutdown()
+	if err := q.Add(nil, "org/one", "url", "main"); err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	rec := httptest.NewRecorder()
+
+	readyHandler(func(r *http.Request) error {
+		return webhookReadyCheck(q, time.Millisecond)
+	}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestStatusHandler_ReportsUnresolvedWebhookFailure(t *testing.T) {
+	done := make(chan struct{})
+	q := webhook.NewSyncQueueWithConfig(nil, 1, func(context.Context, string, string, string) error {
+		close(done)
+		return errors.New("boom")
+	}, webhook.QueueConfig{
+		RetryConfig:     webhook.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 2,
+	})
+	defer q.Shutdown()
+	if err := q.Add(nil, "org/one", "url", "main"); err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for failure")
+	}
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		if q.Stats().FailureTotal > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	rec := httptest.NewRecorder()
+
+	statusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

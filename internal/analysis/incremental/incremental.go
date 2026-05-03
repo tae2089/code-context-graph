@@ -45,6 +45,7 @@ type annotationWriter interface {
 type FileInfo struct {
 	Hash    string
 	Content []byte
+	Force   bool
 }
 
 // SyncStats summarizes one incremental sync run.
@@ -170,7 +171,7 @@ func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files ma
 			continue
 		}
 
-		if len(existing) > 0 && existing[0].Hash == info.Hash {
+		if len(existing) > 0 && existing[0].Hash == info.Hash && !info.Force {
 			s.logger.Debug("file skipped (unchanged)", "file", filePath)
 			stats.Skipped++
 			releaseContent(files, filePath)

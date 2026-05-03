@@ -318,6 +318,39 @@ func TestSyncQueue_GivesUpAfterMaxAttempts(t *testing.T) {
 	}
 }
 
+func TestSyncQueue_NonRetryableErrorSkipsRetries(t *testing.T) {
+	var callCount atomic.Int32
+
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
+		callCount.Add(1)
+		return NonRetryable(errors.New("invalid repo config"))
+	}
+
+	q := NewSyncQueueWithOptions(context.Background(), 1, handler, RetryConfig{
+		MaxAttempts: 5,
+		BaseDelay:   1 * time.Millisecond,
+		MaxDelay:    10 * time.Millisecond,
+	})
+	defer q.Shutdown()
+
+	q.Add(context.Background(), "org/svc", "url", "main")
+
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		stats := q.Stats()
+		if stats.FailureTotal == 1 {
+			if got := callCount.Load(); got != 1 {
+				t.Fatalf("handler called %d times, want 1", got)
+			}
+			if stats.LastError == "" {
+				t.Fatalf("expected last error to be recorded: %+v", stats)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("non-retryable failure stats were not recorded: %+v", q.Stats())
+}
+
 func TestSyncQueue_RetryCancelledOnContextDone(t *testing.T) {
 	var callCount atomic.Int32
 	alwaysFail := errors.New("always fails")

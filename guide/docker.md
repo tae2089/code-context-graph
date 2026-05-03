@@ -22,6 +22,11 @@ docker run -d -p 8080:8080 \
 The image's default HTTP command binds to `:8080`, so you must provide
 `CCG_HTTP_BEARER_TOKEN` for normal external access.
 
+If this container is exposed through an ingress, reverse proxy, or load
+balancer, keep health and status endpoints internal. `/health`, `/ready`, and
+`/status` are intended for trusted operational checks and should not be exposed
+to the public internet.
+
 Run migrations only when creating a new database or upgrading CCG:
 
 ```bash

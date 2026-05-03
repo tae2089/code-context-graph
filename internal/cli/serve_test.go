@@ -320,6 +320,83 @@ func TestServeCmdFlags_WebhookWorkers(t *testing.T) {
 	}
 }
 
+func TestServeCmd_SQLiteWebhookDefaultsToSingleWorker(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+
+	var got ServeConfig
+	deps.ServeFunc = func(cfg ServeConfig) error {
+		got = cfg
+		return nil
+	}
+
+	err := executeCmd(deps, stdout, stderr,
+		"serve",
+		"--transport", "streamable-http",
+		"--allow-repo", "org/*",
+		"--webhook-secret", "secret",
+		"--repo-root", "/var/repos",
+		"--repo-clone-base-url", "https://github.com",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.WebhookWorkers != 1 {
+		t.Fatalf("WebhookWorkers = %d, want 1 for default sqlite webhook", got.WebhookWorkers)
+	}
+}
+
+func TestServeCmd_SQLiteWebhookHonorsExplicitWorkers(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+
+	var got ServeConfig
+	deps.ServeFunc = func(cfg ServeConfig) error {
+		got = cfg
+		return nil
+	}
+
+	err := executeCmd(deps, stdout, stderr,
+		"serve",
+		"--transport", "streamable-http",
+		"--allow-repo", "org/*",
+		"--webhook-secret", "secret",
+		"--repo-root", "/var/repos",
+		"--repo-clone-base-url", "https://github.com",
+		"--webhook-workers", "3",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.WebhookWorkers != 3 {
+		t.Fatalf("WebhookWorkers = %d, want explicit value 3", got.WebhookWorkers)
+	}
+}
+
+func TestServeCmd_PostgresWebhookKeepsDefaultWorkers(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+
+	var got ServeConfig
+	deps.ServeFunc = func(cfg ServeConfig) error {
+		got = cfg
+		return nil
+	}
+
+	err := executeCmd(deps, stdout, stderr,
+		"--db-driver", "postgres",
+		"serve",
+		"--transport", "streamable-http",
+		"--allow-repo", "org/*",
+		"--webhook-secret", "secret",
+		"--repo-root", "/var/repos",
+		"--repo-clone-base-url", "https://github.com",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.WebhookWorkers != 4 {
+		t.Fatalf("WebhookWorkers = %d, want postgres default 4", got.WebhookWorkers)
+	}
+}
+
 func TestServeCmdFlags_WebhookOperationalTuning(t *testing.T) {
 	deps, stdout, stderr := newTestDeps()
 
