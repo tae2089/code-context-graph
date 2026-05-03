@@ -902,6 +902,26 @@ func TestAdd(t *testing.T) {
 	}
 }
 
+func TestParseGo_TestedByEmitsCandidateForCrossFileProductionCall(t *testing.T) {
+	src := `package main
+
+func TestAdd(t *testing.T) {
+	Add(1, 2)
+}
+`
+	w := NewWalker(GoSpec)
+	_, edges, err := w.Parse("main_test.go", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, e := range filterEdgesByKind(edges, model.EdgeKindTestedBy) {
+		if containsSubstring(e.Fingerprint, "Add") && containsSubstring(e.Fingerprint, "TestAdd") {
+			return
+		}
+	}
+	t.Fatalf("expected TESTED_BY candidate for Add call in TestAdd, got %+v", edges)
+}
+
 // --- Phase 12.1: JavaScript ---
 
 func TestParseJS_Function(t *testing.T) {

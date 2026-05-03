@@ -583,14 +583,10 @@ func (w *Walker) resolveTestedBy(nodes []model.Node, edges *[]model.Edge, filePa
 	}
 
 	testNodes := make(map[string]model.Node)
-	nonTestNames := make(map[string]bool)
 
 	for _, n := range nodes {
-		switch n.Kind {
-		case model.NodeKindTest:
+		if n.Kind == model.NodeKindTest {
 			testNodes[n.QualifiedName] = n
-		case model.NodeKindFunction:
-			nonTestNames[n.Name] = true
 		}
 	}
 
@@ -607,10 +603,6 @@ func (w *Walker) resolveTestedBy(nodes []model.Node, edges *[]model.Edge, filePa
 
 		calleeParts := strings.Split(callee, ".")
 		bareCallee := calleeParts[len(calleeParts)-1]
-
-		if !nonTestNames[bareCallee] {
-			continue
-		}
 
 		for testQName, testNode := range testNodes {
 			if e.Line >= testNode.StartLine && e.Line <= testNode.EndLine {
