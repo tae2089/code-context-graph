@@ -44,8 +44,9 @@ make release
 ## Quick Start
 
 ```bash
-# Parse your project. The default local SQLite database (ccg.db) is created
-# and migrated automatically on first use when its schema is missing.
+# Parse your project. For the default local SQLite database (ccg.db), runtime
+# commands create and migrate the database automatically on first use only when
+# the schema is missing.
 ccg build .
 # Build complete: 70 files, 749 nodes, 7387 edges
 
@@ -71,6 +72,12 @@ ccg eval --suite parser
 # Update golden corpus
 ccg eval --suite parser --update
 ```
+
+If you use PostgreSQL, a custom SQLite DSN, an existing schema, or a controlled
+upgrade workflow, run `ccg migrate` explicitly before runtime commands. This
+also applies when upgrading CCG against an existing default `ccg.db` created by
+an older version. See the [CLI Reference](guide/cli-reference.md) for the full
+migration contract.
 
 ## Demo
 
@@ -203,7 +210,9 @@ See [Architecture Details](guide/architecture.md) for component breakdown and DB
 
 | Guide | Description |
 |-------|-------------|
+| [Korean Guide](guide/ko/README.md) | 한국어 문서 인덱스 (Korean Documentation Index) |
 | [CLI Reference](guide/cli-reference.md) | All commands, flags, and config file (`.ccg.yaml`) |
+| [Lint](guide/lint.md) | Detailed `ccg lint` category reference, interpretation guide, and CI usage |
 | [MCP Tools](guide/mcp-tools.md) | 33 MCP tools, Skills, AI-Driven Annotation |
 | [Annotations](guide/annotations.md) | Annotation system — tags, examples, search |
 | [Webhook](guide/webhook.md) | Webhook sync, branch filtering, HMAC, graceful shutdown |
