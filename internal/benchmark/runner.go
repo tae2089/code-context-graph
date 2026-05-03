@@ -1,3 +1,4 @@
+// @index Benchmark runner orchestration for Claude CLI subprocess execution.
 package benchmark
 
 import (
@@ -11,11 +12,13 @@ import (
 
 // Executor abstracts the subprocess execution so tests can inject a mock.
 // dir sets the working directory for the subprocess; empty means inherit from parent.
+// @intent decouple benchmark orchestration from the concrete Claude CLI process implementation.
 type Executor interface {
 	Execute(ctx context.Context, args []string, prompt, dir string) ([]byte, error)
 }
 
 // RunnerConfig holds configuration for a benchmark run.
+// @intent collect execution mode, workspace, and timeout settings for one benchmark run.
 type RunnerConfig struct {
 	Mode         string // "with-ccg" | "without-ccg"
 	CWD          string // benchmark workspace directory
@@ -24,6 +27,7 @@ type RunnerConfig struct {
 }
 
 // DefaultRunnerConfig returns a RunnerConfig with sensible defaults.
+// @intent provide conservative benchmark defaults that work for most local runs.
 func DefaultRunnerConfig() RunnerConfig {
 	return RunnerConfig{
 		MaxToolCalls: 50,
@@ -32,6 +36,7 @@ func DefaultRunnerConfig() RunnerConfig {
 }
 
 // claudeOutput is the structure of `claude -p --output-format json` output.
+// @intent decode the subset of Claude CLI JSON output needed for benchmark scoring.
 type claudeOutput struct {
 	IsError bool   `json:"is_error"`
 	Result  string `json:"result"`
@@ -43,6 +48,7 @@ type claudeOutput struct {
 
 // buildArgs constructs CLI args for a specific run.
 // mcpConfigFile is the path to an empty MCP config file for without-ccg mode.
+// @intent centralize Claude CLI argument construction for both benchmark modes.
 func buildArgs(cfg RunnerConfig, mcpConfigFile string) []string {
 	args := []string{"-p", "--output-format", "json"}
 	if cfg.MaxToolCalls > 0 {
@@ -58,6 +64,7 @@ func buildArgs(cfg RunnerConfig, mcpConfigFile string) []string {
 // Working directory is set on the subprocess directly (not via --cwd flag).
 // In "without-ccg" mode, --strict-mcp-config disables all MCP servers.
 // NOTE: For actual runs, use Runner.Run which creates a real temp file for --mcp-config.
+// @intent expose deterministic argument construction for tests and tooling that inspect benchmark invocation behavior.
 func BuildClaudeArgs(cfg RunnerConfig) []string {
 	if cfg.Mode == "without-ccg" {
 		return buildArgs(cfg, `{"mcpServers":{}}`)
@@ -67,6 +74,7 @@ func BuildClaudeArgs(cfg RunnerConfig) []string {
 
 // BuildPrompt creates the prompt string that wraps a query with benchmark markers.
 // The markers allow the JSONL analyzer to locate query boundaries.
+// @intent surround benchmark queries with markers so later session analysis can recover exact query segments.
 func BuildPrompt(q Query) string {
 	return fmt.Sprintf(
 		"===BENCHMARK_QUERY_START id=%s===\n%s\n===BENCHMARK_QUERY_END id=%s===",
@@ -75,18 +83,21 @@ func BuildPrompt(q Query) string {
 }
 
 // Runner executes benchmark queries sequentially using the provided Executor.
+// @intent own the end-to-end lifecycle of benchmark query execution for one mode.
 type Runner struct {
 	cfg  RunnerConfig
 	exec Executor
 }
 
 // NewRunner creates a Runner with the given config and executor.
+// @intent assemble benchmark orchestration from execution config and a subprocess adapter.
 func NewRunner(cfg RunnerConfig, exec Executor) *Runner {
 	return &Runner{cfg: cfg, exec: exec}
 }
 
 // Run executes each query in the corpus and returns a BenchmarkRun.
 // Executor errors are captured in RunResult.Error rather than aborting the run.
+// @intent execute the full benchmark corpus while preserving per-query failures in the final report.
 func (r *Runner) Run(ctx context.Context, corpus *Corpus) (*BenchmarkRun, error) {
 	run := &BenchmarkRun{
 		Mode:    r.cfg.Mode,
@@ -136,6 +147,7 @@ func (r *Runner) Run(ctx context.Context, corpus *Corpus) (*BenchmarkRun, error)
 // prepareMCPConfig creates a temp JSON file for without-ccg mode so that
 // --mcp-config receives a file path rather than inline JSON (avoiding the
 // variadic flag consuming the prompt from stdin).
+// @intent disable MCP cleanly in without-ccg mode without confusing the Claude CLI argument parser.
 func (r *Runner) prepareMCPConfig() (path string, cleanup func(), err error) {
 	if r.cfg.Mode != "without-ccg" {
 		return "", func() {}, nil
@@ -154,6 +166,7 @@ func (r *Runner) prepareMCPConfig() (path string, cleanup func(), err error) {
 }
 
 // parseClaudeOutput extracts token counts and answer text from claude's JSON output.
+// @intent translate Claude CLI JSON output into benchmark result fields without failing the whole run on parse misses.
 func (r *Runner) parseClaudeOutput(out []byte, res *RunResult) {
 	if len(out) == 0 {
 		return

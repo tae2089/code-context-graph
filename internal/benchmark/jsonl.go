@@ -1,3 +1,4 @@
+// @index JSONL session parsing and extraction helpers for benchmark analysis.
 package benchmark
 
 import (
@@ -15,6 +16,7 @@ var (
 )
 
 // SessionMessage represents one line from a Claude Code session JSONL file.
+// @intent model the subset of Claude session JSONL needed to reconstruct benchmark runs.
 type SessionMessage struct {
 	Type      string          `json:"type"`
 	Message   *MessagePayload `json:"message,omitempty"`
@@ -23,6 +25,7 @@ type SessionMessage struct {
 }
 
 // MessagePayload is the nested message object inside a SessionMessage.
+// @intent expose assistant role, content blocks, and usage data from session lines.
 type MessagePayload struct {
 	Role    string          `json:"role"`
 	Content []ContentBlock  `json:"content"`
@@ -30,6 +33,7 @@ type MessagePayload struct {
 }
 
 // ContentBlock is a single content item (text, tool_use, etc.).
+// @intent represent individual Claude message blocks so benchmark analyzers can inspect tool calls and text.
 type ContentBlock struct {
 	Type  string          `json:"type"`
 	Text  string          `json:"text,omitempty"`
@@ -39,12 +43,14 @@ type ContentBlock struct {
 }
 
 // UsageInfo holds token usage from Claude's response.
+// @intent capture token accounting for one Claude message so benchmark runs can aggregate usage.
 type UsageInfo struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
 }
 
 // QuerySegment groups the messages belonging to a single benchmark query.
+// @intent isolate the portion of a session that belongs to one marked benchmark query.
 type QuerySegment struct {
 	QueryID  string
 	Messages []SessionMessage
@@ -52,6 +58,7 @@ type QuerySegment struct {
 
 // ParseJSONL reads a Claude Code session JSONL file and returns all parsed lines.
 // Lines that are not valid JSON are silently skipped.
+// @intent ingest recorded Claude sessions even when they contain partial or non-JSON noise lines.
 func ParseJSONL(path string) ([]SessionMessage, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -83,6 +90,7 @@ const (
 
 // extractMarker checks if a SessionMessage contains a benchmark marker.
 // Returns (queryID, isStart, found). Uses strict regex to prevent injection via crafted IDs.
+// @intent locate benchmark query boundaries inside session transcripts safely.
 func extractMarker(m SessionMessage) (queryID string, isStart bool, found bool) {
 	var text string
 	if m.Type == "tool_result" {
@@ -107,6 +115,7 @@ func extractMarker(m SessionMessage) (queryID string, isStart bool, found bool) 
 
 // ExtractQuerySegments splits a session's messages into per-query segments using markers.
 // An unclosed segment (START without END) is included, spanning to the last message.
+// @intent reconstruct per-query transcript slices from a whole benchmark session log.
 func ExtractQuerySegments(msgs []SessionMessage) ([]QuerySegment, error) {
 	var segs []QuerySegment
 	var current *QuerySegment
@@ -134,6 +143,7 @@ func ExtractQuerySegments(msgs []SessionMessage) ([]QuerySegment, error) {
 }
 
 // ExtractToolCalls collects all tool_use blocks from a segment's messages.
+// @intent recover structured tool invocation history for one benchmark query.
 func ExtractToolCalls(seg QuerySegment) []ToolCall {
 	var calls []ToolCall
 	for _, m := range seg.Messages {
@@ -154,6 +164,7 @@ func ExtractToolCalls(seg QuerySegment) []ToolCall {
 }
 
 // ExtractFilesRead returns deduplicated file paths from Read tool calls in the segment.
+// @intent estimate file-inspection behavior from tool-use records without double-counting reads.
 func ExtractFilesRead(seg QuerySegment) []string {
 	var files []string
 	seen := make(map[string]bool)
@@ -178,6 +189,7 @@ func ExtractFilesRead(seg QuerySegment) []string {
 }
 
 // ExtractTokens sums input and output token counts across all messages in a segment.
+// @intent aggregate token usage for the full lifecycle of one benchmark query.
 func ExtractTokens(seg QuerySegment) (inputTokens, outputTokens int) {
 	for _, m := range seg.Messages {
 		if m.Message != nil && m.Message.Usage != nil {
@@ -189,6 +201,7 @@ func ExtractTokens(seg QuerySegment) (inputTokens, outputTokens int) {
 }
 
 // ExtractAnswer returns the text of the last assistant text block in the segment.
+// @intent capture the final assistant answer that should be evaluated for symbol hits.
 func ExtractAnswer(seg QuerySegment) string {
 	var last string
 	for _, m := range seg.Messages {
@@ -205,6 +218,7 @@ func ExtractAnswer(seg QuerySegment) string {
 }
 
 // ExtractRunResult builds a RunResult from a query segment.
+// @intent convert an extracted query segment into the canonical benchmark run result shape.
 func ExtractRunResult(queryID string, seg QuerySegment) RunResult {
 	in, out := ExtractTokens(seg)
 	return RunResult{

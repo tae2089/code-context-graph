@@ -1,3 +1,4 @@
+// @index Token baseline and graph-assisted retrieval benchmarking helpers.
 package benchmark
 
 import (
@@ -15,20 +16,26 @@ import (
 	"github.com/tae2089/code-context-graph/internal/pathutil"
 )
 
+// DefaultNaiveTokensMaxFileBytes caps per-file size considered by the naive baseline.
+// @intent prevent oversized files from skewing or dominating the naive token baseline.
 const DefaultNaiveTokensMaxFileBytes int64 = 1 << 20
 
+// NaiveTokensOptions tunes which files contribute to the naive token baseline.
+// @intent control file selection (excludes, size cap) for the naive reading baseline.
 type NaiveTokensOptions struct {
 	Excludes     []string
 	MaxFileBytes int64
 }
 
 // SearchBackend는 FTS 검색 백엔드 추상화다.
+// @intent abstract graph search so token benchmarks can run against any configured backend.
 type SearchBackend interface {
 	Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error)
 }
 
 // NodeExpander는 노드의 1-hop 이웃과 어노테이션을 가져오는 추상화다.
 // nil을 전달하면 확장 없이 기본 검색 결과만 사용한다.
+// @intent optionally enrich graph token context with neighbors and annotations beyond raw search hits.
 type NodeExpander interface {
 	GetEdgesFrom(ctx context.Context, nodeID uint) ([]model.Edge, error)
 	GetNodesByIDs(ctx context.Context, ids []uint) ([]model.Node, error)
@@ -36,16 +43,19 @@ type NodeExpander interface {
 }
 
 // EstimateTokens는 텍스트의 대략적인 토큰 수를 반환한다 (4자 = 1토큰).
+// @intent provide a cheap, consistent token estimate for baseline-versus-graph comparisons.
 func EstimateTokens(text string) int {
 	return len(text) / 4
 }
 
 // NaiveTokens는 repoRoot 아래 exts 확장자를 가진 모든 파일의 토큰 수 합계를 반환한다.
+// @intent measure the naive full-file reading baseline for a repository slice.
 func NaiveTokens(repoRoot string, exts []string) (int, error) {
 	return NaiveTokensWithOptions(repoRoot, exts, NaiveTokensOptions{})
 }
 
 // NaiveTokensWithOptions는 repoRoot 아래 exts 확장자를 가진 파일 중 옵션에 맞는 파일만 집계한다.
+// @intent compute a configurable naive token baseline while skipping excluded or oversized files.
 func NaiveTokensWithOptions(repoRoot string, exts []string, opts NaiveTokensOptions) (int, error) {
 	extSet := make(map[string]struct{}, len(exts))
 	for _, e := range exts {
@@ -93,11 +103,14 @@ func NaiveTokensWithOptions(repoRoot string, exts []string, opts NaiveTokensOpti
 	return total, err
 }
 
+// RunTokenBenchOptions bundles optional knobs for the token benchmark execution.
+// @intent extend the token benchmark with baseline tuning while keeping the core API stable.
 type RunTokenBenchOptions struct {
 	Naive NaiveTokensOptions
 }
 
 // TokenBenchResult는 단일 쿼리에 대한 토큰 벤치마크 결과다.
+// @intent report naive-versus-graph token cost and recall for one benchmark query.
 type TokenBenchResult struct {
 	QueryID         string  `json:"query_id"`
 	NaiveTokens     int     `json:"naive_tokens"`
@@ -115,6 +128,7 @@ type TokenBenchResult struct {
 
 // extractASCIITerms는 텍스트에서 ASCII 영숫자 단어만 추출한다.
 // 한국어 등 비ASCII 문자를 포함한 설명에서 코드 심볼에 해당하는 영어 단어만 반환한다.
+// @intent recover code-like search terms from natural-language benchmark descriptions.
 func extractASCIITerms(text string) []string {
 	var terms []string
 	for _, word := range strings.Fields(text) {
@@ -132,6 +146,7 @@ func extractASCIITerms(text string) []string {
 }
 
 // readLines는 파일에서 startLine~endLine 범위의 텍스트를 반환한다 (1-based).
+// @intent capture a node's code snippet when estimating graph-assisted context size.
 func readLines(path string, startLine, endLine int) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -148,6 +163,7 @@ func readLines(path string, startLine, endLine int) string {
 
 // searchAndCollect는 FTS 검색 후 1-hop 확장까지 수행해 노드 목록과 텍스트를 반환한다.
 // seen은 호출 간 중복 제거에 사용되며 nil이면 새로 생성한다.
+// @intent gather graph-derived context text and nodes for one token benchmark query.
 func searchAndCollect(
 	ctx context.Context, db *gorm.DB, backend SearchBackend, expander NodeExpander,
 	query, repoRoot string, limit int, seen map[uint]struct{},
@@ -224,6 +240,7 @@ func searchAndCollect(
 }
 
 // GraphTokens는 단일 쿼리로 검색해 토큰 수, 경과 시간(ms), 결과 수를 반환한다.
+// @intent measure the token footprint of graph-assisted retrieval for one query.
 func GraphTokens(ctx context.Context, db *gorm.DB, backend SearchBackend, expander NodeExpander, query, repoRoot string, limit int) (tokens int, elapsedMs int64, count int, err error) {
 	nodes, text, elapsedMs, err := searchAndCollect(ctx, db, backend, expander, query, repoRoot, limit, nil)
 	if err != nil {
@@ -233,6 +250,7 @@ func GraphTokens(ctx context.Context, db *gorm.DB, backend SearchBackend, expand
 }
 
 // countFilesHit는 nodes 중 expectedFiles에 해당하는 FilePath를 가진 노드 수를 반환한다.
+// @intent measure how many expected files appear in the retrieved graph context.
 func countFilesHit(nodes []model.Node, expectedFiles []string) int {
 	if len(expectedFiles) == 0 {
 		return 0
@@ -251,6 +269,7 @@ func countFilesHit(nodes []model.Node, expectedFiles []string) int {
 }
 
 // countSymbolsHit는 nodes 중 QualifiedName에 expectedSymbols 심볼명이 포함된 노드 수를 반환한다.
+// @intent measure how many expected symbols appear in the retrieved graph context.
 func countSymbolsHit(nodes []model.Node, expectedSymbols []string) int {
 	if len(expectedSymbols) == 0 {
 		return 0
@@ -268,6 +287,7 @@ func countSymbolsHit(nodes []model.Node, expectedSymbols []string) int {
 }
 
 // computeRecall은 파일/심볼 히트율을 0~1로 반환한다.
+// @intent collapse file and symbol hit counts into one recall-style coverage signal.
 func computeRecall(filesHit, filesTotal, symbolsHit, symbolsTotal int) float64 {
 	total := filesTotal + symbolsTotal
 	if total == 0 {
@@ -279,10 +299,12 @@ func computeRecall(filesHit, filesTotal, symbolsHit, symbolsTotal int) float64 {
 // RunTokenBench는 corpus의 각 쿼리에 대해 naive/graph 토큰과 recall을 비교한다.
 // 검색은 항상 Description을 사용하며, expected_symbols/files는 정답 매칭에만 사용한다.
 // limit은 쿼리당 총 결과 예산이며 단어 수에 반비례해 단어당 limit이 자동 조정된다.
+// @intent execute the full token benchmark corpus and compare naive reading cost against graph retrieval cost.
 func RunTokenBench(ctx context.Context, db *gorm.DB, backend SearchBackend, expander NodeExpander, corpus *Corpus, repoRoot string, exts []string, limit int) ([]TokenBenchResult, error) {
 	return RunTokenBenchWithOptions(ctx, db, backend, expander, corpus, repoRoot, exts, limit, RunTokenBenchOptions{})
 }
 
+// @intent extend token benchmarking with baseline tuning options while preserving the core execution flow.
 func RunTokenBenchWithOptions(ctx context.Context, db *gorm.DB, backend SearchBackend, expander NodeExpander, corpus *Corpus, repoRoot string, exts []string, limit int, opts RunTokenBenchOptions) ([]TokenBenchResult, error) {
 	naive, err := NaiveTokensWithOptions(repoRoot, exts, opts.Naive)
 	if err != nil {

@@ -1,3 +1,4 @@
+// @index Markdown report generation for benchmark comparisons.
 package benchmark
 
 import (
@@ -7,6 +8,7 @@ import (
 )
 
 // WriteReport renders a ComparisonReport as markdown and writes it to outPath.
+// @intent turn benchmark comparison data into a readable artifact for sharing and regression tracking.
 func WriteReport(report *ComparisonReport, outPath string) error {
 	if report.WithCCG == nil {
 		return fmt.Errorf("comparison report missing with-ccg run")

@@ -1,3 +1,4 @@
+// @index Benchmark corpus loading, saving, and validation utilities.
 package benchmark
 
 import (
@@ -12,6 +13,7 @@ import (
 var validQueryID = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 // LoadCorpus reads a queries.yaml file and validates its contents.
+// @intent load a benchmark corpus from disk while enforcing schema and ID constraints up front.
 func LoadCorpus(path string) (*Corpus, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -28,6 +30,7 @@ func LoadCorpus(path string) (*Corpus, error) {
 }
 
 // SaveCorpus writes a Corpus to a YAML file.
+// @intent persist benchmark corpus definitions in the YAML format used by the CLI.
 func SaveCorpus(path string, c *Corpus) error {
 	data, err := yaml.Marshal(c)
 	if err != nil {
@@ -40,6 +43,7 @@ func SaveCorpus(path string, c *Corpus) error {
 }
 
 // ValidateCorpus checks that all queries have required fields and no duplicate IDs.
+// @intent reject malformed benchmark corpora before any benchmark execution depends on them.
 func ValidateCorpus(c *Corpus) error {
 	if len(c.Queries) == 0 {
 		return fmt.Errorf("corpus has no queries")

@@ -1,3 +1,4 @@
+// @index Match analysis helpers for benchmark run results.
 package benchmark
 
 import "strings"
@@ -5,6 +6,7 @@ import "strings"
 // fileMatches reports whether actual matches expected, supporting both
 // exact match and suffix match to handle absolute vs relative path differences.
 // e.g. expected "internal/webhook/handler.go" matches actual "/home/user/repo/internal/webhook/handler.go"
+// @intent compare expected files against recorded reads without depending on absolute path stability.
 func fileMatches(expected, actual string) bool {
 	if expected == actual {
 		return true
@@ -15,6 +17,7 @@ func fileMatches(expected, actual string) bool {
 // MatchFiles computes the ratio of expected files found in FilesRead or mentioned
 // in the Answer text (as a fallback when tool-call data is unavailable).
 // Returns 1.0 if no expected files are specified.
+// @intent score whether a benchmark run inspected the files the query was expected to touch.
 func MatchFiles(result RunResult, query Query) float64 {
 	if len(query.ExpectedFiles) == 0 {
 		return 1.0
@@ -41,6 +44,7 @@ func MatchFiles(result RunResult, query Query) float64 {
 
 // MatchSymbols computes the ratio of expected symbols found in the answer text.
 // Returns 1.0 if no expected symbols are specified.
+// @intent score whether the final answer mentioned the symbols the query was expected to surface.
 func MatchSymbols(result RunResult, query Query) float64 {
 	if len(query.ExpectedSymbols) == 0 {
 		return 1.0
@@ -55,6 +59,7 @@ func MatchSymbols(result RunResult, query Query) float64 {
 }
 
 // CountCcgToolCalls returns the number of tool calls using mcp__ccg__ prefix.
+// @intent quantify how much a benchmark run relied on CCG-specific MCP tools.
 func CountCcgToolCalls(result RunResult) int {
 	var count int
 	for _, tc := range result.ToolCalls {
@@ -66,6 +71,7 @@ func CountCcgToolCalls(result RunResult) int {
 }
 
 // ComputeMatch derives a MatchResult from a single RunResult and its Query.
+// @intent consolidate per-query benchmark scoring into one reusable result structure.
 func ComputeMatch(result RunResult, query Query) MatchResult {
 	return MatchResult{
 		QueryID:          result.QueryID,
@@ -79,6 +85,7 @@ func ComputeMatch(result RunResult, query Query) MatchResult {
 
 // AnalyzeRun computes MatchResult for every result in the run against the corpus.
 // Results with no matching query are skipped.
+// @intent turn a full benchmark run into per-query scored matches against the corpus definition.
 func AnalyzeRun(run *BenchmarkRun, corpus *Corpus) []MatchResult {
 	queryMap := make(map[string]Query, len(corpus.Queries))
 	for _, q := range corpus.Queries {

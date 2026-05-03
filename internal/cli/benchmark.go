@@ -1,3 +1,4 @@
+// @index CLI commands for benchmarking CCG-assisted workflows and token savings.
 package cli
 
 import (
@@ -18,6 +19,7 @@ import (
 	storesearch "github.com/tae2089/code-context-graph/internal/store/search"
 )
 
+// @intent group benchmark subcommands that measure retrieval quality and token reduction workflows.
 func newBenchmarkCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "benchmark",
@@ -36,6 +38,7 @@ func newBenchmarkCmd(deps *Deps) *cobra.Command {
 }
 
 // newBenchmarkInitCmd creates a corpus directory with a template queries.yaml.
+// @intent bootstrap a benchmark corpus so users can start with a valid query fixture quickly.
 func newBenchmarkInitCmd() *cobra.Command {
 	var outDir string
 	cmd := &cobra.Command{
@@ -70,6 +73,7 @@ func newBenchmarkInitCmd() *cobra.Command {
 }
 
 // newBenchmarkValidateCmd validates a queries.yaml file.
+// @intent fail fast on malformed benchmark corpora before expensive benchmark runs start.
 func newBenchmarkValidateCmd() *cobra.Command {
 	var corpusPath string
 	cmd := &cobra.Command{
@@ -88,6 +92,7 @@ func newBenchmarkValidateCmd() *cobra.Command {
 }
 
 // newBenchmarkRunCmd executes each query via `claude -p` subprocess.
+// @intent run the benchmark corpus through Claude CLI and capture structured results for later comparison.
 func newBenchmarkRunCmd() *cobra.Command {
 	var corpusPath, cwd, mode, outPath string
 	cmd := &cobra.Command{
@@ -132,6 +137,7 @@ func newBenchmarkRunCmd() *cobra.Command {
 }
 
 // newBenchmarkAnalyzeCmd parses a Claude Code session JSONL and extracts RunResults.
+// @intent recover benchmark run results from recorded Claude Code session logs.
 func newBenchmarkAnalyzeCmd() *cobra.Command {
 	var sessionPath string
 	cmd := &cobra.Command{
@@ -166,6 +172,7 @@ func newBenchmarkAnalyzeCmd() *cobra.Command {
 }
 
 // newBenchmarkCompareCmd compares two BenchmarkRun JSON files.
+// @intent quantify the delta between with-ccg and without-ccg benchmark runs.
 func newBenchmarkCompareCmd() *cobra.Command {
 	var withPath, withoutPath, corpusPath string
 	cmd := &cobra.Command{
@@ -209,6 +216,7 @@ func newBenchmarkCompareCmd() *cobra.Command {
 }
 
 // newBenchmarkReportCmd generates a markdown report from a ComparisonReport JSON.
+// @intent turn raw benchmark comparison output into a shareable markdown summary.
 func newBenchmarkReportCmd() *cobra.Command {
 	var compPath, outPath string
 	cmd := &cobra.Command{
@@ -239,6 +247,7 @@ func newBenchmarkReportCmd() *cobra.Command {
 }
 
 // loadBenchmarkRun reads and unmarshals a BenchmarkRun from a JSON file.
+// @intent centralize benchmark run loading for compare and reporting commands.
 func loadBenchmarkRun(path string) (*benchmark.BenchmarkRun, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -252,6 +261,7 @@ func loadBenchmarkRun(path string) (*benchmark.BenchmarkRun, error) {
 }
 
 // newBenchmarkTokenBenchCmd measures token reduction: naive file reading vs CCG graph query.
+// @intent measure token savings from CCG-assisted retrieval without involving an LLM response loop.
 func newBenchmarkTokenBenchCmd(deps *Deps) *cobra.Command {
 	var corpusPath, repoRoot, outPath string
 	var exts []string
@@ -300,8 +310,10 @@ func newBenchmarkTokenBenchCmd(deps *Deps) *cobra.Command {
 }
 
 // osExecutor implements benchmark.Executor using os/exec to call the `claude` CLI.
+// @intent bridge benchmark runner execution to the local Claude CLI process.
 type osExecutor struct{}
 
+// @intent execute one benchmark prompt in a subprocess while preserving CLI-compatible stdin semantics.
 func (e *osExecutor) Execute(ctx context.Context, args []string, prompt, dir string) ([]byte, error) {
 	c := exec.CommandContext(ctx, "claude", args...)
 	c.Stdin = strings.NewReader(prompt)

@@ -4,6 +4,7 @@ package benchmark
 import "time"
 
 // Query represents a single benchmark query with expected results.
+// @intent define one benchmark prompt and the files or symbols it is expected to surface.
 type Query struct {
 	ID              string   `yaml:"id"               json:"id"`
 	Description     string   `yaml:"description"      json:"description"`
@@ -13,18 +14,21 @@ type Query struct {
 }
 
 // Corpus holds the collection of benchmark queries.
+// @intent group benchmark queries into a reusable corpus that can be run and validated together.
 type Corpus struct {
 	Version string  `yaml:"version" json:"version,omitempty"`
 	Queries []Query `yaml:"queries" json:"queries"`
 }
 
 // ToolCall records a single tool invocation during query execution.
+// @intent capture the tool usage footprint of one benchmarked query execution.
 type ToolCall struct {
 	Tool  string `json:"tool"`
 	Input string `json:"input,omitempty"`
 }
 
 // RunResult captures the outcome of executing a single query.
+// @intent store answer text, tool usage, timing, and token counts for one benchmark query.
 type RunResult struct {
 	QueryID      string     `json:"query_id"`
 	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
@@ -37,6 +41,7 @@ type RunResult struct {
 }
 
 // BenchmarkRun holds all results from a single benchmark execution.
+// @intent represent one complete benchmark session for a given execution mode.
 type BenchmarkRun struct {
 	Mode    string      `json:"mode"`
 	RunAt   time.Time   `json:"run_at"`
@@ -44,6 +49,7 @@ type BenchmarkRun struct {
 }
 
 // ResultByID returns the RunResult for the given query ID, or nil if not found.
+// @intent support direct lookup of a query result inside a benchmark run.
 func (r *BenchmarkRun) ResultByID(id string) *RunResult {
 	for i := range r.Results {
 		if r.Results[i].QueryID == id {
@@ -54,6 +60,7 @@ func (r *BenchmarkRun) ResultByID(id string) *RunResult {
 }
 
 // MatchResult holds the computed match metrics for a single query.
+// @intent summarize scored file, symbol, tool, and token metrics for one benchmark query.
 type MatchResult struct {
 	QueryID          string  `json:"query_id"`
 	FileHitRatio     float64 `json:"file_hit_ratio"`
@@ -64,6 +71,7 @@ type MatchResult struct {
 }
 
 // ComparisonReport holds a comparison between two benchmark runs.
+// @intent package benchmark runs and their scored matches into one comparison artifact.
 type ComparisonReport struct {
 	WithCCG        *BenchmarkRun `json:"with_ccg"`
 	WithoutCCG     *BenchmarkRun `json:"without_ccg,omitempty"`
