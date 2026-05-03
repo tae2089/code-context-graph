@@ -6,7 +6,7 @@
 |------|-------------|
 | `--namespace <name>` | Namespace for data isolation (e.g. `--namespace backend`) |
 | `--db-driver <driver>` | Database driver: `sqlite`, `postgres` (default `sqlite`) |
-| `--db-dsn <dsn>` | Database connection string (default `ccg.db`) |
+| `--db-dsn <dsn>` | Database connection string (default `ccg.db`; the default local SQLite database auto-migrates only when its schema is missing) |
 | `--log-level <level>` | Log level: `debug`, `info`, `warn`, `error` (default `info`) |
 | `--log-json` | Output logs in JSON format |
 | `--config <path>` | Config file path (default: `.ccg.yaml` in `./` then `~/.config/ccg/`) |
@@ -54,7 +54,7 @@ ccg update ./backend --namespace backend
 | `ccg version` | Print build version, commit, date |
 | `ccg benchmark token-bench` | Measure token reduction: naive vs graph search (no LLM) |
 
-For the default local SQLite database (`ccg.db`), runtime commands auto-run migrations when the schema is missing. Run `ccg migrate` explicitly for PostgreSQL, custom SQLite DSNs, or controlled upgrades.
+For the default local SQLite database (`ccg.db`, including `./ccg.db`, absolute paths ending in `ccg.db`, and `file:` DSNs for that file), runtime commands auto-run migrations only when the schema is missing. Existing SQLite schemas, PostgreSQL, custom SQLite DSNs, and controlled upgrades require an explicit `ccg migrate`.
 
 ### Serve
 

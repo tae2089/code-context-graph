@@ -127,7 +127,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 
 	// Global database configuration flags
 	rootCmd.PersistentFlags().String("db-driver", "sqlite", "Database driver (sqlite, postgres)")
-	rootCmd.PersistentFlags().String("db-dsn", "ccg.db", "Database connection string")
+	rootCmd.PersistentFlags().String("db-dsn", "ccg.db", "Database connection string (default local SQLite ccg.db auto-migrates only when schema is missing)")
 	rootCmd.PersistentFlags().String("namespace", ctxns.DefaultNamespace, "Namespace for data isolation (e.g. --namespace backend)")
 
 	// Bind flags to viper
