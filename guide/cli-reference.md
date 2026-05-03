@@ -42,8 +42,11 @@ ccg update ./backend --namespace backend
 | `ccg status` | Graph statistics |
 | `ccg search <query>` | Full-text search |
 | `ccg search --path <prefix> <query>` | Scoped search by path prefix |
-| `ccg docs [--out dir]` | Generate Markdown documentation |
+| `ccg docs [--out dir]` | Generate Markdown documentation (prunes stale generator-managed docs by default) |
+| `ccg docs --prune=false` | Regenerate docs without deleting older generator-managed files |
+| `ccg docs --exclude <pat>` | Exclude files/paths from generated docs (repeatable) |
 | `ccg index [--out dir]` | Regenerate `index.md` only |
+| `ccg rag-index [--out dir]` | Build Vectorless RAG index from docs and community structure |
 | `ccg languages` | List supported languages and extensions |
 | `ccg example [language]` | Show annotation writing example |
 | `ccg tags` | Show all annotation tag reference |
@@ -236,6 +239,8 @@ Override with `ccg --config path/to/config.yaml`.
 | dead-ref | `@see` tag pointing to a non-existent target |
 | incomplete | Incomplete annotation |
 | drifted | Annotation not updated after code change |
+
+For lint rule matching, both `drifted` and `drift` are accepted for the same category. User-facing reports use `drifted`, while generated state and internal normalization may use `drift`.
 
 See [Lint Guide](lint.md) for the exact per-category rules, overlaps, and implementation-aligned semantics.
 

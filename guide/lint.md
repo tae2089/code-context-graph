@@ -82,13 +82,13 @@ A function, class, or type symbol has no annotation record at all.
 
 ### `contradiction`
 
-An annotation exists, includes a detail tag such as `@param`, and the code node was updated after that annotation was written.
+An annotation exists, includes one or more `@param` tags, and the code node was updated after that annotation was written.
 
-- Typical cause: signature or behavior changed, but detailed annotation text was not refreshed.
+- Typical cause: signature or behavior changed, but `@param` details were not refreshed.
 - Practical meaning: the detailed annotation is likely unreliable.
 - Typical fix: review the symbol and update the detailed annotation tags.
 
-This is intentionally stricter than general drift because detail tags are more likely to become wrong when code changes.
+This is intentionally stricter than general drift because `@param` tags are especially likely to become wrong when code changes.
 
 ### `dead-ref`
 
@@ -182,6 +182,8 @@ The user-facing category labels map to `LintReport` fields like this:
 | `dead-ref` | `DeadRefs` |
 | `incomplete` | `Incomplete` |
 | `drifted` | `Drifted` |
+
+For rule matching and generated lint state, CCG also accepts the alias `drift`. In user-facing reports and guide text, the category name remains `drifted`.
 
 If you are reading the implementation, the exact logic lives in `internal/docs/lint.go`.
 

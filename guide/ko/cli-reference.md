@@ -44,8 +44,11 @@ ccg update ./backend --namespace backend
 | `ccg status` | 그래프 통계 출력 |
 | `ccg search <query>` | 전체 텍스트 검색 |
 | `ccg search --path <prefix> <query>` | 경로 접두사로 검색 범위 제한 |
-| `ccg docs [--out dir]` | 마크다운 문서 생성 |
+| `ccg docs [--out dir]` | 마크다운 문서 생성 (기본적으로 그래프에 없는 generator-managed 문서를 prune) |
+| `ccg docs --prune=false` | 기존 generator-managed 문서를 삭제하지 않고 문서만 다시 생성 |
+| `ccg docs --exclude <pat>` | 문서 생성 대상에서 파일/경로 제외 (반복 가능) |
 | `ccg index [--out dir]` | `index.md`만 재생성 |
+| `ccg rag-index [--out dir]` | 문서와 커뮤니티 구조 기반 Vectorless RAG 인덱스 생성 |
 | `ccg languages` | 지원되는 언어 및 확장자 목록 출력 |
 | `ccg example [language]` | 어노테이션 작성 예시 출력 |
 | `ccg tags` | 모든 어노테이션 태그 레퍼런스 출력 |
@@ -225,6 +228,8 @@ rules:
 | dead-ref | 존재하지 않는 대상을 가리키는 `@see` 태그 |
 | incomplete | 불완전한 어노테이션 |
 | drifted | 코드 변경 후 업데이트되지 않은 어노테이션 |
+
+lint 규칙 매칭에서는 `drifted`와 `drift`를 같은 카테고리로 모두 받을 수 있습니다. 사용자에게 보이는 리포트 이름은 `drifted`이고, 내부 정규화나 generated state에서는 `drift`가 사용될 수 있습니다.
 
 각 카테고리별 규칙, 중복 및 구현 정렬 의미에 대한 자세한 내용은 [Lint 가이드](lint.md)를 참조하십시오.
 
