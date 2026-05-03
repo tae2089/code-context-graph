@@ -1310,6 +1310,13 @@ func TestRunPostprocess_AllEnabled(t *testing.T) {
 	if !mockComm.rebuildCalled {
 		t.Error("expected CommunityBuilder.Rebuild to be called")
 	}
+	if got := resp["flows_count"]; got != float64(0) {
+		t.Errorf("expected flows_count=0 while flow rebuild is skipped, got %v", got)
+	}
+	skipped, ok := resp["skipped_steps"].([]any)
+	if !ok || !containsString(skipped, "flows") {
+		t.Fatalf("expected skipped_steps to contain flows, got %v", resp["skipped_steps"])
+	}
 }
 
 func TestRunPostprocess_OnlyFTS(t *testing.T) {
@@ -2806,6 +2813,15 @@ func MyService() {}
 	})
 	if result.IsError {
 		t.Fatalf("build_or_update_graph returned error: %s", getTextContent(result))
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+		t.Fatalf("expected JSON, got: %s", getTextContent(result))
+	}
+	skipped, ok := resp["skipped_steps"].([]any)
+	if !ok || !containsString(skipped, "flows") {
+		t.Fatalf("expected build_or_update_graph postprocess=full to report flows as skipped, got %v", resp["skipped_steps"])
 	}
 
 	var docs []model.SearchDocument
