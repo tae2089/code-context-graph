@@ -2,6 +2,8 @@
 
 Add structured metadata to your code so that AI and search can leverage business context. Annotations are indexed and searchable via `ccg search`.
 
+Annotation quality is validated by `ccg lint`. For category meanings such as `unannotated`, `incomplete`, `dead-ref`, `contradiction`, and `drifted`, see [Lint Guide](lint.md).
+
 ## File-level
 
 ```go
@@ -41,6 +43,8 @@ func AuthenticateUser(username, password string) (string, error) {
 | `@param` | Parameter description | `@param username the login ID` |
 | `@return` | Return description | `@return JWT token on success` |
 | `@see` | Related function | `@see SessionManager.Create` |
+
+`@intent` is especially important because a symbol with annotations but no `@intent` is reported as `incomplete` by `ccg lint`. `@see` tags are also linted and can produce `dead-ref` findings if they point to non-existent symbols.
 
 ## AI-Driven Annotation
 

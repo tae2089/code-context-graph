@@ -54,7 +54,7 @@ ccg update ./backend --namespace backend
 | `ccg version` | Print build version, commit, date |
 | `ccg benchmark token-bench` | Measure token reduction: naive vs graph search (no LLM) |
 
-For the default local SQLite database (`ccg.db`, including `./ccg.db`, absolute paths ending in `ccg.db`, and `file:` DSNs for that file), runtime commands auto-run migrations only when the schema is missing. Existing SQLite schemas, PostgreSQL, custom SQLite DSNs, and controlled upgrades require an explicit `ccg migrate`.
+For the default local SQLite database (`ccg.db`, including `./ccg.db`, absolute paths ending in `ccg.db`, and `file:` DSNs for that file), runtime commands auto-run migrations only when the schema is missing. Existing SQLite schemas, PostgreSQL, custom SQLite DSNs, and controlled upgrades require an explicit `ccg migrate`. If you already have a default `ccg.db` from an older CCG version, treat it as an existing schema and run `ccg migrate` after upgrading.
 
 ### Database Choice
 
@@ -235,7 +235,9 @@ Override with `ccg --config path/to/config.yaml`.
 | contradiction | Mismatch between code and documentation |
 | dead-ref | `@see` tag pointing to a non-existent target |
 | incomplete | Incomplete annotation |
-| drift | Tag not updated after signature change |
+| drifted | Annotation not updated after code change |
+
+See [Lint Guide](lint.md) for the exact per-category rules, overlaps, and implementation-aligned semantics.
 
 Per-category `action: ignore` can be set in `.ccg.yaml`'s `rules`. In `--strict` mode, `action: ignore` rules are applied.
 
