@@ -1,3 +1,4 @@
+// @index Eval runner orchestration for parser and search benchmark suites.
 package eval
 
 import (
@@ -13,6 +14,8 @@ import (
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 )
 
+// RunOptions collects corpus paths, parser walkers, and output settings for one eval invocation.
+// @intent configure parser/search evaluation suites from CLI without leaking command details.
 type RunOptions struct {
 	CorpusDir string
 	Suite     string
@@ -23,6 +26,8 @@ type RunOptions struct {
 	Writer    io.Writer
 }
 
+// Run executes the requested evaluation suites and writes the chosen report format.
+// @intent provide one orchestration entry point for CLI-driven parser and search evaluation.
 func Run(ctx context.Context, opts RunOptions) (*Report, error) {
 	report := &Report{Suite: opts.Suite}
 
@@ -44,6 +49,7 @@ func Run(ctx context.Context, opts RunOptions) (*Report, error) {
 	return report, writeTable(opts.Writer, report)
 }
 
+// @intent route parser evaluation into update or comparison mode without duplicating top-level flow control.
 func runParserEval(ctx context.Context, opts RunOptions, report *Report) error {
 	if opts.Update {
 		return runParserUpdate(ctx, opts)
@@ -51,6 +57,7 @@ func runParserEval(ctx context.Context, opts RunOptions, report *Report) error {
 	return runParserCompare(ctx, opts, report)
 }
 
+// @intent regenerate golden parser snapshots from the current parser implementation.
 func runParserUpdate(ctx context.Context, opts RunOptions) error {
 	entries, err := os.ReadDir(opts.CorpusDir)
 	if err != nil {
@@ -102,6 +109,7 @@ func runParserUpdate(ctx context.Context, opts RunOptions) error {
 	return nil
 }
 
+// @intent compare current parser output against stored golden corpora and accumulate language reports.
 func runParserCompare(ctx context.Context, opts RunOptions, report *Report) error {
 	corpora, err := LoadGoldenDir(opts.CorpusDir)
 	if err != nil {
@@ -158,6 +166,7 @@ func runParserCompare(ctx context.Context, opts RunOptions, report *Report) erro
 	return nil
 }
 
+// @intent run ranking metrics over the search corpus when a search backend is available.
 func runSearchEval(_ context.Context, opts RunOptions, report *Report) error {
 	queryPath := fmt.Sprintf("%s/queries.json", opts.CorpusDir)
 	qc, err := LoadQueryCorpus(queryPath)
@@ -177,6 +186,7 @@ func runSearchEval(_ context.Context, opts RunOptions, report *Report) error {
 	return nil
 }
 
+// @intent map parsed node IDs to qualified names so edge normalization can avoid DB lookups.
 func buildNodeMap(nodes []model.Node) map[uint]string {
 	m := make(map[uint]string, len(nodes))
 	for _, n := range nodes {
@@ -185,16 +195,19 @@ func buildNodeMap(nodes []model.Node) map[uint]string {
 	return m
 }
 
+// @intent centralize file reads used by parser evaluation so tests can characterize failures consistently.
 func readFileContent(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
+// @intent emit the eval report as pretty-printed JSON for machine consumption.
 func writeJSON(w io.Writer, report *Report) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(report)
 }
 
+// @intent render a compact human-readable summary of parser and search evaluation metrics.
 func writeTable(w io.Writer, report *Report) error {
 	if len(report.Languages) > 0 {
 		fmt.Fprintf(w, "=== Parser Evaluation ===\n\n")

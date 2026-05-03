@@ -1,3 +1,4 @@
+// @index Golden corpus loading and normalization helpers for parser evaluation.
 package eval
 
 import (
@@ -9,6 +10,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
+// @intent load every language-specific golden corpus file from the eval corpus directory tree.
 func LoadGoldenDir(dir string) ([]GoldenCorpus, error) {
 	var corpora []GoldenCorpus
 	entries, err := os.ReadDir(dir)
@@ -45,6 +47,7 @@ func LoadGoldenDir(dir string) ([]GoldenCorpus, error) {
 	return corpora, nil
 }
 
+// @intent persist normalized parser output as a golden snapshot for future comparisons.
 func WriteGolden(path string, corpus GoldenCorpus) error {
 	data, err := json.MarshalIndent(corpus, "", "  ")
 	if err != nil {
@@ -53,6 +56,7 @@ func WriteGolden(path string, corpus GoldenCorpus) error {
 	return os.WriteFile(path, append(data, '\n'), 0o644)
 }
 
+// @intent project eval nodes into stable comparison keys for set-based metrics.
 func NodeKeys(nodes []EvalNode) []string {
 	keys := make([]string, len(nodes))
 	for i, n := range nodes {
@@ -61,6 +65,7 @@ func NodeKeys(nodes []EvalNode) []string {
 	return keys
 }
 
+// @intent project eval edges into stable comparison keys for set-based metrics.
 func EdgeKeys(edges []EvalEdge) []string {
 	keys := make([]string, len(edges))
 	for i, e := range edges {
@@ -69,6 +74,7 @@ func EdgeKeys(edges []EvalEdge) []string {
 	return keys
 }
 
+// @intent summarize parser accuracy for one language corpus by comparing expected and actual nodes and edges.
 func CompareCorpus(expected, actual GoldenCorpus) LanguageReport {
 	nodeMetrics := ComputeClassification(NodeKeys(expected.Nodes), NodeKeys(actual.Nodes))
 	edgeMetrics := ComputeClassification(EdgeKeys(expected.Edges), EdgeKeys(actual.Edges))
@@ -80,6 +86,7 @@ func CompareCorpus(expected, actual GoldenCorpus) LanguageReport {
 	}
 }
 
+// @intent normalize parsed graph nodes into corpus-stable eval records independent of absolute paths.
 func NormalizeNodes(nodes []model.Node, baseDir string) []EvalNode {
 	out := make([]EvalNode, 0, len(nodes))
 	for _, n := range nodes {
@@ -102,6 +109,7 @@ func NormalizeNodes(nodes []model.Node, baseDir string) []EvalNode {
 	return out
 }
 
+// @intent normalize parsed graph edges into corpus-stable eval records keyed by qualified names.
 func NormalizeEdges(edges []model.Edge, nodeMap map[uint]string) []EvalEdge {
 	out := make([]EvalEdge, 0, len(edges))
 	for _, e := range edges {

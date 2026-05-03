@@ -1,7 +1,10 @@
+// @index Ranking and classification metrics for parser and search evaluation.
 package eval
 
 import "math"
 
+// ClassificationMetrics holds precision, recall, and F1 counts for one comparison.
+// @intent expose set-based scoring fields used by parser node and edge evaluation.
 type ClassificationMetrics struct {
 	TruePositive  int
 	FalsePositive int
@@ -11,6 +14,8 @@ type ClassificationMetrics struct {
 	F1            float64
 }
 
+// ComputeClassification computes set-based precision, recall, and F1 for expected versus actual keys.
+// @intent provide one reusable metric primitive for both parser node and edge evaluation.
 func ComputeClassification(expected, actual []string) ClassificationMetrics {
 	expectedSet := make(map[string]bool, len(expected))
 	for _, e := range expected {
@@ -48,6 +53,7 @@ func ComputeClassification(expected, actual []string) ClassificationMetrics {
 	return m
 }
 
+// @intent measure how many of the top-k ranked results are relevant.
 func PrecisionAtK(ranked []string, relevant map[string]bool, k int) float64 {
 	if k <= 0 || len(ranked) == 0 || len(relevant) == 0 {
 		return 0
@@ -65,6 +71,7 @@ func PrecisionAtK(ranked []string, relevant map[string]bool, k int) float64 {
 	return float64(hits) / float64(n)
 }
 
+// @intent measure how much of the relevant set appears within the top-k ranked results.
 func RecallAtK(ranked []string, relevant map[string]bool, k int) float64 {
 	if k <= 0 || len(ranked) == 0 || len(relevant) == 0 {
 		return 0
@@ -82,6 +89,7 @@ func RecallAtK(ranked []string, relevant map[string]bool, k int) float64 {
 	return float64(hits) / float64(len(relevant))
 }
 
+// @intent score the position of the first relevant result for ranking evaluation.
 func MRR(ranked []string, relevant map[string]bool) float64 {
 	for i, r := range ranked {
 		if relevant[r] {
@@ -91,6 +99,7 @@ func MRR(ranked []string, relevant map[string]bool) float64 {
 	return 0
 }
 
+// @intent compare ranked retrieval quality against an ideal ordering using discounted gain.
 func NDCG(ranked []string, relevant map[string]bool, k int) float64 {
 	if k <= 0 || len(relevant) == 0 {
 		return 0

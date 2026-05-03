@@ -1,3 +1,4 @@
+// @index CLI command for parser and search evaluation against golden corpora.
 package cli
 
 import (
@@ -13,6 +14,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 )
 
+// @intent expose parser and search evaluation workflows from the CLI with one shared command surface.
 func newEvalCmd(deps *Deps) *cobra.Command {
 	var corpusDir string
 	var suite string
@@ -54,6 +56,7 @@ func newEvalCmd(deps *Deps) *cobra.Command {
 	return cmd
 }
 
+// @intent adapt the configured search backend to the eval package's simple search callback contract.
 func makeSearchFn(ctx context.Context, deps *Deps) eval.SearchFunc {
 	return func(query string, limit int) ([]string, error) {
 		if deps.DB == nil || deps.SearchBackend == nil {
@@ -68,6 +71,7 @@ func makeSearchFn(ctx context.Context, deps *Deps) eval.SearchFunc {
 }
 
 // extToLangWalkers converts extension-keyed walkers (e.g. ".go") to language-keyed (e.g. "go").
+// @intent normalize parser walker lookup so eval suites can address languages consistently.
 func extToLangWalkers(walkers map[string]*treesitter.Walker) map[string]*treesitter.Walker {
 	if walkers == nil {
 		return nil
@@ -87,6 +91,7 @@ func extToLangWalkers(walkers map[string]*treesitter.Walker) map[string]*treesit
 	return result
 }
 
+// @intent convert search result nodes into stable eval comparison keys.
 func nodeToKeys(nodes []model.Node) []string {
 	keys := make([]string, len(nodes))
 	for i, n := range nodes {

@@ -1,3 +1,4 @@
+// @index Search evaluation corpus loading and ranking metric orchestration.
 package eval
 
 import (
@@ -5,8 +6,12 @@ import (
 	"os"
 )
 
+// SearchFunc abstracts search execution so evaluation can run against any backend.
+// @intent decouple ranking metrics from concrete search implementations.
 type SearchFunc func(query string, limit int) ([]string, error)
 
+// LoadQueryCorpus loads search evaluation cases from a JSON corpus file.
+// @intent ingest the search query corpus before running ranking evaluation.
 func LoadQueryCorpus(path string) (QueryCorpus, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -19,6 +24,7 @@ func LoadQueryCorpus(path string) (QueryCorpus, error) {
 	return qc, nil
 }
 
+// @intent execute ranked retrieval metrics across all search evaluation cases.
 func EvaluateQueries(cases []QueryCase, searchFn SearchFunc) (SearchReport, error) {
 	if len(cases) == 0 {
 		return SearchReport{}, nil
