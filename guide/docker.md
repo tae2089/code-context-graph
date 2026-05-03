@@ -12,7 +12,9 @@ docker build -t ccg .
 # Set a bearer token for externally bound HTTP transport.
 export CCG_HTTP_BEARER_TOKEN=replace-with-a-long-random-token
 
-# Mount your project, build the graph, and serve over HTTP
+# For the default local SQLite database (ccg.db), first-run runtime commands
+# auto-migrate only when the schema is missing.
+# Mount your project, build the graph, and serve over HTTP.
 docker run -d -p 8080:8080 \
   -e CCG_HTTP_BEARER_TOKEN="$CCG_HTTP_BEARER_TOKEN" \
   -v $(pwd):/workspace --entrypoint sh ccg \
@@ -28,13 +30,18 @@ balancer, keep health and status endpoints internal. `/health`, `/ready`, and
 to the public internet. See the [Operations Guide](operations.md#http-exposure)
 for endpoint exposure guidance.
 
-Run migrations only when creating a new database or upgrading CCG:
+For the mounted default local SQLite database, use an explicit migration command
+when upgrading CCG against an existing schema:
 
 ```bash
 docker run --rm \
   -v $(pwd):/workspace --entrypoint ccg ccg \
   migrate
 ```
+
+For PostgreSQL, custom SQLite DSNs, or other non-default runtime setups, pass
+the matching database driver and DSN to `ccg migrate` before starting runtime
+commands.
 
 Connect from `.mcp.json`:
 
@@ -75,6 +82,13 @@ signals.
 ## Run with PostgreSQL
 
 ```bash
+# PostgreSQL requires an explicit migration step before runtime commands.
+docker run --rm \
+  -e CCG_DB_DRIVER=postgres \
+  -e CCG_DB_DSN="host=db user=ccg password=ccg dbname=ccg sslmode=disable" \
+  --entrypoint ccg ccg \
+  migrate
+
 docker run -d -p 8080:8080 \
   -e CCG_HTTP_BEARER_TOKEN="$CCG_HTTP_BEARER_TOKEN" \
   -e CCG_DB_DRIVER=postgres \
@@ -83,15 +97,8 @@ docker run -d -p 8080:8080 \
   -c "ccg build /workspace && ccg serve --transport streamable-http --http-addr :8080"
 ```
 
-For PostgreSQL, run the migration as a separate one-shot command when needed:
-
-```bash
-docker run --rm \
-  -e CCG_DB_DRIVER=postgres \
-  -e CCG_DB_DSN="host=db user=ccg password=ccg dbname=ccg sslmode=disable" \
-  --entrypoint ccg ccg \
-  migrate
-```
+The one-shot migration command above should be run before build, serve, or
+other runtime commands.
 
 ## Docker Compose
 

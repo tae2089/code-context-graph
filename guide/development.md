@@ -39,7 +39,7 @@ ccg eval --format json
 
 ## Integration Test
 
-Full-stack pipeline test: Gitea push → webhook → ccg clone → build → PostgreSQL → MCP verification:
+Full-stack pipeline test: Gitea push → explicit `ccg migrate` → webhook → ccg clone → build → PostgreSQL → MCP verification:
 
 ```bash
 ./scripts/integration-test.sh
@@ -54,14 +54,15 @@ make test-integration-helpers
 ### What It Does
 
 1. Start 3 containers via Docker Compose (Gitea, PostgreSQL, ccg)
-2. Create Gitea admin user and API token
-3. Create repository with sample Go code
-4. Register webhook pointing to ccg
-5. Push code to Gitea (triggers webhook)
-6. Wait for ccg to complete clone, parse, and build
-7. Verify graph data via MCP protocol (initialize → tools/call)
-8. Capture debug artifacts on failure
-9. Clean up all containers unless requested otherwise
+2. Run `ccg migrate` in the ccg container before starting the runtime service
+3. Create Gitea admin user and API token
+4. Create repository with sample Go code
+5. Register webhook pointing to ccg
+6. Push code to Gitea (triggers webhook)
+7. Wait for ccg to complete clone, parse, and build
+8. Verify graph data via MCP protocol (initialize → tools/call)
+9. Capture debug artifacts on failure
+10. Clean up all containers unless requested otherwise
 
 ### Debugging Integration Failures
 

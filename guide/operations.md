@@ -188,6 +188,9 @@ ccg migrate --db-driver postgres --db-dsn "$CCG_DB_DSN"
 Run migrations as a separate deployment step for PostgreSQL. Do not rely on
 application startup to upgrade a shared service database.
 
+After upgrading CCG, an existing default `ccg.db` should also be treated as an
+existing schema and migrated explicitly before restarting runtime commands.
+
 ## Troubleshooting
 
 | Symptom | Likely Cause | Check / Fix |
@@ -199,4 +202,4 @@ application startup to upgrade a shared service database.
 | `/ready` is `not_ready` | DB or queue blocking condition | Inspect `/status` and service logs. |
 | `/status` is `degraded` | Last webhook or postprocess failed | Fix repo config or rerun update/postprocess. |
 | Search misses recent code | FTS/search documents stale | Run `run_postprocess` with `fts=true` or rebuild the namespace. |
-| Migration error at startup | Schema version mismatch or drift | Run `ccg migrate` from the deployed binary version. |
+| Migration error at startup | Schema version mismatch, migration source mismatch, or schema drift | Run `ccg migrate` from the deployed binary version; if it still fails, verify the configured migration source and schema drift. |
