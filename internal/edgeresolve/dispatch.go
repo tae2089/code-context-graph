@@ -13,6 +13,8 @@ type languageDispatch interface {
 	PackagePrefix(node model.Node) string
 }
 
+// languageDispatchRegistry only includes languages with call-dispatch resolution support.
+// @intent distinguish optional dynamic/interface call resolution from generic hierarchy-edge parsing available elsewhere.
 var languageDispatchRegistry = map[string]languageDispatch{
 	"go": goLanguageDispatch{},
 }

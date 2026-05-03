@@ -288,7 +288,7 @@ func resolveCall(edge *model.Edge, st *resolveState) {
 		edge.ToNodeID = target.ID
 		return
 	}
-	if target := resolveGoInterfaceDispatch(caller, callee, st); target != nil {
+	if target := resolveInterfaceDispatch(caller, callee, st); target != nil {
 		edge.ToNodeID = target.ID
 		return
 	}
@@ -822,9 +822,9 @@ func resolveSameReceiverCall(caller *model.Node, callee string, st *resolveState
 	return dispatch.ResolveSameReceiverCall(caller, callee, st)
 }
 
-// resolveGoInterfaceDispatch attempts to resolve method calls through an interface.
+// resolveInterfaceDispatch attempts to resolve method calls through an interface.
 // @intent provide best-effort resolution for polymorphic calls by checking implementations.
-func resolveGoInterfaceDispatch(caller *model.Node, callee string, st *resolveState) *model.Node {
+func resolveInterfaceDispatch(caller *model.Node, callee string, st *resolveState) *model.Node {
 	dispatch := dispatchForLanguage(callerLanguage(caller))
 	if dispatch == nil {
 		return nil
