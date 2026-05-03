@@ -7,6 +7,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
 	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
 	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
+	"github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -116,6 +117,17 @@ type mockCommunityBuilder struct {
 }
 
 func (m *mockCommunityBuilder) Rebuild(ctx context.Context, cfg community.Config) ([]community.Stats, error) {
+	m.rebuildCalled = true
+	return m.result, m.err
+}
+
+type mockFlowBuilder struct {
+	rebuildCalled bool
+	result        []flows.Stats
+	err           error
+}
+
+func (m *mockFlowBuilder) Rebuild(ctx context.Context, cfg flows.Config) ([]flows.Stats, error) {
 	m.rebuildCalled = true
 	return m.result, m.err
 }

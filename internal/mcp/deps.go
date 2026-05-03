@@ -50,6 +50,13 @@ type BoundedFlowTracer interface {
 	TraceFlowBounded(ctx context.Context, startNodeID uint, opts flowspkg.TraceOptions) (*flowspkg.TraceResult, error)
 }
 
+// FlowBuilder defines the persisted flow rebuild contract.
+// @intent stored flow 후처리를 재생성하는 빌더를 MCP 핸들러에 주입한다.
+// @see mcp.handlers.runPostprocess
+type FlowBuilder interface {
+	Rebuild(ctx context.Context, cfg flowspkg.Config) ([]flowspkg.Stats, error)
+}
+
 // QueryService defines predefined graph query operations exposed over MCP.
 // @intent 표준 그래프 질의를 한 서비스 인터페이스로 추상화해 핸들러를 단순화한다.
 // @see mcp.handlers.queryGraph
@@ -129,6 +136,7 @@ type Deps struct {
 	CouplingAnalyzer  CouplingAnalyzer
 	CoverageAnalyzer  CoverageAnalyzer
 	CommunityBuilder  CommunityBuilder
+	FlowBuilder       FlowBuilder
 	Incremental       IncrementalSyncer
 
 	// Cache — nil이면 캐시 비활성화

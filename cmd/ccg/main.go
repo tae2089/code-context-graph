@@ -770,6 +770,7 @@ func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 		CouplingAnalyzer:    coupling.New(deps.DB),
 		CoverageAnalyzer:    coverage.New(deps.DB),
 		CommunityBuilder:    community.New(deps.DB),
+		FlowBuilder:         flows.NewBuilder(deps.DB, deps.Store),
 		Incremental:         deps.Syncer,
 		Logger:              deps.Logger,
 		Cache:               cache,

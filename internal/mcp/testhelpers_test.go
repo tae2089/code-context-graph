@@ -160,6 +160,7 @@ func setupTestDeps(t *testing.T) *Deps {
 		SearchBackend:  sb,
 		ImpactAnalyzer: impact.New(st),
 		FlowTracer:     flows.New(st),
+		FlowBuilder:    flows.NewBuilder(db, st),
 		RepoRoot:       os.TempDir(),
 	}
 }
@@ -187,6 +188,7 @@ func setupGraphOnlyTestDeps(t *testing.T) *Deps {
 		Walkers:        map[string]Parser{".go": goParser},
 		ImpactAnalyzer: impact.New(st),
 		FlowTracer:     flows.New(st),
+		FlowBuilder:    flows.NewBuilder(db, st),
 		RepoRoot:       os.TempDir(),
 	}
 }
