@@ -22,7 +22,9 @@ import (
 	migratedb "github.com/golang-migrate/migrate/v4/database"
 	migratepostgres "github.com/golang-migrate/migrate/v4/database/postgres"
 	migratesqlite3 "github.com/golang-migrate/migrate/v4/database/sqlite3"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/golang-migrate/migrate/v4/source"
+	"github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/viper"
 	"github.com/tae2089/trace"
@@ -45,6 +47,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/cli"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	mcpserver "github.com/tae2089/code-context-graph/internal/mcp"
+	"github.com/tae2089/code-context-graph/internal/migrationfs"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 	"github.com/tae2089/code-context-graph/internal/pathutil"
@@ -75,7 +78,7 @@ var (
 const (
 	schemaVersionKey      = "schema"
 	legacySchemaTable     = "ccg_schema_versions"
-	requiredSchemaVersion = 1
+	requiredSchemaVersion = 2
 )
 
 // main wires CLI dependencies and executes the root command.
@@ -168,19 +171,20 @@ func main() {
 }
 
 func runMigrations(db *gorm.DB, driver, migrationsDir string) error {
-	migrator, err := newMigrator(db, driver, migrationsDir)
+	migrator, sourceInfo, err := newMigrator(db, driver, migrationsDir)
 	if err != nil {
 		return err
 	}
+	logMigrationSource(sourceInfo)
 
-	if err := baselineLegacySchemaVersion(db); err != nil {
+	if _, err := baselineLegacySchemaVersion(db, driver, migrator); err != nil {
 		return err
 	}
 	err = migrator.Up()
 	if err != nil && !errors.Is(err, gomigrate.ErrNoChange) {
 		return trace.Wrap(err, "run database migrations")
 	}
-	return nil
+	return validateSchemaParity(db, driver)
 }
 
 func ensureSchemaVersion(db *gorm.DB, driver, dsn, migrationsDir string) error {
@@ -202,21 +206,24 @@ func shouldAutoMigrateLocalSQLite(driver, dsn string) bool {
 		return false
 	}
 	path := strings.TrimSpace(dsn)
+	if path == "" {
+		return true
+	}
 	path = strings.TrimPrefix(path, "file:")
 	if idx := strings.Index(path, "?"); idx >= 0 {
 		path = path[:idx]
 	}
-	return filepath.Base(path) == "ccg.db"
+	if path == ":memory:" || filepath.Base(path) != "ccg.db" {
+		return false
+	}
+	if filepath.IsAbs(path) {
+		return true
+	}
+	return filepath.Clean(path) == "ccg.db"
 }
 
 func configuredMigrationsDir() string {
-	if dir := strings.TrimSpace(viper.GetString("migrations.dir")); dir != "" {
-		return dir
-	}
-	if dir := strings.TrimSpace(os.Getenv("CCG_MIGRATIONS_DIR")); dir != "" {
-		return dir
-	}
-	return "migrations"
+	return strings.TrimSpace(viper.GetString("migrations.dir"))
 }
 
 func checkSchemaVersion(db *gorm.DB) error {
@@ -246,24 +253,69 @@ type migrateSchemaVersion struct {
 	Dirty   bool `gorm:"column:dirty"`
 }
 
-func newMigrator(db *gorm.DB, driver, migrationsDir string) (*gomigrate.Migrate, error) {
-	sourceURL, err := migrationSourceURL(migrationsDir, driver)
-	if err != nil {
-		return nil, err
-	}
-
-	databaseDriver, databaseName, err := migrateDatabaseDriver(db, driver)
-	if err != nil {
-		return nil, err
-	}
-	migrator, err := gomigrate.NewWithDatabaseInstance(sourceURL, databaseName, databaseDriver)
-	if err != nil {
-		return nil, trace.Wrap(err, "create migrator")
-	}
-	return migrator, nil
+type migrationSourceInfo struct {
+	Kind   string
+	Driver string
+	Path   string
 }
 
-func migrationSourceURL(migrationsDir, driver string) (string, error) {
+func newMigrator(db *gorm.DB, driver, migrationsDir string) (*gomigrate.Migrate, migrationSourceInfo, error) {
+	databaseDriver, databaseName, err := migrateDatabaseDriver(db, driver)
+	if err != nil {
+		return nil, migrationSourceInfo{}, err
+	}
+
+	sourceDriver, sourceName, sourceInfo, err := migrateSourceDriver(driver, migrationsDir)
+	if err != nil {
+		return nil, migrationSourceInfo{}, err
+	}
+	migrator, err := gomigrate.NewWithInstance(sourceName, sourceDriver, databaseName, databaseDriver)
+	if err != nil {
+		return nil, migrationSourceInfo{}, trace.Wrap(err, "create migrator")
+	}
+	return migrator, sourceInfo, nil
+}
+
+func migrateSourceDriver(driver, migrationsDir string) (source.Driver, string, migrationSourceInfo, error) {
+	sourceInfo, err := migrationSourceInfoFor(driver, migrationsDir)
+	if err != nil {
+		return nil, "", migrationSourceInfo{}, err
+	}
+	if sourceInfo.Kind == "embedded" {
+		d, err := iofs.New(migrationfs.FS, driver)
+		if err != nil {
+			return nil, "", migrationSourceInfo{}, trace.Wrap(err, "create embedded migration source")
+		}
+		return d, "iofs", sourceInfo, nil
+	}
+	sourceURL := (&url.URL{Scheme: "file", Path: sourceInfo.Path}).String()
+	d, err := (&file.File{}).Open(sourceURL)
+	if err != nil {
+		return nil, "", migrationSourceInfo{}, trace.Wrap(err, "create file migration source")
+	}
+	return d, "file", sourceInfo, nil
+}
+
+func migrationSourceInfoFor(driver, migrationsDir string) (migrationSourceInfo, error) {
+	if strings.TrimSpace(migrationsDir) == "" {
+		return migrationSourceInfo{Kind: "embedded", Driver: driver}, nil
+	}
+	dir, err := migrationSourceDir(migrationsDir, driver)
+	if err != nil {
+		return migrationSourceInfo{}, err
+	}
+	return migrationSourceInfo{Kind: "external", Driver: driver, Path: dir}, nil
+}
+
+func logMigrationSource(sourceInfo migrationSourceInfo) {
+	args := []any{"source", sourceInfo.Kind, "driver", sourceInfo.Driver}
+	if sourceInfo.Path != "" {
+		args = append(args, "path", sourceInfo.Path)
+	}
+	slog.Info("running database migrations", args...)
+}
+
+func migrationSourceDir(migrationsDir, driver string) (string, error) {
 	dir := filepath.Join(migrationsDir, driver)
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -276,7 +328,7 @@ func migrationSourceURL(migrationsDir, driver string) (string, error) {
 	if !info.IsDir() {
 		return "", fmt.Errorf("migration path %q is not a directory", abs)
 	}
-	return (&url.URL{Scheme: "file", Path: abs}).String(), nil
+	return abs, nil
 }
 
 func migrateDatabaseDriver(db *gorm.DB, driver string) (migratedb.Driver, string, error) {
@@ -292,7 +344,7 @@ func migrateDatabaseDriver(db *gorm.DB, driver string) (migratedb.Driver, string
 		}
 		return d, "sqlite3", nil
 	case "postgres":
-		d, err := migratepostgres.WithInstance(sqlDB, &migratepostgres.Config{})
+		d, err := migratepostgres.WithInstance(sqlDB, &migratepostgres.Config{MultiStatementEnabled: true})
 		if err != nil {
 			return nil, "", trace.Wrap(err, "create postgres migration driver")
 		}
@@ -302,44 +354,220 @@ func migrateDatabaseDriver(db *gorm.DB, driver string) (migratedb.Driver, string
 	}
 }
 
-func baselineLegacySchemaVersion(db *gorm.DB) error {
+func baselineLegacySchemaVersion(db *gorm.DB, driver string, migrator *gomigrate.Migrate) (bool, error) {
 	if db.Migrator().HasTable("schema_migrations") {
 		var count int64
 		if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
-			return trace.Wrap(err, "check migrate schema version")
+			return false, trace.Wrap(err, "check migrate schema version")
 		}
 		if count > 0 {
-			return nil
+			return false, nil
 		}
 	}
 	if !db.Migrator().HasTable(legacySchemaTable) {
-		return nil
+		return false, nil
 	}
 
 	var current model.SchemaVersion
 	err := db.Table(legacySchemaTable).Where("key = ?", schemaVersionKey).First(&current).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil
+			return false, nil
 		}
-		return trace.Wrap(err, "check legacy schema version")
+		return false, trace.Wrap(err, "check legacy schema version")
 	}
 	if current.Version != requiredSchemaVersion {
-		return nil
+		return false, nil
 	}
-	if err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (version uint64, dirty bool)`).Error; err != nil {
-		return trace.Wrap(err, "create migrate schema version table")
+	if err := validateSchemaParity(db, driver); err != nil {
+		return false, trace.Wrap(err, "validate legacy schema parity")
 	}
-	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS version_unique ON schema_migrations (version)`).Error; err != nil {
-		return trace.Wrap(err, "create migrate schema version index")
+	if err := migrator.Force(requiredSchemaVersion); err != nil {
+		return false, trace.Wrap(err, "baseline legacy schema version")
 	}
-	if err := db.Exec(`DELETE FROM schema_migrations`).Error; err != nil {
-		return trace.Wrap(err, "clear migrate schema version")
+	return true, nil
+}
+
+type schemaColumn struct {
+	table  string
+	column string
+}
+
+func requiredSchemaTables() []string {
+	return []string{
+		"nodes",
+		"edges",
+		"annotations",
+		"doc_tags",
+		"communities",
+		"community_memberships",
+		"flows",
+		"flow_memberships",
+		"search_documents",
 	}
-	if err := db.Exec(`INSERT INTO schema_migrations(version, dirty) VALUES (?, ?)`, requiredSchemaVersion, false).Error; err != nil {
-		return trace.Wrap(err, "baseline legacy schema version")
+}
+
+func modelNullabilityColumns() []schemaColumn {
+	return []schemaColumn{
+		{"nodes", "qualified_name"},
+		{"nodes", "kind"},
+		{"nodes", "name"},
+		{"nodes", "file_path"},
+		{"nodes", "start_line"},
+		{"nodes", "end_line"},
+		{"edges", "kind"},
+		{"edges", "fingerprint"},
+		{"communities", "key"},
+		{"community_memberships", "community_id"},
+		{"community_memberships", "node_id"},
+		{"flows", "name"},
+		{"flow_memberships", "flow_id"},
+		{"flow_memberships", "node_id"},
+	}
+}
+
+func validateSchemaParity(db *gorm.DB, driver string) error {
+	for _, table := range requiredSchemaTables() {
+		if !db.Migrator().HasTable(table) {
+			return fmt.Errorf("required table %q is missing", table)
+		}
+	}
+
+	switch driver {
+	case "sqlite":
+		return validateSQLiteSchemaParity(db)
+	case "postgres":
+		return validatePostgresSchemaParity(db)
+	default:
+		return fmt.Errorf("unsupported database driver %q", driver)
+	}
+}
+
+func validateSQLiteSchemaParity(db *gorm.DB) error {
+	if !db.Migrator().HasTable("search_fts") {
+		return fmt.Errorf("required table %q is missing", "search_fts")
+	}
+	hasNamespace, err := sqliteColumnExists(db, "search_fts", "namespace")
+	if err != nil {
+		return trace.Wrap(err, "inspect sqlite search_fts namespace column")
+	}
+	if !hasNamespace {
+		return fmt.Errorf("required column %q.%q is missing", "search_fts", "namespace")
+	}
+	for _, column := range modelNullabilityColumns() {
+		notNull, err := sqliteColumnNotNull(db, column.table, column.column)
+		if err != nil {
+			return trace.Wrap(err, "inspect sqlite column nullability")
+		}
+		if !notNull {
+			return fmt.Errorf("required column %q.%q is nullable", column.table, column.column)
+		}
 	}
 	return nil
+}
+
+func sqliteColumnExists(db *gorm.DB, tableName, columnName string) (bool, error) {
+	column, err := sqliteColumnInfo(db, tableName, columnName)
+	if err != nil {
+		return false, err
+	}
+	return column.exists, nil
+}
+
+func sqliteColumnNotNull(db *gorm.DB, tableName, columnName string) (bool, error) {
+	column, err := sqliteColumnInfo(db, tableName, columnName)
+	if err != nil {
+		return false, err
+	}
+	return column.notNull, nil
+}
+
+type sqliteColumn struct {
+	exists  bool
+	notNull bool
+}
+
+func sqliteColumnInfo(db *gorm.DB, tableName, columnName string) (sqliteColumn, error) {
+	rows, err := db.Raw("PRAGMA table_info(" + tableName + ")").Rows()
+	if err != nil {
+		return sqliteColumn{}, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notNull int
+		var dflt any
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dflt, &pk); err != nil {
+			return sqliteColumn{}, err
+		}
+		if name == columnName {
+			return sqliteColumn{exists: true, notNull: notNull == 1}, nil
+		}
+	}
+	return sqliteColumn{}, rows.Err()
+}
+
+func validatePostgresSchemaParity(db *gorm.DB) error {
+	for _, column := range modelNullabilityColumns() {
+		notNull, err := postgresColumnNotNull(db, column.table, column.column)
+		if err != nil {
+			return trace.Wrap(err, "inspect postgres column nullability")
+		}
+		if !notNull {
+			return fmt.Errorf("required column %q.%q is nullable", column.table, column.column)
+		}
+	}
+	if ok, err := postgresIndexExists(db, "idx_search_documents_tsv"); err != nil {
+		return trace.Wrap(err, "inspect postgres search index")
+	} else if !ok {
+		return fmt.Errorf("required index %q is missing", "idx_search_documents_tsv")
+	}
+	if ok, err := postgresTriggerExists(db, "trg_search_documents_tsv"); err != nil {
+		return trace.Wrap(err, "inspect postgres search trigger")
+	} else if !ok {
+		return fmt.Errorf("required trigger %q is missing", "trg_search_documents_tsv")
+	}
+	return nil
+}
+
+func postgresColumnNotNull(db *gorm.DB, tableName, columnName string) (bool, error) {
+	var nullable string
+	err := db.Raw(`
+		SELECT is_nullable
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		AND table_name = ?
+		AND column_name = ?
+	`, tableName, columnName).Scan(&nullable).Error
+	if err != nil {
+		return false, err
+	}
+	return nullable == "NO", nil
+}
+
+func postgresIndexExists(db *gorm.DB, indexName string) (bool, error) {
+	var count int64
+	err := db.Raw(`
+		SELECT COUNT(*)
+		FROM pg_indexes
+		WHERE schemaname = 'public'
+		AND indexname = ?
+	`, indexName).Scan(&count).Error
+	return count > 0, err
+}
+
+func postgresTriggerExists(db *gorm.DB, triggerName string) (bool, error) {
+	var count int64
+	err := db.Raw(`
+		SELECT COUNT(*)
+		FROM pg_trigger
+		WHERE tgname = ?
+		AND NOT tgisinternal
+	`, triggerName).Scan(&count).Error
+	return count > 0, err
 }
 
 func migrateLegacyDefaultNamespace(db *gorm.DB) error {

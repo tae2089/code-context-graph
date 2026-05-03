@@ -138,8 +138,8 @@ func TestRoot_MigrateCommandCallsMigrateFuncOnly(t *testing.T) {
 		if cfg.DBDSN != "ccg.db" {
 			t.Fatalf("dsn = %q, want ccg.db", cfg.DBDSN)
 		}
-		if cfg.MigrationsDir != "migrations" {
-			t.Fatalf("migrationsDir = %q, want migrations", cfg.MigrationsDir)
+		if cfg.MigrationsDir != "" {
+			t.Fatalf("migrationsDir = %q, want empty default", cfg.MigrationsDir)
 		}
 		return nil
 	}

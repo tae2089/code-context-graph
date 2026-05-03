@@ -1,0 +1,25 @@
+ALTER TABLE nodes
+    ALTER COLUMN qualified_name DROP NOT NULL,
+    ALTER COLUMN kind DROP NOT NULL,
+    ALTER COLUMN name DROP NOT NULL,
+    ALTER COLUMN file_path DROP NOT NULL,
+    ALTER COLUMN start_line DROP NOT NULL,
+    ALTER COLUMN end_line DROP NOT NULL;
+
+ALTER TABLE edges
+    ALTER COLUMN kind DROP NOT NULL,
+    ALTER COLUMN fingerprint DROP NOT NULL;
+
+ALTER TABLE communities
+    ALTER COLUMN key DROP NOT NULL;
+
+ALTER TABLE community_memberships
+    ALTER COLUMN community_id DROP NOT NULL,
+    ALTER COLUMN node_id DROP NOT NULL;
+
+ALTER TABLE flows
+    ALTER COLUMN name DROP NOT NULL;
+
+ALTER TABLE flow_memberships
+    ALTER COLUMN flow_id DROP NOT NULL,
+    ALTER COLUMN node_id DROP NOT NULL;

@@ -22,9 +22,6 @@ type MigrateConfig struct {
 // @sideEffect may create or alter database tables and search indexes.
 func newMigrateCmd(deps *Deps) *cobra.Command {
 	migrationsDir := os.Getenv("CCG_MIGRATIONS_DIR")
-	if migrationsDir == "" {
-		migrationsDir = "migrations"
-	}
 
 	cmd := &cobra.Command{
 		Use:   "migrate",
@@ -51,7 +48,7 @@ func newMigrateCmd(deps *Deps) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&migrationsDir, "migrations-dir", migrationsDir, "Migration directory containing driver subdirectories")
+	cmd.Flags().StringVar(&migrationsDir, "migrations-dir", migrationsDir, "External migration directory containing driver subdirectories")
 	_ = viper.BindEnv("migrations.dir", "CCG_MIGRATIONS_DIR")
 	return cmd
 }
