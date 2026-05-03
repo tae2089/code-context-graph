@@ -368,7 +368,7 @@ func migrateDatabaseDriver(db *gorm.DB, driver string) (migratedb.Driver, string
 		}
 		return d, "sqlite3", nil
 	case "postgres":
-		d, err := migratepostgres.WithInstance(sqlDB, &migratepostgres.Config{MultiStatementEnabled: true})
+		d, err := migratepostgres.WithInstance(sqlDB, &migratepostgres.Config{})
 		if err != nil {
 			return nil, "", trace.Wrap(err, "create postgres migration driver")
 		}
@@ -842,7 +842,7 @@ func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 
 	switch cfg.Transport {
 	case "streamable-http":
-		return serveStreamableHTTP(deps, srv, cfg, postprocessSummary)
+		return serveStreamableHTTP(deps, srv, cfg, cache, postprocessSummary)
 	default:
 		deps.Logger.Info("serving MCP over stdio")
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -860,6 +860,12 @@ func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 			deps.Logger.Info("received signal, shutting down stdio MCP server")
 		}
 		return nil
+	}
+}
+
+func flushMCPQueryCache(cache *mcpserver.Cache) {
+	if cache != nil {
+		cache.Flush()
 	}
 }
 
@@ -897,7 +903,7 @@ func (p *mcpPostprocessPolicy) Reset(ctx context.Context, tool string) error {
 // serveStreamableHTTP serves the MCP server over streamable HTTP.
 // @intent 원격 MCP 클라이언트를 위한 HTTP 엔드포인트와 헬스체크를 노출한다.
 // @sideEffect HTTP 리스너를 열고 종료 시 graceful shutdown을 수행한다.
-func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeConfig, postprocessSummary func(context.Context) (*postprocesspolicy.StatusSummary, error)) error {
+func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeConfig, cache *mcpserver.Cache, postprocessSummary func(context.Context) (*postprocesspolicy.StatusSummary, error)) error {
 	deps.Logger.Info("serving MCP over streamable-http", "addr", cfg.HTTPAddr, "stateless", cfg.Stateless)
 
 	if err := validateHTTPExposure(cfg); err != nil {
@@ -1003,6 +1009,7 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 				deps.Logger.Error("webhook update failed", "repo", repoFullName, "error", err)
 				return err
 			}
+			flushMCPQueryCache(cache)
 			deps.Logger.Info("webhook sync completed", "repo", repoFullName, "namespace", ns,
 				"added", stats.Added, "modified", stats.Modified, "skipped", stats.Skipped, "deleted", stats.Deleted)
 			return nil

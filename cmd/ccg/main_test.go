@@ -7,15 +7,33 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
+	mcpserver "github.com/tae2089/code-context-graph/internal/mcp"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 )
+
+func TestFlushMCPQueryCache_RemovesCachedValues(t *testing.T) {
+	cache := mcpserver.NewCache(5 * time.Minute)
+	t.Cleanup(cache.Close)
+	cache.Set(`list_graph_stats:{"namespace":"sample-go"}`, `{"total_nodes":0}`)
+
+	flushMCPQueryCache(cache)
+
+	if _, ok := cache.Get(`list_graph_stats:{"namespace":"sample-go"}`); ok {
+		t.Fatal("expected cache entry to be flushed")
+	}
+}
+
+func TestFlushMCPQueryCache_NilIsNoop(t *testing.T) {
+	flushMCPQueryCache(nil)
+}
 
 func setupNamespaceMigrationDB(t *testing.T) *gorm.DB {
 	t.Helper()
