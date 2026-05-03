@@ -2,12 +2,18 @@ VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev
 COMMIT   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE     ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 PKG       = github.com/tae2089/code-context-graph/cmd/ccg
-LDFLAGS   = -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
+BASE_LDFLAGS = -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
+LDFLAGS      = -s -w $(BASE_LDFLAGS)
 
-.PHONY: build install test test-integration-helpers clean
+.PHONY: build release build-debug install test test-integration-helpers clean
 
-build:
+build: release
+
+release:
 	CGO_ENABLED=1 go build -tags "fts5" -ldflags '$(LDFLAGS)' -o ccg ./cmd/ccg/
+
+build-debug:
+	CGO_ENABLED=1 go build -tags "fts5" -ldflags '$(BASE_LDFLAGS)' -o ccg ./cmd/ccg/
 
 install:
 	CGO_ENABLED=1 go install -tags "fts5" -ldflags '$(LDFLAGS)' ./cmd/ccg/

@@ -6,6 +6,14 @@
 CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/
 ```
 
+Makefile shortcuts:
+
+```bash
+make build        # default local stripped build (same as make release)
+make release      # stripped build with embedded version/commit/date
+make build-debug  # unstripped build with embedded version/commit/date
+```
+
 ## Test
 
 ```bash

@@ -37,6 +37,8 @@ CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/
 
 # Or use Makefile (injects version from git tag automatically)
 make build
+# Local stripped release-style build
+make release
 ```
 
 ## Quick Start
