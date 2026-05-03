@@ -9,8 +9,10 @@ import (
 )
 
 type mockStore struct {
-	nodes map[uint]*model.Node
-	edges map[uint][]model.Edge
+	nodes               map[uint]*model.Node
+	edges               map[uint][]model.Edge
+	lastGetNodesByIDs   []uint
+	getEdgesToNodesFunc func(context.Context, []uint) ([]model.Edge, error)
 }
 
 func (m *mockStore) GetEdgesFrom(_ context.Context, nodeID uint) ([]model.Edge, error) {
@@ -46,6 +48,9 @@ func (m *mockStore) GetEdgesFromNodes(_ context.Context, nodeIDs []uint) ([]mode
 }
 
 func (m *mockStore) GetEdgesToNodes(_ context.Context, nodeIDs []uint) ([]model.Edge, error) {
+	if m.getEdgesToNodesFunc != nil {
+		return m.getEdgesToNodesFunc(context.Background(), nodeIDs)
+	}
 	var result []model.Edge
 	idMap := make(map[uint]bool)
 	for _, id := range nodeIDs {
@@ -62,6 +67,7 @@ func (m *mockStore) GetEdgesToNodes(_ context.Context, nodeIDs []uint) ([]model.
 }
 
 func (m *mockStore) GetNodesByIDs(_ context.Context, ids []uint) ([]model.Node, error) {
+	m.lastGetNodesByIDs = append([]uint(nil), ids...)
 	var result []model.Node
 	for _, id := range ids {
 		if n, ok := m.nodes[id]; ok {
@@ -69,6 +75,26 @@ func (m *mockStore) GetNodesByIDs(_ context.Context, ids []uint) ([]model.Node, 
 		}
 	}
 	return result, nil
+}
+
+func nodeIDs(nodes []model.Node) []uint {
+	ids := make([]uint, 0, len(nodes))
+	for _, node := range nodes {
+		ids = append(ids, node.ID)
+	}
+	return ids
+}
+
+func assertUintSliceEqual(t *testing.T, got, want []uint) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("expected IDs %v, got %v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected IDs %v, got %v", want, got)
+		}
+	}
 }
 
 func newNode(id uint, name string) *model.Node {
@@ -185,5 +211,71 @@ func TestImpactRadius_LargeGraph(t *testing.T) {
 	}
 	if len(got) != 51 {
 		t.Fatalf("expected 51 nodes (depth 50 in chain), got %d", len(got))
+	}
+}
+
+func TestImpactRadiusBounded_ExactMaxNodesDoesNotVisitOrReturnExtraNode(t *testing.T) {
+	ms := &mockStore{
+		nodes: map[uint]*model.Node{
+			1: newNode(1, "A"),
+			2: newNode(2, "B"),
+			3: newNode(3, "C"),
+			4: newNode(4, "D"),
+		},
+		edges: map[uint][]model.Edge{1: {edge(1, 2, 1), edge(1, 3, 2), edge(1, 4, 3)}},
+	}
+	a := New(ms)
+
+	result, err := a.ImpactRadiusBounded(context.Background(), 1, 1, RadiusOptions{MaxNodes: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertUintSliceEqual(t, nodeIDs(result.Nodes), []uint{1, 2, 3})
+	assertUintSliceEqual(t, ms.lastGetNodesByIDs, []uint{1, 2, 3})
+	if !result.Truncated {
+		t.Fatalf("expected truncated result when a fourth node was reachable beyond MaxNodes")
+	}
+	if result.ReturnedNodes != 3 {
+		t.Fatalf("expected ReturnedNodes 3, got %d", result.ReturnedNodes)
+	}
+}
+
+func TestImpactRadiusBounded_PreservesDeterministicVisitOrder(t *testing.T) {
+	ms := &mockStore{
+		nodes: map[uint]*model.Node{
+			1: newNode(1, "A"),
+			2: newNode(2, "B"),
+			3: newNode(3, "C"),
+			4: newNode(4, "D"),
+			5: newNode(5, "E"),
+		},
+		edges: map[uint][]model.Edge{
+			1: {edge(1, 2, 1), edge(1, 3, 2)},
+			2: {edge(2, 5, 5)},
+			3: {edge(3, 5, 6)},
+			4: {edge(4, 1, 3)},
+		},
+	}
+	ms.getEdgesToNodesFunc = func(_ context.Context, nodeIDs []uint) ([]model.Edge, error) {
+		switch {
+		case len(nodeIDs) == 1 && nodeIDs[0] == 1:
+			return []model.Edge{edge(4, 1, 3)}, nil
+		default:
+			return nil, nil
+		}
+	}
+	a := New(ms)
+
+	for range 20 {
+		result, err := a.ImpactRadiusBounded(context.Background(), 1, 2, RadiusOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertUintSliceEqual(t, nodeIDs(result.Nodes), []uint{1, 2, 3, 4, 5})
+		assertUintSliceEqual(t, ms.lastGetNodesByIDs, []uint{1, 2, 3, 4, 5})
+		if result.Truncated {
+			t.Fatalf("did not expect truncation")
+		}
 	}
 }

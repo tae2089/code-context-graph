@@ -3,6 +3,7 @@ package impact
 
 import (
 	"context"
+	"sort"
 
 	"github.com/tae2089/code-context-graph/internal/model"
 )
@@ -77,8 +78,12 @@ func (a *Analyzer) ImpactRadiusBounded(ctx context.Context, nodeID uint, depth i
 		depth = opts.MaxDepth
 	}
 	visited := map[uint]bool{nodeID: true}
+	visitOrder := []uint{nodeID}
 	frontier := []uint{nodeID}
 	truncated := false
+	maxNodesReached := func() bool {
+		return opts.MaxNodes > 0 && len(visitOrder) >= opts.MaxNodes
+	}
 
 	for d := 0; d < depth && len(frontier) > 0; d++ {
 		var next []uint
@@ -89,11 +94,12 @@ func (a *Analyzer) ImpactRadiusBounded(ctx context.Context, nodeID uint, depth i
 		}
 		for _, e := range edgesFrom {
 			if !visited[e.ToNodeID] {
-				visited[e.ToNodeID] = true
-				if opts.MaxNodes > 0 && len(visited) > opts.MaxNodes {
+				if maxNodesReached() {
 					truncated = true
 					break
 				}
+				visited[e.ToNodeID] = true
+				visitOrder = append(visitOrder, e.ToNodeID)
 				next = append(next, e.ToNodeID)
 			}
 		}
@@ -107,11 +113,12 @@ func (a *Analyzer) ImpactRadiusBounded(ctx context.Context, nodeID uint, depth i
 		}
 		for _, e := range edgesTo {
 			if !visited[e.FromNodeID] {
-				visited[e.FromNodeID] = true
-				if opts.MaxNodes > 0 && len(visited) > opts.MaxNodes {
+				if maxNodesReached() {
 					truncated = true
 					break
 				}
+				visited[e.FromNodeID] = true
+				visitOrder = append(visitOrder, e.FromNodeID)
 				next = append(next, e.FromNodeID)
 			}
 		}
@@ -122,19 +129,17 @@ func (a *Analyzer) ImpactRadiusBounded(ctx context.Context, nodeID uint, depth i
 		frontier = next
 	}
 
-	var allVisited []uint
-	for id := range visited {
-		allVisited = append(allVisited, id)
-	}
-
-	nodes, err := a.store.GetNodesByIDs(ctx, allVisited)
+	nodes, err := a.store.GetNodesByIDs(ctx, visitOrder)
 	if err != nil {
 		return nil, err
 	}
-	if opts.MaxNodes > 0 && len(nodes) > opts.MaxNodes {
-		nodes = nodes[:opts.MaxNodes]
-		truncated = true
+	order := make(map[uint]int, len(visitOrder))
+	for idx, id := range visitOrder {
+		order[id] = idx
 	}
+	sort.Slice(nodes, func(i, j int) bool {
+		return order[nodes[i].ID] < order[nodes[j].ID]
+	})
 
 	return &RadiusResult{Nodes: nodes, Truncated: truncated, MaxDepth: opts.MaxDepth, MaxNodes: opts.MaxNodes, ReturnedNodes: len(nodes)}, nil
 }
