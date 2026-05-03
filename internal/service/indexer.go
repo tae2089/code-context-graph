@@ -72,9 +72,16 @@ type updateSpool struct {
 var testBuildBatchReleaseHook func([]parsedBuildNodeBatch, int)
 
 const (
-	buildFlushFileBatchSize = 100
-	buildFlushParsedBytes   = 16 << 20
+	buildFlushFileBatchSize   = 100
+	buildFlushParsedBytes     = 16 << 20
+	forceReparseEdgeChunkSize = 400
 )
+
+type graphFileNodeState struct {
+	ID       uint
+	FilePath string
+	Hash     string
+}
 
 func newParsedBuildNodeBatch(relPath string, content []byte, nodes []model.Node, tsComments []treesitter.CommentBlock, language string) parsedBuildNodeBatch {
 	out := parsedBuildNodeBatch{
@@ -553,6 +560,7 @@ func (s *GraphService) prepareUpdateSpool(ctx context.Context, absDir string, op
 	var batchBytes int64
 	var totalParsedBytes int64
 	var seq int
+	unreadable := unreadableFileSummary{}
 
 	flush := func() error {
 		if len(batch) == 0 {
@@ -575,6 +583,7 @@ func (s *GraphService) prepareUpdateSpool(ctx context.Context, absDir string, op
 
 		info, err := os.Stat(path)
 		if err != nil {
+			unreadable.add(relPath)
 			s.logger().Warn("skip unreadable update file", "file", relPath, "error", err)
 			return nil
 		}
@@ -587,6 +596,7 @@ func (s *GraphService) prepareUpdateSpool(ctx context.Context, absDir string, op
 
 		content, err := os.ReadFile(path)
 		if err != nil {
+			unreadable.add(relPath)
 			s.logger().Warn("skip unreadable update file", "file", relPath, "error", err)
 			return nil
 		}
@@ -616,6 +626,7 @@ func (s *GraphService) prepareUpdateSpool(ctx context.Context, absDir string, op
 		spool.cleanup(s.logger())
 		return nil, err
 	}
+	unreadable.log(s.logger(), "update")
 	return spool, nil
 }
 
@@ -744,6 +755,7 @@ func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, 
 	files := make(map[string]incremental.FileInfo)
 	currentHashes := make(map[string]string)
 	var totalParsedBytes int64
+	unreadable := unreadableFileSummary{}
 	if err := walkMatchingFiles(ctx, absDir, opts.BuildOptions, func(path, relPath string) error {
 		if _, ok := s.parserForExt(strings.ToLower(filepath.Ext(path))); !ok {
 			return nil
@@ -751,6 +763,7 @@ func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, 
 
 		info, err := os.Stat(path)
 		if err != nil {
+			unreadable.add(relPath)
 			s.logger().Warn("skip unreadable update file", "file", relPath, "error", err)
 			return nil
 		}
@@ -763,6 +776,7 @@ func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, 
 
 		content, err := os.ReadFile(path)
 		if err != nil {
+			unreadable.add(relPath)
 			s.logger().Warn("skip unreadable update file", "file", relPath, "error", err)
 			return nil
 		}
@@ -781,6 +795,7 @@ func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, 
 	}); err != nil {
 		return nil, trace.Wrap(err, "walk update directory")
 	}
+	unreadable.log(s.logger(), "update")
 
 	existingFiles, existingNodesByFile, err := existingGraphFileState(ctx, s.DB)
 	if err != nil {
@@ -936,8 +951,10 @@ func existingGraphFileState(ctx context.Context, db *gorm.DB) ([]string, map[str
 	}
 
 	ns := ctxns.FromContext(ctx)
-	var nodes []model.Node
+	var nodes []graphFileNodeState
 	if err := db.WithContext(ctx).
+		Model(&model.Node{}).
+		Select("id", "file_path", "hash").
 		Where("namespace = ?", ns).
 		Find(&nodes).Error; err != nil {
 		return nil, nil, err
@@ -946,7 +963,8 @@ func existingGraphFileState(ctx context.Context, db *gorm.DB) ([]string, map[str
 	fileSeen := make(map[string]struct{})
 	filePaths := make([]string, 0)
 	for _, node := range nodes {
-		nodesByFile[node.FilePath] = append(nodesByFile[node.FilePath], node)
+		minimalNode := model.Node{ID: node.ID, FilePath: node.FilePath, Hash: node.Hash}
+		nodesByFile[node.FilePath] = append(nodesByFile[node.FilePath], minimalNode)
 		if _, ok := fileSeen[node.FilePath]; !ok {
 			fileSeen[node.FilePath] = struct{}{}
 			filePaths = append(filePaths, node.FilePath)
@@ -994,15 +1012,23 @@ func forceReparseFiles(ctx context.Context, db *gorm.DB, existingNodesByFile map
 	}
 
 	ns := ctxns.FromContext(ctx)
-	var edgeFiles []string
-	if err := db.WithContext(ctx).
-		Model(&model.Edge{}).
-		Where("namespace = ? AND file_path <> '' AND (from_node_id IN ? OR to_node_id IN ?)", ns, changedNodeIDs, changedNodeIDs).
-		Distinct().
-		Pluck("file_path", &edgeFiles).Error; err != nil {
-		return nil, err
+	edgeFileSeen := make(map[string]struct{})
+	for start := 0; start < len(changedNodeIDs); start += forceReparseEdgeChunkSize {
+		end := min(start+forceReparseEdgeChunkSize, len(changedNodeIDs))
+		chunk := changedNodeIDs[start:end]
+		var chunkFiles []string
+		if err := db.WithContext(ctx).
+			Model(&model.Edge{}).
+			Where("namespace = ? AND file_path <> '' AND (from_node_id IN ? OR to_node_id IN ?)", ns, chunk, chunk).
+			Distinct().
+			Pluck("file_path", &chunkFiles).Error; err != nil {
+			return nil, err
+		}
+		for _, filePath := range chunkFiles {
+			edgeFileSeen[filePath] = struct{}{}
+		}
 	}
-	for _, filePath := range edgeFiles {
+	for filePath := range edgeFileSeen {
 		currentHash, stillPresent := currentHashes[filePath]
 		if !stillPresent {
 			continue
@@ -1034,6 +1060,25 @@ func splitForcedFiles(files map[string]incremental.FileInfo, forceFiles map[stri
 		normal[filePath] = info
 	}
 	return normal, forced
+}
+
+type unreadableFileSummary struct {
+	count  int
+	sample string
+}
+
+func (s *unreadableFileSummary) add(relPath string) {
+	s.count++
+	if s.sample == "" {
+		s.sample = relPath
+	}
+}
+
+func (s unreadableFileSummary) log(logger *slog.Logger, phase string) {
+	if s.count == 0 || logger == nil {
+		return
+	}
+	logger.Warn("skipped unreadable files", "phase", phase, "count", s.count, "sample", s.sample)
 }
 
 func CheckParseFileSize(relPath string, size int64, maxFileBytes int64) error {

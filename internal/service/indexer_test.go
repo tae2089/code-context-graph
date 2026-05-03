@@ -12,6 +12,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -1181,6 +1182,90 @@ func TestForceReparseFiles_IncludesUnchangedEdgeSourceForChangedTarget(t *testin
 	}
 	if _, ok := forceFiles["target.go"]; ok {
 		t.Fatalf("did not expect changed target file to be forced, got %v", forceFiles)
+	}
+}
+
+func TestExistingGraphFileState_LoadsOnlyForceReparseFields(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.Node{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	seed := model.Node{
+		Namespace:     ctxns.DefaultNamespace,
+		QualifiedName: "pkg.Keep",
+		Kind:          model.NodeKindFunction,
+		Name:          "Keep",
+		FilePath:      "keep.go",
+		StartLine:     7,
+		EndLine:       9,
+		Hash:          "same",
+		Language:      "go",
+	}
+	if err := db.Create(&seed).Error; err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+
+	files, nodesByFile, err := existingGraphFileState(context.Background(), db)
+	if err != nil {
+		t.Fatalf("existing state: %v", err)
+	}
+	if got, want := files, []string{"keep.go"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("files mismatch: got=%v want=%v", got, want)
+	}
+	nodes := nodesByFile["keep.go"]
+	if len(nodes) != 1 {
+		t.Fatalf("expected one node, got %v", nodes)
+	}
+	if nodes[0].ID != seed.ID || nodes[0].FilePath != "keep.go" || nodes[0].Hash != "same" {
+		t.Fatalf("minimal fields mismatch: %+v", nodes[0])
+	}
+	if nodes[0].QualifiedName != "" || nodes[0].Name != "" || nodes[0].StartLine != 0 || nodes[0].Language != "" {
+		t.Fatalf("unexpected non-minimal fields loaded: %+v", nodes[0])
+	}
+}
+
+func TestForceReparseFiles_ChunksLargeChangedNodeLookup(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.Node{}, &model.Edge{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	ctx := context.Background()
+	existingNodesByFile := make(map[string][]model.Node)
+	currentHashes := map[string]string{"source.go": "same"}
+	var firstChangedID uint
+	for i := range forceReparseEdgeChunkSize + 1 {
+		filePath := fmt.Sprintf("target-%03d.go", i)
+		node := model.Node{Namespace: ctxns.DefaultNamespace, FilePath: filePath, Hash: "old"}
+		if err := db.Create(&node).Error; err != nil {
+			t.Fatalf("seed changed node %d: %v", i, err)
+		}
+		if i == 0 {
+			firstChangedID = node.ID
+		}
+		existingNodesByFile[filePath] = []model.Node{{ID: node.ID, FilePath: filePath, Hash: "old"}}
+		currentHashes[filePath] = "new"
+	}
+	source := model.Node{Namespace: ctxns.DefaultNamespace, FilePath: "source.go", Hash: "same"}
+	if err := db.Create(&source).Error; err != nil {
+		t.Fatalf("seed source: %v", err)
+	}
+	existingNodesByFile["source.go"] = []model.Node{{ID: source.ID, FilePath: "source.go", Hash: "same"}}
+	if err := db.Create(&model.Edge{Namespace: ctxns.DefaultNamespace, FromNodeID: source.ID, ToNodeID: firstChangedID, Kind: model.EdgeKindCalls, FilePath: "source.go", Fingerprint: "source-target"}).Error; err != nil {
+		t.Fatalf("seed edge: %v", err)
+	}
+
+	forceFiles, err := forceReparseFiles(ctx, db, existingNodesByFile, currentHashes)
+	if err != nil {
+		t.Fatalf("force files: %v", err)
+	}
+	if _, ok := forceFiles["source.go"]; !ok {
+		t.Fatalf("expected unchanged source.go to be forced across chunks, got %v", forceFiles)
 	}
 }
 
