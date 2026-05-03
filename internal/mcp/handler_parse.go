@@ -13,6 +13,7 @@ import (
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/community"
+	flowspkg "github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/service"
 )
 
@@ -172,8 +173,17 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 	var skippedSteps []string
 	switch postprocess {
 	case "full":
-		// flows 재빌드 (FlowTracer는 노드별이므로 스킵 — 전체 flow는 별도)
-		skippedSteps = append(skippedSteps, "flows")
+		if h.deps.FlowBuilder != nil {
+			if _, err := h.deps.FlowBuilder.Rebuild(ctx, flowspkg.Config{}); err != nil {
+				if failClosed {
+					return mcp.NewToolResultError(err.Error()), nil
+				}
+				log.Warn("flow rebuild failed", trace.SlogError(err))
+				failedSteps = append(failedSteps, "flows")
+			}
+		} else {
+			skippedSteps = append(skippedSteps, "flows")
+		}
 		// community 재빌드
 		if h.deps.CommunityBuilder != nil {
 			_, err := h.deps.CommunityBuilder.Rebuild(ctx, community.Config{Depth: 2})
@@ -259,14 +269,22 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 
 	log.Info("run_postprocess called", "flows", doFlows, "communities", doCommunities, "fts", doFTS)
 
-	var communitiesCount, ftsIndexed int
+	var flowsCount, communitiesCount, ftsIndexed int
 	var failedSteps []string
 	var skippedSteps []string
 
-	// Flows remain a requested-but-skipped step until persisted bulk rebuild exists.
-	// trace_flow still works per entry point, but run_postprocess does not repopulate stored flows.
 	if doFlows {
-		skippedSteps = append(skippedSteps, "flows")
+		if h.deps.FlowBuilder != nil {
+			stats, err := h.deps.FlowBuilder.Rebuild(ctx, flowspkg.Config{})
+			if err != nil {
+				log.Warn("flow rebuild failed", trace.SlogError(err))
+				failedSteps = append(failedSteps, "flows")
+			} else {
+				flowsCount = len(stats)
+			}
+		} else {
+			skippedSteps = append(skippedSteps, "flows")
+		}
 	}
 
 	if doCommunities && h.deps.CommunityBuilder != nil {
@@ -309,7 +327,7 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 
 	result := map[string]any{
 		"status":            status,
-		"flows_count":       0,
+		"flows_count":       flowsCount,
 		"communities_count": communitiesCount,
 		"fts_indexed":       ftsIndexed,
 		"failed_steps":      failedSteps,

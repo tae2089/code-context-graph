@@ -390,7 +390,7 @@ func derivedStateFlows() map[string]any {
 		"flows": map[string]any{
 			"freshness":    "unknown",
 			"source":       "stored_flow_memberships",
-			"refresh_hint": "trace_flow returns ephemeral results; persisted flow rebuild is not implemented",
+			"refresh_hint": "run_postprocess with flows=true after graph changes",
 		},
 	}
 }

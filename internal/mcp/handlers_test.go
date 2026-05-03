@@ -20,6 +20,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/community"
 	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
 	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
+	"github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
@@ -412,6 +413,9 @@ func TestDeps_NewInterfaces(t *testing.T) {
 	}
 	if deps.CommunityBuilder != nil {
 		t.Error("expected CommunityBuilder to be nil")
+	}
+	if deps.FlowBuilder != nil {
+		t.Error("expected FlowBuilder to be nil")
 	}
 	if deps.Incremental != nil {
 		t.Error("expected Incremental to be nil")
@@ -990,7 +994,9 @@ func TestBuildOrUpdateGraph_PostprocessFull(t *testing.T) {
 	mockComm := &mockCommunityBuilder{
 		result: []community.Stats{},
 	}
+	mockFlow := &mockFlowBuilder{}
 	deps.CommunityBuilder = mockComm
+	deps.FlowBuilder = mockFlow
 
 	dir := t.TempDir()
 	writeGoFile(t, dir, "svc.go", `package svc
@@ -1009,6 +1015,9 @@ func Run() {}
 
 	if !mockComm.rebuildCalled {
 		t.Error("expected CommunityBuilder.Rebuild to be called for postprocess=full")
+	}
+	if !mockFlow.rebuildCalled {
+		t.Error("expected FlowBuilder.Rebuild to be called for postprocess=full")
 	}
 }
 
@@ -1288,7 +1297,9 @@ func TestRunPostprocess_AllEnabled(t *testing.T) {
 	deps := setupTestDeps(t)
 
 	mockComm := &mockCommunityBuilder{result: []community.Stats{}}
+	mockFlow := &mockFlowBuilder{result: []flows.Stats{{NodeCount: 2}}}
 	deps.CommunityBuilder = mockComm
+	deps.FlowBuilder = mockFlow
 
 	result := callTool(t, deps, "run_postprocess", map[string]any{
 		"flows":       true,
@@ -1310,8 +1321,40 @@ func TestRunPostprocess_AllEnabled(t *testing.T) {
 	if !mockComm.rebuildCalled {
 		t.Error("expected CommunityBuilder.Rebuild to be called")
 	}
+	if !mockFlow.rebuildCalled {
+		t.Error("expected FlowBuilder.Rebuild to be called")
+	}
+	if got := resp["flows_count"]; got != float64(1) {
+		t.Errorf("expected flows_count=1 after flow rebuild, got %v", got)
+	}
+	skipped, ok := resp["skipped_steps"].([]any)
+	if !ok {
+		t.Fatalf("expected skipped_steps array, got %v", resp["skipped_steps"])
+	}
+	if containsString(skipped, "flows") {
+		t.Fatalf("expected skipped_steps to omit flows when builder is configured, got %v", resp["skipped_steps"])
+	}
+}
+
+func TestRunPostprocess_FlowsSkippedWhenBuilderNil(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.FlowBuilder = nil
+
+	result := callTool(t, deps, "run_postprocess", map[string]any{
+		"flows":       true,
+		"communities": false,
+		"fts":         false,
+	})
+	if result.IsError {
+		t.Fatalf("run_postprocess error: %s", getTextContent(result))
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+		t.Fatalf("expected JSON, got: %s", getTextContent(result))
+	}
 	if got := resp["flows_count"]; got != float64(0) {
-		t.Errorf("expected flows_count=0 while flow rebuild is skipped, got %v", got)
+		t.Fatalf("expected flows_count=0 when builder missing, got %v", got)
 	}
 	skipped, ok := resp["skipped_steps"].([]any)
 	if !ok || !containsString(skipped, "flows") {
@@ -2778,6 +2821,7 @@ func FreshSearch() {}
 
 func TestRunPostprocess_ReportsSkippedFlowRebuild(t *testing.T) {
 	deps := setupTestDeps(t)
+	deps.FlowBuilder = nil
 
 	result := callTool(t, deps, "run_postprocess", map[string]any{
 		"communities": false,
@@ -2820,8 +2864,11 @@ func MyService() {}
 		t.Fatalf("expected JSON, got: %s", getTextContent(result))
 	}
 	skipped, ok := resp["skipped_steps"].([]any)
-	if !ok || !containsString(skipped, "flows") {
-		t.Fatalf("expected build_or_update_graph postprocess=full to report flows as skipped, got %v", resp["skipped_steps"])
+	if !ok {
+		t.Fatalf("expected skipped_steps array, got %v", resp["skipped_steps"])
+	}
+	if containsString(skipped, "flows") {
+		t.Fatalf("expected build_or_update_graph postprocess=full not to report flows as skipped when builder is configured, got %v", resp["skipped_steps"])
 	}
 
 	var docs []model.SearchDocument
