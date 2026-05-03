@@ -238,3 +238,17 @@ Override with `ccg --config path/to/config.yaml`.
 | drift | Tag not updated after signature change |
 
 Per-category `action: ignore` can be set in `.ccg.yaml`'s `rules`. In `--strict` mode, `action: ignore` rules are applied.
+
+### Lint Policy vs Generated State
+
+CCG now separates human-managed lint policy from generated lint state:
+
+| Path | Owner | Purpose |
+|------|-------|---------|
+| `.ccg.yaml` | Human | Project policy: excludes, include paths, manual lint rules (`ignore`, etc.) |
+| `.ccg/lint-history.json` | Generated | Twice Rule consecutive-occurrence counters |
+| `.ccg/auto-rules.yaml` | Generated | Warn-only rules recorded by Twice Rule |
+
+`ccg lint` no longer appends generated warn rules into `.ccg.yaml`. Repeated issues are recorded in `.ccg/auto-rules.yaml`, while `.ccg.yaml` remains the place for manual policy decisions.
+
+If an older repository already has generated `auto: true` rules inside `.ccg.yaml`, run `ccg lint --migrate-auto-rules` once to move them into `.ccg/auto-rules.yaml`.

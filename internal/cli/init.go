@@ -21,6 +21,9 @@ exclude:
 docs:
   out: docs
 
+# lint policy lives in .ccg.yaml.
+# generated lint state such as Twice Rule history and auto warn rules lives under .ccg/.
+
 parse:
   max_file_bytes: 0
   max_total_parsed_bytes: 0
