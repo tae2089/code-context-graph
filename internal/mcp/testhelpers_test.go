@@ -18,7 +18,9 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/analysis/impact"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 	"github.com/tae2089/code-context-graph/internal/store/search"
@@ -161,6 +163,10 @@ func setupTestDeps(t *testing.T) *Deps {
 		ImpactAnalyzer: impact.New(st),
 		FlowTracer:     flows.New(st),
 		FlowBuilder:    flows.NewBuilder(db, st),
+		PostprocessPolicy: &stubPostprocessPolicy{
+			resolvedPolicy: postprocesspolicy.PolicyDegraded,
+			resolvedSource: postprocesspolicy.SourceAuto,
+		},
 		RepoRoot:       os.TempDir(),
 	}
 }
@@ -191,6 +197,93 @@ func setupGraphOnlyTestDeps(t *testing.T) *Deps {
 		FlowBuilder:    flows.NewBuilder(db, st),
 		RepoRoot:       os.TempDir(),
 	}
+}
+
+type stubPostprocessPolicy struct {
+	resolvedPolicy string
+	resolvedSource string
+	resolveErr     error
+	recordErr      error
+	resolvedInputs []postprocesspolicy.DecisionInput
+	recordedRuns   []postprocesspolicy.RunRecord
+}
+
+func (s *stubPostprocessPolicy) Resolve(ctx context.Context, input postprocesspolicy.DecisionInput) (string, string, error) {
+	s.resolvedInputs = append(s.resolvedInputs, input)
+	if s.resolveErr != nil {
+		return "", "", s.resolveErr
+	}
+	return s.resolvedPolicy, s.resolvedSource, nil
+}
+
+func (s *stubPostprocessPolicy) RecordRun(ctx context.Context, record postprocesspolicy.RunRecord) error {
+	s.recordedRuns = append(s.recordedRuns, record)
+	return s.recordErr
+}
+
+type realPostprocessPolicy struct {
+	engine *postprocesspolicy.Engine
+	store  *postprocesspolicy.Store
+}
+
+func newRealPostprocessPolicy(db *gorm.DB) *realPostprocessPolicy {
+	return &realPostprocessPolicy{
+		engine: &postprocesspolicy.Engine{},
+		store:  postprocesspolicy.NewStore(db),
+	}
+}
+
+func (p *realPostprocessPolicy) Resolve(ctx context.Context, input postprocesspolicy.DecisionInput) (string, string, error) {
+	return p.engine.Resolve(ctx, p.store, input)
+}
+
+func (p *realPostprocessPolicy) RecordRun(ctx context.Context, record postprocesspolicy.RunRecord) error {
+	return p.store.RecordRun(ctx, record)
+}
+
+func setupTestDepsWithRealPostprocessPolicy(t *testing.T) *Deps {
+	t.Helper()
+	deps := setupTestDeps(t)
+	deps.PostprocessPolicy = newRealPostprocessPolicy(deps.DB)
+	return deps
+}
+
+func callToolWithNamespace(t *testing.T, deps *Deps, namespace, toolName string, args map[string]any) *mcp.CallToolResult {
+	t.Helper()
+	srv := NewServer(deps)
+	argsCopy := make(map[string]any, len(args)+1)
+	for k, v := range args {
+		argsCopy[k] = v
+	}
+	argsJSON, _ := json.Marshal(argsCopy)
+	msg, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name":      toolName,
+			"arguments": json.RawMessage(argsJSON),
+		},
+	})
+	ctx := ctxns.WithNamespace(context.Background(), namespace)
+	resp := srv.HandleMessage(ctx, msg)
+	rpcResp, ok := resp.(mcp.JSONRPCResponse)
+	if !ok {
+		errResp, isErr := resp.(mcp.JSONRPCError)
+		if isErr {
+			t.Fatalf("JSON-RPC error: code=%d msg=%s", errResp.Error.Code, errResp.Error.Message)
+		}
+		t.Fatalf("unexpected response type: %T", resp)
+	}
+	resultJSON, err := json.Marshal(rpcResp.Result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result mcp.CallToolResult
+	if err := json.Unmarshal(resultJSON, &result); err != nil {
+		t.Fatal(err)
+	}
+	return &result
 }
 
 func setupTestDepsWithComments(t *testing.T) *Deps {

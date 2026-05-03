@@ -16,6 +16,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/model"
+	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 	"github.com/tae2089/code-context-graph/internal/store"
 	storesearch "github.com/tae2089/code-context-graph/internal/store/search"
 )
@@ -116,6 +117,11 @@ type IncrementalSyncer interface {
 	SyncWithExisting(ctx context.Context, files map[string]incremental.FileInfo, existingFiles []string) (*incremental.SyncStats, error)
 }
 
+type PostprocessPolicy interface {
+	Resolve(ctx context.Context, input postprocesspolicy.DecisionInput) (string, string, error)
+	RecordRun(ctx context.Context, record postprocesspolicy.RunRecord) error
+}
+
 // Deps collects the services and stores required by MCP handlers.
 // @intent MCP 서버 구성요소를 한 번에 주입해 도구와 프롬프트 핸들러를 조립한다.
 type Deps struct {
@@ -138,6 +144,7 @@ type Deps struct {
 	CommunityBuilder  CommunityBuilder
 	FlowBuilder       FlowBuilder
 	Incremental       IncrementalSyncer
+	PostprocessPolicy PostprocessPolicy
 
 	// Cache — nil이면 캐시 비활성화
 	Cache *Cache
