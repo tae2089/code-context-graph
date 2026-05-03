@@ -69,7 +69,7 @@ Related skills:
 | ----------------------- | ---------------------------------------------------------- |
 | `parse_project`         | Parse source files                                         |
 | `build_or_update_graph` | Full/incremental build with postprocessing                 |
-| `run_postprocess`       | Run communities/search rebuild and report stored flow rebuild as skipped |
+| `run_postprocess`       | Rebuild stored flows, communities, and/or full-text search derived state |
 | `get_node`              | Get node by qualified name                                 |
 | `search`                | Full-text search                                           |
 | `query_graph`           | Predefined graph queries (callers, callees, imports, etc.) |
