@@ -1,3 +1,4 @@
+// @index Authentication helpers for webhook-driven git access.
 package webhook
 
 import (
@@ -18,6 +19,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 )
 
+// @intent bundle the supported git authentication inputs (SSH key, GitHub App credentials, install token) for webhook clone and fetch.
 type GitAuth struct {
 	SSHKeyPath   string
 	SSHKeyData   []byte
@@ -27,6 +29,8 @@ type GitAuth struct {
 	InstallToken string
 }
 
+// Resolve picks the first configured git authentication strategy.
+// @intent allow webhook sync to switch between SSH and GitHub App token auth without branching at call sites.
 func (a *GitAuth) Resolve() (transport.AuthMethod, error) {
 	switch {
 	case a.SSHKeyPath != "":
@@ -43,6 +47,8 @@ func (a *GitAuth) Resolve() (transport.AuthMethod, error) {
 	}
 }
 
+// GenerateAppJWT signs a short-lived GitHub App JWT from the configured private key.
+// @intent mint the app identity token needed to exchange for installation-scoped repository access.
 func GenerateAppJWT(appID int64, privateKeyPEM []byte) (string, error) {
 	block, _ := pem.Decode(privateKeyPEM)
 	if block == nil {

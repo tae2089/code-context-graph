@@ -1,3 +1,4 @@
+// @index Repository and branch allowlist rules for webhook-triggered sync.
 package webhook
 
 import (
@@ -5,6 +6,8 @@ import (
 	"strings"
 )
 
+// allowRule is one compiled allow or deny pattern with optional negation and wildcard prefix.
+// @intent represent a single Atlantis-style repo pattern in a form cheap to evaluate per webhook.
 type allowRule struct {
 	pattern  string
 	negate   bool
@@ -12,20 +15,28 @@ type allowRule struct {
 	prefix   string
 }
 
+// RepoRule is the user-facing config form pairing a repo pattern with optional branch globs.
+// @intent expose a stable shape for CLI/YAML config without leaking the internal compiled rule layout.
 type RepoRule struct {
 	Pattern  string
 	Branches []string
 }
 
+// repoFilterRule binds a compiled allow/deny pattern to its per-rule branch allowlist.
+// @intent keep branch policy attached to the rule that allowed the repo so order-sensitive evaluation stays local.
 type repoFilterRule struct {
 	allowRule
 	branches []string
 }
 
+// RepoFilter holds the ordered rule list used to decide repo and branch admission.
+// @intent provide a single matcher whose result depends on rule declaration order, where later matching rules override earlier ones.
 type RepoFilter struct {
 	rulesFull []repoFilterRule
 }
 
+// NewRepoFilter expands simple string patterns into webhook repo rules.
+// @intent keep CLI-style allowlist configuration compatible with the richer rule matcher.
 func NewRepoFilter(patterns []string) *RepoFilter {
 	rules := make([]RepoRule, 0, len(patterns))
 	for _, p := range patterns {
@@ -34,6 +45,8 @@ func NewRepoFilter(patterns []string) *RepoFilter {
 	return NewRepoFilterFromRules(rules)
 }
 
+// NewRepoFilterFromRules compiles repository and branch rules into a matcher.
+// @intent centralize Atlantis-style repo filtering so webhook dispatch can make one consistent allow decision.
 func NewRepoFilterFromRules(rules []RepoRule) *RepoFilter {
 	full := make([]repoFilterRule, 0, len(rules))
 	for _, r := range rules {
@@ -55,6 +68,10 @@ func NewRepoFilterFromRules(rules []RepoRule) *RepoFilter {
 
 var defaultBranches = []string{"main", "master"}
 
+// IsAllowed reports whether a repository matches the configured allow and deny rules.
+// @intent let callers gate repository-level sync before looking at branch-specific restrictions.
+// @domainRule rules are evaluated in declaration order and the last matching rule wins; a later allow rule overrides an earlier deny match and vice versa.
+// @domainRule a repository with no matching rule is denied (default-deny).
 func (f *RepoFilter) IsAllowed(repoFullName string) bool {
 	allowed := false
 	for _, r := range f.rulesFull {
@@ -70,6 +87,8 @@ func (f *RepoFilter) IsAllowed(repoFullName string) bool {
 	return allowed
 }
 
+// IsAllowedRef resolves a git ref to a branch and applies branch allowlist rules.
+// @intent reject non-branch webhook refs before they can enter the sync pipeline.
 func (f *RepoFilter) IsAllowedRef(repoFullName, ref string) bool {
 	branch, ok := NormalizeBranchRef(ref)
 	if !ok {
@@ -78,6 +97,11 @@ func (f *RepoFilter) IsAllowedRef(repoFullName, ref string) bool {
 	return f.IsAllowedBranch(repoFullName, branch)
 }
 
+// IsAllowedBranch reports whether a repository and branch pair should be processed.
+// @intent combine repo allowlist and branch policy so webhook handlers can skip unsupported pushes cheaply.
+// @domainRule with no rules configured the result is always false (default-deny).
+// @domainRule rules are evaluated in declaration order; each later matching rule replaces the prior decision, so a negate rule clears any previous allow and a subsequent allow rule re-enables the repo.
+// @domainRule when a non-negate rule matches but specifies no branches, the built-in defaults ("main", "master") are used.
 func (f *RepoFilter) IsAllowedBranch(repoFullName, branch string) bool {
 	if len(f.rulesFull) == 0 {
 		return false
@@ -101,6 +125,7 @@ func (f *RepoFilter) IsAllowedBranch(repoFullName, branch string) bool {
 	return allowed
 }
 
+// @intent evaluate branch globs consistently across repo rules without duplicating path-match logic at call sites.
 func matchBranchPatterns(branch string, patterns []string) bool {
 	for _, p := range patterns {
 		if matched, _ := path.Match(p, branch); matched {
@@ -110,6 +135,8 @@ func matchBranchPatterns(branch string, patterns []string) bool {
 	return false
 }
 
+// ParseRepoRule decodes a repo rule string with optional comma-separated branch patterns.
+// @intent preserve compact CLI config while still supporting per-repository branch restrictions.
 func ParseRepoRule(s string) RepoRule {
 	pattern, branchStr, found := strings.Cut(s, ":")
 	if !found {
@@ -119,6 +146,7 @@ func ParseRepoRule(s string) RepoRule {
 	return RepoRule{Pattern: pattern, Branches: branches}
 }
 
+// @intent apply one compiled allow or deny pattern to a repository full name during filter evaluation.
 func (r *allowRule) match(repoFullName string) bool {
 	if r.wildcard {
 		parts := strings.SplitN(repoFullName, "/", 2)

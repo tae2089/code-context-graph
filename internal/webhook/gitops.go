@@ -1,3 +1,4 @@
+// @index Repository locking and clone-or-pull operations for webhook sync.
 package webhook
 
 import (
@@ -19,16 +20,20 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
+// @intent signal that a per-repository lock could not be acquired within the configured wait window.
 var ErrRepoLockTimeout = errors.New("repo lock timeout")
 
+// @intent treat repository lock files older than this threshold as abandoned by a previous process.
 const repoLockStaleAfter = 30 * time.Minute
 
+// @intent keep repository-scoped git operations serialized across concurrent webhook deliveries.
 type RepoLocker struct {
 	timeout time.Duration
 	mu      sync.Mutex
 	locks   map[string]chan struct{}
 }
 
+// @intent persist enough lock provenance to detect and clean up stale repository lock files safely.
 type repoLockMetadata struct {
 	Repo      string    `json:"repo"`
 	PID       int       `json:"pid"`
@@ -36,6 +41,8 @@ type repoLockMetadata struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// NewRepoLocker creates a per-repository lock coordinator with a bounded wait time.
+// @intent serialize concurrent webhook sync for the same repo so git operations do not corrupt the working tree.
 func NewRepoLocker(timeout time.Duration) *RepoLocker {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
@@ -43,6 +50,9 @@ func NewRepoLocker(timeout time.Duration) *RepoLocker {
 	return &RepoLocker{timeout: timeout, locks: make(map[string]chan struct{})}
 }
 
+// WithLock runs a sync operation while holding both in-process and filesystem repo locks.
+// @intent coordinate webhook workers across goroutines and processes before touching a repository checkout.
+// @sideEffect creates and removes filesystem lock files under the repo root.
 func (l *RepoLocker) WithLock(ctx context.Context, lockRoot, repoFullName string, fn func(context.Context) error) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -65,6 +75,7 @@ func (l *RepoLocker) WithLock(ctx context.Context, lockRoot, repoFullName string
 	return fn(ctx)
 }
 
+// @intent gate same-process sync attempts for a repository before filesystem locking is attempted.
 func (l *RepoLocker) acquireLocal(ctx context.Context, repoFullName string) (chan struct{}, func(chan struct{}), error) {
 	l.mu.Lock()
 	lock := l.locks[repoFullName]
@@ -83,6 +94,8 @@ func (l *RepoLocker) acquireLocal(ctx context.Context, repoFullName string) (cha
 	}
 }
 
+// @intent coordinate repository sync across processes by creating an exclusive lock file under the repo root.
+// @sideEffect creates and removes repository lock files on disk.
 func acquireFilesystemLock(ctx context.Context, lockRoot, repoFullName string) (*os.File, func(*os.File), error) {
 	lockFile := filepath.Join(lockRoot, ".locks", lockFileName(repoFullName))
 	if err := os.MkdirAll(filepath.Dir(lockFile), 0755); err != nil {
@@ -123,6 +136,8 @@ func acquireFilesystemLock(ctx context.Context, lockRoot, repoFullName string) (
 	}
 }
 
+// @intent write lock ownership metadata so stale lock cleanup can be diagnosed from the filesystem.
+// @sideEffect writes JSON metadata and fsyncs the lock file.
 func writeRepoLockMetadata(file *os.File, repoFullName string) error {
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -140,6 +155,8 @@ func writeRepoLockMetadata(file *os.File, repoFullName string) error {
 	return file.Sync()
 }
 
+// @intent discard abandoned repository lock files after the stale timeout elapses.
+// @sideEffect may remove an on-disk lock file.
 func removeStaleFilesystemLock(lockFile string) (bool, time.Duration) {
 	info, err := os.Stat(lockFile)
 	if err != nil {
@@ -155,19 +172,27 @@ func removeStaleFilesystemLock(lockFile string) (bool, time.Duration) {
 	return true, age
 }
 
+// @intent convert repository names into stable lock-safe filenames.
 func lockFileName(repoFullName string) string {
 	replacer := strings.NewReplacer("/", "-", "\\", "-", ":", "-")
 	return replacer.Replace(repoFullName) + ".lock"
 }
 
+// RepoDir maps a namespace to the checkout directory used for repository sync.
+// @intent keep workspace naming stable across clone, pull, and downstream build steps.
 func RepoDir(repoRoot, namespace string) string {
 	return filepath.Join(repoRoot, namespace)
 }
 
+// CloneOrPull syncs the repository namespace to the default remote branch.
+// @intent give webhook handlers a branch-agnostic entry point for standard repo refresh.
 func CloneOrPull(ctx context.Context, repoURL, repoRoot, namespace string, auth transport.AuthMethod) error {
 	return CloneOrPullBranch(ctx, repoURL, repoRoot, namespace, "", auth)
 }
 
+// CloneOrPullBranch ensures the namespace checkout exists and matches the requested branch head.
+// @intent reuse the same repo sync path for first clone and subsequent updates.
+// @sideEffect creates or hard-resets the namespace checkout on disk.
 func CloneOrPullBranch(ctx context.Context, repoURL, repoRoot, namespace, branch string, auth transport.AuthMethod) error {
 	dest := RepoDir(repoRoot, namespace)
 
@@ -187,6 +212,8 @@ func CloneOrPullBranch(ctx context.Context, repoURL, repoRoot, namespace, branch
 	return syncRepoBranch(ctx, repo, branch, auth)
 }
 
+// CloneOrPullBranchLocked wraps branch sync with repository locking.
+// @intent prevent overlapping webhook deliveries from cloning or resetting the same checkout simultaneously.
 func CloneOrPullBranchLocked(ctx context.Context, locker *RepoLocker, repoURL, repoRoot, repoFullName, namespace, branch string, auth transport.AuthMethod) error {
 	if locker == nil {
 		locker = NewRepoLocker(30 * time.Second)
@@ -196,6 +223,7 @@ func CloneOrPullBranchLocked(ctx context.Context, locker *RepoLocker, repoURL, r
 	})
 }
 
+// @intent log clone URLs without leaking embedded credentials.
 func sanitizeURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -207,6 +235,8 @@ func sanitizeURL(raw string) string {
 	return u.String()
 }
 
+// @intent perform the first namespace clone via a temp directory so partially cloned repos are never promoted.
+// @sideEffect creates temporary directories and renames the completed clone into place.
 func cloneRepo(ctx context.Context, repoURL, repoRoot, dest, namespace, branch string, auth transport.AuthMethod) error {
 	slog.Info("cloning repository", "url", sanitizeURL(repoURL), "dest", dest)
 
@@ -251,6 +281,8 @@ func cloneRepo(ctx context.Context, repoURL, repoRoot, dest, namespace, branch s
 	return nil
 }
 
+// @intent hard-reset an existing checkout to the latest remote branch head for deterministic rebuilds.
+// @sideEffect fetches from origin and rewrites the local worktree state.
 func syncRepoBranch(ctx context.Context, repo *git.Repository, branch string, auth transport.AuthMethod) error {
 	slog.Info("syncing repository to remote branch", "branch", branch)
 
@@ -294,6 +326,7 @@ func syncRepoBranch(ctx context.Context, repo *git.Repository, branch string, au
 	return nil
 }
 
+// @intent build fetch options that keep sync traffic branch-scoped and shallow when possible.
 func fetchOptions(remoteName, branch string, auth transport.AuthMethod) *git.FetchOptions {
 	opts := &git.FetchOptions{RemoteName: remoteName, Depth: 1}
 	if branch != "" {

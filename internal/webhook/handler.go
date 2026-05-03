@@ -1,3 +1,4 @@
+// @index HTTP webhook intake for repository sync dispatch.
 package webhook
 
 import (
@@ -12,10 +13,13 @@ import (
 	"strings"
 )
 
+// @intent define the callback signature webhook intake invokes to trigger repository sync.
 type SyncFunc func(ctx context.Context, repoFullName, cloneURL, branch string) error
 
+// @intent share the same sync callback shape between direct handler wiring and queue-based processing.
 type SyncHandlerFunc func(ctx context.Context, repoFullName, cloneURL, branch string) error
 
+// @intent bundle webhook validation policy and dispatch dependencies into one reusable HTTP handler.
 type WebhookHandler struct {
 	secret        []byte
 	filter        *RepoFilter
@@ -24,10 +28,13 @@ type WebhookHandler struct {
 	cloneBaseURLs []string
 }
 
+// NewWebhookHandler wires a webhook handler from the common secret/filter/sync callback inputs.
+// @intent keep the default construction path small while routing all configuration through the shared config builder.
 func NewWebhookHandler(secret []byte, filter *RepoFilter, onSync SyncFunc) *WebhookHandler {
 	return NewWebhookHandlerWithConfig(WebhookHandlerConfig{Secret: secret, Filter: filter, OnSync: onSync})
 }
 
+// @intent carry all constructor options for webhook validation, clone URL policy, and sync dispatch.
 type WebhookHandlerConfig struct {
 	Secret        []byte
 	Filter        *RepoFilter
@@ -37,10 +44,14 @@ type WebhookHandlerConfig struct {
 	CloneBaseURLs []string
 }
 
+// NewWebhookHandlerWithOptions builds a handler with the legacy option-style constructor.
+// @intent preserve older call sites while the config-based constructor owns the actual assembly logic.
 func NewWebhookHandlerWithOptions(secret []byte, filter *RepoFilter, onSync SyncFunc, insecure bool) *WebhookHandler {
 	return NewWebhookHandlerWithConfig(WebhookHandlerConfig{Secret: secret, Filter: filter, OnSync: onSync, Insecure: insecure})
 }
 
+// NewWebhookHandlerWithConfig assembles webhook validation and clone URL policy into one handler.
+// @intent make webhook intake configurable without duplicating constructor logic across CLI and tests.
 func NewWebhookHandlerWithConfig(cfg WebhookHandlerConfig) *WebhookHandler {
 	cloneBaseURLs := append([]string(nil), cfg.CloneBaseURLs...)
 	if cfg.CloneBaseURL != "" {
@@ -49,6 +60,7 @@ func NewWebhookHandlerWithConfig(cfg WebhookHandlerConfig) *WebhookHandler {
 	return &WebhookHandler{secret: cfg.Secret, filter: cfg.Filter, onSync: cfg.OnSync, insecure: cfg.Insecure, cloneBaseURLs: cloneBaseURLs}
 }
 
+// @intent decode the subset of GitHub/Gitea push payload fields the handler needs for filtering and dispatch.
 type pushEvent struct {
 	Ref        string `json:"ref"`
 	After      string `json:"after"`
@@ -59,9 +71,13 @@ type pushEvent struct {
 	} `json:"repository"`
 }
 
+// @intent cap webhook request body size so a malformed or hostile payload cannot exhaust server memory.
 // maxWebhookPayload limits the webhook request body to 10 MB.
 const maxWebhookPayload = 10 << 20
 
+// ServeHTTP validates a webhook push event and dispatches repository sync when it passes policy checks.
+// @intent turn GitHub or Gitea push deliveries into safe, filtered sync requests for the build pipeline.
+// @sideEffect reads the request body and invokes the configured sync callback.
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxWebhookPayload)
 	body, err := io.ReadAll(r.Body)
@@ -132,6 +148,8 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// NormalizeBranchRef extracts the branch name from a refs/heads/* git ref.
+// @intent ignore tag and non-branch webhook refs before repository policy evaluation.
 func NormalizeBranchRef(ref string) (string, bool) {
 	branch, ok := strings.CutPrefix(ref, "refs/heads/")
 	if !ok || branch == "" {
@@ -140,6 +158,7 @@ func NormalizeBranchRef(ref string) (string, bool) {
 	return branch, true
 }
 
+// @intent skip webhook pushes that only report branch deletion instead of a syncable commit head.
 func isDeletedBranchPush(event pushEvent) bool {
 	if event.Deleted {
 		return true
@@ -147,6 +166,7 @@ func isDeletedBranchPush(event pushEvent) bool {
 	return event.After != "" && strings.Trim(event.After, "0") == ""
 }
 
+// @intent authenticate webhook payloads before the sync pipeline trusts their repository metadata.
 func (h *WebhookHandler) verifySignature(payload []byte, signature string) bool {
 	if h.insecure {
 		return true
@@ -167,6 +187,8 @@ func (h *WebhookHandler) verifySignature(payload []byte, signature string) bool 
 	return hmac.Equal([]byte(expectedHex), []byte(sig))
 }
 
+// ExtractNamespace derives a workspace-safe namespace from a repository full name.
+// @intent keep repo-backed namespaces predictable when organizations contain nested path segments.
 func ExtractNamespace(repoFullName string) string {
 	idx := strings.Index(repoFullName, "/")
 	if idx < 0 {

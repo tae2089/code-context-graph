@@ -1,3 +1,4 @@
+// @index Deduplicating work queue for webhook-driven repository sync.
 package webhook
 
 import (
@@ -12,18 +13,22 @@ import (
 
 var ErrSyncQueueFull = errors.New("sync queue full")
 
+// @intent mark sync failures that should stop retry backoff immediately.
 type nonRetryableError struct {
 	err error
 }
 
+// @intent expose the wrapped failure message so non-retryable errors print like the underlying error.
 func (e nonRetryableError) Error() string {
 	return e.err.Error()
 }
 
+// @intent let errors.Is and errors.As reach the underlying cause through the non-retryable wrapper.
 func (e nonRetryableError) Unwrap() error {
 	return e.err
 }
 
+// @intent wrap permanent sync failures so queue retry logic can short-circuit them.
 func NonRetryable(err error) error {
 	if err == nil {
 		return nil
@@ -31,12 +36,15 @@ func NonRetryable(err error) error {
 	return nonRetryableError{err: err}
 }
 
+// IsNonRetryable reports whether a sync error should bypass queue retries.
+// @intent let retry logic stop early when a failure is known to be permanent for the current payload.
 func IsNonRetryable(err error) bool {
 	var target nonRetryableError
 	return errors.As(err, &target)
 }
 
 // RetryConfig configures exponential backoff retry for sync handlers.
+// @intent tune retry backoff so transient webhook sync failures can recover without overwhelming the remote.
 type RetryConfig struct {
 	// MaxAttempts is the total number of attempts (1 = no retry). Default: 3.
 	MaxAttempts int
@@ -46,6 +54,7 @@ type RetryConfig struct {
 	MaxDelay time.Duration
 }
 
+// @intent provide conservative retry defaults for production webhook processing.
 func defaultRetryConfig() RetryConfig {
 	return RetryConfig{
 		MaxAttempts: 3,
@@ -54,6 +63,7 @@ func defaultRetryConfig() RetryConfig {
 	}
 }
 
+// @intent capture the most recent sync request data per repository while it waits in the queue.
 type syncPayload struct {
 	ctx          context.Context
 	repoFullName string
@@ -61,6 +71,7 @@ type syncPayload struct {
 	branch       string
 }
 
+// @intent expose per-repository queue state so operators can inspect backlog and failure hotspots.
 type RepoStats struct {
 	Repo            string    `json:"repo"`
 	Branch          string    `json:"branch"`
@@ -73,8 +84,10 @@ type RepoStats struct {
 	LastError       string    `json:"last_error,omitempty"`
 }
 
+// @intent cap how many recent repositories are reported in queue stats to bound response size.
 const maxRecentRepos = 50
 
+// @intent coordinate deduplicated per-repository sync execution across a worker pool.
 type SyncQueue struct {
 	ctx             context.Context
 	handler         SyncHandlerFunc
@@ -99,6 +112,7 @@ type SyncQueue struct {
 	wg              sync.WaitGroup
 }
 
+// @intent retain the latest success and failure outcome for one repository inside the bounded MRU stats map.
 type repoStatEntry struct {
 	branch          string
 	lastSuccessTime time.Time
@@ -106,6 +120,7 @@ type repoStatEntry struct {
 	lastError       string
 }
 
+// @intent summarize queue-wide health and recent repository activity for observability.
 type SyncQueueStats struct {
 	Queued              int           `json:"queued"`
 	Dirty               int           `json:"dirty"`
@@ -122,24 +137,31 @@ type SyncQueueStats struct {
 	Shutdown            bool          `json:"shutdown"`
 	RecentRepos         []RepoStats   `json:"recent_repos,omitempty"`
 }
-
+// NewSyncQueue creates a queue with background workers and default lifecycle settings.
+// @intent provide the smallest constructor for production webhook dispatch.
 func NewSyncQueue(workers int, handler SyncHandlerFunc) *SyncQueue {
 	return NewSyncQueueWithContext(context.Background(), workers, handler)
 }
 
+// NewSyncQueueWithContext binds queue workers to a parent lifecycle context.
+// @intent allow server shutdown to cancel retries and worker waits cleanly.
 func NewSyncQueueWithContext(ctx context.Context, workers int, handler SyncHandlerFunc) *SyncQueue {
 	return NewSyncQueueWithOptions(ctx, workers, handler, defaultRetryConfig())
 }
 
+// @intent configure queue retry policy and memory bounds when constructing a SyncQueue.
 type QueueConfig struct {
 	RetryConfig
 	MaxTrackedRepos int
 }
-
+// NewSyncQueueWithOptions applies retry tuning while keeping default queue limits.
+// @intent expose backoff customization without forcing every caller to build a full queue config.
 func NewSyncQueueWithOptions(ctx context.Context, workers int, handler SyncHandlerFunc, retry RetryConfig) *SyncQueue {
 	return NewSyncQueueWithConfig(ctx, workers, handler, QueueConfig{RetryConfig: retry, MaxTrackedRepos: 1024})
 }
 
+// NewSyncQueueWithConfig creates a deduplicating repo work queue and starts its workers.
+// @intent coalesce bursty webhook pushes per repository while still allowing different repos to sync concurrently.
 func NewSyncQueueWithConfig(ctx context.Context, workers int, handler SyncHandlerFunc, cfg QueueConfig) *SyncQueue {
 	if ctx == nil {
 		ctx = context.Background()
@@ -172,6 +194,9 @@ func NewSyncQueueWithConfig(ctx context.Context, workers int, handler SyncHandle
 	return q
 }
 
+// Add records the latest payload for a repository and enqueues it if needed.
+// @intent collapse repeated push events into one queued sync while preserving the newest branch and clone data.
+// @mutates SyncQueue.queue, SyncQueue.dirty, SyncQueue.payloads.
 func (q *SyncQueue) Add(ctx context.Context, repoFullName, cloneURL, branch string) error {
 	if ctx != nil {
 		select {
@@ -211,6 +236,8 @@ func (q *SyncQueue) Add(ctx context.Context, repoFullName, cloneURL, branch stri
 	return nil
 }
 
+// Shutdown stops accepting new work and waits for workers to finish or time out.
+// @intent give the server a bounded, graceful shutdown path for in-flight webhook sync.
 func (q *SyncQueue) Shutdown() {
 	q.mu.Lock()
 	q.shutdown = true
@@ -236,6 +263,8 @@ func (q *SyncQueue) Shutdown() {
 	}
 }
 
+// Stats snapshots queue health and recent repository activity for operators.
+// @intent expose enough queue state to diagnose backlog, failures, and hot repositories.
 func (q *SyncQueue) Stats() SyncQueueStats {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -258,6 +287,7 @@ func (q *SyncQueue) Stats() SyncQueueStats {
 	}
 }
 
+// @intent assemble a bounded, activity-sorted snapshot of repositories recently seen by the queue.
 func (q *SyncQueue) buildRecentReposLocked() []RepoStats {
 	if len(q.repoStatsOrder) == 0 && len(q.payloads) == 0 {
 		return nil
@@ -302,6 +332,7 @@ func (q *SyncQueue) buildRecentReposLocked() []RepoStats {
 	return result
 }
 
+// @intent merge queued payload state with historical success and failure data for one repository summary.
 func (q *SyncQueue) recentRepoStatsLocked(repo string) RepoStats {
 	var entry *repoStatEntry
 	if q.repoStats != nil {
@@ -334,6 +365,7 @@ func (q *SyncQueue) recentRepoStatsLocked(repo string) RepoStats {
 	return rs
 }
 
+// @intent derive a comparable activity timestamp for sorting repository summaries.
 func recentRepoActivityTime(stats RepoStats) time.Time {
 	latest := stats.EnqueuedAt
 	if stats.ProcessingAt.After(latest) {
@@ -348,6 +380,7 @@ func recentRepoActivityTime(stats RepoStats) time.Time {
 	return latest
 }
 
+// @intent surface the oldest outstanding queue age so operators can detect stuck work.
 func (q *SyncQueue) oldestAgeLocked(now time.Time, times map[string]time.Time) time.Duration {
 	var oldest time.Duration
 	for _, started := range times {
@@ -362,6 +395,7 @@ func (q *SyncQueue) oldestAgeLocked(now time.Time, times map[string]time.Time) t
 	return oldest
 }
 
+// @intent run the main worker loop that drains deduplicated repository work items.
 func (q *SyncQueue) worker() {
 	defer q.wg.Done()
 
@@ -380,6 +414,8 @@ func (q *SyncQueue) worker() {
 	}
 }
 
+// safeHandle runs the sync handler with retries and records terminal failures.
+// @intent protect webhook processing from transient git and network errors without retrying permanent failures forever.
 func (q *SyncQueue) safeHandle(repo string, payload syncPayload) bool {
 	cfg := q.retryConfig
 	delay := cfg.BaseDelay
@@ -421,6 +457,7 @@ func (q *SyncQueue) safeHandle(repo string, payload syncPayload) bool {
 	return false
 }
 
+// @intent update queue-level and per-repository failure tracking after a terminal sync error.
 func (q *SyncQueue) recordFailure(repo string, branch string, err error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -433,6 +470,7 @@ func (q *SyncQueue) recordFailure(repo string, branch string, err error) {
 	})
 }
 
+// @intent update the latest successful sync timestamps after a repository finishes cleanly.
 func (q *SyncQueue) recordSuccess(repo string, branch string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -443,6 +481,7 @@ func (q *SyncQueue) recordSuccess(repo string, branch string) {
 	})
 }
 
+// @intent maintain a bounded MRU view of repository stats without unbounded growth.
 func (q *SyncQueue) upsertRepoStatLocked(repo string, branch string, update func(*repoStatEntry)) {
 	entry, exists := q.repoStats[repo]
 	if !exists {
@@ -469,6 +508,7 @@ func (q *SyncQueue) upsertRepoStatLocked(repo string, branch string, update func
 	update(entry)
 }
 
+// @intent isolate handler panics and merged cancellation logic around one sync attempt.
 func (q *SyncQueue) tryHandle(repo string, payload syncPayload) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -481,6 +521,7 @@ func (q *SyncQueue) tryHandle(repo string, payload syncPayload) (err error) {
 	return q.handler(ctx, payload.repoFullName, payload.cloneURL, payload.branch)
 }
 
+// @intent block workers until the next deduplicated repository payload is ready for processing.
 func (q *SyncQueue) get() (string, syncPayload, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -503,6 +544,7 @@ func (q *SyncQueue) get() (string, syncPayload, bool) {
 	return repo, payload, true
 }
 
+// @intent requeue repositories that changed during processing or release payload state when work is complete.
 func (q *SyncQueue) done(repo string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -521,6 +563,7 @@ func (q *SyncQueue) done(repo string) {
 	}
 }
 
+// @intent cancel a sync attempt when either the queue lifecycle or the payload-specific context is done.
 func mergeContexts(queueCtx, payloadCtx context.Context) (context.Context, context.CancelFunc) {
 	if payloadCtx == nil {
 		payloadCtx = context.Background()

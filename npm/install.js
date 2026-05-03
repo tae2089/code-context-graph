@@ -18,12 +18,14 @@ const PLATFORMS = {
   "win32-x64": "ccg-windows-amd64", // This is the zip name, the file inside is .exe
 };
 
+// @intent identify the current OS and CPU architecture for picking the matching ccg release asset.
 function getPlatformKey() {
   const platform = process.platform;
   const arch = process.arch;
   return `${platform}-${arch}`;
 }
 
+// @intent map the current platform key to the published ccg binary name and abort if unsupported.
 function getBinaryName() {
   const key = getPlatformKey();
   const name = PLATFORMS[key];
@@ -35,35 +37,40 @@ function getBinaryName() {
   return name;
 }
 
+// @intent build the GitHub release download URL for the current ccg version and binary asset.
 function getDownloadUrl(binaryName) {
   const isWindows = process.platform === "win32";
   const ext = isWindows ? ".zip" : ".tar.gz";
   return `https://github.com/${repo}/releases/download/v${version}/${binaryName}${ext}`;
 }
 
+// @intent recursively follow HTTP redirects while downloading the release archive.
+function followRedirects(url, resolve, reject) {
+  const client = url.startsWith("https") ? https : http;
+  client.get(url, (res) => {
+    if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+      followRedirects(res.headers.location, resolve, reject);
+      return;
+    }
+    if (res.statusCode !== 200) {
+      reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+      return;
+    }
+    const chunks = [];
+    res.on("data", (chunk) => chunks.push(chunk));
+    res.on("end", () => resolve(Buffer.concat(chunks)));
+    res.on("error", reject);
+  }).on("error", reject);
+}
+
+// @intent fetch a release archive over HTTPS while transparently following redirects.
 function download(url) {
   return new Promise((resolve, reject) => {
-    const follow = (url) => {
-      const client = url.startsWith("https") ? https : http;
-      client.get(url, (res) => {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          follow(res.headers.location);
-          return;
-        }
-        if (res.statusCode !== 200) {
-          reject(new Error(`HTTP ${res.statusCode} for ${url}`));
-          return;
-        }
-        const chunks = [];
-        res.on("data", (chunk) => chunks.push(chunk));
-        res.on("end", () => resolve(Buffer.concat(chunks)));
-        res.on("error", reject);
-      }).on("error", reject);
-    };
-    follow(url);
+    followRedirects(url, resolve, reject);
   });
 }
 
+// @intent download and extract the platform-specific ccg binary into the npm package bin directory during install.
 async function install() {
   const binaryName = getBinaryName();
   const url = getDownloadUrl(binaryName);
