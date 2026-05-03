@@ -1,3 +1,4 @@
+// @index MCP tool registration for parsing, graph build, and postprocess execution.
 package mcp
 
 import (
@@ -5,6 +6,8 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// parseTools registers tools that ingest source code and rebuild derived graph state.
+// @intent keep parsing and postprocess entry points available as one operational tool family.
 func parseTools(h *handlers) []server.ServerTool {
 	return []server.ServerTool{
 		{

@@ -1,3 +1,4 @@
+// @index MCP tool registration for graph summaries and architecture views.
 package mcp
 
 import (
@@ -5,6 +6,8 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// graphTools registers tools that summarize stored flows, communities, and architecture state.
+// @intent expose high-level graph inspection separately from low-level query primitives.
 func graphTools(h *handlers) []server.ServerTool {
 	return []server.ServerTool{
 		{

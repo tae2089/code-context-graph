@@ -1,3 +1,4 @@
+// @index MCP tool registration for node lookup and graph query primitives.
 package mcp
 
 import (
@@ -5,6 +6,8 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// withNamespaceParam appends canonical namespace arguments to a tool definition.
+// @intent give every namespace-aware MCP tool the same isolation parameters and deprecated workspace alias.
 func withNamespaceParam(opts ...mcp.ToolOption) []mcp.ToolOption {
 	return append(opts,
 		mcp.WithString("namespace", mcp.Description("Namespace for isolation")),
@@ -12,6 +15,8 @@ func withNamespaceParam(opts ...mcp.ToolOption) []mcp.ToolOption {
 	)
 }
 
+// queryTools registers lookup and traversal tools over the stored graph.
+// @intent expose reusable graph query primitives that other prompts and agents can compose.
 func queryTools(h *handlers) []server.ServerTool {
 	return []server.ServerTool{
 		{

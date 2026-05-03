@@ -37,6 +37,7 @@ func (h *handlers) workspaceRoot() string {
 	return root
 }
 
+// @intent resolve the canonical namespace parameter while preserving the deprecated workspace alias.
 func requestWorkspace(request mcp.CallToolRequest) (string, error) {
 	if namespace := request.GetString("namespace", ""); namespace != "" {
 		return namespace, nil
@@ -67,6 +68,8 @@ func validateWorkspacePath(workspace, filePath string) error {
 	return nil
 }
 
+// @intent canonicalize and create the workspace root before file operations rely on it.
+// @sideEffect creates the workspace root directory when it does not yet exist.
 func (h *handlers) safeWorkspaceRoot() (string, error) {
 	root := h.workspaceRoot()
 	absRoot, err := filepath.Abs(root)
@@ -83,11 +86,13 @@ func (h *handlers) safeWorkspaceRoot() (string, error) {
 	return realRoot, nil
 }
 
+// @intent compose filesystem paths without repeating join boilerplate in workspace helpers.
 func safeJoin(base string, parts ...string) string {
 	all := append([]string{base}, parts...)
 	return filepath.Join(all...)
 }
 
+// @intent reject symlink traversal anywhere along a workspace path before file operations touch the filesystem.
 func ensureNoSymlinkInPath(root, relPath string, allowMissingLeaf bool) (string, error) {
 	cleanRel := filepath.Clean(relPath)
 	if cleanRel == "." {
@@ -114,6 +119,7 @@ func ensureNoSymlinkInPath(root, relPath string, allowMissingLeaf bool) (string,
 	return current, nil
 }
 
+// @intent resolve a workspace-relative path under the trusted root after validation and symlink checks.
 func (h *handlers) resolveWorkspacePath(workspace, filePath string, allowMissingLeaf bool) (string, error) {
 	if err := validateWorkspacePath(workspace, filePath); err != nil {
 		return "", err
@@ -137,6 +143,8 @@ func (h *handlers) resolveWorkspacePath(workspace, filePath string, allowMissing
 	return ensureNoSymlinkInPath(root, rel, allowMissingLeaf)
 }
 
+// @intent write workspace files atomically so partial writes are never observed as final state.
+// @sideEffect creates a temp file and renames it into place.
 func safeWriteFile(path string, data []byte, perm os.FileMode) error {
 	tmpFile, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp.*")
 	if err != nil {
@@ -356,11 +364,14 @@ type uploadFileEntry struct {
 	Content   string `json:"content"`
 }
 
+// @intent carry decoded content and the resolved target path through the workspace upload pipeline.
 type preparedUploadFile struct {
 	entry   uploadFileEntry
 	decoded []byte
 	target  string
 }
+
+// @intent hold validated upload payload state so bulk writes can happen after all entries pass validation.
 
 // uploadFiles writes multiple base64-encoded files in one request.
 // @intent 여러 작업공간 파일을 한 번의 MCP 호출로 업로드해 왕복 비용을 줄인다.

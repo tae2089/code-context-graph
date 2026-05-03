@@ -1,3 +1,4 @@
+// @index MCP tool registration for automatic postprocess policy control.
 package mcp
 
 import (
@@ -5,6 +6,8 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// postprocessTools registers policy inspection and reset tools for postprocess automation.
+// @intent make postprocess recovery controls available without mixing them into unrelated tool groups.
 func postprocessTools(h *handlers) []server.ServerTool {
 	return []server.ServerTool{
 		{

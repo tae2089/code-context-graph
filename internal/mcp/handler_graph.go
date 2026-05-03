@@ -12,6 +12,24 @@ import (
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
+// graphFlowInfo represents a summarized flow response entry.
+// @intent serialize listFlows results with the legacy response shape.
+type graphFlowInfo struct {
+	ID          uint   `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	NodeCount   int    `json:"node_count"`
+}
+
+// graphCommInfo represents a summarized community response entry.
+// @intent serialize listCommunities results with the legacy response shape.
+type graphCommInfo struct {
+	ID        uint    `json:"id"`
+	Label     string  `json:"label"`
+	NodeCount int     `json:"node_count"`
+	Cohesion  float64 `json:"cohesion"`
+}
+
 // listFlows lists stored flows with optional sorting and truncation.
 // @intent 저장된 호출 흐름을 요약 형태로 노출해 탐색과 우선순위 판단을 돕는다.
 // @param request sort_by와 limit로 정렬 방식과 최대 개수를 제어한다.
@@ -28,13 +46,6 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 	}
 
 	log.Info("list_flows called", "sort_by", sortBy, "limit", limit)
-
-	// flowCount stores aggregated membership counts per flow.
-	// @intent flow_id별 멤버 수 집계 결과를 스캔하기 위한 임시 구조체다.
-	type flowCount struct {
-		FlowID uint
-		Count  int
-	}
 
 	return finalizeToolResult(h.cachedExecute(ctx, "list_flows:", map[string]any{"sort_by": sortBy, "limit": limit, "namespace": requestNamespace(request)}, func() (string, error) {
 		ns := ctxns.FromContext(ctx)
@@ -60,18 +71,9 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 			return "", trace.Wrap(err, "find flows")
 		}
 
-		// flowInfo represents a summarized flow response entry.
-		// @intent MCP 응답에서 각 flow의 핵심 정보만 직렬화한다.
-		type flowInfo struct {
-			ID          uint   `json:"id"`
-			Name        string `json:"name"`
-			Description string `json:"description"`
-			NodeCount   int    `json:"node_count"`
-		}
-
-		infos := make([]flowInfo, len(flowList))
+		infos := make([]graphFlowInfo, len(flowList))
 		for i, f := range flowList {
-			infos[i] = flowInfo{
+			infos[i] = graphFlowInfo{
 				ID:          f.ID,
 				Name:        f.Name,
 				Description: f.Description,
@@ -119,13 +121,6 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 
 	log.Info("list_communities called", "sort_by", sortBy, "min_size", minSize)
 
-	// commCount stores aggregated membership counts per community.
-	// @intent community_id별 멤버 수 집계 결과를 스캔하기 위한 임시 구조체다.
-	type commCount struct {
-		CommunityID uint
-		Count       int
-	}
-
 	return finalizeToolResult(h.cachedExecute(ctx, "list_communities:", map[string]any{"sort_by": sortBy, "min_size": minSize, "namespace": requestNamespace(request)}, func() (string, error) {
 		ns := ctxns.FromContext(ctx)
 		var ccRows []commCount
@@ -151,22 +146,13 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 			return "", trace.Wrap(err, "find communities")
 		}
 
-		// commInfo represents a summarized community response entry.
-		// @intent MCP 응답에서 커뮤니티의 핵심 메타데이터만 직렬화한다.
-		type commInfo struct {
-			ID        uint    `json:"id"`
-			Label     string  `json:"label"`
-			NodeCount int     `json:"node_count"`
-			Cohesion  float64 `json:"cohesion"`
-		}
-
-		infos := make([]commInfo, 0, len(communities))
+		infos := make([]graphCommInfo, 0, len(communities))
 		for _, c := range communities {
 			cnt := ccMap[c.ID]
 			if cnt < minSize {
 				continue
 			}
-			infos = append(infos, commInfo{
+			infos = append(infos, graphCommInfo{
 				ID:        c.ID,
 				Label:     c.Label,
 				NodeCount: cnt,
@@ -228,9 +214,9 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 		}
 
 		gcData := map[string]any{
-			"id":         comm.ID,
-			"label":      comm.Label,
-			"node_count": memberCount,
+			"id":            comm.ID,
+			"label":         comm.Label,
+			"node_count":    memberCount,
 			"derived_state": derivedStateCommunities(),
 		}
 
@@ -299,9 +285,9 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 
 		if len(communities) == 0 {
 			result, err := marshalJSON(map[string]any{
-				"communities": []any{},
-				"coupling":    []any{},
-				"warnings":    []string{"No communities found. Run community rebuild first."},
+				"communities":   []any{},
+				"coupling":      []any{},
+				"warnings":      []string{"No communities found. Run community rebuild first."},
 				"derived_state": derivedStateSummary(),
 			})
 			if err != nil {
@@ -363,9 +349,9 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 		}
 
 		result, err := marshalJSON(map[string]any{
-			"communities": commInfos,
-			"coupling":    couplingPairs,
-			"warnings":    warnings,
+			"communities":   commInfos,
+			"coupling":      couplingPairs,
+			"warnings":      warnings,
 			"derived_state": derivedStateSummary(),
 		})
 		if err != nil {
@@ -375,6 +361,7 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 	}))
 }
 
+// @intent describe community-membership freshness so callers know when to re-run postprocess.
 func derivedStateCommunities() map[string]any {
 	return map[string]any{
 		"communities": map[string]any{
@@ -385,6 +372,7 @@ func derivedStateCommunities() map[string]any {
 	}
 }
 
+// @intent describe flow-membership freshness so callers know when to re-run postprocess.
 func derivedStateFlows() map[string]any {
 	return map[string]any{
 		"flows": map[string]any{
@@ -395,6 +383,7 @@ func derivedStateFlows() map[string]any {
 	}
 }
 
+// @intent merge community and flow freshness hints into a single derived-state map for status responses.
 func derivedStateSummary() map[string]any {
 	state := derivedStateCommunities()
 	for k, v := range derivedStateFlows() {

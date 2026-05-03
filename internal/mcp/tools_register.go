@@ -1,7 +1,10 @@
+// @index Top-level MCP tool registration orchestration.
 package mcp
 
 import "github.com/mark3labs/mcp-go/server"
 
+// registerTools adds every MCP tool group to the running server.
+// @intent centralize tool registration order so new tool families plug into one startup path.
 func registerTools(srv *server.MCPServer, h *handlers) {
 	var tools []server.ServerTool
 	tools = append(tools, parseTools(h)...)

@@ -1,3 +1,4 @@
+// @index MCP tool registration for lightweight context discovery.
 package mcp
 
 import (
@@ -5,6 +6,8 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// contextTools registers compact discovery tools that help callers choose deeper graph operations.
+// @intent keep the context-oriented MCP surface grouped and reusable during server startup.
 func contextTools(h *handlers) []server.ServerTool {
 	return []server.ServerTool{
 		{

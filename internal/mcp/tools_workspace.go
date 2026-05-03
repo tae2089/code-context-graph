@@ -1,3 +1,4 @@
+// @index MCP tool registration for namespace workspace file management.
 package mcp
 
 import (
@@ -5,6 +6,8 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// workspaceTools registers file and namespace management tools for isolated workspaces.
+// @intent expose upload, listing, and deletion workflows as one coherent MCP surface.
 func workspaceTools(h *handlers) []server.ServerTool {
 	return []server.ServerTool{
 		{

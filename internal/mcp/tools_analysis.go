@@ -1,3 +1,4 @@
+// @index MCP tool registration for analysis-oriented graph operations.
 package mcp
 
 import (
@@ -5,6 +6,8 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// analysisTools registers tools that compute impact, flow, change, and dead-code insights.
+// @intent keep analysis capabilities grouped so server startup can expose them consistently.
 func analysisTools(h *handlers) []server.ServerTool {
 	return []server.ServerTool{
 		{
