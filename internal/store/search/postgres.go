@@ -100,7 +100,16 @@ func (p *PostgresBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs
 		UPDATE search_documents
 		SET tsv = to_tsvector('simple', COALESCE(content, ''))
 		WHERE namespace = ? AND node_id IN ?`
-	return db.WithContext(ctx).Exec(query, ns, nodeIDs).Error
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for start := 0; start < len(nodeIDs); start += scopedRebuildChunkSize {
+			end := min(start+scopedRebuildChunkSize, len(nodeIDs))
+			chunk := nodeIDs[start:end]
+			if err := tx.Exec(query, ns, chunk).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // PurgeNamespace는 PostgreSQL search_documents 삭제 이후 별도 물리 정리가 필요 없으므로 no-op이다.

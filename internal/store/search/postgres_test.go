@@ -4,8 +4,11 @@ package search
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -14,6 +17,42 @@ import (
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
+
+type postgresINQueryCaptureLogger struct {
+	logger.Interface
+	needle string
+	maxIDs int
+	hits   int
+}
+
+func (l *postgresINQueryCaptureLogger) LogMode(level logger.LogLevel) logger.Interface { return l }
+func (l *postgresINQueryCaptureLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
+	sql, _ := fc()
+	if strings.Contains(sql, l.needle) && strings.Contains(sql, " IN (") {
+		l.hits++
+		ids := countPostgresSQLInList(sql)
+		if ids > l.maxIDs {
+			l.maxIDs = ids
+		}
+	}
+}
+
+func countPostgresSQLInList(sql string) int {
+	start := strings.Index(sql, " IN (")
+	if start < 0 {
+		return 0
+	}
+	start += len(" IN (")
+	end := strings.Index(sql[start:], ")")
+	if end < 0 {
+		return 0
+	}
+	list := strings.TrimSpace(sql[start : start+end])
+	if list == "" {
+		return 0
+	}
+	return strings.Count(list, ",") + 1
+}
 
 func setupPostgresDB(t *testing.T) *gorm.DB {
 	t.Helper()
@@ -164,6 +203,49 @@ func TestPostgresFTS_RebuildNodes_EmptyScopeIsNoOp(t *testing.T) {
 	db.Raw("SELECT COUNT(*) FROM search_documents WHERE node_id = ? AND tsv @@ to_tsquery('simple', 'fresh')", node.ID).Scan(&freshMatches)
 	if freshMatches != 0 {
 		t.Fatalf("expected empty scope to leave stale tsv, got fresh matches %d", freshMatches)
+	}
+}
+
+func TestPostgresFTS_RebuildNodes_ChunksLargeNodeScopes(t *testing.T) {
+	capture := &postgresINQueryCaptureLogger{Interface: logger.Discard, needle: "search_documents"}
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		dsn = "host=localhost user=postgres password=postgres dbname=ccg_test port=5432 sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: capture})
+	if err != nil {
+		t.Skipf("PostgreSQL not available: %v", err)
+	}
+	db.Exec("DROP TABLE IF EXISTS search_documents CASCADE")
+	db.Exec("DROP TABLE IF EXISTS nodes CASCADE")
+	if err := db.AutoMigrate(&model.Node{}, &model.SearchDocument{}); err != nil {
+		t.Fatal(err)
+	}
+	backend := NewPostgresBackend()
+	if err := backend.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+
+	nodeIDs := make([]uint, 0, scopedRebuildChunkSize+1)
+	for i := range scopedRebuildChunkSize + 1 {
+		node := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: fmt.Sprintf("pkg.Node%d", i), Kind: model.NodeKindFunction, Name: fmt.Sprintf("Node%d", i), FilePath: fmt.Sprintf("node-%d.go", i), StartLine: 1, EndLine: 1, Language: "go"}
+		if err := db.Create(&node).Error; err != nil {
+			t.Fatalf("create node %d: %v", i, err)
+		}
+		nodeIDs = append(nodeIDs, node.ID)
+		if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: node.ID, Content: fmt.Sprintf("fresh node %d", i), Language: "go"}).Error; err != nil {
+			t.Fatalf("create doc %d: %v", i, err)
+		}
+	}
+
+	if err := backend.RebuildNodes(context.Background(), db, nodeIDs); err != nil {
+		t.Fatal(err)
+	}
+	if capture.maxIDs > scopedRebuildChunkSize {
+		t.Fatalf("expected scoped tsv IN queries to be chunked to <= %d IDs, got %d", scopedRebuildChunkSize, capture.maxIDs)
+	}
+	if capture.hits < 2 {
+		t.Fatalf("expected multiple scoped tsv IN queries, got %d", capture.hits)
 	}
 }
 

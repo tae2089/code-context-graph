@@ -20,6 +20,7 @@ const (
 	sqliteFTSUpgradeTable     = "search_fts_upgrade"
 	sqliteFTSLegacyBackup     = "search_fts_legacy_backup"
 	sqliteFTSRebuildBatchSize = 500
+	scopedRebuildChunkSize    = 400
 )
 
 // SQLiteBackend는 SQLite FTS5 기반 검색 백엔드다.
@@ -127,23 +128,27 @@ func (s *SQLiteBackend) rebuildTable(ctx context.Context, db *gorm.DB, tableName
 func (s *SQLiteBackend) rebuildTableNodes(ctx context.Context, db *gorm.DB, tableName string, nodeIDs []uint) error {
 	ns := ctxns.FromContext(ctx)
 	return db.WithContext(ctx).Transaction(func(outerTx *gorm.DB) error {
-		if err := outerTx.Exec("DELETE FROM "+tableName+" WHERE namespace = ? AND node_id IN ?", ns, nodeIDs).Error; err != nil {
-			return trace.Wrap(err, "clear scoped fts")
-		}
+		for start := 0; start < len(nodeIDs); start += scopedRebuildChunkSize {
+			end := min(start+scopedRebuildChunkSize, len(nodeIDs))
+			chunk := nodeIDs[start:end]
+			if err := outerTx.Exec("DELETE FROM "+tableName+" WHERE namespace = ? AND node_id IN ?", ns, chunk).Error; err != nil {
+				return trace.Wrap(err, "clear scoped fts")
+			}
 
-		docsQ := outerTx.WithContext(ctx).Where("namespace = ? AND node_id IN ?", ns, nodeIDs)
-		var batchDocs []model.SearchDocument
-		result := docsQ.FindInBatches(&batchDocs, sqliteFTSRebuildBatchSize, func(batchTx *gorm.DB, batch int) error {
-			if err := ctx.Err(); err != nil {
-				return err
+			docsQ := outerTx.WithContext(ctx).Where("namespace = ? AND node_id IN ?", ns, chunk)
+			var batchDocs []model.SearchDocument
+			result := docsQ.FindInBatches(&batchDocs, sqliteFTSRebuildBatchSize, func(batchTx *gorm.DB, batch int) error {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				if err := s.batchInserter(ctx, batchTx, tableName, batchDocs); err != nil {
+					return trace.Wrap(err, "insert scoped fts batch "+strconv.Itoa(batch))
+				}
+				return nil
+			})
+			if result.Error != nil {
+				return trace.Wrap(result.Error, "load scoped docs")
 			}
-			if err := s.batchInserter(ctx, batchTx, tableName, batchDocs); err != nil {
-				return trace.Wrap(err, "insert scoped fts batch "+strconv.Itoa(batch))
-			}
-			return nil
-		})
-		if result.Error != nil {
-			return trace.Wrap(result.Error, "load scoped docs")
 		}
 		return nil
 	})
