@@ -1,3 +1,4 @@
+// @index MCP handlers for inspecting and resetting automatic postprocess policy state.
 package mcp
 
 import (
@@ -8,6 +9,8 @@ import (
 	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 )
 
+// getPostprocessPolicy returns the recorded postprocess policy summary for a namespace and tool.
+// @intent expose automatic fail-open versus fail-closed decisions so operators can diagnose degraded postprocess behavior.
 func (h *handlers) getPostprocessPolicy(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
 	if h.deps.PostprocessPolicy == nil {
@@ -33,6 +36,8 @@ func (h *handlers) getPostprocessPolicy(ctx context.Context, request mcp.CallToo
 	return finalizeToolResult(result, err)
 }
 
+// resetPostprocessPolicy clears the stored failure streak for a postprocess tool.
+// @intent let operators recover from fail-closed state after they have fixed the underlying issue.
 func (h *handlers) resetPostprocessPolicy(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
 	if h.deps.PostprocessPolicy == nil {

@@ -1,3 +1,4 @@
+// @index Shared handler helpers and response utilities for MCP tools.
 package mcp
 
 import (
@@ -56,10 +57,12 @@ func (h *handlers) logger() *slog.Logger {
 	return slog.Default()
 }
 
+// @intent attach the requested namespace to handler context before downstream stores and analyzers run.
 func (h *handlers) applyWorkspace(ctx context.Context, request mcp.CallToolRequest) context.Context {
 	return ctxns.WithNamespace(ctx, resolveNamespace(ctx, requestNamespace(request)))
 }
 
+// @intent prefer explicit request namespace while falling back to the namespace already carried on context.
 func resolveNamespace(ctx context.Context, workspace string) string {
 	if workspace != "" {
 		return ctxns.Normalize(workspace)
@@ -67,6 +70,7 @@ func resolveNamespace(ctx context.Context, workspace string) string {
 	return ctxns.FromContext(ctx)
 }
 
+// @intent read namespace isolation arguments while supporting the deprecated workspace alias.
 func requestNamespace(request mcp.CallToolRequest) string {
 	if namespace := request.GetString("namespace", ""); namespace != "" {
 		return namespace
@@ -113,6 +117,7 @@ func nodeNotFoundErr(qn string) error {
 	return newToolResultErr(fmt.Sprintf("node %q not found", qn))
 }
 
+// @intent reject zero and negative list limits before handlers hit database queries.
 func validatePositiveLimit(limit int) error {
 	if limit <= 0 {
 		return newToolResultErr(fmt.Sprintf("limit must be > 0, got %d", limit))

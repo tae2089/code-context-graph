@@ -20,6 +20,7 @@ import (
 
 var refreshSearchDocuments = service.RefreshSearchDocuments
 
+// @intent apply per-request parse limits without mutating the shared handler dependency configuration.
 func (h *handlers) withParseLimitsFromRequest(request mcp.CallToolRequest) *handlers {
 	maxFileBytes := int64(request.GetInt("max_file_bytes", int(h.deps.MaxFileBytes)))
 	maxTotalParsedBytes := int64(request.GetInt("max_total_parsed_bytes", int(h.deps.MaxTotalParsedBytes)))
@@ -34,6 +35,7 @@ func (h *handlers) withParseLimitsFromRequest(request mcp.CallToolRequest) *hand
 	return &hCopy
 }
 
+// @intent assemble a short-lived GraphService view from injected MCP dependencies for one parse or update request.
 func (h *handlers) graphService() *service.GraphService {
 	walkers := make(map[string]service.Parser, len(h.deps.Walkers))
 	for ext, parser := range h.deps.Walkers {
@@ -474,6 +476,7 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 	return mcp.NewToolResultText(jsonStr), nil
 }
 
+// @intent append values to a slice while preserving uniqueness for skipped-step reporting.
 func appendUniqueStrings(dst []string, values ...string) []string {
 	for _, value := range values {
 		if !slices.Contains(dst, value) {
@@ -483,6 +486,7 @@ func appendUniqueStrings(dst []string, values ...string) []string {
 	return dst
 }
 
+// @intent restrict parse and build requests to configured analysis roots before filesystem traversal begins.
 func (h *handlers) validateAnalysisPath(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("path is required")
@@ -505,6 +509,7 @@ func (h *handlers) validateAnalysisPath(path string) (string, error) {
 	return target, nil
 }
 
+// @intent resolve a path to its absolute, symlink-evaluated form for analysis-root containment checks.
 func canonicalExistingPath(path string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {

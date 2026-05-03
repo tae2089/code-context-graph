@@ -395,10 +395,15 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 	}))
 }
 
+// @intent validate repo_root inputs against configured analysis roots before git-based analysis reads the filesystem.
 func (h *handlers) validateRepoRoot(repoRoot string) (string, error) {
 	return validateRepoRootWithin(repoRoot, h.deps.RepoRoot, h.workspaceRoot())
 }
 
+// validateRepoRootWithin checks that repoRoot resolves to a canonical path within one of the allowed analysis roots.
+// @intent prevent git-based analysis from reading paths outside the configured project boundaries.
+// @requires configuredRepoRoot or workspaceRoot must be non-empty; repoRoot must be a valid filesystem path.
+// @ensures returned path is absolute, symlink-resolved, and contained within an allowed root.
 func validateRepoRootWithin(repoRoot, configuredRepoRoot, workspaceRoot string) (string, error) {
 	if repoRoot == "" {
 		return "", fmt.Errorf("repo_root is required")
@@ -421,6 +426,8 @@ func validateRepoRootWithin(repoRoot, configuredRepoRoot, workspaceRoot string) 
 	return repo, nil
 }
 
+// configuredAnalysisRoots returns the deduplicated list of allowed root paths derived from server config and workspace.
+// @intent build the allowlist used by path validation so each source of truth contributes exactly once.
 func configuredAnalysisRoots(repoRoot, workspaceRoot string) []string {
 	roots := make([]string, 0, 2)
 	for _, root := range []string{repoRoot, workspaceRoot} {
@@ -434,6 +441,7 @@ func configuredAnalysisRoots(repoRoot, workspaceRoot string) []string {
 	return roots
 }
 
+// @intent linear membership check for small string slices used by allowlist evaluation.
 func sliceContainsString(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
@@ -443,6 +451,9 @@ func sliceContainsString(values []string, target string) bool {
 	return false
 }
 
+// validatePathWithinAllowedRoots reports whether target falls inside any of the canonical allowed roots.
+// @intent enforce that user-supplied paths cannot escape the configured analysis boundary.
+// @requires allowedRoots must be non-empty and each entry must be a valid filesystem path.
 func validatePathWithinAllowedRoots(target string, allowedRoots []string) (bool, error) {
 	for _, root := range allowedRoots {
 		base, err := canonicalPath(root)
@@ -460,6 +471,8 @@ func validatePathWithinAllowedRoots(target string, allowedRoots []string) (bool,
 	return false, nil
 }
 
+// isWithinRoot reports whether target is the same as root or a descendant of it.
+// @intent detect path traversal by checking the relative path does not escape upward.
 func isWithinRoot(root, target string) (bool, error) {
 	rel, err := filepath.Rel(root, target)
 	if err != nil {
@@ -480,6 +493,8 @@ func isWithinRoot(root, target string) (bool, error) {
 	return true, nil
 }
 
+// canonicalPath resolves path to an absolute, symlink-free, cleaned filesystem path.
+// @intent normalize user-supplied paths before comparison to prevent symlink-based boundary escapes.
 func canonicalPath(path string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {

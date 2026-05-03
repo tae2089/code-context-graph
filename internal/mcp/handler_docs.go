@@ -13,6 +13,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/ragindex"
 )
 
+// @intent resolve the base directory that stores generated doc-index artifacts for MCP documentation tools.
 func (h *handlers) ragIndexRoot() string {
 	dir := h.deps.RagIndexDir
 	if dir == "" {
@@ -21,6 +22,7 @@ func (h *handlers) ragIndexRoot() string {
 	return dir
 }
 
+// @intent normalize a docs/index root to an absolute, symlink-evaluated path before path checks.
 func resolveSafeRoot(root string, create bool) (string, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -43,6 +45,7 @@ func resolveSafeRoot(root string, create bool) (string, error) {
 	return filepath.Clean(absRoot), nil
 }
 
+// @intent reject relative paths that would resolve outside the resolved docs root.
 func safePathUnderRoot(root, relPath, field string, createRoot bool, allowMissingLeaf bool) (string, error) {
 	clean := filepath.Clean(relPath)
 	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
@@ -63,6 +66,7 @@ func safePathUnderRoot(root, relPath, field string, createRoot bool, allowMissin
 	return target, nil
 }
 
+// @intent derive the safe doc-index.json path for either the shared docs root or one workspace-specific subtree.
 func (h *handlers) resolvedRagIndexPath(workspace string) (string, error) {
 	if workspace != "" {
 		if err := validateWorkspacePath(workspace, ""); err != nil {

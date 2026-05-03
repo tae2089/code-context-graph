@@ -1,3 +1,4 @@
+// @index MCP context handlers that summarize graph state for downstream tool selection.
 package mcp
 
 import (
@@ -14,6 +15,42 @@ import (
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
+// fileCount carries a single COUNT(DISTINCT file_path) scan result.
+// @intent capture the distinct-file count returned by the minimal-context summary query.
+type fileCount struct {
+	Count int64
+}
+
+// commCount holds aggregated membership counts per community.
+// @intent transport GROUP BY community_id results into MCP response shaping.
+type commCount struct {
+	CommunityID uint
+	Count       int
+}
+
+// commInfo is the summarized community payload shared by MCP responses.
+// @intent serialize minimal-context community summaries without introducing extra response fields.
+type minimalContextCommInfo struct {
+	Label     string `json:"label"`
+	NodeCount int    `json:"node_count"`
+}
+
+// flowCount holds aggregated membership counts per flow.
+// @intent transport GROUP BY flow_id results into MCP response shaping.
+type flowCount struct {
+	FlowID uint
+	Count  int
+}
+
+// flowInfo is the summarized flow payload shared by MCP responses.
+// @intent serialize minimal-context flow summaries without introducing extra response fields.
+type minimalContextFlowInfo struct {
+	Name      string `json:"name"`
+	NodeCount int    `json:"node_count"`
+}
+
+// getMinimalContext returns a compact project snapshot with risk hints and suggested tools.
+// @intent give agents a cheap first read of namespace state before they spend tokens on deeper graph queries.
 func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
@@ -49,7 +86,6 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 			return "", trace.Wrap(err, "count edges")
 		}
 
-		type fileCount struct{ Count int64 }
 		var fc fileCount
 		fileQ := h.deps.DB.WithContext(ctx).Model(&model.Node{}).Select("COUNT(DISTINCT file_path) as count").Where("namespace = ?", ns)
 		if err := fileQ.Scan(&fc).Error; err != nil {
@@ -110,11 +146,6 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 		if keyEntities == nil {
 			keyEntities = []string{}
 		}
-
-		type commCount struct {
-			CommunityID uint
-			Count       int
-		}
 		var ccRows []commCount
 		commCountQ := h.deps.DB.WithContext(ctx).
 			Model(&model.CommunityMembership{}).
@@ -136,25 +167,15 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 		if err := communityQ.Find(&communities).Error; err != nil {
 			return "", trace.Wrap(err, "find communities")
 		}
-
-		type commInfo struct {
-			Label     string `json:"label"`
-			NodeCount int    `json:"node_count"`
-		}
-		commInfos := make([]commInfo, len(communities))
+		commInfos := make([]minimalContextCommInfo, len(communities))
 		for i, c := range communities {
-			commInfos[i] = commInfo{Label: c.Label, NodeCount: ccMap[c.ID]}
+			commInfos[i] = minimalContextCommInfo{Label: c.Label, NodeCount: ccMap[c.ID]}
 		}
 		sort.Slice(commInfos, func(i, j int) bool {
 			return commInfos[i].NodeCount > commInfos[j].NodeCount
 		})
 		if len(commInfos) > 3 {
 			commInfos = commInfos[:3]
-		}
-
-		type flowCount struct {
-			FlowID uint
-			Count  int
 		}
 		var fcRows []flowCount
 		flowCountQ := h.deps.DB.WithContext(ctx).
@@ -176,14 +197,9 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 		if err := flowQ.Find(&flowList).Error; err != nil {
 			return "", trace.Wrap(err, "find flows")
 		}
-
-		type flowInfo struct {
-			Name      string `json:"name"`
-			NodeCount int    `json:"node_count"`
-		}
-		flowInfos := make([]flowInfo, len(flowList))
+		flowInfos := make([]minimalContextFlowInfo, len(flowList))
 		for i, f := range flowList {
-			flowInfos[i] = flowInfo{Name: f.Name, NodeCount: fcMap[f.ID]}
+			flowInfos[i] = minimalContextFlowInfo{Name: f.Name, NodeCount: fcMap[f.ID]}
 		}
 		sort.Slice(flowInfos, func(i, j int) bool {
 			return flowInfos[i].NodeCount > flowInfos[j].NodeCount
@@ -214,6 +230,8 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 	}))
 }
 
+// suggestTools maps common task wording to the MCP tools most likely to help.
+// @intent steer callers toward high-signal graph operations without requiring them to know the full tool catalog.
 func suggestTools(task string) []string {
 	lower := strings.ToLower(task)
 

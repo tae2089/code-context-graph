@@ -42,6 +42,7 @@ func promptResult(text string) *mcp.GetPromptResult {
 	}
 }
 
+// @intent pick the namespace for a prompt invocation, preferring an explicit argument over the workspace fallback.
 func resolvePromptNamespace(ctx context.Context, args map[string]string) string {
 	if namespace := args["namespace"]; namespace != "" {
 		return ctxns.Normalize(namespace)
@@ -49,6 +50,7 @@ func resolvePromptNamespace(ctx context.Context, args map[string]string) string 
 	return resolveNamespace(ctx, args["workspace"])
 }
 
+// @intent resolve the on-disk root used to validate prompt repo paths, falling back through namespace and workspace roots.
 func promptNamespaceRoot(deps *Deps) string {
 	if deps.NamespaceRoot != "" {
 		return deps.NamespaceRoot

@@ -1,3 +1,4 @@
+// @index Dependency contracts and injected services for MCP handlers.
 package mcp
 
 import (
@@ -36,6 +37,8 @@ type ImpactAnalyzer interface {
 	ImpactRadius(ctx context.Context, nodeID uint, depth int) ([]model.Node, error)
 }
 
+// BoundedImpactAnalyzer extends ImpactAnalyzer with node and depth caps to prevent runaway traversal on large graphs.
+// @intent expose bounded blast-radius analysis for handlers that must protect shared MCP requests from unbounded graph walks.
 type BoundedImpactAnalyzer interface {
 	ImpactRadiusBounded(ctx context.Context, nodeID uint, depth int, opts impactpkg.RadiusOptions) (*impactpkg.RadiusResult, error)
 }
@@ -47,6 +50,8 @@ type FlowTracer interface {
 	TraceFlow(ctx context.Context, startNodeID uint) (*model.Flow, error)
 }
 
+// BoundedFlowTracer extends FlowTracer with a node cap to prevent runaway traversal on deeply nested call chains.
+// @intent let MCP handlers trace deep call chains without letting one request expand into an unbounded traversal.
 type BoundedFlowTracer interface {
 	TraceFlowBounded(ctx context.Context, startNodeID uint, opts flowspkg.TraceOptions) (*flowspkg.TraceResult, error)
 }
@@ -117,6 +122,8 @@ type IncrementalSyncer interface {
 	SyncWithExisting(ctx context.Context, files map[string]incremental.FileInfo, existingFiles []string) (*incremental.SyncStats, error)
 }
 
+// PostprocessPolicy gates and records automatic postprocess runs so repeated failures can be detected and suppressed.
+// @intent centralize automatic postprocess decisions so repeated failures can degrade execution before handlers retry expensive work.
 type PostprocessPolicy interface {
 	Resolve(ctx context.Context, input postprocesspolicy.DecisionInput) (string, string, error)
 	RecordRun(ctx context.Context, record postprocesspolicy.RunRecord) error

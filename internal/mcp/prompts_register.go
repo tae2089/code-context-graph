@@ -1,3 +1,4 @@
+// @index Prompt registration for curated MCP workflows.
 package mcp
 
 import (
@@ -5,6 +6,8 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// registerPrompts exposes guided prompt entry points on top of the MCP tool surface.
+// @intent package common review, onboarding, and debugging flows into reusable server prompts.
 func registerPrompts(srv *server.MCPServer, p *promptHandlers) {
 	srv.AddPrompts(
 		server.ServerPrompt{

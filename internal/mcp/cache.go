@@ -86,6 +86,7 @@ func (c *Cache) Close() {
 	})
 }
 
+// @intent drop one cache entry to keep total size at or below the configured maximum.
 func (c *Cache) evictOneLocked() {
 	if len(c.entries) <= maxCacheEntries {
 		return
