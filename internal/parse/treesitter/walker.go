@@ -6,6 +6,7 @@ import (
 	"embed"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 
@@ -282,6 +283,9 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 		ImportPackages: importPackages,
 	})
 
+	edgeSeen := make(map[string]struct{})
+	interfaceSeen := make(map[string]struct{})
+
 	for {
 		m, ok := qc.NextMatch()
 		if !ok {
@@ -340,17 +344,20 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 			endLine := int(defNode.EndPoint().Row) + 1
 
 			kind := w.mapDefTypeToNodeKind(defType, name)
-
-			result := definitionResultOrDefault(semantics, DefinitionContext{
-				Definition:     defNode,
-				DefinitionType: defType,
-				Name:           name,
-				QualifiedName:  qName,
-				Content:        content,
-				FilePath:       filePath,
+			implementedTypes := implementedTypesOrDefault(semantics, DefinitionContext{
+				Definition:       defNode,
+				DefinitionType:   defType,
+				Name:             name,
+				QualifiedName:    qName,
+				Root:             root,
+				Package:          pkgName,
+				ImplementedTypes: contentForImplementedTypes(content, implementsNode),
+				Content:          content,
+				FilePath:         filePath,
 			})
-			interfaces = append(interfaces, result.Interfaces...)
-			edges = append(edges, result.Edges...)
+
+			acceptedQName := qName
+			shouldEnrich := false
 
 			// O(1) dedup via map. Queries can match multiple times if overlapping.
 			key := nodeKey{name, startLine, endLine}
@@ -363,6 +370,8 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 				if nodes[idx].Kind == model.NodeKindType && kind == model.NodeKindClass {
 					nodes[idx].Kind = kind
 				}
+				acceptedQName = nodes[idx].QualifiedName
+				shouldEnrich = true
 			} else if idx, exists := nameIndex[name]; exists && rangesOverlap(nodes[idx].StartLine, nodes[idx].EndLine, startLine, endLine) {
 				// 같은 이름의 심볼이 이미 등록된 경우: decorated_definition + function_definition처럼
 				// 래퍼 노드와 내부 노드가 같은 함수를 중복 매칭할 때 발생.
@@ -379,7 +388,12 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 					nodes[idx].StartLine = startLine
 					nodes[idx].EndLine = endLine
 					nodes[idx].QualifiedName = qName
+					nodes[idx].Kind = kind
 					nodeIndex[nodeKey{name, startLine, endLine}] = idx
+					acceptedQName = nodes[idx].QualifiedName
+					shouldEnrich = true
+				} else {
+					acceptedQName = nodes[idx].QualifiedName
 				}
 				// 새 매칭이 더 아래에서 시작하면(내부 function_definition) 기존 유지, 무시
 			} else {
@@ -394,15 +408,34 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 					EndLine:       endLine,
 					Language:      w.spec.Name,
 				})
+				shouldEnrich = true
 			}
 
-			if implementsNode != nil {
-				traitName := implementsNode.Content(content)
-				edges = append(edges, model.Edge{
-					Kind:        model.EdgeKindImplements,
-					FilePath:    filePath,
-					Fingerprint: fmt.Sprintf("implements:%s:%s:%s", filePath, qName, traitName),
+			if shouldEnrich {
+				result := definitionResultOrDefault(semantics, DefinitionContext{
+					Definition:       defNode,
+					DefinitionType:   defType,
+					Name:             name,
+					QualifiedName:    acceptedQName,
+					Root:             root,
+					Package:          pkgName,
+					ImplementedTypes: slices.Clone(implementedTypes),
+					Content:          content,
+					FilePath:         filePath,
 				})
+				interfaces = appendUniqueInterfaces(interfaces, interfaceSeen, result.Interfaces...)
+				edges = appendUniqueEdges(edges, edgeSeen, result.Edges...)
+				if len(implementedTypes) == 0 && implementsNode != nil {
+					implementedTypes = contentForImplementedTypes(content, implementsNode)
+				}
+				for _, traitName := range implementedTypes {
+					edges = appendUniqueEdges(edges, edgeSeen, model.Edge{
+						Kind:        model.EdgeKindImplements,
+						FilePath:    filePath,
+						Line:        startLine,
+						Fingerprint: fmt.Sprintf("implements:%s:%s:%s", filePath, acceptedQName, traitName),
+					})
+				}
 			}
 		}
 
@@ -446,6 +479,90 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 	}
 
 	return nodes, edges, pkgName, interfaces, nil
+}
+
+func contentForImplementedTypes(content []byte, implementsNode *sitter.Node) []string {
+	if implementsNode == nil {
+		return nil
+	}
+	value := strings.TrimSpace(implementsNode.Content(content))
+	if value == "" {
+		return nil
+	}
+	return splitTopLevelCSV(value)
+}
+
+func appendUniqueEdges(edges []model.Edge, seen map[string]struct{}, add ...model.Edge) []model.Edge {
+	for _, edge := range add {
+		if edge.Fingerprint == "" {
+			edges = append(edges, edge)
+			continue
+		}
+		if _, ok := seen[edge.Fingerprint]; ok {
+			continue
+		}
+		seen[edge.Fingerprint] = struct{}{}
+		edges = append(edges, edge)
+	}
+	return edges
+}
+
+func appendUniqueInterfaces(interfaces []interfaceInfo, seen map[string]struct{}, add ...interfaceInfo) []interfaceInfo {
+	for _, iface := range add {
+		key := iface.name + ":" + strings.Join(iface.methods, ",")
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		interfaces = append(interfaces, iface)
+	}
+	return interfaces
+}
+
+func splitTopLevelCSV(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	var parts []string
+	start := 0
+	depthAngle := 0
+	depthParen := 0
+	depthBracket := 0
+	for i, r := range value {
+		switch r {
+		case '<':
+			depthAngle++
+		case '>':
+			if depthAngle > 0 {
+				depthAngle--
+			}
+		case '(':
+			depthParen++
+		case ')':
+			if depthParen > 0 {
+				depthParen--
+			}
+		case '[':
+			depthBracket++
+		case ']':
+			if depthBracket > 0 {
+				depthBracket--
+			}
+		case ',':
+			if depthAngle == 0 && depthParen == 0 && depthBracket == 0 {
+				part := strings.TrimSpace(value[start:i])
+				if part != "" {
+					parts = append(parts, part)
+				}
+				start = i + 1
+			}
+		}
+	}
+	if part := strings.TrimSpace(value[start:]); part != "" {
+		parts = append(parts, part)
+	}
+	return appendUniquePackageFile(nil, parts...)
 }
 
 // extractCallName extracts the callable expression text from a call node.

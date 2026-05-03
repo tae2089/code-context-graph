@@ -2,6 +2,7 @@ package treesitter
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -57,6 +58,25 @@ func (TypeScriptSemantics) AdditionalEdges(ctx SemanticContext) []model.Edge {
 	}
 	walk(ctx.Root)
 	return edges
+}
+
+// ImplementedTypes normalizes query-captured implements targets through the TypeScript heritage parser.
+// @intent keep explicit query captures and AST-derived hierarchy parsing on one normalization path.
+func (TypeScriptSemantics) ImplementedTypes(ctx DefinitionContext) []string {
+	if ctx.Definition == nil {
+		return nil
+	}
+	base, traits := typescriptHeritage(ctx.Definition, ctx.Content)
+	if base == "" && len(traits) == 0 {
+		return slices.Clone(ctx.ImplementedTypes)
+	}
+	return traits
+}
+
+// ImplementedTypes returns query-captured relationships unchanged for JavaScript.
+// @intent satisfy shared relationship normalization without inventing JS interface semantics.
+func (JavaScriptSemantics) ImplementedTypes(ctx DefinitionContext) []string {
+	return slices.Clone(ctx.ImplementedTypes)
 }
 
 // AdditionalEdges adds JavaScript extends edges from class heritage clauses.
@@ -116,9 +136,40 @@ func typescriptHeritage(n *sitter.Node, content []byte) (string, []string) {
 		if child == nil || child.Type() != "class_heritage" {
 			continue
 		}
+		if base, traits, ok := parseTypeScriptHeritageNode(child, content); ok {
+			return base, traits
+		}
 		return parseTypeScriptHeritageText(child.Content(content))
 	}
 	return "", nil
+}
+
+// parseTypeScriptHeritageNode extracts extends/implements targets from typed heritage children before falling back to text parsing.
+// @intent avoid comma-splitting inside generic arguments by preferring grammar-aware node traversal.
+func parseTypeScriptHeritageNode(n *sitter.Node, content []byte) (string, []string, bool) {
+	if n == nil {
+		return "", nil, false
+	}
+	var base string
+	var traits []string
+	for i := 0; i < int(n.NamedChildCount()); i++ {
+		child := n.NamedChild(i)
+		if child == nil {
+			continue
+		}
+		switch child.Type() {
+		case "extends_clause":
+			if name := firstNamedTypeReference(child, content); name != "" {
+				base = name
+			}
+		case "implements_clause":
+			traits = append(traits, namedTypeReferences(child, content)...)
+		}
+	}
+	if base == "" && len(traits) == 0 {
+		return "", nil, false
+	}
+	return base, appendUniquePackageFile(nil, traits...), true
 }
 
 // parseTypeScriptHeritageText parses a class_heritage snippet into one extends target and zero or more implements targets.
@@ -165,6 +216,48 @@ func firstTypeScriptTypeName(value string) string {
 		return strings.Trim(fields[0], ",")
 	}
 	return ""
+}
+
+// firstNamedTypeReference returns the first normalized type reference beneath a heritage clause child.
+// @intent recover stable hierarchy targets from AST nodes instead of brittle text slicing.
+func firstNamedTypeReference(n *sitter.Node, content []byte) string {
+	refs := namedTypeReferences(n, content)
+	if len(refs) == 0 {
+		return ""
+	}
+	return refs[0]
+}
+
+// namedTypeReferences returns normalized type names discovered under a heritage-related AST subtree.
+// @intent collect direct type reference children while tolerating grammar node-name changes.
+func namedTypeReferences(n *sitter.Node, content []byte) []string {
+	if n == nil {
+		return nil
+	}
+	var refs []string
+	var walk func(*sitter.Node)
+	walk = func(cur *sitter.Node) {
+		if cur == nil {
+			return
+		}
+		switch cur.Type() {
+		case "type_identifier", "nested_type_identifier", "identifier":
+			if name := strings.TrimSpace(cur.Content(content)); name != "" {
+				refs = append(refs, name)
+			}
+			return
+		case "generic_type", "type_reference", "lookup_type", "member_expression", "qualified_name":
+			if name := firstTypeScriptTypeName(cur.Content(content)); name != "" {
+				refs = append(refs, name)
+				return
+			}
+		}
+		for i := 0; i < int(cur.NamedChildCount()); i++ {
+			walk(cur.NamedChild(i))
+		}
+	}
+	walk(n)
+	return appendUniquePackageFile(nil, refs...)
 }
 
 // javascriptClassName extracts the declared class name from a JavaScript class_declaration node.

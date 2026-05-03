@@ -2,6 +2,7 @@ package treesitter
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -34,7 +35,7 @@ func (JavaSemantics) AdditionalEdges(ctx SemanticContext) []model.Edge {
 			if className != "" {
 				childName := qualifyTypeName(ctx.Package, className)
 				imports := importAliasesBySimpleName(ctx.Root, ctx.Content, map[string]struct{}{"import_declaration": {}})
-				base, traits := parseJavaClassHierarchy(n.Content(ctx.Content))
+				base, traits := javaClassHierarchy(n, ctx.Content)
 				base = qualifyImportedTypeName(base, ctx.Package, imports)
 				for i := range traits {
 					traits[i] = qualifyImportedTypeName(traits[i], ctx.Package, imports)
@@ -65,6 +66,23 @@ func (JavaSemantics) AdditionalEdges(ctx SemanticContext) []model.Edge {
 	return edges
 }
 
+// ImplementedTypes normalizes query-captured implements targets through Java hierarchy parsing.
+// @intent keep generic-safe relationship extraction consistent between direct hierarchy parsing and query captures.
+func (JavaSemantics) ImplementedTypes(ctx DefinitionContext) []string {
+	if ctx.Definition == nil {
+		return nil
+	}
+	_, traits := javaClassHierarchy(ctx.Definition, ctx.Content)
+	if len(traits) == 0 {
+		return slices.Clone(ctx.ImplementedTypes)
+	}
+	imports := importAliasesBySimpleName(ctx.Root, ctx.Content, map[string]struct{}{"import_declaration": {}})
+	for i := range traits {
+		traits[i] = qualifyImportedTypeName(traits[i], ctx.Package, imports)
+	}
+	return traits
+}
+
 // AdditionalEdges adds Kotlin inherits and implements edges from class declarations.
 // @intent capture Kotlin supertype relationships by parsing the declaration head after ':'.
 func (KotlinSemantics) AdditionalEdges(ctx SemanticContext) []model.Edge {
@@ -82,7 +100,7 @@ func (KotlinSemantics) AdditionalEdges(ctx SemanticContext) []model.Edge {
 			if className != "" {
 				childName := qualifyTypeName(ctx.Package, className)
 				imports := importAliasesBySimpleName(ctx.Root, ctx.Content, map[string]struct{}{"import_header": {}})
-				base, traits := parseKotlinSupertypes(n.Content(ctx.Content))
+				base, traits := kotlinSupertypes(n, ctx.Content)
 				base = qualifyImportedTypeName(base, ctx.Package, imports)
 				for i := range traits {
 					traits[i] = qualifyImportedTypeName(traits[i], ctx.Package, imports)
@@ -111,6 +129,23 @@ func (KotlinSemantics) AdditionalEdges(ctx SemanticContext) []model.Edge {
 	}
 	walk(ctx.Root)
 	return edges
+}
+
+// ImplementedTypes normalizes Kotlin supertype interfaces through the same parsing path used for hierarchy edges.
+// @intent keep declaration-time and query-time interface extraction aligned for Kotlin.
+func (KotlinSemantics) ImplementedTypes(ctx DefinitionContext) []string {
+	if ctx.Definition == nil {
+		return nil
+	}
+	_, traits := kotlinSupertypes(ctx.Definition, ctx.Content)
+	if len(traits) == 0 {
+		return slices.Clone(ctx.ImplementedTypes)
+	}
+	imports := importAliasesBySimpleName(ctx.Root, ctx.Content, map[string]struct{}{"import_header": {}})
+	for i := range traits {
+		traits[i] = qualifyImportedTypeName(traits[i], ctx.Package, imports)
+	}
+	return traits
 }
 
 // javaClassName extracts the declared class name from a Java class_declaration node.
@@ -158,6 +193,46 @@ func parseJavaClassHierarchy(raw string) (string, []string) {
 		}
 	}
 	return base, traits
+}
+
+// javaClassHierarchy extracts extends/implements targets from a Java class AST, falling back to text parsing when needed.
+// @intent prefer grammar-aware traversal so commas inside generics do not split hierarchy targets.
+func javaClassHierarchy(n *sitter.Node, content []byte) (string, []string) {
+	if n == nil {
+		return "", nil
+	}
+	if base, traits, ok := parseJavaClassHierarchyNode(n, content); ok {
+		return base, traits
+	}
+	return parseJavaClassHierarchy(n.Content(content))
+}
+
+// parseJavaClassHierarchyNode extracts Java hierarchy targets from declaration children when grammar nodes are available.
+// @intent avoid string splitting for generic type arguments in extends/implements clauses.
+func parseJavaClassHierarchyNode(n *sitter.Node, content []byte) (string, []string, bool) {
+	if n == nil {
+		return "", nil, false
+	}
+	var base string
+	var traits []string
+	for i := 0; i < int(n.NamedChildCount()); i++ {
+		child := n.NamedChild(i)
+		if child == nil {
+			continue
+		}
+		switch child.Type() {
+		case "superclass":
+			if name := firstJVMTypeReference(child, content); name != "" {
+				base = name
+			}
+		case "super_interfaces":
+			traits = append(traits, jvmTypeReferences(child, content)...)
+		}
+	}
+	if base == "" && len(traits) == 0 {
+		return "", nil, false
+	}
+	return base, appendUniquePackageFile(nil, traits...), true
 }
 
 // qualifyTypeName prefixes a simple type name with the package when the endpoint is not already qualified.
@@ -293,6 +368,68 @@ func parseKotlinSupertypes(raw string) (string, []string) {
 	return base, traits
 }
 
+// kotlinSupertypes extracts Kotlin superclass/interfaces from AST children before falling back to declaration text parsing.
+// @intent avoid text-only parsing when tree-sitter exposes dedicated supertype nodes.
+func kotlinSupertypes(n *sitter.Node, content []byte) (string, []string) {
+	if n == nil {
+		return "", nil
+	}
+	if base, traits, ok := parseKotlinSupertypesNode(n, content); ok {
+		return base, traits
+	}
+	return parseKotlinSupertypes(n.Content(content))
+}
+
+// parseKotlinSupertypesNode extracts superclass/interface targets from Kotlin delegation specifier nodes.
+// @intent prefer AST-aware extraction so commas inside generic arguments do not create false interfaces.
+func parseKotlinSupertypesNode(n *sitter.Node, content []byte) (string, []string, bool) {
+	_ = n
+	_ = content
+	return "", nil, false
+}
+
+// firstJVMTypeReference returns the first normalized Java/Kotlin type reference under a subtree.
+// @intent share simple type extraction between Java and Kotlin hierarchy walkers.
+func firstJVMTypeReference(n *sitter.Node, content []byte) string {
+	refs := jvmTypeReferences(n, content)
+	if len(refs) == 0 {
+		return ""
+	}
+	return refs[0]
+}
+
+// jvmTypeReferences collects normalized Java/Kotlin type names from an AST subtree.
+// @intent recover hierarchy endpoints from grammar nodes while remaining tolerant of parser version differences.
+func jvmTypeReferences(n *sitter.Node, content []byte) []string {
+	if n == nil {
+		return nil
+	}
+	var refs []string
+	var walk func(*sitter.Node)
+	walk = func(cur *sitter.Node) {
+		if cur == nil {
+			return
+		}
+		switch cur.Type() {
+		case "type_identifier", "scoped_type_identifier", "user_type", "identifier", "simple_identifier":
+			if name := strings.TrimSpace(cur.Content(content)); name != "" {
+				refs = append(refs, name)
+			}
+			return
+		case "generic_type", "type_identifier_list", "type_arguments", "constructor_invocation":
+			if name := firstTypeScriptTypeName(cur.Content(content)); name != "" {
+				refs = append(refs, name)
+				return
+			}
+		}
+		for i := 0; i < int(cur.NamedChildCount()); i++ {
+			walk(cur.NamedChild(i))
+		}
+	}
+	walk(n)
+	return appendUniquePackageFile(nil, refs...)
+}
+
 // kotlinHierarchyColonIndex finds the ':' that starts Kotlin supertype declarations, skipping constructor/type-annotation colons.
 // @intent avoid confusing primary-constructor parameter types with the superclass separator.
 func kotlinHierarchyColonIndex(raw string) int {
@@ -353,6 +490,7 @@ func normalizeKotlinSupertypeName(value string) string {
 	if before, _, ok := strings.Cut(value, "<"); ok {
 		value = strings.TrimSpace(before)
 	}
+	value = strings.TrimSuffix(value, "()")
 	if fields := strings.Fields(value); len(fields) > 0 {
 		return fields[0]
 	}

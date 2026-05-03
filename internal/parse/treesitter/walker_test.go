@@ -951,7 +951,7 @@ func TestParseTypeScript_Class(t *testing.T) {
 func TestParseTypeScript_ExtendsAndImplementsEdges(t *testing.T) {
 	src := `class User extends Base implements Authenticated, Named {
 }
-`
+	`
 	w := NewWalker(TypeScriptSpec)
 	_, edges, err := w.Parse("models.ts", []byte(src))
 	if err != nil {
@@ -975,6 +975,32 @@ func TestParseTypeScript_ExtendsAndImplementsEdges(t *testing.T) {
 	}
 	if !foundInherits || !foundAuth || !foundNamed {
 		t.Fatalf("expected inherits+implements edges, got %+v", edges)
+	}
+}
+
+func TestParseTypeScript_HeritageIgnoresCommasInsideGenericArguments(t *testing.T) {
+	src := `class User implements Handler<Request<T>, Response>, Serializable {
+}
+`
+	w := NewWalker(TypeScriptSpec)
+	_, edges, err := w.Parse("models.ts", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var foundHandler, foundSerializable bool
+	for _, e := range filterEdgesByKind(edges, model.EdgeKindImplements) {
+		if e.Fingerprint == "implements:models.ts:User:Handler" {
+			foundHandler = true
+		}
+		if e.Fingerprint == "implements:models.ts:User:Serializable" {
+			foundSerializable = true
+		}
+		if containsSubstring(e.Fingerprint, "Response") || containsSubstring(e.Fingerprint, "C>") {
+			t.Fatalf("unexpected generic fragment leaked into implements edge: %+v", e)
+		}
+	}
+	if !foundHandler || !foundSerializable {
+		t.Fatalf("expected implements edges for Handler and Serializable, got %+v", edges)
 	}
 }
 
@@ -1025,7 +1051,7 @@ func TestParseJava_ExtendsAndImplementsEdges(t *testing.T) {
 
 public class User extends Base implements Authenticated, Named {
 }
-`
+	`
 	w := NewWalker(JavaSpec)
 	_, edges, err := w.Parse("User.java", []byte(src))
 	if err != nil {
@@ -1049,6 +1075,41 @@ public class User extends Base implements Authenticated, Named {
 	}
 	if !foundInherits || !foundAuth || !foundNamed {
 		t.Fatalf("expected inherits+implements edges, got %+v", edges)
+	}
+}
+
+func TestParseJava_HierarchyIgnoresCommasInsideGenericArguments(t *testing.T) {
+	src := `package com.example.auth;
+
+public class User extends Base<String, Integer> implements Handler<Request<T>, Response>, Serializable {
+}
+`
+	w := NewWalker(JavaSpec)
+	_, edges, err := w.Parse("User.java", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var foundBase, foundHandler, foundSerializable bool
+	for _, e := range edges {
+		switch e.Kind {
+		case model.EdgeKindInherits:
+			if e.Fingerprint == "inherits:User.java:com.example.auth.User:com.example.auth.Base" {
+				foundBase = true
+			}
+		case model.EdgeKindImplements:
+			if e.Fingerprint == "implements:User.java:com.example.auth.User:com.example.auth.Handler" {
+				foundHandler = true
+			}
+			if e.Fingerprint == "implements:User.java:com.example.auth.User:com.example.auth.Serializable" {
+				foundSerializable = true
+			}
+			if containsSubstring(e.Fingerprint, "Response") {
+				t.Fatalf("unexpected generic fragment leaked into implements edge: %+v", e)
+			}
+		}
+	}
+	if !foundBase || !foundHandler || !foundSerializable {
+		t.Fatalf("expected generic-safe hierarchy edges, got %+v", edges)
 	}
 }
 
@@ -1510,6 +1571,35 @@ class User(val id: String) : Base(), Authenticated
 	}
 	if !foundInherits || !foundAuth {
 		t.Fatalf("expected constructor-safe supertype edges, got %+v", edges)
+	}
+}
+
+func TestParseGo_DefinitionEnrichmentDedupsOverlappingMatches(t *testing.T) {
+	src := `package main
+
+type Tracer interface {
+	TraceFlow()
+}
+
+type Tracer struct {
+	Base
+}
+
+type Base struct{}
+`
+	w := NewWalker(GoSpec)
+	_, edges, err := w.Parse("main.go", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var inheritCount int
+	for _, e := range edges {
+		if e.Kind == model.EdgeKindInherits && e.Fingerprint == "inherits:main.go:Tracer:Base" {
+			inheritCount++
+		}
+	}
+	if inheritCount != 1 {
+		t.Fatalf("expected one deduped embedding edge, got %d from %+v", inheritCount, edges)
 	}
 }
 

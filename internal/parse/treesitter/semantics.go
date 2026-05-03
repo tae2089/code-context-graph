@@ -27,6 +27,12 @@ type DefinitionSemantics interface {
 	EnrichDefinition(ctx DefinitionContext) DefinitionResult
 }
 
+// RelationshipSemantics provides optional per-definition relationship normalization hooks.
+// @intent let languages normalize query-captured relationships through the same definition path.
+type RelationshipSemantics interface {
+	ImplementedTypes(ctx DefinitionContext) []string
+}
+
 // CommentSemantics provides optional comment extraction hooks beyond raw AST comments.
 // @intent let languages contribute docstrings or similar constructs without Walker language branches.
 type CommentSemantics interface {
@@ -65,12 +71,15 @@ type SemanticContext struct {
 // DefinitionContext carries one matched definition into a language-specific enrichment hook.
 // @intent expose definition-local AST state so languages can derive extra edges and metadata.
 type DefinitionContext struct {
-	Definition     *sitter.Node
-	DefinitionType string
-	Name           string
-	QualifiedName  string
-	Content        []byte
-	FilePath       string
+	Definition       *sitter.Node
+	DefinitionType   string
+	Name             string
+	QualifiedName    string
+	Root             *sitter.Node
+	Package          string
+	ImplementedTypes []string
+	Content          []byte
+	FilePath         string
 }
 
 // DefinitionResult carries language-specific enrichment derived from a definition.
@@ -175,6 +184,15 @@ func definitionResultOrDefault(semantics LanguageSemantics, ctx DefinitionContex
 		return enricher.EnrichDefinition(ctx)
 	}
 	return DefinitionResult{}
+}
+
+// implementedTypesOrDefault returns normalized implemented type names for one definition.
+// @intent centralize query-captured implements relationships behind an optional language hook.
+func implementedTypesOrDefault(semantics LanguageSemantics, ctx DefinitionContext) []string {
+	if rel, ok := semantics.(RelationshipSemantics); ok {
+		return rel.ImplementedTypes(ctx)
+	}
+	return append([]string(nil), ctx.ImplementedTypes...)
 }
 
 // additionalCommentsOrDefault returns language-specific comment blocks when implemented.
