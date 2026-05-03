@@ -107,6 +107,21 @@ test_assert_mcp_ok_rejects_jsonrpc_error() {
     assert_fails "JSON-RPC error response" assert_mcp_ok "bad_tool" "$resp"
 }
 
+test_assert_mcp_ok_reports_jsonrpc_error_without_python_nameerror() {
+    local resp output
+    resp='{"error":{"code":-32603,"message":"boom"}}'
+    output=$(assert_mcp_ok "bad_tool" "$resp" 2>&1 || true)
+
+    [[ "$output" == *"JSON-RPC error:"* ]] || {
+        echo "expected JSON-RPC error output, got: $output" >&2
+        exit 1
+    }
+    [[ "$output" != *"NameError"* ]] || {
+        echo "did not expect Python NameError in output: $output" >&2
+        exit 1
+    }
+}
+
 test_assert_mcp_ok_rejects_result_is_error() {
     local resp
     resp='{"result":{"isError":true,"content":[{"type":"text","text":"boom"}]}}'
@@ -123,6 +138,14 @@ test_mcp_init_failure_requires_explicit_debug_override() {
     assert_fails "MCP init failure should be fatal by default" mcp_session_required ""
     CCG_E2E_ALLOW_MCP_LOG_FALLBACK=1
     mcp_session_required ""
+}
+
+test_mcp_log_fallback_allowed_defaults_false() {
+    assert_fails "log fallback should be disabled by default" mcp_log_fallback_allowed
+    CCG_E2E_ALLOW_MCP_LOG_FALLBACK=0
+    assert_fails "log fallback should reject zero value" mcp_log_fallback_allowed
+    CCG_E2E_ALLOW_MCP_LOG_FALLBACK=1
+    mcp_log_fallback_allowed
 }
 
 test_extract_mcp_session_id_reads_header_case_insensitively() {
@@ -152,6 +175,40 @@ test_log_fallback_detects_webhook_failure() {
     webhook_logs_failed "$logs" "sample-go"
 }
 
+test_wait_for_webhook_sync_requires_mcp_nodes_when_fallback_disabled() {
+    graph_nodes_for_workspace() { return 1; }
+    compose() { printf '%s\n' 'time=... webhook sync completed workspace=sample-go nodes=4'; }
+    webhook_logs_completed() { return 0; }
+    webhook_logs_failed() { return 1; }
+    sleep() { SECONDS=$((SECONDS + 2)); }
+
+    assert_fails "log-only webhook sync should fail without explicit fallback" wait_for_webhook_sync "sample-go" 1 "sample-go"
+}
+
+test_wait_for_webhook_sync_allows_log_success_when_fallback_enabled() {
+    graph_nodes_for_workspace() { return 1; }
+    compose() { printf '%s\n' 'time=... webhook sync completed workspace=sample-go nodes=4'; }
+    webhook_logs_completed() { return 0; }
+    webhook_logs_failed() { return 1; }
+    sleep() { SECONDS=$((SECONDS + 2)); }
+    CCG_E2E_ALLOW_MCP_LOG_FALLBACK=1
+
+    wait_for_webhook_sync "sample-go" 1 "sample-go"
+}
+
+test_start_integration_stack_runs_migrate_before_starting_ccg() {
+    local -a compose_calls=() wait_calls=()
+    info() { :; }
+    compose() { compose_calls+=("$*"); }
+    wait_for_postgres() { wait_calls+=("postgres:$1:$2"); }
+    wait_for_health() { wait_calls+=("health:$1:$2:$3"); }
+
+    start_integration_stack
+
+    assert_equals $'up -d postgres gitea\nbuild ccg\nrun --rm --no-deps ccg migrate\nup -d ccg' "$(printf '%s\n' "${compose_calls[@]}")"
+    assert_equals $'postgres:30:PostgreSQL\nhealth:http://localhost:3000/api/v1/version:30:Gitea\nhealth:http://localhost:18080/ready:30:ccg' "$(printf '%s\n' "${wait_calls[@]}")"
+}
+
 test_helper_env_isolation_mutates_globals() {
     KEEP_CONTAINERS=1
     COMPOSE_CMD="false"
@@ -178,13 +235,18 @@ run_test test_compose_does_not_eval_command_string
 run_test test_mcp_text_extracts_content
 run_test test_assert_mcp_ok_rejects_malformed_json
 run_test test_assert_mcp_ok_rejects_jsonrpc_error
+run_test test_assert_mcp_ok_reports_jsonrpc_error_without_python_nameerror
 run_test test_assert_mcp_ok_rejects_result_is_error
 run_test test_assert_mcp_contains_rejects_missing_content_text
 run_test test_mcp_init_failure_requires_explicit_debug_override
+run_test test_mcp_log_fallback_allowed_defaults_false
 run_test test_extract_mcp_session_id_reads_header_case_insensitively
 run_test test_log_fallback_detects_webhook_completion
 run_test test_log_fallback_matches_without_pipefail_sigpipe_risk
 run_test test_log_fallback_detects_webhook_failure
+run_test test_wait_for_webhook_sync_requires_mcp_nodes_when_fallback_disabled
+run_test test_wait_for_webhook_sync_allows_log_success_when_fallback_enabled
+run_test test_start_integration_stack_runs_migrate_before_starting_ccg
 run_test test_helper_env_isolation_mutates_globals
 run_test test_helper_env_isolation_observes_defaults
 

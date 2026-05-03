@@ -90,6 +90,42 @@ wait_for_health() {
     fail "$label did not become healthy after $((max * 2))s"
 }
 
+wait_for_postgres() {
+    local max="$1" label="${2:-PostgreSQL}"
+    for i in $(seq 1 "$max"); do
+        if compose exec -T postgres pg_isready -U ccg -d ccg_integration >/dev/null 2>&1; then
+            info "$label is healthy"
+            return 0
+        fi
+        echo -n "."
+        sleep 2
+    done
+    fail "$label did not become healthy after $((max * 2))s"
+}
+
+start_integration_stack() {
+    info "Starting base services..."
+    compose up -d postgres gitea
+
+    info "Building ccg image..."
+    compose build ccg
+
+    info "Waiting for PostgreSQL..."
+    wait_for_postgres 30 "PostgreSQL"
+
+    info "Waiting for Gitea..."
+    wait_for_health "$GITEA_URL/api/v1/version" 30 "Gitea"
+
+    info "Running ccg migrations..."
+    compose run --rm --no-deps ccg migrate
+
+    info "Starting ccg..."
+    compose up -d ccg
+
+    info "Waiting for ccg..."
+    wait_for_health "$CCG_URL/ready" 30 "ccg"
+}
+
 api() {
     local method="$1" path="$2"; shift 2
     curl -fsS -X "$method" "${GITEA_URL}${path}" \
@@ -147,7 +183,7 @@ if not isinstance(r, dict):
     print("response is not a JSON object", file=sys.stderr)
     sys.exit(2)
 if r.get("error") is not None:
-    print(f"JSON-RPC error: {r.get('error')}", file=sys.stderr)
+    print("JSON-RPC error:", r.get("error"), file=sys.stderr)
     sys.exit(3)
 result = r.get("result")
 if not isinstance(result, dict):
@@ -225,6 +261,10 @@ mcp_session_required() {
     [ -n "$session" ] || [ "${CCG_E2E_ALLOW_MCP_LOG_FALLBACK:-0}" = "1" ]
 }
 
+mcp_log_fallback_allowed() {
+    [ "${CCG_E2E_ALLOW_MCP_LOG_FALLBACK:-0}" = "1" ]
+}
+
 extract_last_webhook_node_count() {
     local logs="$1"
     printf '%s' "$logs" | python3 -c '
@@ -267,7 +307,7 @@ wait_for_webhook_sync() {
         if webhook_logs_failed "$logs" "$workspace"; then
             fail "ccg build failed for ${label}. See ${ARTIFACT_DIR}/ccg.log after cleanup. Recent logs:\n$(printf '%s\n' "$logs" | tail -20)"
         fi
-        if webhook_logs_completed "$logs" "$workspace"; then
+        if mcp_log_fallback_allowed && webhook_logs_completed "$logs" "$workspace"; then
             info "${label} webhook sync observed via logs"
             return 0
         fi
@@ -279,14 +319,8 @@ wait_for_webhook_sync() {
 run_integration_test() {
 
 # ── Phase 1: Start containers ──
-info "Starting containers..."
-compose up -d --build
-
-info "Waiting for Gitea..."
-wait_for_health "$GITEA_URL/api/v1/version" 30 "Gitea"
-
-info "Waiting for ccg..."
-wait_for_health "$CCG_URL/ready" 30 "ccg"
+ info "Starting containers..."
+ start_integration_stack
 
 # ── Phase 2: Create Gitea admin user ──
 info "Creating Gitea admin user..."
@@ -398,7 +432,7 @@ else
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
-        -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_graph_stats","arguments":{}}}' 2>/dev/null) || STATS_RESP=""
+        -d "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"list_graph_stats\",\"arguments\":{\"workspace\":\"${REPO_NAME}\"}}}" 2>/dev/null) || STATS_RESP=""
 
     if [ -z "$STATS_RESP" ]; then
         fail "MCP tools/call returned empty response"
@@ -817,16 +851,17 @@ fi
 
 # ── Summary ──
 TOOLS_TESTED=0
+TOTAL_MCP_TOOLS=33
 if [ -n "$MCP_SESSION" ]; then
-    TOOLS_TESTED=29
+    TOOLS_TESTED=27
 fi
 
 echo ""
 echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
 if [ -n "$MCP_SESSION" ]; then
-    echo -e "${GREEN}  Integration test PASSED — ${TOOLS_TESTED}/29 MCP tools verified${NC}"
+    echo -e "${GREEN}  Integration test PASSED — ${TOOLS_TESTED}/${TOTAL_MCP_TOOLS} MCP tools verified${NC}"
 else
-    echo -e "${YELLOW}  Integration webhook smoke completed — 0/29 MCP tools verified (local debug override)${NC}"
+    echo -e "${YELLOW}  Integration webhook smoke completed — 0/${TOTAL_MCP_TOOLS} MCP tools verified (local debug override)${NC}"
 fi
 echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
 echo ""
