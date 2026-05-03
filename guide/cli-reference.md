@@ -81,7 +81,24 @@ deployment profiles and runtime signals.
 | `ccg serve --workspace-root <dir>` | Deprecated alias for `--namespace-root` |
 | `ccg serve --allow-repo <pat>` | Allowed repo patterns for webhook sync (e.g. `org/*`, `org/api:main,develop`) |
 | `ccg serve --webhook-secret <s>` | HMAC secret for webhook signature verification |
+| `ccg serve --insecure-webhook` | Allow unsigned webhook requests for local testing only |
+| `ccg serve --repo-clone-base-url <url>` | Canonical base URL used to reconstruct webhook clone targets (repeatable) |
 | `ccg serve --repo-root <dir>` | Root directory for cloned repositories |
+| `ccg serve --webhook-workers <n>` | Number of webhook sync workers (default `4`; SQLite webhook deployments default to `1` unless explicitly set) |
+| `ccg serve --webhook-max-tracked-repos <n>` | Maximum repositories tracked by the webhook sync queue (default `1024`) |
+| `ccg serve --webhook-attempt-timeout <dur>` | Timeout for one webhook sync attempt, covering clone/pull and graph update (default `15m`) |
+| `ccg serve --webhook-retry-attempts <n>` | Maximum webhook sync attempts per queued item (default `3`) |
+| `ccg serve --webhook-retry-base-delay <dur>` | Initial webhook retry delay (default `1s`) |
+| `ccg serve --webhook-retry-max-delay <dur>` | Maximum webhook retry delay (default `30s`) |
+| `ccg serve --webhook-fail-on-unreadable` | Fail webhook sync attempts when source files cannot be read instead of warning and skipping |
+| `ccg serve --max-file-bytes <bytes>` | Maximum bytes allowed per parsed source file (`0` disables the limit) |
+| `ccg serve --max-total-parsed-bytes <bytes>` | Maximum total bytes parsed across source files (`0` disables the limit) |
+
+Webhook-related serve flags can also be configured with matching environment
+variables where supported: `CCG_WEBHOOK_WORKERS`,
+`CCG_WEBHOOK_MAX_TRACKED_REPOS`, `CCG_WEBHOOK_ATTEMPT_TIMEOUT`,
+`CCG_WEBHOOK_RETRY_ATTEMPTS`, `CCG_WEBHOOK_RETRY_BASE_DELAY`,
+`CCG_WEBHOOK_RETRY_MAX_DELAY`, and `CCG_REPO_ROOT`.
 
 ### Benchmark
 

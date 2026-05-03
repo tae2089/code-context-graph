@@ -126,6 +126,7 @@ Consecutive pushes to the same repo are automatically merged in the SyncQueue:
 - Different repos are processed in parallel
 - Same repo is processed sequentially (dirty requeue)
 - For team or always-on webhook deployments, prefer PostgreSQL and size workers by queue age, repository update time, and database capacity
+- `--webhook-max-tracked-repos` / `CCG_WEBHOOK_MAX_TRACKED_REPOS` bounds queue memory and returns `429` when a new repo would exceed the limit
 
 ### Retry / Backoff
 
@@ -144,6 +145,10 @@ On clone or build failure, automatically retries with exponential backoff:
 - Panics are treated as errors and are eligible for retry
 - Invalid repository config, such as malformed `.ccg.yaml` `include_paths`, is treated as non-retryable for the current event
 - After exceeding MaxAttempts, logs an `ERROR` and abandons the sync (retryable on next push event)
+
+These defaults can be tuned with `--webhook-attempt-timeout`,
+`--webhook-retry-attempts`, `--webhook-retry-base-delay`, and
+`--webhook-retry-max-delay`.
 
 ## `.ccg.yaml` include_paths Auto-Apply
 
@@ -170,12 +175,40 @@ If a deployment needs a parse budget for large repositories, configure it
 explicitly with `--max-file-bytes`, `--max-total-parsed-bytes`, or the matching
 `.ccg.yaml` parse settings. CCG does not impose default webhook parse limits.
 
+## Unreadable Files
+
+By default, unreadable source files during webhook graph update are logged and
+skipped. This keeps sync resilient when a repository contains broken symlinks,
+permission-denied files, or transient read errors, but it can produce a partial
+graph for that event.
+
+Use `--webhook-fail-on-unreadable` when partial sync is not acceptable. With
+this flag, unreadable source files fail the webhook sync attempt; retryable
+failures follow the normal retry/backoff policy and remain visible through
+`/status`.
+
 ## Operational Signals
 
 Use `/ready` for traffic gating and `/status` for diagnosis. A queue full or
 stalled queue can make `/ready` return `not_ready`; a failed latest webhook sync
 can make `/status` report `degraded` without necessarily removing the instance
 from service.
+
+`/status` includes a `webhook` object when webhook sync is enabled. Important
+fields:
+
+| Field | Meaning |
+|-------|---------|
+| `queued`, `processing`, `dirty` | Current queue and worker state |
+| `tracked_repos`, `max_tracked_repos` | Queue tracking capacity; new repos are rejected when full |
+| `queue_full_total`, `failure_total` | Cumulative operational counters since process start |
+| `oldest_queued_age`, `oldest_processing_age` | Delay signals used by readiness checks |
+| `last_error`, `last_error_time`, `last_success_time` | Aggregate latest success/failure state |
+| `recent_repos` | Up to 50 recent, queued, or processing repositories with repo, branch, queued/processing state, and last success/error fields |
+
+`/status` reports `degraded` when the aggregate latest failure is unresolved or
+when any recent repo has an unresolved failure. A later successful sync for the
+same repo clears that repo's error state.
 
 For deployment profiles, database choice, namespace size guidance, and common
 failure modes, see [Operations](operations.md).
