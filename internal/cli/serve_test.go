@@ -594,6 +594,44 @@ func TestServeCmd_StdioDoesNotRequireWebhookValidation(t *testing.T) {
 	}
 }
 
+func TestServeCmdFlags_WebhookFailOnUnreadable(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+
+	var got ServeConfig
+	deps.ServeFunc = func(cfg ServeConfig) error {
+		got = cfg
+		return nil
+	}
+
+	err := executeCmd(deps, stdout, stderr, "serve", "--webhook-fail-on-unreadable")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !got.WebhookFailOnUnreadable {
+		t.Fatal("expected WebhookFailOnUnreadable to be true")
+	}
+}
+
+func TestServeCmdFlags_WebhookFailOnUnreadableDefaultsFalse(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+
+	var got ServeConfig
+	deps.ServeFunc = func(cfg ServeConfig) error {
+		got = cfg
+		return nil
+	}
+
+	err := executeCmd(deps, stdout, stderr, "serve")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got.WebhookFailOnUnreadable {
+		t.Fatal("expected WebhookFailOnUnreadable default to be false")
+	}
+}
+
 func containsArg(args []string, want string) bool {
 	for _, arg := range args {
 		if arg == want {

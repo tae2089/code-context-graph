@@ -39,6 +39,7 @@ type ServeConfig struct {
 	WebhookRetryMaxDelay   time.Duration
 	MaxFileBytes           int64
 	MaxTotalParsedBytes    int64
+	WebhookFailOnUnreadable bool
 }
 
 func validateServeConfig(cfg ServeConfig) error {
@@ -149,6 +150,7 @@ func newServeCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().StringVar(&cfg.RepoRoot, "repo-root", os.Getenv("CCG_REPO_ROOT"), "Root directory for cloned repositories")
 	cmd.Flags().Int64Var(&cfg.MaxFileBytes, "max-file-bytes", 0, "Maximum bytes allowed per parsed source file (0 disables limit; config: parse.max_file_bytes)")
 	cmd.Flags().Int64Var(&cfg.MaxTotalParsedBytes, "max-total-parsed-bytes", 0, "Maximum total bytes allowed across parsed source files (0 disables limit; config: parse.max_total_parsed_bytes)")
+	cmd.Flags().BoolVar(&cfg.WebhookFailOnUnreadable, "webhook-fail-on-unreadable", false, "Fail webhook sync attempts when source files cannot be read instead of skipping them")
 
 	cmd.PreRun = func(cmd *cobra.Command, args []string) {
 		if cmd.Flags().Changed("workspace-root") && !cmd.Flags().Changed("namespace-root") {

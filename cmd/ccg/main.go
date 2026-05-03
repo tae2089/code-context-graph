@@ -908,8 +908,9 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 					MaxFileBytes:        cfg.MaxFileBytes,
 					MaxTotalParsedBytes: cfg.MaxTotalParsedBytes,
 				},
-				Syncer:  deps.Syncer,
-				Replace: true,
+				Syncer:           deps.Syncer,
+				Replace:          true,
+				FailOnUnreadable: cfg.WebhookFailOnUnreadable,
 			})
 			if err != nil {
 				deps.Logger.Error("webhook update failed", "repo", repoFullName, "error", err)
