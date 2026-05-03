@@ -19,6 +19,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/edgeresolve"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/parse"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
@@ -447,6 +448,7 @@ func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.Gr
 	}
 
 	batch := buildPersistBatch{}
+	var edgeBatches []parsedBuildEdgeBatch
 	for _, path := range spool.records {
 		record, err := spool.readRecord(path)
 		if err != nil {
@@ -458,10 +460,11 @@ func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.Gr
 			tsComments:  record.Comments,
 			language:    record.Language,
 			sourceLines: record.SourceLines,
-		}, parsedBuildEdgeBatch{
+		}, record.Bytes)
+		edgeBatches = append(edgeBatches, parsedBuildEdgeBatch{
 			relPath: record.RelPath,
 			edges:   record.Edges,
-		}, record.Bytes)
+		})
 		if batch.shouldFlush() {
 			if err := s.flushBuildBatch(ctx, txStore, &batch); err != nil {
 				return err
@@ -469,6 +472,9 @@ func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.Gr
 		}
 	}
 	if err := s.flushBuildBatch(ctx, txStore, &batch); err != nil {
+		return err
+	}
+	if err := s.flushBuildEdges(ctx, txStore, edgeBatches); err != nil {
 		return err
 	}
 
@@ -488,17 +494,15 @@ func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.Gr
 // @intent amortize transaction overhead by persisting groups of files together while bounding memory.
 type buildPersistBatch struct {
 	nodeBatches []parsedBuildNodeBatch
-	edgeBatches []parsedBuildEdgeBatch
 	files       int
 	bytes       int64
 }
 
-// add appends one parsed file's nodes and edges to the in-flight build batch and tracks size.
+// add appends one parsed file's nodes to the in-flight build batch and tracks size.
 // @intent accumulate work between flushes so persistence happens in bounded chunks.
-// @mutates batch.nodeBatches, batch.edgeBatches, batch.files, batch.bytes
-func (b *buildPersistBatch) add(nodeBatch parsedBuildNodeBatch, edgeBatch parsedBuildEdgeBatch, parsedBytes int64) {
+// @mutates batch.nodeBatches, batch.files, batch.bytes
+func (b *buildPersistBatch) add(nodeBatch parsedBuildNodeBatch, parsedBytes int64) {
 	b.nodeBatches = append(b.nodeBatches, nodeBatch)
-	b.edgeBatches = append(b.edgeBatches, edgeBatch)
 	b.files++
 	b.bytes += parsedBytes
 }
@@ -511,18 +515,17 @@ func (b *buildPersistBatch) shouldFlush() bool {
 
 // reset clears the batch for reuse after a successful flush.
 // @intent recycle the batch struct without reallocating to keep build loops allocation-light.
-// @mutates batch.nodeBatches, batch.edgeBatches, batch.files, batch.bytes
+// @mutates batch.nodeBatches, batch.files, batch.bytes
 func (b *buildPersistBatch) reset() {
 	b.nodeBatches = nil
-	b.edgeBatches = nil
 	b.files = 0
 	b.bytes = 0
 }
 
-// flushBuildBatch persists the buffered nodes and deferred edges for the current batch.
-// @intent persist nodes before edges so foreign-key style references can resolve.
-// @sideEffect upserts graph nodes, annotations, and edges through the transaction-scoped store.
-// @mutates graph nodes, edges, and annotations
+// flushBuildBatch persists the buffered nodes for the current batch.
+// @intent persist nodes before all edges so foreign-key style references can resolve.
+// @sideEffect upserts graph nodes and annotations through the transaction-scoped store.
+// @mutates graph nodes and annotations
 func (s *GraphService) flushBuildBatch(ctx context.Context, txStore store.GraphStore, batch *buildPersistBatch) error {
 	if batch.files == 0 {
 		return nil
@@ -536,19 +539,37 @@ func (s *GraphService) flushBuildBatch(ctx context.Context, txStore store.GraphS
 		}
 	}
 
-	for _, parsed := range batch.edgeBatches {
+	batch.reset()
+	return nil
+}
+
+// flushBuildEdges resolves and persists all deferred edges after graph nodes exist.
+// @intent attach parsed relationships to stored node IDs without depending on build batch order.
+// @sideEffect upserts graph edges through the transaction-scoped store.
+// @mutates graph edges
+func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphStore, edgeBatches []parsedBuildEdgeBatch) error {
+	var allEdges []model.Edge
+	for _, parsed := range edgeBatches {
+		allEdges = append(allEdges, parsed.edges...)
+	}
+	resolved, err := edgeresolve.Resolve(ctx, txStore, allEdges)
+	if err != nil {
+		return trace.Wrap(err, "resolve deferred edges")
+	}
+	offset := 0
+	for _, parsed := range edgeBatches {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if len(parsed.edges) == 0 {
 			continue
 		}
-		if err := txStore.UpsertEdges(ctx, parsed.edges); err != nil {
+		edges := resolved[offset : offset+len(parsed.edges)]
+		offset += len(parsed.edges)
+		if err := txStore.UpsertEdges(ctx, edges); err != nil {
 			return trace.Wrap(err, "upsert deferred edges for "+parsed.relPath)
 		}
 	}
-
-	batch.reset()
 	return nil
 }
 

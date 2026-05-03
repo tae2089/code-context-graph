@@ -350,6 +350,30 @@ func (fw *FileWriter) Write(data []byte) error {
 	}
 }
 
+func TestParseGo_InterfaceAssertionImplementation(t *testing.T) {
+	src := `package main
+
+import (
+	mcpserver "github.com/example/project/internal/mcp"
+	"github.com/example/project/internal/flows"
+)
+
+var _ mcpserver.FlowTracer = (*flows.Tracer)(nil)
+`
+	w := NewWalker(GoSpec)
+	_, edges, err := w.Parse("main.go", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
+	for _, e := range implEdges {
+		if e.Fingerprint == "implements:main.go:flows.Tracer:mcp.FlowTracer" {
+			return
+		}
+	}
+	t.Fatalf("expected assertion implements edge, got %#v", implEdges)
+}
+
 func TestParseGo_StructEmbedding(t *testing.T) {
 	src := `package main
 

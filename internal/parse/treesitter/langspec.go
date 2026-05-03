@@ -25,6 +25,7 @@ type LangSpec struct {
 	ImplTypes       []string
 	ExtensionTypes  []string
 	PackageNodeType string
+	Semantics       LanguageSemantics
 }
 
 var GoSpec = &LangSpec{
@@ -36,6 +37,7 @@ var GoSpec = &LangSpec{
 	CallTypes:       []string{"call_expression"},
 	TestPrefix:      "Test",
 	PackageNodeType: "package_clause",
+	Semantics:       GoSemantics{},
 }
 
 var PythonSpec = &LangSpec{

@@ -31,6 +31,7 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
+	"github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -142,15 +143,51 @@ func (r *recordingGraphStore) GetNodeByID(ctx context.Context, id uint) (*model.
 }
 
 func (r *recordingGraphStore) GetNodesByIDs(ctx context.Context, ids []uint) ([]model.Node, error) {
-	return nil, nil
+	set := make(map[uint]bool, len(ids))
+	for _, id := range ids {
+		set[id] = true
+	}
+	var result []model.Node
+	for _, nodes := range r.nodesByFP {
+		for _, n := range nodes {
+			if set[n.ID] {
+				result = append(result, n)
+			}
+		}
+	}
+	return result, nil
 }
 
 func (r *recordingGraphStore) GetNodesByQualifiedNames(ctx context.Context, names []string) (map[string][]model.Node, error) {
-	return nil, nil
+	set := make(map[string]bool, len(names))
+	for _, name := range names {
+		set[name] = true
+	}
+	result := make(map[string][]model.Node)
+	for _, nodes := range r.nodesByFP {
+		for _, n := range nodes {
+			if set[n.QualifiedName] {
+				result[n.QualifiedName] = append(result[n.QualifiedName], n)
+			}
+		}
+	}
+	return result, nil
 }
 
 func (r *recordingGraphStore) GetNodesByFiles(ctx context.Context, filePaths []string) (map[string][]model.Node, error) {
-	return nil, nil
+	set := make(map[string]bool, len(filePaths))
+	for _, fp := range filePaths {
+		set[fp] = true
+	}
+	result := make(map[string][]model.Node)
+	for fp, nodes := range r.nodesByFP {
+		if set[fp] {
+			out := make([]model.Node, len(nodes))
+			copy(out, nodes)
+			result[fp] = out
+		}
+	}
+	return result, nil
 }
 
 func (r *recordingGraphStore) GetEdgesFrom(ctx context.Context, nodeID uint) ([]model.Edge, error) {
@@ -618,8 +655,8 @@ func Keep` + strconv.Itoa(i) + `() {}
 	if firstEdge == -1 || lastAnn == -1 {
 		t.Fatalf("expected annotations and edges in ops: %v", fakeStore.ops)
 	}
-	if firstEdge >= lastAnn {
-		t.Fatalf("expected batch flushing to allow an edge flush before the final annotation, got ops=%v", fakeStore.ops)
+	if firstEdge <= lastAnn {
+		t.Fatalf("expected deferred edge flush after all annotations, got ops=%v", fakeStore.ops)
 	}
 }
 
@@ -752,6 +789,151 @@ func TestBuild_IncludePaths_ReplacesPreviousGraphScope(t *testing.T) {
 	}
 	if manualEdges != 0 {
 		t.Fatalf("expected manual cross-file edge to be removed with excluded file scope, got %d", manualEdges)
+	}
+}
+
+func TestBuild_ResolvesCallEdgesForTraceFlow(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{
+		Store:   st,
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	src := `package flows
+
+type Tracer struct{}
+
+func (t *Tracer) TraceFlow() {
+	t.TraceFlowBounded()
+}
+
+func (t *Tracer) TraceFlowBounded() {}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "flows.go"), []byte(src), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	start, err := st.GetNode(ctx, "flows.Tracer.TraceFlow")
+	if err != nil || start == nil {
+		t.Fatalf("get TraceFlow node: node=%v err=%v", start, err)
+	}
+	var resolved int64
+	if err := db.Model(&model.Edge{}).
+		Where("kind = ? AND from_node_id = ? AND to_node_id <> 0", model.EdgeKindCalls, start.ID).
+		Count(&resolved).Error; err != nil {
+		t.Fatalf("count resolved edge: %v", err)
+	}
+	if resolved != 1 {
+		t.Fatalf("resolved calls from TraceFlow=%d, want 1", resolved)
+	}
+
+	flow, err := flows.New(st).TraceFlow(ctx, start.ID)
+	if err != nil {
+		t.Fatalf("TraceFlow: %v", err)
+	}
+	if len(flow.Members) != 2 {
+		t.Fatalf("flow members=%d, want 2", len(flow.Members))
+	}
+}
+
+func TestBuild_ResolvesGoInterfaceDispatchForTraceFlow(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{
+		Store:   st,
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	mustMkdir := func(path string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(tmpDir, path), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", path, err)
+		}
+	}
+	mustWrite := func(path, content string) {
+		t.Helper()
+		full := filepath.Join(tmpDir, path)
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	mustMkdir("mcp")
+	mustMkdir("flows")
+	mustMkdir("cmd")
+	mustWrite("mcp/deps.go", `package mcp
+
+type FlowTracer interface {
+	TraceFlow()
+}
+`)
+	mustWrite("flows/flows.go", `package flows
+
+type Tracer struct{}
+
+func (t *Tracer) TraceFlow() {
+	t.TraceFlowBounded()
+}
+
+func (t *Tracer) TraceFlowBounded() {}
+`)
+	mustWrite("cmd/main.go", `package main
+
+import (
+	mcpserver "github.com/example/project/mcp"
+	"github.com/example/project/flows"
+)
+
+var _ mcpserver.FlowTracer = (*flows.Tracer)(nil)
+
+type handler struct {
+	FlowTracer mcpserver.FlowTracer
+}
+
+func (h *handler) Start() {
+	h.FlowTracer.TraceFlow()
+}
+`)
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	start, err := st.GetNode(ctx, "main.handler.Start")
+	if err != nil || start == nil {
+		t.Fatalf("get Start node: node=%v err=%v", start, err)
+	}
+	flow, err := flows.New(st).TraceFlow(ctx, start.ID)
+	if err != nil {
+		t.Fatalf("TraceFlow: %v", err)
+	}
+	if len(flow.Members) != 3 {
+		t.Fatalf("flow members=%d, want 3", len(flow.Members))
 	}
 }
 

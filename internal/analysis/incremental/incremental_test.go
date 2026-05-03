@@ -10,17 +10,32 @@ import (
 )
 
 type recordingStore struct {
-	nodes        map[string]*model.Node
-	upserted     []string
-	deleted      []string
-	upsertedEdge int
-	annotations  []*model.Annotation
+	nodes         map[string]*model.Node
+	upserted      []string
+	deleted       []string
+	upsertedEdges []model.Edge
+	annotations   []*model.Annotation
+	nextID        uint
 }
 
 func (r *recordingStore) GetNodesByFile(_ context.Context, filePath string) ([]model.Node, error) {
 	var result []model.Node
 	for _, n := range r.nodes {
 		if n.FilePath == filePath {
+			result = append(result, *n)
+		}
+	}
+	return result, nil
+}
+
+func (r *recordingStore) GetNodesByIDs(_ context.Context, ids []uint) ([]model.Node, error) {
+	set := make(map[uint]struct{}, len(ids))
+	for _, id := range ids {
+		set[id] = struct{}{}
+	}
+	var result []model.Node
+	for _, n := range r.nodes {
+		if _, ok := set[n.ID]; ok {
 			result = append(result, *n)
 		}
 	}
@@ -41,8 +56,26 @@ func (r *recordingStore) GetNodesByFiles(_ context.Context, filePaths []string) 
 	return result, nil
 }
 
+func (r *recordingStore) GetNodesByQualifiedNames(_ context.Context, names []string) (map[string][]model.Node, error) {
+	set := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		set[name] = struct{}{}
+	}
+	result := make(map[string][]model.Node)
+	for _, n := range r.nodes {
+		if _, ok := set[n.QualifiedName]; ok {
+			result[n.QualifiedName] = append(result[n.QualifiedName], *n)
+		}
+	}
+	return result, nil
+}
+
 func (r *recordingStore) UpsertNodes(_ context.Context, nodes []model.Node) error {
 	for _, n := range nodes {
+		if n.ID == 0 {
+			r.nextID++
+			n.ID = r.nextID
+		}
 		r.upserted = append(r.upserted, n.FilePath)
 		r.nodes[n.QualifiedName] = &n
 	}
@@ -50,7 +83,7 @@ func (r *recordingStore) UpsertNodes(_ context.Context, nodes []model.Node) erro
 }
 
 func (r *recordingStore) UpsertEdges(_ context.Context, edges []model.Edge) error {
-	r.upsertedEdge += len(edges)
+	r.upsertedEdges = append(r.upsertedEdges, edges...)
 	return nil
 }
 
@@ -165,6 +198,41 @@ func TestIncremental_NewFile(t *testing.T) {
 	}
 	if len(st.upserted) != 1 {
 		t.Errorf("expected 1 upsert call, got %d", len(st.upserted))
+	}
+}
+
+func TestIncremental_NewFileResolvesCallEdges(t *testing.T) {
+	st := newStore()
+	parser := &staticParser{result: map[string]parseResult{
+		"new.go": {
+			nodes: []model.Node{
+				{QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "A", FilePath: "new.go", StartLine: 3, EndLine: 5, Hash: "abc123", Language: "go"},
+				{QualifiedName: "pkg.B", Kind: model.NodeKindFunction, Name: "B", FilePath: "new.go", StartLine: 7, EndLine: 7, Hash: "abc123", Language: "go"},
+			},
+			edges: []model.Edge{{
+				Kind:        model.EdgeKindCalls,
+				FilePath:    "new.go",
+				Line:        4,
+				Fingerprint: "calls:new.go:B:4",
+			}},
+		},
+	}}
+
+	syncer := New(st, parser)
+	files := map[string]FileInfo{
+		"new.go": {Hash: "abc123", Content: []byte("package pkg")},
+	}
+	if _, err := syncer.Sync(context.Background(), files); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.upsertedEdges) != 1 {
+		t.Fatalf("upserted edges=%d, want 1", len(st.upsertedEdges))
+	}
+	if got := st.upsertedEdges[0].FromNodeID; got == 0 {
+		t.Fatal("expected FromNodeID to be resolved")
+	}
+	if got := st.upsertedEdges[0].ToNodeID; got == 0 {
+		t.Fatal("expected ToNodeID to be resolved")
 	}
 }
 

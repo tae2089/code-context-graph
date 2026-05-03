@@ -167,6 +167,7 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 	var edges []model.Edge
 	var comments []CommentBlock
 	var interfaces []interfaceInfo
+	var pkgName string
 
 	fileNode := model.Node{
 		QualifiedName: filePath,
@@ -180,13 +181,19 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 	nodes = append(nodes, fileNode)
 
 	if w.query != nil {
-		nodes, edges, _, interfaces, err = w.executeQueries(root, content, filePath, nodes, edges)
+		nodes, edges, pkgName, interfaces, err = w.executeQueries(root, content, filePath, nodes, edges)
 		if err != nil {
 			return nil, nil, nil, err
 		}
+		edges = append(edges, semanticsOrDefault(w.spec).AdditionalEdges(SemanticContext{
+			Root:       root,
+			Content:    content,
+			FilePath:   filePath,
+			Package:    pkgName,
+			Nodes:      nodes,
+			Interfaces: interfaces,
+		})...)
 	}
-
-	w.resolveImplements(nodes, interfaces, filePath, &edges)
 
 	for _, n := range nodes {
 		if n.Kind == model.NodeKindFile {
@@ -521,50 +528,6 @@ func (w *Walker) extractEmbeddings(structNode *sitter.Node, content []byte, file
 		}
 	}
 	return edges
-}
-
-// resolveImplements infers implements edges by matching receiver methods to interface method sets.
-// @intent recover implicit Go implementation relationships that are not explicit in syntax
-// @domainRule a receiver implements an interface only when it defines every interface method
-// @mutates edges appends inferred implements relationships
-func (w *Walker) resolveImplements(nodes []model.Node, ifaces []interfaceInfo, filePath string, edges *[]model.Edge) {
-	methodsByReceiver := make(map[string]map[string]bool)
-	for _, n := range nodes {
-		if n.Kind != model.NodeKindFunction {
-			continue
-		}
-		parts := strings.Split(n.QualifiedName, ".")
-		if len(parts) >= 3 {
-			receiver := parts[len(parts)-2]
-			method := parts[len(parts)-1]
-			if methodsByReceiver[receiver] == nil {
-				methodsByReceiver[receiver] = make(map[string]bool)
-			}
-			methodsByReceiver[receiver][method] = true
-		}
-	}
-
-	for _, iface := range ifaces {
-		if len(iface.methods) == 0 {
-			continue
-		}
-		for receiver, methods := range methodsByReceiver {
-			allMatch := true
-			for _, m := range iface.methods {
-				if !methods[m] {
-					allMatch = false
-					break
-				}
-			}
-			if allMatch {
-				*edges = append(*edges, model.Edge{
-					Kind:        model.EdgeKindImplements,
-					FilePath:    filePath,
-					Fingerprint: fmt.Sprintf("implements:%s:%s:%s", filePath, receiver, iface.name),
-				})
-			}
-		}
-	}
 }
 
 // extractReceiverStr normalizes receiver text for qualified-name construction.

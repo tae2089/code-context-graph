@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/tae2089/code-context-graph/internal/edgeresolve"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/parse"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
@@ -15,8 +16,10 @@ import (
 // Store defines persistence operations needed for incremental sync.
 // @intent abstract graph storage so changed files can be reparsed and upserted
 type Store interface {
+	GetNodesByIDs(ctx context.Context, ids []uint) ([]model.Node, error)
 	GetNodesByFile(ctx context.Context, filePath string) ([]model.Node, error)
 	GetNodesByFiles(ctx context.Context, filePaths []string) (map[string][]model.Node, error)
+	GetNodesByQualifiedNames(ctx context.Context, names []string) (map[string][]model.Node, error)
 	UpsertNodes(ctx context.Context, nodes []model.Node) error
 	UpsertEdges(ctx context.Context, edges []model.Edge) error
 	DeleteNodesByFile(ctx context.Context, filePath string) error
@@ -224,7 +227,11 @@ func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files ma
 			}
 		}
 		if len(edges) > 0 {
-			if err := syncStore.UpsertEdges(ctx, edges); err != nil {
+			resolved, err := edgeresolve.Resolve(ctx, syncStore, edges)
+			if err != nil {
+				return nil, err
+			}
+			if err := syncStore.UpsertEdges(ctx, resolved); err != nil {
 				return nil, err
 			}
 		}
