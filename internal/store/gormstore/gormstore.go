@@ -193,16 +193,50 @@ func (s *Store) GetFileNodesByPathSuffix(ctx context.Context, suffix string) ([]
 		return nil, err
 	}
 	var out []model.Node
+	var exact []model.Node
+	bestDepth := -1
 	for _, node := range nodes {
 		dir := strings.Trim(path.Dir(node.FilePath), "/")
 		if dir == "." || dir == "" {
 			continue
 		}
-		if suffix == dir || strings.HasSuffix(suffix, "/"+dir) {
-			out = append(out, node)
+		if suffix == dir {
+			exact = append(exact, node)
+			continue
+		}
+		if depth := commonPathSuffixDepth(suffix, dir); depth > 0 {
+			if depth > bestDepth {
+				bestDepth = depth
+				out = []model.Node{node}
+				continue
+			}
+			if depth == bestDepth {
+				out = append(out, node)
+			}
 		}
 	}
+	if len(exact) > 0 {
+		return exact, nil
+	}
 	return out, nil
+}
+
+func commonPathSuffixDepth(a, b string) int {
+	a = strings.Trim(a, "/")
+	b = strings.Trim(b, "/")
+	if a == "" || b == "" {
+		return 0
+	}
+	aParts := strings.Split(a, "/")
+	bParts := strings.Split(b, "/")
+	depth := 0
+	for i, j := len(aParts)-1, len(bParts)-1; i >= 0 && j >= 0; i, j = i-1, j-1 {
+		if aParts[i] != bParts[j] {
+			break
+		}
+		depth++
+	}
+	return depth
 }
 
 // DeleteNodesByFile는 파일에 속한 노드와 연관 데이터를 제거한다.

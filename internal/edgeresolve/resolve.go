@@ -64,11 +64,8 @@ func Resolve(ctx context.Context, lookup NodeLookup, edges []model.Edge) ([]mode
 		if err != nil {
 			return nil, err
 		}
-		for qn, ns := range queried {
-			st.qnIndex[qn] = append(st.qnIndex[qn], ns...)
-			for _, n := range ns {
-				st.nodeByID[n.ID] = n
-			}
+		for _, ns := range queried {
+			st.addNodes(ns)
 		}
 	}
 
@@ -317,11 +314,27 @@ func resolveImportsFrom(ctx context.Context, lookup NodeLookup, edge *model.Edge
 	}
 	if target := uniqueFileNode(st.qnIndex[importPath]); target != nil {
 		edge.ToNodeID = target.ID
+		st.loadFileNodes(ctx, lookup, target.FilePath)
 		return
 	}
 	if target := resolveImportFile(ctx, lookup, st, importPath); target != nil {
 		edge.ToNodeID = target.ID
+		st.loadFileNodes(ctx, lookup, target.FilePath)
 	}
+}
+
+func (st *resolveState) loadFileNodes(ctx context.Context, lookup NodeLookup, filePath string) {
+	if filePath == "" {
+		return
+	}
+	if nodes, ok := st.nodesByFile[filePath]; ok && len(nodes) > 1 {
+		return
+	}
+	loaded, err := lookup.GetNodesByFiles(ctx, []string{filePath})
+	if err != nil {
+		return
+	}
+	st.addNodes(loaded[filePath])
 }
 
 func resolveImportFile(ctx context.Context, lookup NodeLookup, st *resolveState, importPath string) *model.Node {
@@ -332,17 +345,7 @@ func resolveImportFile(ctx context.Context, lookup NodeLookup, st *resolveState,
 		return &node
 	}
 	importPath = strings.Trim(path.Clean(importPath), "/")
-	var candidates []model.Node
-	for _, node := range st.fileNodeByPath {
-		dir := strings.Trim(path.Dir(node.FilePath), "/")
-		if dir == "." || dir == "" {
-			continue
-		}
-		if importPath == dir || strings.HasSuffix(importPath, "/"+dir) {
-			candidates = append(candidates, node)
-		}
-	}
-	if target := uniqueFileNode(candidates); target != nil {
+	if target := bestImportFileMatch(st.fileNodeByPath, importPath); target != nil {
 		return target
 	}
 	if prefixLookup, ok := lookup.(filePrefixLookup); ok {
@@ -352,6 +355,57 @@ func resolveImportFile(ctx context.Context, lookup NodeLookup, st *resolveState,
 		}
 	}
 	return nil
+}
+
+func bestImportFileMatch(fileNodeByPath map[string]model.Node, importPath string) *model.Node {
+	var exact []model.Node
+	var candidates []model.Node
+	bestDepth := -1
+	for _, node := range fileNodeByPath {
+		dir := strings.Trim(path.Dir(node.FilePath), "/")
+		if dir == "." || dir == "" {
+			continue
+		}
+		if importPath == dir {
+			exact = append(exact, node)
+			continue
+		}
+		if depth := commonSuffixDepth(importPath, dir); depth > 0 {
+			if depth > bestDepth {
+				bestDepth = depth
+				candidates = []model.Node{node}
+				continue
+			}
+			if depth == bestDepth {
+				candidates = append(candidates, node)
+			}
+		}
+	}
+	if target := uniqueFileNode(exact); target != nil {
+		return target
+	}
+	if len(exact) > 0 {
+		return nil
+	}
+	return uniqueFileNode(candidates)
+}
+
+func commonSuffixDepth(a, b string) int {
+	a = strings.Trim(a, "/")
+	b = strings.Trim(b, "/")
+	if a == "" || b == "" {
+		return 0
+	}
+	aParts := strings.Split(a, "/")
+	bParts := strings.Split(b, "/")
+	depth := 0
+	for i, j := len(aParts)-1, len(bParts)-1; i >= 0 && j >= 0; i, j = i-1, j-1 {
+		if aParts[i] != bParts[j] {
+			break
+		}
+		depth++
+	}
+	return depth
 }
 
 func resolveInherits(edge *model.Edge, st *resolveState) {
@@ -372,11 +426,11 @@ func resolveTestedBy(edge *model.Edge, st *resolveState) {
 	if !ok {
 		return
 	}
-	if to := uniqueCallable(st.qnIndex[testQN]); to != nil {
-		edge.ToNodeID = to.ID
-	}
-	if from := resolveProductionFunction(st, edge.FilePath, bare); from != nil {
+	if from := uniqueCallable(st.qnIndex[testQN]); from != nil {
 		edge.FromNodeID = from.ID
+	}
+	if to := resolveProductionFunction(st, edge.FilePath, bare); to != nil {
+		edge.ToNodeID = to.ID
 	}
 }
 
@@ -549,13 +603,24 @@ func (st *resolveState) ensureDispatchTargets(ctx context.Context, lookup NodeLo
 
 func (st *resolveState) addNodes(nodes []model.Node) {
 	for _, n := range nodes {
-		st.qnIndex[n.QualifiedName] = append(st.qnIndex[n.QualifiedName], n)
-		if n.ID != 0 {
-			st.nodeByID[n.ID] = n
+		st.indexNode(n)
+	}
+}
+
+func (st *resolveState) indexNode(n model.Node) {
+	st.qnIndex[n.QualifiedName] = appendUniqueNode(st.qnIndex[n.QualifiedName], n)
+	if n.ID != 0 {
+		st.nodeByID[n.ID] = n
+	}
+	st.nodesByFile[n.FilePath] = appendUniqueNode(st.nodesByFile[n.FilePath], n)
+	if n.Kind == model.NodeKindFunction || n.Kind == model.NodeKindTest {
+		if st.nameByFile[n.FilePath] == nil {
+			st.nameByFile[n.FilePath] = make(map[string][]model.Node)
 		}
-		if st.nodesByFile[n.FilePath] == nil {
-			st.nodesByFile[n.FilePath] = []model.Node{n}
-		}
+		st.nameByFile[n.FilePath][n.Name] = appendUniqueNode(st.nameByFile[n.FilePath][n.Name], n)
+	}
+	if n.Kind == model.NodeKindFile {
+		st.fileNodeByPath[n.FilePath] = n
 	}
 }
 

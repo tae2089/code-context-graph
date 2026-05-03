@@ -3,6 +3,7 @@ package gormstore
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 
 	"gorm.io/driver/sqlite"
@@ -1023,6 +1024,65 @@ func TestGetNodesByQualifiedNames_PreservesDuplicateQualifiedNames(t *testing.T)
 	}
 	if !startLines[7] || !startLines[15] {
 		t.Fatalf("expected start lines 7 and 15, got %#v", startLines)
+	}
+}
+
+func TestGetFileNodesByPathSuffix_PrefersExactDirectoryMatch(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := context.Background()
+	if err := s.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "cmd/main.go", Kind: model.NodeKindFile, Name: "cmd/main.go", FilePath: "cmd/main.go", StartLine: 1, EndLine: 10, Language: "go"},
+		{QualifiedName: "internal/mcp/deps.go", Kind: model.NodeKindFile, Name: "internal/mcp/deps.go", FilePath: "internal/mcp/deps.go", StartLine: 1, EndLine: 10, Language: "go"},
+		{QualifiedName: "pkg/internal/mcp/deps.go", Kind: model.NodeKindFile, Name: "pkg/internal/mcp/deps.go", FilePath: "pkg/internal/mcp/deps.go", StartLine: 1, EndLine: 10, Language: "go"},
+	}); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+	got, err := s.GetFileNodesByPathSuffix(ctx, "internal/mcp")
+	if err != nil {
+		t.Fatalf("GetFileNodesByPathSuffix: %v", err)
+	}
+	if len(got) != 1 || got[0].FilePath != "internal/mcp/deps.go" {
+		t.Fatalf("expected exact directory match only, got %+v", got)
+	}
+}
+
+func TestGetFileNodesByPathSuffix_ReturnsAmbiguousExactDirectoryMatches(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := context.Background()
+	if err := s.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "internal/mcp/deps.go", Kind: model.NodeKindFile, Name: "internal/mcp/deps.go", FilePath: "internal/mcp/deps.go", StartLine: 1, EndLine: 10, Language: "go"},
+		{QualifiedName: "internal/mcp/extra.go", Kind: model.NodeKindFile, Name: "internal/mcp/extra.go", FilePath: "internal/mcp/extra.go", StartLine: 1, EndLine: 10, Language: "go"},
+	}); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+	got, err := s.GetFileNodesByPathSuffix(ctx, "internal/mcp")
+	if err != nil {
+		t.Fatalf("GetFileNodesByPathSuffix: %v", err)
+	}
+	paths := []string{got[0].FilePath, got[1].FilePath}
+	slices.Sort(paths)
+	if len(got) != 2 || !slices.Equal(paths, []string{"internal/mcp/deps.go", "internal/mcp/extra.go"}) {
+		t.Fatalf("expected both exact directory matches, got %+v", got)
+	}
+}
+
+func TestGetFileNodesByPathSuffix_ReturnsAmbiguousLongestMatches(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := context.Background()
+	if err := s.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg/mcp/deps.go", Kind: model.NodeKindFile, Name: "pkg/mcp/deps.go", FilePath: "pkg/mcp/deps.go", StartLine: 1, EndLine: 10, Language: "go"},
+		{QualifiedName: "internal/mcp/deps.go", Kind: model.NodeKindFile, Name: "internal/mcp/deps.go", FilePath: "internal/mcp/deps.go", StartLine: 1, EndLine: 10, Language: "go"},
+	}); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+	got, err := s.GetFileNodesByPathSuffix(ctx, "github.com/example/project/mcp")
+	if err != nil {
+		t.Fatalf("GetFileNodesByPathSuffix: %v", err)
+	}
+	paths := []string{got[0].FilePath, got[1].FilePath}
+	slices.Sort(paths)
+	if len(got) != 2 || !slices.Equal(paths, []string{"internal/mcp/deps.go", "pkg/mcp/deps.go"}) {
+		t.Fatalf("expected both ambiguous longest matches, got %+v", got)
 	}
 }
 

@@ -10,12 +10,15 @@ import (
 )
 
 type fakeLookup struct {
-	nodes []model.Node
+	nodes         []model.Node
+	fileNodesByFP map[string][]model.Node
 }
 
 func (f fakeLookup) GetFileNodesByPathSuffix(_ context.Context, suffix string) ([]model.Node, error) {
 	suffix = strings.Trim(suffix, "/")
 	var out []model.Node
+	var exact []model.Node
+	bestDepth := -1
 	for _, n := range f.nodes {
 		if n.Kind != model.NodeKindFile {
 			continue
@@ -24,14 +27,35 @@ func (f fakeLookup) GetFileNodesByPathSuffix(_ context.Context, suffix string) (
 		if dir == "." || dir == "" {
 			continue
 		}
-		if suffix == dir || strings.HasSuffix(suffix, "/"+dir) {
-			out = append(out, n)
+		if suffix == dir {
+			exact = append(exact, n)
+			continue
 		}
+		if depth := commonSuffixDepth(suffix, dir); depth > 0 {
+			if depth > bestDepth {
+				bestDepth = depth
+				out = []model.Node{n}
+				continue
+			}
+			if depth == bestDepth {
+				out = append(out, n)
+			}
+		}
+	}
+	if len(exact) > 0 {
+		return exact, nil
 	}
 	return out, nil
 }
 
 func (f fakeLookup) GetNodesByFiles(_ context.Context, filePaths []string) (map[string][]model.Node, error) {
+	if f.fileNodesByFP != nil {
+		out := make(map[string][]model.Node, len(filePaths))
+		for _, fp := range filePaths {
+			out[fp] = append(out[fp], f.fileNodesByFP[fp]...)
+		}
+		return out, nil
+	}
 	set := make(map[string]bool, len(filePaths))
 	for _, fp := range filePaths {
 		set[fp] = true
@@ -267,6 +291,66 @@ func TestResolveImportsFromBindsInternalPackageByImportPathSuffix(t *testing.T) 
 	}
 }
 
+func TestResolveImportsFromPrefersExactDirectoryMatch(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 10, QualifiedName: "cmd/main.go", Name: "cmd/main.go", Kind: model.NodeKindFile, FilePath: "cmd/main.go", Language: "go"},
+		{ID: 20, QualifiedName: "internal/mcp/deps.go", Name: "internal/mcp/deps.go", Kind: model.NodeKindFile, FilePath: "internal/mcp/deps.go", Language: "go"},
+		{ID: 21, QualifiedName: "pkg/internal/mcp/deps.go", Name: "pkg/internal/mcp/deps.go", Kind: model.NodeKindFile, FilePath: "pkg/internal/mcp/deps.go", Language: "go"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{{
+		Kind:        model.EdgeKindImportsFrom,
+		FilePath:    "cmd/main.go",
+		Line:        2,
+		Fingerprint: "imports_from:cmd/main.go:internal/mcp:2",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := edges[0].ToNodeID; got != 20 {
+		t.Fatalf("ToNodeID=%d, want exact dir match 20", got)
+	}
+}
+
+func TestResolveImportsFromLeavesAmbiguousExactDirectoryUnresolved(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 10, QualifiedName: "cmd/main.go", Name: "cmd/main.go", Kind: model.NodeKindFile, FilePath: "cmd/main.go", Language: "go"},
+		{ID: 20, QualifiedName: "internal/mcp/deps.go", Name: "internal/mcp/deps.go", Kind: model.NodeKindFile, FilePath: "internal/mcp/deps.go", Language: "go"},
+		{ID: 21, QualifiedName: "internal/mcp/extra.go", Name: "internal/mcp/extra.go", Kind: model.NodeKindFile, FilePath: "internal/mcp/extra.go", Language: "go"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{{
+		Kind:        model.EdgeKindImportsFrom,
+		FilePath:    "cmd/main.go",
+		Line:        2,
+		Fingerprint: "imports_from:cmd/main.go:internal/mcp:2",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := edges[0].ToNodeID; got != 0 {
+		t.Fatalf("ToNodeID=%d, want unresolved 0 for ambiguous exact dir", got)
+	}
+}
+
+func TestResolveImportsFromLeavesAmbiguousSuffixUnresolved(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 10, QualifiedName: "cmd/main.go", Name: "cmd/main.go", Kind: model.NodeKindFile, FilePath: "cmd/main.go", Language: "go"},
+		{ID: 20, QualifiedName: "internal/mcp/deps.go", Name: "internal/mcp/deps.go", Kind: model.NodeKindFile, FilePath: "internal/mcp/deps.go", Language: "go"},
+		{ID: 21, QualifiedName: "pkg/mcp/deps.go", Name: "pkg/mcp/deps.go", Kind: model.NodeKindFile, FilePath: "pkg/mcp/deps.go", Language: "go"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{{
+		Kind:        model.EdgeKindImportsFrom,
+		FilePath:    "cmd/main.go",
+		Line:        2,
+		Fingerprint: "imports_from:cmd/main.go:github.com/example/project/mcp:2",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := edges[0].ToNodeID; got != 0 {
+		t.Fatalf("ToNodeID=%d, want unresolved 0 for ambiguous suffix", got)
+	}
+}
+
 func TestResolveInheritsBindsTypeEndpoints(t *testing.T) {
 	lookup := fakeLookup{nodes: []model.Node{
 		{ID: 1, QualifiedName: "pkg.Child", Name: "Child", Kind: model.NodeKindClass, FilePath: "child.go", StartLine: 3, EndLine: 5, Language: "go"},
@@ -289,7 +373,7 @@ func TestResolveInheritsBindsTypeEndpoints(t *testing.T) {
 	}
 }
 
-func TestResolveTestedByBindsProductionAndTestEndpoints(t *testing.T) {
+func TestResolveTestedByBindsTestAndProductionEndpoints(t *testing.T) {
 	lookup := fakeLookup{nodes: []model.Node{
 		{ID: 1, QualifiedName: "pkg.Add", Name: "Add", Kind: model.NodeKindFunction, FilePath: "add.go", StartLine: 3, EndLine: 5, Language: "go"},
 		{ID: 2, QualifiedName: "pkg.TestAdd", Name: "TestAdd", Kind: model.NodeKindTest, FilePath: "add_test.go", StartLine: 3, EndLine: 7, Language: "go"},
@@ -303,11 +387,58 @@ func TestResolveTestedByBindsProductionAndTestEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := edges[0].FromNodeID; got != 1 {
-		t.Fatalf("FromNodeID=%d, want 1", got)
+	if got := edges[0].FromNodeID; got != 2 {
+		t.Fatalf("FromNodeID=%d, want test node 2", got)
+	}
+	if got := edges[0].ToNodeID; got != 1 {
+		t.Fatalf("ToNodeID=%d, want production node 1", got)
+	}
+}
+
+func TestResolveTestedByLeavesAmbiguousProductionUnresolved(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "pkg.Add", Name: "Add", Kind: model.NodeKindFunction, FilePath: "add_test.go", StartLine: 3, EndLine: 5, Language: "go"},
+		{ID: 3, QualifiedName: "pkg.Add", Name: "Add", Kind: model.NodeKindFunction, FilePath: "add_test.go", StartLine: 8, EndLine: 10, Language: "go"},
+		{ID: 2, QualifiedName: "pkg.TestAdd", Name: "TestAdd", Kind: model.NodeKindTest, FilePath: "add_test.go", StartLine: 3, EndLine: 7, Language: "go"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{{
+		Kind:        model.EdgeKindTestedBy,
+		FilePath:    "add_test.go",
+		Line:        5,
+		Fingerprint: "tested_by:add_test.go:Add:pkg.TestAdd",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := edges[0].FromNodeID; got != 2 {
+		t.Fatalf("FromNodeID=%d, want test node 2", got)
+	}
+	if got := edges[0].ToNodeID; got != 0 {
+		t.Fatalf("ToNodeID=%d, want unresolved 0 for ambiguous production", got)
+	}
+}
+
+func TestResolveLateLoadedNodesRefreshAllIndexes(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "pkg.Run", Name: "Run", Kind: model.NodeKindFunction, FilePath: "main.go", StartLine: 1, EndLine: 50, Language: "go"},
+		{ID: 2, QualifiedName: "pkg.RunBounded", Name: "RunBounded", Kind: model.NodeKindFunction, FilePath: "main.go", StartLine: 20, EndLine: 30, Language: "go"},
+	}, fileNodesByFP: map[string][]model.Node{
+		"main.go": {{ID: 1, QualifiedName: "pkg.Run", Name: "Run", Kind: model.NodeKindFunction, FilePath: "main.go", StartLine: 1, EndLine: 50, Language: "go"}},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{{
+		Kind:        model.EdgeKindCalls,
+		FilePath:    "main.go",
+		Line:        21,
+		Fingerprint: "calls:main.go:RunBounded:21",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := edges[0].FromNodeID; got != 2 {
+		t.Fatalf("FromNodeID=%d, want late-loaded caller node 2", got)
 	}
 	if got := edges[0].ToNodeID; got != 2 {
-		t.Fatalf("ToNodeID=%d, want 2", got)
+		t.Fatalf("ToNodeID=%d, want late-loaded callee node 2", got)
 	}
 }
 
