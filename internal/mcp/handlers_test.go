@@ -25,6 +25,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 )
 
 func TestMarshalJSON(t *testing.T) {
@@ -1202,6 +1203,80 @@ func Run() {}
 	}
 }
 
+func TestBuildOrUpdateGraph_UsesAutomaticPolicyWhenNotExplicitlyProvided(t *testing.T) {
+	deps := setupTestDeps(t)
+	stub := &stubPostprocessPolicy{resolvedPolicy: "fail_closed", resolvedSource: "auto"}
+	deps.PostprocessPolicy = stub
+	deps.CommunityBuilder = &mockCommunityBuilder{err: errors.New("community rebuild boom")}
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "svc.go", "package svc\nfunc Run() {}\n")
+
+	result := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": true,
+		"postprocess":  "full",
+	})
+	if !result.IsError {
+		t.Fatalf("expected auto fail_closed policy to return tool error, got: %s", getTextContent(result))
+	}
+	if len(stub.resolvedInputs) != 1 {
+		t.Fatalf("resolve calls = %d, want 1", len(stub.resolvedInputs))
+	}
+	if stub.resolvedInputs[0].ExplicitPolicy != "" {
+		t.Fatalf("explicit policy = %q, want empty", stub.resolvedInputs[0].ExplicitPolicy)
+	}
+}
+
+func TestBuildOrUpdateGraph_PassesExplicitPolicyToResolverAndRecordsRun(t *testing.T) {
+	deps := setupTestDeps(t)
+	stub := &stubPostprocessPolicy{resolvedPolicy: "degraded", resolvedSource: "explicit"}
+	deps.PostprocessPolicy = stub
+	deps.CommunityBuilder = &mockCommunityBuilder{err: errors.New("community rebuild boom")}
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "svc.go", "package svc\nfunc Run() {}\n")
+
+	result := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":               dir,
+		"full_rebuild":       true,
+		"postprocess":        "full",
+		"postprocess_policy": "fail_closed",
+	})
+	if result.IsError {
+		t.Fatalf("expected explicit degraded resolver result not to error, got: %s", getTextContent(result))
+	}
+	if got := len(stub.resolvedInputs); got != 1 {
+		t.Fatalf("resolve calls = %d, want 1", got)
+	}
+	if stub.resolvedInputs[0].ExplicitPolicy != "fail_closed" {
+		t.Fatalf("explicit policy = %q, want fail_closed", stub.resolvedInputs[0].ExplicitPolicy)
+	}
+	if got := len(stub.recordedRuns); got != 1 {
+		t.Fatalf("recorded runs = %d, want 1", got)
+	}
+	if stub.recordedRuns[0].Policy != "degraded" {
+		t.Fatalf("recorded policy = %q, want degraded", stub.recordedRuns[0].Policy)
+	}
+	if stub.recordedRuns[0].Source != "explicit" {
+		t.Fatalf("recorded source = %q, want explicit", stub.recordedRuns[0].Source)
+	}
+	if stub.recordedRuns[0].Tool != "build_or_update_graph" {
+		t.Fatalf("recorded tool = %q, want build_or_update_graph", stub.recordedRuns[0].Tool)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+		t.Fatalf("expected JSON, got: %s", getTextContent(result))
+	}
+	if resp["postprocess_policy"] != "degraded" {
+		t.Fatalf("response postprocess_policy = %v, want degraded", resp["postprocess_policy"])
+	}
+	if resp["policy_source"] != "explicit" {
+		t.Fatalf("response policy_source = %v, want explicit", resp["policy_source"])
+	}
+}
+
 func containsString(values []any, target string) bool {
 	for _, v := range values {
 		if s, ok := v.(string); ok && s == target {
@@ -1423,6 +1498,158 @@ func TestRunPostprocess_RejectsInvalidCommunityDepth(t *testing.T) {
 				t.Fatal("community rebuild should not run for invalid depth")
 			}
 		})
+	}
+}
+
+func TestRunPostprocess_UsesAutomaticPolicyWhenNotExplicitlyProvided(t *testing.T) {
+	deps := setupTestDeps(t)
+	stub := &stubPostprocessPolicy{resolvedPolicy: "fail_closed", resolvedSource: "auto"}
+	deps.PostprocessPolicy = stub
+	deps.CommunityBuilder = &mockCommunityBuilder{err: errors.New("community rebuild boom")}
+
+	result := callTool(t, deps, "run_postprocess", map[string]any{
+		"communities": true,
+		"fts":         false,
+		"flows":       false,
+	})
+	if !result.IsError {
+		t.Fatalf("expected auto fail_closed policy to return tool error, got: %s", getTextContent(result))
+	}
+	if len(stub.resolvedInputs) != 1 {
+		t.Fatalf("resolve calls = %d, want 1", len(stub.resolvedInputs))
+	}
+	if stub.resolvedInputs[0].Tool != "run_postprocess" {
+		t.Fatalf("resolver tool = %q, want run_postprocess", stub.resolvedInputs[0].Tool)
+	}
+	if stub.resolvedInputs[0].ExplicitPolicy != "" {
+		t.Fatalf("explicit policy = %q, want empty", stub.resolvedInputs[0].ExplicitPolicy)
+	}
+}
+
+func TestRunPostprocess_PassesExplicitPolicyToResolverAndRecordsRun(t *testing.T) {
+	deps := setupTestDeps(t)
+	stub := &stubPostprocessPolicy{resolvedPolicy: "degraded", resolvedSource: "explicit"}
+	deps.PostprocessPolicy = stub
+	deps.SearchBackend = &failSearchBackend{err: errors.New("fts rebuild boom")}
+
+	result := callTool(t, deps, "run_postprocess", map[string]any{
+		"communities":        false,
+		"fts":                true,
+		"flows":              false,
+		"postprocess_policy": "fail_closed",
+	})
+	if result.IsError {
+		t.Fatalf("expected explicit degraded resolver result not to error, got: %s", getTextContent(result))
+	}
+	if got := len(stub.resolvedInputs); got != 1 {
+		t.Fatalf("resolve calls = %d, want 1", got)
+	}
+	if stub.resolvedInputs[0].ExplicitPolicy != "fail_closed" {
+		t.Fatalf("explicit policy = %q, want fail_closed", stub.resolvedInputs[0].ExplicitPolicy)
+	}
+	if got := len(stub.recordedRuns); got != 1 {
+		t.Fatalf("recorded runs = %d, want 1", got)
+	}
+	if stub.recordedRuns[0].Tool != "run_postprocess" {
+		t.Fatalf("recorded tool = %q, want run_postprocess", stub.recordedRuns[0].Tool)
+	}
+	if stub.recordedRuns[0].Policy != "degraded" {
+		t.Fatalf("recorded policy = %q, want degraded", stub.recordedRuns[0].Policy)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+		t.Fatalf("expected JSON, got: %s", getTextContent(result))
+	}
+	if resp["postprocess_policy"] != "degraded" {
+		t.Fatalf("response postprocess_policy = %v, want degraded", resp["postprocess_policy"])
+	}
+	if resp["policy_source"] != "explicit" {
+		t.Fatalf("response policy_source = %v, want explicit", resp["policy_source"])
+	}
+}
+
+func TestRunPostprocess_AutoEscalatesAfterThreeFailuresWithRealPolicyStore(t *testing.T) {
+	deps := setupTestDepsWithRealPostprocessPolicy(t)
+	deps.CommunityBuilder = &mockCommunityBuilder{err: errors.New("community rebuild boom")}
+
+	for i := 0; i < 3; i++ {
+		result := callTool(t, deps, "run_postprocess", map[string]any{
+			"communities": true,
+			"fts":         false,
+			"flows":       false,
+		})
+		if result.IsError {
+			t.Fatalf("attempt %d should be degraded before escalation, got: %s", i+1, getTextContent(result))
+		}
+		var resp map[string]any
+		if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+			t.Fatalf("expected JSON, got: %s", getTextContent(result))
+		}
+		if resp["postprocess_policy"] != "degraded" {
+			t.Fatalf("attempt %d policy = %v, want degraded", i+1, resp["postprocess_policy"])
+		}
+	}
+
+	result := callTool(t, deps, "run_postprocess", map[string]any{
+		"communities": true,
+		"fts":         false,
+		"flows":       false,
+	})
+	if !result.IsError {
+		t.Fatalf("expected fourth attempt to fail_closed, got: %s", getTextContent(result))
+	}
+
+	policyStore := postprocesspolicy.NewStore(deps.DB)
+	count, err := policyStore.ConsecutiveFailures(context.Background(), postprocesspolicy.ToolRunPostprocess, 10)
+	if err != nil {
+		t.Fatalf("consecutive failures: %v", err)
+	}
+	if count != 4 {
+		t.Fatalf("consecutive failures = %d, want 4", count)
+	}
+	state, err := policyStore.GetState(context.Background(), postprocesspolicy.ToolRunPostprocess)
+	if err != nil {
+		t.Fatalf("get state: %v", err)
+	}
+	if state == nil || state.Policy != postprocesspolicy.PolicyFailClosed {
+		t.Fatalf("state policy = %v, want fail_closed", state)
+	}
+}
+
+func TestRunPostprocess_RealPolicyStoreIsolatedByNamespaceAndTool(t *testing.T) {
+	deps := setupTestDepsWithRealPostprocessPolicy(t)
+	deps.CommunityBuilder = &mockCommunityBuilder{err: errors.New("community rebuild boom")}
+
+	for i := 0; i < 3; i++ {
+		result := callToolWithNamespace(t, deps, "ns-a", "run_postprocess", map[string]any{
+			"communities": true,
+			"fts":         false,
+			"flows":       false,
+		})
+		if result.IsError {
+			t.Fatalf("ns-a attempt %d should be degraded, got: %s", i+1, getTextContent(result))
+		}
+	}
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "svc.go", "package svc\nfunc Run() {}\n")
+	buildResult := callToolWithNamespace(t, deps, "ns-b", "build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": true,
+		"postprocess":  "none",
+	})
+	if buildResult.IsError {
+		t.Fatalf("ns-b build should not be affected by ns-a run_postprocess failures, got: %s", getTextContent(buildResult))
+	}
+
+	fourth := callToolWithNamespace(t, deps, "ns-a", "run_postprocess", map[string]any{
+		"communities": true,
+		"fts":         false,
+		"flows":       false,
+	})
+	if !fourth.IsError {
+		t.Fatalf("expected ns-a fourth run_postprocess attempt to fail_closed, got: %s", getTextContent(fourth))
 	}
 }
 

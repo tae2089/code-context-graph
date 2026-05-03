@@ -34,6 +34,7 @@ func parseTools(h *handlers) []server.ServerTool {
 		{
 			Tool: mcp.NewTool("run_postprocess", withNamespaceParam(
 				mcp.WithDescription("Run postprocessing steps independently: rebuild stored flows, communities, and/or full-text search indexing"),
+				mcp.WithString("postprocess_policy", mcp.Description("Postprocessing failure policy: degraded or fail_closed (default: auto -> degraded, escalates to fail_closed after repeated failures)")),
 				mcp.WithBoolean("flows", mcp.Description("Rebuild persisted stored flows when FlowBuilder is configured; otherwise report flows as skipped (default: true)")),
 				mcp.WithBoolean("communities", mcp.Description("Rebuild community detection (default: true)")),
 				mcp.WithBoolean("fts", mcp.Description("Rebuild full-text search index (default: true)")),
