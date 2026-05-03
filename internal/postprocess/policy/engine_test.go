@@ -150,6 +150,174 @@ func TestStoreRecordRun_UpdatesStateAndResetsAfterSuccess(t *testing.T) {
 	}
 }
 
+func TestStoreReset_InsertsResetMarkerAndClearsFailureStreak(t *testing.T) {
+	store := setupPolicyStore(t)
+	ctx := ctxns.WithNamespace(context.Background(), "svc")
+
+	for i := 0; i < 3; i++ {
+		if err := store.RecordRun(ctx, RunRecord{
+			Tool:        ToolRunPostprocess,
+			Policy:      PolicyFailClosed,
+			Source:      SourceAuto,
+			Status:      StatusDegraded,
+			FailedSteps: []string{"fts"},
+			CreatedAt:   time.Unix(int64(i+1), 0),
+		}); err != nil {
+			t.Fatalf("record failure %d: %v", i, err)
+		}
+	}
+
+	if err := store.Reset(ctx, ToolRunPostprocess); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+
+	count, err := store.ConsecutiveFailures(ctx, ToolRunPostprocess, 10)
+	if err != nil {
+		t.Fatalf("consecutive failures after reset: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("count = %d, want 0", count)
+	}
+
+	state, err := store.GetState(ctx, ToolRunPostprocess)
+	if err != nil {
+		t.Fatalf("get state: %v", err)
+	}
+	if state == nil || state.Policy != PolicyDegraded {
+		t.Fatalf("state = %+v, want degraded", state)
+	}
+
+	var latest model.PostprocessRunLog
+	if err := store.db.Order("created_at desc").Order("id desc").First(&latest).Error; err != nil {
+		t.Fatalf("latest run log: %v", err)
+	}
+	if latest.Source != SourceReset {
+		t.Fatalf("latest source = %q, want %q", latest.Source, SourceReset)
+	}
+	if latest.Status != StatusOK {
+		t.Fatalf("latest status = %q, want %q", latest.Status, StatusOK)
+	}
+	if latest.Policy != PolicyDegraded {
+		t.Fatalf("latest policy = %q, want %q", latest.Policy, PolicyDegraded)
+	}
+}
+
+func TestStoreRecordRun_PrunesOldLogsPerNamespaceAndTool(t *testing.T) {
+	store := setupPolicyStore(t)
+	store.runLogRetention = 2
+
+	ctxA := ctxns.WithNamespace(context.Background(), "ns-a")
+	ctxB := ctxns.WithNamespace(context.Background(), "ns-b")
+	for i := 0; i < 4; i++ {
+		if err := store.RecordRun(ctxA, RunRecord{
+			Tool:      ToolRunPostprocess,
+			Policy:    PolicyDegraded,
+			Source:    SourceAuto,
+			Status:    StatusDegraded,
+			CreatedAt: time.Unix(int64(i+1), 0),
+		}); err != nil {
+			t.Fatalf("record ns-a run %d: %v", i, err)
+		}
+	}
+	if err := store.RecordRun(ctxA, RunRecord{
+		Tool:      ToolBuildOrUpdateGraph,
+		Policy:    PolicyDegraded,
+		Source:    SourceAuto,
+		Status:    StatusOK,
+		CreatedAt: time.Unix(10, 0),
+	}); err != nil {
+		t.Fatalf("record ns-a other tool: %v", err)
+	}
+	if err := store.RecordRun(ctxB, RunRecord{
+		Tool:      ToolRunPostprocess,
+		Policy:    PolicyDegraded,
+		Source:    SourceAuto,
+		Status:    StatusOK,
+		CreatedAt: time.Unix(11, 0),
+	}); err != nil {
+		t.Fatalf("record ns-b run: %v", err)
+	}
+
+	var kept []model.PostprocessRunLog
+	if err := store.db.Where("namespace = ? AND tool = ?", "ns-a", ToolRunPostprocess).Order("created_at asc").Find(&kept).Error; err != nil {
+		t.Fatalf("list retained logs: %v", err)
+	}
+	if len(kept) != 2 {
+		t.Fatalf("retained logs = %d, want 2", len(kept))
+	}
+	if !kept[0].CreatedAt.Equal(time.Unix(3, 0)) || !kept[1].CreatedAt.Equal(time.Unix(4, 0)) {
+		t.Fatalf("unexpected retained timestamps: %+v", kept)
+	}
+
+	var otherToolCount int64
+	if err := store.db.Model(&model.PostprocessRunLog{}).Where("namespace = ? AND tool = ?", "ns-a", ToolBuildOrUpdateGraph).Count(&otherToolCount).Error; err != nil {
+		t.Fatalf("count other tool logs: %v", err)
+	}
+	if otherToolCount != 1 {
+		t.Fatalf("other tool logs = %d, want 1", otherToolCount)
+	}
+
+	var otherNamespaceCount int64
+	if err := store.db.Model(&model.PostprocessRunLog{}).Where("namespace = ? AND tool = ?", "ns-b", ToolRunPostprocess).Count(&otherNamespaceCount).Error; err != nil {
+		t.Fatalf("count other namespace logs: %v", err)
+	}
+	if otherNamespaceCount != 1 {
+		t.Fatalf("other namespace logs = %d, want 1", otherNamespaceCount)
+	}
+}
+
+func TestStoreStatus_SummarizesFailClosedAndRecentFailures(t *testing.T) {
+	store := setupPolicyStore(t)
+	ctxA := ctxns.WithNamespace(context.Background(), "ns-a")
+	ctxB := ctxns.WithNamespace(context.Background(), "ns-b")
+
+	for i := 0; i < 4; i++ {
+		if err := store.RecordRun(ctxA, RunRecord{
+			Tool:        ToolRunPostprocess,
+			Policy:      PolicyFailClosed,
+			Source:      SourceAuto,
+			Status:      StatusDegraded,
+			FailedSteps: []string{"communities"},
+			CreatedAt:   time.Unix(int64(i+1), 0),
+		}); err != nil {
+			t.Fatalf("record ns-a run %d: %v", i, err)
+		}
+	}
+	if err := store.RecordRun(ctxB, RunRecord{
+		Tool:        ToolBuildOrUpdateGraph,
+		Policy:      PolicyDegraded,
+		Source:      SourceAuto,
+		Status:      StatusDegraded,
+		FailedSteps: []string{"fts"},
+		CreatedAt:   time.Unix(10, 0),
+	}); err != nil {
+		t.Fatalf("record ns-b run: %v", err)
+	}
+
+	summary, err := store.Status(context.Background(), StatusOptions{RecentLimit: 3})
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if summary.Status != StatusDegraded {
+		t.Fatalf("summary status = %q, want %q", summary.Status, StatusDegraded)
+	}
+	if len(summary.FailClosed) != 1 {
+		t.Fatalf("fail_closed entries = %d, want 1", len(summary.FailClosed))
+	}
+	if summary.FailClosed[0].Namespace != "ns-a" || summary.FailClosed[0].Tool != ToolRunPostprocess {
+		t.Fatalf("unexpected fail_closed entry: %+v", summary.FailClosed[0])
+	}
+	if summary.FailClosed[0].ConsecutiveFailures != 3 {
+		t.Fatalf("consecutive failures = %d, want 3", summary.FailClosed[0].ConsecutiveFailures)
+	}
+	if len(summary.RecentFailures) != 3 {
+		t.Fatalf("recent failures = %d, want 3", len(summary.RecentFailures))
+	}
+	if summary.RecentFailures[0].Namespace != "ns-b" {
+		t.Fatalf("latest recent failure namespace = %q, want ns-b", summary.RecentFailures[0].Namespace)
+	}
+}
+
 func setupPolicyStore(t *testing.T) *Store {
 	t.Helper()
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
