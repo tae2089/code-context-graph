@@ -374,6 +374,150 @@ var _ mcpserver.FlowTracer = (*flows.Tracer)(nil)
 	t.Fatalf("expected assertion implements edge, got %#v", implEdges)
 }
 
+func TestParseGo_InterfaceAssertionStructLiteral(t *testing.T) {
+	// Compile-time assertion using struct literal: var _ Iface = Type{}
+	src := `package main
+
+import (
+	mcpserver "github.com/example/project/internal/mcp"
+	"github.com/example/project/internal/flows"
+)
+
+var _ mcpserver.FlowTracer = flows.Tracer{}
+`
+	w := NewWalker(GoSpec)
+	_, edges, err := w.Parse("main.go", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
+	for _, e := range implEdges {
+		if e.Fingerprint == "implements:main.go:flows.Tracer:mcp.FlowTracer" {
+			return
+		}
+	}
+	t.Fatalf("expected struct literal assertion implements edge, got %#v", implEdges)
+}
+
+func TestParseGo_InterfaceAssertionAddressOfStructLiteral(t *testing.T) {
+	// Compile-time assertion using address-of struct literal: var _ Iface = &Type{}
+	src := `package main
+
+import (
+	mcpserver "github.com/example/project/internal/mcp"
+	"github.com/example/project/internal/flows"
+)
+
+var _ mcpserver.FlowTracer = &flows.Tracer{}
+`
+	w := NewWalker(GoSpec)
+	_, edges, err := w.Parse("main.go", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
+	for _, e := range implEdges {
+		if e.Fingerprint == "implements:main.go:flows.Tracer:mcp.FlowTracer" {
+			return
+		}
+	}
+	t.Fatalf("expected address-of struct literal assertion implements edge, got %#v", implEdges)
+}
+
+func TestParseGo_InterfaceAssertionGrouped(t *testing.T) {
+	// Grouped var declarations should each yield an implements edge.
+	src := `package main
+
+import (
+	mcpserver "github.com/example/project/internal/mcp"
+	"github.com/example/project/internal/flows"
+)
+
+var (
+	_ mcpserver.FlowTracer = (*flows.Tracer)(nil)
+	_ mcpserver.FlowTracer = flows.OtherTracer{}
+)
+`
+	w := NewWalker(GoSpec)
+	_, edges, err := w.Parse("main.go", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
+
+	wantFingerprints := []string{
+		"implements:main.go:flows.Tracer:mcp.FlowTracer",
+		"implements:main.go:flows.OtherTracer:mcp.FlowTracer",
+	}
+	for _, want := range wantFingerprints {
+		found := false
+		for _, e := range implEdges {
+			if e.Fingerprint == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected fingerprint %q in grouped assertion edges, got %#v", want, implEdges)
+		}
+	}
+}
+
+func TestParseGo_ImportAliasVersionedPath(t *testing.T) {
+	// When the import path ends with a version segment like ".v3", the canonical
+	// package name is the segment before the version (e.g. "yaml" for "gopkg.in/yaml.v3").
+	// Without an explicit alias, the fallback should resolve to "yaml" rather than "v3".
+	src := `package main
+
+import (
+	"gopkg.in/yaml.v3"
+)
+
+type MyType struct{}
+
+var _ yaml.Marshaler = (*MyType)(nil)
+`
+	w := NewWalker(GoSpec)
+	_, edges, err := w.Parse("main.go", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
+	for _, e := range implEdges {
+		if e.Fingerprint == "implements:main.go:MyType:yaml.Marshaler" {
+			return
+		}
+	}
+	t.Fatalf("expected versioned-import alias to normalize to yaml, got %#v", implEdges)
+}
+
+func TestParseGo_ExplicitImportAliasVersionedPath(t *testing.T) {
+	// Explicit aliases should still normalize to the imported package name rather
+	// than preserving version suffix segments from the path.
+	src := `package main
+
+import (
+	y3 "gopkg.in/yaml.v3"
+)
+
+type MyType struct{}
+
+var _ y3.Marshaler = (*MyType)(nil)
+`
+	w := NewWalker(GoSpec)
+	_, edges, err := w.Parse("main.go", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
+	for _, e := range implEdges {
+		if e.Fingerprint == "implements:main.go:MyType:yaml.Marshaler" {
+			return
+		}
+	}
+	t.Fatalf("expected explicit versioned-import alias to normalize to yaml, got %#v", implEdges)
+}
+
 func TestParseGo_StructEmbedding(t *testing.T) {
 	src := `package main
 

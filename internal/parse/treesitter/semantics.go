@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -137,7 +138,7 @@ func goImportAliases(root *sitter.Node, content []byte) map[string]string {
 			if pathNode := n.ChildByFieldName("path"); pathNode != nil {
 				importPath = strings.Trim(pathNode.Content(content), "\"`")
 			}
-			pkg := path.Base(importPath)
+			pkg := defaultGoImportName(importPath)
 			if pkg != "." && pkg != "/" && pkg != "" {
 				alias := pkg
 				if nameNode := n.ChildByFieldName("name"); nameNode != nil {
@@ -156,7 +157,43 @@ func goImportAliases(root *sitter.Node, content []byte) map[string]string {
 	return aliases
 }
 
+func defaultGoImportName(importPath string) string {
+	importPath = strings.TrimSpace(importPath)
+	if importPath == "" {
+		return ""
+	}
+	base := path.Base(importPath)
+	if isGoMajorVersionSegment(base) {
+		base = path.Base(path.Dir(importPath))
+	}
+	return trimGoVersionSuffix(base)
+}
+
+func isGoMajorVersionSegment(seg string) bool {
+	if len(seg) < 2 || seg[0] != 'v' {
+		return false
+	}
+	_, err := strconv.Atoi(seg[1:])
+	return err == nil
+}
+
+func trimGoVersionSuffix(name string) string {
+	idx := strings.LastIndex(name, ".v")
+	if idx <= 0 {
+		return name
+	}
+	if _, err := strconv.Atoi(name[idx+2:]); err != nil {
+		return name
+	}
+	return name[:idx]
+}
+
+// goAssertionConcreteRE matches `(*Type)(nil)` and `(Type)(nil)` forms.
 var goAssertionConcreteRE = regexp.MustCompile(`\(\s*\*?\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\s*\)`)
+
+// goAssertionStructLiteralRE matches `Type{...}` and `&Type{...}` forms.
+// @intent recognise compile-time assertions written with composite literals.
+var goAssertionStructLiteralRE = regexp.MustCompile(`^\s*&?\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\s*\{`)
 
 func goAssertionSpec(n *sitter.Node, content []byte, aliases map[string]string) (string, string, bool) {
 	nameNode := n.ChildByFieldName("name")
@@ -169,16 +206,37 @@ func goAssertionSpec(n *sitter.Node, content []byte, aliases map[string]string) 
 		return "", "", false
 	}
 	iface := normalizeGoTypeName(typeNode.Content(content), aliases)
-	value := valueNode.Content(content)
-	match := goAssertionConcreteRE.FindStringSubmatch(value)
-	if len(match) != 2 {
+	if iface == "" {
 		return "", "", false
 	}
-	impl := normalizeGoTypeName(match[1], aliases)
-	if impl == "" || iface == "" {
+	value := valueNode.Content(content)
+	concrete, ok := extractGoAssertionConcrete(value)
+	if !ok {
+		return "", "", false
+	}
+	impl := normalizeGoTypeName(concrete, aliases)
+	if impl == "" {
 		return "", "", false
 	}
 	return impl, iface, true
+}
+
+// extractGoAssertionConcrete returns the concrete type name from a compile-time
+// assertion right-hand side. Supported forms:
+//   - (*Type)(nil) / (Type)(nil)
+//   - Type{...}
+//   - &Type{...}
+//
+// @intent keep concrete-type extraction in one place so new assertion shapes
+// are easy to add without bloating goAssertionSpec.
+func extractGoAssertionConcrete(value string) (string, bool) {
+	if m := goAssertionConcreteRE.FindStringSubmatch(value); len(m) == 2 {
+		return m[1], true
+	}
+	if m := goAssertionStructLiteralRE.FindStringSubmatch(value); len(m) == 2 {
+		return m[1], true
+	}
+	return "", false
 }
 
 func normalizeGoTypeName(name string, aliases map[string]string) string {
