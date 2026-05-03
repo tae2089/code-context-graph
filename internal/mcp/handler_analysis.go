@@ -3,9 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/trace"
@@ -405,25 +403,81 @@ func validateRepoRootWithin(repoRoot, configuredRepoRoot, workspaceRoot string) 
 	if repoRoot == "" {
 		return "", fmt.Errorf("repo_root is required")
 	}
-	allowed := configuredRepoRoot
-	if allowed == "" {
-		allowed = workspaceRoot
-	}
-	if allowed == "" {
+	allowedRoots := configuredAnalysisRoots(configuredRepoRoot, workspaceRoot)
+	if len(allowedRoots) == 0 {
 		return "", fmt.Errorf("analysis repo root is not configured")
 	}
 	repo, err := canonicalPath(repoRoot)
 	if err != nil {
 		return "", fmt.Errorf("invalid repo_root: %w", err)
 	}
-	base, err := canonicalPath(allowed)
+	allowed, err := validatePathWithinAllowedRoots(repo, allowedRoots)
 	if err != nil {
 		return "", fmt.Errorf("invalid configured repo root: %w", err)
 	}
-	if repo != base && !strings.HasPrefix(repo, base+string(os.PathSeparator)) {
+	if !allowed {
 		return "", fmt.Errorf("repo_root %q is outside configured analysis root", repoRoot)
 	}
 	return repo, nil
+}
+
+func configuredAnalysisRoots(repoRoot, workspaceRoot string) []string {
+	roots := make([]string, 0, 2)
+	for _, root := range []string{repoRoot, workspaceRoot} {
+		if root == "" {
+			continue
+		}
+		if !sliceContainsString(roots, root) {
+			roots = append(roots, root)
+		}
+	}
+	return roots
+}
+
+func sliceContainsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func validatePathWithinAllowedRoots(target string, allowedRoots []string) (bool, error) {
+	for _, root := range allowedRoots {
+		base, err := canonicalPath(root)
+		if err != nil {
+			return false, err
+		}
+		within, err := isWithinRoot(base, target)
+		if err != nil {
+			return false, err
+		}
+		if within {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func isWithinRoot(root, target string) (bool, error) {
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return false, err
+	}
+	if rel == "." {
+		return true, nil
+	}
+	if rel == ".." {
+		return false, nil
+	}
+	if len(rel) >= 3 && rel[:3] == ".."+string(filepath.Separator) {
+		return false, nil
+	}
+	if filepath.IsAbs(rel) {
+		return false, nil
+	}
+	return true, nil
 }
 
 func canonicalPath(path string) (string, error) {

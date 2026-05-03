@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -488,22 +487,19 @@ func (h *handlers) validateAnalysisPath(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("path is required")
 	}
-	allowed := h.deps.RepoRoot
-	if allowed == "" {
-		allowed = h.workspaceRoot()
-	}
-	if allowed == "" {
+	allowedRoots := configuredAnalysisRoots(h.deps.RepoRoot, h.workspaceRoot())
+	if len(allowedRoots) == 0 {
 		return "", fmt.Errorf("analysis root is not configured")
 	}
 	target, err := canonicalExistingPath(path)
 	if err != nil {
 		return "", fmt.Errorf("invalid path: %w", err)
 	}
-	base, err := canonicalPath(allowed)
+	allowed, err := validatePathWithinAllowedRoots(target, allowedRoots)
 	if err != nil {
 		return "", fmt.Errorf("invalid configured analysis root: %w", err)
 	}
-	if target != base && !strings.HasPrefix(target, base+string(os.PathSeparator)) {
+	if !allowed {
 		return "", fmt.Errorf("path %q is outside configured analysis root", path)
 	}
 	return target, nil

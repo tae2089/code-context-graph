@@ -626,6 +626,24 @@ func TestPreMergeCheck_RejectsRepoRootOutsideConfiguredRoot(t *testing.T) {
 	}
 }
 
+func TestReviewChanges_AllowsWorkspaceRootWhenRepoRootAlsoConfigured(t *testing.T) {
+	deps, _ := setupPromptTestDeps(t)
+	deps.ChangesGitClient = &mockGitClient{changedFiles: []string{}}
+	deps.RepoRoot = t.TempDir()
+	deps.WorkspaceRoot = t.TempDir()
+	workspaceRoot := t.TempDir()
+	deps.WorkspaceRoot = workspaceRoot
+
+	resultJSON := callPrompt(t, deps, "review_changes", map[string]string{
+		"repo_root": workspaceRoot,
+		"base":      "HEAD~1",
+	})
+	text := getPromptText(t, resultJSON)
+	if !strings.Contains(text, "변경사항이 없습니다") {
+		t.Fatalf("expected workspace-root repo_root to be accepted, got: %s", text)
+	}
+}
+
 // ============================================================
 // Mock types
 // ============================================================

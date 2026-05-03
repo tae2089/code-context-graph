@@ -94,6 +94,24 @@ func Hello() {}
 	}
 }
 
+func TestParseProject_AllowsWorkspacePathWhenRepoRootIsAlsoConfigured(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.RepoRoot = t.TempDir()
+	deps.WorkspaceRoot = t.TempDir()
+	workspaceDir := filepath.Join(deps.WorkspaceRoot, "sample-ws")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeGoFile(t, workspaceDir, "main.go", `package main
+func Hello() {}
+`)
+
+	result := callTool(t, deps, "parse_project", map[string]any{"path": workspaceDir, "workspace": "sample-ws"})
+	if result.IsError {
+		t.Fatalf("expected workspace path to be allowed, got error: %s", getTextContent(result))
+	}
+}
+
 func TestParseProject_FailsClosedWithoutConfiguredRoot(t *testing.T) {
 	deps := setupTestDeps(t)
 	deps.RepoRoot = ""
