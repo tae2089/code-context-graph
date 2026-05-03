@@ -51,6 +51,24 @@ Connect from `.mcp.json`:
 }
 ```
 
+## Choosing SQLite vs PostgreSQL
+
+SQLite is the simplest choice for local, single-user workflows: one repository,
+manual `ccg build` / `ccg update`, and a database file that can be recreated if
+needed.
+
+Use PostgreSQL when CCG is operated as a service:
+
+- Team-shared MCP server or multiple concurrent MCP clients
+- Webhook sync enabled for ongoing repository updates
+- Multiple repositories or namespaces in one server database
+- Operational backup, restore, monitoring, or remote access requirements
+- Roughly 50k+ search documents or 100k+ graph nodes
+
+For larger deployments, PostgreSQL should be treated as the default. At around
+300k+ graph nodes, multiple always-synced repositories, or frequent webhook
+updates, SQLite is likely to become an operational bottleneck.
+
 ## Run with PostgreSQL
 
 ```bash

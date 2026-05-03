@@ -56,6 +56,18 @@ ccg update ./backend --namespace backend
 
 For the default local SQLite database (`ccg.db`, including `./ccg.db`, absolute paths ending in `ccg.db`, and `file:` DSNs for that file), runtime commands auto-run migrations only when the schema is missing. Existing SQLite schemas, PostgreSQL, custom SQLite DSNs, and controlled upgrades require an explicit `ccg migrate`.
 
+### Database Choice
+
+Use SQLite for local, single-user workflows where the database is a disposable
+cache for one small or medium repository. Use PostgreSQL when running CCG as a
+shared MCP or webhook service, when storing multiple namespaces in one server
+database, or when operational backup/restore matters.
+
+As a rough scale guide, consider PostgreSQL once a namespace reaches about 50k
+search documents or 100k graph nodes. For 300k+ graph nodes, multiple
+always-synced repositories, or frequent webhook updates, PostgreSQL is the
+recommended default.
+
 ### Serve
 
 | Command | Description |
