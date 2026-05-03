@@ -600,6 +600,226 @@ func TestSyncQueueStats_ReportsFinalFailure(t *testing.T) {
 	t.Fatalf("failure stats were not recorded: %+v", q.Stats())
 }
 
+func TestSyncQueueStats_RecentRepos_RecordsSuccessAndBranch(t *testing.T) {
+	done := make(chan struct{})
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
+		close(done)
+		return nil
+	}
+
+	q := NewSyncQueueWithConfig(context.Background(), 1, handler, QueueConfig{
+		RetryConfig:     RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 10,
+	})
+	defer q.Shutdown()
+
+	q.Add(context.Background(), "org/myrepo", "url", "feature/x")
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for handler")
+	}
+
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		stats := q.Stats()
+		if len(stats.RecentRepos) > 0 {
+			r := stats.RecentRepos[0]
+			if r.Repo != "org/myrepo" {
+				t.Fatalf("repo = %q, want %q", r.Repo, "org/myrepo")
+			}
+			if r.Branch != "feature/x" {
+				t.Fatalf("branch = %q, want %q", r.Branch, "feature/x")
+			}
+			if r.LastSuccessTime.IsZero() {
+				t.Fatalf("LastSuccessTime is zero, want non-zero")
+			}
+			if r.LastErrorTime != (time.Time{}) && !r.LastErrorTime.IsZero() {
+				t.Fatalf("LastErrorTime should be zero for success, got %v", r.LastErrorTime)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("RecentRepos not populated: %+v", q.Stats())
+}
+
+func TestSyncQueueStats_RecentRepos_RecordsFailureAndError(t *testing.T) {
+	done := make(chan struct{})
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
+		close(done)
+		return errors.New("clone failed: permission denied")
+	}
+
+	q := NewSyncQueueWithConfig(context.Background(), 1, handler, QueueConfig{
+		RetryConfig:     RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 10,
+	})
+	defer q.Shutdown()
+
+	q.Add(context.Background(), "org/failrepo", "url", "main")
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for handler")
+	}
+
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		stats := q.Stats()
+		if len(stats.RecentRepos) > 0 {
+			r := stats.RecentRepos[0]
+			if r.Repo != "org/failrepo" {
+				t.Fatalf("repo = %q, want %q", r.Repo, "org/failrepo")
+			}
+			if r.LastError == "" {
+				t.Fatalf("LastError is empty, want non-empty")
+			}
+			if r.LastErrorTime.IsZero() {
+				t.Fatalf("LastErrorTime is zero, want non-zero")
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("RecentRepos not populated after failure: %+v", q.Stats())
+}
+
+func TestSyncQueueStats_RecentRepos_OrderedByMostRecent(t *testing.T) {
+	var mu sync.Mutex
+	order := make([]string, 0)
+	release := make(chan struct{})
+
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
+		<-release
+		mu.Lock()
+		order = append(order, repoFullName)
+		mu.Unlock()
+		return nil
+	}
+
+	q := NewSyncQueueWithConfig(context.Background(), 3, handler, QueueConfig{
+		RetryConfig:     RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 10,
+	})
+	defer q.Shutdown()
+
+	q.Add(context.Background(), "org/alpha", "url-a", "main")
+	q.Add(context.Background(), "org/beta", "url-b", "main")
+	q.Add(context.Background(), "org/gamma", "url-c", "main")
+
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		mu.Lock()
+		n := len(order)
+		mu.Unlock()
+		if n == 3 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		stats := q.Stats()
+		if len(stats.RecentRepos) == 3 {
+			seen := make(map[string]bool)
+			for _, r := range stats.RecentRepos {
+				if seen[r.Repo] {
+					t.Fatalf("duplicate repo in RecentRepos: %v", r.Repo)
+				}
+				seen[r.Repo] = true
+			}
+			if !seen["org/alpha"] || !seen["org/beta"] || !seen["org/gamma"] {
+				t.Fatalf("missing repos in RecentRepos: %+v", stats.RecentRepos)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("RecentRepos not fully populated: %+v", q.Stats())
+}
+
+func TestSyncQueueStats_RecentRepos_CappedAtMaxRecentRepos(t *testing.T) {
+	done := make(chan struct{})
+	var once sync.Once
+
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
+		once.Do(func() { close(done) })
+		return nil
+	}
+
+	q := NewSyncQueueWithConfig(context.Background(), 5, handler, QueueConfig{
+		RetryConfig:     RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 100,
+	})
+	defer q.Shutdown()
+
+	for i := 0; i < 60; i++ {
+		repo := "org/repo" + string(rune('A'+i%26)) + string(rune('0'+i/26))
+		q.Add(context.Background(), repo, "url", "main")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for handler")
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	stats := q.Stats()
+	if len(stats.RecentRepos) > 50 {
+		t.Fatalf("RecentRepos len = %d, want ≤ 50 (cap exceeded)", len(stats.RecentRepos))
+	}
+}
+
+func TestSyncQueueStats_RecentRepos_ShowsQueuedAndProcessingState(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+
+	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
+		close(started)
+		<-release
+		return nil
+	}
+
+	q := NewSyncQueueWithConfig(context.Background(), 1, handler, QueueConfig{
+		RetryConfig:     RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 10,
+	})
+	defer q.Shutdown()
+
+	q.Add(context.Background(), "org/processing", "url", "main")
+	q.Add(context.Background(), "org/queued", "url2", "develop")
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for handler to start")
+	}
+
+	stats := q.Stats()
+	repoMap := make(map[string]RepoStats)
+	for _, r := range stats.RecentRepos {
+		repoMap[r.Repo] = r
+	}
+
+	if proc, ok := repoMap["org/processing"]; ok {
+		if !proc.Processing {
+			t.Fatalf("org/processing should have Processing=true, got %+v", proc)
+		}
+	}
+	if queued, ok := repoMap["org/queued"]; ok {
+		if !queued.Queued {
+			t.Fatalf("org/queued should have Queued=true, got %+v", queued)
+		}
+	}
+
+	close(release)
+}
+
 func TestSyncQueueStats_ReportsAgesAndLastSuccess(t *testing.T) {
 	release := make(chan struct{})
 	started := make(chan struct{})

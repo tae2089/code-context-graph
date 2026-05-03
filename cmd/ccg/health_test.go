@@ -231,6 +231,145 @@ func TestReadyHandler_IgnoresUnresolvedWebhookFailure(t *testing.T) {
 	}
 }
 
+func TestStatusHandler_ReportsPerRepoRecentRepos(t *testing.T) {
+	done := make(chan struct{})
+	q := webhook.NewSyncQueueWithConfig(nil, 1, func(_ context.Context, repoFullName, cloneURL, branch string) error {
+		close(done)
+		return nil
+	}, webhook.QueueConfig{
+		RetryConfig:     webhook.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 10,
+	})
+	defer q.Shutdown()
+
+	if err := q.Add(nil, "org/myrepo", "url", "feature/y"); err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for handler")
+	}
+
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		if len(q.Stats().RecentRepos) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	rec := httptest.NewRecorder()
+	statusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	webhookBody, ok := body["webhook"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing webhook body: %v", body)
+	}
+	recentRepos, ok := webhookBody["recent_repos"].([]any)
+	if !ok || len(recentRepos) == 0 {
+		t.Fatalf("recent_repos missing or empty: %v", webhookBody)
+	}
+	first, ok := recentRepos[0].(map[string]any)
+	if !ok {
+		t.Fatalf("recent_repos[0] not an object: %v", recentRepos[0])
+	}
+	if got := first["repo"]; got != "org/myrepo" {
+		t.Fatalf("recent_repos[0].repo = %v, want org/myrepo", got)
+	}
+	if got := first["branch"]; got != "feature/y" {
+		t.Fatalf("recent_repos[0].branch = %v, want feature/y", got)
+	}
+	if _, hasSuccess := first["last_success_time"]; !hasSuccess {
+		t.Fatalf("recent_repos[0] missing last_success_time: %v", first)
+	}
+}
+
+func TestStatusHandler_RecentRepos_FailureHasErrorFields(t *testing.T) {
+	done := make(chan struct{})
+	q := webhook.NewSyncQueueWithConfig(nil, 1, func(_ context.Context, repoFullName, cloneURL, branch string) error {
+		close(done)
+		return errors.New("auth failed")
+	}, webhook.QueueConfig{
+		RetryConfig:     webhook.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 10,
+	})
+	defer q.Shutdown()
+
+	if err := q.Add(nil, "org/failrepo", "url", "main"); err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for handler")
+	}
+
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		if len(q.Stats().RecentRepos) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	rec := httptest.NewRecorder()
+	statusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	webhookBody := body["webhook"].(map[string]any)
+	recentRepos := webhookBody["recent_repos"].([]any)
+	first := recentRepos[0].(map[string]any)
+
+	if got := first["repo"]; got != "org/failrepo" {
+		t.Fatalf("repo = %v, want org/failrepo", got)
+	}
+	if got, _ := first["last_error"].(string); got == "" {
+		t.Fatalf("last_error is empty, want non-empty")
+	}
+	if _, hasErrTime := first["last_error_time"]; !hasErrTime {
+		t.Fatalf("last_error_time missing: %v", first)
+	}
+}
+
+func TestStatusHandler_ExistingAggregateFieldsPreserved(t *testing.T) {
+	q := webhook.NewSyncQueueWithConfig(nil, 0, func(context.Context, string, string, string) error {
+		return nil
+	}, webhook.QueueConfig{
+		RetryConfig:     webhook.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 5,
+	})
+	defer q.Shutdown()
+
+	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	rec := httptest.NewRecorder()
+	statusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	webhookBody, ok := body["webhook"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing webhook body")
+	}
+	for _, field := range []string{"queued", "dirty", "processing", "tracked_repos", "max_tracked_repos", "queue_full_total", "failure_total", "oldest_queued_age", "oldest_processing_age", "shutdown"} {
+		if _, exists := webhookBody[field]; !exists {
+			t.Fatalf("aggregate field %q missing from webhook body: %v", field, webhookBody)
+		}
+	}
+}
+
 type recordingPool struct {
 	maxOpen     int
 	maxIdle     int

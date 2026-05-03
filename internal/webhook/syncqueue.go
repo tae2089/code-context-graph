@@ -60,6 +60,20 @@ type syncPayload struct {
 	branch       string
 }
 
+type RepoStats struct {
+	Repo            string    `json:"repo"`
+	Branch          string    `json:"branch"`
+	Queued          bool      `json:"queued"`
+	Processing      bool      `json:"processing"`
+	EnqueuedAt      time.Time `json:"enqueued_at,omitempty"`
+	ProcessingAt    time.Time `json:"processing_at,omitempty"`
+	LastSuccessTime time.Time `json:"last_success_time,omitempty"`
+	LastErrorTime   time.Time `json:"last_error_time,omitempty"`
+	LastError       string    `json:"last_error,omitempty"`
+}
+
+const maxRecentRepos = 50
+
 type SyncQueue struct {
 	ctx             context.Context
 	handler         SyncHandlerFunc
@@ -77,9 +91,18 @@ type SyncQueue struct {
 	enqueuedAt      map[string]time.Time
 	processingAt    map[string]time.Time
 	lastSuccessTime time.Time
+	repoStats       map[string]*repoStatEntry
+	repoStatsOrder  []string
 	cond            *sync.Cond
 	shutdown        bool
 	wg              sync.WaitGroup
+}
+
+type repoStatEntry struct {
+	branch          string
+	lastSuccessTime time.Time
+	lastErrorTime   time.Time
+	lastError       string
 }
 
 type SyncQueueStats struct {
@@ -96,6 +119,7 @@ type SyncQueueStats struct {
 	OldestProcessingAge time.Duration `json:"oldest_processing_age"`
 	LastSuccessTime     time.Time     `json:"last_success_time,omitempty"`
 	Shutdown            bool          `json:"shutdown"`
+	RecentRepos         []RepoStats   `json:"recent_repos,omitempty"`
 }
 
 func NewSyncQueue(workers int, handler SyncHandlerFunc) *SyncQueue {
@@ -135,6 +159,7 @@ func NewSyncQueueWithConfig(ctx context.Context, workers int, handler SyncHandle
 		payloads:        make(map[string]syncPayload),
 		enqueuedAt:      make(map[string]time.Time),
 		processingAt:    make(map[string]time.Time),
+		repoStats:       make(map[string]*repoStatEntry),
 	}
 	q.cond = sync.NewCond(&q.mu)
 
@@ -228,7 +253,40 @@ func (q *SyncQueue) Stats() SyncQueueStats {
 		OldestProcessingAge: q.oldestAgeLocked(now, q.processingAt),
 		LastSuccessTime:     q.lastSuccessTime,
 		Shutdown:            q.shutdown,
+		RecentRepos:         q.buildRecentReposLocked(),
 	}
+}
+
+func (q *SyncQueue) buildRecentReposLocked() []RepoStats {
+	if len(q.repoStatsOrder) == 0 {
+		return nil
+	}
+	result := make([]RepoStats, 0, len(q.repoStatsOrder))
+	for i := len(q.repoStatsOrder) - 1; i >= 0; i-- {
+		repo := q.repoStatsOrder[i]
+		entry := q.repoStats[repo]
+		branch := entry.branch
+		if p, ok := q.payloads[repo]; ok && p.branch != "" {
+			branch = p.branch
+		}
+		rs := RepoStats{
+			Repo:            repo,
+			Branch:          branch,
+			Queued:          q.dirty[repo] && !q.processing[repo],
+			Processing:      q.processing[repo],
+			LastSuccessTime: entry.lastSuccessTime,
+			LastErrorTime:   entry.lastErrorTime,
+			LastError:       entry.lastError,
+		}
+		if t, ok := q.enqueuedAt[repo]; ok {
+			rs.EnqueuedAt = t
+		}
+		if t, ok := q.processingAt[repo]; ok {
+			rs.ProcessingAt = t
+		}
+		result = append(result, rs)
+	}
+	return result
 }
 
 func (q *SyncQueue) oldestAgeLocked(now time.Time, times map[string]time.Time) time.Duration {
@@ -258,7 +316,7 @@ func (q *SyncQueue) worker() {
 		success := q.safeHandle(repo, payload)
 		q.done(repo)
 		if success {
-			q.recordSuccess()
+			q.recordSuccess(repo, payload.branch)
 		}
 	}
 }
@@ -310,12 +368,46 @@ func (q *SyncQueue) recordFailure(repo string, err error) {
 	q.failureTotal++
 	q.lastError = fmt.Sprintf("%s: %v", repo, err)
 	q.lastErrorTime = time.Now()
+	q.upsertRepoStatLocked(repo, "", func(e *repoStatEntry) {
+		e.lastError = err.Error()
+		e.lastErrorTime = q.lastErrorTime
+	})
 }
 
-func (q *SyncQueue) recordSuccess() {
+func (q *SyncQueue) recordSuccess(repo string, branch string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.lastSuccessTime = time.Now()
+	q.upsertRepoStatLocked(repo, branch, func(e *repoStatEntry) {
+		e.lastSuccessTime = q.lastSuccessTime
+		e.lastError = ""
+	})
+}
+
+func (q *SyncQueue) upsertRepoStatLocked(repo string, branch string, update func(*repoStatEntry)) {
+	entry, exists := q.repoStats[repo]
+	if !exists {
+		entry = &repoStatEntry{}
+		q.repoStats[repo] = entry
+		q.repoStatsOrder = append(q.repoStatsOrder, repo)
+		if len(q.repoStatsOrder) > maxRecentRepos {
+			oldest := q.repoStatsOrder[0]
+			q.repoStatsOrder = q.repoStatsOrder[1:]
+			delete(q.repoStats, oldest)
+		}
+	} else {
+		for i, r := range q.repoStatsOrder {
+			if r == repo {
+				q.repoStatsOrder = append(q.repoStatsOrder[:i], q.repoStatsOrder[i+1:]...)
+				break
+			}
+		}
+		q.repoStatsOrder = append(q.repoStatsOrder, repo)
+	}
+	if branch != "" {
+		entry.branch = branch
+	}
+	update(entry)
 }
 
 func (q *SyncQueue) tryHandle(repo string, payload syncPayload) (err error) {
