@@ -40,6 +40,8 @@ func (s *Store) AutoMigrate() error {
 		&model.CommunityMembership{},
 		&model.Flow{},
 		&model.FlowMembership{},
+		&model.PostprocessPolicyState{},
+		&model.PostprocessRunLog{},
 	); err != nil {
 		return err
 	}

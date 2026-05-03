@@ -59,6 +59,35 @@ func TestAutoMigrate_SQLite(t *testing.T) {
 	}
 }
 
+func TestAutoMigrate_CreatesPostprocessPolicyTables(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	s := New(db)
+	if err := s.AutoMigrate(); err != nil {
+		t.Fatalf("AutoMigrate failed: %v", err)
+	}
+
+	if !db.Migrator().HasTable("ccg_postprocess_policy_state") {
+		t.Fatal("expected ccg_postprocess_policy_state table to exist")
+	}
+	if !db.Migrator().HasTable("ccg_postprocess_run_logs") {
+		t.Fatal("expected ccg_postprocess_run_logs table to exist")
+	}
+
+	for _, column := range []string{"namespace", "tool", "policy", "updated_at"} {
+		if !db.Migrator().HasColumn("ccg_postprocess_policy_state", column) {
+			t.Fatalf("expected policy state column %q", column)
+		}
+	}
+	for _, column := range []string{"namespace", "tool", "policy", "source", "status", "failed_steps", "skipped_steps", "created_at"} {
+		if !db.Migrator().HasColumn("ccg_postprocess_run_logs", column) {
+			t.Fatalf("expected policy log column %q", column)
+		}
+	}
+}
+
 func TestUpsertNodes_Insert(t *testing.T) {
 	s := setupTestDB(t)
 	ctx := context.Background()
