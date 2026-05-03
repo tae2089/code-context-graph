@@ -732,6 +732,227 @@ func TestBuild_ImportsFromTargetsPackageNodeForMultiFileGoPackage(t *testing.T) 
 	}
 }
 
+func TestBuild_DiscoversPythonPackagesAndInheritsEdges(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{Store: st, DB: db, Walkers: map[string]*treesitter.Walker{".py": treesitter.NewWalker(treesitter.PythonSpec)}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("pkg")
+	mustWrite("pkg/__init__.py", "")
+	mustWrite("pkg/base.py", "class Base:\n    pass\n")
+	mustWrite("pkg/derived.py", "from .base import Base\n\nclass Derived(Base):\n    pass\n")
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	pkgNode, err := st.GetNode(ctx, "pkg")
+	if err != nil || pkgNode == nil {
+		t.Fatalf("GetNode package: node=%v err=%v", pkgNode, err)
+	}
+	if pkgNode.Kind != model.NodeKindPackage {
+		t.Fatalf("package node kind=%q, want %q", pkgNode.Kind, model.NodeKindPackage)
+	}
+	derived, err := st.GetNode(ctx, "Derived")
+	if err != nil || derived == nil {
+		t.Fatalf("GetNode derived: node=%v err=%v", derived, err)
+	}
+	edges, err := st.GetEdgesFrom(ctx, derived.ID)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom: %v", err)
+	}
+	for _, edge := range edges {
+		if edge.Kind != model.EdgeKindInherits {
+			continue
+		}
+		if edge.ToNodeID == 0 {
+			continue
+		}
+		baseNode, err := st.GetNodeByID(ctx, edge.ToNodeID)
+		if err == nil && baseNode != nil && baseNode.Name == "Base" {
+			return
+		}
+	}
+	t.Fatalf("expected inherits edge from Derived to Base, got %+v", edges)
+}
+
+func TestBuild_TypeScriptAliasImportTargetsPackageNode(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{Store: st, DB: db, Walkers: map[string]*treesitter.Walker{".ts": treesitter.NewWalker(treesitter.TypeScriptSpec)}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("src/utils")
+	mustMkdir("src/app")
+	mustWrite("package.json", `{"name":"@acme/app"}`)
+	mustWrite("tsconfig.json", `{"compilerOptions":{"baseUrl":".","paths":{"@app/*":["src/*"]}}}`)
+	mustWrite("src/utils/math.ts", "export function add(a: number, b: number): number { return a + b; }\n")
+	mustWrite("src/app/main.ts", "import { add } from '@app/utils';\nexport function run(): number { return add(1, 2); }\n")
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	importer, err := st.GetNode(ctx, "src/app/main.ts")
+	if err != nil || importer == nil {
+		t.Fatalf("GetNode importer: node=%v err=%v", importer, err)
+	}
+	pkgNode, err := st.GetNode(ctx, "@app/utils")
+	if err != nil || pkgNode == nil {
+		t.Fatalf("GetNode package: node=%v err=%v", pkgNode, err)
+	}
+	qs := querypkg.New(db)
+	imports, err := qs.ImportsOf(ctx, importer.ID)
+	if err != nil {
+		t.Fatalf("ImportsOf: %v", err)
+	}
+	if len(imports) != 1 || imports[0].ID != pkgNode.ID {
+		t.Fatalf("expected imports_of to return alias package node %+v, got %+v", pkgNode, imports)
+	}
+}
+
+func TestBuild_TypeScriptAliasFileImportTargetsPackageNode(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{Store: st, DB: db, Walkers: map[string]*treesitter.Walker{".ts": treesitter.NewWalker(treesitter.TypeScriptSpec)}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("src/utils")
+	mustMkdir("src/app")
+	mustWrite("package.json", `{"name":"@acme/app"}`)
+	mustWrite("tsconfig.json", "{\n  // comment\n  \"compilerOptions\": {\n    \"baseUrl\": \"src\",\n    \"paths\": {\n      \"@app/*\": [\"*\"]\n    }\n  }\n}\n")
+	mustWrite("src/utils/math.ts", "export function add(a: number, b: number): number { return a + b; }\n")
+	mustWrite("src/app/main.ts", "import { add } from '@app/utils/math';\nexport function run(): number { return add(1, 2); }\n")
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	importer, err := st.GetNode(ctx, "src/app/main.ts")
+	if err != nil || importer == nil {
+		t.Fatalf("GetNode importer: node=%v err=%v", importer, err)
+	}
+	pkgNode, err := st.GetNode(ctx, "@app/utils/math")
+	if err != nil || pkgNode == nil {
+		t.Fatalf("GetNode package: node=%v err=%v", pkgNode, err)
+	}
+	qs := querypkg.New(db)
+	imports, err := qs.ImportsOf(ctx, importer.ID)
+	if err != nil {
+		t.Fatalf("ImportsOf: %v", err)
+	}
+	if len(imports) != 1 || imports[0].ID != pkgNode.ID {
+		t.Fatalf("expected imports_of to return alias file package node %+v, got %+v", pkgNode, imports)
+	}
+}
+
+func TestBuild_JavaImportedSuperclassResolvesAcrossPackages(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{Store: st, DB: db, Walkers: map[string]*treesitter.Walker{".java": treesitter.NewWalker(treesitter.JavaSpec)}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("src/main/java/com/example/base")
+	mustMkdir("src/main/java/com/example/auth")
+	mustWrite("src/main/java/com/example/base/Base.java", "package com.example.base;\npublic class Base {}\n")
+	mustWrite("src/main/java/com/example/auth/User.java", "package com.example.auth;\nimport com.example.base.Base;\npublic class User extends Base {}\n")
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	user, err := st.GetNode(ctx, "com.example.auth.User")
+	if err != nil || user == nil {
+		t.Fatalf("GetNode user: node=%v err=%v", user, err)
+	}
+	base, err := st.GetNode(ctx, "com.example.base.Base")
+	if err != nil || base == nil {
+		t.Fatalf("GetNode base: node=%v err=%v", base, err)
+	}
+	edges, err := st.GetEdgesFrom(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom: %v", err)
+	}
+	for _, edge := range edges {
+		if edge.Kind == model.EdgeKindInherits && edge.ToNodeID == base.ID {
+			return
+		}
+	}
+	t.Fatalf("expected inherited edge from User to imported Base, got %+v", edges)
+}
+
 func TestPackageNodesPreservePackageLanguage(t *testing.T) {
 	nodes := packageNodes(map[string]languagePackageInfo{
 		"example/pkg": {
