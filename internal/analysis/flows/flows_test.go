@@ -18,11 +18,13 @@ import (
 var flowBuilderTestDBSeq atomic.Int64
 
 type mockStore struct {
-	nodes map[uint]*model.Node
-	edges map[uint][]model.Edge
+	nodes         map[uint]*model.Node
+	edges         map[uint][]model.Edge
+	fetchedNodeIDs []uint
 }
 
 func (m *mockStore) GetEdgesFrom(_ context.Context, nodeID uint) ([]model.Edge, error) {
+	m.fetchedNodeIDs = append(m.fetchedNodeIDs, nodeID)
 	return m.edges[nodeID], nil
 }
 
@@ -40,6 +42,26 @@ func newNode(id uint, name string) *model.Node {
 
 func callEdge(from, to uint, idx int) model.Edge {
 	return model.Edge{ID: uint(idx), FromNodeID: from, ToNodeID: to, Kind: model.EdgeKindCalls, Fingerprint: fmt.Sprintf("e%d", idx)}
+}
+
+func flowMemberIDs(flow *model.Flow) []uint {
+	ids := make([]uint, 0, len(flow.Members))
+	for _, member := range flow.Members {
+		ids = append(ids, member.NodeID)
+	}
+	return ids
+}
+
+func assertUintSliceEqual(t *testing.T, got, want []uint) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("expected IDs %v, got %v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected IDs %v, got %v", want, got)
+		}
+	}
 }
 
 func setupFlowBuilderTestDB(t *testing.T) (*gorm.DB, *gormstore.Store) {
@@ -152,6 +174,82 @@ func TestTraceFlow_PropagatesNamespace(t *testing.T) {
 		if member.Namespace != "payments" {
 			t.Fatalf("member[%d] namespace = %q, want %q", i, member.Namespace, "payments")
 		}
+	}
+}
+
+func TestTraceFlowBounded_ExactMaxNodesReturnsCapAndSignalsTruncation(t *testing.T) {
+	ms := &mockStore{
+		nodes: map[uint]*model.Node{
+			1: newNode(1, "A"),
+			2: newNode(2, "B"),
+			3: newNode(3, "C"),
+			4: newNode(4, "D"),
+		},
+		edges: map[uint][]model.Edge{1: {callEdge(1, 2, 1), callEdge(1, 3, 2), callEdge(1, 4, 3)}},
+	}
+	tracer := New(ms)
+
+	result, err := tracer.TraceFlowBounded(context.Background(), 1, TraceOptions{MaxNodes: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertUintSliceEqual(t, flowMemberIDs(result.Flow), []uint{1, 2, 3})
+	if !result.Truncated {
+		t.Fatalf("expected truncated result when an additional call was reachable beyond MaxNodes")
+	}
+	if result.ReturnedNodes != 3 {
+		t.Fatalf("expected ReturnedNodes 3, got %d", result.ReturnedNodes)
+	}
+}
+
+func TestTraceFlowBounded_DoesNotEnqueueBeyondMaxNodesInHighFanout(t *testing.T) {
+	nodes := map[uint]*model.Node{1: newNode(1, "Root")}
+	edges := map[uint][]model.Edge{}
+	for id := uint(2); id <= 101; id++ {
+		nodes[id] = newNode(id, fmt.Sprintf("N%d", id))
+		edges[1] = append(edges[1], callEdge(1, id, int(id)))
+	}
+	ms := &mockStore{nodes: nodes, edges: edges}
+	tracer := New(ms)
+
+	result, err := tracer.TraceFlowBounded(context.Background(), 1, TraceOptions{MaxNodes: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertUintSliceEqual(t, flowMemberIDs(result.Flow), []uint{1, 2, 3})
+	assertUintSliceEqual(t, ms.fetchedNodeIDs, []uint{1, 2, 3})
+	if !result.Truncated {
+		t.Fatalf("expected high fan-out traversal to report truncation")
+	}
+}
+
+func TestTraceFlowBounded_PreservesBFSMemberOrderWhenBounded(t *testing.T) {
+	ms := &mockStore{
+		nodes: map[uint]*model.Node{
+			1: newNode(1, "A"),
+			2: newNode(2, "B"),
+			3: newNode(3, "C"),
+			4: newNode(4, "D"),
+			5: newNode(5, "E"),
+		},
+		edges: map[uint][]model.Edge{
+			1: {callEdge(1, 2, 1), callEdge(1, 3, 2)},
+			2: {callEdge(2, 4, 3)},
+			3: {callEdge(3, 5, 4)},
+		},
+	}
+	tracer := New(ms)
+
+	result, err := tracer.TraceFlowBounded(context.Background(), 1, TraceOptions{MaxNodes: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertUintSliceEqual(t, flowMemberIDs(result.Flow), []uint{1, 2, 3, 4})
+	if !result.Truncated {
+		t.Fatalf("expected truncated result when node 5 could not be enqueued")
 	}
 }
 

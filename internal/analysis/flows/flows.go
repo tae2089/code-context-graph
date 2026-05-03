@@ -77,10 +77,6 @@ func (t *Tracer) TraceFlowBounded(ctx context.Context, startNodeID uint, opts Tr
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
-		if opts.MaxNodes > 0 && len(members) >= opts.MaxNodes {
-			truncated = true
-			break
-		}
 
 		members = append(members, model.FlowMembership{
 			Namespace: ns,
@@ -95,6 +91,10 @@ func (t *Tracer) TraceFlowBounded(ctx context.Context, startNodeID uint, opts Tr
 		}
 		for _, e := range edges {
 			if e.Kind == model.EdgeKindCalls && !visited[e.ToNodeID] {
+				if opts.MaxNodes > 0 && len(visited) >= opts.MaxNodes {
+					truncated = true
+					break
+				}
 				visited[e.ToNodeID] = true
 				queue = append(queue, e.ToNodeID)
 			}
