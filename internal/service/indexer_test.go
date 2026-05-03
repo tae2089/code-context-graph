@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -194,6 +195,58 @@ func (r *recordingGraphStore) GetNodesByFiles(ctx context.Context, filePaths []s
 		}
 	}
 	return result, nil
+}
+
+func (r *recordingGraphStore) GetFileNodesByPathSuffix(ctx context.Context, suffix string) ([]model.Node, error) {
+	suffix = strings.Trim(path.Clean(strings.TrimSpace(suffix)), "/")
+	if suffix == "" || suffix == "." {
+		return nil, nil
+	}
+	var out []model.Node
+	bestDepth := -1
+	for _, nodes := range r.nodesByFP {
+		for _, node := range nodes {
+			if node.Kind != model.NodeKindFile {
+				continue
+			}
+			dir := strings.Trim(path.Dir(node.FilePath), "/")
+			if dir == "." || dir == "" {
+				continue
+			}
+			if suffix == dir {
+				return []model.Node{node}, nil
+			}
+			if depth := serviceCommonPathSuffixDepth(suffix, dir); depth > 0 {
+				if depth > bestDepth {
+					bestDepth = depth
+					out = []model.Node{node}
+					continue
+				}
+				if depth == bestDepth {
+					out = append(out, node)
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+func serviceCommonPathSuffixDepth(a, b string) int {
+	a = strings.Trim(a, "/")
+	b = strings.Trim(b, "/")
+	if a == "" || b == "" {
+		return 0
+	}
+	aParts := strings.Split(a, "/")
+	bParts := strings.Split(b, "/")
+	depth := 0
+	for i, j := len(aParts)-1, len(bParts)-1; i >= 0 && j >= 0; i, j = i-1, j-1 {
+		if aParts[i] != bParts[j] {
+			break
+		}
+		depth++
+	}
+	return depth
 }
 
 func (r *recordingGraphStore) GetEdgesFrom(ctx context.Context, nodeID uint) ([]model.Edge, error) {
@@ -374,13 +427,18 @@ func TestNewParsedBuildEdgeBatch_DoesNotRetainNodeSideState(t *testing.T) {
 func TestFlushBuildEdges_ResolvesAndUpsertsBoundedBatches(t *testing.T) {
 	ctx := context.Background()
 	st := newRecordingGraphStore(t)
-	st.nodesByFP["a.go"] = []model.Node{
-		{ID: 1, QualifiedName: "main.Run", Name: "Run", Kind: model.NodeKindFunction, FilePath: "a.go", StartLine: 1, EndLine: 100, Language: "go"},
+	st.nodesByFP["cmd/main.go"] = []model.Node{
+		{ID: 10, QualifiedName: "cmd/main.go", Name: "cmd/main.go", Kind: model.NodeKindFile, FilePath: "cmd/main.go", Language: "go"},
+		{ID: 1, QualifiedName: "main.Run", Name: "Run", Kind: model.NodeKindFunction, FilePath: "cmd/main.go", StartLine: 1, EndLine: 100, Language: "go"},
 	}
-	st.nodesByFP["b.go"] = []model.Node{
-		{ID: 2, QualifiedName: "mcp.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "b.go", StartLine: 3, EndLine: 5, Language: "go"},
-		{ID: 3, QualifiedName: "flows.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "b.go", StartLine: 7, EndLine: 7, Language: "go"},
-		{ID: 4, QualifiedName: "flows.Tracer.TraceFlow", Name: "TraceFlow", Kind: model.NodeKindFunction, FilePath: "b.go", StartLine: 9, EndLine: 11, Language: "go"},
+	st.nodesByFP["mcp/deps.go"] = []model.Node{
+		{ID: 20, QualifiedName: "mcp/deps.go", Name: "mcp/deps.go", Kind: model.NodeKindFile, FilePath: "mcp/deps.go", Language: "go"},
+		{ID: 2, QualifiedName: "mcp.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "mcp/deps.go", StartLine: 3, EndLine: 5, Language: "go"},
+	}
+	st.nodesByFP["flows/tracer.go"] = []model.Node{
+		{ID: 30, QualifiedName: "flows/tracer.go", Name: "flows/tracer.go", Kind: model.NodeKindFile, FilePath: "flows/tracer.go", Language: "go"},
+		{ID: 3, QualifiedName: "flows.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "flows/tracer.go", StartLine: 7, EndLine: 7, Language: "go"},
+		{ID: 4, QualifiedName: "flows.Tracer.TraceFlow", Name: "TraceFlow", Kind: model.NodeKindFunction, FilePath: "flows/tracer.go", StartLine: 9, EndLine: 11, Language: "go"},
 	}
 
 	var resolveSizes []int
@@ -395,15 +453,15 @@ func TestFlushBuildEdges_ResolvesAndUpsertsBoundedBatches(t *testing.T) {
 	t.Cleanup(func() { resolveBuildEdges = oldResolve })
 
 	batches := []parsedBuildEdgeBatch{
-		{relPath: "a.go", edges: []model.Edge{{Kind: model.EdgeKindCalls, FilePath: "a.go", Line: 2, Fingerprint: "calls:a.go:h.deps.FlowTracer.TraceFlow:2"}}},
-		{relPath: "b.go", edges: []model.Edge{{Kind: model.EdgeKindImplements, FilePath: "b.go", Line: 7, Fingerprint: "implements:b.go:flows.Tracer:mcp.FlowTracer"}}},
+		{relPath: "cmd/main.go", edges: []model.Edge{{Kind: model.EdgeKindImportsFrom, FilePath: "cmd/main.go", Line: 1, Fingerprint: "imports_from:cmd/main.go:github.com/example/project/mcp:1"}, {Kind: model.EdgeKindCalls, FilePath: "cmd/main.go", Line: 2, Fingerprint: "calls:cmd/main.go:h.deps.FlowTracer.TraceFlow:2"}}},
+		{relPath: "flows/tracer.go", edges: []model.Edge{{Kind: model.EdgeKindImplements, FilePath: "flows/tracer.go", Line: 7, Fingerprint: "implements:flows/tracer.go:flows.Tracer:mcp.FlowTracer"}}},
 	}
 
 	svc := &GraphService{}
 	if err := svc.flushBuildEdges(ctx, st, batches); err != nil {
 		t.Fatalf("flushBuildEdges: %v", err)
 	}
-	if got, want := resolveSizes, []int{1, 2}; !reflect.DeepEqual(got, want) {
+	if got, want := resolveSizes, []int{1, 3}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("resolve sizes: got=%v want=%v", got, want)
 	}
 	if len(st.upsertedEdges) != 2 {
@@ -412,9 +470,138 @@ func TestFlushBuildEdges_ResolvesAndUpsertsBoundedBatches(t *testing.T) {
 	if st.upsertedEdges[0][0].Kind != model.EdgeKindImplements || st.upsertedEdges[0][0].FromNodeID != 3 || st.upsertedEdges[0][0].ToNodeID != 2 {
 		t.Fatalf("implements edge mismatch: %+v", st.upsertedEdges[0][0])
 	}
-	if st.upsertedEdges[1][0].Kind != model.EdgeKindCalls || st.upsertedEdges[1][0].FromNodeID != 1 || st.upsertedEdges[1][0].ToNodeID != 4 {
-		t.Fatalf("call edge mismatch: %+v", st.upsertedEdges[1][0])
+	if len(st.upsertedEdges[1]) != 2 {
+		t.Fatalf("expected import+call edges in second batch, got %d", len(st.upsertedEdges[1]))
 	}
+	call := st.upsertedEdges[1][1]
+	if call.Kind != model.EdgeKindCalls || call.FromNodeID != 1 || call.ToNodeID != 4 {
+		t.Fatalf("call edge mismatch: %+v", call)
+	}
+}
+
+func TestFlushBuildEdges_ResolvesImplementsOnlyOnce(t *testing.T) {
+	ctx := context.Background()
+	st := newRecordingGraphStore(t)
+	st.nodesByFP["cmd/main.go"] = []model.Node{{ID: 10, QualifiedName: "cmd/main.go", Name: "cmd/main.go", Kind: model.NodeKindFile, FilePath: "cmd/main.go", Language: "go"}, {ID: 1, QualifiedName: "main.Run", Name: "Run", Kind: model.NodeKindFunction, FilePath: "cmd/main.go", StartLine: 1, EndLine: 100, Language: "go"}}
+	st.nodesByFP["mcp/deps.go"] = []model.Node{{ID: 20, QualifiedName: "mcp/deps.go", Name: "mcp/deps.go", Kind: model.NodeKindFile, FilePath: "mcp/deps.go", Language: "go"}, {ID: 2, QualifiedName: "mcp.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "mcp/deps.go", StartLine: 3, EndLine: 5, Language: "go"}}
+	st.nodesByFP["flows/tracer.go"] = []model.Node{{ID: 30, QualifiedName: "flows/tracer.go", Name: "flows/tracer.go", Kind: model.NodeKindFile, FilePath: "flows/tracer.go", Language: "go"}, {ID: 3, QualifiedName: "flows.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "flows/tracer.go", StartLine: 7, EndLine: 7, Language: "go"}, {ID: 4, QualifiedName: "flows.Tracer.TraceFlow", Name: "TraceFlow", Kind: model.NodeKindFunction, FilePath: "flows/tracer.go", StartLine: 9, EndLine: 11, Language: "go"}}
+
+	var implementsSeen []int
+	oldResolve := resolveBuildEdges
+	resolveBuildEdges = func(ctx context.Context, lookup edgeresolve.NodeLookup, edges []model.Edge) ([]model.Edge, error) {
+		count := 0
+		for _, edge := range edges {
+			if edge.Kind == model.EdgeKindImplements {
+				count++
+			}
+		}
+		implementsSeen = append(implementsSeen, count)
+		return oldResolve(ctx, lookup, edges)
+	}
+	t.Cleanup(func() { resolveBuildEdges = oldResolve })
+
+	batches := []parsedBuildEdgeBatch{
+		{relPath: "flows/tracer.go", edges: []model.Edge{{Kind: model.EdgeKindImplements, FilePath: "flows/tracer.go", Line: 7, Fingerprint: "implements:flows/tracer.go:flows.Tracer:mcp.FlowTracer"}}},
+		{relPath: "cmd/main.go", edges: []model.Edge{{Kind: model.EdgeKindImportsFrom, FilePath: "cmd/main.go", Line: 1, Fingerprint: "imports_from:cmd/main.go:github.com/example/project/mcp:1"}, {Kind: model.EdgeKindCalls, FilePath: "cmd/main.go", Line: 2, Fingerprint: "calls:cmd/main.go:h.deps.FlowTracer.TraceFlow:2"}}},
+		{relPath: "cmd/main.go", edges: []model.Edge{{Kind: model.EdgeKindContains, FilePath: "cmd/main.go", Line: 1, Fingerprint: "contains:cmd/main.go:main.Run"}}},
+	}
+
+	svc := &GraphService{}
+	if err := svc.flushBuildEdges(ctx, st, batches); err != nil {
+		t.Fatalf("flushBuildEdges: %v", err)
+	}
+	if got, want := implementsSeen, []int{1, 0, 0}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("implements counts per resolve call: got=%v want=%v", got, want)
+	}
+}
+
+func TestFlushBuildEdges_WarmsImportsAcrossChunkBoundaries(t *testing.T) {
+	ctx := context.Background()
+	st := newRecordingGraphStore(t)
+	st.nodesByFP["cmd/main.go"] = []model.Node{{ID: 10, QualifiedName: "cmd/main.go", Name: "cmd/main.go", Kind: model.NodeKindFile, FilePath: "cmd/main.go", Language: "go"}, {ID: 1, QualifiedName: "main.Run", Name: "Run", Kind: model.NodeKindFunction, FilePath: "cmd/main.go", StartLine: 1, EndLine: 1000, Language: "go"}}
+	st.nodesByFP["mcp/deps.go"] = []model.Node{{ID: 20, QualifiedName: "mcp/deps.go", Name: "mcp/deps.go", Kind: model.NodeKindFile, FilePath: "mcp/deps.go", Language: "go"}, {ID: 2, QualifiedName: "mcp.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "mcp/deps.go", StartLine: 3, EndLine: 5, Language: "go"}}
+	st.nodesByFP["flows/tracer.go"] = []model.Node{{ID: 30, QualifiedName: "flows/tracer.go", Name: "flows/tracer.go", Kind: model.NodeKindFile, FilePath: "flows/tracer.go", Language: "go"}, {ID: 3, QualifiedName: "flows.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "flows/tracer.go", StartLine: 7, EndLine: 7, Language: "go"}, {ID: 4, QualifiedName: "flows.Tracer.TraceFlow", Name: "TraceFlow", Kind: model.NodeKindFunction, FilePath: "flows/tracer.go", StartLine: 9, EndLine: 11, Language: "go"}}
+
+	batches := []parsedBuildEdgeBatch{
+		{relPath: "flows/tracer.go", edges: []model.Edge{{Kind: model.EdgeKindImplements, FilePath: "flows/tracer.go", Line: 7, Fingerprint: "implements:flows/tracer.go:flows.Tracer:mcp.FlowTracer"}}},
+		{relPath: "cmd/main.go", edges: append([]model.Edge{{Kind: model.EdgeKindImportsFrom, FilePath: "cmd/main.go", Line: 1, Fingerprint: "imports_from:cmd/main.go:github.com/example/project/mcp:1"}}, repeatedCallEdges("cmd/main.go", buildEdgeResolveChunkSize)...)},
+	}
+
+	svc := &GraphService{}
+	if err := svc.flushBuildEdges(ctx, st, batches); err != nil {
+		t.Fatalf("flushBuildEdges: %v", err)
+	}
+	if len(st.upsertedEdges) < 3 {
+		t.Fatalf("expected multiple upsert batches, got %d", len(st.upsertedEdges))
+	}
+	lastBatch := st.upsertedEdges[len(st.upsertedEdges)-1]
+	call := lastBatch[len(lastBatch)-1]
+	if call.Kind != model.EdgeKindCalls || call.ToNodeID != 4 {
+		t.Fatalf("expected warmed call edge to resolve after chunk split, got %+v", call)
+	}
+}
+
+func repeatedCallEdges(filePath string, count int) []model.Edge {
+	edges := make([]model.Edge, 0, count)
+	for i := 0; i < count; i++ {
+		edges = append(edges, model.Edge{Kind: model.EdgeKindCalls, FilePath: filePath, Line: i + 2, Fingerprint: fmt.Sprintf("calls:%s:h.deps.FlowTracer.TraceFlow:%d", filePath, i+2)})
+	}
+	return edges
+}
+
+func TestBuild_UsesRepoLocalPackageClauseForGoImportAssertions(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{Store: st, DB: db, Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustWrite("go.mod", "module github.com/example/project\n\ngo 1.25.0\n")
+	mustMkdir("internal/api")
+	mustMkdir("mainpkg")
+	mustWrite("internal/api/contracts.go", "package contracts\n\ntype Service interface {\n\tRun()\n}\n")
+	mustWrite("internal/api/contracts_test.go", "package contracts_test\n")
+	mustWrite("mainpkg/main.go", "package mainpkg\n\nimport dep \"github.com/example/project/internal/api\"\n\ntype MyType struct{}\n\nfunc (MyType) Run() {}\n\nvar _ dep.Service = MyType{}\n")
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	impl, err := st.GetNode(ctx, "mainpkg.MyType")
+	if err != nil || impl == nil {
+		t.Fatalf("GetNode impl: node=%v err=%v", impl, err)
+	}
+	iface, err := st.GetNode(ctx, "contracts.Service")
+	if err != nil || iface == nil {
+		t.Fatalf("GetNode iface: node=%v err=%v", iface, err)
+	}
+	edges, err := st.GetEdgesFrom(ctx, impl.ID)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom: %v", err)
+	}
+	for _, edge := range edges {
+		if edge.Kind == model.EdgeKindImplements && edge.ToNodeID == iface.ID {
+			return
+		}
+	}
+	t.Fatalf("expected implements edge from %d to contracts.Service %d, got %+v", impl.ID, iface.ID, edges)
 }
 
 func TestNewParsedBuildNodeBatch_DropsRawContentAndOnlyBuildsSourceLinesWhenNeeded(t *testing.T) {

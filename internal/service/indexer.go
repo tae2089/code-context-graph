@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/gob"
 	"encoding/hex"
+	"bufio"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -284,6 +285,8 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		return stats, err
 	}
 
+	ctx = s.withGoImportPackageContext(ctx, absDir, opts)
+
 	spool, err := s.prepareBuildSpool(ctx, absDir, opts)
 	if err != nil {
 		return stats, err
@@ -553,6 +556,7 @@ func (s *GraphService) flushBuildBatch(ctx context.Context, txStore store.GraphS
 // @mutates graph edges
 func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphStore, edgeBatches []parsedBuildEdgeBatch) error {
 	implementsEdges, otherBatches := partitionBuildEdges(edgeBatches)
+	importsByPath := importEdgesByFile(otherBatches)
 	for start := 0; start < len(implementsEdges); start += buildEdgeResolveChunkSize {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -574,12 +578,12 @@ func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphS
 		for start := 0; start < len(parsed.edges); start += buildEdgeResolveChunkSize {
 			end := min(start+buildEdgeResolveChunkSize, len(parsed.edges))
 			chunk := parsed.edges[start:end]
-			resolveInput := append(append([]model.Edge(nil), implementsEdges...), chunk...)
+			resolveInput := chunkWithImportWarmup(chunk, importsByPath[parsed.relPath])
 			resolved, err := resolveBuildEdges(ctx, txStore, resolveInput)
 			if err != nil {
 				return trace.Wrap(err, "resolve deferred edges for "+parsed.relPath)
 			}
-			if err := txStore.UpsertEdges(ctx, resolved[len(implementsEdges):]); err != nil {
+			if err := txStore.UpsertEdges(ctx, resolved[len(resolveInput)-len(chunk):]); err != nil {
 				return trace.Wrap(err, "upsert deferred edges for "+parsed.relPath)
 			}
 		}
@@ -621,6 +625,38 @@ func splitImplementsEdges(edges []model.Edge) ([]model.Edge, []model.Edge) {
 	return implementsEdges, otherEdges
 }
 
+func importEdgesByFile(edgeBatches []parsedBuildEdgeBatch) map[string][]model.Edge {
+	byFile := make(map[string][]model.Edge, len(edgeBatches))
+	for _, batch := range edgeBatches {
+		for _, edge := range batch.edges {
+			if edge.Kind != model.EdgeKindImportsFrom {
+				continue
+			}
+			byFile[batch.relPath] = append(byFile[batch.relPath], edge)
+		}
+	}
+	return byFile
+}
+
+func chunkWithImportWarmup(chunk []model.Edge, imports []model.Edge) []model.Edge {
+	if len(chunk) == 0 {
+		return nil
+	}
+	needsWarmup := false
+	for _, edge := range chunk {
+		if edge.Kind == model.EdgeKindCalls {
+			needsWarmup = true
+			break
+		}
+	}
+	if !needsWarmup || len(imports) == 0 {
+		return append([]model.Edge(nil), chunk...)
+	}
+	resolveInput := append([]model.Edge(nil), imports...)
+	resolveInput = append(resolveInput, chunk...)
+	return resolveInput
+}
+
 // Update incrementally syncs changed files into the graph and optionally rebuilds search.
 // @intent centralize file collection, include path, parse limit, and search policy for update callers
 func (s *GraphService) Update(ctx context.Context, opts UpdateOptions) (*incremental.SyncStats, error) {
@@ -640,6 +676,7 @@ func (s *GraphService) Update(ctx context.Context, opts UpdateOptions) (*increme
 	}
 
 	s.logger().Info("incremental update", "dir", absDir)
+	ctx = s.withGoImportPackageContext(ctx, absDir, opts.BuildOptions)
 
 	if _, ok := opts.Syncer.(transactionalIncrementalSyncer); !ok || s.Store == nil {
 		return s.updateGraphWithoutTx(ctx, absDir, opts)
@@ -1240,6 +1277,101 @@ func parseForBuild(ctx context.Context, parser Parser, relPath string, content [
 	}
 	nodes, edges, err := parser.ParseWithContext(ctx, relPath, content)
 	return nodes, edges, nil, "", err
+}
+
+func (s *GraphService) withGoImportPackageContext(ctx context.Context, absDir string, opts BuildOptions) context.Context {
+	packages, err := collectGoImportPackages(absDir, opts, s.parserForExt)
+	if err != nil {
+		s.logger().Debug("skip go import package context", "dir", absDir, "error", err)
+		return ctx
+	}
+	return treesitter.WithGoImportPackages(ctx, packages)
+}
+
+func collectGoImportPackages(absDir string, opts BuildOptions, parserForExt func(string) (Parser, bool)) (map[string]string, error) {
+	modulePath, err := readGoModulePath(filepath.Join(absDir, "go.mod"))
+	if err != nil || modulePath == "" {
+		return nil, err
+	}
+	packages := make(map[string]string)
+	err = walkMatchingFiles(context.Background(), absDir, opts, func(path, relPath string) error {
+		if strings.ToLower(filepath.Ext(path)) != ".go" {
+			return nil
+		}
+		if strings.HasSuffix(relPath, "_test.go") {
+			return nil
+		}
+		if _, ok := parserForExt(".go"); !ok {
+			return nil
+		}
+		pkgName, err := readGoPackageClause(path)
+		if err != nil || pkgName == "" {
+			return err
+		}
+		if strings.HasSuffix(pkgName, "_test") {
+			return nil
+		}
+		dir := filepath.ToSlash(filepath.Dir(relPath))
+		if dir == "." {
+			packages[modulePath] = pkgName
+			return nil
+		}
+		packages[modulePath+"/"+dir] = pkgName
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return packages, nil
+}
+
+func readGoModulePath(goModPath string) (string, error) {
+	file, err := os.Open(goModPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "module ") {
+			continue
+		}
+		return strings.TrimSpace(strings.TrimPrefix(line, "module ")), nil
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return "", nil
+}
+
+func readGoPackageClause(filePath string) (string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+		if strings.HasPrefix(line, "package ") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				return fields[1], nil
+			}
+		}
+		break
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return "", nil
 }
 
 // ExistingGraphFiles returns namespace-scoped graph file paths currently stored.
