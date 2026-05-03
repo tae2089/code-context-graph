@@ -3,11 +3,19 @@ package flows
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/store/gormstore"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
+
+var flowBuilderTestDBSeq atomic.Int64
 
 type mockStore struct {
 	nodes map[uint]*model.Node
@@ -32,6 +40,23 @@ func newNode(id uint, name string) *model.Node {
 
 func callEdge(from, to uint, idx int) model.Edge {
 	return model.Edge{ID: uint(idx), FromNodeID: from, ToNodeID: to, Kind: model.EdgeKindCalls, Fingerprint: fmt.Sprintf("e%d", idx)}
+}
+
+func setupFlowBuilderTestDB(t *testing.T) (*gorm.DB, *gormstore.Store) {
+	t.Helper()
+	dsn := fmt.Sprintf("file:flows-builder-%s-%d?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "-"), flowBuilderTestDBSeq.Add(1))
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Flow{}, &model.FlowMembership{}); err != nil {
+		t.Fatal(err)
+	}
+	return db, st
 }
 
 func TestTraceFlow_SimpleChain(t *testing.T) {
@@ -127,5 +152,160 @@ func TestTraceFlow_PropagatesNamespace(t *testing.T) {
 		if member.Namespace != "payments" {
 			t.Fatalf("member[%d] namespace = %q, want %q", i, member.Namespace, "payments")
 		}
+	}
+}
+
+func TestFlowBuilder_Rebuild_PersistsFlowPerEntrypoint(t *testing.T) {
+	db, st := setupFlowBuilderTestDB(t)
+
+	ctx := ctxns.WithNamespace(context.Background(), "svc")
+	if err := st.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "A", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"},
+		{QualifiedName: "pkg.B", Kind: model.NodeKindFunction, Name: "B", FilePath: "b.go", StartLine: 1, EndLine: 2, Language: "go"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	a, err := st.GetNode(ctx, "pkg.A")
+	if err != nil || a == nil {
+		t.Fatalf("get node A: %v", err)
+	}
+	b, err := st.GetNode(ctx, "pkg.B")
+	if err != nil || b == nil {
+		t.Fatalf("get node B: %v", err)
+	}
+	if err := st.UpsertEdges(ctx, []model.Edge{{FromNodeID: a.ID, ToNodeID: b.ID, Kind: model.EdgeKindCalls, Fingerprint: "a-b"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	builder := NewBuilder(db, st)
+	stats, err := builder.Rebuild(ctx, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 rebuilt flow, got %d", len(stats))
+	}
+
+	var persisted []model.Flow
+	if err := db.Where("namespace = ?", "svc").Find(&persisted).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(persisted) != 1 {
+		t.Fatalf("expected 1 persisted flow, got %d", len(persisted))
+	}
+	if persisted[0].Name != "flow_from_pkg.A" {
+		t.Fatalf("expected flow name flow_from_pkg.A, got %q", persisted[0].Name)
+	}
+
+	var members []model.FlowMembership
+	if err := db.Where("flow_id = ?", persisted[0].ID).Order("ordinal asc").Find(&members).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("expected 2 persisted memberships, got %d", len(members))
+	}
+	if members[0].NodeID != a.ID || members[1].NodeID != b.ID {
+		t.Fatalf("unexpected membership order: %+v", members)
+	}
+}
+
+func TestFlowBuilder_Rebuild_DeletesPriorFlowsInNamespace(t *testing.T) {
+	db, st := setupFlowBuilderTestDB(t)
+	builder := NewBuilder(db, st)
+
+	ctx := ctxns.WithNamespace(context.Background(), "svc")
+	otherCtx := ctxns.WithNamespace(context.Background(), "other")
+	if err := st.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "A", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"},
+		{QualifiedName: "pkg.B", Kind: model.NodeKindFunction, Name: "B", FilePath: "b.go", StartLine: 1, EndLine: 2, Language: "go"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpsertNodes(otherCtx, []model.Node{{QualifiedName: "other.Root", Kind: model.NodeKindFunction, Name: "Root", FilePath: "root.go", StartLine: 1, EndLine: 2, Language: "go"}}); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := st.GetNode(ctx, "pkg.A")
+	b, _ := st.GetNode(ctx, "pkg.B")
+	if err := st.UpsertEdges(ctx, []model.Edge{{FromNodeID: a.ID, ToNodeID: b.ID, Kind: model.EdgeKindCalls, Fingerprint: "svc-a-b"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := builder.Rebuild(ctx, Config{}); err != nil {
+		t.Fatal(err)
+	}
+	var before []model.Flow
+	if err := db.Where("namespace = ?", "svc").Find(&before).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 1 {
+		t.Fatalf("expected 1 initial flow, got %d", len(before))
+	}
+	if err := db.Create(&model.Flow{Namespace: "other", Name: "flow_from_other.Root"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := st.DeleteNodesByFile(ctx, "b.go"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := builder.Rebuild(ctx, Config{}); err != nil {
+		t.Fatal(err)
+	}
+
+	var afterSvc []model.Flow
+	if err := db.Where("namespace = ?", "svc").Order("id asc").Find(&afterSvc).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(afterSvc) != 1 {
+		t.Fatalf("expected 1 rebuilt svc flow, got %d", len(afterSvc))
+	}
+	if afterSvc[0].ID == before[0].ID {
+		t.Fatalf("expected svc flow to be replaced, id stayed %d", afterSvc[0].ID)
+	}
+	var svcMembers []model.FlowMembership
+	if err := db.Where("flow_id = ?", afterSvc[0].ID).Find(&svcMembers).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(svcMembers) != 1 {
+		t.Fatalf("expected rebuilt svc flow to have 1 member, got %d", len(svcMembers))
+	}
+	var otherCount int64
+	if err := db.Model(&model.Flow{}).Where("namespace = ?", "other").Count(&otherCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if otherCount != 1 {
+		t.Fatalf("expected other namespace flow to remain, got %d", otherCount)
+	}
+}
+
+func TestFlowBuilder_Rebuild_NoEntrypointsReturnsEmpty(t *testing.T) {
+	db, st := setupFlowBuilderTestDB(t)
+	ctx := ctxns.WithNamespace(context.Background(), "svc")
+	if err := st.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "A", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"},
+		{QualifiedName: "pkg.B", Kind: model.NodeKindFunction, Name: "B", FilePath: "b.go", StartLine: 1, EndLine: 2, Language: "go"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := st.GetNode(ctx, "pkg.A")
+	b, _ := st.GetNode(ctx, "pkg.B")
+	if err := st.UpsertEdges(ctx, []model.Edge{
+		{FromNodeID: a.ID, ToNodeID: b.ID, Kind: model.EdgeKindCalls, Fingerprint: "a-b"},
+		{FromNodeID: b.ID, ToNodeID: a.ID, Kind: model.EdgeKindCalls, Fingerprint: "b-a"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := NewBuilder(db, st).Rebuild(ctx, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats) != 0 {
+		t.Fatalf("expected 0 rebuilt flows, got %d", len(stats))
+	}
+	var count int64
+	if err := db.Model(&model.Flow{}).Where("namespace = ?", "svc").Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("expected 0 persisted flows, got %d", count)
 	}
 }
