@@ -286,6 +286,42 @@ func main() {
 	}
 }
 
+func TestParseGo_TypeAssertionCallRewriteUsesSemanticsHook(t *testing.T) {
+	src := `package main
+
+type FlowTracer interface {
+	TraceFlowBounded()
+}
+
+func handle(dep any) {
+	tracer, ok := dep.(FlowTracer)
+	if ok {
+		tracer.TraceFlowBounded()
+	}
+}
+`
+	w := NewWalker(GoSpec)
+	_, edges, err := w.Parse("main.go", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
+	for _, e := range callEdges {
+		if e.Fingerprint == "calls:main.go:FlowTracer.TraceFlowBounded:10" {
+			return
+		}
+	}
+	t.Fatalf("expected type assertion call rewrite edge, got %#v", callEdges)
+}
+
+func TestLanguageSemantics_DefaultCallRewriterNoop(t *testing.T) {
+	rewriter := semanticsOrDefault(PythonSpec).CallRewriter(SemanticContext{})
+	got := rewriter.RewriteCall(CallRewriteContext{Callee: "client.get", Line: 1})
+	if got != "client.get" {
+		t.Fatalf("default call rewriter changed callee: got %q", got)
+	}
+}
+
 func TestParseGo_Import(t *testing.T) {
 	src := `package main
 
