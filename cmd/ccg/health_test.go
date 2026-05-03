@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -214,6 +215,125 @@ func TestStatusHandler_ReportsUnresolvedWebhookFailure(t *testing.T) {
 	}
 	if got := body["status"]; got != "degraded" {
 		t.Fatalf("expected degraded status, got %v body=%s", got, rec.Body.String())
+	}
+}
+
+func TestWebhookStatsDegraded_PerRepoUnresolvedFailure(t *testing.T) {
+	errTime := time.Now()
+	successTime := errTime.Add(2 * time.Minute)
+
+	if !webhookStatsDegraded(webhook.SyncQueueStats{
+		LastSuccessTime: successTime,
+		RecentRepos: []webhook.RepoStats{{
+			Repo:          "org/failrepo",
+			LastErrorTime: errTime,
+		}},
+	}) {
+		t.Fatal("expected unresolved repo failure to degrade status")
+	}
+
+	if webhookStatsDegraded(webhook.SyncQueueStats{
+		LastSuccessTime: successTime,
+		RecentRepos: []webhook.RepoStats{{
+			Repo:            "org/recovered",
+			LastErrorTime:   errTime,
+			LastSuccessTime: successTime,
+		}},
+	}) {
+		t.Fatal("expected recovered repo not to degrade status")
+	}
+}
+
+func TestStatusHandler_DegradedWhenRecentRepoFailureUnresolved(t *testing.T) {
+	var mu sync.Mutex
+	completed := make([]string, 0, 2)
+	q := webhook.NewSyncQueueWithConfig(nil, 1, func(_ context.Context, repoFullName, cloneURL, branch string) error {
+		mu.Lock()
+		completed = append(completed, repoFullName)
+		mu.Unlock()
+		if repoFullName == "org/failrepo" {
+			return errors.New("boom")
+		}
+		return nil
+	}, webhook.QueueConfig{
+		RetryConfig:     webhook.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 10,
+	})
+	defer q.Shutdown()
+
+	if err := q.Add(nil, "org/failrepo", "url", "feature/fail"); err != nil {
+		t.Fatalf("Add failrepo returned error: %v", err)
+	}
+	if err := q.Add(nil, "org/okrepo", "url", "main"); err != nil {
+		t.Fatalf("Add okrepo returned error: %v", err)
+	}
+
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		mu.Lock()
+		done := len(completed)
+		mu.Unlock()
+		if done == 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	rec := httptest.NewRecorder()
+	statusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	if got := body["status"]; got != "degraded" {
+		t.Fatalf("expected degraded status, got %v body=%s", got, rec.Body.String())
+	}
+}
+
+func TestStatusHandler_DBNotReadyTakesPrecedenceOverWebhookDegraded(t *testing.T) {
+	done := make(chan struct{})
+	q := webhook.NewSyncQueueWithConfig(nil, 1, func(_ context.Context, repoFullName, cloneURL, branch string) error {
+		close(done)
+		return errors.New("boom")
+	}, webhook.QueueConfig{
+		RetryConfig:     webhook.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		MaxTrackedRepos: 10,
+	})
+	defer q.Shutdown()
+
+	if err := q.Add(nil, "org/failrepo", "url", "feature/fail"); err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for webhook failure")
+	}
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		stats := q.Stats()
+		if len(stats.RecentRepos) > 0 && webhookStatsDegraded(stats) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	rec := httptest.NewRecorder()
+	statusHandler(func(r *http.Request) error { return errors.New("db down") }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	if got := body["status"]; got != "not_ready" {
+		t.Fatalf("expected not_ready status, got %v body=%s", got, rec.Body.String())
 	}
 }
 

@@ -1102,7 +1102,7 @@ func statusHandler(dbCheck func(*http.Request) error, webhookTimeout time.Durati
 				if err := webhookStatsBlockingReady(stats, webhookTimeout); err != nil {
 					resp.Status = "not_ready"
 					code = http.StatusServiceUnavailable
-				} else if webhookStatsDegraded(stats) {
+				} else if code == http.StatusOK && webhookStatsDegraded(stats) {
 					resp.Status = "degraded"
 				}
 			}
@@ -1142,7 +1142,16 @@ func webhookStatsDegraded(stats webhook.SyncQueueStats) bool {
 	if !stats.LastErrorTime.IsZero() && (stats.LastSuccessTime.IsZero() || stats.LastSuccessTime.Before(stats.LastErrorTime)) {
 		return true
 	}
+	for _, repo := range stats.RecentRepos {
+		if webhookRepoStatsDegraded(repo) {
+			return true
+		}
+	}
 	return false
+}
+
+func webhookRepoStatsDegraded(stats webhook.RepoStats) bool {
+	return !stats.LastErrorTime.IsZero() && (stats.LastSuccessTime.IsZero() || stats.LastSuccessTime.Before(stats.LastErrorTime))
 }
 
 // openDB opens a GORM connection for the configured driver.
