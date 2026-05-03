@@ -116,6 +116,8 @@ func LoadIncludePathsFromConfig(dir string) ([]string, error) {
 	return cfg.IncludePaths, nil
 }
 
+// MatchIncludePaths reports whether relPath falls inside or is an ancestor of any configured include path.
+// @intent let walkers prune directories that lie outside user-selected include scopes while still descending into ancestors.
 func MatchIncludePaths(relPath string, includePaths []string) bool {
 	relPath = normalizeIncludePath(relPath)
 	for _, inc := range includePaths {
@@ -129,6 +131,7 @@ func MatchIncludePaths(relPath string, includePaths []string) bool {
 
 // HasPathPrefix reports whether path is the same as prefix or is nested under it.
 // Both inputs are normalized to slash-separated clean relative paths.
+// @intent compare include path scopes after normalization so callers can test path containment reliably.
 func HasPathPrefix(pathValue, prefix string) bool {
 	pathValue = normalizeIncludePath(pathValue)
 	prefix = normalizeIncludePath(prefix)
@@ -138,6 +141,8 @@ func HasPathPrefix(pathValue, prefix string) bool {
 	return pathValue == prefix || strings.HasPrefix(pathValue, prefix+"/")
 }
 
+// normalizeIncludePath converts user-supplied include paths to a comparable slash form.
+// @intent guarantee comparisons treat "./foo", "foo", and "foo/" as the same logical path.
 func normalizeIncludePath(p string) string {
 	clean := path.Clean(strings.ReplaceAll(filepath.ToSlash(strings.TrimSpace(p)), `\`, "/"))
 	if clean == "." {

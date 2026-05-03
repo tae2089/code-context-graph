@@ -232,6 +232,7 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 	var interfaces []interfaceInfo
 
 	// nodeKey → index in nodes slice for O(1) dedup lookup
+	// @intent key duplicate symbol matches by name and source span during one query execution.
 	type nodeKey struct {
 		name      string
 		startLine int
@@ -690,6 +691,8 @@ func (w *Walker) ExtractComments(ctx context.Context, filePath string, content [
 	return comments, nil
 }
 
+// parseSourceCtx parses one source buffer with cancellation support, returning the resulting tree.
+// @intent let long parses honor caller cancellation while reusing pooled parsers for throughput.
 func (w *Walker) parseSourceCtx(ctx context.Context, content []byte) (*sitter.Tree, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -920,6 +923,7 @@ func (w *Walker) tryExtractDocstring(exprStmt *sitter.Node, content []byte) (Com
 	}
 }
 
+// @intent accept only Python string literal forms that can legally act as docstrings.
 func isSupportedPythonDocstringLiteral(text string) bool {
 	lower := strings.ToLower(text)
 	for _, quote := range []string{"\"\"\"", "'''"} {
@@ -985,6 +989,8 @@ func mergeCommentBlocks(comments, docstrings []CommentBlock) []CommentBlock {
 	return merged
 }
 
+// acquireParser borrows a Tree-sitter parser from the per-walker pool, creating one on first use.
+// @intent amortize parser construction cost across many parses on the same language.
 func (w *Walker) acquireParser() *sitter.Parser {
 	if w.lang == nil {
 		return nil
@@ -997,6 +1003,8 @@ func (w *Walker) acquireParser() *sitter.Parser {
 	return p
 }
 
+// releaseParser returns a parser instance to the pool for reuse.
+// @intent keep allocated parsers alive between parses instead of letting them be garbage collected.
 func (w *Walker) releaseParser(p *sitter.Parser) {
 	if p == nil || w.lang == nil {
 		return
@@ -1040,6 +1048,7 @@ func (w *Walker) getLanguage() (*sitter.Language, error) {
 
 // rangesOverlap reports whether two inclusive line ranges share at least one line.
 // @intent detect whether two symbol captures refer to overlapping source spans
+// @intent detect overlapping source spans when deduplicating competing Tree-sitter captures.
 func rangesOverlap(aStart, aEnd, bStart, bEnd int) bool {
 	return aStart <= bEnd && bStart <= aEnd
 }

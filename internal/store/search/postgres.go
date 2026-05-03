@@ -118,6 +118,12 @@ func (p *PostgresBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error
 	return nil
 }
 
+// resultRow scans node_id values from PostgreSQL tsquery matches.
+// @intent decode the single-column tsquery result before joining back to nodes.
+type resultRow struct {
+	NodeID uint
+}
+
 // Query는 PostgreSQL tsquery로 관련 노드를 검색한다.
 // @intent 사용자 검색어를 prefix tsquery로 변환해 관련 노드를 찾는다.
 // @requires limit는 0보다 커야 의미 있는 결과를 얻는다.
@@ -131,10 +137,6 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 		return nil, nil
 	}
 	ns := ctxns.FromContext(ctx)
-
-	type resultRow struct {
-		NodeID uint
-	}
 
 	var rows []resultRow
 	querySQL := `

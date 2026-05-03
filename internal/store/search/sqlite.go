@@ -97,6 +97,10 @@ func (s *SQLiteBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error {
 	return db.WithContext(ctx).Exec("DELETE FROM "+sqliteFTSTable+" WHERE namespace = ?", ctxns.FromContext(ctx)).Error
 }
 
+// rebuildTable clears all FTS rows for the current namespace in tableName and
+// repopulates them from search_documents in batches. Used by both full Rebuild
+// and the legacy-upgrade path.
+// @intent resynchronize one namespace-scoped SQLite FTS table from persisted search documents without disturbing other namespaces.
 func (s *SQLiteBackend) rebuildTable(ctx context.Context, db *gorm.DB, tableName string) error {
 	ns := ctxns.FromContext(ctx)
 	clearSQL := fmt.Sprintf("DELETE FROM %s WHERE namespace = ?", tableName)
@@ -125,6 +129,10 @@ func (s *SQLiteBackend) rebuildTable(ctx context.Context, db *gorm.DB, tableName
 	})
 }
 
+// rebuildTableNodes deletes and re-inserts FTS rows only for the given nodeIDs
+// within the current namespace, processing them in chunks of scopedRebuildChunkSize
+// to avoid oversized IN clauses.
+// @intent refresh only the requested node documents in SQLite FTS so incremental updates can avoid a full namespace rebuild.
 func (s *SQLiteBackend) rebuildTableNodes(ctx context.Context, db *gorm.DB, tableName string, nodeIDs []uint) error {
 	ns := ctxns.FromContext(ctx)
 	return db.WithContext(ctx).Transaction(func(outerTx *gorm.DB) error {
@@ -154,6 +162,10 @@ func (s *SQLiteBackend) rebuildTableNodes(ctx context.Context, db *gorm.DB, tabl
 	})
 }
 
+// insertSQLiteFTSBatch executes one bulk INSERT for a batch of search documents into an FTS table.
+// @intent push many rows in a single statement so rebuild paths avoid per-row round trips.
+// @sideEffect inserts rows into the supplied FTS virtual table.
+// @mutates search_fts virtual table contents
 func insertSQLiteFTSBatch(ctx context.Context, tx *gorm.DB, tableName string, docs []model.SearchDocument) error {
 	if len(docs) == 0 {
 		return nil
@@ -162,6 +174,10 @@ func insertSQLiteFTSBatch(ctx context.Context, tx *gorm.DB, tableName string, do
 	return tx.WithContext(ctx).Exec(insertSQL, args...).Error
 }
 
+// buildSQLiteFTSInsert constructs a bulk INSERT statement for the FTS virtual
+// table, returning the SQL string and its positional arguments. Each document
+// maps to a (node_id, content, language, namespace) value row.
+// @intent batch SQLite FTS inserts into one statement so rebuild paths can stream many documents with minimal per-row overhead.
 func buildSQLiteFTSInsert(tableName string, docs []model.SearchDocument) (string, []any) {
 	if len(docs) == 0 {
 		return "", nil
@@ -180,6 +196,12 @@ func buildSQLiteFTSInsert(tableName string, docs []model.SearchDocument) (string
 	return insertSQL, args
 }
 
+// ftsRow scans node_id values from search_fts MATCH queries.
+// @intent decode the single-column FTS result before joining back to nodes.
+type ftsRow struct {
+	NodeID uint
+}
+
 // Query는 FTS5 MATCH 질의로 관련 노드를 검색한다.
 // @intent 사용자 검색어를 SQLite FTS prefix 질의로 변환해 노드를 찾는다.
 // @requires limit는 0보다 커야 의미 있는 결과를 얻는다.
@@ -193,10 +215,6 @@ func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, li
 		return nil, nil
 	}
 	ns := ctxns.FromContext(ctx)
-
-	type ftsRow struct {
-		NodeID uint
-	}
 
 	var rows []ftsRow
 	querySQL := `SELECT CAST(node_id AS INTEGER) AS node_id
@@ -245,6 +263,8 @@ func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, li
 	return result, nil
 }
 
+// sqliteColumnExists reports whether a column is present on a given SQLite table via PRAGMA table_info.
+// @intent gate schema migrations on actual table layout instead of guessing from version markers.
 func sqliteColumnExists(db *gorm.DB, tableName, columnName string) (bool, error) {
 	rows, err := db.Raw("PRAGMA table_info(" + tableName + ")").Rows()
 	if err != nil {
@@ -266,6 +286,10 @@ func sqliteColumnExists(db *gorm.DB, tableName, columnName string) (bool, error)
 	return false, rows.Err()
 }
 
+// createSQLiteFTSTable issues a CREATE VIRTUAL TABLE … USING fts5 DDL for the
+// given tableName. When ifNotExists is true the statement is idempotent; when
+// false it is used for the upgrade shadow table where a fresh schema is required.
+// @intent create the namespace-aware SQLite FTS table shape used by both first-run migration and legacy upgrade flows.
 func createSQLiteFTSTable(db *gorm.DB, tableName string, ifNotExists bool) error {
 	clause := ""
 	if ifNotExists {
@@ -278,6 +302,11 @@ func createSQLiteFTSTable(db *gorm.DB, tableName string, ifNotExists bool) error
 	return db.Exec(stmt).Error
 }
 
+// upgradeLegacyFTSTable migrates a pre-namespace search_fts schema to the
+// current four-column layout (node_id, content, language, namespace). It builds
+// a shadow table, populates it via rebuildTable, then swaps it into place using
+// RENAME, keeping the old table as a backup until the swap succeeds.
+// @intent upgrade legacy SQLite FTS storage to the namespace-aware schema without losing the indexed search snapshot.
 func (s *SQLiteBackend) upgradeLegacyFTSTable(db *gorm.DB) error {
 	for _, tableName := range []string{sqliteFTSUpgradeTable, sqliteFTSLegacyBackup} {
 		if err := db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)).Error; err != nil {
@@ -306,6 +335,8 @@ func (s *SQLiteBackend) upgradeLegacyFTSTable(db *gorm.DB) error {
 	return nil
 }
 
+// sqliteTableExists reports whether a regular table with the given name exists in sqlite_master.
+// @intent let migration code branch on table presence without depending on GORM AutoMigrate side effects.
 func sqliteTableExists(db *gorm.DB, tableName string) (bool, error) {
 	var count int64
 	if err := db.Raw("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?", tableName).Scan(&count).Error; err != nil {
