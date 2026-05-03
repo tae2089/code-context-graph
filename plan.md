@@ -236,3 +236,30 @@
 - `internal/mcp/handler_parse.go` — `run_postprocess` / `build_or_update_graph` flow rebuild wiring
 - `internal/mcp/handler_graph.go` — persisted flow refresh hint 갱신
 - `cmd/ccg/main.go` — MCP deps에 `flows.NewBuilder(...)` 주입
+
+---
+
+## Step 14: Automatic Postprocess Policy Engine
+
+### 테스트
+
+- [ ] `TestAutoMigrate_CreatesPostprocessPolicyTables` — GORM test path가 policy state/log 테이블을 생성
+- [ ] `TestRunMigrations_SqliteAppliesPolicyTables` — versioned sqlite migration이 policy 테이블을 만들고 schema version을 올림
+- [ ] `TestPolicyEngine_DecideDefaultsToDegraded` — 명시적 요청이 없고 이력이 없으면 degraded를 선택
+- [ ] `TestPolicyEngine_DecideEscalatesAfterThreeFailures` — 같은 namespace+tool에서 최근 3회 연속 실패면 fail_closed로 승격
+- [ ] `TestPolicyStore_RecordAndUpsertState` — 실행 로그 append와 최신 state upsert가 저장됨
+- [ ] `TestBuildOrUpdateGraph_UsesEnginePolicyWhenCallerOmitsHint` — caller가 `postprocess_policy`를 안 넘기면 엔진 결정을 사용
+- [ ] `TestBuildOrUpdateGraph_CallerPolicyWinsOverEngine` — caller가 명시한 `postprocess_policy`가 엔진보다 우선
+- [ ] `TestRunPostprocess_RecordsPolicyDecision` — run_postprocess가 policy decision과 결과를 기록
+
+### 구현
+
+- `internal/model/postprocess_policy.go` — policy state/log 모델 추가
+- `internal/store/gormstore/gormstore.go` — AutoMigrate에 policy 모델 추가
+- `internal/migrationfs/sqlite/000003_postprocess_policy.{up,down}.sql` — sqlite migration 추가
+- `internal/migrationfs/postgres/000003_postprocess_policy.{up,down}.sql` — postgres migration 추가
+- `internal/policy/postprocess/engine.go` — 자동 postprocess 정책 결정 엔진 추가
+- `internal/policy/postprocess/store.go` — policy state/log persistence 추가
+- `internal/mcp/deps.go` — PolicyEngine dependency 추가
+- `internal/mcp/handler_parse.go` — build/run_postprocess 경로에 policy 결정/기록 연결
+- `cmd/ccg/main.go` — migration schema version bump, schema parity, engine wiring 추가
