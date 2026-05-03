@@ -65,7 +65,7 @@ For each declaration, read the code and determine:
 - Do NOT add trivial annotations (e.g., `@intent returns the name` for `getName()`)
 
 ### Step 4: Rebuild
-After annotating, run `ccg build .` to re-index with new annotations.
+After annotating, run `ccg build .` to re-index with new annotations. For the default local SQLite database (`ccg.db`), that is enough on first use when the schema is missing. For PostgreSQL, custom SQLite DSNs, existing schemas, controlled upgrades, or an older existing `ccg.db` after upgrading CCG, run `ccg migrate` before rebuilding. If `ccg build .` fails with a schema version error, run `ccg migrate` and retry.
 
 ## Annotation Quality Rules
 

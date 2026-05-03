@@ -102,4 +102,4 @@ rules:
 
 ## Prerequisites
 
-Graph must be built first. If `ccg.db` doesn't exist, run `ccg build .` (see `/ccg` skill).
+Graph must be built first. For the default local SQLite database (`ccg.db`), `ccg build .` is enough on first use when the schema is missing. For PostgreSQL, custom SQLite DSNs, existing schemas, controlled upgrades, or an older existing `ccg.db` after upgrading CCG, run `ccg migrate` before `ccg build .` (see `/ccg` skill). If `ccg build .` fails with a schema version error, run `ccg migrate` and retry.

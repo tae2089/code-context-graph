@@ -79,7 +79,7 @@ Related skills:
 
 ### Auto-rebuild when stale
 
-If `ccg.db` doesn't exist or the user asks to analyze the project, run `ccg build .` first.
+If the user is on the default local SQLite database (`ccg.db`) and the schema is missing, `ccg build .` is enough because runtime commands auto-migrate on first use. For PostgreSQL, custom SQLite DSNs, existing schemas, controlled upgrades, or an older existing `ccg.db` after upgrading CCG, run `ccg migrate` before `ccg build .`. If `ccg build .` fails with a schema version error, run `ccg migrate` and retry.
 
 ### Annotation-aware search
 
