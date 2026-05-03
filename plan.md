@@ -215,3 +215,24 @@
 - `internal/mcp/handler_workspace.go` — workspace 삭제 시 namespace graph purge + workspace RAG index 제거 + cache flush
 - `internal/ragindex/builder.go` — same-dir unique temp file + `Sync()` + atomic rename
 - `internal/store/gormstore/gormstore.go` — production semantics 변경 대신 lifecycle characterization test를 통과하도록 현재 contract 유지
+
+---
+
+## Step 13: Persisted Flow Rebuild
+
+### 테스트
+
+- [x] `TestFlowBuilder_Rebuild_PersistsFlowPerEntrypoint` — inbound `calls`가 없는 function/test 노드마다 stored flow와 memberships를 저장
+- [x] `TestFlowBuilder_Rebuild_DeletesPriorFlowsInNamespace` — 같은 namespace 재빌드 시 이전 stored flows를 교체하고 다른 namespace는 유지
+- [x] `TestFlowBuilder_Rebuild_NoEntrypointsReturnsEmpty` — entrypoint가 없으면 0 flows와 nil error를 반환
+- [x] `TestRunPostprocess_RebuildsFlowsWhenBuilderConfigured` — `run_postprocess(flows=true)`가 실제 rebuild를 호출해 `flows_count`를 채우고 `skipped_steps`에서 `flows`를 제거
+- [x] `TestRunPostprocess_FlowsSkippedWhenBuilderNil` — `FlowBuilder`가 없으면 기존처럼 `flows`를 skipped로 보고
+- [x] `TestBuildOrUpdateGraph_FullPostprocess_RebuildsFlows` — `build_or_update_graph postprocess=full`이 stored flow rebuild를 실행
+
+### 구현
+
+- `internal/analysis/flows/builder.go` — `Builder` + `Rebuild(ctx, Config)` 추가
+- `internal/mcp/deps.go` — `FlowBuilder` interface와 dependency field 추가
+- `internal/mcp/handler_parse.go` — `run_postprocess` / `build_or_update_graph` flow rebuild wiring
+- `internal/mcp/handler_graph.go` — persisted flow refresh hint 갱신
+- `cmd/ccg/main.go` — MCP deps에 `flows.NewBuilder(...)` 주입
