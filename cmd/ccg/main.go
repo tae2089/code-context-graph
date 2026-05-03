@@ -831,12 +831,18 @@ func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 		MaxFileBytes:        cfg.MaxFileBytes,
 		MaxTotalParsedBytes: cfg.MaxTotalParsedBytes,
 	}
+	postprocessSummary := func(ctx context.Context) (*postprocesspolicy.StatusSummary, error) {
+		if mcpDeps.PostprocessPolicy == nil {
+			return nil, nil
+		}
+		return mcpDeps.PostprocessPolicy.Status(ctx, postprocesspolicy.StatusOptions{RecentLimit: postprocesspolicy.DefaultStatusLimit})
+	}
 
 	srv := mcpserver.NewServer(mcpDeps)
 
 	switch cfg.Transport {
 	case "streamable-http":
-		return serveStreamableHTTP(deps, srv, cfg)
+		return serveStreamableHTTP(deps, srv, cfg, postprocessSummary)
 	default:
 		deps.Logger.Info("serving MCP over stdio")
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -880,10 +886,18 @@ func (p *mcpPostprocessPolicy) RecordRun(ctx context.Context, record postprocess
 	return p.store.RecordRun(ctx, record)
 }
 
+func (p *mcpPostprocessPolicy) Status(ctx context.Context, opts postprocesspolicy.StatusOptions) (*postprocesspolicy.StatusSummary, error) {
+	return p.store.Status(ctx, opts)
+}
+
+func (p *mcpPostprocessPolicy) Reset(ctx context.Context, tool string) error {
+	return p.store.Reset(ctx, tool)
+}
+
 // serveStreamableHTTP serves the MCP server over streamable HTTP.
 // @intent 원격 MCP 클라이언트를 위한 HTTP 엔드포인트와 헬스체크를 노출한다.
 // @sideEffect HTTP 리스너를 열고 종료 시 graceful shutdown을 수행한다.
-func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeConfig) error {
+func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeConfig, postprocessSummary func(context.Context) (*postprocesspolicy.StatusSummary, error)) error {
 	deps.Logger.Info("serving MCP over streamable-http", "addr", cfg.HTTPAddr, "stateless", cfg.Stateless)
 
 	if err := validateHTTPExposure(cfg); err != nil {
@@ -938,7 +952,7 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 	}))
 	mux.Handle("/status", statusHandler(dbReadyCheck, cfg.WebhookAttemptTimeout, func() *webhook.SyncQueue {
 		return syncQueue
-	}))
+	}, postprocessSummary))
 
 	if len(cfg.AllowRepo) > 0 {
 		rules := make([]webhook.RepoRule, 0, len(cfg.AllowRepo))
@@ -1149,12 +1163,13 @@ func readyHandler(check func(*http.Request) error) http.Handler {
 }
 
 type statusResponse struct {
-	Status  string                  `json:"status"`
-	DB      string                  `json:"db"`
-	Webhook *webhook.SyncQueueStats `json:"webhook,omitempty"`
+	Status      string                               `json:"status"`
+	DB          string                               `json:"db"`
+	Webhook     *webhook.SyncQueueStats              `json:"webhook,omitempty"`
+	Postprocess *postprocesspolicy.StatusSummary     `json:"postprocess,omitempty"`
 }
 
-func statusHandler(dbCheck func(*http.Request) error, webhookTimeout time.Duration, queue func() *webhook.SyncQueue) http.Handler {
+func statusHandler(dbCheck func(*http.Request) error, webhookTimeout time.Duration, queue func() *webhook.SyncQueue, postprocessSummary func(context.Context) (*postprocesspolicy.StatusSummary, error)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1178,6 +1193,17 @@ func statusHandler(dbCheck func(*http.Request) error, webhookTimeout time.Durati
 				} else if code == http.StatusOK && webhookStatsDegraded(stats) {
 					resp.Status = "degraded"
 				}
+			}
+		}
+		if postprocessSummary != nil {
+			summary, err := postprocessSummary(r.Context())
+			if err == nil {
+				resp.Postprocess = summary
+				if code == http.StatusOK && summary != nil && summary.Status == postprocesspolicy.StatusDegraded {
+					resp.Status = "degraded"
+				}
+			} else {
+				slog.Error("postprocess status summary failed", "error", err)
 			}
 		}
 
