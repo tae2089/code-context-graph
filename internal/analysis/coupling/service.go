@@ -30,6 +30,14 @@ func New(db *gorm.DB) *Service {
 	return &Service{db: db}
 }
 
+// pairRow holds one cross-community edge aggregation row.
+// @intent transport GROUP BY join results from Analyze into post-processing.
+type pairRow struct {
+	FromCommID uint
+	ToCommID   uint
+	EdgeCount  int64
+}
+
 // Analyze measures coupling strength between communities.
 // Used by MCP get_architecture_overview tool and architecture_map prompt.
 //
@@ -39,12 +47,6 @@ func New(db *gorm.DB) *Service {
 // @domainRule only cross-community edges are counted
 func (s *Service) Analyze(ctx context.Context) ([]CouplingPair, error) {
 	ns := ctxns.FromContext(ctx)
-
-	type pairRow struct {
-		FromCommID uint
-		ToCommID   uint
-		EdgeCount  int64
-	}
 	var rows []pairRow
 	q := s.db.WithContext(ctx).
 		Model(&model.Edge{}).
