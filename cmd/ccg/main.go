@@ -184,21 +184,44 @@ func runMigrations(db *gorm.DB, driver, migrationsDir string) error {
 	if err != nil && !errors.Is(err, gomigrate.ErrNoChange) {
 		return trace.Wrap(err, "run database migrations")
 	}
-	return validateSchemaParity(db, driver)
+	if err := validateSchemaParity(db, driver); err != nil {
+		return actionableSchemaParityError(err)
+	}
+	return nil
 }
 
 func ensureSchemaVersion(db *gorm.DB, driver, dsn, migrationsDir string) error {
 	if err := checkSchemaVersion(db); err == nil {
-		return nil
+		return validateRuntimeSchema(db, driver, false)
 	}
 
 	if !shouldAutoMigrateLocalSQLite(driver, dsn) || db.Migrator().HasTable("schema_migrations") {
-		return checkSchemaVersion(db)
+		if err := checkSchemaVersion(db); err != nil {
+			return err
+		}
+		return validateRuntimeSchema(db, driver, false)
 	}
 	if err := runMigrations(db, driver, migrationsDir); err != nil {
 		return trace.Wrap(err, "auto-migrate local sqlite database")
 	}
-	return checkSchemaVersion(db)
+	if err := checkSchemaVersion(db); err != nil {
+		return err
+	}
+	return validateRuntimeSchema(db, driver, true)
+}
+
+func validateRuntimeSchema(db *gorm.DB, driver string, autoMigrated bool) error {
+	if err := validateSchemaParity(db, driver); err != nil {
+		wrapped := actionableSchemaParityError(err)
+		slog.Error("database runtime schema check failed", "driver", driver, "required_version", requiredSchemaVersion, "auto_migrated", autoMigrated, trace.SlogError(wrapped))
+		return wrapped
+	}
+	slog.Info("database runtime schema check passed", "driver", driver, "required_version", requiredSchemaVersion, "auto_migrated", autoMigrated)
+	return nil
+}
+
+func actionableSchemaParityError(err error) error {
+	return fmt.Errorf("database schema parity check failed: %w; run `ccg migrate`; if already migrated, verify migration source and schema drift", err)
 }
 
 func shouldAutoMigrateLocalSQLite(driver, dsn string) bool {
@@ -380,7 +403,7 @@ func baselineLegacySchemaVersion(db *gorm.DB, driver string, migrator *gomigrate
 		return false, nil
 	}
 	if err := validateSchemaParity(db, driver); err != nil {
-		return false, trace.Wrap(err, "validate legacy schema parity")
+		return false, actionableSchemaParityError(trace.Wrap(err, "validate legacy schema parity"))
 	}
 	if err := migrator.Force(requiredSchemaVersion); err != nil {
 		return false, trace.Wrap(err, "baseline legacy schema version")

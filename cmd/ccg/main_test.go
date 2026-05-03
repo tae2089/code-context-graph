@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gorm.io/driver/sqlite"
@@ -257,6 +260,119 @@ func TestEnsureSchemaVersion_AutoMigratesLocalSQLiteDefault(t *testing.T) {
 	}
 }
 
+func TestEnsureSchemaVersion_ValidatesParityAfterVersionCheck(t *testing.T) {
+	requireSQLiteFTS5(t)
+
+	dbPath := filepath.Join(t.TempDir(), "ccg.db")
+	db, err := openDB("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer func() {
+		sqlDB, _ := db.DB()
+		if sqlDB != nil {
+			_ = sqlDB.Close()
+		}
+	}()
+
+	if err := runMigrations(db, "sqlite", ""); err != nil {
+		t.Fatalf("run migrations: %v", err)
+	}
+	if err := db.Exec(`DROP TABLE search_fts`).Error; err != nil {
+		t.Fatalf("drop search_fts: %v", err)
+	}
+
+	err = ensureSchemaVersion(db, "sqlite", dbPath, "")
+	if err == nil {
+		t.Fatal("expected parity failure after schema version check succeeds")
+	}
+	msg := err.Error()
+	for _, want := range []string{"run `ccg migrate`", "verify migration source", "schema drift"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("error %q does not contain remediation %q", msg, want)
+		}
+	}
+}
+
+func TestEnsureSchemaVersion_LogsRuntimeSchemaPassAndFail(t *testing.T) {
+	requireSQLiteFTS5(t)
+
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
+	dbPath := filepath.Join(t.TempDir(), "ccg.db")
+	db, err := openDB("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer func() {
+		sqlDB, _ := db.DB()
+		if sqlDB != nil {
+			_ = sqlDB.Close()
+		}
+	}()
+
+	if err := ensureSchemaVersion(db, "sqlite", dbPath, ""); err != nil {
+		t.Fatalf("ensure schema version: %v", err)
+	}
+	passLog := logs.String()
+	for _, want := range []string{"database runtime schema check passed", "driver=sqlite", "required_version=2", "auto_migrated=true"} {
+		if !strings.Contains(passLog, want) {
+			t.Fatalf("expected runtime schema pass log to contain %q, got %q", want, passLog)
+		}
+	}
+
+	logs.Reset()
+	if err := db.Exec(`DROP TABLE search_fts`).Error; err != nil {
+		t.Fatalf("drop search_fts: %v", err)
+	}
+	if err := ensureSchemaVersion(db, "sqlite", dbPath, ""); err == nil {
+		t.Fatal("expected parity failure")
+	}
+	failLog := logs.String()
+	for _, want := range []string{"database runtime schema check failed", "driver=sqlite", "required_version=2", "auto_migrated=false", "error="} {
+		if !strings.Contains(failLog, want) {
+			t.Fatalf("expected runtime schema failure log to contain %q, got %q", want, failLog)
+		}
+	}
+}
+
+func TestRunMigrations_WrapsParityFailureWithRemediation(t *testing.T) {
+	db, err := openDB("sqlite", filepath.Join(t.TempDir(), "legacy-drift.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer func() {
+		sqlDB, _ := db.DB()
+		if sqlDB != nil {
+			_ = sqlDB.Close()
+		}
+	}()
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate store: %v", err)
+	}
+	if err := db.AutoMigrate(&model.SearchDocument{}, &model.Flow{}, &model.FlowMembership{}, &model.SchemaVersion{}); err != nil {
+		t.Fatalf("migrate extra models: %v", err)
+	}
+	if err := db.Create(&model.SchemaVersion{Key: schemaVersionKey, Version: requiredSchemaVersion}).Error; err != nil {
+		t.Fatalf("create legacy schema version: %v", err)
+	}
+
+	err = runMigrations(db, "sqlite", "")
+	if err == nil {
+		t.Fatal("expected legacy baseline to fail with schema drift")
+	}
+	msg := err.Error()
+	for _, want := range []string{"run `ccg migrate`", "verify migration source", "schema drift"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("error %q does not contain remediation %q", msg, want)
+		}
+	}
+}
+
 func TestEnsureSchemaVersion_DoesNotAutoMigrateCustomSQLiteDSN(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "custom.db")
 	db, err := openDB("sqlite", dbPath)
@@ -420,8 +536,12 @@ func TestRunMigrations_FailsLegacyBaselineWithSchemaDrift(t *testing.T) {
 		t.Fatalf("create legacy schema version: %v", err)
 	}
 
-	if err := runMigrations(db, "sqlite", ""); err == nil {
+	err = runMigrations(db, "sqlite", "")
+	if err == nil {
 		t.Fatal("expected legacy baseline to fail with schema drift")
+	}
+	if !strings.Contains(err.Error(), "run `ccg migrate`") {
+		t.Fatalf("expected remediation guidance, got %q", err.Error())
 	}
 }
 
