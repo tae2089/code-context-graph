@@ -204,8 +204,13 @@ type stubPostprocessPolicy struct {
 	resolvedSource string
 	resolveErr     error
 	recordErr      error
+	statusErr      error
+	resetErr       error
+	statusSummary  *postprocesspolicy.StatusSummary
 	resolvedInputs []postprocesspolicy.DecisionInput
 	recordedRuns   []postprocesspolicy.RunRecord
+	statusInputs   []postprocesspolicy.StatusOptions
+	resetTools     []string
 }
 
 func (s *stubPostprocessPolicy) Resolve(ctx context.Context, input postprocesspolicy.DecisionInput) (string, string, error) {
@@ -219,6 +224,22 @@ func (s *stubPostprocessPolicy) Resolve(ctx context.Context, input postprocesspo
 func (s *stubPostprocessPolicy) RecordRun(ctx context.Context, record postprocesspolicy.RunRecord) error {
 	s.recordedRuns = append(s.recordedRuns, record)
 	return s.recordErr
+}
+
+func (s *stubPostprocessPolicy) Status(ctx context.Context, opts postprocesspolicy.StatusOptions) (*postprocesspolicy.StatusSummary, error) {
+	s.statusInputs = append(s.statusInputs, opts)
+	if s.statusErr != nil {
+		return nil, s.statusErr
+	}
+	if s.statusSummary == nil {
+		return &postprocesspolicy.StatusSummary{Status: postprocesspolicy.StatusOK}, nil
+	}
+	return s.statusSummary, nil
+}
+
+func (s *stubPostprocessPolicy) Reset(ctx context.Context, tool string) error {
+	s.resetTools = append(s.resetTools, tool)
+	return s.resetErr
 }
 
 type realPostprocessPolicy struct {
@@ -239,6 +260,14 @@ func (p *realPostprocessPolicy) Resolve(ctx context.Context, input postprocesspo
 
 func (p *realPostprocessPolicy) RecordRun(ctx context.Context, record postprocesspolicy.RunRecord) error {
 	return p.store.RecordRun(ctx, record)
+}
+
+func (p *realPostprocessPolicy) Status(ctx context.Context, opts postprocesspolicy.StatusOptions) (*postprocesspolicy.StatusSummary, error) {
+	return p.store.Status(ctx, opts)
+}
+
+func (p *realPostprocessPolicy) Reset(ctx context.Context, tool string) error {
+	return p.store.Reset(ctx, tool)
 }
 
 func setupTestDepsWithRealPostprocessPolicy(t *testing.T) *Deps {

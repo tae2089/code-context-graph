@@ -120,6 +120,8 @@ type IncrementalSyncer interface {
 type PostprocessPolicy interface {
 	Resolve(ctx context.Context, input postprocesspolicy.DecisionInput) (string, string, error)
 	RecordRun(ctx context.Context, record postprocesspolicy.RunRecord) error
+	Status(ctx context.Context, opts postprocesspolicy.StatusOptions) (*postprocesspolicy.StatusSummary, error)
+	Reset(ctx context.Context, tool string) error
 }
 
 // Deps collects the services and stores required by MCP handlers.

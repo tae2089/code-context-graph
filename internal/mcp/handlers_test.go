@@ -1653,6 +1653,70 @@ func TestRunPostprocess_RealPolicyStoreIsolatedByNamespaceAndTool(t *testing.T) 
 	}
 }
 
+func TestGetPostprocessPolicy_UsesPolicyStatusSummary(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.PostprocessPolicy = &stubPostprocessPolicy{
+		statusSummary: &postprocesspolicy.StatusSummary{
+			Status: postprocesspolicy.StatusDegraded,
+			FailClosed: []postprocesspolicy.StateSnapshot{{
+				Namespace:           ctxns.DefaultNamespace,
+				Tool:                postprocesspolicy.ToolRunPostprocess,
+				Policy:              postprocesspolicy.PolicyFailClosed,
+				ConsecutiveFailures: 3,
+			}},
+		},
+	}
+
+	result := callTool(t, deps, "get_postprocess_policy", map[string]any{"tool": "run_postprocess", "recent_limit": 3})
+	if result.IsError {
+		t.Fatalf("get_postprocess_policy error: %s", getTextContent(result))
+	}
+	stub := deps.PostprocessPolicy.(*stubPostprocessPolicy)
+	if len(stub.statusInputs) != 1 {
+		t.Fatalf("status inputs = %d, want 1", len(stub.statusInputs))
+	}
+	if stub.statusInputs[0].Tool != postprocesspolicy.ToolRunPostprocess {
+		t.Fatalf("status tool = %q, want run_postprocess", stub.statusInputs[0].Tool)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+		t.Fatalf("expected JSON, got: %s", getTextContent(result))
+	}
+	if resp["status"] != "degraded" {
+		t.Fatalf("status = %v, want degraded", resp["status"])
+	}
+}
+
+func TestResetPostprocessPolicy_RecordsResetForTool(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.PostprocessPolicy = &stubPostprocessPolicy{}
+
+	result := callTool(t, deps, "reset_postprocess_policy", map[string]any{"tool": "run_postprocess"})
+	if result.IsError {
+		t.Fatalf("reset_postprocess_policy error: %s", getTextContent(result))
+	}
+	stub := deps.PostprocessPolicy.(*stubPostprocessPolicy)
+	if len(stub.resetTools) != 1 {
+		t.Fatalf("reset tools = %d, want 1", len(stub.resetTools))
+	}
+	if stub.resetTools[0] != postprocesspolicy.ToolRunPostprocess {
+		t.Fatalf("reset tool = %q, want run_postprocess", stub.resetTools[0])
+	}
+}
+
+func TestResetPostprocessPolicy_RejectsInvalidTool(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.PostprocessPolicy = &stubPostprocessPolicy{}
+
+	result := callTool(t, deps, "reset_postprocess_policy", map[string]any{"tool": "other"})
+	if !result.IsError {
+		t.Fatalf("expected invalid tool to fail, got: %s", getTextContent(result))
+	}
+	if !strings.Contains(getTextContent(result), "tool must be build_or_update_graph or run_postprocess") {
+		t.Fatalf("unexpected error: %s", getTextContent(result))
+	}
+}
+
 // ============================================================
 // 11.3 query_graph
 // ============================================================
