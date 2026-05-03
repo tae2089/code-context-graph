@@ -104,7 +104,7 @@ internal/
   ctxns/              — Context namespace
   docs/               — Documentation generation
   eval/               — Parser/search quality evaluation (golden corpus, P/R/F1, P@K, MRR, nDCG)
-  mcp/                — MCP server (29 tools)
+  mcp/                — MCP server (33 tools)
   model/              — DB models
   parse/treesitter/   — Tree-sitter parser (12 languages, including Lua/Luau)
   pathutil/           — Path utilities

@@ -37,6 +37,18 @@ Policy state is persisted as:
 - current effective state in `ccg_postprocess_policy_state`
 - append-only execution history in `ccg_postprocess_run_logs`
 
+For operators, CCG now exposes two lightweight control surfaces:
+
+- `get_postprocess_policy` returns the current fail-closed entries and recent failures.
+- `reset_postprocess_policy` records a reset marker run for one tool in the current namespace.
+
+The reset path does not delete execution history. It inserts an `ok` marker with
+source `reset`, which safely breaks the consecutive-failure streak used by the
+automatic resolver.
+
+Run logs are also pruned opportunistically after writes so each `(namespace,
+tool)` keeps only a bounded recent history instead of growing forever.
+
 ## Namespace isolation and shared state
 
 Automatic policy decisions and postprocess results are scoped to the current

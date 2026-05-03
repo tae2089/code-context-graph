@@ -9,7 +9,7 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
                                         ↓
                                    FTS Search
                                         ↓
-                              MCP Server (31 tools)
+                              MCP Server (33 tools)
                                     ↓         ↓
                               stdio       Streamable HTTP
                                 ↓              ↓
@@ -77,7 +77,7 @@ Golden corpus-based parser accuracy and search quality evaluation framework.
 
 ### MCP Server (`internal/mcp/`)
 
-Exposes 31 tools via MCP protocol. Supports two transport modes: stdio and Streamable HTTP.
+Exposes 33 tools via MCP protocol. Supports two transport modes: stdio and Streamable HTTP.
 
 ### Reliability
 

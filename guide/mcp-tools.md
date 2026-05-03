@@ -1,6 +1,6 @@
 # MCP Tools
 
-code-context-graph provides 31 MCP tools. Automatically connects from Claude Code after configuring `.mcp.json`.
+code-context-graph provides 33 MCP tools. Automatically connects from Claude Code after configuring `.mcp.json`.
 
 ## Setup
 
@@ -30,7 +30,7 @@ code-context-graph provides 31 MCP tools. Automatically connects from Claude Cod
 }
 ```
 
-## Tools (31)
+## Tools (33)
 
 ### Core
 
@@ -39,6 +39,8 @@ code-context-graph provides 31 MCP tools. Automatically connects from Claude Cod
 | `parse_project` | Parse source files |
 | `build_or_update_graph` | Full/incremental build with postprocessing |
 | `run_postprocess` | Rebuild stored flows, communities, and/or full-text search derived state |
+| `get_postprocess_policy` | Inspect automatic postprocess policy state and recent failures |
+| `reset_postprocess_policy` | Record a reset marker to clear fail-closed streak for one tool |
 | `get_node` | Get node by qualified name |
 | `search` | Full-text search |
 | `query_graph` | Predefined graph queries (callers, callees, imports, etc.) |
@@ -53,6 +55,10 @@ three consecutive `degraded` runs for the same `(namespace, tool)` pair.
 See [Postprocess Failure Policy](postprocess-failure-policy.md) for the detailed
 status tables, failure causes, skip behavior, and policy escalation rules for
 `build_or_update_graph` and `run_postprocess`.
+
+CCG does not expose a Prometheus `/metrics` endpoint yet. For postprocess
+operations, use `get_postprocess_policy` and the HTTP `/status` summary as the
+current machine-readable operational surfaces.
 
 ### Analysis
 
