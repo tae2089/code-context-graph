@@ -39,8 +39,10 @@ operational bottleneck.
 
 Namespace size affects postprocessing more than query routing. Search and
 community rebuilds operate inside the namespace, so very large namespaces make
-updates slower even when only one repository changed. Stored flows do not have a
-bulk rebuild path; `trace_flow` remains a per-entry-point operation.
+updates slower even when only one repository changed. Stored flows can be
+bulk-rebuilt via `build_or_update_graph` with `postprocess=full` or via
+`run_postprocess` with `flows=true`; `trace_flow` remains the per-entry-point
+query tool.
 
 Practical guidance:
 
@@ -61,6 +63,12 @@ namespace-wide, so namespace boundaries remain the main cost control.
 The Streamable HTTP MCP endpoint should be protected with
 `--http-bearer-token` or `CCG_HTTP_BEARER_TOKEN` whenever it is externally
 reachable.
+
+By default, `ccg serve --transport streamable-http` listens on
+`127.0.0.1:8080`. Binding to a non-loopback address requires either
+`--http-bearer-token` or the explicit testing escape hatch `--insecure-http`.
+Bearer token protection applies to `/mcp` only; `/health`, `/ready`, `/status`,
+and `/webhook` still need network-level exposure control.
 
 Keep these endpoints internal:
 
@@ -136,8 +144,8 @@ For alerting, prefer these `/status.webhook` fields:
 
 | Field | Alert Use |
 |-------|-----------|
-| `oldest_queued_age` | Queue delay and worker capacity pressure |
-| `oldest_processing_age` | Stalled clone/update detection |
+| `oldest_queued_age` | Queue delay and worker capacity pressure (JSON number in nanoseconds) |
+| `oldest_processing_age` | Stalled clone/update detection (JSON number in nanoseconds) |
 | `queue_full_total` | Capacity limit hits since process start |
 | `failure_total` | Sync failure rate since process start |
 | `recent_repos[].last_error` | Repo-specific unresolved failures |
@@ -159,6 +167,13 @@ On SIGINT/SIGTERM:
 The Streamable HTTP server does not use a fixed `WriteTimeout` because MCP
 streams can be long-lived. Put idle connection limits and request buffering
 policies at the reverse proxy if the service is internet-facing.
+
+Other HTTP server timeouts are fixed in the current binary: `ReadHeaderTimeout`
+is 10 seconds, `ReadTimeout` is 30 seconds, and `IdleTimeout` is 120 seconds.
+
+CCG does not currently expose a Prometheus-style `/metrics` endpoint. Use
+`/health`, `/ready`, and `/status` for operational probes, and treat eval or
+benchmark metrics as offline analysis outputs rather than live service metrics.
 
 ## Migrations
 

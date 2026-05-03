@@ -75,7 +75,11 @@ deployment profiles and runtime signals.
 |---------|-------------|
 | `ccg serve` | Start MCP server (stdio by default) |
 | `ccg serve --transport streamable-http` | Start MCP server over HTTP |
-| `ccg serve --http-addr :9090` | Custom HTTP listen address (default `:8080`) |
+| `ccg serve --cache-ttl <dur>` | TTL for MCP serve session cache (default `5m`; use `0` or `--no-cache` to disable) |
+| `ccg serve --no-cache` | Disable the in-memory MCP serve session cache |
+| `ccg serve --http-addr 0.0.0.0:9090` | Custom HTTP listen address (default `127.0.0.1:8080`) |
+| `ccg serve --http-bearer-token <token>` | Require a bearer token for MCP HTTP requests on `/mcp` when set |
+| `ccg serve --insecure-http` | Allow non-loopback HTTP binding without a bearer token (testing only) |
 | `ccg serve --stateless` | Stateless session mode (multi-instance deployments) |
 | `ccg serve --namespace-root <dir>` | Root directory for file namespaces (default `workspaces`) |
 | `ccg serve --workspace-root <dir>` | Deprecated alias for `--namespace-root` |
@@ -99,6 +103,10 @@ variables where supported: `CCG_WEBHOOK_WORKERS`,
 `CCG_WEBHOOK_MAX_TRACKED_REPOS`, `CCG_WEBHOOK_ATTEMPT_TIMEOUT`,
 `CCG_WEBHOOK_RETRY_ATTEMPTS`, `CCG_WEBHOOK_RETRY_BASE_DELAY`,
 `CCG_WEBHOOK_RETRY_MAX_DELAY`, and `CCG_REPO_ROOT`.
+
+`CCG_HTTP_BEARER_TOKEN` is also supported for `--http-bearer-token`. This token
+protects the MCP HTTP endpoint on `/mcp`; it does not make `/health`, `/ready`,
+`/status`, or `/webhook` private by itself.
 
 ### Benchmark
 

@@ -42,6 +42,10 @@ load balancer, restrict those endpoints to internal callers or block them from
 public internet access. See the [Operations Guide](operations.md#http-exposure)
 for ingress and readiness guidance.
 
+The default Streamable HTTP listen address is `127.0.0.1:8080`. When binding to
+non-loopback addresses, configure `--http-bearer-token` for `/mcp` or use
+`--insecure-http` only for local testing.
+
 ## Per-Repo Branch Filtering
 
 Use the `--allow-repo` flag to configure allowed branches per repository.
@@ -202,13 +206,16 @@ fields:
 | `queued`, `processing`, `dirty` | Current queue and worker state |
 | `tracked_repos`, `max_tracked_repos` | Queue tracking capacity; new repos are rejected when full |
 | `queue_full_total`, `failure_total` | Cumulative operational counters since process start |
-| `oldest_queued_age`, `oldest_processing_age` | Delay signals used by readiness checks |
+| `oldest_queued_age`, `oldest_processing_age` | Delay signals used by readiness checks (JSON numbers in nanoseconds) |
 | `last_error`, `last_error_time`, `last_success_time` | Aggregate latest success/failure state |
 | `recent_repos` | Up to 50 recent, queued, or processing repositories with repo, branch, queued/processing state, and last success/error fields |
 
 `/status` reports `degraded` when the aggregate latest failure is unresolved or
 when any recent repo has an unresolved failure. A later successful sync for the
 same repo clears that repo's error state.
+
+CCG does not currently expose a `/metrics` endpoint for webhook operations.
+Treat `/status` as the primary structured runtime view.
 
 For deployment profiles, database choice, namespace size guidance, and common
 failure modes, see [Operations](operations.md).
