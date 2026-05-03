@@ -2,6 +2,8 @@ package edgeresolve
 
 import (
 	"context"
+	"path"
+	"strings"
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -9,6 +11,24 @@ import (
 
 type fakeLookup struct {
 	nodes []model.Node
+}
+
+func (f fakeLookup) GetFileNodesByPathSuffix(_ context.Context, suffix string) ([]model.Node, error) {
+	suffix = strings.Trim(suffix, "/")
+	var out []model.Node
+	for _, n := range f.nodes {
+		if n.Kind != model.NodeKindFile {
+			continue
+		}
+		dir := strings.Trim(path.Dir(n.FilePath), "/")
+		if dir == "." || dir == "" {
+			continue
+		}
+		if suffix == dir || strings.HasSuffix(suffix, "/"+dir) {
+			out = append(out, n)
+		}
+	}
+	return out, nil
 }
 
 func (f fakeLookup) GetNodesByFiles(_ context.Context, filePaths []string) (map[string][]model.Node, error) {
@@ -179,6 +199,153 @@ func TestResolveInterfaceSelectorLeavesAmbiguousImplementersUnresolved(t *testin
 	}
 	if edges[2].ToNodeID != 0 {
 		t.Fatalf("ambiguous call ToNodeID=%d, want unresolved 0", edges[2].ToNodeID)
+	}
+}
+
+func TestResolveImportsFromBindsFileEndpoints(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 10, QualifiedName: "main.go", Name: "main.go", Kind: model.NodeKindFile, FilePath: "main.go", Language: "go"},
+		{ID: 20, QualifiedName: "fmt", Name: "fmt", Kind: model.NodeKindFile, FilePath: "vendor/fmt/fmt.go", Language: "go"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{{
+		Kind:        model.EdgeKindImportsFrom,
+		FilePath:    "main.go",
+		Line:        2,
+		Fingerprint: "imports_from:main.go:fmt:2",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := edges[0].FromNodeID; got != 10 {
+		t.Fatalf("FromNodeID=%d, want 10", got)
+	}
+	if got := edges[0].ToNodeID; got != 20 {
+		t.Fatalf("ToNodeID=%d, want 20", got)
+	}
+}
+
+func TestResolveImportsFromLeavesUnknownTargetUnresolved(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 10, QualifiedName: "main.go", Name: "main.go", Kind: model.NodeKindFile, FilePath: "main.go", Language: "go"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{{
+		Kind:        model.EdgeKindImportsFrom,
+		FilePath:    "main.go",
+		Line:        2,
+		Fingerprint: "imports_from:main.go:external/unknown:2",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := edges[0].FromNodeID; got != 10 {
+		t.Fatalf("FromNodeID=%d, want 10", got)
+	}
+	if got := edges[0].ToNodeID; got != 0 {
+		t.Fatalf("ToNodeID=%d, want unresolved 0", got)
+	}
+}
+
+func TestResolveImportsFromBindsInternalPackageByImportPathSuffix(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 10, QualifiedName: "cmd/main.go", Name: "cmd/main.go", Kind: model.NodeKindFile, FilePath: "cmd/main.go", Language: "go"},
+		{ID: 20, QualifiedName: "internal/mcp/deps.go", Name: "internal/mcp/deps.go", Kind: model.NodeKindFile, FilePath: "internal/mcp/deps.go", Language: "go"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{{
+		Kind:        model.EdgeKindImportsFrom,
+		FilePath:    "cmd/main.go",
+		Line:        2,
+		Fingerprint: "imports_from:cmd/main.go:github.com/example/project/internal/mcp:2",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := edges[0].FromNodeID; got != 10 {
+		t.Fatalf("FromNodeID=%d, want 10", got)
+	}
+	if got := edges[0].ToNodeID; got != 20 {
+		t.Fatalf("ToNodeID=%d, want 20", got)
+	}
+}
+
+func TestResolveInheritsBindsTypeEndpoints(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "pkg.Child", Name: "Child", Kind: model.NodeKindClass, FilePath: "child.go", StartLine: 3, EndLine: 5, Language: "go"},
+		{ID: 2, QualifiedName: "pkg.Parent", Name: "Parent", Kind: model.NodeKindClass, FilePath: "parent.go", StartLine: 3, EndLine: 5, Language: "go"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{{
+		Kind:        model.EdgeKindInherits,
+		FilePath:    "child.go",
+		Line:        4,
+		Fingerprint: "inherits:child.go:Child:Parent",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := edges[0].FromNodeID; got != 1 {
+		t.Fatalf("FromNodeID=%d, want 1", got)
+	}
+	if got := edges[0].ToNodeID; got != 2 {
+		t.Fatalf("ToNodeID=%d, want 2", got)
+	}
+}
+
+func TestResolveTestedByBindsProductionAndTestEndpoints(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "pkg.Add", Name: "Add", Kind: model.NodeKindFunction, FilePath: "add.go", StartLine: 3, EndLine: 5, Language: "go"},
+		{ID: 2, QualifiedName: "pkg.TestAdd", Name: "TestAdd", Kind: model.NodeKindTest, FilePath: "add_test.go", StartLine: 3, EndLine: 7, Language: "go"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{{
+		Kind:        model.EdgeKindTestedBy,
+		FilePath:    "add_test.go",
+		Line:        5,
+		Fingerprint: "tested_by:add_test.go:Add:pkg.TestAdd",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := edges[0].FromNodeID; got != 1 {
+		t.Fatalf("FromNodeID=%d, want 1", got)
+	}
+	if got := edges[0].ToNodeID; got != 2 {
+		t.Fatalf("ToNodeID=%d, want 2", got)
+	}
+}
+
+func TestResolveSamePackageUnexportedInterfaceDispatch(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "pkg.handler.Start", Name: "Start", Kind: model.NodeKindFunction, FilePath: "main.go", StartLine: 10, EndLine: 12, Language: "go"},
+		{ID: 2, QualifiedName: "pkg.tracer", Name: "tracer", Kind: model.NodeKindType, FilePath: "deps.go", StartLine: 3, EndLine: 5, Language: "go"},
+		{ID: 3, QualifiedName: "pkg.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "flows.go", StartLine: 3, EndLine: 3, Language: "go"},
+		{ID: 4, QualifiedName: "pkg.Tracer.trace", Name: "trace", Kind: model.NodeKindFunction, FilePath: "flows.go", StartLine: 5, EndLine: 7, Language: "go"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "main.go", Line: 4, Fingerprint: "implements:main.go:pkg.Tracer:pkg.tracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "main.go", Line: 11, Fingerprint: "calls:main.go:t.tracer.trace:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].FromNodeID != 1 || edges[1].ToNodeID != 4 {
+		t.Fatalf("same-package unexported dispatch endpoints=(%d,%d), want (1,4)", edges[1].FromNodeID, edges[1].ToNodeID)
+	}
+}
+
+func TestResolveCrossPackageUnexportedInterfaceDispatchBlocked(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "main.handler.Start", Name: "Start", Kind: model.NodeKindFunction, FilePath: "main.go", StartLine: 10, EndLine: 12, Language: "go"},
+		{ID: 2, QualifiedName: "deps.tracer", Name: "tracer", Kind: model.NodeKindType, FilePath: "deps.go", StartLine: 3, EndLine: 5, Language: "go"},
+		{ID: 3, QualifiedName: "flows.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "flows.go", StartLine: 3, EndLine: 3, Language: "go"},
+		{ID: 4, QualifiedName: "flows.Tracer.trace", Name: "trace", Kind: model.NodeKindFunction, FilePath: "flows.go", StartLine: 5, EndLine: 7, Language: "go"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "main.go", Line: 4, Fingerprint: "implements:main.go:flows.Tracer:deps.tracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "main.go", Line: 11, Fingerprint: "calls:main.go:t.tracer.trace:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 0 {
+		t.Fatalf("cross-package unexported dispatch ToNodeID=%d, want unresolved 0", edges[1].ToNodeID)
 	}
 }
 

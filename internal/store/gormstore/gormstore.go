@@ -4,6 +4,8 @@ package gormstore
 import (
 	"context"
 	"errors"
+	"path"
+	"strings"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -174,6 +176,33 @@ func (s *Store) GetNodesByFiles(ctx context.Context, filePaths []string) (map[st
 		result[n.FilePath] = append(result[n.FilePath], n)
 	}
 	return result, nil
+}
+
+// GetFileNodesByPathSuffix finds file nodes whose directory matches an import-path suffix.
+// @intent let import edge resolution bind repo-local import paths back to stored file nodes.
+func (s *Store) GetFileNodesByPathSuffix(ctx context.Context, suffix string) ([]model.Node, error) {
+	suffix = strings.Trim(path.Clean(strings.TrimSpace(suffix)), "/")
+	if suffix == "" || suffix == "." {
+		return nil, nil
+	}
+	ns := ctxns.FromContext(ctx)
+	var nodes []model.Node
+	if err := s.db.WithContext(ctx).
+		Where("namespace = ? AND kind = ?", ns, model.NodeKindFile).
+		Find(&nodes).Error; err != nil {
+		return nil, err
+	}
+	var out []model.Node
+	for _, node := range nodes {
+		dir := strings.Trim(path.Dir(node.FilePath), "/")
+		if dir == "." || dir == "" {
+			continue
+		}
+		if suffix == dir || strings.HasSuffix(suffix, "/"+dir) {
+			out = append(out, node)
+		}
+	}
+	return out, nil
 }
 
 // DeleteNodesByFile는 파일에 속한 노드와 연관 데이터를 제거한다.

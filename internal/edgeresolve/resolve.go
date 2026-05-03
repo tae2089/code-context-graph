@@ -3,6 +3,7 @@ package edgeresolve
 
 import (
 	"context"
+	"path"
 	"strconv"
 	"strings"
 
@@ -19,6 +20,10 @@ type NodeLookup interface {
 
 type edgeLookup interface {
 	GetEdgesToNodes(ctx context.Context, nodeIDs []uint) ([]model.Edge, error)
+}
+
+type filePrefixLookup interface {
+	GetFileNodesByPathSuffix(ctx context.Context, suffix string) ([]model.Node, error)
 }
 
 type resolveState struct {
@@ -74,6 +79,12 @@ func Resolve(ctx context.Context, lookup NodeLookup, edges []model.Edge) ([]mode
 			resolveContains(&out[i], st)
 		case model.EdgeKindImplements:
 			resolveImplements(&out[i], st)
+		case model.EdgeKindImportsFrom:
+			resolveImportsFrom(ctx, lookup, &out[i], st)
+		case model.EdgeKindInherits:
+			resolveInherits(&out[i], st)
+		case model.EdgeKindTestedBy:
+			resolveTestedBy(&out[i], st)
 		}
 	}
 	if err := st.loadExistingImplements(ctx, lookup); err != nil {
@@ -185,6 +196,20 @@ func collectQualifiedCandidates(edges []model.Edge, st *resolveState) []string {
 				addEndpointCandidates(&names, seen, st, e.FilePath, impl)
 				addEndpointCandidates(&names, seen, st, e.FilePath, iface)
 			}
+		case model.EdgeKindImportsFrom:
+			if path, ok := importsFromTarget(e); ok {
+				addName(&names, seen, path)
+			}
+		case model.EdgeKindInherits:
+			if child, parent, ok := inheritsEndpoints(e); ok {
+				addEndpointCandidates(&names, seen, st, e.FilePath, child)
+				addEndpointCandidates(&names, seen, st, e.FilePath, parent)
+			}
+		case model.EdgeKindTestedBy:
+			if bare, testQN, ok := testedByEndpoints(e); ok {
+				addEndpointCandidates(&names, seen, st, e.FilePath, bare)
+				addName(&names, seen, testQN)
+			}
 		}
 	}
 	return names
@@ -280,6 +305,157 @@ func resolveImplements(edge *model.Edge, st *resolveState) {
 			}
 		}
 	}
+}
+
+func resolveImportsFrom(ctx context.Context, lookup NodeLookup, edge *model.Edge, st *resolveState) {
+	if fileNode, ok := st.fileNodeByPath[edge.FilePath]; ok {
+		edge.FromNodeID = fileNode.ID
+	}
+	importPath, ok := importsFromTarget(*edge)
+	if !ok {
+		return
+	}
+	if target := uniqueFileNode(st.qnIndex[importPath]); target != nil {
+		edge.ToNodeID = target.ID
+		return
+	}
+	if target := resolveImportFile(ctx, lookup, st, importPath); target != nil {
+		edge.ToNodeID = target.ID
+	}
+}
+
+func resolveImportFile(ctx context.Context, lookup NodeLookup, st *resolveState, importPath string) *model.Node {
+	if importPath == "" {
+		return nil
+	}
+	if node, ok := st.fileNodeByPath[importPath]; ok {
+		return &node
+	}
+	importPath = strings.Trim(path.Clean(importPath), "/")
+	var candidates []model.Node
+	for _, node := range st.fileNodeByPath {
+		dir := strings.Trim(path.Dir(node.FilePath), "/")
+		if dir == "." || dir == "" {
+			continue
+		}
+		if importPath == dir || strings.HasSuffix(importPath, "/"+dir) {
+			candidates = append(candidates, node)
+		}
+	}
+	if target := uniqueFileNode(candidates); target != nil {
+		return target
+	}
+	if prefixLookup, ok := lookup.(filePrefixLookup); ok {
+		queried, err := prefixLookup.GetFileNodesByPathSuffix(ctx, importPath)
+		if err == nil {
+			return uniqueFileNode(queried)
+		}
+	}
+	return nil
+}
+
+func resolveInherits(edge *model.Edge, st *resolveState) {
+	child, parent, ok := inheritsEndpoints(*edge)
+	if !ok {
+		return
+	}
+	if from := resolveTypeEndpoint(st, edge.FilePath, child); from != nil {
+		edge.FromNodeID = from.ID
+	}
+	if to := resolveTypeEndpoint(st, edge.FilePath, parent); to != nil {
+		edge.ToNodeID = to.ID
+	}
+}
+
+func resolveTestedBy(edge *model.Edge, st *resolveState) {
+	bare, testQN, ok := testedByEndpoints(*edge)
+	if !ok {
+		return
+	}
+	if to := uniqueCallable(st.qnIndex[testQN]); to != nil {
+		edge.ToNodeID = to.ID
+	}
+	if from := resolveProductionFunction(st, edge.FilePath, bare); from != nil {
+		edge.FromNodeID = from.ID
+	}
+}
+
+func resolveProductionFunction(st *resolveState, testFilePath, bare string) *model.Node {
+	pkg := packageForFile(st.nodesByFile[testFilePath])
+	if pkg != "" {
+		if target := uniqueCallable(st.qnIndex[pkg+"."+bare]); target != nil {
+			return target
+		}
+	}
+	return uniqueCallable(st.nameByFile[testFilePath][bare])
+}
+
+func uniqueFileNode(nodes []model.Node) *model.Node {
+	var found *model.Node
+	seen := make(map[uint]bool)
+	for i := range nodes {
+		if nodes[i].Kind != model.NodeKindFile {
+			continue
+		}
+		if nodes[i].ID != 0 && seen[nodes[i].ID] {
+			continue
+		}
+		if nodes[i].ID != 0 {
+			seen[nodes[i].ID] = true
+		}
+		if found != nil {
+			return nil
+		}
+		found = &nodes[i]
+	}
+	return found
+}
+
+func importsFromTarget(edge model.Edge) (string, bool) {
+	prefix := "imports_from:" + edge.FilePath + ":"
+	if !strings.HasPrefix(edge.Fingerprint, prefix) {
+		return "", false
+	}
+	rest := strings.TrimPrefix(edge.Fingerprint, prefix)
+	idx := strings.LastIndex(rest, ":")
+	if idx < 0 {
+		return "", false
+	}
+	if _, err := strconv.Atoi(rest[idx+1:]); err != nil {
+		return "", false
+	}
+	path := rest[:idx]
+	return path, path != ""
+}
+
+func inheritsEndpoints(edge model.Edge) (string, string, bool) {
+	prefix := "inherits:" + edge.FilePath + ":"
+	if !strings.HasPrefix(edge.Fingerprint, prefix) {
+		return "", "", false
+	}
+	rest := strings.TrimPrefix(edge.Fingerprint, prefix)
+	idx := strings.LastIndex(rest, ":")
+	if idx < 0 {
+		return "", "", false
+	}
+	child := rest[:idx]
+	parent := rest[idx+1:]
+	return child, parent, child != "" && parent != ""
+}
+
+func testedByEndpoints(edge model.Edge) (string, string, bool) {
+	prefix := "tested_by:" + edge.FilePath + ":"
+	if !strings.HasPrefix(edge.Fingerprint, prefix) {
+		return "", "", false
+	}
+	rest := strings.TrimPrefix(edge.Fingerprint, prefix)
+	idx := strings.LastIndex(rest, ":")
+	if idx < 0 {
+		return "", "", false
+	}
+	bare := rest[:idx]
+	testQN := rest[idx+1:]
+	return bare, testQN, bare != "" && testQN != ""
 }
 
 func (st *resolveState) loadExistingImplements(ctx context.Context, lookup NodeLookup) error {
@@ -396,7 +572,9 @@ func (st *resolveState) goImplementersFor(caller *model.Node, iface string) []mo
 	if pkg := packagePrefix(*caller); pkg != "" {
 		impls = append(impls, st.implementsBy[pkg+"."+iface]...)
 	}
-	impls = append(impls, st.implementsBy[iface]...)
+	if isExportedName(iface) {
+		impls = append(impls, st.implementsBy[iface]...)
+	}
 	return uniqueNodes(impls)
 }
 
@@ -436,8 +614,16 @@ func resolveGoInterfaceDispatch(caller *model.Node, callee string, st *resolveSt
 	if !ok {
 		return nil
 	}
+	callerPkg := packagePrefix(*caller)
+	requireSamePkg := !isExportedName(iface) || !isExportedName(method)
+	if requireSamePkg && callerPkg == "" {
+		return nil
+	}
 	var candidates []model.Node
 	for _, impl := range st.goImplementersFor(caller, iface) {
+		if requireSamePkg && packagePrefix(impl) != callerPkg {
+			continue
+		}
 		if target := uniqueCallable(st.qnIndex[impl.QualifiedName+"."+method]); target != nil {
 			candidates = append(candidates, *target)
 		}
@@ -468,9 +654,6 @@ func interfaceMethodSelector(callee string) (string, string, bool) {
 	iface := parts[len(parts)-2]
 	method := parts[len(parts)-1]
 	if iface == "" || method == "" {
-		return "", "", false
-	}
-	if !isExportedName(iface) || !isExportedName(method) {
 		return "", "", false
 	}
 	return iface, method, true
