@@ -3604,6 +3604,24 @@ func TestRefreshSearchDocuments_TransactionRollsBackOnInsertFailure(t *testing.T
 	}
 }
 
+func TestRefreshSearchDocuments_RejectsNilDB(t *testing.T) {
+	_, err := RefreshSearchDocuments(context.Background(), nil)
+	if err == nil {
+		t.Fatal("expected nil DB error")
+	}
+	if !strings.Contains(err.Error(), "requires db handle") {
+		t.Fatalf("expected requires db handle error, got %v", err)
+	}
+
+	_, err = RefreshSearchDocumentsFor(context.Background(), nil, []uint{1})
+	if err == nil {
+		t.Fatal("expected scoped nil DB error")
+	}
+	if !strings.Contains(err.Error(), "requires db handle") {
+		t.Fatalf("expected requires db handle error, got %v", err)
+	}
+}
+
 func TestRefreshSearchDocumentsFor_RefreshesOnlyScopedNodes(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {

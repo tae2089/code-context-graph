@@ -2271,6 +2271,9 @@ func CheckTotalParsedBytes(relPath string, current int64, next int64, maxTotalBy
 // RefreshSearchDocuments rebuilds namespace-scoped search_documents from current graph nodes.
 // @intent keep derived search documents consistent with graph state before FTS rebuilds
 func RefreshSearchDocuments(ctx context.Context, db *gorm.DB) (int, error) {
+	if db == nil {
+		return 0, trace.New("search document refresh requires db handle")
+	}
 	return refreshSearchDocuments(ctx, db, nil, false)
 }
 
@@ -2279,6 +2282,9 @@ func RefreshSearchDocuments(ctx context.Context, db *gorm.DB) (int, error) {
 func RefreshSearchDocumentsFor(ctx context.Context, db *gorm.DB, nodeIDs []uint) (int, error) {
 	if len(nodeIDs) == 0 {
 		return 0, nil
+	}
+	if db == nil {
+		return 0, trace.New("search document refresh requires db handle")
 	}
 	return refreshSearchDocuments(ctx, db, nodeIDs, true)
 }
