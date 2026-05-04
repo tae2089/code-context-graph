@@ -133,6 +133,7 @@ var RustSpec = &LangSpec{
 	TestPrefix:       "test_",
 	TestAttributes:   []string{"test"},
 	ImplTypes:        []string{"impl_item"},
+	Semantics:        RustSemantics{},
 	PackageDiscovery: NoopPackageDiscovery{},
 }
 

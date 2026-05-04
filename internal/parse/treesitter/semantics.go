@@ -27,10 +27,22 @@ type DefinitionSemantics interface {
 	EnrichDefinition(ctx DefinitionContext) DefinitionResult
 }
 
+// DefinitionNameSemantics provides optional definition-name normalization hooks.
+// @intent let languages normalize captured definition names before node and edge fingerprints are emitted.
+type DefinitionNameSemantics interface {
+	DefinitionName(ctx DefinitionContext) string
+}
+
 // RelationshipSemantics provides optional per-definition relationship normalization hooks.
 // @intent let languages normalize query-captured relationships through the same definition path.
 type RelationshipSemantics interface {
 	ImplementedTypes(ctx DefinitionContext) []string
+}
+
+// PackageSemantics provides optional package-level enrichment hooks across multiple files.
+// @intent let languages derive relationships that require package-wide context without widening Walker's per-file parse path.
+type PackageSemantics interface {
+	PackageEdges(ctx PackageContext) []model.Edge
 }
 
 // CommentSemantics provides optional comment extraction hooks beyond raw AST comments.
@@ -66,6 +78,24 @@ type SemanticContext struct {
 	ImportPackages map[string]string
 	Nodes          []model.Node
 	Interfaces     []interfaceInfo
+}
+
+// PackageInterfaceInfo captures one interface name plus its declared methods.
+// @intent let package-level enrichment travel across package boundaries without exposing walker internals.
+type PackageInterfaceInfo struct {
+	Name    string
+	Methods []string
+}
+
+// PackageContext carries package-wide parse state into language-specific enrichment hooks.
+// @intent expose aggregated nodes and interfaces for languages whose relationships span multiple files.
+type PackageContext struct {
+	Package        string
+	Language       string
+	Files          []string
+	Nodes          []model.Node
+	Interfaces     []PackageInterfaceInfo
+	ImportPackages map[string]string
 }
 
 // DefinitionContext carries one matched definition into a language-specific enrichment hook.
@@ -186,6 +216,17 @@ func definitionResultOrDefault(semantics LanguageSemantics, ctx DefinitionContex
 	return DefinitionResult{}
 }
 
+// definitionNameOrDefault returns a normalized definition name when implemented by a language.
+// @intent centralize per-language symbol-name normalization behind an optional hook.
+func definitionNameOrDefault(semantics LanguageSemantics, ctx DefinitionContext) string {
+	if namer, ok := semantics.(DefinitionNameSemantics); ok {
+		if name := namer.DefinitionName(ctx); name != "" {
+			return name
+		}
+	}
+	return ctx.Name
+}
+
 // implementedTypesOrDefault returns normalized implemented type names for one definition.
 // @intent centralize query-captured implements relationships behind an optional language hook.
 func implementedTypesOrDefault(semantics LanguageSemantics, ctx DefinitionContext) []string {
@@ -202,4 +243,19 @@ func additionalCommentsOrDefault(semantics LanguageSemantics, ctx CommentContext
 		return commenter.AdditionalComments(ctx)
 	}
 	return nil
+}
+
+// packageEdgesOrDefault returns language-specific package edges when implemented.
+// @intent centralize package-level enrichment behind an optional semantics hook.
+func packageEdgesOrDefault(semantics LanguageSemantics, ctx PackageContext) []model.Edge {
+	if enricher, ok := semantics.(PackageSemantics); ok {
+		return enricher.PackageEdges(ctx)
+	}
+	return nil
+}
+
+// PackageEdgesFor exposes package-level semantics to callers outside the treesitter package.
+// @intent let build/update orchestration reuse optional package-level enrichment hooks.
+func PackageEdgesFor(semantics LanguageSemantics, ctx PackageContext) []model.Edge {
+	return packageEdgesOrDefault(semantics, ctx)
 }

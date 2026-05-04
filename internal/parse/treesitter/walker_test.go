@@ -384,6 +384,60 @@ func handle(value any) {
 	t.Fatalf("expected repo-local type assertion call rewrite edge, got %#v", callEdges)
 }
 
+func TestParseGo_TypeAssertionCallRewriteMatchesAssertionResultPosition(t *testing.T) {
+	src := `package main
+
+type FlowTracer interface {
+	TraceFlowBounded()
+}
+
+func handle(dep any) {
+	a, tracer := 1, dep.(FlowTracer)
+	_ = a
+	tracer.TraceFlowBounded()
+}
+`
+	w := NewWalker(GoSpec)
+	_, edges, err := w.Parse("main.go", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
+	for _, e := range callEdges {
+		if e.Fingerprint == "calls:main.go:FlowTracer.TraceFlowBounded:10" {
+			return
+		}
+	}
+	t.Fatalf("expected positional type assertion call rewrite edge, got %#v", callEdges)
+}
+
+func TestParseGo_TypeAssertionCallRewriteSupportsAssignmentStatement(t *testing.T) {
+	src := `package main
+
+type FlowTracer interface {
+	TraceFlowBounded()
+}
+
+func handle(dep any) {
+	var tracer FlowTracer
+	tracer = dep.(FlowTracer)
+	tracer.TraceFlowBounded()
+}
+`
+	w := NewWalker(GoSpec)
+	_, edges, err := w.Parse("main.go", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
+	for _, e := range callEdges {
+		if e.Fingerprint == "calls:main.go:FlowTracer.TraceFlowBounded:10" {
+			return
+		}
+	}
+	t.Fatalf("expected assignment type assertion call rewrite edge, got %#v", callEdges)
+}
+
 func TestParseGo_Import(t *testing.T) {
 	src := `package main
 
@@ -421,6 +475,25 @@ type Writer interface {
 	Write(data []byte) error
 }
 
+func TestGoSemantics_PackageEdgesDetectStructuralImplementationAcrossFiles(t *testing.T) {
+	edges := PackageEdgesFor(GoSemantics{}, PackageContext{
+		Package:  "main",
+		Language: "go",
+		Files:    []string{"iface.go", "impl.go"},
+		Nodes: []model.Node{
+			{QualifiedName: "main.FileWriter.Write", Kind: model.NodeKindFunction, Name: "Write", FilePath: "impl.go", Language: "go"},
+		},
+		Interfaces: []PackageInterfaceInfo{{Name: "Writer", Methods: []string{"Write"}}},
+	})
+	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
+	if len(implEdges) != 1 {
+		t.Fatalf("expected one package structural IMPLEMENTS edge, got %#v", implEdges)
+	}
+	if got, want := implEdges[0].Fingerprint, "implements:main:FileWriter:Writer"; got != want {
+		t.Fatalf("fingerprint mismatch: got %q want %q", got, want)
+	}
+}
+
 type FileWriter struct{}
 
 func (fw *FileWriter) Write(data []byte) error {
@@ -433,18 +506,8 @@ func (fw *FileWriter) Write(data []byte) error {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
-	if len(implEdges) == 0 {
-		t.Fatal("expected at least 1 IMPLEMENTS edge, got 0")
-	}
-	found := false
-	for _, e := range implEdges {
-		if containsSubstring(e.Fingerprint, "FileWriter") && containsSubstring(e.Fingerprint, "Writer") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("expected IMPLEMENTS edge linking FileWriter to Writer")
+	if len(implEdges) != 0 {
+		t.Fatalf("expected no file-local structural IMPLEMENTS edges, got %#v", implEdges)
 	}
 }
 
@@ -1971,6 +2034,46 @@ impl MyTrait for Foo {}
 	if !found {
 		t.Error("expected IMPLEMENTS edge from Foo to MyTrait")
 	}
+}
+
+func TestWalker_ImplTrait_Rust_NormalizesImportedTraitPath(t *testing.T) {
+	src := `use std::fmt::Display;
+
+struct Foo {}
+impl Display for Foo {}
+`
+	w := NewWalker(RustSpec)
+	_, edges, err := w.Parse("main.rs", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
+	for _, e := range implEdges {
+		if e.Fingerprint == "implements:main.rs:Foo:std::fmt::Display" {
+			return
+		}
+	}
+	t.Fatalf("expected normalized imported Rust trait implements edge, got %#v", implEdges)
+}
+
+func TestWalker_ImplTrait_Rust_StripsGenerics(t *testing.T) {
+	src := `trait Display<T> {}
+
+struct Foo<T> { value: T }
+impl<T> Display<Vec<T>> for Foo<T> {}
+`
+	w := NewWalker(RustSpec)
+	_, edges, err := w.Parse("main.rs", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
+	for _, e := range implEdges {
+		if e.Fingerprint == "implements:main.rs:Foo:Display" {
+			return
+		}
+	}
+	t.Fatalf("expected generic Rust trait implements edge to normalize names, got %#v", implEdges)
 }
 
 // --- Phase 12.4: Rust ---

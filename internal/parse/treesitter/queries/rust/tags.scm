@@ -23,8 +23,8 @@
 
 ; Trait Impl Methods
 (impl_item
-  trait: (type_identifier) @reference.implements
-  type: (type_identifier) @name.class) @definition.class
+  trait: (_) @reference.implements
+  type: (_) @name.class) @definition.class
 
 ; Functions
 (function_item

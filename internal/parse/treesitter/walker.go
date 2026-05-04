@@ -52,6 +52,13 @@ type interfaceInfo struct {
 	methods []string
 }
 
+// ParseMetadata carries extra language-specific parse metadata beyond nodes/edges/comments.
+// @intent expose package-level enrichment inputs to build/update paths without changing the base parser contract.
+type ParseMetadata struct {
+	Package    string
+	Interfaces []PackageInterfaceInfo
+}
+
 // WalkerOption configures optional Walker behavior during construction.
 // @intent allow caller-supplied dependencies such as logging without expanding constructor arguments
 type WalkerOption func(*Walker)
@@ -157,9 +164,16 @@ func (w *Walker) ParseWithContext(ctx context.Context, filePath string, content 
 // @ensures returned nodes always include a file node for filePath
 // @see treesitter.Walker.executeQueries
 func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []CommentBlock, error) {
+	nodes, edges, comments, _, err := w.ParseWithCommentsAndMetadata(ctx, filePath, content)
+	return nodes, edges, comments, err
+}
+
+// ParseWithCommentsAndMetadata parses a file and returns package-level enrichment metadata too.
+// @intent give build/update paths access to interface method metadata needed for package-wide relationship inference.
+func (w *Walker) ParseWithCommentsAndMetadata(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []CommentBlock, ParseMetadata, error) {
 	if w.parser == nil {
 		w.logger.Error("unsupported language", "language", w.spec.Name, "file", filePath)
-		return nil, nil, nil, trace.Wrap(errUnsupportedLanguage, w.spec.Name)
+		return nil, nil, nil, ParseMetadata{}, trace.Wrap(errUnsupportedLanguage, w.spec.Name)
 	}
 
 	w.logger.Debug("parsing file", "file", filePath, "language", w.spec.Name)
@@ -167,7 +181,7 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 	tree, err := w.parseSourceCtx(ctx, content)
 	if err != nil {
 		w.logger.Error("tree-sitter parse error", "file", filePath, "error", err)
-		return nil, nil, nil, trace.Wrap(err, "parse error")
+		return nil, nil, nil, ParseMetadata{}, trace.Wrap(err, "parse error")
 	}
 	defer tree.Close()
 
@@ -193,7 +207,7 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 	if w.query != nil {
 		nodes, edges, pkgName, interfaces, err = w.executeQueries(root, content, filePath, importPackagesFromContext(ctx), nodes, edges)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, ParseMetadata{}, err
 		}
 		semantics := semanticsOrDefault(w.spec)
 		edges = append(edges, semantics.AdditionalEdges(SemanticContext{
@@ -233,7 +247,18 @@ func (w *Walker) ParseWithComments(ctx context.Context, filePath string, content
 
 	w.logger.Debug("parse completed", "file", filePath, "nodes", len(nodes), "edges", len(edges))
 
-	return nodes, edges, comments, nil
+	return nodes, edges, comments, ParseMetadata{Package: pkgName, Interfaces: exportPackageInterfaces(interfaces)}, nil
+}
+
+func exportPackageInterfaces(interfaces []interfaceInfo) []PackageInterfaceInfo {
+	if len(interfaces) == 0 {
+		return nil
+	}
+	out := make([]PackageInterfaceInfo, 0, len(interfaces))
+	for _, iface := range interfaces {
+		out = append(out, PackageInterfaceInfo{Name: iface.name, Methods: append([]string(nil), iface.methods...)})
+	}
+	return out
 }
 
 // executeQueries runs the compiled tags query and converts captures into nodes and edges.
@@ -334,6 +359,15 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 
 		if defNode != nil && nameNode != nil {
 			name := nameNode.Content(content)
+			name = definitionNameOrDefault(semantics, DefinitionContext{
+				Definition:     defNode,
+				DefinitionType: defType,
+				Name:           name,
+				Root:           root,
+				Package:        pkgName,
+				Content:        content,
+				FilePath:       filePath,
+			})
 			var receiver string
 			if receiverNode != nil {
 				receiver = w.extractReceiverStr(receiverNode, content)

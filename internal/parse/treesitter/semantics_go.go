@@ -20,9 +20,14 @@ type GoSemantics struct{}
 // @intent identify "implements" relationships using both structural and explicit compile-time assertions.
 func (GoSemantics) AdditionalEdges(ctx SemanticContext) []model.Edge {
 	var edges []model.Edge
-	edges = append(edges, goStructuralImplements(ctx.Nodes, ctx.Interfaces, ctx.FilePath)...)
 	edges = append(edges, goAssertionImplements(ctx.Root, ctx.Content, ctx.FilePath, ctx.ImportPackages)...)
 	return edges
+}
+
+// PackageEdges adds Go structural implementation edges using package-wide method and interface sets.
+// @intent support Go's implicit structural typing when interfaces and methods are split across files in one package.
+func (GoSemantics) PackageEdges(ctx PackageContext) []model.Edge {
+	return goStructuralImplements(ctx.Nodes, ctx.Interfaces, ctx.Package)
 }
 
 // EnrichDefinition extracts Go-only interface method metadata and struct embedding edges.
@@ -139,15 +144,16 @@ func extractGoAssertionCallBinding(assertion *sitter.Node, content []byte, alias
 	for p := assertion.Parent(); p != nil; p = p.Parent() {
 		switch p.Type() {
 		case "short_var_declaration":
-			if lhs, _, ok := strings.Cut(p.Content(content), ":="); ok {
-				name := firstGoAssignmentName(lhs)
-				return name, sourceType, name != ""
+			if name, ok := goAssertionAssignedName(p, assertion, content); ok {
+				return name, sourceType, true
+			}
+		case "assignment_statement":
+			if name, ok := goAssertionAssignedName(p, assertion, content); ok {
+				return name, sourceType, true
 			}
 		case "var_spec":
-			if lhs, _, ok := strings.Cut(p.Content(content), "="); ok {
-				lhs = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(lhs), "var "))
-				name := firstGoAssignmentName(lhs)
-				return name, sourceType, name != ""
+			if name, ok := goAssertionVarSpecAssignedName(p, assertion, content); ok {
+				return name, sourceType, true
 			}
 		case "function_declaration", "method_declaration":
 			return "", "", false
@@ -168,18 +174,82 @@ func goAssertionCallSourceType(expr string, aliases map[string]string) string {
 	return normalizeGoTypeName(asserted, aliases)
 }
 
-// firstGoAssignmentName returns the first valid identifier on the left-hand side of an assignment.
-// @intent bind type assertion metadata to the variable that will receive the asserted value.
-func firstGoAssignmentName(lhs string) string {
-	parts := strings.Split(lhs, ",")
-	if len(parts) == 0 {
-		return ""
+func goAssertionAssignedName(assignNode, assertion *sitter.Node, content []byte) (string, bool) {
+	left := assignNode.ChildByFieldName("left")
+	right := assignNode.ChildByFieldName("right")
+	if left == nil || right == nil {
+		return "", false
 	}
-	name := strings.TrimSpace(parts[0])
+	idx, ok := goAssertionExprIndex(right, assertion)
+	if !ok {
+		return "", false
+	}
+	return goAssignedNameAt(left, idx, content)
+}
+
+func goAssertionVarSpecAssignedName(varSpec, assertion *sitter.Node, content []byte) (string, bool) {
+	value := varSpec.ChildByFieldName("value")
+	name := varSpec.ChildByFieldName("name")
+	if value == nil || name == nil {
+		return "", false
+	}
+	idx, ok := goAssertionExprIndex(value, assertion)
+	if !ok {
+		return "", false
+	}
+	return goAssignedNameAt(name, idx, content)
+}
+
+func goAssertionExprIndex(container, assertion *sitter.Node) (int, bool) {
+	if container == nil || assertion == nil {
+		return 0, false
+	}
+	if goNodeContains(container, assertion) && container.NamedChildCount() == 0 {
+		return 0, true
+	}
+	for i := 0; i < int(container.NamedChildCount()); i++ {
+		child := container.NamedChild(i)
+		if child == nil {
+			continue
+		}
+		if goNodeContains(child, assertion) {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func goAssignedNameAt(container *sitter.Node, idx int, content []byte) (string, bool) {
+	if container == nil || idx < 0 {
+		return "", false
+	}
+	if container.NamedChildCount() == 0 {
+		return goAssignmentIdent(container.Content(content))
+	}
+	if idx >= int(container.NamedChildCount()) {
+		return "", false
+	}
+	return goAssignmentIdent(container.NamedChild(idx).Content(content))
+}
+
+func goAssignmentIdent(raw string) (string, bool) {
+	name := strings.TrimSpace(raw)
 	if !isGoIdent(name) || name == "_" {
-		return ""
+		return "", false
 	}
-	return name
+	return name, true
+}
+
+func goNodeContains(parent, child *sitter.Node) bool {
+	if parent == nil || child == nil {
+		return false
+	}
+	for n := child; n != nil; n = n.Parent() {
+		if n == parent {
+			return true
+		}
+	}
+	return false
 }
 
 // isGoIdent reports whether a string is a syntactically valid simple Go identifier.
@@ -198,8 +268,8 @@ func isGoIdent(name string) bool {
 }
 
 // goStructuralImplements derives implementation edges based on method set matching.
-// @intent support Go's implicit structural typing by matching concrete method names against interface declarations.
-func goStructuralImplements(nodes []model.Node, ifaces []interfaceInfo, filePath string) []model.Edge {
+// @intent support Go's implicit structural typing by matching concrete method names against package-wide interface declarations.
+func goStructuralImplements(nodes []model.Node, ifaces []PackageInterfaceInfo, scope string) []model.Edge {
 	methodsByReceiver := make(map[string]map[string]bool)
 	for _, n := range nodes {
 		if n.Kind != model.NodeKindFunction {
@@ -218,12 +288,12 @@ func goStructuralImplements(nodes []model.Node, ifaces []interfaceInfo, filePath
 
 	var edges []model.Edge
 	for _, iface := range ifaces {
-		if len(iface.methods) == 0 {
+		if len(iface.Methods) == 0 {
 			continue
 		}
 		for receiver, methods := range methodsByReceiver {
 			allMatch := true
-			for _, m := range iface.methods {
+			for _, m := range iface.Methods {
 				if !methods[m] {
 					allMatch = false
 					break
@@ -232,8 +302,8 @@ func goStructuralImplements(nodes []model.Node, ifaces []interfaceInfo, filePath
 			if allMatch {
 				edges = append(edges, model.Edge{
 					Kind:        model.EdgeKindImplements,
-					FilePath:    filePath,
-					Fingerprint: fmt.Sprintf("implements:%s:%s:%s", filePath, receiver, iface.name),
+					FilePath:    scope,
+					Fingerprint: fmt.Sprintf("implements:%s:%s:%s", scope, receiver, iface.Name),
 				})
 			}
 		}
