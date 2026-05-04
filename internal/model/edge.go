@@ -7,15 +7,33 @@ import "time"
 type EdgeKind string
 
 const (
-	EdgeKindCalls       EdgeKind = "calls"
-	EdgeKindImportsFrom EdgeKind = "imports_from"
-	EdgeKindInherits    EdgeKind = "inherits"
-	EdgeKindImplements  EdgeKind = "implements"
-	EdgeKindContains    EdgeKind = "contains"
-	EdgeKindTestedBy    EdgeKind = "tested_by"
-	EdgeKindDependsOn   EdgeKind = "depends_on"
-	EdgeKindReferences  EdgeKind = "references"
+	EdgeKindCalls         EdgeKind = "calls"
+	EdgeKindFallbackCalls EdgeKind = "fallback_calls"
+	EdgeKindImportsFrom   EdgeKind = "imports_from"
+	EdgeKindInherits      EdgeKind = "inherits"
+	EdgeKindImplements    EdgeKind = "implements"
+	EdgeKindContains      EdgeKind = "contains"
+	EdgeKindTestedBy      EdgeKind = "tested_by"
+	EdgeKindDependsOn     EdgeKind = "depends_on"
+	EdgeKindReferences    EdgeKind = "references"
 )
+
+// CallEdgeKinds returns edge kinds that represent a callable relationship.
+//
+// Fallback call resolution stores low-confidence edges as EdgeKindFallbackCalls, but callers
+// that want to traverse call behavior should usually include both values.
+// @intent centralize call-kind handling for traversal and filtering paths.
+func CallEdgeKinds() []EdgeKind {
+	return []EdgeKind{EdgeKindCalls, EdgeKindFallbackCalls}
+}
+
+// IsCallKind reports whether kind represents a call edge.
+//
+// This helper keeps fallback call-kind handling centralized for traversal and filtering paths.
+// @intent centralize call-kind handling for traversal and filtering paths.
+func IsCallKind(kind EdgeKind) bool {
+	return kind == EdgeKindCalls || kind == EdgeKindFallbackCalls
+}
 
 // Edge는 두 노드 사이의 방향성 관계를 저장한다.
 // @intent 코드 그래프에서 선언 간 연결과 그 출처를 영속화한다.

@@ -72,6 +72,18 @@ type resolveState struct {
 // endpoint can be inferred from stored node positions and names.
 // @intent convert syntax-level edge fingerprints into traversable graph edges.
 func Resolve(ctx context.Context, lookup NodeLookup, edges []model.Edge) ([]model.Edge, error) {
+	return ResolveWithOptions(ctx, lookup, edges, ResolveOptions{})
+}
+
+// ResolveOptions controls additional, lossy call-resolution behavior.
+// @intent allow callers to trade strictness for coverage in low-confidence call cases.
+type ResolveOptions struct {
+	FallbackCalls bool
+}
+
+// ResolveWithOptions resolves edges with optional lossy call-resolution strategies.
+// @intent preserve current strict resolution by default while supporting fallback mode for CI noise reduction.
+func ResolveWithOptions(ctx context.Context, lookup NodeLookup, edges []model.Edge, options ResolveOptions) ([]model.Edge, error) {
 	if len(edges) == 0 {
 		return edges, nil
 	}
@@ -125,7 +137,7 @@ func Resolve(ctx context.Context, lookup NodeLookup, edges []model.Edge) ([]mode
 	}
 	for i := range out {
 		if out[i].Kind == model.EdgeKindCalls {
-			resolveCall(&out[i], st)
+			resolveCall(&out[i], st, options)
 		}
 	}
 	return out, nil
@@ -361,7 +373,7 @@ func addEndpointCandidates(names *[]string, seen map[string]bool, st *resolveSta
 
 // resolveCall attempts to attach node IDs to a function call edge.
 // @intent find the unique caller and callee nodes for a call relationship.
-func resolveCall(edge *model.Edge, st *resolveState) {
+func resolveCall(edge *model.Edge, st *resolveState, options ResolveOptions) {
 	caller := enclosingCallable(st.nodesByFile[edge.FilePath], edge.Line)
 	if caller != nil {
 		edge.FromNodeID = caller.ID
@@ -399,7 +411,85 @@ func resolveCall(edge *model.Edge, st *resolveState) {
 
 	if target := uniqueCallable(st.nameByFile[edge.FilePath][bare]); target != nil {
 		edge.ToNodeID = target.ID
+		return
 	}
+
+	if !options.FallbackCalls {
+		return
+	}
+
+	if target := fallbackCallable(st.qnIndex[callee]); target != nil {
+		edge.Kind = model.EdgeKindFallbackCalls
+		edge.ToNodeID = target.ID
+		return
+	}
+	if caller != nil {
+		pkg := packagePrefix(*caller)
+		if pkg != "" {
+			if target := fallbackCallable(st.qnIndex[pkg+"."+bare]); target != nil {
+				edge.Kind = model.EdgeKindFallbackCalls
+				edge.ToNodeID = target.ID
+				return
+			}
+		}
+		if target := fallbackCallable(st.nameByFile[edge.FilePath][bare]); target != nil {
+			edge.Kind = model.EdgeKindFallbackCalls
+			edge.ToNodeID = target.ID
+		}
+	}
+}
+
+// fallbackCallable resolves callable candidates deterministically when strict unique matching fails.
+// @intent trade an unresolved edge for a stable best-effort relationship in fallback mode.
+func fallbackCallable(nodes []model.Node) *model.Node {
+	filtered := filterCallableNodes(nodes)
+	if len(filtered) == 0 {
+		return nil
+	}
+	selected := filtered[0]
+	return &selected
+}
+
+// filterCallableNodes removes non-callable nodes and deduplicates by identity for fallback resolution.
+// @intent normalize a candidate list before deterministic tie-breaking.
+func filterCallableNodes(nodes []model.Node) []model.Node {
+	seen := make(map[uint]bool, len(nodes))
+	seenQName := make(map[string]bool, len(nodes))
+	out := make([]model.Node, 0, len(nodes))
+	for _, n := range nodes {
+		if n.Kind != model.NodeKindFunction && n.Kind != model.NodeKindTest {
+			continue
+		}
+		if n.ID != 0 {
+			if seen[n.ID] {
+				continue
+			}
+			seen[n.ID] = true
+		} else if seenQName[n.QualifiedName] {
+			continue
+		} else {
+			seenQName[n.QualifiedName] = true
+		}
+		out = append(out, n)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return stableCallableLess(out[i], out[j])
+	})
+	return out
+}
+
+// @intent keep callable candidate ordering deterministic so resolver output is stable across runs.
+func stableCallableLess(a, b model.Node) bool {
+	if a.FilePath != b.FilePath {
+		return a.FilePath < b.FilePath
+	}
+	if a.StartLine != b.StartLine {
+		return a.StartLine < b.StartLine
+	}
+	if a.QualifiedName != b.QualifiedName {
+		return a.QualifiedName < b.QualifiedName
+	}
+	return a.ID < b.ID
 }
 
 // resolveContains attaches node IDs to a containment edge (file contains symbol).
