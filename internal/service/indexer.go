@@ -1219,7 +1219,8 @@ func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, 
 	}
 
 	normalFiles, forcedFiles := splitForcedFiles(files, forceFiles)
-	stats, err := opts.Syncer.SyncWithExisting(ctx, normalFiles, existingFiles)
+	normalExistingFiles := existingFilesExcluding(existingFiles, forceFiles)
+	stats, err := opts.Syncer.SyncWithExisting(ctx, normalFiles, normalExistingFiles)
 	if err != nil {
 		return nil, trace.Wrap(err, "incremental sync")
 	}
@@ -1274,6 +1275,23 @@ func existingFilesMissingFrom(files map[string]incremental.FileInfo, existingFil
 		}
 	}
 	return deleted
+}
+
+func existingFilesExcluding(existingFiles []string, exclude map[string]struct{}) []string {
+	if len(existingFiles) == 0 {
+		return nil
+	}
+	if len(exclude) == 0 {
+		return append([]string(nil), existingFiles...)
+	}
+	filtered := make([]string, 0, len(existingFiles))
+	for _, fp := range existingFiles {
+		if _, ok := exclude[fp]; ok {
+			continue
+		}
+		filtered = append(filtered, fp)
+	}
+	return filtered
 }
 
 // affectedNodeIDsForUpdate collects node IDs whose search documents must be refreshed for a given change set.

@@ -293,6 +293,12 @@ type recordingIncrementalSyncer struct {
 	existingFiles []string
 	result        *incremental.SyncStats
 	err           error
+	calls         []recordingSyncCall
+}
+
+type recordingSyncCall struct {
+	files         map[string]incremental.FileInfo
+	existingFiles []string
 }
 
 func (r *recordingIncrementalSyncer) Sync(ctx context.Context, files map[string]incremental.FileInfo) (*incremental.SyncStats, error) {
@@ -302,7 +308,21 @@ func (r *recordingIncrementalSyncer) Sync(ctx context.Context, files map[string]
 func (r *recordingIncrementalSyncer) SyncWithExisting(ctx context.Context, files map[string]incremental.FileInfo, existingFiles []string) (*incremental.SyncStats, error) {
 	r.files = files
 	r.existingFiles = append([]string(nil), existingFiles...)
+	fileCopy := make(map[string]incremental.FileInfo, len(files))
+	for k, v := range files {
+		fileCopy[k] = v
+	}
+	r.calls = append(r.calls, recordingSyncCall{files: fileCopy, existingFiles: append([]string(nil), existingFiles...)})
 	return r.result, r.err
+}
+
+func sortedIncrementalFileKeys(files map[string]incremental.FileInfo) []string {
+	keys := make([]string, 0, len(files))
+	for k := range files {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
 }
 
 type scopedSearchBackendSpy struct {
@@ -2530,6 +2550,75 @@ func TestForceReparseFiles_ChunksLargeChangedNodeLookup(t *testing.T) {
 	}
 	if _, ok := forceFiles["source.go"]; !ok {
 		t.Fatalf("expected unchanged source.go to be forced across chunks, got %v", forceFiles)
+	}
+}
+
+func TestUpdateGraphWithoutTx_DoesNotDeleteForcedFilesDuringNormalSync(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.Node{}, &model.Edge{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	ctx := context.Background()
+
+	sourceHash := sha256.Sum256([]byte("package sample\n\nfunc Source() { Target() }\n"))
+	staleTargetHash := sha256.Sum256([]byte("package sample\n\nfunc Target() {}\n"))
+	deletedHash := sha256.Sum256([]byte("package sample\n\nfunc Deleted() {}\n"))
+
+	source := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "sample.Source", Kind: model.NodeKindFunction, Name: "Source", FilePath: "source.go", StartLine: 3, EndLine: 3, Hash: hex.EncodeToString(sourceHash[:]), Language: "go"}
+	target := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "sample.Target", Kind: model.NodeKindFunction, Name: "Target", FilePath: "target.go", StartLine: 3, EndLine: 3, Hash: hex.EncodeToString(staleTargetHash[:]), Language: "go"}
+	deleted := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "sample.Deleted", Kind: model.NodeKindFunction, Name: "Deleted", FilePath: "deleted.go", StartLine: 3, EndLine: 3, Hash: hex.EncodeToString(deletedHash[:]), Language: "go"}
+	for _, node := range []*model.Node{&source, &target, &deleted} {
+		if err := db.Create(node).Error; err != nil {
+			t.Fatalf("seed node %s: %v", node.FilePath, err)
+		}
+	}
+	if err := db.Create(&model.Edge{Namespace: ctxns.DefaultNamespace, FromNodeID: source.ID, ToNodeID: target.ID, Kind: model.EdgeKindCalls, FilePath: "source.go", Fingerprint: "calls:source.go:Target:3"}).Error; err != nil {
+		t.Fatalf("seed edge: %v", err)
+	}
+
+	svc := &GraphService{
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "source.go"), []byte("package sample\n\nfunc Source() { Target() }\n"), 0o644); err != nil {
+		t.Fatalf("write source.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "target.go"), []byte("package sample\n\nfunc Target() { Source() }\n"), 0o644); err != nil {
+		t.Fatalf("write target.go: %v", err)
+	}
+
+	syncer := &recordingIncrementalSyncer{result: &incremental.SyncStats{}}
+	if _, err := svc.Update(ctx, UpdateOptions{BuildOptions: BuildOptions{Dir: tmpDir, SkipSearchRebuild: true}, Syncer: syncer}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if got := len(syncer.calls); got != 2 {
+		t.Fatalf("expected normal sync plus forced sync, got %d calls", got)
+	}
+	first := syncer.calls[0]
+	if _, ok := first.files["source.go"]; ok {
+		t.Fatalf("expected forced source.go to be excluded from normal sync files, got %v", sortedIncrementalFileKeys(first.files))
+	}
+	if _, ok := first.files["target.go"]; !ok {
+		t.Fatalf("expected changed target.go in normal sync files, got %v", sortedIncrementalFileKeys(first.files))
+	}
+	if slices.Contains(first.existingFiles, "source.go") {
+		t.Fatalf("expected forced source.go to be excluded from normal sync existingFiles, got %v", first.existingFiles)
+	}
+	if !slices.Contains(first.existingFiles, "deleted.go") {
+		t.Fatalf("expected deleted.go to remain in normal sync existingFiles, got %v", first.existingFiles)
+	}
+	second := syncer.calls[1]
+	if _, ok := second.files["source.go"]; !ok {
+		t.Fatalf("expected forced sync to include source.go, got %v", sortedIncrementalFileKeys(second.files))
+	}
+	if len(second.existingFiles) != 0 {
+		t.Fatalf("expected forced sync to receive nil existingFiles, got %v", second.existingFiles)
 	}
 }
 
