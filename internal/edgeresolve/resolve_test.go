@@ -119,7 +119,7 @@ func TestResolveCallsConnectsBareFunctionCall(t *testing.T) {
 	}
 }
 
-func TestDispatchForLanguage_GoAndRustRegistered(t *testing.T) {
+func TestDispatchForLanguage_GoRustTSJavaKotlinRegistered(t *testing.T) {
 	if dispatchForLanguage("go") == nil {
 		t.Fatal("expected Go dispatch to be registered")
 	}
@@ -129,14 +129,14 @@ func TestDispatchForLanguage_GoAndRustRegistered(t *testing.T) {
 	if dispatchForLanguage("python") != nil {
 		t.Fatal("expected Python dispatch to remain unregistered")
 	}
-	if dispatchForLanguage("typescript") != nil {
-		t.Fatal("expected TypeScript dispatch to remain unregistered")
+	if dispatchForLanguage("typescript") == nil {
+		t.Fatal("expected TypeScript dispatch to be registered")
 	}
-	if dispatchForLanguage("java") != nil {
-		t.Fatal("expected Java dispatch to remain unregistered")
+	if dispatchForLanguage("java") == nil {
+		t.Fatal("expected Java dispatch to be registered")
 	}
-	if dispatchForLanguage("kotlin") != nil {
-		t.Fatal("expected Kotlin dispatch to remain unregistered")
+	if dispatchForLanguage("kotlin") == nil {
+		t.Fatal("expected Kotlin dispatch to be registered")
 	}
 }
 
@@ -728,6 +728,49 @@ func TestFilterResolvedDropsEdgesWithMissingEndpoints(t *testing.T) {
 	}
 }
 
+func TestFilterResolvedWithDiagnosticsSummarizesDroppedEdges(t *testing.T) {
+	resolved, diagnostics := FilterResolvedWithDiagnostics([]model.Edge{
+		{FromNodeID: 1, ToNodeID: 2, Kind: model.EdgeKindCalls, FilePath: "ok.go", Fingerprint: "resolved"},
+		{FromNodeID: 0, ToNodeID: 2, Kind: model.EdgeKindCalls, FilePath: "a.go", Fingerprint: "missing-from"},
+		{FromNodeID: 1, ToNodeID: 0, Kind: model.EdgeKindImportsFrom, FilePath: "a.go", Fingerprint: "missing-to"},
+		{FromNodeID: 0, ToNodeID: 0, Kind: model.EdgeKindCalls, FilePath: "b.go", Fingerprint: "missing-both"},
+	})
+
+	if len(resolved) != 1 {
+		t.Fatalf("resolved edges=%d, want 1", len(resolved))
+	}
+	if diagnostics.DroppedCount != 3 {
+		t.Fatalf("DroppedCount=%d, want 3", diagnostics.DroppedCount)
+	}
+	if got := diagnostics.ByKind[model.EdgeKindCalls]; got != 2 {
+		t.Fatalf("ByKind[calls]=%d, want 2", got)
+	}
+	if got := diagnostics.ByKind[model.EdgeKindImportsFrom]; got != 1 {
+		t.Fatalf("ByKind[imports_from]=%d, want 1", got)
+	}
+	if got := diagnostics.ByFile["a.go"]; got != 2 {
+		t.Fatalf("ByFile[a.go]=%d, want 2", got)
+	}
+	if got := diagnostics.ByFile["b.go"]; got != 1 {
+		t.Fatalf("ByFile[b.go]=%d, want 1", got)
+	}
+	if got := diagnostics.ByReason["missing_from"]; got != 1 {
+		t.Fatalf("ByReason[missing_from]=%d, want 1", got)
+	}
+	if got := diagnostics.ByReason["missing_to"]; got != 1 {
+		t.Fatalf("ByReason[missing_to]=%d, want 1", got)
+	}
+	if got := diagnostics.ByReason["missing_both"]; got != 1 {
+		t.Fatalf("ByReason[missing_both]=%d, want 1", got)
+	}
+	if len(diagnostics.Samples) != 3 {
+		t.Fatalf("Samples=%d, want 3", len(diagnostics.Samples))
+	}
+	if diagnostics.Samples[0].Fingerprint != "missing-from" || diagnostics.Samples[0].Reason != "missing_from" {
+		t.Fatalf("first sample=%+v, want missing-from/missing_from", diagnostics.Samples[0])
+	}
+}
+
 func TestResolveTestedByBindsQualifiedProductionEndpoint(t *testing.T) {
 	lookup := fakeLookup{nodes: []model.Node{
 		{ID: 1, QualifiedName: "calc.Add", Name: "Add", Kind: model.NodeKindFunction, FilePath: "add.go", StartLine: 3, EndLine: 5, Language: "go"},
@@ -854,6 +897,289 @@ func TestResolveInterfaceSelectorIsGoOnly(t *testing.T) {
 	}
 	if edges[1].ToNodeID != 0 {
 		t.Fatalf("non-Go interface selector ToNodeID=%d, want unresolved 0", edges[1].ToNodeID)
+	}
+}
+
+func TestResolveTypeScriptInterfaceDispatchContract_RemainsUnresolvedUntilReceiverTypeKnown(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "app.start", Name: "start", Kind: model.NodeKindFunction, FilePath: "app.ts", StartLine: 10, EndLine: 12, Language: "typescript"},
+		{ID: 2, QualifiedName: "contracts.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "contracts.ts", StartLine: 1, EndLine: 3, Language: "typescript"},
+		{ID: 3, QualifiedName: "impl.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "impl.ts", StartLine: 1, EndLine: 6, Language: "typescript"},
+		{ID: 4, QualifiedName: "impl.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "impl.ts", StartLine: 3, EndLine: 5, Language: "typescript"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "app.ts", Line: 2, Fingerprint: "implements:app.ts:impl.Tracer:contracts.FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "app.ts", Line: 11, Fingerprint: "calls:app.ts:deps.flowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].FromNodeID != 1 {
+		t.Fatalf("FromNodeID=%d, want 1", edges[1].FromNodeID)
+	}
+	if edges[1].ToNodeID != 0 {
+		t.Fatalf("TypeScript interface-like call ToNodeID=%d, want unresolved 0", edges[1].ToNodeID)
+	}
+}
+
+func TestResolveJavaInterfaceDispatchContract_RemainsUnresolvedUntilReceiverTypeKnown(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "com.example.App.run", Name: "run", Kind: model.NodeKindFunction, FilePath: "App.java", StartLine: 10, EndLine: 12, Language: "java"},
+		{ID: 2, QualifiedName: "com.example.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "FlowTracer.java", StartLine: 1, EndLine: 3, Language: "java"},
+		{ID: 3, QualifiedName: "com.example.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "Tracer.java", StartLine: 1, EndLine: 6, Language: "java"},
+		{ID: 4, QualifiedName: "com.example.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "Tracer.java", StartLine: 3, EndLine: 5, Language: "java"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "App.java", Line: 2, Fingerprint: "implements:App.java:com.example.Tracer:com.example.FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "App.java", Line: 11, Fingerprint: "calls:App.java:deps.flowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].FromNodeID != 1 {
+		t.Fatalf("FromNodeID=%d, want 1", edges[1].FromNodeID)
+	}
+	if edges[1].ToNodeID != 0 {
+		t.Fatalf("Java interface-like call ToNodeID=%d, want unresolved 0", edges[1].ToNodeID)
+	}
+}
+
+func TestResolveKotlinInterfaceDispatchContract_RemainsUnresolvedUntilReceiverTypeKnown(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "com.example.App.run", Name: "run", Kind: model.NodeKindFunction, FilePath: "App.kt", StartLine: 10, EndLine: 12, Language: "kotlin"},
+		{ID: 2, QualifiedName: "com.example.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "FlowTracer.kt", StartLine: 1, EndLine: 3, Language: "kotlin"},
+		{ID: 3, QualifiedName: "com.example.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "Tracer.kt", StartLine: 1, EndLine: 6, Language: "kotlin"},
+		{ID: 4, QualifiedName: "com.example.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "Tracer.kt", StartLine: 3, EndLine: 5, Language: "kotlin"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "App.kt", Line: 2, Fingerprint: "implements:App.kt:com.example.Tracer:com.example.FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "App.kt", Line: 11, Fingerprint: "calls:App.kt:deps.flowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].FromNodeID != 1 {
+		t.Fatalf("FromNodeID=%d, want 1", edges[1].FromNodeID)
+	}
+	if edges[1].ToNodeID != 0 {
+		t.Fatalf("Kotlin interface-like call ToNodeID=%d, want unresolved 0", edges[1].ToNodeID)
+	}
+}
+
+func TestResolveTypeScriptExplicitOwnerInterfaceDispatch_ResolvesUniqueImplementerMethod(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "app.start", Name: "start", Kind: model.NodeKindFunction, FilePath: "app.ts", StartLine: 10, EndLine: 12, Language: "typescript"},
+		{ID: 2, QualifiedName: "contracts.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "contracts.ts", StartLine: 1, EndLine: 3, Language: "typescript"},
+		{ID: 3, QualifiedName: "impl.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "impl.ts", StartLine: 1, EndLine: 6, Language: "typescript"},
+		{ID: 4, QualifiedName: "impl.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "impl.ts", StartLine: 3, EndLine: 5, Language: "typescript"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "app.ts", Line: 2, Fingerprint: "implements:app.ts:impl.Tracer:contracts.FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "app.ts", Line: 11, Fingerprint: "calls:app.ts:contracts.FlowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 4 {
+		t.Fatalf("TypeScript explicit owner dispatch ToNodeID=%d, want 4", edges[1].ToNodeID)
+	}
+}
+
+func TestResolveJavaExplicitOwnerInterfaceDispatch_ResolvesUniqueImplementerMethod(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "com.example.App.run", Name: "run", Kind: model.NodeKindFunction, FilePath: "App.java", StartLine: 10, EndLine: 12, Language: "java"},
+		{ID: 2, QualifiedName: "com.example.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "FlowTracer.java", StartLine: 1, EndLine: 3, Language: "java"},
+		{ID: 3, QualifiedName: "com.example.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "Tracer.java", StartLine: 1, EndLine: 6, Language: "java"},
+		{ID: 4, QualifiedName: "com.example.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "Tracer.java", StartLine: 3, EndLine: 5, Language: "java"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "App.java", Line: 2, Fingerprint: "implements:App.java:com.example.Tracer:com.example.FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "App.java", Line: 11, Fingerprint: "calls:App.java:com.example.FlowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 4 {
+		t.Fatalf("Java explicit owner dispatch ToNodeID=%d, want 4", edges[1].ToNodeID)
+	}
+}
+
+func TestResolveKotlinExplicitOwnerInterfaceDispatch_ResolvesUniqueImplementerMethod(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "com.example.App.run", Name: "run", Kind: model.NodeKindFunction, FilePath: "App.kt", StartLine: 10, EndLine: 12, Language: "kotlin"},
+		{ID: 2, QualifiedName: "com.example.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "FlowTracer.kt", StartLine: 1, EndLine: 3, Language: "kotlin"},
+		{ID: 3, QualifiedName: "com.example.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "Tracer.kt", StartLine: 1, EndLine: 6, Language: "kotlin"},
+		{ID: 4, QualifiedName: "com.example.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "Tracer.kt", StartLine: 3, EndLine: 5, Language: "kotlin"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "App.kt", Line: 2, Fingerprint: "implements:App.kt:com.example.Tracer:com.example.FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "App.kt", Line: 11, Fingerprint: "calls:App.kt:com.example.FlowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 4 {
+		t.Fatalf("Kotlin explicit owner dispatch ToNodeID=%d, want 4", edges[1].ToNodeID)
+	}
+}
+
+func TestResolveTypeScriptExplicitOwnerInterfaceDispatch_RemainsUnresolvedWhenMultipleImplementers(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "app.start", Name: "start", Kind: model.NodeKindFunction, FilePath: "app.ts", StartLine: 10, EndLine: 12, Language: "typescript"},
+		{ID: 2, QualifiedName: "contracts.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "contracts.ts", StartLine: 1, EndLine: 3, Language: "typescript"},
+		{ID: 3, QualifiedName: "impl.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "impl.ts", StartLine: 1, EndLine: 6, Language: "typescript"},
+		{ID: 4, QualifiedName: "impl.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "impl.ts", StartLine: 3, EndLine: 5, Language: "typescript"},
+		{ID: 5, QualifiedName: "impl.OtherTracer", Name: "OtherTracer", Kind: model.NodeKindClass, FilePath: "other.ts", StartLine: 1, EndLine: 6, Language: "typescript"},
+		{ID: 6, QualifiedName: "impl.OtherTracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "other.ts", StartLine: 3, EndLine: 5, Language: "typescript"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "app.ts", Line: 2, Fingerprint: "implements:app.ts:impl.Tracer:contracts.FlowTracer"},
+		{Kind: model.EdgeKindImplements, FilePath: "app.ts", Line: 3, Fingerprint: "implements:app.ts:impl.OtherTracer:contracts.FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "app.ts", Line: 11, Fingerprint: "calls:app.ts:contracts.FlowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[2].ToNodeID != 0 {
+		t.Fatalf("TypeScript explicit owner ambiguous dispatch ToNodeID=%d, want unresolved 0", edges[2].ToNodeID)
+	}
+}
+
+func TestResolveJavaExplicitOwnerInterfaceDispatch_RemainsUnresolvedWhenMultipleMatchingMethods(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "com.example.App.run", Name: "run", Kind: model.NodeKindFunction, FilePath: "App.java", StartLine: 10, EndLine: 12, Language: "java"},
+		{ID: 2, QualifiedName: "com.example.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "FlowTracer.java", StartLine: 1, EndLine: 3, Language: "java"},
+		{ID: 3, QualifiedName: "com.example.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "Tracer.java", StartLine: 1, EndLine: 6, Language: "java"},
+		{ID: 4, QualifiedName: "com.example.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "Tracer.java", StartLine: 3, EndLine: 5, Language: "java"},
+		{ID: 5, QualifiedName: "com.example.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "Tracer.java", StartLine: 7, EndLine: 9, Language: "java"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "App.java", Line: 2, Fingerprint: "implements:App.java:com.example.Tracer:com.example.FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "App.java", Line: 11, Fingerprint: "calls:App.java:com.example.FlowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 0 {
+		t.Fatalf("Java explicit owner ambiguous method ToNodeID=%d, want unresolved 0", edges[1].ToNodeID)
+	}
+}
+
+func TestResolveKotlinExplicitOwnerInterfaceDispatch_RemainsUnresolvedWhenOwnerIsNotKnownInterface(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "com.example.App.run", Name: "run", Kind: model.NodeKindFunction, FilePath: "App.kt", StartLine: 10, EndLine: 12, Language: "kotlin"},
+		{ID: 3, QualifiedName: "com.example.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "Tracer.kt", StartLine: 1, EndLine: 6, Language: "kotlin"},
+		{ID: 4, QualifiedName: "com.example.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "Tracer.kt", StartLine: 3, EndLine: 5, Language: "kotlin"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "App.kt", Line: 2, Fingerprint: "implements:App.kt:com.example.Tracer:com.example.FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "App.kt", Line: 11, Fingerprint: "calls:App.kt:com.example.MissingFlowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 0 {
+		t.Fatalf("Kotlin explicit owner unknown interface ToNodeID=%d, want unresolved 0", edges[1].ToNodeID)
+	}
+}
+
+func TestResolveTypeScriptExplicitOwnerDispatch_PrefersConcreteImplementerOverExactInterfaceMethod(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "app.start", Name: "start", Kind: model.NodeKindFunction, FilePath: "app.ts", StartLine: 10, EndLine: 12, Language: "typescript"},
+		{ID: 2, QualifiedName: "contracts.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "contracts.ts", StartLine: 1, EndLine: 3, Language: "typescript"},
+		{ID: 3, QualifiedName: "impl.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "impl.ts", StartLine: 1, EndLine: 6, Language: "typescript"},
+		{ID: 4, QualifiedName: "impl.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "impl.ts", StartLine: 3, EndLine: 5, Language: "typescript"},
+		{ID: 7, QualifiedName: "contracts.FlowTracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "contracts.ts", StartLine: 5, EndLine: 7, Language: "typescript"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "app.ts", Line: 2, Fingerprint: "implements:app.ts:impl.Tracer:contracts.FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "app.ts", Line: 11, Fingerprint: "calls:app.ts:contracts.FlowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 4 {
+		t.Fatalf("TypeScript concrete-preferred dispatch ToNodeID=%d, want 4", edges[1].ToNodeID)
+	}
+}
+
+func TestResolveJavaShortOwnerInterfaceDispatch_ResolvesUniqueImplementerMethod(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "com.example.App.run", Name: "run", Kind: model.NodeKindFunction, FilePath: "App.java", StartLine: 10, EndLine: 12, Language: "java"},
+		{ID: 2, QualifiedName: "com.example.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "FlowTracer.java", StartLine: 1, EndLine: 3, Language: "java"},
+		{ID: 3, QualifiedName: "com.example.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "Tracer.java", StartLine: 1, EndLine: 6, Language: "java"},
+		{ID: 4, QualifiedName: "com.example.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "Tracer.java", StartLine: 3, EndLine: 5, Language: "java"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "App.java", Line: 2, Fingerprint: "implements:App.java:com.example.Tracer:com.example.FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "App.java", Line: 11, Fingerprint: "calls:App.java:FlowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 4 {
+		t.Fatalf("Java short owner dispatch ToNodeID=%d, want 4", edges[1].ToNodeID)
+	}
+	if edges[1].FromNodeID != 1 {
+		t.Fatalf("Java short owner dispatch FromNodeID=%d, want 1", edges[1].FromNodeID)
+	}
+}
+
+func TestResolveJavaExplicitOwnerDispatch_DoesNotFallbackToShorterOwnerPrefix(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "com.example.App.run", Name: "run", Kind: model.NodeKindFunction, FilePath: "App.java", StartLine: 10, EndLine: 12, Language: "java"},
+		{ID: 2, QualifiedName: "com.example.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "FlowTracer.java", StartLine: 1, EndLine: 3, Language: "java"},
+		{ID: 3, QualifiedName: "com.example.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "Tracer.java", StartLine: 1, EndLine: 6, Language: "java"},
+		{ID: 4, QualifiedName: "com.example.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "Tracer.java", StartLine: 3, EndLine: 5, Language: "java"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "App.java", Line: 2, Fingerprint: "implements:App.java:com.example.Tracer:com.example.FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "App.java", Line: 11, Fingerprint: "calls:App.java:com.example.deep.FlowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 0 {
+		t.Fatalf("Java shorter-prefix fallback ToNodeID=%d, want unresolved 0", edges[1].ToNodeID)
+	}
+}
+
+func TestResolveKotlinShortOwnerInterfaceDispatch_RemainsUnresolvedWhenOwnerIsAmbiguous(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "com.example.deep.app.App.run", Name: "run", Kind: model.NodeKindFunction, FilePath: "App.kt", StartLine: 10, EndLine: 12, Language: "kotlin"},
+		{ID: 2, QualifiedName: "com.example.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "FlowTracer.kt", StartLine: 1, EndLine: 3, Language: "kotlin"},
+		{ID: 3, QualifiedName: "com.example.deep.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "DeepFlowTracer.kt", StartLine: 1, EndLine: 3, Language: "kotlin"},
+		{ID: 4, QualifiedName: "com.example.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "Tracer.kt", StartLine: 1, EndLine: 6, Language: "kotlin"},
+		{ID: 5, QualifiedName: "com.example.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "Tracer.kt", StartLine: 3, EndLine: 5, Language: "kotlin"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "App.kt", Line: 2, Fingerprint: "implements:App.kt:com.example.Tracer:com.example.FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "App.kt", Line: 11, Fingerprint: "calls:App.kt:FlowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 0 {
+		t.Fatalf("Kotlin ambiguous short owner ToNodeID=%d, want unresolved 0", edges[1].ToNodeID)
+	}
+}
+
+func TestResolveKotlinExplicitOwnerDispatch_IgnoresPackageNodeOwners(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "com.example.App.run", Name: "run", Kind: model.NodeKindFunction, FilePath: "App.kt", StartLine: 10, EndLine: 12, Language: "kotlin"},
+		{ID: 2, QualifiedName: "com.example.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindPackage, FilePath: "com/example/FlowTracer", Language: "kotlin"},
+		{ID: 3, QualifiedName: "com.example.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "Tracer.kt", StartLine: 1, EndLine: 6, Language: "kotlin"},
+		{ID: 4, QualifiedName: "com.example.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "Tracer.kt", StartLine: 3, EndLine: 5, Language: "kotlin"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "App.kt", Line: 2, Fingerprint: "implements:App.kt:com.example.Tracer:com.example.FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "App.kt", Line: 11, Fingerprint: "calls:App.kt:com.example.FlowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 0 {
+		t.Fatalf("Kotlin package owner dispatch ToNodeID=%d, want unresolved 0", edges[1].ToNodeID)
 	}
 }
 

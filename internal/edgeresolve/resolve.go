@@ -11,6 +11,27 @@ import (
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
+const filterResolvedSampleLimit = 5
+
+// FilterResolvedSample captures one dropped edge example for debugging unresolved persistence candidates.
+// @intent retain a bounded set of representative dropped edges so operators can inspect fingerprints without flooding logs.
+type FilterResolvedSample struct {
+	Kind        model.EdgeKind
+	FilePath    string
+	Fingerprint string
+	Reason      string
+}
+
+// FilterResolvedDiagnostics summarizes edges dropped because one or both endpoints remain unresolved.
+// @intent surface enough aggregate context to debug why parsed edges did not become traversable graph edges.
+type FilterResolvedDiagnostics struct {
+	DroppedCount int
+	ByKind       map[model.EdgeKind]int
+	ByFile       map[string]int
+	ByReason     map[string]int
+	Samples      []FilterResolvedSample
+}
+
 // NodeLookup provides the node reads needed to resolve parsed edge endpoints.
 // @intent keep edge endpoint resolution independent of the concrete graph store.
 type NodeLookup interface {
@@ -108,17 +129,64 @@ func Resolve(ctx context.Context, lookup NodeLookup, edges []model.Edge) ([]mode
 // FilterResolved returns only edges that have both persisted endpoints.
 // @intent prevent unresolved syntax candidates from occupying fingerprints before they become traversable
 func FilterResolved(edges []model.Edge) []model.Edge {
+	resolved, _ := FilterResolvedWithDiagnostics(edges)
+	return resolved
+}
+
+// FilterResolvedWithDiagnostics returns resolved edges plus a summary of dropped unresolved edges.
+// @intent preserve current filtering semantics while exposing actionable diagnostics for build/update debugging.
+func FilterResolvedWithDiagnostics(edges []model.Edge) ([]model.Edge, FilterResolvedDiagnostics) {
 	if len(edges) == 0 {
-		return nil
+		return nil, FilterResolvedDiagnostics{}
 	}
 	out := make([]model.Edge, 0, len(edges))
+	diagnostics := FilterResolvedDiagnostics{}
 	for _, edge := range edges {
-		if edge.FromNodeID == 0 || edge.ToNodeID == 0 {
+		reason, dropped := unresolvedReason(edge)
+		if dropped {
+			diagnostics.add(edge, reason)
 			continue
 		}
 		out = append(out, edge)
 	}
-	return out
+	return out, diagnostics
+}
+
+func unresolvedReason(edge model.Edge) (string, bool) {
+	switch {
+	case edge.FromNodeID == 0 && edge.ToNodeID == 0:
+		return "missing_both", true
+	case edge.FromNodeID == 0:
+		return "missing_from", true
+	case edge.ToNodeID == 0:
+		return "missing_to", true
+	default:
+		return "", false
+	}
+}
+
+func (d *FilterResolvedDiagnostics) add(edge model.Edge, reason string) {
+	d.DroppedCount++
+	if d.ByKind == nil {
+		d.ByKind = make(map[model.EdgeKind]int)
+	}
+	if d.ByFile == nil {
+		d.ByFile = make(map[string]int)
+	}
+	if d.ByReason == nil {
+		d.ByReason = make(map[string]int)
+	}
+	d.ByKind[edge.Kind]++
+	d.ByFile[edge.FilePath]++
+	d.ByReason[reason]++
+	if len(d.Samples) < filterResolvedSampleLimit {
+		d.Samples = append(d.Samples, FilterResolvedSample{
+			Kind:        edge.Kind,
+			FilePath:    edge.FilePath,
+			Fingerprint: edge.Fingerprint,
+			Reason:      reason,
+		})
+	}
 }
 
 // edgeFiles extracts unique file paths from a set of edges.
