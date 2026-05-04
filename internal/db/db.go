@@ -13,6 +13,7 @@ import (
 )
 
 // SQLDBPool abstracts configurable SQL connection pool knobs.
+// @intent sql.DB와 테스트 대역 모두에 적용할 풀 설정 API를 추상화한다.
 type SQLDBPool interface {
 	SetMaxOpenConns(int)
 	SetMaxIdleConns(int)
@@ -21,6 +22,8 @@ type SQLDBPool interface {
 }
 
 // Open creates a configured GORM connection for sqlite or postgres.
+// @intent sqlite/postgres별 공통 초기화와 풀 설정을 한 진입점으로 묶는다.
+// @sideEffect sqlite 경로에서는 WAL과 busy timeout을 설정한다.
 func Open(driver, dsn string) (*gorm.DB, error) {
 	cfg := &gorm.Config{
 		Logger:                 gormlogger.Discard,
@@ -62,6 +65,8 @@ func Open(driver, dsn string) (*gorm.DB, error) {
 }
 
 // ConfigurePool applies database-specific connection pool settings.
+// @intent 드라이버 특성에 맞는 connection pool 한도를 적용한다.
+// @domainRule sqlite는 단일 writer 특성을 고려해 MaxOpenConns=1로 고정한다.
 func ConfigurePool(sqlDB SQLDBPool, driver string) {
 	if driver == "sqlite" {
 		sqlDB.SetMaxOpenConns(1)
@@ -78,6 +83,7 @@ func ConfigurePool(sqlDB SQLDBPool, driver string) {
 }
 
 // NewSearchBackend selects the search backend for the database driver.
+// @intent 현재 DB 드라이버에 맞는 전문 검색 backend 구현체를 선택한다.
 func NewSearchBackend(driver string) search.Backend {
 	switch driver {
 	case "postgres":
