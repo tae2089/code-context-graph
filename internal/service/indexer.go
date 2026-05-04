@@ -35,6 +35,8 @@ import (
 type parsedBuildNodeBatch struct {
 	relPath     string
 	nodes       []model.Node
+	packageName string
+	interfaces  []treesitter.PackageInterfaceInfo
 	tsComments  []treesitter.CommentBlock
 	language    string
 	sourceLines []string
@@ -54,6 +56,8 @@ type languagePackageInfo = treesitter.PackageInfo
 type spooledBuildRecord struct {
 	RelPath     string
 	Nodes       []model.Node
+	PackageName string
+	Interfaces  []treesitter.PackageInterfaceInfo
 	Comments    []treesitter.CommentBlock
 	Language    string
 	SourceLines []string
@@ -111,10 +115,12 @@ type graphFileNodeState struct {
 
 // newParsedBuildNodeBatch packages parsed nodes plus comment metadata for later persistence.
 // @intent defer comment binding until storage time while keeping per-file source line context available.
-func newParsedBuildNodeBatch(relPath string, content []byte, nodes []model.Node, tsComments []treesitter.CommentBlock, language string) parsedBuildNodeBatch {
+func newParsedBuildNodeBatch(relPath string, content []byte, nodes []model.Node, packageName string, interfaces []treesitter.PackageInterfaceInfo, tsComments []treesitter.CommentBlock, language string) parsedBuildNodeBatch {
 	out := parsedBuildNodeBatch{
 		relPath:    relPath,
 		nodes:      nodes,
+		packageName: packageName,
+		interfaces: interfaces,
 		tsComments: tsComments,
 		language:   language,
 	}
@@ -189,6 +195,12 @@ type Parser interface {
 type commentParserWithLanguage interface {
 	Parser
 	ParseWithComments(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []treesitter.CommentBlock, error)
+	Language() string
+}
+
+type metadataParserWithLanguage interface {
+	Parser
+	ParseWithCommentsAndMetadata(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []treesitter.CommentBlock, treesitter.ParseMetadata, error)
 	Language() string
 }
 
@@ -366,15 +378,17 @@ func (s *GraphService) prepareBuildSpool(ctx context.Context, absDir string, opt
 			return err
 		}
 
-		nodes, edges, tsComments, language, err := parseForBuild(ctx, parser, relPath, content)
+		nodes, edges, tsComments, meta, language, err := parseForBuild(ctx, parser, relPath, content)
 		if err != nil {
 			return trace.Wrap(err, "parse build file "+relPath)
 		}
 
-		nodeBatch := newParsedBuildNodeBatch(relPath, content, nodes, tsComments, language)
+		nodeBatch := newParsedBuildNodeBatch(relPath, content, nodes, meta.Package, meta.Interfaces, tsComments, language)
 		record := spooledBuildRecord{
 			RelPath:     relPath,
 			Nodes:       nodes,
+			PackageName: meta.Package,
+			Interfaces:  meta.Interfaces,
 			Comments:    tsComments,
 			Language:    language,
 			SourceLines: nodeBatch.sourceLines,
@@ -466,6 +480,7 @@ func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.Gr
 
 	batch := buildPersistBatch{}
 	var edgeBatches []parsedBuildEdgeBatch
+	var packageNodeBatches []parsedBuildNodeBatch
 	for _, path := range spool.records {
 		record, err := spool.readRecord(path)
 		if err != nil {
@@ -474,10 +489,19 @@ func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.Gr
 		batch.add(parsedBuildNodeBatch{
 			relPath:     record.RelPath,
 			nodes:       record.Nodes,
+			packageName: record.PackageName,
+			interfaces:  record.Interfaces,
 			tsComments:  record.Comments,
 			language:    record.Language,
 			sourceLines: record.SourceLines,
 		}, record.Bytes)
+		packageNodeBatches = append(packageNodeBatches, parsedBuildNodeBatch{
+			relPath:     record.RelPath,
+			nodes:       record.Nodes,
+			packageName: record.PackageName,
+			interfaces:  record.Interfaces,
+			language:    record.Language,
+		})
 		edgeBatches = append(edgeBatches, parsedBuildEdgeBatch{
 			relPath: record.RelPath,
 			edges:   record.Edges,
@@ -491,6 +515,7 @@ func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.Gr
 	if err := s.flushBuildBatch(ctx, txStore, &batch); err != nil {
 		return err
 	}
+	edgeBatches = append(edgeBatches, packageSemanticEdgeBatches(packageNodeBatches)...)
 	if err := upsertPackageContainsEdges(ctx, txStore, spool.packages); err != nil {
 		return trace.Wrap(err, "upsert package file edges")
 	}
@@ -508,6 +533,65 @@ func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.Gr
 	}
 
 	return nil
+}
+
+func packageSemanticEdgeBatches(batches []parsedBuildNodeBatch) []parsedBuildEdgeBatch {
+	contexts := make(map[string]*treesitter.PackageContext)
+	filesByKey := make(map[string][]string)
+	for _, batch := range batches {
+		if batch.language == "" || batch.packageName == "" {
+			continue
+		}
+		key := batch.language + ":" + batch.packageName
+		ctx := contexts[key]
+		if ctx == nil {
+			ctx = &treesitter.PackageContext{Package: batch.packageName, Language: batch.language}
+			contexts[key] = ctx
+		}
+		ctx.Files = append(ctx.Files, batch.relPath)
+		ctx.Nodes = append(ctx.Nodes, batch.nodes...)
+		ctx.Interfaces = append(ctx.Interfaces, batch.interfaces...)
+		filesByKey[key] = append(filesByKey[key], batch.relPath)
+	}
+	var out []parsedBuildEdgeBatch
+	for key, ctx := range contexts {
+		var semantics treesitter.LanguageSemantics
+		switch ctx.Language {
+		case "go":
+			semantics = treesitter.GoSemantics{}
+		default:
+			continue
+		}
+		edges := treesitter.PackageEdgesFor(semantics, *ctx)
+		if len(edges) == 0 {
+			continue
+		}
+		anchorFiles := filesByKey[key]
+		if len(anchorFiles) == 0 {
+			continue
+		}
+		anchor := anchorFiles[0]
+		resolved := make([]model.Edge, len(edges))
+		copy(resolved, edges)
+		for i := range resolved {
+			resolved[i].Fingerprint = rewriteImplementsFingerprintScope(resolved[i].Fingerprint, anchor)
+			resolved[i].FilePath = anchor
+		}
+		out = append(out, parsedBuildEdgeBatch{relPath: anchor, edges: resolved})
+	}
+	return out
+}
+
+func rewriteImplementsFingerprintScope(fingerprint, scope string) string {
+	if !strings.HasPrefix(fingerprint, "implements:") {
+		return fingerprint
+	}
+	rest := strings.TrimPrefix(fingerprint, "implements:")
+	idx := strings.Index(rest, ":")
+	if idx < 0 {
+		return fingerprint
+	}
+	return "implements:" + scope + ":" + rest[idx+1:]
 }
 
 // buildPersistBatch accumulates parsed file batches until a flush threshold is reached.
@@ -1309,13 +1393,17 @@ func walkMatchingFiles(ctx context.Context, absDir string, opts BuildOptions, fn
 
 // parseForBuild parses one source file using the comment-aware parser when available.
 // @intent surface comment blocks and language alongside nodes/edges so the binder can attach annotations.
-func parseForBuild(ctx context.Context, parser Parser, relPath string, content []byte) ([]model.Node, []model.Edge, []treesitter.CommentBlock, string, error) {
+func parseForBuild(ctx context.Context, parser Parser, relPath string, content []byte) ([]model.Node, []model.Edge, []treesitter.CommentBlock, treesitter.ParseMetadata, string, error) {
+	if mp, ok := parser.(metadataParserWithLanguage); ok {
+		nodes, edges, comments, meta, err := mp.ParseWithCommentsAndMetadata(ctx, relPath, content)
+		return nodes, edges, comments, meta, mp.Language(), err
+	}
 	if cp, ok := parser.(commentParserWithLanguage); ok {
 		nodes, edges, comments, err := cp.ParseWithComments(ctx, relPath, content)
-		return nodes, edges, comments, cp.Language(), err
+		return nodes, edges, comments, treesitter.ParseMetadata{}, cp.Language(), err
 	}
 	nodes, edges, err := parser.ParseWithContext(ctx, relPath, content)
-	return nodes, edges, nil, "", err
+	return nodes, edges, nil, treesitter.ParseMetadata{}, "", err
 }
 
 // collectLanguagePackages discovers language-specific package information within the build directory.

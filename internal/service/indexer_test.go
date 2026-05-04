@@ -605,6 +605,57 @@ func TestBuild_UsesRepoLocalPackageClauseForGoImportAssertions(t *testing.T) {
 	t.Fatalf("expected implements edge from %d to contracts.Service %d, got %+v", impl.ID, iface.ID, edges)
 }
 
+func TestBuild_EmitsCrossFileGoStructuralImplements(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{Store: st, DB: db, Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	mustWrite := func(rel, content string) {
+		full := filepath.Join(tmpDir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustWrite("go.mod", "module github.com/example/project\n\ngo 1.25.0\n")
+	mustWrite("mainpkg/iface.go", "package mainpkg\n\ntype Writer interface {\n\tWrite([]byte) error\n}\n")
+	mustWrite("mainpkg/impl.go", "package mainpkg\n\ntype FileWriter struct{}\n\nfunc (FileWriter) Write(data []byte) error {\n\treturn nil\n}\n")
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	impl, err := st.GetNode(ctx, "mainpkg.FileWriter")
+	if err != nil || impl == nil {
+		t.Fatalf("GetNode impl: node=%v err=%v", impl, err)
+	}
+	iface, err := st.GetNode(ctx, "mainpkg.Writer")
+	if err != nil || iface == nil {
+		t.Fatalf("GetNode iface: node=%v err=%v", iface, err)
+	}
+	edges, err := st.GetEdgesFrom(ctx, impl.ID)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom: %v", err)
+	}
+	for _, edge := range edges {
+		if edge.Kind == model.EdgeKindImplements && edge.ToNodeID == iface.ID {
+			return
+		}
+	}
+	t.Fatalf("expected cross-file implements edge from %d to %d, got %+v", impl.ID, iface.ID, edges)
+}
+
 func TestBuild_SuppressesRepoLocalPackageClauseCorrectionOnConflict(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {
@@ -977,7 +1028,7 @@ func TestNewParsedBuildNodeBatch_DropsRawContentAndOnlyBuildsSourceLinesWhenNeed
 		t.Fatal("parsedBuildNodeBatch must not retain raw content")
 	}
 
-	noComments := newParsedBuildNodeBatch("sample.go", []byte("package sample\nfunc Keep() {}\n"), nil, nil, "")
+	noComments := newParsedBuildNodeBatch("sample.go", []byte("package sample\nfunc Keep() {}\n"), nil, "", nil, nil, "")
 	if noComments.sourceLines != nil {
 		t.Fatalf("expected no sourceLines without comments, got %#v", noComments.sourceLines)
 	}
@@ -985,6 +1036,8 @@ func TestNewParsedBuildNodeBatch_DropsRawContentAndOnlyBuildsSourceLinesWhenNeed
 	withComments := newParsedBuildNodeBatch(
 		"sample.go",
 		[]byte("package sample\n// hello\nfunc Keep() {}\n"),
+		nil,
+		"",
 		nil,
 		[]treesitter.CommentBlock{{StartLine: 2, EndLine: 2, Text: "// hello"}},
 		"go",
