@@ -3,6 +3,8 @@ package query
 
 import (
 	"context"
+	"sort"
+	"strings"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -24,6 +26,15 @@ type FileSummary struct {
 // @intent provide reusable higher-level graph lookups for MCP queries
 type Service struct {
 	db *gorm.DB
+}
+
+// CandidateMatch describes one exact short-name fallback candidate for query_graph.
+// @intent provide compact, stable target suggestions when a short symbol name matches multiple nodes.
+type CandidateMatch struct {
+	QualifiedName string
+	Kind          model.NodeKind
+	FilePath      string
+	StartLine     int
 }
 
 // New creates a predefined query service.
@@ -57,7 +68,32 @@ func (s *Service) nodesByEdge(ctx context.Context, nodeID uint, kind model.EdgeK
 	if err := q.Find(&nodes).Error; err != nil {
 		return nil, err
 	}
-	return nodes, nil
+	return normalizeResults(nodes), nil
+}
+
+func normalizeResults(nodes []model.Node) []model.Node {
+	if len(nodes) <= 1 {
+		return nodes
+	}
+	seen := make(map[uint]struct{}, len(nodes))
+	result := make([]model.Node, 0, len(nodes))
+	for _, node := range nodes {
+		if _, ok := seen[node.ID]; ok {
+			continue
+		}
+		seen[node.ID] = struct{}{}
+		result = append(result, node)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].FilePath != result[j].FilePath {
+			return result[i].FilePath < result[j].FilePath
+		}
+		if result[i].StartLine != result[j].StartLine {
+			return result[i].StartLine < result[j].StartLine
+		}
+		return result[i].QualifiedName < result[j].QualifiedName
+	})
+	return result
 }
 
 // CallersOf returns nodes that call the target node.
@@ -128,4 +164,33 @@ func (s *Service) FileSummaryOf(ctx context.Context, filePath string) (*FileSumm
 		}
 	}
 	return summary, nil
+}
+
+// FindExactNameMatches returns nodes whose short name exactly matches target.
+// @intent support MCP fallback from short symbol names to fully qualified graph nodes.
+func (s *Service) FindExactNameMatches(ctx context.Context, target string, limit int) ([]CandidateMatch, error) {
+	if strings.TrimSpace(target) == "" || limit <= 0 {
+		return nil, nil
+	}
+	var nodes []model.Node
+	if err := s.db.WithContext(ctx).
+		Where("namespace = ? AND name = ?", ctxns.FromContext(ctx), target).
+		Order("file_path ASC").
+		Order("start_line ASC").
+		Order("qualified_name ASC").
+		Limit(limit).
+		Find(&nodes).Error; err != nil {
+		return nil, err
+	}
+	nodes = normalizeResults(nodes)
+	matches := make([]CandidateMatch, len(nodes))
+	for i, node := range nodes {
+		matches[i] = CandidateMatch{
+			QualifiedName: node.QualifiedName,
+			Kind:          node.Kind,
+			FilePath:      node.FilePath,
+			StartLine:     node.StartLine,
+		}
+	}
+	return matches, nil
 }

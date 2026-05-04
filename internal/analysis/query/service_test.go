@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
@@ -321,5 +322,31 @@ func TestNodesByEdge_RespectsNamespace(t *testing.T) {
 	}
 	if got[0].Name != "CalleeA" {
 		t.Errorf("expected CalleeA, got %s", got[0].Name)
+	}
+}
+
+func TestCalleesOf_DedupsAndSortsResults(t *testing.T) {
+	db := setupDB(t)
+	caller := seedNode(t, db, 1, "Caller", model.NodeKindFunction, "caller.go")
+	calleeB := seedNode(t, db, 2, "B", model.NodeKindFunction, "b.go")
+	calleeA := seedNode(t, db, 3, "A", model.NodeKindFunction, "a.go")
+	seedEdge(t, db, caller.ID, calleeB.ID, model.EdgeKindCalls)
+	if err := db.Create(&model.Edge{FromNodeID: caller.ID, ToNodeID: calleeB.ID, Kind: model.EdgeKindCalls, Fingerprint: "1-2-calls-dup"}).Error; err != nil {
+		t.Fatalf("seed duplicate edge: %v", err)
+	}
+	seedEdge(t, db, caller.ID, calleeA.ID, model.EdgeKindCalls)
+
+	svc := New(db)
+	got, err := svc.CalleesOf(context.Background(), caller.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 unique callees, got %d: %+v", len(got), got)
+	}
+	gotNames := []string{got[0].QualifiedName, got[1].QualifiedName}
+	wantNames := []string{calleeA.QualifiedName, calleeB.QualifiedName}
+	if !reflect.DeepEqual(gotNames, wantNames) {
+		t.Fatalf("callees order = %v, want %v", gotNames, wantNames)
 	}
 }
