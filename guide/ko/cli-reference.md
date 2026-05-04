@@ -40,7 +40,9 @@ ccg update ./backend --namespace backend
 | `ccg build [dir]` | 코드 그래프 파싱 및 빌드 |
 | `ccg build --exclude <pat>` | 파일/경로 제외 (반복 가능) |
 | `ccg build --no-recursive [dir]` | 최상위 디렉토리만 파싱 |
+| `ccg build --fallback-calls` | (기본 off) best-effort fallback 호출 해상도 활성화 |
 | `ccg update [dir]` | 증분 동기화(Incremental sync) |
+| `ccg update --fallback-calls` | 증분 동기화에서 best-effort fallback 호출 해상도 활성화 |
 | `ccg status` | 그래프 통계 및 사후 처리 오류 요약 출력 |
 | `ccg status --errors` | 최근 사후 처리 실패 상세 포함 |
 | `ccg status --recent <n>` | 확인할 최근 사후 처리 실패 개수 (기본값 `5`) |
@@ -68,6 +70,16 @@ ccg update ./backend --namespace backend
 데이터베이스가 하나의 소규모 또는 중규모 저장소를 위한 일회성 캐시인 로컬 단일 사용자 워크플로우에는 SQLite를 사용하십시오. CCG를 공유 MCP 또는 웹훅 서비스로 실행하거나, 하나의 서버 데이터베이스에 여러 네임스페이스를 저장하거나, 운영상의 백업/복구가 중요한 경우에는 PostgreSQL을 사용하십시오.
 
 대략적인 규모 가이드로, 네임스페이스가 약 5만 개의 검색 문서 또는 10만 개의 그래프 노드에 도달하면 PostgreSQL을 고려하십시오. 30만 개 이상의 그래프 노드, 항상 동기화되는 여러 저장소, 또는 빈번한 웹훅 업데이트가 발생하는 경우에는 PostgreSQL을 기본으로 권장합니다. 배포 프로필 및 런타임 신호에 대해서는 [운영(Operations)](operations.md#database-choice)을 참조하십시오.
+
+### Build/Update fallback 운영 정책
+
+`--fallback-calls`는 기본값이 off입니다. strict 호출 해상도가 과소연결을 일으키는
+특정 언어/레포를 한시적으로 복구할 때만 켭니다.
+
+- 일회성 복구, 언어별 튜닝, 부트스트랩 작업에서 사용
+- CI, strict 검사, 운영 서빙에는 strict 모드(`--fallback-calls` off) 유지
+- fallback를 장기 사용해야 하는 경우 네임스페이스별 `fallback_calls` 비율을
+  모니터링하고 비정상 증가는 즉시 롤백
 
 ### Serve
 

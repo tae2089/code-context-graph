@@ -38,7 +38,9 @@ ccg update ./backend --namespace backend
 | `ccg build [dir]` | Parse and build code graph |
 | `ccg build --exclude <pat>` | Exclude files/paths (repeatable) |
 | `ccg build --no-recursive [dir]` | Only parse top-level directory |
+| `ccg build --fallback-calls` | Enable best-effort fallback call resolution (strict by default) |
 | `ccg update [dir]` | Incremental sync |
+| `ccg update --fallback-calls` | Enable best-effort fallback call resolution for incremental sync |
 | `ccg status` | Graph statistics and postprocess error summary |
 | `ccg status --errors` | Include recent postprocess failure details |
 | `ccg status --recent <n>` | Number of recent postprocess failures to inspect (default `5`) |
@@ -73,6 +75,18 @@ search documents or 100k graph nodes. For 300k+ graph nodes, multiple
 always-synced repositories, or frequent webhook updates, PostgreSQL is the
 recommended default. See [Operations](operations.md#database-choice) for
 deployment profiles and runtime signals.
+
+### Build/Update Fallback Policy
+
+`--fallback-calls` is intentionally off by default. Use it only when strict call
+resolution is known to under-connect code graphs and you need temporary recall
+recovery.
+
+- Use fallback for one-off recovery, language-specific tuning, or migration bootstraps.
+- Keep strict mode (`--fallback-calls` off) for CI, `--strict` checks, and
+  production-serving workflows.
+- If fallback is enabled for a long period, monitor `fallback_calls` share by
+  namespace and rollback to strict when it grows unexpectedly.
 
 ### Serve
 

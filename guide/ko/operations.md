@@ -46,6 +46,54 @@
 
 증분 업데이트는 영향을 받는 검색 문서와 FTS 행만 재생성합니다. 전체 빌드, 명시적인 `run_postprocess` 및 커뮤니티 재생성은 여전히 네임스페이스 전체에 걸쳐 이루어질 수 있으므로, 네임스페이스 경계가 주요 비용 제어 수단으로 남습니다.
 
+## 호출 해상도 오염 관리 (Call Resolution Hygiene)
+
+CCG는 호출 엣지를 다음처럼 구분해 저장합니다.
+
+- `calls`: 엄격하고 결정론적인 해상도 결과
+- `fallback_calls`: 엄격 해상도가 모호한 경우에만 사용되는 best-effort 결과
+
+`fallback_calls`는 커버리지는 늘리지만 오탐(과적합) 위험도 같이 높일 수 있으므로,
+기본 모드가 아니라 품질 관리 신호로 운영해야 합니다.
+
+### 운영 권장 정책
+
+1. **기본은 strict 모드**
+   - `ccg build`, `ccg update`는 기본적으로 `--fallback-calls` 없이 실행합니다.
+   - CI, strict 검사, 서비스 운영에서는 이 모드를 기본으로 사용합니다.
+
+2. **Fallback는 opt-in**
+   - `--fallback-calls`는 통제된 복구 실행에서만 켭니다.
+   - 전형적인 사용 사례는 초기 마이그레이션/부트스트랩이나 특정 언어·레포에서
+     해상도 품질이 일시적으로 떨어지는 경우입니다.
+
+3. **엄격 검사는 분리**
+   - `--strict` lint/eval 게이트에서 fallback을 켜지 않습니다.
+   - 호출 기반 쿼리 기능에서 fallback를 사용할지 여부를 워크플로우별로 분리해 사용합니다.
+
+4. **오버핏 비율 게이팅**
+   - 네임스페이스별로 주기적으로 아래 SQL로 비율을 확인합니다.
+
+     ```sql
+     SELECT namespace,
+       SUM(CASE WHEN kind='calls' THEN 1 ELSE 0 END) AS calls_count,
+       SUM(CASE WHEN kind='fallback_calls' THEN 1 ELSE 0 END) AS fallback_count
+     FROM edges
+     WHERE namespace = '...'
+     GROUP BY namespace;
+     ```
+
+   - `fallback_count / (calls_count + fallback_count)`가 낮은 임계치(5~10% 정도)에서
+     벗어나면 경고로 간주해 원인 분석을 시작합니다.
+   - 고률이 반복되면(20%+) 운영 모드에서 fallback 비활성화 후 해상도 규칙 자체를 개선합니다.
+
+5. **롤백 규칙**
+   - fallback 실행 후 품질 저하가 확인되면 즉시 strict 모드로 되돌리고
+     같은 네임스페이스에서 비율을 다시 점검합니다.
+
+이 정책은 fallback를 정적 기본값이 아니라, 과적합을 제한한 임시 보정 수단으로
+운영하기 위한 기준입니다.
+
 ## HTTP Exposure
 
 Streamable HTTP MCP 엔드포인트는 외부에서 접근 가능할 때마다 `--http-bearer-token` 또는 `CCG_HTTP_BEARER_TOKEN`으로 보호되어야 합니다.

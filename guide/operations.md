@@ -58,6 +58,57 @@ Incremental updates rebuild only affected search documents and FTS rows. Full
 builds, explicit `run_postprocess`, and community rebuilds can still be
 namespace-wide, so namespace boundaries remain the main cost control.
 
+## Call Resolution Hygiene
+
+CCG currently has two call edge kinds:
+
+- `calls`: strict, deterministic resolution
+- `fallback_calls`: best-effort resolution used when strict matching is ambiguous
+
+`fallback_calls` is useful for graph coverage, but it can increase false-positive
+risk and should be treated as a quality-control signal, not a default mode.
+
+### Recommended operating policy
+
+1. **Default mode: strict only**
+   - `ccg build` and `ccg update` run with `--fallback-calls` off by default.
+   - Use this mode for CI, strict checks, and production serving.
+
+2. **Fallback mode is opt-in**
+   - Enable with `--fallback-calls` only on controlled recovery runs.
+   - Typical use: initial migration/bootstrapping or temporary recovery when
+     resolver quality is poor for one language/repository.
+
+3. **Keep strict workflows closed**
+   - Do not enable fallback in `--strict` lint/eval gates.
+   - Keep query features that require high recall aware of this separation
+     (`flow/query` can include fallback, strict checks should still use strict edges).
+
+4. **Gate by overfit ratio**
+   - For each namespace, periodically measure:
+
+     ```sql
+     SELECT namespace,
+       SUM(CASE WHEN kind='calls' THEN 1 ELSE 0 END) AS calls_count,
+       SUM(CASE WHEN kind='fallback_calls' THEN 1 ELSE 0 END) AS fallback_count
+     FROM edges
+     WHERE namespace = '...'
+     GROUP BY namespace;
+     ```
+
+   - If `fallback_count / (calls_count + fallback_count)` exceeds a low threshold
+     (start around 5–10%), treat it as a warning and investigate.
+   - If it stays high (20%+) for multiple runs, remove fallback from
+     production runs and fix resolver rules instead.
+
+5. **Rollback rule**
+   - If fallback is enabled and quality regresses, revert to strict mode with:
+     run without `--fallback-calls`, then monitor the `fallback_calls` ratio in
+     the same namespace.
+
+This policy reduces overfitting risk by keeping fallback as a temporary
+compensation mechanism rather than a silent global default.
+
 ## HTTP Exposure
 
 The Streamable HTTP MCP endpoint should be protected with
