@@ -1,102 +1,81 @@
 ---
 name: ccg-workspace
-description: code-context-graph — file workspace management. Upload, list, and delete files in isolated workspaces for MSA source management.
+description: code-context-graph — workspace isolation for MSA / multi-project. Each workspace = one service, isolated graphs.
 ---
 
-# code-context-graph — File Workspace Management
+# ccg-workspace — Multi-Project Isolation
 
-Manage file workspaces for uploading, organizing, and deleting source files. Designed for MSA environments where each workspace represents a service.
+Manage multiple services/projects as isolated graphs. Use for **MSA environments or workflows spanning multiple repos.**
 
-## MCP Tools (6)
+## When to Use
 
-| Tool | Description |
-|------|-------------|
-| `upload_file` | Upload a single file to workspace (base64 encoded content) |
-| `upload_files` | Upload multiple files to workspaces in a single call (JSON array) |
-| `list_workspaces` | List all workspaces |
-| `list_files` | List files in a workspace |
-| `delete_file` | Delete a single file from workspace |
-| `delete_workspace` | Delete an entire workspace and all its files |
+- Analyzing multiple microservices (separate graph per service)
+- Working across multiple projects (namespace prevents collisions)
+- Scoping AI context to one specific service
 
-## File Storage Structure
+For single-project work, you don't need workspaces. Just use `ccg build .`.
+
+## Folder Structure
 
 ```
 {workspace-root}/
-├── payment-svc/
+├── payment-svc/         # workspace 1
 │   ├── handler.go
 │   └── service.go
-├── user-svc/
-│   ├── auth.go
-│   └── profile.go
-└── gateway/
+├── user-svc/            # workspace 2
+│   └── auth.go
+└── gateway/             # workspace 3
     └── router.go
 ```
 
-- Workspace root is configured via `--workspace-root <dir>` (default: `workspaces`)
-- Each workspace maps to a service/module directory: `{workspace}/{file}.md`
-- File content is uploaded as base64-encoded strings
+Configured via `--workspace-root <dir>` (default: `workspaces/`).
 
-## Usage Examples
+## Core Patterns
 
-### Upload a single file
-```
-→ upload_file(workspace: "payment-svc", file_path: "handler.go", content: "<base64>")
-```
-
-### Bulk upload multiple files
-```
-→ upload_files(files: '[{"workspace":"payment-svc","file_path":"handler.go","content":"<base64>"},{"workspace":"payment-svc","file_path":"service.go","content":"<base64>"}]')
-```
-
-Note: `files` parameter is a JSON string containing an array of file entries.
-
-### List all workspaces
-```
-→ list_workspaces()
-→ Returns: ["payment-svc", "user-svc", "gateway"]
-```
-
-### List files in a workspace
-```
-→ list_files(workspace: "payment-svc")
-→ Returns: ["handler.go", "service.go"]
-```
-
-### Delete a file
-```
-→ delete_file(workspace: "payment-svc", file_path: "handler.go")
-```
-
-### Delete entire workspace
-```
-→ delete_workspace(workspace: "payment-svc")
-→ Removes payment-svc/ directory and all files within
-```
-
-## E2E Pipeline: Upload → Build → Search
-
-After uploading files, build the graph and search:
+### Pattern A: Upload, then build & search
 
 ```
-1. upload_file(workspace: "payment-svc", file_path: "handler.go", content: "<base64>")
-2. build_or_update_graph(path: "{workspace-root}/payment-svc")  — see /ccg skill
-3. search(query: "payment")  — see /ccg skill
+upload_file(workspace: "payment-svc", file_path: "handler.go", content: "<base64>")
+→ build_or_update_graph(path: "{root}/payment-svc")  # see /ccg
+→ search(query: "payment")                            # see /ccg
 ```
 
-## E2E Pipeline: Upload Docs → RAG Index → Search → Read
-
-Upload documentation files to a workspace, then build and query the RAG index:
+### Pattern B: Wiki + RAG (per-service isolation)
 
 ```
-1. upload_file(workspace: "my-service", file_path: "docs/internal/handler.go.md", content: "<base64>")
-2. build_rag_index(workspace: "my-service")  — see /ccg-docs skill
-3. search_docs(query: "handler", workspace: "my-service")
-4. get_rag_tree(workspace: "my-service")
-5. get_doc_content(workspace: "my-service", file_path: "docs/internal/handler.go.md")
+upload_file(workspace: "my-service", file_path: "docs/handler.go.md", content: "<base64>")
+→ build_rag_index(workspace: "my-service")          # see /ccg-docs
+→ search_docs(workspace: "my-service", query: "handler")
+→ get_doc_content(workspace: "my-service", file_path: "...")
 ```
+
+### Bulk Upload
+
+```
+upload_files(files: '[{"workspace":"payment-svc","file_path":"a.go","content":"<base64>"},...]')
+```
+
+JSON string of an array. More efficient than many single uploads.
+
+## MCP Tools
+
+| Tool               | Use                            |
+| ------------------ | ------------------------------ |
+| `upload_file`      | Upload one file (base64)       |
+| `upload_files`     | Upload many files (JSON array) |
+| `list_workspaces`  | List all workspaces            |
+| `list_files`       | List files in a workspace      |
+| `delete_file`      | Delete one file                |
+| `delete_workspace` | Delete entire workspace        |
 
 ## Security
 
-- Path traversal attacks are blocked (`../` in workspace or file_path)
-- File size is validated before writing
-- Workspace names are sanitized
+- Path traversal (`../`) blocked
+- File size validated
+- Workspace names sanitized
+
+## Operational Tips
+
+- **Frequently changing service** → isolate workspace for incremental update efficiency
+- **Reference-only service** → keep in separate workspace, rebuild rarely
+- **Deprecated service** → `delete_workspace` to clean up search noise

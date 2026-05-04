@@ -1,111 +1,117 @@
 ---
 name: ccg-annotate
-description: code-context-graph — annotation system. AI-driven annotation workflow, tag reference, and annotation search.
+description: code-context-graph — AI-driven annotation workflow. Add @intent/@domainRule/etc to code so search and RAG can find by business meaning.
 ---
 
-# code-context-graph — Annotation System
+# ccg-annotate — Annotation Workflow
 
-AI-driven annotation workflow for adding structured metadata to code. Annotations are indexed and searchable via FTS.
+Add structured business metadata to code. **This is what makes search and RAG actually useful.**
 
-## Subcommands
+## Why Annotations Matter
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `annotate [file\|dir]` | AI-generate annotations for code | `ccg annotate internal/analysis/` |
-| `example [language]` | Show annotation writing example | `ccg example go` |
-| `tags` | Show all annotation tag reference | `ccg tags` |
+- Enables domain search that text matching can't do: "payment" → finds functions with `@intent payment processing`
+- Enriches RAG community summaries
+- LLM can grasp intent without reading code → token savings
+- Surfaces domain rules automatically during PR review
 
-## MCP Tools (1)
+**Without annotations, ccg delivers only half its value.**
 
-| Tool | Description |
-|------|-------------|
-| `get_annotation` | Get annotation and doc tags for a specific node |
+## Core Tags
 
-## Available Tags
+| Tag           | WHAT vs WHY                         | Example                                  |
+| ------------- | ----------------------------------- | ---------------------------------------- |
+| `@intent`     | **WHY this function exists**        | `verify identity before granting access` |
+| `@domainRule` | Specific business rule              | `lock account after 5 failures`          |
+| `@sideEffect` | Real side effects (DB/network/file) | `writes to audit_log`                    |
+| `@mutates`    | State changes                       | `user.FailedAttempts, session.Token`     |
+| `@requires`   | Precondition                        | `user.IsActive == true`                  |
+| `@ensures`    | Postcondition                       | `returns valid JWT with 24h expiry`      |
+| `@index`      | One-line file/package summary       | `User authentication service`            |
+| `@see`        | Related function link               | `SessionManager.Create`                  |
 
-| Tag | Purpose | Example |
-|-----|---------|---------|
-| `@index` | File/package description | `@index Payment processing service` |
-| `@intent` | Why this function exists | `@intent verify credentials before session creation` |
-| `@domainRule` | Business rule | `@domainRule lock account after 5 failures` |
-| `@sideEffect` | Side effects | `@sideEffect sends notification email` |
-| `@mutates` | State changes | `@mutates user.FailedAttempts, session.Token` |
-| `@requires` | Precondition | `@requires user.IsActive == true` |
-| `@ensures` | Postcondition | `@ensures session != nil` |
-| `@param` | Parameter description | `@param username the login ID` |
-| `@return` | Return description | `@return JWT token on success` |
-| `@see` | Related function | `@see SessionManager.Create` |
+## AI Workflow (`ccg annotate <path>`)
 
-## AI Annotation Workflow
+Not a CLI binary — **a workflow Claude executes.**
 
-`ccg annotate` is NOT a CLI binary command — it is an AI-driven workflow executed by Claude.
+### Step 1: Pick targets
 
-When the user runs `ccg annotate [file|dir]`, Claude should:
+- File path → that file only
+- Directory → all source files
+- **Skip**: tests, vendor, node_modules, generated
 
-### Step 1: Read target files
-- If a file path is given, read that file
-- If a directory is given, find all source files (`.go`, `.py`, `.ts`, `.java`, etc.)
-- Skip test files, vendor, node_modules
+### Step 2: Analyze each function
 
-### Step 2: Analyze each function/class/file
-For each declaration, read the code and determine:
-- **What it does** (→ summary line above declaration)
-- **Why it exists** (→ `@intent`)
-- **Business rules it enforces** (→ `@domainRule`)
-- **Side effects** (→ `@sideEffect`: DB writes, API calls, file I/O, notifications)
-- **What state it changes** (→ `@mutates`: fields, tables, caches)
-- **Prerequisites** (→ `@requires`: auth, valid input, active state)
-- **Guarantees** (→ `@ensures`: return conditions, post-state)
-- **File/package purpose** (→ `@index` on package declaration)
+Read the code and determine:
 
-### Step 3: Write annotations
-- Add annotations as comments directly above the declaration
-- Use the language's comment syntax (`//` for Go, `#` for Python, etc.)
-- Do NOT overwrite existing annotations — only add missing ones
-- Do NOT add trivial annotations (e.g., `@intent returns the name` for `getName()`)
+- What it does → first summary line
+- **Why it exists → `@intent`** (most important)
+- Business rules → `@domainRule` (must be specific)
+- Real side effects → `@sideEffect`
+- State changes → `@mutates`
+
+### Step 3: Write
+
+- Add as comments directly above the declaration using language syntax (`//`, `#`)
+- **Do NOT overwrite existing annotations**
+- **Skip trivial functions** (getters/setters)
+- Match the language of existing comments (Korean for Korean codebases, English for English)
 
 ### Step 4: Rebuild
-After annotating, run `ccg build .` to re-index with new annotations. For the default local SQLite database (`ccg.db`), that is enough on first use when the schema is missing. For PostgreSQL, custom SQLite DSNs, existing schemas, controlled upgrades, or an older existing `ccg.db` after upgrading CCG, run `ccg migrate` before rebuilding. If `ccg build .` fails with a schema version error, run `ccg migrate` and retry.
 
-## Annotation Quality Rules
-
-- `@intent` should describe WHY, not WHAT (not "creates user" but "register new account for onboarding flow")
-- `@domainRule` should be specific business logic, not generic validation
-- `@sideEffect` only for actual side effects (DB, network, file, notification)
-- `@index` should summarize the module's responsibility in one line
-- Skip getters/setters/trivial functions — annotate functions with business meaning
-- Write annotations in the same language as existing code comments (Korean if Korean, English if English)
-
-## Example Output
-
-```go
-// @index User authentication and session management service.
-package auth
-
-// AuthenticateUser validates credentials and creates a session.
-// Called from login API handler.
-//
-// @param username user login ID
-// @param password plaintext password (hashed internally)
-// @return JWT token on success
-// @intent verify user identity before granting system access
-// @domainRule lock account after 5 consecutive failed attempts
-// @domainRule locked accounts auto-unlock after 30 minutes
-// @sideEffect writes login attempt to audit_log table
-// @sideEffect sends security alert email on 3rd failed attempt
-// @mutates user.FailedAttempts, user.LockedUntil, user.LastLoginAt
-// @requires user.IsActive == true
-// @ensures err == nil implies valid JWT with 24h expiry
-func AuthenticateUser(username, password string) (string, error) {
+```bash
+ccg build .   # re-index with annotations
 ```
 
-## Searching Annotations
+## Quality Rules (this is what really matters)
 
-Annotations are indexed in FTS and searchable via `ccg search` (see `/ccg` skill):
-- `@intent` — function purpose/goal
-- `@domainRule` — business rules
-- `@sideEffect` — side effects
-- `@mutates` — state changes
-- `@index` — file/package level description
+❌ **Bad annotation**:
 
-Example: user asks "결제 관련 코드" → `ccg search "결제"` finds functions annotated with payment-related @intent/@domainRule.
+```go
+// @intent creates a user
+func CreateUser(...) {}
+```
+
+WHAT only. Function name already tells you that.
+
+✅ **Good annotation**:
+
+```go
+// @intent register new account for onboarding flow
+// @domainRule email must be unique across all tenants
+// @domainRule password must satisfy NIST 800-63B
+// @sideEffect sends verification email
+// @mutates users table, audit_log
+func CreateUser(...) {}
+```
+
+WHY + business rules + side effects. Search and RAG become powerful.
+
+## Annotation Priority
+
+Don't annotate everything. Prioritize:
+
+1. **Tier 1**: domain core (auth, payment, billing — business logic)
+2. **Tier 2**: frequently searched (entry points, public APIs)
+3. **Tier 3**: complex functions (high cognitive load)
+4. **Skip**: getters/setters, simple wrappers, generated code
+
+Use `ccg lint` `unannotated` category and pick top-priority functions from there.
+
+## Search Integration
+
+Once annotated, `ccg search` indexes annotation text alongside code (see `/ccg` skill):
+
+```bash
+ccg search "결제"        # finds functions with "결제" in @intent (Korean)
+ccg search "lock"        # finds functions with "lock" in @domainRule
+```
+
+## MCP Tools
+
+| Tool             | Use                                  |
+| ---------------- | ------------------------------------ |
+| `get_annotation` | Fetch annotation/doc tags for a node |
+
+## Prerequisites
+
+Requires `ccg build .` first. (See `/ccg` skill.)

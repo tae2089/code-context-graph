@@ -1,105 +1,116 @@
 ---
 name: ccg-docs
-description: code-context-graph — documentation generation, RAG indexing, and docs quality linting.
+description: code-context-graph — Markdown docs generation, RAG indexing, docs lint. Use when generating wiki, building searchable doc tree for AI, or auditing doc quality.
 ---
 
-# code-context-graph — Documentation & RAG Indexing
+# ccg-docs — Documentation & RAG
 
-Generate Markdown documentation from code graphs, build RAG indexes for AI consumption, and lint documentation quality.
+Generate Markdown wiki from code graph. Build RAG tree for fast AI exploration. Auto-validate doc quality.
 
-## Subcommands
+## RAG vs ccg search Routing (key)
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `docs [--out dir]` | Generate Markdown documentation | `ccg docs --out docs` |
-| `index [--out dir]` | Regenerate index.md only | `ccg index` |
-| `lint [--out dir]` | 8-category docs lint | `ccg lint` |
-| `lint --strict` | Exit 1 on issues (for CI/pre-commit) | `ccg lint --strict` |
-| `hooks install` | Install pre-commit git hook | `ccg hooks install` |
-| `hooks install --lint-strict` | Install hook that blocks commit on issues | `ccg hooks install --lint-strict` |
+| Task                                                   | Tool                                     |
+| ------------------------------------------------------ | ---------------------------------------- |
+| Semantic keyword search ("payment code")               | `ccg search` (`/ccg` skill)              |
+| Module/domain exploration ("payment module structure") | `search_docs` + `get_rag_tree`           |
+| Wiki-style answer ("how does auth work?")              | `get_doc_content`                        |
+| Exact signature/location                               | `query_graph`, `get_node` (`/ccg` skill) |
+| Dynamic call tracing                                   | `trace_flow` (`/ccg-analyze`)            |
 
-## MCP Tools (4)
+**RAG wins when**: full structure overview, module hierarchy navigation, pre-formatted Markdown content needed. One call returns the tree.
 
-| Tool | Description |
-|------|-------------|
-| `build_rag_index` | Build RAG index from docs and communities. Supports `workspace` parameter to read docs from a workspace directory. |
-| `get_rag_tree` | Navigate RAG document tree. Supports `workspace` parameter to read workspace-specific doc-index.json. |
-| `get_doc_content` | Get documentation file content. Supports `workspace` parameter to read from a workspace directory. |
-| `search_docs` | Search RAG document tree by keyword. Supports `workspace` parameter to search workspace-specific doc-index.json. |
+**RAG fails when**: rapidly changing code (stale risk), no annotations (community summaries are weak), exact code metadata needed (ccg is more precise).
 
-## Lint Categories (8)
+## Core Pipeline
 
-| Category | Description |
-|----------|-------------|
-| orphan | Doc files with no matching source code |
-| missing | Source files with no documentation |
-| stale | Docs outdated vs source (hash/timestamp mismatch) |
-| unannotated | Functions lacking @intent/@domainRule annotations |
-| contradiction | Doc content contradicting code signatures |
-| dead-ref | @see tags pointing to non-existent functions |
-| incomplete | Partial documentation (missing @param, @return) |
-| drift | Doc structure diverged from code structure |
-
-## Usage Examples
-
-### Generate documentation
-```
-User: "문서 생성해줘"
-→ ccg docs --out docs
-→ Generates Markdown files for all modules
+```bash
+ccg build .                  # 1. Graph nodes/edges
+ccg docs --out docs          # 2. Generate Markdown
+# Via MCP:
+run_postprocess(communities=true, flows=false, fts=false)  # 3. Ensure communities exist
+build_rag_index              # 4. Creates .ccg/doc-index.json
+get_rag_tree(depth=1)        # 5. Verify the index is non-empty
 ```
 
-### Build RAG index for AI
+`build_rag_index` builds from docs + communities. If communities are missing, it can
+successfully create an empty `doc-index.json` such as `0 communities, 0 files`.
+When the result is empty, run `run_postprocess(communities=true, flows=false, fts=false)`
+and call `build_rag_index` again.
+
+## RAG Usage Pattern
+
 ```
-User: "RAG 인덱스 만들어줘"
-→ build_rag_index via MCP
-→ Creates searchable document tree from docs + communities
+search_docs("auth")          # keyword → tree node candidates
+get_rag_tree(community_id)   # expand specific community
+get_doc_content(doc_path)    # fetch Markdown body
 ```
 
-### Build RAG index from workspace docs
-```
-User: "my-service workspace 문서로 RAG 인덱스 만들어줘"
-→ upload_file(workspace: "my-service", file_path: "docs/handler.go.md", content: "<base64>")
-→ build_rag_index(workspace: "my-service")
-→ search_docs(query: "handler")
-→ get_doc_content(workspace: "my-service", file_path: "docs/handler.go.md")
-```
+## CLI Commands
 
-### Check documentation quality
-```
-User: "문서 상태 체크해줘"
-→ ccg lint
-→ Returns 8-category report: orphan, missing, stale, unannotated, etc.
-```
+| Command               | Use                               |
+| --------------------- | --------------------------------- |
+| `ccg docs --out docs` | Generate Markdown for all modules |
+| `ccg index`           | Regenerate index.md only          |
+| `ccg lint`            | 8-category quality check          |
+| `ccg lint --strict`   | Exit 1 on issues (CI-friendly)    |
+| `ccg hooks install`   | Install pre-commit hook           |
 
-### CI integration
-```yaml
-# .github/workflows/docs.yml
-- run: ccg lint --strict  # Fails build on documentation issues
-```
+## Lint 8 Categories
 
-## Lint Rules & Regex Patterns
+| Category        | Meaning                          |
+| --------------- | -------------------------------- |
+| `orphan`        | Doc without matching code        |
+| `missing`       | Code without doc                 |
+| `stale`         | Code changed but doc didn't      |
+| `unannotated`   | Missing `@intent`/`@domainRule`  |
+| `contradiction` | Doc contradicts signature        |
+| `dead-ref`      | Broken `@see` link               |
+| `incomplete`    | Missing `@param`/`@return`       |
+| `drift`         | Doc structure diverged from code |
 
-`.ccg.yaml` rules support regex patterns for `pattern` field. Patterns containing `$`, `^`, `+`, `{}`, `|`, `\.`, or `.*` are auto-detected as regex:
+Wire `ccg lint --strict` into CI to prevent the classic problem of wikis aging out of sync with code.
+
+## Lint Rule Customization
+
+`.ccg.yaml` supports regex patterns for `pattern` field:
 
 ```yaml
 rules:
-  # Exact match (legacy)
-  - pattern: "pkg/auth.go::Login"
+  - pattern: "pkg/store/.*" # auto-detected as regex
     category: unannotated
     action: ignore
-
-  # Regex: ignore all symbols under pkg/store/
-  - pattern: "pkg/store/.*"
-    category: unannotated
-    action: ignore
-
-  # Regex: ignore all generated code
   - pattern: ".*_generated\\.go::.*"
     category: incomplete
     action: warn
 ```
 
+Patterns containing `$`, `^`, `+`, `{}`, `|`, `\.`, or `.*` trigger regex mode.
+
+## RAG Quality Checkpoints
+
+If RAG answer quality is low, usually one of:
+
+1. **Sparse annotations** → boost `@intent`, `@index` via `/ccg-annotate`
+2. **Stale** → re-run `ccg docs` + `build_rag_index`
+3. **Wrong communities** → re-run `ccg build .` to recalculate
+4. **Empty tree** → run `run_postprocess(communities=true, flows=false, fts=false)`, then retry `build_rag_index`
+
+## MCP Tools
+
+| Tool                  | Use                                                   |
+| --------------------- | ----------------------------------------------------- |
+| `run_postprocess`     | Rebuild communities before RAG indexing when missing  |
+| `build_rag_index`     | Build doc-index.json (workspace/namespace option)     |
+| `get_rag_tree`        | Navigate and verify the community tree                |
+| `get_doc_content`     | Fetch Markdown body                                   |
+| `search_docs`         | Keyword search the RAG tree                           |
+
+When the user explicitly asks to build the RAG index through MCP, call
+`build_rag_index` through MCP rather than substituting the CLI command. Use CLI
+only when the user asks for a terminal command or when MCP is unavailable.
+
 ## Prerequisites
 
-Graph must be built first. For the default local SQLite database (`ccg.db`), `ccg build .` is enough on first use when the schema is missing. For PostgreSQL, custom SQLite DSNs, existing schemas, controlled upgrades, or an older existing `ccg.db` after upgrading CCG, run `ccg migrate` before `ccg build .` (see `/ccg` skill). If `ccg build .` fails with a schema version error, run `ccg migrate` and retry.
+Requires `ccg build .` first. Schema error → `ccg migrate`. (See `/ccg` skill.)
+Requires non-empty communities for a useful tree; create or refresh them with
+`run_postprocess(communities=true, flows=false, fts=false)` before `build_rag_index`.
