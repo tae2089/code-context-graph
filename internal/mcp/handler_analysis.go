@@ -14,6 +14,7 @@ import (
 	impactpkg "github.com/tae2089/code-context-graph/internal/analysis/impact"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/obs"
 )
 
 const (
@@ -40,7 +41,7 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 	maxDepth := request.GetInt("max_depth", defaultImpactMaxDepth)
 	maxNodes := request.GetInt("max_nodes", defaultImpactMaxNodes)
 
-	log.Info("get_impact_radius called", "qualified_name", qn, "depth", depth)
+	log.InfoContext(ctx, "get_impact_radius called", append(obs.TraceLogArgs(ctx), "qualified_name", qn, "depth", depth)...)
 
 	if h.deps.ImpactAnalyzer == nil {
 		return mcp.NewToolResultError("ImpactAnalyzer not configured"), nil
@@ -49,11 +50,11 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 	return finalizeToolResult(h.cachedExecute(ctx, "get_impact_radius:", map[string]any{"qualified_name": qn, "depth": depth, "max_depth": maxDepth, "max_nodes": maxNodes, "namespace": requestNamespace(request)}, func() (string, error) {
 		node, err := h.deps.Store.GetNode(ctx, qn)
 		if err != nil {
-			log.Error("store error", "tool", "get_impact_radius", trace.SlogError(err))
+			log.ErrorContext(ctx, "store error", append(obs.TraceLogArgs(ctx), "tool", "get_impact_radius", trace.SlogError(err))...)
 			return "", trace.Wrap(err, "store error")
 		}
 		if node == nil {
-			log.Warn("node not found", "qualified_name", qn)
+			log.WarnContext(ctx, "node not found", append(obs.TraceLogArgs(ctx), "qualified_name", qn)...)
 			return "", nodeNotFoundErr(qn)
 		}
 
@@ -62,7 +63,7 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 		if bounded, ok := h.deps.ImpactAnalyzer.(BoundedImpactAnalyzer); ok {
 			res, err := bounded.ImpactRadiusBounded(ctx, node.ID, depth, impactpkg.RadiusOptions{MaxDepth: maxDepth, MaxNodes: maxNodes})
 			if err != nil {
-				log.Error("impact analysis error", "node_id", node.ID, trace.SlogError(err))
+				log.ErrorContext(ctx, "impact analysis error", append(obs.TraceLogArgs(ctx), "node_id", node.ID, trace.SlogError(err))...)
 				return "", trace.Wrap(err, "impact analysis error")
 			}
 			nodes = res.Nodes
@@ -75,7 +76,7 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 			var err error
 			nodes, err = h.deps.ImpactAnalyzer.ImpactRadius(ctx, node.ID, depth)
 			if err != nil {
-				log.Error("impact analysis error", "node_id", node.ID, trace.SlogError(err))
+				log.ErrorContext(ctx, "impact analysis error", append(obs.TraceLogArgs(ctx), "node_id", node.ID, trace.SlogError(err))...)
 				return "", trace.Wrap(err, "impact analysis error")
 			}
 			if maxNodes > 0 && len(nodes) > maxNodes {
@@ -84,7 +85,7 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 			}
 		}
 
-		log.Info("get_impact_radius completed", "qualified_name", qn, "result_count", len(nodes))
+		log.InfoContext(ctx, "get_impact_radius completed", append(obs.TraceLogArgs(ctx), "qualified_name", qn, "result_count", len(nodes))...)
 
 		impactResult := make([]map[string]any, len(nodes))
 		for i, n := range nodes {
@@ -121,7 +122,7 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 		return missingParamResult(err)
 	}
 
-	log.Info("trace_flow called", "qualified_name", qn)
+	log.InfoContext(ctx, "trace_flow called", append(obs.TraceLogArgs(ctx), "qualified_name", qn)...)
 
 	if h.deps.FlowTracer == nil {
 		return mcp.NewToolResultError("FlowTracer not configured"), nil
@@ -131,11 +132,11 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 	return finalizeToolResult(h.cachedExecute(ctx, "trace_flow:", map[string]any{"qualified_name": qn, "max_nodes": maxNodes, "namespace": requestNamespace(request)}, func() (string, error) {
 		node, err := h.deps.Store.GetNode(ctx, qn)
 		if err != nil {
-			log.Error("store error", "tool", "trace_flow", trace.SlogError(err))
+			log.ErrorContext(ctx, "store error", append(obs.TraceLogArgs(ctx), "tool", "trace_flow", trace.SlogError(err))...)
 			return "", trace.Wrap(err, "store error")
 		}
 		if node == nil {
-			log.Warn("node not found", "qualified_name", qn)
+			log.WarnContext(ctx, "node not found", append(obs.TraceLogArgs(ctx), "qualified_name", qn)...)
 			return "", nodeNotFoundErr(qn)
 		}
 
@@ -144,7 +145,7 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 		if bounded, ok := h.deps.FlowTracer.(BoundedFlowTracer); ok {
 			res, err := bounded.TraceFlowBounded(ctx, node.ID, flowspkg.TraceOptions{MaxNodes: maxNodes})
 			if err != nil {
-				log.Error("trace error", "node_id", node.ID, trace.SlogError(err))
+				log.ErrorContext(ctx, "trace error", append(obs.TraceLogArgs(ctx), "node_id", node.ID, trace.SlogError(err))...)
 				return "", trace.Wrap(err, "trace error")
 			}
 			flow = res.Flow
@@ -153,7 +154,7 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 			var err error
 			flow, err = h.deps.FlowTracer.TraceFlow(ctx, node.ID)
 			if err != nil {
-				log.Error("trace error", "node_id", node.ID, trace.SlogError(err))
+				log.ErrorContext(ctx, "trace error", append(obs.TraceLogArgs(ctx), "node_id", node.ID, trace.SlogError(err))...)
 				return "", trace.Wrap(err, "trace error")
 			}
 			if maxNodes > 0 && len(flow.Members) > maxNodes {
@@ -162,7 +163,7 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 			}
 		}
 
-		log.Info("trace_flow completed", "qualified_name", qn, "members", len(flow.Members))
+		log.InfoContext(ctx, "trace_flow completed", append(obs.TraceLogArgs(ctx), "qualified_name", qn, "members", len(flow.Members))...)
 
 		members := make([]map[string]any, len(flow.Members))
 		for i, m := range flow.Members {

@@ -1,10 +1,12 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	oteltrace "go.opentelemetry.io/otel/trace"
 	"gorm.io/gorm"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
@@ -25,6 +28,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/obs"
 	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 )
 
@@ -217,6 +221,37 @@ func TestHandler_GetImpactRadius_BoundsResults(t *testing.T) {
 	}
 	if resp["nodes"] == nil {
 		t.Fatal("expected bounded nodes response")
+	}
+}
+
+func TestHandler_GetImpactRadius_LogsTraceFields(t *testing.T) {
+	deps := setupTestDeps(t)
+	var logBuf bytes.Buffer
+	deps.Logger = slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	tel, err := obs.Setup(context.Background(), obs.Config{ServiceName: "ccg-test", Mode: "test"})
+	if err != nil {
+		t.Fatalf("setup telemetry: %v", err)
+	}
+	obs.SetGlobal(tel)
+	defer func() {
+		_ = tel.Shutdown(context.Background())
+		obs.SetGlobal(nil)
+	}()
+	ctx, span := obs.StartSpan(context.Background(), "test")
+	defer span.End()
+	sc := oteltrace.SpanContextFromContext(ctx)
+
+	deps.Store.UpsertNodes(context.Background(), []model.Node{{QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "A", FilePath: "a.go", StartLine: 1, EndLine: 5, Language: "go"}})
+	result := callToolWithContext(t, ctx, deps, "get_impact_radius", map[string]any{"qualified_name": "pkg.A", "depth": 1})
+	if result.IsError {
+		t.Fatalf("get_impact_radius returned error: %s", getTextContent(result))
+	}
+	logs := logBuf.String()
+	if !strings.Contains(logs, sc.TraceID().String()) {
+		t.Fatalf("expected trace id in logs, got %q", logs)
+	}
+	if !strings.Contains(logs, sc.SpanID().String()) {
+		t.Fatalf("expected span id in logs, got %q", logs)
 	}
 }
 
@@ -2005,7 +2040,7 @@ func TestQueryGraph_TargetFallbackAutoSelectsSingleShortNameMatch(t *testing.T) 
 	deps := setupTestDeps(t)
 	ctx := context.Background()
 	mockQ := &mockQueryService{
-		result: []model.Node{{QualifiedName: "pkg.Caller", Kind: model.NodeKindFunction, Name: "Caller", FilePath: "caller.go"}},
+		result:      []model.Node{{QualifiedName: "pkg.Caller", Kind: model.NodeKindFunction, Name: "Caller", FilePath: "caller.go"}},
 		matchResult: []query.CandidateMatch{{QualifiedName: "pkg.runPostprocess", Kind: model.NodeKindFunction, FilePath: "query.go", StartLine: 10}},
 	}
 	deps.QueryService = mockQ
@@ -2032,7 +2067,7 @@ func TestQueryGraph_TargetFallbackReturnsAmbiguousCandidates(t *testing.T) {
 
 	result := callTool(t, deps, "query_graph", map[string]any{"pattern": "callers_of", "target": "runPostprocess"})
 	if !result.IsError {
-		 t.Fatal("expected ambiguity error")
+		t.Fatal("expected ambiguity error")
 	}
 	text := getTextContent(result)
 	if !strings.Contains(text, "ambiguous") || !strings.Contains(text, "pkg.runPostprocess") || !strings.Contains(text, "other.runPostprocess") {
@@ -3087,7 +3122,7 @@ func Svc() {}
 }
 
 type failSearchBackend struct {
-	err error
+	err          error
 	rebuildCalls int
 }
 

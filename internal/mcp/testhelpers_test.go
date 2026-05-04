@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -20,8 +21,8 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/impact"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
-	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
+	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 	"github.com/tae2089/code-context-graph/internal/store/search"
 )
@@ -154,6 +155,7 @@ func setupTestDeps(t *testing.T) *Deps {
 	}
 
 	goParser := &simpleGoParser{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	return &Deps{
 		Store:          st,
 		DB:             db,
@@ -163,11 +165,12 @@ func setupTestDeps(t *testing.T) *Deps {
 		ImpactAnalyzer: impact.New(st),
 		FlowTracer:     flows.New(st),
 		FlowBuilder:    flows.NewBuilder(db, st),
+		Logger:         logger,
 		PostprocessPolicy: &stubPostprocessPolicy{
 			resolvedPolicy: postprocesspolicy.PolicyDegraded,
 			resolvedSource: postprocesspolicy.SourceAuto,
 		},
-		RepoRoot:       os.TempDir(),
+		RepoRoot: os.TempDir(),
 	}
 }
 
@@ -187,6 +190,7 @@ func setupGraphOnlyTestDeps(t *testing.T) *Deps {
 	}
 
 	goParser := &simpleGoParser{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	return &Deps{
 		Store:          st,
 		DB:             db,
@@ -195,6 +199,7 @@ func setupGraphOnlyTestDeps(t *testing.T) *Deps {
 		ImpactAnalyzer: impact.New(st),
 		FlowTracer:     flows.New(st),
 		FlowBuilder:    flows.NewBuilder(db, st),
+		Logger:         logger,
 		RepoRoot:       os.TempDir(),
 	}
 }
@@ -325,6 +330,10 @@ func setupTestDepsWithComments(t *testing.T) *Deps {
 }
 
 func callTool(t *testing.T, deps *Deps, toolName string, args map[string]any) *mcp.CallToolResult {
+	return callToolWithContext(t, context.Background(), deps, toolName, args)
+}
+
+func callToolWithContext(t *testing.T, ctx context.Context, deps *Deps, toolName string, args map[string]any) *mcp.CallToolResult {
 	t.Helper()
 	srv := NewServer(deps)
 
@@ -339,7 +348,7 @@ func callTool(t *testing.T, deps *Deps, toolName string, args map[string]any) *m
 		},
 	})
 
-	resp := srv.HandleMessage(context.Background(), msg)
+	resp := srv.HandleMessage(ctx, msg)
 	rpcResp, ok := resp.(mcp.JSONRPCResponse)
 	if !ok {
 		errResp, isErr := resp.(mcp.JSONRPCError)

@@ -14,6 +14,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/analysis/community"
 	flowspkg "github.com/tae2089/code-context-graph/internal/analysis/flows"
+	"github.com/tae2089/code-context-graph/internal/obs"
 	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 	"github.com/tae2089/code-context-graph/internal/service"
 )
@@ -66,7 +67,7 @@ func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest
 		return missingParamResult(err)
 	}
 
-	log.Info("parse_project called", "path", dirPath)
+	log.InfoContext(ctx, "parse_project called", append(obs.TraceLogArgs(ctx), "path", dirPath)...)
 
 	validatedPath, err := h.validateAnalysisPath(dirPath)
 	if err != nil {
@@ -86,7 +87,7 @@ func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest
 		return nil, err
 	}
 
-	log.Info("parse_project completed", "parsed", stats.TotalFiles, "errors", 0)
+	log.InfoContext(ctx, "parse_project completed", append(obs.TraceLogArgs(ctx), "parsed", stats.TotalFiles, "errors", 0)...)
 	if h.cache != nil {
 		h.cache.Flush()
 	}
@@ -202,7 +203,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 					failedSteps = append(failedSteps, "flows")
 					break
 				}
-				log.Warn("flow rebuild failed", trace.SlogError(err))
+				log.WarnContext(ctx, "flow rebuild failed", append(obs.TraceLogArgs(ctx), trace.SlogError(err))...)
 				failedSteps = append(failedSteps, "flows")
 			}
 		} else {
@@ -217,7 +218,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 					failedSteps = append(failedSteps, "communities")
 					break
 				}
-				log.Warn("community rebuild failed", trace.SlogError(err))
+				log.WarnContext(ctx, "community rebuild failed", append(obs.TraceLogArgs(ctx), trace.SlogError(err))...)
 				failedSteps = append(failedSteps, "communities")
 			}
 		} else {
@@ -231,7 +232,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 					failedSteps = append(failedSteps, "search_documents")
 					break
 				}
-				log.Warn("search document refresh failed", trace.SlogError(err))
+				log.WarnContext(ctx, "search document refresh failed", append(obs.TraceLogArgs(ctx), trace.SlogError(err))...)
 				failedSteps = append(failedSteps, "search_documents")
 			} else if err := h.deps.SearchBackend.Rebuild(ctx, h.deps.DB); err != nil {
 				if failClosed {
@@ -239,7 +240,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 					failedSteps = append(failedSteps, "fts")
 					break
 				}
-				log.Warn("search rebuild failed", trace.SlogError(err))
+				log.WarnContext(ctx, "search rebuild failed", append(obs.TraceLogArgs(ctx), trace.SlogError(err))...)
 				failedSteps = append(failedSteps, "fts")
 			}
 		} else {
@@ -255,7 +256,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 					failedSteps = append(failedSteps, "search_documents")
 					break
 				}
-				log.Warn("search document refresh failed", trace.SlogError(err))
+				log.WarnContext(ctx, "search document refresh failed", append(obs.TraceLogArgs(ctx), trace.SlogError(err))...)
 				failedSteps = append(failedSteps, "search_documents")
 			} else if err := h.deps.SearchBackend.Rebuild(ctx, h.deps.DB); err != nil {
 				if failClosed {
@@ -263,7 +264,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 					failedSteps = append(failedSteps, "fts")
 					break
 				}
-				log.Warn("search rebuild failed", trace.SlogError(err))
+				log.WarnContext(ctx, "search rebuild failed", append(obs.TraceLogArgs(ctx), trace.SlogError(err))...)
 				failedSteps = append(failedSteps, "fts")
 			}
 		} else {
@@ -281,15 +282,15 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 	}
 
 	result := map[string]any{
-		"status":        status,
-		"files_parsed":  fileCount,
-		"nodes_created": nodeCount,
-		"edges_created": edgeCount,
-		"elapsed_ms":    elapsed,
+		"status":             status,
+		"files_parsed":       fileCount,
+		"nodes_created":      nodeCount,
+		"edges_created":      edgeCount,
+		"elapsed_ms":         elapsed,
 		"postprocess_policy": postprocessPolicy,
 		"policy_source":      policySource,
-		"failed_steps":  failedSteps,
-		"skipped_steps": skippedSteps,
+		"failed_steps":       failedSteps,
+		"skipped_steps":      skippedSteps,
 	}
 	if h.deps.PostprocessPolicy != nil {
 		if err := h.deps.PostprocessPolicy.RecordRun(ctx, postprocesspolicy.RunRecord{
@@ -440,14 +441,14 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 	}
 
 	result := map[string]any{
-		"status":            status,
-		"flows_count":       flowsCount,
-		"communities_count": communitiesCount,
-		"fts_indexed":       ftsIndexed,
+		"status":             status,
+		"flows_count":        flowsCount,
+		"communities_count":  communitiesCount,
+		"fts_indexed":        ftsIndexed,
 		"postprocess_policy": postprocessPolicy,
 		"policy_source":      policySource,
-		"failed_steps":      failedSteps,
-		"skipped_steps":     skippedSteps,
+		"failed_steps":       failedSteps,
+		"skipped_steps":      skippedSteps,
 	}
 	if h.deps.PostprocessPolicy != nil {
 		if err := h.deps.PostprocessPolicy.RecordRun(ctx, postprocesspolicy.RunRecord{

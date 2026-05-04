@@ -12,6 +12,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/obs"
 )
 
 // handlers groups shared dependencies for MCP tool handlers.
@@ -177,12 +178,12 @@ func (h *handlers) cachedExecute(ctx context.Context, prefix string, params map[
 
 	key, err := makeCacheKey(prefix, cacheParams)
 	if err != nil {
-		h.logger().Warn("failed to marshal cache key", "prefix", prefix, trace.SlogError(err))
+		h.logger().WarnContext(ctx, "failed to marshal cache key", append(obs.TraceLogArgs(ctx), "prefix", prefix, trace.SlogError(err))...)
 		return fn()
 	}
 	if key != "" {
 		if cached, ok := h.cache.Get(key); ok {
-			h.logger().Debug("cache hit", "prefix", prefix)
+			h.logger().DebugContext(ctx, "cache hit", append(obs.TraceLogArgs(ctx), "prefix", prefix)...)
 			return cached, nil
 		}
 	}
