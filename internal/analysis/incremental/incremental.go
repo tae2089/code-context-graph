@@ -57,10 +57,10 @@ type FileInfo struct {
 // SyncStats summarizes one incremental sync run.
 // @intent report how many files were added, modified, skipped, or deleted
 type SyncStats struct {
-	Added    int
-	Modified int
-	Skipped  int
-	Deleted  int
+	Added      int
+	Modified   int
+	Skipped    int
+	Deleted    int
 	Unresolved edgeresolve.FilterResolvedDiagnostics
 }
 
@@ -76,12 +76,12 @@ type Syncer struct {
 // parsedSyncFile holds parsed output and file metadata for one incremental sync input.
 // @intent carry parsed nodes, edges, comments, and language state through the sync pipeline.
 type parsedSyncFile struct {
-	filePath   string
-	info       FileInfo
-	nodes      []model.Node
-	edges      []model.Edge
-	comments   []treesitter.CommentBlock
-	language   string
+	filePath    string
+	info        FileInfo
+	nodes       []model.Node
+	edges       []model.Edge
+	comments    []treesitter.CommentBlock
+	language    string
 	hadExisting bool
 }
 
@@ -300,7 +300,7 @@ func (s *Syncer) resolveAndUpsertEdges(ctx context.Context, syncStore Store, par
 		if err != nil {
 			return err
 		}
-		resolved, diagnostics := edgeresolve.FilterResolvedWithDiagnostics(resolved)
+		resolved, diagnostics := edgeresolve.FilterResolvedWithDiagnosticsFiltered(resolved, shouldSuppressExternalImportUnresolved)
 		mergeSyncUnresolvedDiagnostics(stats, diagnostics)
 		if len(resolved) == 0 {
 			continue
@@ -318,7 +318,7 @@ func (s *Syncer) resolveAndUpsertEdges(ctx context.Context, syncStore Store, par
 			if err != nil {
 				return err
 			}
-			resolved, diagnostics := edgeresolve.FilterResolvedWithDiagnostics(resolved[len(resolveInput)-len(edgeChunk):])
+			resolved, diagnostics := edgeresolve.FilterResolvedWithDiagnosticsFiltered(resolved[len(resolveInput)-len(edgeChunk):], shouldSuppressExternalImportUnresolved)
 			mergeSyncUnresolvedDiagnostics(stats, diagnostics)
 			if len(resolved) == 0 {
 				continue
@@ -384,6 +384,10 @@ func formatEdgeKindCounts(counts map[model.EdgeKind]int) map[string]int {
 		formatted[string(kind)] = count
 	}
 	return formatted
+}
+
+func shouldSuppressExternalImportUnresolved(edge model.Edge, _ string) bool {
+	return edge.Kind == model.EdgeKindImportsFrom && edgeresolve.IsLikelyExternalImportEdge(edge)
 }
 
 // partitionParsedSyncEdges separates implements edges from per-file edges.

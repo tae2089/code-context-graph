@@ -383,7 +383,7 @@ func TestResolveRustQualifiedTraitPathDoesNotFallbackByBareName(t *testing.T) {
 	if edges[1].ToNodeID != 0 {
 		t.Fatalf("qualified trait path fallback ToNodeID=%d, want unresolved 0", edges[1].ToNodeID)
 	}
-	}
+}
 
 func TestResolveRustUFCSCall(t *testing.T) {
 	lookup := fakeLookup{nodes: []model.Node{
@@ -402,7 +402,7 @@ func TestResolveRustUFCSCall(t *testing.T) {
 	if edges[1].ToNodeID != 4 {
 		t.Fatalf("UFCS call ToNodeID=%d, want 4", edges[1].ToNodeID)
 	}
-	}
+}
 
 func TestResolveRustUFCSCallLeavesMismatchedConcreteTypeUnresolved(t *testing.T) {
 	lookup := fakeLookup{nodes: []model.Node{
@@ -795,6 +795,70 @@ func TestFilterResolvedWithDiagnosticsSummarizesDroppedEdges(t *testing.T) {
 	}
 	if diagnostics.Samples[0].Fingerprint != "missing-from" || diagnostics.Samples[0].Reason != "missing_from" {
 		t.Fatalf("first sample=%+v, want missing-from/missing_from", diagnostics.Samples[0])
+	}
+}
+
+func TestFilterResolvedWithDiagnosticsFilteredSkipsExternalImportUnresolvedEdges(t *testing.T) {
+	filter := func(edge model.Edge, reason string) bool {
+		if reason != "missing_to" {
+			return false
+		}
+		return IsLikelyExternalImportEdge(edge)
+	}
+
+	resolved, diagnostics := FilterResolvedWithDiagnosticsFiltered([]model.Edge{
+		{FromNodeID: 1, ToNodeID: 2, Kind: model.EdgeKindCalls, FilePath: "ok.go", Fingerprint: "resolved"},
+		{FromNodeID: 0, ToNodeID: 0, Kind: model.EdgeKindCalls, FilePath: "bad.go", Fingerprint: "both", Line: 4},
+		{FromNodeID: 1, ToNodeID: 0, Kind: model.EdgeKindImportsFrom, FilePath: "a.go", Fingerprint: "imports_from:a.go:fmt:12", Line: 12},
+		{FromNodeID: 1, ToNodeID: 0, Kind: model.EdgeKindImportsFrom, FilePath: "b.go", Fingerprint: "imports_from:b.go:pkg/internal:9", Line: 9},
+		{FromNodeID: 0, ToNodeID: 2, Kind: model.EdgeKindCalls, FilePath: "c.go", Fingerprint: "missing-from"},
+	}, filter)
+
+	if len(resolved) != 1 {
+		t.Fatalf("resolved edges=%d, want 1", len(resolved))
+	}
+	if diagnostics.DroppedCount != 3 {
+		t.Fatalf("DroppedCount=%d, want 3", diagnostics.DroppedCount)
+	}
+	if diagnostics.ByKind[model.EdgeKindCalls] != 2 {
+		t.Fatalf("ByKind[calls]=%d, want 2", diagnostics.ByKind[model.EdgeKindCalls])
+	}
+	if diagnostics.ByKind[model.EdgeKindImportsFrom] != 1 {
+		t.Fatalf("ByKind[imports_from]=%d, want 1", diagnostics.ByKind[model.EdgeKindImportsFrom])
+	}
+}
+
+func TestIsLikelyExternalImportPath(t *testing.T) {
+	cases := map[string]bool{
+		"fmt":                   true,
+		"github.com/pkg/x":      true,
+		"@scope/pkg":            true,
+		"node:fs":               true,
+		"https://example.com/x": true,
+		"/abs/path":             false,
+		"./pkg/local":           false,
+		"../pkg/local":          false,
+		"pkg/local":             false,
+	}
+	for importPath, want := range cases {
+		if got := IsLikelyExternalImportPath(importPath); got != want {
+			t.Fatalf("IsLikelyExternalImportPath(%q)=%v, want %v", importPath, got, want)
+		}
+	}
+}
+
+func TestImportsFromTargetReadsPathFromFingerprint(t *testing.T) {
+	edge := model.Edge{
+		Kind:        model.EdgeKindImportsFrom,
+		FilePath:    "foo.go",
+		Fingerprint: "imports_from:foo.go:github.com/owner/repo:88",
+	}
+	path, ok := ImportsFromTarget(edge)
+	if !ok {
+		t.Fatal("expected fingerprint parse success")
+	}
+	if path != "github.com/owner/repo" {
+		t.Fatalf("path=%q, want github.com/owner/repo", path)
 	}
 }
 
@@ -1322,7 +1386,7 @@ func TestPackagePrefixUsesLanguageDispatchWhenRegistered(t *testing.T) {
 
 type stubLanguageDispatch struct{}
 
-func (stubLanguageDispatch) Language() string { return "python" }
+func (stubLanguageDispatch) Language() string                                           { return "python" }
 func (stubLanguageDispatch) CollectQualifiedCallCandidates(model.Node, string) []string { return nil }
 func (stubLanguageDispatch) EnsureDispatchTargets(*model.Node, string, *resolveState) []string {
 	return nil

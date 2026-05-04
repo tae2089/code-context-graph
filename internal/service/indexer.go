@@ -675,7 +675,7 @@ func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphS
 			s.logger().ErrorContext(ctx, "resolve deferred implements edges failed", append(obs.TraceLogArgs(ctx), "start", start, "end", end, "error", err)...)
 			return trace.Wrap(err, "resolve deferred implements edges")
 		}
-		resolved, diagnostics := edgeresolve.FilterResolvedWithDiagnostics(resolved)
+		resolved, diagnostics := edgeresolve.FilterResolvedWithDiagnosticsFiltered(resolved, shouldSuppressExternalImportUnresolved)
 		mergeBuildUnresolvedDiagnostics(stats, diagnostics)
 		if diagnostics.DroppedCount > 0 {
 			s.logger().WarnContext(ctx, "dropped unresolved implements edges", append(obs.TraceLogArgs(ctx), "count", diagnostics.DroppedCount, "by_kind", formatEdgeKindCounts(diagnostics.ByKind), "by_reason", diagnostics.ByReason)...)
@@ -699,7 +699,7 @@ func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphS
 				s.logger().ErrorContext(ctx, "resolve deferred edges failed", append(obs.TraceLogArgs(ctx), "file", parsed.relPath, "error", err)...)
 				return trace.Wrap(err, "resolve deferred edges for "+parsed.relPath)
 			}
-			resolvedChunk, diagnostics := edgeresolve.FilterResolvedWithDiagnostics(resolved[len(resolveInput)-len(chunk):])
+			resolvedChunk, diagnostics := edgeresolve.FilterResolvedWithDiagnosticsFiltered(resolved[len(resolveInput)-len(chunk):], shouldSuppressExternalImportUnresolved)
 			mergeBuildUnresolvedDiagnostics(stats, diagnostics)
 			if diagnostics.DroppedCount > 0 {
 				s.logger().WarnContext(ctx, "dropped unresolved edges", append(obs.TraceLogArgs(ctx), "file", parsed.relPath, "count", diagnostics.DroppedCount, "by_kind", formatEdgeKindCounts(diagnostics.ByKind), "by_reason", diagnostics.ByReason)...)
@@ -776,6 +776,12 @@ func formatEdgeKindCounts(counts map[model.EdgeKind]int) map[string]int {
 		formatted[string(kind)] = count
 	}
 	return formatted
+}
+
+// shouldSuppressExternalImportUnresolved suppresses unresolved imports that are likely external modules.
+// @intent reduce false-positive warning volume when dependency code is intentionally absent in the local graph.
+func shouldSuppressExternalImportUnresolved(edge model.Edge, _ string) bool {
+	return edge.Kind == model.EdgeKindImportsFrom && edgeresolve.IsLikelyExternalImportEdge(edge)
 }
 
 // partitionBuildEdges keeps implements edges available before resolving call edges in later bounded chunks.

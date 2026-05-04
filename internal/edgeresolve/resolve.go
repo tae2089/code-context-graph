@@ -32,6 +32,11 @@ type FilterResolvedDiagnostics struct {
 	Samples      []FilterResolvedSample
 }
 
+// UnresolvedEdgeFilter returns true when a dropped unresolved edge should be omitted
+// from diagnostics aggregation while still being dropped from the returned edge list.
+// @intent allow callers to suppress noisy unresolved-edge classes (e.g., expected external imports).
+type UnresolvedEdgeFilter func(edge model.Edge, reason string) bool
+
 // NodeLookup provides the node reads needed to resolve parsed edge endpoints.
 // @intent keep edge endpoint resolution independent of the concrete graph store.
 type NodeLookup interface {
@@ -136,6 +141,13 @@ func FilterResolved(edges []model.Edge) []model.Edge {
 // FilterResolvedWithDiagnostics returns resolved edges plus a summary of dropped unresolved edges.
 // @intent preserve current filtering semantics while exposing actionable diagnostics for build/update debugging.
 func FilterResolvedWithDiagnostics(edges []model.Edge) ([]model.Edge, FilterResolvedDiagnostics) {
+	return FilterResolvedWithDiagnosticsFiltered(edges, nil)
+}
+
+// FilterResolvedWithDiagnosticsFiltered returns resolved edges plus diagnostics while letting
+// callers suppress selected unresolved edges from the reported summary.
+// @intent keep edge filtering behavior stable while controlling noise from known-unresolvable patterns.
+func FilterResolvedWithDiagnosticsFiltered(edges []model.Edge, filterUnresolved UnresolvedEdgeFilter) ([]model.Edge, FilterResolvedDiagnostics) {
 	if len(edges) == 0 {
 		return nil, FilterResolvedDiagnostics{}
 	}
@@ -144,6 +156,9 @@ func FilterResolvedWithDiagnostics(edges []model.Edge) ([]model.Edge, FilterReso
 	for _, edge := range edges {
 		reason, dropped := unresolvedReason(edge)
 		if dropped {
+			if filterUnresolved != nil && filterUnresolved(edge, reason) {
+				continue
+			}
 			diagnostics.add(edge, reason)
 			continue
 		}
@@ -707,6 +722,50 @@ func importsFromTarget(edge model.Edge) (string, bool) {
 	}
 	path := rest[:idx]
 	return path, path != ""
+}
+
+// IsLikelyExternalImportPath returns true when an import path is most likely an external
+// dependency (stdlib, third-party package, or alias-style module import) rather than
+// a local repository path that should usually resolve during normal builds.
+// @intent keep unresolved-edge noise focused on internal graph-coverage gaps.
+func IsLikelyExternalImportPath(path string) bool {
+	if path == "" {
+		return false
+	}
+	if strings.HasPrefix(path, "./") || strings.HasPrefix(path, "../") || strings.HasPrefix(path, "/") {
+		return false
+	}
+	if strings.HasPrefix(path, "node:") {
+		return true
+	}
+	if strings.HasPrefix(path, "@") {
+		return true
+	}
+	if strings.Contains(path, "://") {
+		return true
+	}
+	if !strings.Contains(path, "/") {
+		return true
+	}
+	firstSegment := strings.Split(path, "/")[0]
+	return strings.Contains(firstSegment, ".")
+}
+
+// IsLikelyExternalImportEdge reports whether an imports_from edge likely points to
+// an external module that is intentionally expected to remain unresolved.
+// @intent classify import edges that are not expected to have local resolution targets.
+func IsLikelyExternalImportEdge(edge model.Edge) bool {
+	path, ok := ImportsFromTarget(edge)
+	if !ok {
+		return false
+	}
+	return IsLikelyExternalImportPath(path)
+}
+
+// ImportsFromTarget extracts the import path from an imports_from fingerprint.
+// @intent provide a stable parser for import-edge-specific diagnostics and filtering.
+func ImportsFromTarget(edge model.Edge) (string, bool) {
+	return importsFromTarget(edge)
 }
 
 // inheritsEndpoints parses an inheritance edge fingerprint to extract endpoints.
