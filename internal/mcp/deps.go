@@ -75,6 +75,7 @@ type QueryService interface {
 	TestsFor(ctx context.Context, nodeID uint) ([]model.Node, error)
 	InheritorsOf(ctx context.Context, nodeID uint) ([]model.Node, error)
 	FileSummaryOf(ctx context.Context, filePath string) (*query.FileSummary, error)
+	FindExactNameMatches(ctx context.Context, target string, limit int) ([]query.CandidateMatch, error)
 }
 
 // LargefuncAnalyzer defines the oversized-function detection contract.

@@ -1944,6 +1944,45 @@ func TestQueryGraph_TargetNotFound(t *testing.T) {
 	}
 }
 
+func TestQueryGraph_TargetFallbackAutoSelectsSingleShortNameMatch(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+	mockQ := &mockQueryService{
+		result: []model.Node{{QualifiedName: "pkg.Caller", Kind: model.NodeKindFunction, Name: "Caller", FilePath: "caller.go"}},
+		matchResult: []query.CandidateMatch{{QualifiedName: "pkg.runPostprocess", Kind: model.NodeKindFunction, FilePath: "query.go", StartLine: 10}},
+	}
+	deps.QueryService = mockQ
+	deps.Store.UpsertNodes(ctx, []model.Node{{QualifiedName: "pkg.runPostprocess", Kind: model.NodeKindFunction, Name: "runPostprocess", FilePath: "query.go", StartLine: 10, EndLine: 20, Language: "go"}})
+
+	result := callTool(t, deps, "query_graph", map[string]any{"pattern": "callers_of", "target": "runPostprocess"})
+	if result.IsError {
+		t.Fatalf("query_graph error: %s", getTextContent(result))
+	}
+	if !mockQ.findMatchesCalled {
+		t.Fatal("expected FindExactNameMatches to be called for short-name fallback")
+	}
+	if !mockQ.callersOfCalled {
+		t.Fatal("expected CallersOf to be called for short-name fallback")
+	}
+}
+
+func TestQueryGraph_TargetFallbackReturnsAmbiguousCandidates(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.QueryService = &mockQueryService{result: []model.Node{}, matchResult: []query.CandidateMatch{
+		{QualifiedName: "pkg.runPostprocess", Kind: model.NodeKindFunction, FilePath: "a.go", StartLine: 10},
+		{QualifiedName: "other.runPostprocess", Kind: model.NodeKindFunction, FilePath: "b.go", StartLine: 5},
+	}}
+
+	result := callTool(t, deps, "query_graph", map[string]any{"pattern": "callers_of", "target": "runPostprocess"})
+	if !result.IsError {
+		 t.Fatal("expected ambiguity error")
+	}
+	text := getTextContent(result)
+	if !strings.Contains(text, "ambiguous") || !strings.Contains(text, "pkg.runPostprocess") || !strings.Contains(text, "other.runPostprocess") {
+		t.Fatalf("expected compact ambiguity candidates, got: %s", text)
+	}
+}
+
 // ============================================================
 // 11.4 list_graph_stats
 // ============================================================

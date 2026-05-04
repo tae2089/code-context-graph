@@ -3,10 +3,12 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/trace"
 
+	querypkg "github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/pathutil"
@@ -247,7 +249,27 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 			return "", trace.Wrap(err, "store error")
 		}
 		if node == nil {
-			return "", nodeNotFoundErr(target)
+			if h.deps.QueryService == nil {
+				return "", nodeNotFoundErr(target)
+			}
+			matches, err := h.deps.QueryService.FindExactNameMatches(ctx, target, 10)
+			if err != nil {
+				return "", trace.Wrap(err, "query target fallback")
+			}
+			switch len(matches) {
+			case 0:
+				return "", nodeNotFoundErr(target)
+			case 1:
+				node, err = h.deps.Store.GetNode(ctx, matches[0].QualifiedName)
+				if err != nil {
+					return "", trace.Wrap(err, "store fallback lookup")
+				}
+				if node == nil {
+					return "", nodeNotFoundErr(matches[0].QualifiedName)
+				}
+			default:
+				return "", newToolResultErr(compactQueryTargetAmbiguity(target, matches))
+			}
 		}
 
 		if h.deps.QueryService == nil {
@@ -292,6 +314,14 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 		}
 		return result, nil
 	}))
+}
+
+func compactQueryTargetAmbiguity(target string, matches []querypkg.CandidateMatch) string {
+	parts := make([]string, 0, len(matches))
+	for _, match := range matches {
+		parts = append(parts, fmt.Sprintf("%s (%s, %s:%d)", match.QualifiedName, match.Kind, match.FilePath, match.StartLine))
+	}
+	return fmt.Sprintf("query_graph target %q is ambiguous: %s", target, strings.Join(parts, "; "))
 }
 
 // listGraphStats returns aggregate node and edge statistics for the graph.

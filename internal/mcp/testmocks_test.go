@@ -22,8 +22,10 @@ type mockQueryService struct {
 	testsForCalled     bool
 	inheritorsOfCalled bool
 	fileSummaryCalled  bool
+	findMatchesCalled   bool
 	result             []model.Node
 	fileSummaryResult  *query.FileSummary
+	matchResult        []query.CandidateMatch
 	err                error
 }
 
@@ -58,6 +60,11 @@ func (m *mockQueryService) InheritorsOf(ctx context.Context, nodeID uint) ([]mod
 func (m *mockQueryService) FileSummaryOf(ctx context.Context, filePath string) (*query.FileSummary, error) {
 	m.fileSummaryCalled = true
 	return m.fileSummaryResult, m.err
+}
+
+func (m *mockQueryService) FindExactNameMatches(ctx context.Context, target string, limit int) ([]query.CandidateMatch, error) {
+	m.findMatchesCalled = true
+	return m.matchResult, m.err
 }
 
 type mockLargefuncAnalyzer struct {
