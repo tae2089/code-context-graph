@@ -2259,29 +2259,6 @@ func RefreshSearchDocumentsFor(ctx context.Context, db *gorm.DB, nodeIDs []uint)
 // @mutates search_documents
 func refreshSearchDocuments(ctx context.Context, db *gorm.DB, nodeIDs []uint, scoped bool) (int, error) {
 	ns := ctxns.FromContext(ctx)
-	buildContent := func(n model.Node, annByNode map[uint]*model.Annotation) string {
-		var sb strings.Builder
-		sb.WriteString(n.Name)
-		sb.WriteByte(' ')
-		sb.WriteString(n.QualifiedName)
-		sb.WriteByte(' ')
-		sb.WriteString(string(n.Kind))
-		if ann := annByNode[n.ID]; ann != nil {
-			if ann.Summary != "" {
-				sb.WriteByte(' ')
-				sb.WriteString(ann.Summary)
-			}
-			if ann.Context != "" {
-				sb.WriteByte(' ')
-				sb.WriteString(ann.Context)
-			}
-			for _, tag := range ann.Tags {
-				sb.WriteByte(' ')
-				sb.WriteString(tag.Value)
-			}
-		}
-		return sb.String()
-	}
 	count := 0
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		docsQ := tx.WithContext(ctx).Where("namespace = ?", ns)
@@ -2346,7 +2323,7 @@ func refreshSearchDocuments(ctx context.Context, db *gorm.DB, nodeIDs []uint, sc
 					docs = append(docs, model.SearchDocument{
 						Namespace: n.Namespace,
 						NodeID:    n.ID,
-						Content:   buildContent(n, annByNode),
+						Content:   buildSearchContent(n, annByNode),
 						Language:  n.Language,
 					})
 				}
@@ -2383,6 +2360,91 @@ func refreshSearchDocuments(ctx context.Context, db *gorm.DB, nodeIDs []uint, sc
 		return 0, err
 	}
 	return count, nil
+}
+
+func buildSearchContent(n model.Node, annByNode map[uint]*model.Annotation) string {
+	var sb strings.Builder
+	sb.WriteString(n.Name)
+	sb.WriteByte(' ')
+	sb.WriteString(n.QualifiedName)
+	sb.WriteByte(' ')
+	sb.WriteString(string(n.Kind))
+	for _, token := range searchPathTokens(n.FilePath) {
+		sb.WriteByte(' ')
+		sb.WriteString(token)
+	}
+	if ann := annByNode[n.ID]; ann != nil {
+		if ann.Summary != "" {
+			sb.WriteByte(' ')
+			sb.WriteString(ann.Summary)
+		}
+		if ann.Context != "" {
+			sb.WriteByte(' ')
+			sb.WriteString(ann.Context)
+		}
+		for _, tag := range ann.Tags {
+			sb.WriteByte(' ')
+			sb.WriteString(tag.Value)
+		}
+	}
+	return sb.String()
+}
+
+func searchPathTokens(filePath string) []string {
+	base := strings.ToLower(filepath.Base(filePath))
+	if base == "" || base == "." {
+		return nil
+	}
+	parts := strings.Split(base, ".")
+	if len(parts) == 0 {
+		return nil
+	}
+	tokens := make([]string, 0, len(parts)+1)
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		tokens = append(tokens, part)
+	}
+	if len(parts) > 1 {
+		if alias, ok := searchLanguageAlias(parts[len(parts)-1]); ok {
+			if alias != parts[len(parts)-1] {
+				tokens = append(tokens, alias)
+			}
+		}
+	}
+	return tokens
+}
+
+func searchLanguageAlias(ext string) (string, bool) {
+	switch ext {
+	case "go":
+		return "go", true
+	case "py":
+		return "python", true
+	case "ts":
+		return "typescript", true
+	case "java":
+		return "java", true
+	case "rb":
+		return "ruby", true
+	case "js":
+		return "javascript", true
+	case "c":
+		return "c", true
+	case "cpp":
+		return "cpp", true
+	case "rs":
+		return "rust", true
+	case "kt":
+		return "kotlin", true
+	case "php":
+		return "php", true
+	case "lua", "luau":
+		return "lua", true
+	default:
+		return "", false
+	}
 }
 
 // scopedNodeIDsForChunk slices a node ID list using the configured IN-query chunk size.

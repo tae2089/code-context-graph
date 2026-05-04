@@ -82,6 +82,41 @@ func countServiceSQLInList(sql string) int {
 	return strings.Count(list, ",") + 1
 }
 
+func TestBuildSearchDocuments_IndexesFileBaseAndLanguageTokens(t *testing.T) {
+	tests := []struct {
+		name     string
+		node     model.Node
+		contains []string
+	}{
+		{
+			name:     "java file includes base and language",
+			node:     model.Node{Name: "UserService", QualifiedName: "UserService", Kind: model.NodeKindClass, FilePath: "java/Sample.java", Language: "java"},
+			contains: []string{"userservice", "sample", "java"},
+		},
+		{
+			name:     "rust file includes alias",
+			node:     model.Node{Name: "get_user", QualifiedName: "get_user", Kind: model.NodeKindFunction, FilePath: "rust/sample.rs", Language: "rust"},
+			contains: []string{"get_user", "sample", "rs", "rust"},
+		},
+		{
+			name:     "javascript file includes alias",
+			node:     model.Node{Name: "getUser", QualifiedName: "UserService.getUser", Kind: model.NodeKindFunction, FilePath: "javascript/sample.js", Language: "javascript"},
+			contains: []string{"getuser", "sample", "js", "javascript"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content := buildSearchContent(tt.node, nil)
+			for _, want := range tt.contains {
+				if !strings.Contains(strings.ToLower(content), want) {
+					t.Fatalf("content %q missing token %q", content, want)
+				}
+			}
+		})
+	}
+}
+
 type recordingGraphStore struct {
 	t             *testing.T
 	ops           []string
