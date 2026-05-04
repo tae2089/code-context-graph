@@ -639,18 +639,7 @@ func importsFromTarget(edge model.Edge) (string, bool) {
 // inheritsEndpoints parses an inheritance edge fingerprint to extract endpoints.
 // @intent retrieve subclass and parent names from the persisted fingerprint.
 func inheritsEndpoints(edge model.Edge) (string, string, bool) {
-	prefix := "inherits:" + edge.FilePath + ":"
-	if !strings.HasPrefix(edge.Fingerprint, prefix) {
-		return "", "", false
-	}
-	rest := strings.TrimPrefix(edge.Fingerprint, prefix)
-	idx := strings.LastIndex(rest, ":")
-	if idx < 0 {
-		return "", "", false
-	}
-	child := rest[:idx]
-	parent := rest[idx+1:]
-	return child, parent, child != "" && parent != ""
+	return model.ParseInheritsFingerprint(edge.FilePath, edge.Fingerprint)
 }
 
 // testedByEndpoints parses a test edge fingerprint to extract endpoints.

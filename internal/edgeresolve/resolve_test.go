@@ -592,7 +592,7 @@ func TestResolveInheritsBindsTypeEndpoints(t *testing.T) {
 		Kind:        model.EdgeKindInherits,
 		FilePath:    "child.go",
 		Line:        4,
-		Fingerprint: "inherits:child.go:Child:Parent",
+		Fingerprint: model.BuildInheritsFingerprintV2("child.go", "Child", "Parent"),
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -614,7 +614,7 @@ func TestResolveInheritsBindsQualifiedTypeEndpoints(t *testing.T) {
 		Kind:        model.EdgeKindInherits,
 		FilePath:    "User.kt",
 		Line:        3,
-		Fingerprint: "inherits:User.kt:com.example.auth.User:Base",
+		Fingerprint: model.BuildInheritsFingerprintV2("User.kt", "com.example.auth.User", "Base"),
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -624,6 +624,65 @@ func TestResolveInheritsBindsQualifiedTypeEndpoints(t *testing.T) {
 	}
 	if got := edges[0].ToNodeID; got != 2 {
 		t.Fatalf("ToNodeID=%d, want 2", got)
+	}
+}
+
+func TestResolveInheritsLegacyFingerprint(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "pkg.Child", Name: "Child", Kind: model.NodeKindClass, FilePath: "child.go", StartLine: 3, EndLine: 5, Language: "go"},
+		{ID: 2, QualifiedName: "pkg.Parent", Name: "Parent", Kind: model.NodeKindClass, FilePath: "parent.go", StartLine: 3, EndLine: 5, Language: "go"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{{
+		Kind:        model.EdgeKindInherits,
+		FilePath:    "child.go",
+		Line:        4,
+		Fingerprint: "inherits:child.go:Child:Parent",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := edges[0].FromNodeID; got != 1 {
+		t.Fatalf("FromNodeID=%d, want 1", got)
+	}
+	if got := edges[0].ToNodeID; got != 2 {
+		t.Fatalf("ToNodeID=%d, want 2", got)
+	}
+}
+
+func TestResolveInheritsV2SupportsSeparatorHeavyNames(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: `pkg::child:Child`, Name: `pkg::child:Child`, Kind: model.NodeKindClass, FilePath: `pkg:file".kt`, StartLine: 3, EndLine: 5, Language: "kotlin"},
+		{ID: 2, QualifiedName: `pkg::base::Parent`, Name: `pkg::base::Parent`, Kind: model.NodeKindClass, FilePath: "Base.kt", StartLine: 3, EndLine: 5, Language: "kotlin"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{{
+		Kind:        model.EdgeKindInherits,
+		FilePath:    `pkg:file".kt`,
+		Line:        3,
+		Fingerprint: model.BuildInheritsFingerprintV2(`pkg:file".kt`, `pkg::child:Child`, `pkg::base::Parent`),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := edges[0].FromNodeID; got != 1 {
+		t.Fatalf("FromNodeID=%d, want 1", got)
+	}
+	if got := edges[0].ToNodeID; got != 2 {
+		t.Fatalf("ToNodeID=%d, want 2", got)
+	}
+}
+
+func TestResolveInheritsMalformedFingerprintLeavesEndpointsUnresolved(t *testing.T) {
+	edges, err := Resolve(context.Background(), fakeLookup{}, []model.Edge{{
+		Kind:        model.EdgeKindInherits,
+		FilePath:    "bad.go",
+		Line:        1,
+		Fingerprint: "inherits:v2:not-json",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[0].FromNodeID != 0 || edges[0].ToNodeID != 0 {
+		t.Fatalf("inherits malformed edge endpoints=(%d,%d), want unresolved (0,0)", edges[0].FromNodeID, edges[0].ToNodeID)
 	}
 }
 
