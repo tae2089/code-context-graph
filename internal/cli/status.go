@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -21,6 +22,11 @@ type kindCount struct {
 	Kind  string
 	Count int64
 }
+
+const (
+	callEdgeGoodThreshold  = 0.02
+	callEdgeWatchThreshold = 0.10
+)
 
 // newStatusCmd creates the graph status command.
 // @intent 저장된 코드 그래프의 전체 규모와 kind 분포를 확인할 수 있게 한다.
@@ -45,7 +51,8 @@ func newStatusCmd(deps *Deps) *cobra.Command {
 			ns, _ := cmd.Flags().GetString("namespace")
 			ctx := ctxns.WithNamespace(cmd.Context(), ns)
 			nodeQuery := deps.DB.WithContext(ctx).Model(&model.Node{}).Where("namespace = ?", ctxns.FromContext(ctx))
-			edgeQuery := deps.DB.WithContext(ctx).Model(&model.Edge{}).Where("namespace = ?", ctxns.FromContext(ctx))
+			namespace := ctxns.FromContext(ctx)
+			edgeQuery := deps.DB.WithContext(ctx).Model(&model.Edge{}).Where("namespace = ?", namespace)
 
 			var nodeCount, edgeCount int64
 			if err := nodeQuery.Count(&nodeCount).Error; err != nil {
@@ -84,6 +91,29 @@ func newStatusCmd(deps *Deps) *cobra.Command {
 						fmt.Fprintf(out, "  %s: %d\n", k.Kind, k.Count)
 					}
 				}
+
+				var strictCalls int64
+				var fallbackCalls int64
+				if err := deps.DB.WithContext(ctx).Model(&model.Edge{}).
+					Where("namespace = ?", namespace).
+					Where("kind = ?", model.EdgeKindCalls).
+					Count(&strictCalls).Error; err != nil {
+					return trace.Wrap(err, "count strict call edges")
+				}
+				if err := deps.DB.WithContext(ctx).Model(&model.Edge{}).
+					Where("namespace = ?", namespace).
+					Where("kind = ?", model.EdgeKindFallbackCalls).
+					Count(&fallbackCalls).Error; err != nil {
+					return trace.Wrap(err, "count fallback call edges")
+				}
+
+				callEdgeTotal := strictCalls + fallbackCalls
+				fallbackRatio := callFallbackRatio(strictCalls, fallbackCalls)
+				callHealth := callEdgeHealth(fallbackRatio, callEdgeTotal == 0)
+				fmt.Fprintln(out, "\nCall edge health:")
+				fmt.Fprintf(out, "  Strict call edges: %d\n", strictCalls)
+				fmt.Fprintf(out, "  Fallback call edges: %d (%.2f%%)\n", fallbackCalls, fallbackRatio*100)
+				fmt.Fprintf(out, "  Status: %s\n", callHealth)
 			}
 
 			if err := printPostprocessStatus(ctx, out, deps.DB, ctxns.FromContext(ctx), recentLimit, showErrors); err != nil {
@@ -146,4 +176,25 @@ func formatStatusList(values []string) string {
 		return "[]"
 	}
 	return strings.Join(values, ",")
+}
+
+func callFallbackRatio(strictCalls, fallbackCalls int64) float64 {
+	total := strictCalls + fallbackCalls
+	if total == 0 {
+		return 0
+	}
+	return float64(fallbackCalls) / float64(total)
+}
+
+func callEdgeHealth(ratio float64, noCalls bool) string {
+	if noCalls || math.Abs(ratio) < 1e-12 {
+		return "ok"
+	}
+	if ratio <= callEdgeGoodThreshold {
+		return "ok"
+	}
+	if ratio <= callEdgeWatchThreshold {
+		return "watch"
+	}
+	return "warn"
 }
