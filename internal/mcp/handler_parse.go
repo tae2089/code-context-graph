@@ -224,7 +224,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 			skippedSteps = appendUniqueStrings(skippedSteps, "communities")
 		}
 		// search 재빌드
-		if h.deps.SearchBackend != nil {
+		if h.deps.SearchBackend != nil && h.deps.DB != nil {
 			if _, err := refreshSearchDocuments(ctx, h.deps.DB); err != nil {
 				if failClosed {
 					failClosedErr = err
@@ -233,8 +233,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 				}
 				log.Warn("search document refresh failed", trace.SlogError(err))
 				failedSteps = append(failedSteps, "search_documents")
-			}
-			if err := h.deps.SearchBackend.Rebuild(ctx, h.deps.DB); err != nil {
+			} else if err := h.deps.SearchBackend.Rebuild(ctx, h.deps.DB); err != nil {
 				if failClosed {
 					failClosedErr = err
 					failedSteps = append(failedSteps, "fts")
@@ -249,7 +248,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 	case "minimal":
 		skippedSteps = appendUniqueStrings(skippedSteps, "communities", "flows")
 		// search만 재빌드
-		if h.deps.SearchBackend != nil {
+		if h.deps.SearchBackend != nil && h.deps.DB != nil {
 			if _, err := refreshSearchDocuments(ctx, h.deps.DB); err != nil {
 				if failClosed {
 					failClosedErr = err
@@ -258,8 +257,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 				}
 				log.Warn("search document refresh failed", trace.SlogError(err))
 				failedSteps = append(failedSteps, "search_documents")
-			}
-			if err := h.deps.SearchBackend.Rebuild(ctx, h.deps.DB); err != nil {
+			} else if err := h.deps.SearchBackend.Rebuild(ctx, h.deps.DB); err != nil {
 				if failClosed {
 					failClosedErr = err
 					failedSteps = append(failedSteps, "fts")
@@ -409,7 +407,7 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 	}
 
 	if doFTS {
-		if h.deps.SearchBackend != nil {
+		if h.deps.SearchBackend != nil && h.deps.DB != nil {
 			if _, err := refreshSearchDocuments(ctx, h.deps.DB); err != nil {
 				if failClosed {
 					failClosedErr = err

@@ -144,6 +144,8 @@ type mockIncrementalSyncer struct {
 	syncWithExisting bool
 	files            map[string]incremental.FileInfo
 	existingFiles    []string
+	filesCalls       []map[string]incremental.FileInfo
+	existingCalls    [][]string
 	result           *incremental.SyncStats
 	err              error
 }
@@ -158,5 +160,11 @@ func (m *mockIncrementalSyncer) SyncWithExisting(ctx context.Context, files map[
 	m.syncWithExisting = true
 	m.files = files
 	m.existingFiles = append([]string(nil), existingFiles...)
+	fileCopy := make(map[string]incremental.FileInfo, len(files))
+	for k, v := range files {
+		fileCopy[k] = v
+	}
+	m.filesCalls = append(m.filesCalls, fileCopy)
+	m.existingCalls = append(m.existingCalls, append([]string(nil), existingFiles...))
 	return m.result, m.err
 }

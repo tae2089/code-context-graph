@@ -778,11 +778,15 @@ func Other() {}
 	if !mockSync.syncWithExisting {
 		t.Fatal("expected Incremental.SyncWithExisting to be called")
 	}
-	if len(mockSync.existingFiles) != 2 {
-		t.Fatalf("expected default replace semantics to pass all namespace files, got %v", mockSync.existingFiles)
+	if len(mockSync.existingCalls) == 0 {
+		t.Fatal("expected at least one SyncWithExisting call")
 	}
-	if !containsStringInSlice(mockSync.existingFiles, filepath.Join("src", "other", "other.go")) {
-		t.Fatalf("expected existingFiles to include out-of-scope file under default replace semantics, got %v", mockSync.existingFiles)
+	firstExisting := mockSync.existingCalls[0]
+	if len(firstExisting) != 2 {
+		t.Fatalf("expected default replace semantics to pass all namespace files, got %v", firstExisting)
+	}
+	if !containsStringInSlice(firstExisting, filepath.Join("src", "other", "other.go")) {
+		t.Fatalf("expected existingFiles to include out-of-scope file under default replace semantics, got %v", firstExisting)
 	}
 }
 
@@ -822,11 +826,15 @@ func Other() {}
 	if !mockSync.syncWithExisting {
 		t.Fatal("expected Incremental.SyncWithExisting to be called")
 	}
-	if containsStringInSlice(mockSync.existingFiles, filepath.Join("src", "other", "other.go")) {
-		t.Fatalf("expected replace=false to exclude out-of-scope file from existingFiles, got %v", mockSync.existingFiles)
+	if len(mockSync.existingCalls) == 0 {
+		t.Fatal("expected at least one SyncWithExisting call")
 	}
-	if !containsStringInSlice(mockSync.existingFiles, filepath.Join("src", "api", "handler.go")) {
-		t.Fatalf("expected replace=false to keep in-scope file, got %v", mockSync.existingFiles)
+	firstExisting := mockSync.existingCalls[0]
+	if containsStringInSlice(firstExisting, filepath.Join("src", "other", "other.go")) {
+		t.Fatalf("expected replace=false to exclude out-of-scope file from existingFiles, got %v", firstExisting)
+	}
+	if !containsStringInSlice(firstExisting, filepath.Join("src", "api", "handler.go")) {
+		t.Fatalf("expected replace=false to keep in-scope file, got %v", firstExisting)
 	}
 }
 
@@ -1127,6 +1135,8 @@ func Run() {}
 
 func TestBuildOrUpdateGraph_DegradedOnSearchDocumentRefreshFailure(t *testing.T) {
 	deps := setupTestDeps(t)
+	backend := &failSearchBackend{}
+	deps.SearchBackend = backend
 	origRefresh := refreshSearchDocuments
 	defer func() { refreshSearchDocuments = origRefresh }()
 	refreshSearchDocuments = func(ctx context.Context, db *gorm.DB) (int, error) {
@@ -1161,6 +1171,53 @@ func Run() {}
 	}
 	if !containsString(failedSteps, "search_documents") {
 		t.Fatalf("expected search_documents in failed_steps, got %v", failedSteps)
+	}
+	if containsString(failedSteps, "fts") {
+		t.Fatalf("expected refresh failure to skip fts rebuild, got %v", failedSteps)
+	}
+	if backend.rebuildCalls != 0 {
+		t.Fatalf("expected no fts rebuild after refresh failure, got %d calls", backend.rebuildCalls)
+	}
+}
+
+func TestBuildOrUpdateGraph_MinimalSkipsFTSRebuildOnSearchDocumentRefreshFailure(t *testing.T) {
+	deps := setupTestDeps(t)
+	backend := &failSearchBackend{}
+	deps.SearchBackend = backend
+	origRefresh := refreshSearchDocuments
+	defer func() { refreshSearchDocuments = origRefresh }()
+	refreshSearchDocuments = func(ctx context.Context, db *gorm.DB) (int, error) {
+		return 0, errors.New("search document refresh boom")
+	}
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "svc.go", "package svc\n\nfunc Run() {}\n")
+
+	result := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": true,
+		"postprocess":  "minimal",
+	})
+	if result.IsError {
+		t.Fatalf("build_or_update_graph should not return tool error, got: %s", getTextContent(result))
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+		t.Fatalf("expected JSON, got: %s", getTextContent(result))
+	}
+	failedSteps, ok := resp["failed_steps"].([]any)
+	if !ok {
+		t.Fatalf("expected failed_steps array, got %v", resp["failed_steps"])
+	}
+	if !containsString(failedSteps, "search_documents") {
+		t.Fatalf("expected search_documents in failed_steps, got %v", failedSteps)
+	}
+	if containsString(failedSteps, "fts") {
+		t.Fatalf("expected refresh failure to skip fts rebuild, got %v", failedSteps)
+	}
+	if backend.rebuildCalls != 0 {
+		t.Fatalf("expected no fts rebuild after refresh failure, got %d calls", backend.rebuildCalls)
 	}
 }
 
@@ -3031,9 +3088,11 @@ func Svc() {}
 
 type failSearchBackend struct {
 	err error
+	rebuildCalls int
 }
 
 func (f *failSearchBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
+	f.rebuildCalls++
 	return f.err
 }
 
@@ -3187,6 +3246,37 @@ func TestRunPostprocess_ReportsSkippedFlowRebuild(t *testing.T) {
 	skipped := resp["skipped_steps"].([]any)
 	if !containsString(skipped, "flows") {
 		t.Fatalf("expected skipped_steps to contain flows, got %v", skipped)
+	}
+}
+
+func TestRunPostprocess_SkipsSearchStepsWhenDBMissing(t *testing.T) {
+	deps := setupTestDeps(t)
+	backend := &failSearchBackend{}
+	deps.SearchBackend = backend
+	deps.DB = nil
+
+	result := callTool(t, deps, "run_postprocess", map[string]any{
+		"communities": false,
+		"fts":         true,
+		"flows":       false,
+	})
+	if result.IsError {
+		t.Fatalf("run_postprocess should not return tool error, got: %s", getTextContent(result))
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+		t.Fatalf("expected JSON, got: %s", getTextContent(result))
+	}
+	skipped, ok := resp["skipped_steps"].([]any)
+	if !ok {
+		t.Fatalf("expected skipped_steps array, got %v", resp["skipped_steps"])
+	}
+	if !containsString(skipped, "search_documents") || !containsString(skipped, "fts") {
+		t.Fatalf("expected search steps to be skipped when DB is nil, got %v", skipped)
+	}
+	if backend.rebuildCalls != 0 {
+		t.Fatalf("expected no rebuild when DB is nil, got %d calls", backend.rebuildCalls)
 	}
 }
 
