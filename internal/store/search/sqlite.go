@@ -260,6 +260,7 @@ func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, li
 		}
 	}
 
+	result = promoteExactNameMatch(result, query)
 	return result, nil
 }
 

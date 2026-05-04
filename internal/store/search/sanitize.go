@@ -4,6 +4,8 @@ package search
 import (
 	"strings"
 	"unicode"
+
+	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 // sanitizeTokens extracts lowercase identifier-like terms from raw search input.
@@ -48,4 +50,47 @@ func SanitizePostgresTSQuery(query string) string {
 		parts = append(parts, tok+":*")
 	}
 	return strings.Join(parts, " & ")
+}
+
+func extractExactNameToken(query string) string {
+	tokens := sanitizeTokens(query)
+	if len(tokens) != 1 {
+		return ""
+	}
+	return tokens[0]
+}
+
+func promoteExactNameMatch(nodes []model.Node, query string) []model.Node {
+	target := extractExactNameToken(query)
+	if target == "" || len(nodes) < 2 {
+		return nodes
+	}
+	raw := strings.TrimSpace(query)
+	if raw != "" {
+		for i, node := range nodes {
+			if node.Name != raw {
+				continue
+			}
+			if i == 0 {
+				return nodes
+			}
+			promoted := nodes[i]
+			copy(nodes[1:i+1], nodes[0:i])
+			nodes[0] = promoted
+			return nodes
+		}
+	}
+	for i, node := range nodes {
+		if strings.ToLower(node.Name) != target {
+			continue
+		}
+		if i == 0 {
+			return nodes
+		}
+		promoted := nodes[i]
+		copy(nodes[1:i+1], nodes[0:i])
+		nodes[0] = promoted
+		return nodes
+	}
+	return nodes
 }

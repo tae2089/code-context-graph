@@ -121,6 +121,50 @@ func TestSQLiteFTS_Rebuild(t *testing.T) {
 	}
 }
 
+func TestSQLiteFTS_Query_PromotesExactNameMatch(t *testing.T) {
+	db := setupTestDB(t)
+	backend := NewSQLiteBackend()
+	if err := backend.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+
+	nodes := []model.Node{
+		{Namespace: ctxns.DefaultNamespace, QualifiedName: "cpp.UserService.getUser", Kind: model.NodeKindFunction, Name: "getUser", FilePath: "cpp/sample.cpp", StartLine: 1, EndLine: 2, Language: "cpp"},
+		{Namespace: ctxns.DefaultNamespace, QualifiedName: "go.UserService.GetUser", Kind: model.NodeKindFunction, Name: "GetUser", FilePath: "go/sample.go", StartLine: 1, EndLine: 2, Language: "go"},
+		{Namespace: ctxns.DefaultNamespace, QualifiedName: "java.UserService.getUser", Kind: model.NodeKindFunction, Name: "getUser", FilePath: "java/Sample.java", StartLine: 1, EndLine: 2, Language: "java"},
+	}
+	for i := range nodes {
+		if err := db.Create(&nodes[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	docs := []model.SearchDocument{
+		{Namespace: ctxns.DefaultNamespace, NodeID: nodes[0].ID, Content: "getUser cpp sample cpp", Language: "cpp"},
+		{Namespace: ctxns.DefaultNamespace, NodeID: nodes[1].ID, Content: "GetUser go sample go", Language: "go"},
+		{Namespace: ctxns.DefaultNamespace, NodeID: nodes[2].ID, Content: "getUser java sample java", Language: "java"},
+	}
+	for i := range docs {
+		if err := db.Create(&docs[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := backend.Rebuild(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := backend.Query(context.Background(), db, "GetUser", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) == 0 {
+		t.Fatal("expected query results")
+	}
+	if got[0].Name != "GetUser" {
+		t.Fatalf("expected exact-name match first, got %q (%q)", got[0].Name, got[0].QualifiedName)
+	}
+}
+
 func TestSQLiteFTS_RebuildNodes_RefreshesOnlyScopedNodeRows(t *testing.T) {
 	db := setupTestDB(t)
 	backend := NewSQLiteBackend()
