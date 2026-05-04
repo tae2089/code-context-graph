@@ -5,6 +5,7 @@ Documentation index for code-context-graph.
 | Document | Description |
 |----------|-------------|
 | [CLI Reference](cli-reference.md) | Full CLI commands, options, and configuration file (`.ccg.yaml`) |
+| [Eval](eval.md) | Parser/search quality evaluation, golden corpus, and metrics |
 | [Lint](lint.md) | Detailed `ccg lint` category reference, interpretation guide, and CI usage |
 | [MCP Tools](mcp-tools.md) | 33 MCP tools, Claude Code Skills, AI-driven annotation |
 | [Annotations](annotations.md) | Custom annotation system — tags, examples, search |

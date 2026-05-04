@@ -160,6 +160,8 @@ queries:
 
 ### Eval
 
+For terminology, corpus layout, metrics, and interpretation guidance, see [Eval](eval.md).
+
 | Command | Description |
 |---------|-------------|
 | `ccg eval` | Evaluate parser accuracy and search quality against golden corpus |

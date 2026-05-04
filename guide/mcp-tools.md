@@ -129,7 +129,7 @@ delete_namespace(namespace: "payment-svc")
 
 ```
 /ccg build .                     — Build code graph
-/ccg status                      — Graph statistics
+/ccg status                      — Graph statistics and postprocess error summary
 /ccg search "query"              — Full-text search
 /ccg-docs docs                   — Generate documentation
 /ccg-docs lint                   — Check docs health + annotation coverage

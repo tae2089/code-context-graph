@@ -10,7 +10,7 @@ Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) 
 - **33 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, postprocess operations, namespace file management, and more
 - **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context ([details](guide/annotations.md))
 - **Webhook sync**: GitHub / Gitea push events → auto clone + build with per-repo branch filtering and `.ccg.yaml` `include_paths` auto-loading ([details](guide/webhook.md))
-- **Eval**: Golden corpus-based parser accuracy (P/R/F1) and search quality (P@K, MRR, nDCG) evaluation ([details](guide/cli-reference.md#eval))
+- **Eval**: Golden corpus-based parser accuracy (P/R/F1) and search quality (P@K, MRR, nDCG) evaluation ([details](guide/eval.md))
 - **Multi-DB**: SQLite (local), PostgreSQL
 - **Full-text search**: FTS5 (SQLite), tsvector+GIN (PostgreSQL)
 
@@ -217,6 +217,7 @@ See [Architecture Details](guide/architecture.md) for component breakdown and DB
 |-------|-------------|
 | [Korean Guide](guide/ko/README.md) | 한국어 문서 인덱스 (Korean Documentation Index) |
 | [CLI Reference](guide/cli-reference.md) | All commands, flags, and config file (`.ccg.yaml`) |
+| [Eval](guide/eval.md) | Parser/search quality evaluation, golden corpus, and metrics |
 | [Lint](guide/lint.md) | Detailed `ccg lint` category reference, interpretation guide, and CI usage |
 | [MCP Tools](guide/mcp-tools.md) | 33 MCP tools, Skills, AI-Driven Annotation |
 | [Annotations](guide/annotations.md) | Annotation system — tags, examples, search |

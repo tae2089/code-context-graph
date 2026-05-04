@@ -124,7 +124,7 @@ delete_namespace(namespace: "payment-svc")
 
 ```
 /ccg build .                     — 코드 그래프 빌드
-/ccg status                      — 그래프 통계 확인
+/ccg status                      — 그래프 통계 및 사후 처리 오류 요약 확인
 /ccg search "query"              — 전체 텍스트 검색
 /ccg-docs docs                   — 문서 생성
 /ccg-docs lint                   — 문서 상태 및 어노테이션 커버리지 체크
