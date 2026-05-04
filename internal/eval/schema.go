@@ -68,29 +68,31 @@ type LanguageReport struct {
 // SearchReport holds aggregate ranking metrics across the search evaluation corpus.
 // @intent surface average P@K, recall, MRR, and nDCG over all search queries.
 type SearchReport struct {
-	QueriesTotal int     `json:"queries_total"`
-	AvgPAt1      float64 `json:"avg_p_at_1"`
-	AvgPAt3      float64 `json:"avg_p_at_3"`
-	AvgPAt5      float64 `json:"avg_p_at_5"`
-	AvgRecallAt5 float64 `json:"avg_recall_at_5"`
-	AvgMRR       float64 `json:"avg_mrr"`
-	AvgNDCGAt5   float64 `json:"avg_ndcg_at_5"`
-	NegativeQueries int  `json:"negative_queries"`
-	NegativeFalsePositives int `json:"negative_false_positives"`
-	NegativePassRate float64 `json:"negative_pass_rate"`
-	PerQuery []QueryDiagnostic `json:"per_query,omitempty"`
+	QueriesTotal           int               `json:"queries_total"`
+	AvgPAt1                float64           `json:"avg_p_at_1"`
+	AvgPAt3                float64           `json:"avg_p_at_3"`
+	AvgPAt5                float64           `json:"avg_p_at_5"`
+	AvgRecallAt5           float64           `json:"avg_recall_at_5"`
+	AvgMRR                 float64           `json:"avg_mrr"`
+	AvgNDCGAt5             float64           `json:"avg_ndcg_at_5"`
+	NegativeQueries        int               `json:"negative_queries"`
+	NegativeFalsePositives int               `json:"negative_false_positives"`
+	NegativePassRate       float64           `json:"negative_pass_rate"`
+	PerQuery               []QueryDiagnostic `json:"per_query,omitempty"`
 }
 
+// QueryDiagnostic records one query's detailed evaluation outcome for debugging regressions.
+// @intent aggregate metric만으로 보이지 않는 개별 쿼리 실패 원인을 보존한다.
 type QueryDiagnostic struct {
-	Query           string  `json:"query"`
-	Kind            string  `json:"kind"`
-	ResultsReturned int     `json:"results_returned"`
-	PAt1            float64 `json:"p_at_1,omitempty"`
-	PAt5            float64 `json:"p_at_5,omitempty"`
-	RecallAt5       float64 `json:"recall_at_5,omitempty"`
-	MRR             float64 `json:"mrr,omitempty"`
-	NDCGAt5         float64 `json:"ndcg_at_5,omitempty"`
-	FalsePositive   bool    `json:"false_positive,omitempty"`
+	Query           string   `json:"query"`
+	Kind            string   `json:"kind"`
+	ResultsReturned int      `json:"results_returned"`
+	PAt1            float64  `json:"p_at_1,omitempty"`
+	PAt5            float64  `json:"p_at_5,omitempty"`
+	RecallAt5       float64  `json:"recall_at_5,omitempty"`
+	MRR             float64  `json:"mrr,omitempty"`
+	NDCGAt5         float64  `json:"ndcg_at_5,omitempty"`
+	FalsePositive   bool     `json:"false_positive,omitempty"`
 	TopResults      []string `json:"top_results,omitempty"`
 }
 

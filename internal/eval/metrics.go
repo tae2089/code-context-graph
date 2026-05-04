@@ -131,6 +131,7 @@ func NDCG(ranked []string, relevant map[string]bool, k int) float64 {
 	return dcg / idcg
 }
 
+// @intent treat any returned result for a negative query as one false-positive hit in aggregate eval reporting.
 func FalsePositiveRate(ranked []string) float64 {
 	if len(ranked) == 0 {
 		return 0

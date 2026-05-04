@@ -6,6 +6,8 @@ import (
 	"os"
 )
 
+// capResults truncates a result slice to at most n items.
+// @intent per-query 진단에서 상위 결과만 제한해 출력 부피를 제어한다.
 func capResults(results []string, n int) []string {
 	if len(results) <= n {
 		return results
