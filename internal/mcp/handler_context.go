@@ -220,6 +220,7 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 			"top_flows":       flowInfos,
 			"derived_state":   derivedStateSummary(),
 			"suggested_tools": suggestedTools,
+			"evidence":        h.workspaceEvidenceFromContext(ctx),
 		}
 
 		result, err := marshalJSON(resp)

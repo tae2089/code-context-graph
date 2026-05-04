@@ -142,6 +142,8 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 
 		var flow *model.Flow
 		truncated := false
+		containsFallbackCalls := false
+		fallbackEdgesCount := 0
 		if bounded, ok := h.deps.FlowTracer.(BoundedFlowTracer); ok {
 			res, err := bounded.TraceFlowBounded(ctx, node.ID, flowspkg.TraceOptions{MaxNodes: maxNodes})
 			if err != nil {
@@ -150,6 +152,8 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 			}
 			flow = res.Flow
 			truncated = res.Truncated
+			containsFallbackCalls = res.ContainsFallbackCalls
+			fallbackEdgesCount = res.FallbackEdgesCount
 		} else {
 			var err error
 			flow, err = h.deps.FlowTracer.TraceFlow(ctx, node.ID)
@@ -177,10 +181,13 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 			"name":    flow.Name,
 			"members": members,
 			"metadata": map[string]any{
-				"truncated":      truncated,
-				"max_nodes":      maxNodes,
-				"returned_nodes": len(members),
+				"truncated":               truncated,
+				"max_nodes":               maxNodes,
+				"returned_nodes":          len(members),
+				"contains_fallback_calls": containsFallbackCalls,
+				"fallback_edges":          fallbackEdgesCount,
 			},
+			"evidence": h.workspaceEvidenceFromContext(ctx),
 		}
 		result, err := marshalJSON(data)
 		if err != nil {

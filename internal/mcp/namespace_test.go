@@ -5,14 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"gorm.io/gorm"
 
-	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
@@ -179,6 +180,75 @@ func TestMCPHandler_QueryWithNamespace(t *testing.T) {
 	text := getTextContent(result)
 	if !strings.Contains(text, "pkg.Callee") {
 		t.Errorf("expected callee 'pkg.Callee' in ns-a results, got: %s", text)
+	}
+}
+
+func TestMCPHandler_QueryWithNamespace_IncludesWorkspaceEvidence(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.QueryService = query.New(deps.DB)
+	deps.WorkspaceRoot = t.TempDir()
+
+	ns := "ws-evidence"
+	workspaceDir := filepath.Join(deps.WorkspaceRoot, ns)
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = workspaceDir
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=ccg", "GIT_AUTHOR_EMAIL=ccg@example.com", "GIT_COMMITTER_NAME=ccg", "GIT_COMMITTER_EMAIL=ccg@example.com")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+	runGit("init")
+	runGit("add", "-A")
+	if err := os.WriteFile(filepath.Join(workspaceDir, "stub.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "stub.go")
+	runGit("commit", "-m", "init")
+
+	seedNodeWithNamespace(t, deps.DB, ns, "pkg.Caller", "function", "a/caller.go")
+	seedNodeWithNamespace(t, deps.DB, ns, "pkg.Callee", "function", "a/callee.go")
+	caller, callee := model.Node{}, model.Node{}
+	deps.DB.Where("namespace = ? AND qualified_name = ?", ns, "pkg.Caller").First(&caller)
+	deps.DB.Where("namespace = ? AND qualified_name = ?", ns, "pkg.Callee").First(&callee)
+	if err := deps.DB.Create(&model.Edge{
+		FromNodeID:  caller.ID,
+		ToNodeID:    callee.ID,
+		Kind:        "calls",
+		Fingerprint: "calls:caller:callee",
+		Namespace:   ns,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	result := callTool(t, deps, "query_graph", map[string]any{"pattern": "callees_of", "target": "pkg.Caller", "workspace": ns})
+	if result.IsError {
+		t.Fatalf("query_graph with workspace ns returned error: %v", getTextContent(result))
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &body); err != nil {
+		t.Fatalf("expected JSON response: %v", err)
+	}
+	evidence, ok := body["evidence"].(map[string]any)
+	if !ok {
+		t.Fatal("expected evidence block in query_graph response")
+	}
+	if evidence["namespace"] != ns {
+		t.Fatalf("expected evidence namespace %q, got %v", ns, evidence["namespace"])
+	}
+	if evidence["workspace_path"] != workspaceDir {
+		t.Fatalf("expected workspace path %q, got %v", workspaceDir, evidence["workspace_path"])
+	}
+	gitInfo, ok := evidence["git"].(map[string]any)
+	if !ok {
+		t.Fatal("expected git evidence when workspace is git worktree")
+	}
+	if gitInfo["branch"] == nil {
+		t.Fatal("expected branch in git evidence")
 	}
 }
 

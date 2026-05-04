@@ -14,6 +14,8 @@ import (
 	"github.com/tae2089/code-context-graph/internal/pathutil"
 )
 
+var strictFalse = false
+
 // getNode returns detailed metadata for a graph node by qualified name.
 // @intent 정규화 이름으로 노드를 조회해 위치와 종류 등 기본 식별 정보를 제공한다.
 // @param request qualified_name은 조회할 노드의 전체 이름이다.
@@ -51,6 +53,7 @@ func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*m
 			"start_line":     node.StartLine,
 			"end_line":       node.EndLine,
 			"language":       node.Language,
+			"evidence":       h.workspaceEvidenceFromContext(ctx),
 		}
 		result, err := marshalJSON(data)
 		if err != nil {
@@ -208,6 +211,8 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 	if err != nil {
 		return missingParamResult(err)
 	}
+	includeFallbackCalls := request.GetBool("include_fallback_calls", true)
+	queryOpts := querypkg.QueryOptions{IncludeFallbackCalls: &includeFallbackCalls}
 
 	log.Info("query_graph called", "pattern", pattern, "target", target)
 
@@ -279,9 +284,9 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 		var nodes []model.Node
 		switch pattern {
 		case "callers_of":
-			nodes, err = h.deps.QueryService.CallersOf(ctx, node.ID)
+			nodes, err = h.deps.QueryService.CallersOfWithOptions(ctx, node.ID, queryOpts)
 		case "callees_of":
-			nodes, err = h.deps.QueryService.CalleesOf(ctx, node.ID)
+			nodes, err = h.deps.QueryService.CalleesOfWithOptions(ctx, node.ID, queryOpts)
 		case "imports_of":
 			nodes, err = h.deps.QueryService.ImportsOf(ctx, node.ID)
 		case "importers_of":
@@ -298,15 +303,51 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 			return "", trace.Wrap(err, "query error")
 		}
 
+		strictNodeIDs := map[uint]struct{}{}
+		if pattern == "callers_of" || pattern == "callees_of" {
+			strictOpts := querypkg.QueryOptions{IncludeFallbackCalls: &strictFalse}
+			var strictNodes []model.Node
+			switch pattern {
+			case "callers_of":
+				strictNodes, err = h.deps.QueryService.CallersOfWithOptions(ctx, node.ID, strictOpts)
+			case "callees_of":
+				strictNodes, err = h.deps.QueryService.CalleesOfWithOptions(ctx, node.ID, strictOpts)
+			}
+			if err != nil {
+				return "", trace.Wrap(err, "strict query error")
+			}
+			for _, strictNode := range strictNodes {
+				strictNodeIDs[strictNode.ID] = struct{}{}
+			}
+		}
+
 		qgResults := make([]map[string]any, len(nodes))
 		for i, n := range nodes {
-			qgResults[i] = nodeToBasicMap(n)
+			item := nodeToBasicMap(n)
+			if pattern == "callers_of" || pattern == "callees_of" {
+				if _, ok := strictNodeIDs[n.ID]; ok {
+					item["confidence"] = "strict"
+					item["edge_kind"] = string(model.EdgeKindCalls)
+				} else {
+					item["confidence"] = "fallback"
+					item["edge_kind"] = string(model.EdgeKindFallbackCalls)
+				}
+			}
+			qgResults[i] = item
 		}
 
 		resp := map[string]any{
-			"pattern": pattern,
-			"target":  target,
-			"results": qgResults,
+			"pattern":  pattern,
+			"target":   target,
+			"results":  qgResults,
+			"evidence": h.workspaceEvidenceFromContext(ctx),
+		}
+		if pattern == "callers_of" || pattern == "callees_of" {
+			resp["metadata"] = map[string]any{
+				"strict_count":           len(strictNodeIDs),
+				"fallback_count":         len(nodes) - len(strictNodeIDs),
+				"include_fallback_calls": includeFallbackCalls,
+			}
 		}
 		result, err := marshalJSON(resp)
 		if err != nil {
@@ -398,6 +439,7 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 			"nodes_by_kind":     nbk,
 			"nodes_by_language": nbl,
 			"edges_by_kind":     ebk,
+			"evidence":          h.workspaceEvidenceFromContext(ctx),
 		}
 		result, err := marshalJSON(statsData)
 		if err != nil {
