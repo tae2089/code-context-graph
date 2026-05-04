@@ -18,6 +18,9 @@ import (
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
+	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/tae2089/code-context-graph/internal/obs"
 )
 
 // @intent signal that a per-repository lock could not be acquired within the configured wait window.
@@ -124,7 +127,7 @@ func acquireFilesystemLock(ctx context.Context, lockRoot, repoFullName string) (
 			return nil, nil, fmt.Errorf("create repo lock: %w", err)
 		}
 		if removed, age := removeStaleFilesystemLock(lockFile); removed {
-			slog.Warn("removed stale repo lock", "repo", repoFullName, "lock", lockFile, "age", age)
+			slog.WarnContext(ctx, "removed stale repo lock", append(obs.TraceLogArgs(ctx), "repo", repoFullName, "lock", lockFile, "age", age)...)
 			continue
 		}
 
@@ -238,7 +241,9 @@ func sanitizeURL(raw string) string {
 // @intent perform the first namespace clone via a temp directory so partially cloned repos are never promoted.
 // @sideEffect creates temporary directories and renames the completed clone into place.
 func cloneRepo(ctx context.Context, repoURL, repoRoot, dest, namespace, branch string, auth transport.AuthMethod) error {
-	slog.Info("cloning repository", "url", sanitizeURL(repoURL), "dest", dest)
+	ctx, span := obs.StartChildSpan(ctx, "git.clone", attribute.String("repo.namespace", namespace), attribute.String("git.branch", branch))
+	defer span.End()
+	slog.InfoContext(ctx, "cloning repository", append(obs.TraceLogArgs(ctx), "url", sanitizeURL(repoURL), "dest", dest)...)
 
 	opts := &git.CloneOptions{
 		URL:   repoURL,
@@ -284,7 +289,9 @@ func cloneRepo(ctx context.Context, repoURL, repoRoot, dest, namespace, branch s
 // @intent hard-reset an existing checkout to the latest remote branch head for deterministic rebuilds.
 // @sideEffect fetches from origin and rewrites the local worktree state.
 func syncRepoBranch(ctx context.Context, repo *git.Repository, branch string, auth transport.AuthMethod) error {
-	slog.Info("syncing repository to remote branch", "branch", branch)
+	ctx, span := obs.StartChildSpan(ctx, "git.sync", attribute.String("git.branch", branch))
+	defer span.End()
+	slog.InfoContext(ctx, "syncing repository to remote branch", append(obs.TraceLogArgs(ctx), "branch", branch)...)
 
 	wt, err := repo.Worktree()
 	if err != nil {
