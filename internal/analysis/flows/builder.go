@@ -102,7 +102,7 @@ func findEntrypoints(tx *gorm.DB, ns string) ([]model.Node, error) {
 	var nodes []model.Node
 	inboundCalls := tx.Model(&model.Edge{}).
 		Select("to_node_id").
-		Where("namespace = ? AND kind = ?", ns, model.EdgeKindCalls)
+		Where("namespace = ? AND kind IN ?", ns, model.CallEdgeKinds())
 	if err := tx.Where("namespace = ? AND kind IN ?", ns, []model.NodeKind{model.NodeKindFunction, model.NodeKindTest}).
 		Where("id NOT IN (?)", inboundCalls).
 		Order("id asc").

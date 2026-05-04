@@ -96,8 +96,10 @@ type updateSpool struct {
 
 var (
 	testBuildBatchReleaseHook func([]parsedBuildNodeBatch, int)
-	resolveBuildEdges         = edgeresolve.Resolve
+	resolveBuildEdges         resolveBuildEdgesFn = edgeresolve.ResolveWithOptions
 )
+
+type resolveBuildEdgesFn func(ctx context.Context, lookup edgeresolve.NodeLookup, edges []model.Edge, options edgeresolve.ResolveOptions) ([]model.Edge, error)
 
 const (
 	buildFlushFileBatchSize   = 100
@@ -200,6 +202,7 @@ type commentParserWithLanguage interface {
 	Language() string
 }
 
+// @intent 메타데이터와 언어 정보까지 돌려주는 parser 확장을 build 경로에서 감지하게 한다.
 type metadataParserWithLanguage interface {
 	Parser
 	ParseWithCommentsAndMetadata(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []treesitter.CommentBlock, treesitter.ParseMetadata, error)
@@ -243,6 +246,7 @@ type BuildOptions struct {
 	MaxFileBytes        int64
 	MaxTotalParsedBytes int64
 	SkipSearchRebuild   bool
+	FallbackCalls       bool
 }
 
 // BuildStats reports how much content a build processed.
@@ -532,7 +536,8 @@ func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.Gr
 	if err := upsertPackageContainsEdges(ctx, txStore, spool.packages); err != nil {
 		return trace.Wrap(err, "upsert package file edges")
 	}
-	if err := s.flushBuildEdges(ctx, txStore, edgeBatches, &spool.stats); err != nil {
+	resolveOptions := edgeresolve.ResolveOptions{FallbackCalls: opts.FallbackCalls}
+	if err := s.flushBuildEdges(ctx, txStore, edgeBatches, &spool.stats, resolveOptions); err != nil {
 		return err
 	}
 
@@ -662,7 +667,7 @@ func (s *GraphService) flushBuildBatch(ctx context.Context, txStore store.GraphS
 // @intent attach parsed relationships to stored node IDs without depending on build batch order.
 // @sideEffect upserts graph edges through the transaction-scoped store.
 // @mutates graph edges
-func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphStore, edgeBatches []parsedBuildEdgeBatch, stats *BuildStats) error {
+func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphStore, edgeBatches []parsedBuildEdgeBatch, stats *BuildStats, resolveOptions edgeresolve.ResolveOptions) error {
 	implementsEdges, otherBatches := partitionBuildEdges(edgeBatches)
 	importsByPath := importEdgesByFile(otherBatches)
 	for start := 0; start < len(implementsEdges); start += buildEdgeResolveChunkSize {
@@ -670,7 +675,7 @@ func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphS
 			return err
 		}
 		end := min(start+buildEdgeResolveChunkSize, len(implementsEdges))
-		resolved, err := resolveBuildEdges(ctx, txStore, implementsEdges[start:end])
+		resolved, err := resolveBuildEdges(ctx, txStore, implementsEdges[start:end], resolveOptions)
 		if err != nil {
 			s.logger().ErrorContext(ctx, "resolve deferred implements edges failed", append(obs.TraceLogArgs(ctx), "start", start, "end", end, "error", err)...)
 			return trace.Wrap(err, "resolve deferred implements edges")
@@ -694,7 +699,7 @@ func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphS
 			end := min(start+buildEdgeResolveChunkSize, len(parsed.edges))
 			chunk := parsed.edges[start:end]
 			resolveInput := chunkWithImportWarmup(chunk, importsByPath[parsed.relPath])
-			resolved, err := resolveBuildEdges(ctx, txStore, resolveInput)
+			resolved, err := resolveBuildEdges(ctx, txStore, resolveInput, resolveOptions)
 			if err != nil {
 				s.logger().ErrorContext(ctx, "resolve deferred edges failed", append(obs.TraceLogArgs(ctx), "file", parsed.relPath, "error", err)...)
 				return trace.Wrap(err, "resolve deferred edges for "+parsed.relPath)
@@ -843,7 +848,7 @@ func chunkWithImportWarmup(chunk []model.Edge, imports []model.Edge) []model.Edg
 	}
 	needsWarmup := false
 	for _, edge := range chunk {
-		if edge.Kind == model.EdgeKindCalls {
+		if model.IsCallKind(edge.Kind) {
 			needsWarmup = true
 			break
 		}
@@ -861,6 +866,11 @@ func chunkWithImportWarmup(chunk []model.Edge, imports []model.Edge) []model.Edg
 func (s *GraphService) Update(ctx context.Context, opts UpdateOptions) (*incremental.SyncStats, error) {
 	if opts.Syncer == nil {
 		return nil, trace.New("incremental syncer is not configured")
+	}
+	if syncerWithResolveOptions, ok := opts.Syncer.(interface {
+		SetResolveOptions(edgeresolve.ResolveOptions)
+	}); ok {
+		syncerWithResolveOptions.SetResolveOptions(edgeresolve.ResolveOptions{FallbackCalls: opts.FallbackCalls})
 	}
 
 	absDir, err := filepath.Abs(opts.Dir)
@@ -1099,7 +1109,7 @@ func (s *GraphService) applyUpdateSpoolInTx(ctx context.Context, txStore store.G
 		addSyncStats(stats, batchStats)
 	}
 	changedFiles := affectedUpdateFiles(spool.currentHashes, existingNodesByFile, spool.forceFiles)
-	if err := s.refreshPackageSemanticEdges(ctx, txStore, txDB, opts.Dir, spool.packages, changedFiles, deletedFiles); err != nil {
+	if err := s.refreshPackageSemanticEdges(ctx, txStore, txDB, opts.Dir, spool.packages, changedFiles, deletedFiles, edgeresolve.ResolveOptions{FallbackCalls: opts.FallbackCalls}); err != nil {
 		return nil, trace.Wrap(err, "refresh package semantic edges")
 	}
 	if err := upsertPackageContainsEdges(ctx, txStore, spool.packages); err != nil {
@@ -1240,7 +1250,7 @@ func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, 
 		addSyncStats(stats, batchStats)
 	}
 	changedFiles := affectedUpdateFiles(spool.currentHashes, existingNodesByFile, spool.forceFiles)
-	if err := s.refreshPackageSemanticEdges(ctx, s.Store, s.DB, absDir, packages, changedFiles, deletedFiles); err != nil {
+	if err := s.refreshPackageSemanticEdges(ctx, s.Store, s.DB, absDir, packages, changedFiles, deletedFiles, edgeresolve.ResolveOptions{FallbackCalls: opts.FallbackCalls}); err != nil {
 		return nil, trace.Wrap(err, "refresh package semantic edges")
 	}
 	if s.Store != nil {
@@ -1653,6 +1663,7 @@ func importPackageNames(packages map[string]languagePackageInfo) map[string]stri
 	return names
 }
 
+// @intent normalize discovered package imports into the canonical names used when resolving cross-file imports during parsing.
 func importPackageContext(packages map[string]languagePackageInfo) map[string]string {
 	if len(packages) == 0 {
 		return nil
@@ -1865,7 +1876,7 @@ func packageContainsFingerprint(importPath, filePath string) string {
 // @intent keep synthesized package relationships in sync after incremental file changes without rebuilding every package.
 // @sideEffect deletes stale package semantic edges and upserts regenerated ones through the graph store.
 // @mutates graph edges
-func (s *GraphService) refreshPackageSemanticEdges(ctx context.Context, graphStore store.GraphStore, db *gorm.DB, absDir string, packages map[string]languagePackageInfo, changedFiles, deletedFiles []string) error {
+func (s *GraphService) refreshPackageSemanticEdges(ctx context.Context, graphStore store.GraphStore, db *gorm.DB, absDir string, packages map[string]languagePackageInfo, changedFiles, deletedFiles []string, resolveOptions edgeresolve.ResolveOptions) error {
 	if graphStore == nil || len(packages) == 0 {
 		return nil
 	}
@@ -1880,7 +1891,7 @@ func (s *GraphService) refreshPackageSemanticEdges(ctx context.Context, graphSto
 	if len(edgeBatches) == 0 {
 		return nil
 	}
-	return s.flushBuildEdges(ctx, graphStore, edgeBatches, nil)
+	return s.flushBuildEdges(ctx, graphStore, edgeBatches, nil, resolveOptions)
 }
 
 // collectAffectedPackageSemanticBatches gathers node batches for packages touched by changed or deleted files.
@@ -2155,7 +2166,7 @@ func forceReparseFiles(ctx context.Context, db *gorm.DB, existingNodesByFile map
 			var dispatchFiles []string
 			if err := db.WithContext(ctx).
 				Model(&model.Edge{}).
-				Where("namespace = ? AND kind = ? AND file_path <> '' AND (from_node_id IN ? OR to_node_id IN ?)", ns, model.EdgeKindCalls, relatedChunk, relatedChunk).
+				Where("namespace = ? AND kind IN ? AND file_path <> '' AND (from_node_id IN ? OR to_node_id IN ?)", ns, model.CallEdgeKinds(), relatedChunk, relatedChunk).
 				Distinct().
 				Pluck("file_path", &dispatchFiles).Error; err != nil {
 				return nil, err
@@ -2380,6 +2391,8 @@ func refreshSearchDocuments(ctx context.Context, db *gorm.DB, nodeIDs []uint, sc
 	return count, nil
 }
 
+// buildSearchContent assembles the text indexed for one node's search document.
+// @intent 심볼명, 경로 토큰, 어노테이션 태그를 합쳐 검색 recall을 높이는 색인 본문을 만든다.
 func buildSearchContent(n model.Node, annByNode map[uint]*model.Annotation) string {
 	var sb strings.Builder
 	sb.WriteString(n.Name)
@@ -2408,6 +2421,8 @@ func buildSearchContent(n model.Node, annByNode map[uint]*model.Annotation) stri
 	return sb.String()
 }
 
+// searchPathTokens derives lowercase filename tokens and optional language aliases for search indexing.
+// @intent 파일 경로 자체도 검색 힌트가 되도록 basename과 언어 별칭을 토큰화한다.
 func searchPathTokens(filePath string) []string {
 	base := strings.ToLower(filepath.Base(filePath))
 	if base == "" || base == "." {
@@ -2434,6 +2449,8 @@ func searchPathTokens(filePath string) []string {
 	return tokens
 }
 
+// searchLanguageAlias maps file extensions to human-friendly language tokens used in search content.
+// @intent 확장자 토큰만으로는 부족한 언어 검색 질의를 보완한다.
 func searchLanguageAlias(ext string) (string, bool) {
 	switch ext {
 	case "go":

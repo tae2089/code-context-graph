@@ -18,8 +18,8 @@ import (
 var flowBuilderTestDBSeq atomic.Int64
 
 type mockStore struct {
-	nodes         map[uint]*model.Node
-	edges         map[uint][]model.Edge
+	nodes          map[uint]*model.Node
+	edges          map[uint][]model.Edge
 	fetchedNodeIDs []uint
 }
 
@@ -100,6 +100,25 @@ func TestTraceFlow_SimpleChain(t *testing.T) {
 	if flow.Members[0].NodeID != 1 || flow.Members[1].NodeID != 2 || flow.Members[2].NodeID != 3 {
 		t.Errorf("expected chain [1,2,3], got [%d,%d,%d]", flow.Members[0].NodeID, flow.Members[1].NodeID, flow.Members[2].NodeID)
 	}
+}
+
+func TestTraceFlow_IncludesFallbackCalls(t *testing.T) {
+	ms := &mockStore{
+		nodes: map[uint]*model.Node{1: newNode(1, "A"), 2: newNode(2, "B"), 3: newNode(3, "C")},
+		edges: map[uint][]model.Edge{
+			1: {
+				{ID: 1, FromNodeID: 1, ToNodeID: 2, Kind: model.EdgeKindCalls, Fingerprint: "call-1"},
+				{ID: 2, FromNodeID: 1, ToNodeID: 3, Kind: model.EdgeKindFallbackCalls, Fingerprint: "call-2"},
+			},
+		},
+	}
+	tracer := New(ms)
+	flow, err := tracer.TraceFlow(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := flowMemberIDs(flow)
+	assertUintSliceEqual(t, got, []uint{1, 2, 3})
 }
 
 func TestTraceFlow_Branch(t *testing.T) {

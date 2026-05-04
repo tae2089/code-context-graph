@@ -130,6 +130,8 @@ func NormalizeEdges(edges []model.Edge, nodes []model.Node) []EvalEdge {
 	return out
 }
 
+// normalizeEdgeEndpoints reconstructs stable edge endpoints from parser fingerprints.
+// @intent eval용 edge 비교에서 파일 경로와 fingerprint를 corpus-stable 식별자로 바꾼다.
 func normalizeEdgeEndpoints(edge model.Edge, nodesByQName map[string]model.Node) (string, string) {
 	parts := strings.Split(edge.Fingerprint, ":")
 	if len(parts) < 2 {
@@ -142,7 +144,7 @@ func normalizeEdgeEndpoints(edge model.Edge, nodesByQName map[string]model.Node)
 		if target, ok := containsTarget(edge); ok {
 			return edge.FilePath, target
 		}
-	case string(model.EdgeKindCalls), string(model.EdgeKindImportsFrom):
+	case string(model.EdgeKindCalls), string(model.EdgeKindFallbackCalls), string(model.EdgeKindImportsFrom):
 		if len(parts) >= 4 {
 			if kind == string(model.EdgeKindImportsFrom) {
 				if target, ok := importsFromTarget(edge); ok {
@@ -150,6 +152,7 @@ func normalizeEdgeEndpoints(edge model.Edge, nodesByQName map[string]model.Node)
 				}
 				return edge.FilePath, ""
 			}
+			// fallback_calls should be compared and normalized identically to calls.
 			if target, ok := callsTarget(edge); ok {
 				from := resolveParserStageOwner(edge, nodesByQName)
 				return from, target
@@ -189,6 +192,8 @@ func normalizeEdgeEndpoints(edge model.Edge, nodesByQName map[string]model.Node)
 	return "", ""
 }
 
+// importsFromTarget extracts the import target from an imports_from fingerprint.
+// @intent import edge fingerprint를 eval 비교에 필요한 target 문자열로 복원한다.
 func importsFromTarget(edge model.Edge) (string, bool) {
 	prefix := "imports_from:" + edge.FilePath + ":"
 	if !strings.HasPrefix(edge.Fingerprint, prefix) {
@@ -203,8 +208,18 @@ func importsFromTarget(edge model.Edge) (string, bool) {
 	return target, target != ""
 }
 
+// callsTarget extracts the callee target from a calls or fallback_calls fingerprint.
+// @intent call-like edge fingerprint에서 target과 trailing line 구문이 유효한지 함께 확인한다.
 func callsTarget(edge model.Edge) (string, bool) {
-	prefix := "calls:" + edge.FilePath + ":"
+	var prefix string
+	switch edge.Kind {
+	case model.EdgeKindCalls:
+		prefix = "calls:" + edge.FilePath + ":"
+	case model.EdgeKindFallbackCalls:
+		prefix = "fallback_calls:" + edge.FilePath + ":"
+	default:
+		return "", false
+	}
 	if !strings.HasPrefix(edge.Fingerprint, prefix) {
 		return "", false
 	}
@@ -223,6 +238,8 @@ func callsTarget(edge model.Edge) (string, bool) {
 	return target, true
 }
 
+// containsTarget extracts the contained symbol target from a contains fingerprint.
+// @intent contains edge fingerprint를 eval 비교용 대상 심볼 이름으로 복원한다.
 func containsTarget(edge model.Edge) (string, bool) {
 	prefix := "contains:" + edge.FilePath + ":"
 	if !strings.HasPrefix(edge.Fingerprint, prefix) {
@@ -231,6 +248,8 @@ func containsTarget(edge model.Edge) (string, bool) {
 	return strings.TrimPrefix(edge.Fingerprint, prefix), true
 }
 
+// parseTrailingLine parses the trailing source line segment embedded in a fingerprint.
+// @intent malformed fingerprint를 조기에 배제해 eval edge 비교 안정성을 높인다.
 func parseTrailingLine(s string) (int, error) {
 	if s == "" {
 		return 0, os.ErrInvalid
@@ -248,6 +267,8 @@ func parseTrailingLine(s string) (int, error) {
 	return line, nil
 }
 
+// resolveParserStageOwner picks the best owner node for a parser-stage edge.
+// @intent line 정보 또는 파일 내 첫 심볼을 이용해 parser fingerprint의 from endpoint를 정한다.
 func resolveParserStageOwner(edge model.Edge, nodesByQName map[string]model.Node) string {
 	if edge.Line > 0 {
 		if owner := resolveOwnerByLine(edge.FilePath, edge.Line, nodesByQName); owner != "" {
@@ -262,6 +283,8 @@ func resolveParserStageOwner(edge model.Edge, nodesByQName map[string]model.Node
 	return ""
 }
 
+// resolveOwnerByLine finds the narrowest symbol spanning a given file line.
+// @intent parser-stage edge가 속한 가장 구체적인 owner 심볼을 line 범위로 찾는다.
 func resolveOwnerByLine(filePath string, line int, nodesByQName map[string]model.Node) string {
 	var best model.Node
 	bestFound := false
@@ -282,6 +305,8 @@ func resolveOwnerByLine(filePath string, line int, nodesByQName map[string]model
 	return ""
 }
 
+// span returns the inclusive line span width for a node.
+// @intent owner 선택 시 더 좁은 범위의 심볼을 우선하도록 비교 지표를 제공한다.
 func span(n model.Node) int {
 	if n.EndLine < n.StartLine {
 		return 0

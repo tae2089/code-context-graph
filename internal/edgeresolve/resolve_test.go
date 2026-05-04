@@ -185,6 +185,32 @@ func TestResolveCallsLeavesAmbiguousCalleeUnresolved(t *testing.T) {
 	}
 }
 
+func TestResolveWithOptionsCanFallbackToDeterministicCallEdge(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "pkg.A", Name: "A", Kind: model.NodeKindFunction, FilePath: "a.go", StartLine: 3, EndLine: 5, Language: "go"},
+		{ID: 2, QualifiedName: "pkg.X.Save", Name: "Save", Kind: model.NodeKindFunction, FilePath: "a.go", StartLine: 7, EndLine: 7, Language: "go"},
+		{ID: 3, QualifiedName: "pkg.Y.Save", Name: "Save", Kind: model.NodeKindFunction, FilePath: "a.go", StartLine: 9, EndLine: 9, Language: "go"},
+	}}
+	edges, err := ResolveWithOptions(context.Background(), lookup, []model.Edge{{
+		Kind:        model.EdgeKindCalls,
+		FilePath:    "a.go",
+		Line:        4,
+		Fingerprint: "calls:a.go:svc.Save:4",
+	}}, ResolveOptions{FallbackCalls: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := edges[0].FromNodeID; got != 1 {
+		t.Fatalf("FromNodeID=%d, want 1", got)
+	}
+	if got := edges[0].Kind; got != model.EdgeKindFallbackCalls {
+		t.Fatalf("Kind=%q, want %q", got, model.EdgeKindFallbackCalls)
+	}
+	if got := edges[0].ToNodeID; got != 2 {
+		t.Fatalf("ToNodeID=%d, want 2", got)
+	}
+}
+
 func TestResolveCallsLeavesMissingCallerUnresolved(t *testing.T) {
 	lookup := fakeLookup{nodes: []model.Node{
 		{ID: 2, QualifiedName: "pkg.B", Name: "B", Kind: model.NodeKindFunction, FilePath: "a.go", StartLine: 7, EndLine: 7, Language: "go"},

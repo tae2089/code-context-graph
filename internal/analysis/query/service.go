@@ -43,7 +43,7 @@ func New(db *gorm.DB) *Service {
 	return &Service{db: db}
 }
 
-// nodesByEdge loads nodes connected by a specific edge kind and direction.
+// nodesByEdge loads nodes connected by an edge kind and direction.
 // @intent centralize directional edge-query logic shared by predefined graph queries
 // @param nodeID anchor node for the relationship lookup
 // @param kind edge kind to follow
@@ -52,18 +52,22 @@ func New(db *gorm.DB) *Service {
 func (s *Service) nodesByEdge(ctx context.Context, nodeID uint, kind model.EdgeKind, direction string) ([]model.Node, error) {
 	var nodes []model.Node
 	var q *gorm.DB
+	edgeKinds := []model.EdgeKind{kind}
+	if kind == model.EdgeKindCalls {
+		edgeKinds = model.CallEdgeKinds()
+	}
 	ns := ctxns.FromContext(ctx)
 	switch direction {
 	case "incoming":
 		q = s.db.WithContext(ctx).
 			Where("nodes.namespace = ?", ns).
 			Joins("JOIN edges ON edges.from_node_id = nodes.id").
-			Where("edges.namespace = ? AND edges.to_node_id = ? AND edges.kind = ?", ns, nodeID, kind)
+			Where("edges.namespace = ? AND edges.to_node_id = ? AND edges.kind IN ?", ns, nodeID, edgeKinds)
 	default:
 		q = s.db.WithContext(ctx).
 			Where("nodes.namespace = ?", ns).
 			Joins("JOIN edges ON edges.to_node_id = nodes.id").
-			Where("edges.namespace = ? AND edges.from_node_id = ? AND edges.kind = ?", ns, nodeID, kind)
+			Where("edges.namespace = ? AND edges.from_node_id = ? AND edges.kind IN ?", ns, nodeID, edgeKinds)
 	}
 	if err := q.Find(&nodes).Error; err != nil {
 		return nil, err

@@ -146,6 +146,27 @@ func TestNormalizeEdges_PreservesParserStageEndpoints(t *testing.T) {
 	}
 }
 
+func TestNormalizeEdges_PreservesFallbackCallEndpoints(t *testing.T) {
+	nodes := []model.Node{
+		{ID: 0, QualifiedName: "sample.Hello", Kind: model.NodeKindFunction, Name: "Hello", FilePath: "sample.go", StartLine: 3, EndLine: 5},
+		{ID: 0, QualifiedName: "sample.World", Kind: model.NodeKindFunction, Name: "World", FilePath: "sample.go", StartLine: 10, EndLine: 12},
+	}
+	edges := []model.Edge{
+		{Kind: model.EdgeKindFallbackCalls, FilePath: "sample.go", Line: 4, Fingerprint: "fallback_calls:sample.go:sample.World:4"},
+	}
+
+	actual := NormalizeEdges(edges, nodes)
+	if len(actual) != 1 {
+		t.Fatalf("got %d edges, want 1", len(actual))
+	}
+	if actual[0].From != "sample.Hello" {
+		t.Fatalf("from collapsed: got %q, want %q", actual[0].From, "sample.Hello")
+	}
+	if actual[0].To != "sample.World" {
+		t.Fatalf("to mismatch: got %q, want %q", actual[0].To, "sample.World")
+	}
+}
+
 func TestNormalizeEdges_ImportsFromUsesFilePathAndFullTarget(t *testing.T) {
 	nodes := []model.Node{
 		{ID: 0, QualifiedName: "pkg.File", Kind: model.NodeKindFile, Name: "File", FilePath: "dir:with:colon/sample.go"},

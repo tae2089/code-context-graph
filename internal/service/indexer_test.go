@@ -499,12 +499,12 @@ func TestFlushBuildEdges_ResolvesAndUpsertsBoundedBatches(t *testing.T) {
 
 	var resolveSizes []int
 	oldResolve := resolveBuildEdges
-	resolveBuildEdges = func(ctx context.Context, lookup edgeresolve.NodeLookup, edges []model.Edge) ([]model.Edge, error) {
+	resolveBuildEdges = func(ctx context.Context, lookup edgeresolve.NodeLookup, edges []model.Edge, options edgeresolve.ResolveOptions) ([]model.Edge, error) {
 		resolveSizes = append(resolveSizes, len(edges))
 		if len(edges) > buildEdgeResolveChunkSize {
 			t.Fatalf("resolve batch exceeded limit: got %d want <= %d", len(edges), buildEdgeResolveChunkSize)
 		}
-		return oldResolve(ctx, lookup, edges)
+		return oldResolve(ctx, lookup, edges, options)
 	}
 	t.Cleanup(func() { resolveBuildEdges = oldResolve })
 
@@ -514,7 +514,7 @@ func TestFlushBuildEdges_ResolvesAndUpsertsBoundedBatches(t *testing.T) {
 	}
 
 	svc := &GraphService{}
-	if err := svc.flushBuildEdges(ctx, st, batches, nil); err != nil {
+	if err := svc.flushBuildEdges(ctx, st, batches, nil, edgeresolve.ResolveOptions{}); err != nil {
 		t.Fatalf("flushBuildEdges: %v", err)
 	}
 	if got, want := resolveSizes, []int{1, 3}; !reflect.DeepEqual(got, want) {
@@ -544,7 +544,7 @@ func TestFlushBuildEdges_ResolvesImplementsOnlyOnce(t *testing.T) {
 
 	var implementsSeen []int
 	oldResolve := resolveBuildEdges
-	resolveBuildEdges = func(ctx context.Context, lookup edgeresolve.NodeLookup, edges []model.Edge) ([]model.Edge, error) {
+	resolveBuildEdges = func(ctx context.Context, lookup edgeresolve.NodeLookup, edges []model.Edge, options edgeresolve.ResolveOptions) ([]model.Edge, error) {
 		count := 0
 		for _, edge := range edges {
 			if edge.Kind == model.EdgeKindImplements {
@@ -552,7 +552,7 @@ func TestFlushBuildEdges_ResolvesImplementsOnlyOnce(t *testing.T) {
 			}
 		}
 		implementsSeen = append(implementsSeen, count)
-		return oldResolve(ctx, lookup, edges)
+		return oldResolve(ctx, lookup, edges, options)
 	}
 	t.Cleanup(func() { resolveBuildEdges = oldResolve })
 
@@ -563,7 +563,7 @@ func TestFlushBuildEdges_ResolvesImplementsOnlyOnce(t *testing.T) {
 	}
 
 	svc := &GraphService{}
-	if err := svc.flushBuildEdges(ctx, st, batches, nil); err != nil {
+	if err := svc.flushBuildEdges(ctx, st, batches, nil, edgeresolve.ResolveOptions{}); err != nil {
 		t.Fatalf("flushBuildEdges: %v", err)
 	}
 	if got, want := implementsSeen, []int{1, 0, 0}; !reflect.DeepEqual(got, want) {
@@ -584,7 +584,7 @@ func TestFlushBuildEdges_WarmsImportsAcrossChunkBoundaries(t *testing.T) {
 	}
 
 	svc := &GraphService{}
-	if err := svc.flushBuildEdges(ctx, st, batches, nil); err != nil {
+	if err := svc.flushBuildEdges(ctx, st, batches, nil, edgeresolve.ResolveOptions{}); err != nil {
 		t.Fatalf("flushBuildEdges: %v", err)
 	}
 	if len(st.upsertedEdges) < 3 {

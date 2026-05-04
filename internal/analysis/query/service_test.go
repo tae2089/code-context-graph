@@ -122,6 +122,25 @@ func TestCalleesOf_ReturnsCalledNodes(t *testing.T) {
 	}
 }
 
+func TestCalleesOf_IncludesFallbackCalls(t *testing.T) {
+	db := setupDB(t)
+	seedNode(t, db, 1, "A", model.NodeKindFunction, "a.go")
+	seedNode(t, db, 2, "B", model.NodeKindFunction, "b.go")
+	seedEdgeNS(t, db, 1, 2, model.EdgeKindFallbackCalls, "") // A → B via fallback-call edge
+
+	svc := New(db)
+	got, err := svc.CalleesOf(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 callee, got %d", len(got))
+	}
+	if got[0].ID != 2 {
+		t.Errorf("expected callee ID=2, got %d", got[0].ID)
+	}
+}
+
 func TestCalleesOf_NoCallees(t *testing.T) {
 	db := setupDB(t)
 	seedNode(t, db, 1, "A", model.NodeKindFunction, "a.go")
