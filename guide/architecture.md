@@ -58,7 +58,7 @@ queries.
 | `impact` | BFS blast-radius analysis |
 | `flows` | Call-chain flow tracing |
 | `deadcode` | Unused code detection |
-| `community` | Module communities via Leiden algorithm |
+| `community` | Directory-based module communities |
 | `coupling` | Inter-module coupling analysis |
 | `coverage` | Test coverage analysis |
 | `largefunc` | Large function detection |
@@ -101,11 +101,13 @@ Receives GitHub/Gitea push events → automatic clone/build pipeline.
 ### Core Tables
 
 ```
-nodes        — qualified_name, kind, file_path, start_line, end_line, language, ...
-edges        — source_id, target_id, kind, ...
-search_docs  — node_id, content (FTS indexed)
-flows        — name, entry_point, criticality
-flow_members — flow_id, node_id, position
+nodes                 — namespace, qualified_name, kind, file_path, start_line, end_line, language, ...
+edges                 — namespace, from_node_id, to_node_id, kind, file_path, line, fingerprint
+search_documents      — namespace, node_id, content, language (FTS indexed)
+communities           — namespace, key, label, strategy, description
+community_memberships — community_id, node_id
+flows                 — namespace, name, description
+flow_memberships      — namespace, flow_id, node_id, ordinal
 ```
 
 ### Namespace Isolation

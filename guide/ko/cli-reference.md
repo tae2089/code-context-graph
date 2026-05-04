@@ -48,7 +48,7 @@ ccg update ./backend --namespace backend
 | `ccg docs --prune=false` | 기존 generator-managed 문서를 삭제하지 않고 문서만 다시 생성 |
 | `ccg docs --exclude <pat>` | 문서 생성 대상에서 파일/경로 제외 (반복 가능) |
 | `ccg index [--out dir]` | `index.md`만 재생성 |
-| `ccg rag-index [--out dir]` | 문서와 커뮤니티 구조 기반 Vectorless RAG 인덱스 생성 |
+| `ccg rag-index [--out dir]` | 생성된 문서와 커뮤니티 구조 기반 RAG 인덱스 생성 |
 | `ccg languages` | 지원되는 언어 및 확장자 목록 출력 |
 | `ccg example [language]` | 어노테이션 작성 예시 출력 |
 | `ccg tags` | 모든 어노테이션 태그 레퍼런스 출력 |

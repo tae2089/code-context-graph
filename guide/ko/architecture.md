@@ -55,7 +55,7 @@ GORM ORM 기반 저장소입니다. SQLite 및 PostgreSQL과 호환됩니다.
 | `impact` | BFS 영향 범위 분석 |
 | `flows` | 호출 체인 흐름 추적 |
 | `deadcode` | 사용되지 않는 코드 감지 |
-| `community` | Leiden 알고리즘을 통한 모듈 커뮤니티 분석 |
+| `community` | 디렉토리 기반 모듈 커뮤니티 분석 |
 | `coupling` | 모듈 간 결합도 분석 |
 | `coverage` | 테스트 커버리지 분석 |
 | `largefunc` | 대규모 함수 감지 |
@@ -98,11 +98,13 @@ GitHub/Gitea push 이벤트를 수신하여 자동 복제/빌드 파이프라인
 ### 핵심 테이블 (Core Tables)
 
 ```
-nodes        — qualified_name, kind, file_path, start_line, end_line, language 등
-edges        — source_id, target_id, kind 등
-search_docs  — node_id, content (FTS 인덱싱됨)
-flows        — name, entry_point, criticality
-flow_members — flow_id, node_id, position
+nodes                 — namespace, qualified_name, kind, file_path, start_line, end_line, language 등
+edges                 — namespace, from_node_id, to_node_id, kind, file_path, line, fingerprint
+search_documents      — namespace, node_id, content, language (FTS 인덱싱됨)
+communities           — namespace, key, label, strategy, description
+community_memberships — community_id, node_id
+flows                 — namespace, name, description
+flow_memberships      — namespace, flow_id, node_id, ordinal
 ```
 
 ### 네임스페이스 격리 (Namespace Isolation)

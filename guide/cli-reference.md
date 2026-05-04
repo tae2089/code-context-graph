@@ -46,7 +46,7 @@ ccg update ./backend --namespace backend
 | `ccg docs --prune=false` | Regenerate docs without deleting older generator-managed files |
 | `ccg docs --exclude <pat>` | Exclude files/paths from generated docs (repeatable) |
 | `ccg index [--out dir]` | Regenerate `index.md` only |
-| `ccg rag-index [--out dir]` | Build Vectorless RAG index from docs and community structure |
+| `ccg rag-index [--out dir]` | Build RAG index from generated docs and community structure |
 | `ccg languages` | List supported languages and extensions |
 | `ccg example [language]` | Show annotation writing example |
 | `ccg tags` | Show all annotation tag reference |
