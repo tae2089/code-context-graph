@@ -11,6 +11,8 @@ import (
 	"time"
 
 	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
+	ccgserver "github.com/tae2089/code-context-graph/internal/server"
+	ccgdb "github.com/tae2089/code-context-graph/internal/db"
 	"github.com/tae2089/code-context-graph/internal/webhook"
 )
 
@@ -18,7 +20,7 @@ func TestHandleHealth_OK(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
 
-	handleHealth(rec, req)
+	ccgserver.HandleHealth(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
@@ -38,7 +40,7 @@ func TestHandleHealth_MethodNotAllowed(t *testing.T) {
 			req := httptest.NewRequest(method, "/health", nil)
 			rec := httptest.NewRecorder()
 
-			handleHealth(rec, req)
+			ccgserver.HandleHealth(rec, req)
 
 			if rec.Code != http.StatusMethodNotAllowed {
 				t.Fatalf("expected 405, got %d", rec.Code)
@@ -51,7 +53,7 @@ func TestReadyHandler_OK(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
 	rec := httptest.NewRecorder()
 
-	readyHandler(func(r *http.Request) error { return nil }).ServeHTTP(rec, req)
+	ccgserver.ReadyHandler(func(r *http.Request) error { return nil }).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
@@ -68,7 +70,7 @@ func TestReadyHandler_Unavailable(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
 	rec := httptest.NewRecorder()
 
-	readyHandler(func(r *http.Request) error { return errors.New("db down") }).ServeHTTP(rec, req)
+	ccgserver.ReadyHandler(func(r *http.Request) error { return errors.New("db down") }).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d", rec.Code)
@@ -87,7 +89,7 @@ func TestReadyHandler_MethodNotAllowed(t *testing.T) {
 			req := httptest.NewRequest(method, "/ready", nil)
 			rec := httptest.NewRecorder()
 
-			readyHandler(func(r *http.Request) error { return nil }).ServeHTTP(rec, req)
+			ccgserver.ReadyHandler(func(r *http.Request) error { return nil }).ServeHTTP(rec, req)
 
 			if rec.Code != http.StatusMethodNotAllowed {
 				t.Fatalf("expected 405, got %d", rec.Code)
@@ -111,7 +113,7 @@ func TestStatusHandler_ReportsWebhookQueueFull(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
 
-	statusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d body=%s", rec.Code, rec.Body.String())
@@ -134,7 +136,7 @@ func TestStatusHandler_ReportsWebhookQueueAges(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
 
-	statusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
@@ -168,8 +170,8 @@ func TestReadyHandler_ReportsWebhookQueueDelay(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
 	rec := httptest.NewRecorder()
 
-	readyHandler(func(r *http.Request) error {
-		return webhookBlockingReadyCheck(q, time.Millisecond)
+	ccgserver.ReadyHandler(func(r *http.Request) error {
+		return ccgserver.WebhookBlockingReadyCheck(q, time.Millisecond)
 	}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
@@ -205,7 +207,7 @@ func TestStatusHandler_ReportsUnresolvedWebhookFailure(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
 
-	statusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
@@ -223,7 +225,7 @@ func TestWebhookStatsDegraded_PerRepoUnresolvedFailure(t *testing.T) {
 	errTime := time.Now()
 	successTime := errTime.Add(2 * time.Minute)
 
-	if !webhookStatsDegraded(webhook.SyncQueueStats{
+	if !ccgserver.WebhookStatsDegraded(webhook.SyncQueueStats{
 		LastSuccessTime: successTime,
 		RecentRepos: []webhook.RepoStats{{
 			Repo:          "org/failrepo",
@@ -233,7 +235,7 @@ func TestWebhookStatsDegraded_PerRepoUnresolvedFailure(t *testing.T) {
 		t.Fatal("expected unresolved repo failure to degrade status")
 	}
 
-	if webhookStatsDegraded(webhook.SyncQueueStats{
+	if ccgserver.WebhookStatsDegraded(webhook.SyncQueueStats{
 		LastSuccessTime: successTime,
 		RecentRepos: []webhook.RepoStats{{
 			Repo:            "org/recovered",
@@ -281,7 +283,7 @@ func TestStatusHandler_DegradedWhenRecentRepoFailureUnresolved(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
-	statusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
@@ -316,7 +318,7 @@ func TestStatusHandler_DBNotReadyTakesPrecedenceOverWebhookDegraded(t *testing.T
 	}
 	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
 		stats := q.Stats()
-		if len(stats.RecentRepos) > 0 && webhookStatsDegraded(stats) {
+		if len(stats.RecentRepos) > 0 && ccgserver.WebhookStatsDegraded(stats) {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -324,7 +326,7 @@ func TestStatusHandler_DBNotReadyTakesPrecedenceOverWebhookDegraded(t *testing.T
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
-	statusHandler(func(r *http.Request) error { return errors.New("db down") }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return errors.New("db down") }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d body=%s", rec.Code, rec.Body.String())
@@ -343,8 +345,8 @@ func TestReadyHandler_IgnoresUnresolvedWebhookFailure(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
 	rec := httptest.NewRecorder()
 
-	readyHandler(func(r *http.Request) error {
-		return webhookStatsBlockingReady(stats, time.Minute)
+	ccgserver.ReadyHandler(func(r *http.Request) error {
+		return ccgserver.WebhookStatsBlockingReady(stats, time.Minute)
 	}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -381,7 +383,7 @@ func TestStatusHandler_ReportsPerRepoRecentRepos(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
-	statusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
@@ -442,7 +444,7 @@ func TestStatusHandler_RecentRepos_FailureHasErrorFields(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
-	statusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
 
 	var body map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
@@ -474,7 +476,7 @@ func TestStatusHandler_ExistingAggregateFieldsPreserved(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
-	statusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
 
 	var body map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
@@ -495,7 +497,7 @@ func TestStatusHandler_ReportsPostprocessSummary(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
 
-	statusHandler(func(r *http.Request) error { return nil }, time.Minute, nil, func(context.Context) (*postprocesspolicy.StatusSummary, error) {
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, nil, func(context.Context) (*postprocesspolicy.StatusSummary, error) {
 		return &postprocesspolicy.StatusSummary{
 			Status: postprocesspolicy.StatusDegraded,
 			FailClosed: []postprocesspolicy.StateSnapshot{{
@@ -540,7 +542,7 @@ func (p *recordingPool) SetConnMaxIdleTime(v time.Duration) { p.maxIdleTime = v 
 
 func TestConfigureDBPool_SQLiteUsesSingleConnection(t *testing.T) {
 	pool := &recordingPool{}
-	configureDBPool(pool, "sqlite")
+	ccgdb.ConfigurePool(pool, "sqlite")
 	if pool.maxOpen != 1 || pool.maxIdle != 1 || pool.maxLifetime != 0 || pool.maxIdleTime != 0 {
 		t.Fatalf("unexpected sqlite pool config: %+v", pool)
 	}
@@ -548,20 +550,20 @@ func TestConfigureDBPool_SQLiteUsesSingleConnection(t *testing.T) {
 
 func TestConfigureDBPool_PostgresKeepsDefaultPool(t *testing.T) {
 	pool := &recordingPool{}
-	configureDBPool(pool, "postgres")
+	ccgdb.ConfigurePool(pool, "postgres")
 	if pool.maxOpen != 25 || pool.maxIdle != 5 || pool.maxLifetime != 5*time.Minute || pool.maxIdleTime != 5*time.Minute {
 		t.Fatalf("unexpected postgres pool config: %+v", pool)
 	}
 }
 
 func TestValidBearerToken(t *testing.T) {
-	if !validBearerToken("Bearer secret", "secret") {
+	if !ccgserver.ValidateBearerToken("Bearer secret", "secret") {
 		t.Fatal("expected bearer token to validate")
 	}
-	if validBearerToken("Bearer wrong", "secret") {
+	if ccgserver.ValidateBearerToken("Bearer wrong", "secret") {
 		t.Fatal("expected wrong token to fail")
 	}
-	if validBearerToken("secret", "secret") {
+	if ccgserver.ValidateBearerToken("secret", "secret") {
 		t.Fatal("expected missing bearer prefix to fail")
 	}
 }
@@ -578,8 +580,8 @@ func TestIsLoopbackHTTPAddr(t *testing.T) {
 		{addr: "192.168.0.10:8080", want: false},
 	}
 	for _, tt := range tests {
-		if got := isLoopbackHTTPAddr(tt.addr); got != tt.want {
-			t.Fatalf("isLoopbackHTTPAddr(%q) = %v, want %v", tt.addr, got, tt.want)
+		if got := ccgserver.IsLoopbackHTTPAddr(tt.addr); got != tt.want {
+			t.Fatalf("ccgserver.IsLoopbackHTTPAddr(%q) = %v, want %v", tt.addr, got, tt.want)
 		}
 	}
 }

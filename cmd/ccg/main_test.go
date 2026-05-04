@@ -14,6 +14,8 @@ import (
 	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
+	ccgdb "github.com/tae2089/code-context-graph/internal/db"
+	"github.com/tae2089/code-context-graph/internal/db/migration"
 	mcpserver "github.com/tae2089/code-context-graph/internal/mcp"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
@@ -24,7 +26,7 @@ func TestFlushMCPQueryCache_RemovesCachedValues(t *testing.T) {
 	t.Cleanup(cache.Close)
 	cache.Set(`list_graph_stats:{"namespace":"sample-go"}`, `{"total_nodes":0}`)
 
-	flushMCPQueryCache(cache)
+	cache.Flush()
 
 	if _, ok := cache.Get(`list_graph_stats:{"namespace":"sample-go"}`); ok {
 		t.Fatal("expected cache entry to be flushed")
@@ -32,7 +34,10 @@ func TestFlushMCPQueryCache_RemovesCachedValues(t *testing.T) {
 }
 
 func TestFlushMCPQueryCache_NilIsNoop(t *testing.T) {
-	flushMCPQueryCache(nil)
+	var cache *mcpserver.Cache
+	if cache != nil {
+		cache.Flush()
+	}
 }
 
 func setupNamespaceMigrationDB(t *testing.T) *gorm.DB {
@@ -71,7 +76,7 @@ func TestRunMigrations_AllowsRuntimeSchemaCheck(t *testing.T) {
 	requireSQLiteFTS5(t)
 
 	dbPath := filepath.Join(t.TempDir(), "ccg.db")
-	db, err := openDB("sqlite", dbPath)
+	db, err := ccgdb.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -82,22 +87,22 @@ func TestRunMigrations_AllowsRuntimeSchemaCheck(t *testing.T) {
 		}
 	}()
 
-	if err := checkSchemaVersion(db); err == nil {
+	if err := migration.CheckSchemaVersion(db, migration.RequiredSchemaVersion); err == nil {
 		t.Fatal("expected schema check to fail before migrate")
 	}
-	if err := runMigrations(db, "sqlite", ""); err != nil {
+	if err := migration.RunMigrations(db, "sqlite", ""); err != nil {
 		t.Fatalf("run migrations: %v", err)
 	}
-	if err := checkSchemaVersion(db); err != nil {
+	if err := migration.CheckSchemaVersion(db, migration.RequiredSchemaVersion); err != nil {
 		t.Fatalf("schema check after migrate: %v", err)
 	}
 
-	var version migrateSchemaVersion
+	var version migration.MigrationSchemaVersion
 	if err := db.Table("schema_migrations").First(&version).Error; err != nil {
 		t.Fatalf("load schema version: %v", err)
 	}
-	if int(version.Version) != requiredSchemaVersion {
-		t.Fatalf("schema version = %d, want %d", version.Version, requiredSchemaVersion)
+	if int(version.Version) != migration.RequiredSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", version.Version, migration.RequiredSchemaVersion)
 	}
 	if version.Dirty {
 		t.Fatal("schema version is dirty")
@@ -108,7 +113,7 @@ func TestRunMigrations_SqliteAppliesPolicyTables(t *testing.T) {
 	requireSQLiteFTS5(t)
 
 	dbPath := filepath.Join(t.TempDir(), "ccg.db")
-	db, err := openDB("sqlite", dbPath)
+	db, err := ccgdb.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -119,7 +124,7 @@ func TestRunMigrations_SqliteAppliesPolicyTables(t *testing.T) {
 		}
 	}()
 
-	if err := runMigrations(db, "sqlite", ""); err != nil {
+	if err := migration.RunMigrations(db, "sqlite", ""); err != nil {
 		t.Fatalf("run migrations: %v", err)
 	}
 
@@ -130,12 +135,12 @@ func TestRunMigrations_SqliteAppliesPolicyTables(t *testing.T) {
 		t.Fatal("expected ccg_postprocess_run_logs after migrations")
 	}
 
-	var version migrateSchemaVersion
+	var version migration.MigrationSchemaVersion
 	if err := db.Table("schema_migrations").First(&version).Error; err != nil {
 		t.Fatalf("load schema version: %v", err)
 	}
-	if int(version.Version) != requiredSchemaVersion {
-		t.Fatalf("schema version = %d, want %d", version.Version, requiredSchemaVersion)
+	if int(version.Version) != migration.RequiredSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", version.Version, migration.RequiredSchemaVersion)
 	}
 	if version.Dirty {
 		t.Fatal("schema version is dirty")
@@ -153,7 +158,7 @@ func TestRunMigrations_SQLiteSchemaMatchesModelNullability(t *testing.T) {
 	requireSQLiteFTS5(t)
 
 	dbPath := filepath.Join(t.TempDir(), "ccg.db")
-	db, err := openDB("sqlite", dbPath)
+	db, err := ccgdb.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -164,17 +169,17 @@ func TestRunMigrations_SQLiteSchemaMatchesModelNullability(t *testing.T) {
 		}
 	}()
 
-	if err := runMigrations(db, "sqlite", ""); err != nil {
+	if err := migration.RunMigrations(db, "sqlite", ""); err != nil {
 		t.Fatalf("run migrations: %v", err)
 	}
 
-	for _, tc := range modelNullabilityColumns() {
-		notNull, err := sqliteColumnNotNull(db, tc.table, tc.column)
+	for _, tc := range migration.ModelNullabilityColumns() {
+		notNull, err := migration.SQLiteColumnNotNull(db, tc.Table, tc.Column)
 		if err != nil {
-			t.Fatalf("inspect %s.%s: %v", tc.table, tc.column, err)
+			t.Fatalf("inspect %s.%s: %v", tc.Table, tc.Column, err)
 		}
 		if !notNull {
-			t.Fatalf("expected %s.%s to be NOT NULL", tc.table, tc.column)
+			t.Fatalf("expected %s.%s to be NOT NULL", tc.Table, tc.Column)
 		}
 	}
 }
@@ -183,7 +188,7 @@ func TestRunMigrations_SQLiteBackfillsVersionOneNulls(t *testing.T) {
 	requireSQLiteFTS5(t)
 
 	dbPath := filepath.Join(t.TempDir(), "ccg.db")
-	db, err := openDB("sqlite", dbPath)
+	db, err := ccgdb.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -194,7 +199,7 @@ func TestRunMigrations_SQLiteBackfillsVersionOneNulls(t *testing.T) {
 		}
 	}()
 
-	migrator, _, err := newMigrator(db, "sqlite", "")
+	migrator, _, err := migration.NewMigrator(db, "sqlite", "")
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
 	}
@@ -221,7 +226,7 @@ func TestRunMigrations_SQLiteBackfillsVersionOneNulls(t *testing.T) {
 		t.Fatalf("insert null flow membership: %v", err)
 	}
 
-	if err := runMigrations(db, "sqlite", ""); err != nil {
+	if err := migration.RunMigrations(db, "sqlite", ""); err != nil {
 		t.Fatalf("run migrations: %v", err)
 	}
 
@@ -245,7 +250,7 @@ func TestRunMigrations_SQLiteDownRestoresNullableColumns(t *testing.T) {
 	requireSQLiteFTS5(t)
 
 	dbPath := filepath.Join(t.TempDir(), "ccg.db")
-	db, err := openDB("sqlite", dbPath)
+	db, err := ccgdb.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -256,10 +261,10 @@ func TestRunMigrations_SQLiteDownRestoresNullableColumns(t *testing.T) {
 		}
 	}()
 
-	if err := runMigrations(db, "sqlite", ""); err != nil {
+	if err := migration.RunMigrations(db, "sqlite", ""); err != nil {
 		t.Fatalf("run migrations: %v", err)
 	}
-	migrator, _, err := newMigrator(db, "sqlite", "")
+	migrator, _, err := migration.NewMigrator(db, "sqlite", "")
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
 	}
@@ -267,7 +272,7 @@ func TestRunMigrations_SQLiteDownRestoresNullableColumns(t *testing.T) {
 		t.Fatalf("run down migration: %v", err)
 	}
 
-	var version migrateSchemaVersion
+	var version migration.MigrationSchemaVersion
 	if err := db.Table("schema_migrations").First(&version).Error; err != nil {
 		t.Fatalf("load schema version: %v", err)
 	}
@@ -275,13 +280,13 @@ func TestRunMigrations_SQLiteDownRestoresNullableColumns(t *testing.T) {
 		t.Fatalf("schema version = %d, want 1", version.Version)
 	}
 
-	for _, tc := range modelNullabilityColumns() {
-		notNull, err := sqliteColumnNotNull(db, tc.table, tc.column)
+	for _, tc := range migration.ModelNullabilityColumns() {
+		notNull, err := migration.SQLiteColumnNotNull(db, tc.Table, tc.Column)
 		if err != nil {
-			t.Fatalf("inspect %s.%s: %v", tc.table, tc.column, err)
+			t.Fatalf("inspect %s.%s: %v", tc.Table, tc.Column, err)
 		}
 		if notNull {
-			t.Fatalf("expected %s.%s to be nullable after down", tc.table, tc.column)
+			t.Fatalf("expected %s.%s to be nullable after down", tc.Table, tc.Column)
 		}
 	}
 }
@@ -290,7 +295,7 @@ func TestRunMigrations_SQLiteDownFromVersionThreeDropsPolicyTables(t *testing.T)
 	requireSQLiteFTS5(t)
 
 	dbPath := filepath.Join(t.TempDir(), "ccg.db")
-	db, err := openDB("sqlite", dbPath)
+	db, err := ccgdb.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -301,10 +306,10 @@ func TestRunMigrations_SQLiteDownFromVersionThreeDropsPolicyTables(t *testing.T)
 		}
 	}()
 
-	if err := runMigrations(db, "sqlite", ""); err != nil {
+	if err := migration.RunMigrations(db, "sqlite", ""); err != nil {
 		t.Fatalf("run migrations: %v", err)
 	}
-	migrator, _, err := newMigrator(db, "sqlite", "")
+	migrator, _, err := migration.NewMigrator(db, "sqlite", "")
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
 	}
@@ -312,7 +317,7 @@ func TestRunMigrations_SQLiteDownFromVersionThreeDropsPolicyTables(t *testing.T)
 		t.Fatalf("run down migration: %v", err)
 	}
 
-	var version migrateSchemaVersion
+	var version migration.MigrationSchemaVersion
 	if err := db.Table("schema_migrations").First(&version).Error; err != nil {
 		t.Fatalf("load schema version: %v", err)
 	}
@@ -342,7 +347,7 @@ func TestEnsureSchemaVersion_AutoMigratesLocalSQLiteDefault(t *testing.T) {
 	requireSQLiteFTS5(t)
 
 	dbPath := filepath.Join(t.TempDir(), "ccg.db")
-	db, err := openDB("sqlite", dbPath)
+	db, err := ccgdb.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -353,10 +358,10 @@ func TestEnsureSchemaVersion_AutoMigratesLocalSQLiteDefault(t *testing.T) {
 		}
 	}()
 
-	if err := ensureSchemaVersion(db, "sqlite", dbPath, ""); err != nil {
+	if err := migration.EnsureSchemaVersion(db, "sqlite", dbPath, ""); err != nil {
 		t.Fatalf("ensure schema version: %v", err)
 	}
-	if err := checkSchemaVersion(db); err != nil {
+	if err := migration.CheckSchemaVersion(db, migration.RequiredSchemaVersion); err != nil {
 		t.Fatalf("schema check after auto migrate: %v", err)
 	}
 	if !db.Migrator().HasTable(&model.Node{}) {
@@ -368,7 +373,7 @@ func TestEnsureSchemaVersion_ValidatesParityAfterVersionCheck(t *testing.T) {
 	requireSQLiteFTS5(t)
 
 	dbPath := filepath.Join(t.TempDir(), "ccg.db")
-	db, err := openDB("sqlite", dbPath)
+	db, err := ccgdb.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -379,14 +384,14 @@ func TestEnsureSchemaVersion_ValidatesParityAfterVersionCheck(t *testing.T) {
 		}
 	}()
 
-	if err := runMigrations(db, "sqlite", ""); err != nil {
+	if err := migration.RunMigrations(db, "sqlite", ""); err != nil {
 		t.Fatalf("run migrations: %v", err)
 	}
 	if err := db.Exec(`DROP TABLE search_fts`).Error; err != nil {
 		t.Fatalf("drop search_fts: %v", err)
 	}
 
-	err = ensureSchemaVersion(db, "sqlite", dbPath, "")
+	err = migration.EnsureSchemaVersion(db, "sqlite", dbPath, "")
 	if err == nil {
 		t.Fatal("expected parity failure after schema version check succeeds")
 	}
@@ -407,7 +412,7 @@ func TestEnsureSchemaVersion_LogsRuntimeSchemaPassAndFail(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(previousLogger) })
 
 	dbPath := filepath.Join(t.TempDir(), "ccg.db")
-	db, err := openDB("sqlite", dbPath)
+	db, err := ccgdb.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -418,7 +423,7 @@ func TestEnsureSchemaVersion_LogsRuntimeSchemaPassAndFail(t *testing.T) {
 		}
 	}()
 
-	if err := ensureSchemaVersion(db, "sqlite", dbPath, ""); err != nil {
+	if err := migration.EnsureSchemaVersion(db, "sqlite", dbPath, ""); err != nil {
 		t.Fatalf("ensure schema version: %v", err)
 	}
 	passLog := logs.String()
@@ -432,7 +437,7 @@ func TestEnsureSchemaVersion_LogsRuntimeSchemaPassAndFail(t *testing.T) {
 	if err := db.Exec(`DROP TABLE search_fts`).Error; err != nil {
 		t.Fatalf("drop search_fts: %v", err)
 	}
-	if err := ensureSchemaVersion(db, "sqlite", dbPath, ""); err == nil {
+	if err := migration.EnsureSchemaVersion(db, "sqlite", dbPath, ""); err == nil {
 		t.Fatal("expected parity failure")
 	}
 	failLog := logs.String()
@@ -444,7 +449,7 @@ func TestEnsureSchemaVersion_LogsRuntimeSchemaPassAndFail(t *testing.T) {
 }
 
 func TestRunMigrations_WrapsParityFailureWithRemediation(t *testing.T) {
-	db, err := openDB("sqlite", filepath.Join(t.TempDir(), "legacy-drift.db"))
+	db, err := ccgdb.Open("sqlite", filepath.Join(t.TempDir(), "legacy-drift.db"))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -461,11 +466,11 @@ func TestRunMigrations_WrapsParityFailureWithRemediation(t *testing.T) {
 	if err := db.AutoMigrate(&model.SearchDocument{}, &model.Flow{}, &model.FlowMembership{}, &model.SchemaVersion{}); err != nil {
 		t.Fatalf("migrate extra models: %v", err)
 	}
-	if err := db.Create(&model.SchemaVersion{Key: schemaVersionKey, Version: requiredSchemaVersion}).Error; err != nil {
+	if err := db.Create(&model.SchemaVersion{Key: migration.SchemaVersionKey, Version: migration.RequiredSchemaVersion}).Error; err != nil {
 		t.Fatalf("create legacy schema version: %v", err)
 	}
 
-	err = runMigrations(db, "sqlite", "")
+	err = migration.RunMigrations(db, "sqlite", "")
 	if err == nil {
 		t.Fatal("expected legacy baseline to fail with schema drift")
 	}
@@ -479,7 +484,7 @@ func TestRunMigrations_WrapsParityFailureWithRemediation(t *testing.T) {
 
 func TestEnsureSchemaVersion_DoesNotAutoMigrateCustomSQLiteDSN(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "custom.db")
-	db, err := openDB("sqlite", dbPath)
+	db, err := ccgdb.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -490,7 +495,7 @@ func TestEnsureSchemaVersion_DoesNotAutoMigrateCustomSQLiteDSN(t *testing.T) {
 		}
 	}()
 
-	if err := ensureSchemaVersion(db, "sqlite", dbPath, ""); err == nil {
+	if err := migration.EnsureSchemaVersion(db, "sqlite", dbPath, ""); err == nil {
 		t.Fatal("expected custom sqlite dsn to require explicit migration")
 	}
 	if db.Migrator().HasTable("schema_migrations") {
@@ -519,15 +524,15 @@ func TestShouldAutoMigrateLocalSQLite(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := shouldAutoMigrateLocalSQLite(tt.driver, tt.dsn); got != tt.want {
-				t.Fatalf("shouldAutoMigrateLocalSQLite(%q, %q) = %v, want %v", tt.driver, tt.dsn, got, tt.want)
+			if got := migration.ShouldAutoMigrateLocalSQLite(tt.driver, tt.dsn); got != tt.want {
+				t.Fatalf("migration.ShouldAutoMigrateLocalSQLite(%q, %q) = %v, want %v", tt.driver, tt.dsn, got, tt.want)
 			}
 		})
 	}
 }
 
 func TestMigrationSourceInfoFor(t *testing.T) {
-	embedded, err := migrationSourceInfoFor("sqlite", "")
+	embedded, err := migration.SourceInfoFor("sqlite", "")
 	if err != nil {
 		t.Fatalf("embedded source info: %v", err)
 	}
@@ -540,7 +545,7 @@ func TestMigrationSourceInfoFor(t *testing.T) {
 	if err := os.MkdirAll(sqliteDir, 0o755); err != nil {
 		t.Fatalf("create sqlite migration dir: %v", err)
 	}
-	external, err := migrationSourceInfoFor("sqlite", root)
+	external, err := migration.SourceInfoFor("sqlite", root)
 	if err != nil {
 		t.Fatalf("external source info: %v", err)
 	}
@@ -557,11 +562,11 @@ func TestCheckSchemaVersion_FailsOnIncompatibleVersion(t *testing.T) {
 	if err := db.Exec(`CREATE TABLE schema_migrations (version uint64, dirty bool)`).Error; err != nil {
 		t.Fatalf("create schema migrations table: %v", err)
 	}
-	if err := db.Exec(`INSERT INTO schema_migrations(version, dirty) VALUES (?, ?)`, requiredSchemaVersion-1, false).Error; err != nil {
+	if err := db.Exec(`INSERT INTO schema_migrations(version, dirty) VALUES (?, ?)`, migration.RequiredSchemaVersion-1, false).Error; err != nil {
 		t.Fatalf("insert old schema version: %v", err)
 	}
 
-	if err := checkSchemaVersion(db); err == nil {
+	if err := migration.CheckSchemaVersion(db, migration.RequiredSchemaVersion); err == nil {
 		t.Fatal("expected incompatible schema version error")
 	}
 }
@@ -574,11 +579,11 @@ func TestCheckSchemaVersion_FailsOnDirtyMigration(t *testing.T) {
 	if err := db.Exec(`CREATE TABLE schema_migrations (version uint64, dirty bool)`).Error; err != nil {
 		t.Fatalf("create schema migrations table: %v", err)
 	}
-	if err := db.Exec(`INSERT INTO schema_migrations(version, dirty) VALUES (?, ?)`, requiredSchemaVersion, true).Error; err != nil {
+	if err := db.Exec(`INSERT INTO schema_migrations(version, dirty) VALUES (?, ?)`, migration.RequiredSchemaVersion, true).Error; err != nil {
 		t.Fatalf("insert dirty schema version: %v", err)
 	}
 
-	if err := checkSchemaVersion(db); err == nil {
+	if err := migration.CheckSchemaVersion(db, migration.RequiredSchemaVersion); err == nil {
 		t.Fatal("expected dirty migration error")
 	}
 }
@@ -586,7 +591,7 @@ func TestCheckSchemaVersion_FailsOnDirtyMigration(t *testing.T) {
 func TestRunMigrations_BaselinesLegacySchemaVersion(t *testing.T) {
 	requireSQLiteFTS5(t)
 
-	db, err := openDB("sqlite", filepath.Join(t.TempDir(), "legacy.db"))
+	db, err := ccgdb.Open("sqlite", filepath.Join(t.TempDir(), "legacy.db"))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -597,7 +602,7 @@ func TestRunMigrations_BaselinesLegacySchemaVersion(t *testing.T) {
 		}
 	}()
 
-	if err := runMigrations(db, "sqlite", ""); err != nil {
+	if err := migration.RunMigrations(db, "sqlite", ""); err != nil {
 		t.Fatalf("prepare migrated schema: %v", err)
 	}
 	if err := db.Exec(`DELETE FROM schema_migrations`).Error; err != nil {
@@ -606,20 +611,20 @@ func TestRunMigrations_BaselinesLegacySchemaVersion(t *testing.T) {
 	if err := db.AutoMigrate(&model.SchemaVersion{}); err != nil {
 		t.Fatalf("migrate legacy schema version table: %v", err)
 	}
-	if err := db.Create(&model.SchemaVersion{Key: schemaVersionKey, Version: requiredSchemaVersion}).Error; err != nil {
+	if err := db.Create(&model.SchemaVersion{Key: migration.SchemaVersionKey, Version: migration.RequiredSchemaVersion}).Error; err != nil {
 		t.Fatalf("create legacy schema version: %v", err)
 	}
 
-	if err := runMigrations(db, "sqlite", ""); err != nil {
+	if err := migration.RunMigrations(db, "sqlite", ""); err != nil {
 		t.Fatalf("run migrations: %v", err)
 	}
-	if err := checkSchemaVersion(db); err != nil {
+	if err := migration.CheckSchemaVersion(db, migration.RequiredSchemaVersion); err != nil {
 		t.Fatalf("schema check after baseline: %v", err)
 	}
 }
 
 func TestRunMigrations_FailsLegacyBaselineWithSchemaDrift(t *testing.T) {
-	db, err := openDB("sqlite", filepath.Join(t.TempDir(), "legacy-drift.db"))
+	db, err := ccgdb.Open("sqlite", filepath.Join(t.TempDir(), "legacy-drift.db"))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -636,11 +641,11 @@ func TestRunMigrations_FailsLegacyBaselineWithSchemaDrift(t *testing.T) {
 	if err := db.AutoMigrate(&model.SearchDocument{}, &model.Flow{}, &model.FlowMembership{}, &model.SchemaVersion{}); err != nil {
 		t.Fatalf("migrate extra models: %v", err)
 	}
-	if err := db.Create(&model.SchemaVersion{Key: schemaVersionKey, Version: requiredSchemaVersion}).Error; err != nil {
+	if err := db.Create(&model.SchemaVersion{Key: migration.SchemaVersionKey, Version: migration.RequiredSchemaVersion}).Error; err != nil {
 		t.Fatalf("create legacy schema version: %v", err)
 	}
 
-	err = runMigrations(db, "sqlite", "")
+	err = migration.RunMigrations(db, "sqlite", "")
 	if err == nil {
 		t.Fatal("expected legacy baseline to fail with schema drift")
 	}
@@ -683,7 +688,7 @@ func TestMigrateLegacyDefaultNamespace_BackfillsEmptyNamespaceRows(t *testing.T)
 		t.Fatalf("insert flow membership: %v", err)
 	}
 
-	if err := migrateLegacyDefaultNamespace(db); err != nil {
+	if err := migration.MigrateLegacyDefaultNamespace(db); err != nil {
 		t.Fatalf("migrate legacy default namespace: %v", err)
 	}
 
@@ -727,7 +732,7 @@ func TestMigrateLegacyDefaultNamespace_FailsOnNodeCollision(t *testing.T) {
 		t.Fatalf("create default node: %v", err)
 	}
 
-	err := migrateLegacyDefaultNamespace(db)
+	err := migration.MigrateLegacyDefaultNamespace(db)
 	if err == nil {
 		t.Fatal("expected collision error")
 	}

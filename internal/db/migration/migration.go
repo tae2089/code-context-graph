@@ -16,10 +16,17 @@ import (
 	"github.com/golang-migrate/migrate/v4/source"
 	"github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/migrationfs"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/trace"
 	"gorm.io/gorm"
+)
+
+const (
+	RequiredSchemaVersion    = 3
+	SchemaVersionKey         = "schema"
+	LegacySchemaVersionTable = "ccg_schema_versions"
 )
 
 // LegacyBaselineFunc performs legacy-schema migration fallback during normal migration.
@@ -77,6 +84,82 @@ func Run(db *gorm.DB, driver, migrationsDir string, baseline LegacyBaselineFunc,
 		}
 	}
 	return nil
+}
+
+// RunMigrations executes application migrations with legacy schema baseline handling.
+func RunMigrations(db *gorm.DB, driver, migrationsDir string) error {
+	return Run(
+		db,
+		driver,
+		migrationsDir,
+		func(db *gorm.DB, migrator *gomigrate.Migrate, legacyDriver string) error {
+			_, err := BaselineLegacySchemaVersion(
+				db,
+				migrator,
+				legacyDriver,
+				SchemaVersionKey,
+				LegacySchemaVersionTable,
+				RequiredSchemaVersion,
+			)
+			return err
+		},
+		ValidateSchemaParity,
+	)
+}
+
+// EnsureSchemaVersion prepares the database for runtime use, including optional auto-migration.
+func EnsureSchemaVersion(db *gorm.DB, driver, dsn, migrationsDir string) error {
+	if err := CheckSchemaVersion(db, RequiredSchemaVersion); err == nil {
+		return ValidateSchemaForRuntime(db, driver, false)
+	}
+
+	if !ShouldAutoMigrateLocalSQLite(driver, dsn) || db.Migrator().HasTable("schema_migrations") {
+		if err := CheckSchemaVersion(db, RequiredSchemaVersion); err != nil {
+			return err
+		}
+		return ValidateSchemaForRuntime(db, driver, false)
+	}
+
+	if err := RunMigrations(db, driver, migrationsDir); err != nil {
+		return trace.Wrap(err, "auto-migrate local sqlite database")
+	}
+	if err := CheckSchemaVersion(db, RequiredSchemaVersion); err != nil {
+		return err
+	}
+	return ValidateSchemaForRuntime(db, driver, true)
+}
+
+// ValidateSchemaForRuntime validates schema parity and logs actionable results.
+func ValidateSchemaForRuntime(db *gorm.DB, driver string, autoMigrated bool) error {
+	if err := ValidateSchemaParity(db, driver); err != nil {
+		wrapped := ActionableSchemaParityError(err)
+		slog.Error("database runtime schema check failed", "driver", driver, "required_version", RequiredSchemaVersion, "auto_migrated", autoMigrated, trace.SlogError(wrapped))
+		return wrapped
+	}
+	slog.Info("database runtime schema check passed", "driver", driver, "required_version", RequiredSchemaVersion, "auto_migrated", autoMigrated)
+	return nil
+}
+
+// ShouldAutoMigrateLocalSQLite determines whether SQLite should auto-migrate for this DSN.
+func ShouldAutoMigrateLocalSQLite(driver, dsn string) bool {
+	if driver != "sqlite" {
+		return false
+	}
+	path := strings.TrimSpace(dsn)
+	if path == "" {
+		return true
+	}
+	path = strings.TrimPrefix(path, "file:")
+	if idx := strings.Index(path, "?"); idx >= 0 {
+		path = path[:idx]
+	}
+	if path == ":memory:" || filepath.Base(path) != "ccg.db" {
+		return false
+	}
+	if filepath.IsAbs(path) {
+		return true
+	}
+	return filepath.Clean(path) == "ccg.db"
 }
 
 // NewMigrator creates a new golang-migrate instance.
@@ -304,6 +387,116 @@ func ModelNullabilityColumns() []SchemaColumn {
 		{Table: "ccg_postprocess_run_logs", Column: "skipped_steps"},
 		{Table: "ccg_postprocess_run_logs", Column: "created_at"},
 	}
+}
+
+// MigrateLegacyDefaultNamespace backfills legacy empty namespace rows to the default namespace.
+func MigrateLegacyDefaultNamespace(db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := failOnLegacyNamespaceCollisions(tx); err != nil {
+			return err
+		}
+
+		updates := []struct {
+			model any
+		}{
+			{model: &model.Node{}},
+			{model: &model.Edge{}},
+			{model: &model.SearchDocument{}},
+			{model: &model.Community{}},
+			{model: &model.Flow{}},
+			{model: &model.FlowMembership{}},
+		}
+
+		for _, update := range updates {
+			if err := tx.Model(update.model).Where("namespace = ?", "").Update("namespace", ctxns.DefaultNamespace).Error; err != nil {
+				return trace.Wrap(err, "backfill namespace")
+			}
+		}
+
+		return nil
+	})
+}
+
+func failOnLegacyNamespaceCollisions(db *gorm.DB) error {
+	type nodeCollision struct {
+		QualifiedName string
+		FilePath      string
+		StartLine     int
+	}
+
+	var nodeCollisions []nodeCollision
+	if err := db.Raw(`
+		SELECT legacy.qualified_name, legacy.file_path, legacy.start_line
+		FROM nodes AS legacy
+		INNER JOIN nodes AS current
+			ON current.namespace = ?
+			AND legacy.namespace = ''
+			AND current.qualified_name = legacy.qualified_name
+			AND current.file_path = legacy.file_path
+			AND current.start_line = legacy.start_line
+	`, ctxns.DefaultNamespace).Scan(&nodeCollisions).Error; err != nil {
+		return trace.Wrap(err, "check node namespace collisions")
+	}
+	if len(nodeCollisions) > 0 {
+		collision := nodeCollisions[0]
+		return fmt.Errorf("legacy namespace collision for node %s (%s:%d)", collision.QualifiedName, collision.FilePath, collision.StartLine)
+	}
+
+	type edgeCollision struct {
+		Fingerprint string
+	}
+	var edgeCollisions []edgeCollision
+	if err := db.Raw(`
+		SELECT legacy.fingerprint
+		FROM edges AS legacy
+		INNER JOIN edges AS current
+			ON current.namespace = ?
+			AND legacy.namespace = ''
+			AND current.fingerprint = legacy.fingerprint
+	`, ctxns.DefaultNamespace).Scan(&edgeCollisions).Error; err != nil {
+		return trace.Wrap(err, "check edge namespace collisions")
+	}
+	if len(edgeCollisions) > 0 {
+		return fmt.Errorf("legacy namespace collision for edge %s", edgeCollisions[0].Fingerprint)
+	}
+
+	type searchDocCollision struct {
+		NodeID uint
+	}
+	var searchDocCollisions []searchDocCollision
+	if err := db.Raw(`
+		SELECT legacy.node_id
+		FROM search_documents AS legacy
+		INNER JOIN search_documents AS current
+			ON current.namespace = ?
+			AND legacy.namespace = ''
+			AND current.node_id = legacy.node_id
+	`, ctxns.DefaultNamespace).Scan(&searchDocCollisions).Error; err != nil {
+		return trace.Wrap(err, "check search document namespace collisions")
+	}
+	if len(searchDocCollisions) > 0 {
+		return fmt.Errorf("legacy namespace collision for search document node_id=%d", searchDocCollisions[0].NodeID)
+	}
+
+	type communityCollision struct {
+		Key string
+	}
+	var communityCollisions []communityCollision
+	if err := db.Raw(`
+		SELECT legacy.key
+		FROM communities AS legacy
+		INNER JOIN communities AS current
+			ON current.namespace = ?
+			AND legacy.namespace = ''
+			AND current.key = legacy.key
+	`, ctxns.DefaultNamespace).Scan(&communityCollisions).Error; err != nil {
+		return trace.Wrap(err, "check community namespace collisions")
+	}
+	if len(communityCollisions) > 0 {
+		return fmt.Errorf("legacy namespace collision for community %s", communityCollisions[0].Key)
+	}
+
+	return nil
 }
 
 func validateSQLiteSchemaParity(db *gorm.DB) error {

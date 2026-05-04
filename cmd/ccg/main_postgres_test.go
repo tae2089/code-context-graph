@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	ccgdb "github.com/tae2089/code-context-graph/internal/db"
+	"github.com/tae2089/code-context-graph/internal/db/migration"
 	"gorm.io/gorm"
 )
 
@@ -16,7 +18,7 @@ func setupPostgresMigrationDB(t *testing.T) *gorm.DB {
 	if dsn == "" {
 		dsn = "host=localhost user=postgres password=postgres dbname=ccg_test port=5432 sslmode=disable"
 	}
-	db, err := openDB("postgres", dsn)
+	db, err := ccgdb.Open("postgres", dsn)
 	if err != nil {
 		t.Skipf("PostgreSQL not available: %v", err)
 	}
@@ -45,10 +47,10 @@ func setupPostgresMigrationDB(t *testing.T) *gorm.DB {
 func TestRunMigrations_PostgresSmoke(t *testing.T) {
 	db := setupPostgresMigrationDB(t)
 
-	if err := runMigrations(db, "postgres", ""); err != nil {
+	if err := migration.RunMigrations(db, "postgres", ""); err != nil {
 		t.Fatalf("run postgres migrations: %v", err)
 	}
-	if err := checkSchemaVersion(db); err != nil {
+	if err := migration.CheckSchemaVersion(db, migration.RequiredSchemaVersion); err != nil {
 		t.Fatalf("check schema version: %v", err)
 	}
 
@@ -64,29 +66,29 @@ func TestRunMigrations_PostgresSmoke(t *testing.T) {
 	if indexCount != 1 {
 		t.Fatalf("expected search_documents tsv GIN index, got %d", indexCount)
 	}
-	for _, tc := range modelNullabilityColumns() {
-		notNull, err := postgresColumnNotNull(db, tc.table, tc.column)
+	for _, tc := range migration.ModelNullabilityColumns() {
+		notNull, err := migration.PostgresColumnNotNull(db, tc.Table, tc.Column)
 		if err != nil {
-			t.Fatalf("inspect %s.%s: %v", tc.table, tc.column, err)
+			t.Fatalf("inspect %s.%s: %v", tc.Table, tc.Column, err)
 		}
 		if !notNull {
-			t.Fatalf("expected %s.%s to be NOT NULL", tc.table, tc.column)
+			t.Fatalf("expected %s.%s to be NOT NULL", tc.Table, tc.Column)
 		}
 	}
 	for _, tc := range []struct {
-		table  string
-		column string
+		Table  string
+		Column string
 		want   string
 	}{
-		{table: "ccg_postprocess_run_logs", column: "failed_steps", want: "jsonb"},
-		{table: "ccg_postprocess_run_logs", column: "skipped_steps", want: "jsonb"},
+		{Table: "ccg_postprocess_run_logs", Column: "failed_steps", want: "jsonb"},
+		{Table: "ccg_postprocess_run_logs", Column: "skipped_steps", want: "jsonb"},
 	} {
-		got, err := postgresColumnDataType(db, tc.table, tc.column)
+		got, err := migration.PostgresColumnDataType(db, tc.Table, tc.Column)
 		if err != nil {
-			t.Fatalf("inspect %s.%s type: %v", tc.table, tc.column, err)
+			t.Fatalf("inspect %s.%s type: %v", tc.Table, tc.Column, err)
 		}
 		if got != tc.want {
-			t.Fatalf("expected %s.%s type %q, got %q", tc.table, tc.column, tc.want, got)
+			t.Fatalf("expected %s.%s type %q, got %q", tc.Table, tc.Column, tc.want, got)
 		}
 	}
 }
@@ -94,7 +96,7 @@ func TestRunMigrations_PostgresSmoke(t *testing.T) {
 func TestRunMigrations_PostgresBackfillsVersionOneNulls(t *testing.T) {
 	db := setupPostgresMigrationDB(t)
 
-	migrator, _, err := newMigrator(db, "postgres", "")
+	migrator, _, err := migration.NewMigrator(db, "postgres", "")
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
 	}
@@ -121,7 +123,7 @@ func TestRunMigrations_PostgresBackfillsVersionOneNulls(t *testing.T) {
 		t.Fatalf("insert null flow membership: %v", err)
 	}
 
-	if err := runMigrations(db, "postgres", ""); err != nil {
+	if err := migration.RunMigrations(db, "postgres", ""); err != nil {
 		t.Fatalf("run migrations: %v", err)
 	}
 
@@ -144,10 +146,10 @@ func TestRunMigrations_PostgresBackfillsVersionOneNulls(t *testing.T) {
 func TestRunMigrations_PostgresDownRestoresNullableColumns(t *testing.T) {
 	db := setupPostgresMigrationDB(t)
 
-	if err := runMigrations(db, "postgres", ""); err != nil {
+	if err := migration.RunMigrations(db, "postgres", ""); err != nil {
 		t.Fatalf("run postgres migrations: %v", err)
 	}
-	migrator, _, err := newMigrator(db, "postgres", "")
+	migrator, _, err := migration.NewMigrator(db, "postgres", "")
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
 	}
@@ -163,13 +165,13 @@ func TestRunMigrations_PostgresDownRestoresNullableColumns(t *testing.T) {
 		t.Fatalf("schema version = %d, want 1", version.Version)
 	}
 
-	for _, tc := range modelNullabilityColumns() {
-		notNull, err := postgresColumnNotNull(db, tc.table, tc.column)
+	for _, tc := range migration.ModelNullabilityColumns() {
+		notNull, err := migration.PostgresColumnNotNull(db, tc.Table, tc.Column)
 		if err != nil {
-			t.Fatalf("inspect %s.%s: %v", tc.table, tc.column, err)
+			t.Fatalf("inspect %s.%s: %v", tc.Table, tc.Column, err)
 		}
 		if notNull {
-			t.Fatalf("expected %s.%s to be nullable after down", tc.table, tc.column)
+			t.Fatalf("expected %s.%s to be nullable after down", tc.Table, tc.Column)
 		}
 	}
 }
@@ -177,10 +179,10 @@ func TestRunMigrations_PostgresDownRestoresNullableColumns(t *testing.T) {
 func TestRunMigrations_PostgresDownFromVersionThreeDropsPolicyTables(t *testing.T) {
 	db := setupPostgresMigrationDB(t)
 
-	if err := runMigrations(db, "postgres", ""); err != nil {
+	if err := migration.RunMigrations(db, "postgres", ""); err != nil {
 		t.Fatalf("run postgres migrations: %v", err)
 	}
-	migrator, _, err := newMigrator(db, "postgres", "")
+	migrator, _, err := migration.NewMigrator(db, "postgres", "")
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
 	}
