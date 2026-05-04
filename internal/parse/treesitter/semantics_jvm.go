@@ -392,6 +392,8 @@ func collectJVMMembersFromText(src string, pkgName string, imports map[string]st
 	return members
 }
 
+// qualifyJVMReceiverTypeName resolves a JVM type name through imports before falling back to the package.
+// @intent keep receiver rewriting and hierarchy edges on the same qualified type names.
 func qualifyJVMReceiverTypeName(typeName string, pkgName string, imports map[string]string, blocked map[string]struct{}, hasWildcard bool) string {
 	typeName = normalizeReceiverTypeName(typeName)
 	if typeName == "" {
@@ -412,6 +414,8 @@ func qualifyJVMReceiverTypeName(typeName string, pkgName string, imports map[str
 	return qualifyTypeName(pkgName, typeName)
 }
 
+// collectJVMImportMetadata extracts import aliases, blocked names, and wildcard import state.
+// @intent supply receiver and hierarchy qualification with the import context needed for conservative rewriting.
 func collectJVMImportMetadata(root *sitter.Node, content []byte, allowedTypes map[string]struct{}) (map[string]string, map[string]struct{}, bool) {
 	if root == nil {
 		return nil, nil, false
@@ -460,6 +464,8 @@ func collectJVMImportMetadata(root *sitter.Node, content []byte, allowedTypes ma
 	return imports, blocked, hasWildcard
 }
 
+// jvmReceiverChain extracts the receiver selector chain from a JVM call node.
+// @intent recover member-call hops from the AST when raw callee text is not enough.
 func jvmReceiverChain(callNode *sitter.Node, content []byte) []string {
 	if callNode == nil {
 		return nil

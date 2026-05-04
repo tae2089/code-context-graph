@@ -73,6 +73,8 @@ type Syncer struct {
 	logger  *slog.Logger
 }
 
+// parsedSyncFile holds parsed output and file metadata for one incremental sync input.
+// @intent carry parsed nodes, edges, comments, and language state through the sync pipeline.
 type parsedSyncFile struct {
 	filePath   string
 	info       FileInfo

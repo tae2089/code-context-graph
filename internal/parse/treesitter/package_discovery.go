@@ -372,11 +372,15 @@ type nodeTSConfig struct {
 	} `json:"compilerOptions"`
 }
 
+// nodePackageScope stores the root directory and base import path for one Node package scope.
+// @intent map repository files back to the package node that should own their imports.
 type nodePackageScope struct {
 	rootDir    string
 	importPath string
 }
 
+// nodeAliasScope stores one tsconfig alias scope and its import-path prefixes.
+// @intent resolve aliased Node imports against the package node scope they belong to.
 type nodeAliasScope struct {
 	scopeDir     string
 	targetPrefix string

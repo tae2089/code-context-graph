@@ -7,6 +7,8 @@ import (
 
 const inheritsFingerprintV2Prefix = "inherits:v2:"
 
+// inheritsFingerprintV2 stores the versioned JSON payload for inheritance fingerprints.
+// @intent keep child, file, and parent data in one stable payload for edge resolution.
 type inheritsFingerprintV2 struct {
 	Child  string `json:"child"`
 	File   string `json:"file"`

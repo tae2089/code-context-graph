@@ -67,6 +67,8 @@ func rustImplTraitName(def *sitter.Node, content []byte) string {
 	return rustNormalizeTypeName(trait.Content(content))
 }
 
+// rustQualifiedCallRewriter rewrites Rust qualified and UFCS calls using collected imports.
+// @intent preserve trait and concrete type information in Rust call rewriting without broadening matching.
 type rustQualifiedCallRewriter struct {
 	imports map[string]string
 }

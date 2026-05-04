@@ -19,6 +19,8 @@ type TypeScriptSemantics struct{}
 // @intent emit extends relationships for JavaScript classes using the same heritage parsing model as TypeScript.
 type JavaScriptSemantics struct{}
 
+// explicitReceiverTypeCallRewriter rewrites typed JS/TS receiver chains into qualified calls.
+// @intent preserve conservative member-call rewriting when each hop is proven by explicit type annotations.
 type explicitReceiverTypeCallRewriter struct {
 	bindings map[string]string
 	members  map[string]map[string]string
@@ -73,6 +75,8 @@ func (TypeScriptSemantics) AdditionalEdges(ctx SemanticContext) []model.Edge {
 	return edges
 }
 
+// qualifyTypeScriptHeritageTypeName resolves a heritage type name through imports or the current file.
+// @intent keep TypeScript extends and implements targets consistently qualified before edge creation.
 func qualifyTypeScriptHeritageTypeName(ctx SemanticContext, typeName string, imports map[string]string) string {
 	if typeName == "" {
 		return typeName
@@ -83,6 +87,8 @@ func qualifyTypeScriptHeritageTypeName(ctx SemanticContext, typeName string, imp
 	return qualifySameFileTypeName(ctx, typeName)
 }
 
+// qualifySameFileTypeName qualifies a type name when the declaration lives in the same source file.
+// @intent keep same-file TypeScript references aligned with the file's package context.
 func qualifySameFileTypeName(ctx SemanticContext, typeName string) string {
 	if typeName == "" || ctx.Package == "" {
 		return typeName
@@ -101,6 +107,8 @@ func qualifySameFileTypeName(ctx SemanticContext, typeName string) string {
 	return typeName
 }
 
+// typeScriptImportPackages maps imported symbol aliases to their package names from source text.
+// @intent resolve TypeScript imports into package context for heritage qualification.
 func typeScriptImportPackages(content []byte, importPackages map[string]string) map[string]string {
 	if len(importPackages) == 0 {
 		return nil
@@ -357,6 +365,8 @@ func memberChainFromNode(n *sitter.Node, content []byte) []string {
 	return selectorChainFromText(n.Content(content))
 }
 
+// selectorChainFromText splits selector text into ordered path segments.
+// @intent share one normalized selector chain representation across call rewriting helpers.
 func selectorChainFromText(raw string) []string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -379,6 +389,8 @@ func selectorChainFromText(raw string) []string {
 	return parts
 }
 
+// selectorPrefix returns the leading selector segment from raw text.
+// @intent support conservative receiver qualification by identifying the base selector quickly.
 func selectorPrefix(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
