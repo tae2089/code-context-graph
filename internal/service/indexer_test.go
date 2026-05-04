@@ -3000,8 +3000,8 @@ func TestUpdateGraphWithoutTx_DoesNotDeleteForcedFilesDuringNormalSync(t *testin
 	if _, err := svc.Update(ctx, UpdateOptions{BuildOptions: BuildOptions{Dir: tmpDir, SkipSearchRebuild: true}, Syncer: syncer}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	if got := len(syncer.calls); got != 2 {
-		t.Fatalf("expected normal sync plus forced sync, got %d calls", got)
+	if got := len(syncer.calls); got != 3 {
+		t.Fatalf("expected normal sync, delete sync, and forced sync, got %d calls", got)
 	}
 	first := syncer.calls[0]
 	if _, ok := first.files["source.go"]; ok {
@@ -3017,11 +3017,54 @@ func TestUpdateGraphWithoutTx_DoesNotDeleteForcedFilesDuringNormalSync(t *testin
 		t.Fatalf("expected deleted.go to remain in normal sync existingFiles, got %v", first.existingFiles)
 	}
 	second := syncer.calls[1]
-	if _, ok := second.files["source.go"]; !ok {
-		t.Fatalf("expected forced sync to include source.go, got %v", sortedIncrementalFileKeys(second.files))
+	if len(second.files) != 0 {
+		t.Fatalf("expected delete sync to receive no files, got %v", sortedIncrementalFileKeys(second.files))
 	}
-	if len(second.existingFiles) != 0 {
-		t.Fatalf("expected forced sync to receive nil existingFiles, got %v", second.existingFiles)
+	if len(second.existingFiles) != 1 || second.existingFiles[0] != "deleted.go" {
+		t.Fatalf("expected delete sync to receive only deleted.go, got %v", second.existingFiles)
+	}
+	third := syncer.calls[2]
+	if _, ok := third.files["source.go"]; !ok {
+		t.Fatalf("expected forced sync to include source.go, got %v", sortedIncrementalFileKeys(third.files))
+	}
+	if len(third.existingFiles) != 0 {
+		t.Fatalf("expected forced sync to receive nil existingFiles, got %v", third.existingFiles)
+	}
+}
+
+func TestUpdateGraphWithoutTx_ReplaysSpoolBatchesWithoutLoadingAllFilesIntoOneSyncCall(t *testing.T) {
+	ctx := context.Background()
+	svc := &GraphService{
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+	tmpDir := t.TempDir()
+	for i := range buildFlushFileBatchSize + 1 {
+		name := fmt.Sprintf("file-%03d.go", i)
+		content := fmt.Sprintf("package sample\n\nfunc F%03d() {}\n", i)
+		if err := os.WriteFile(filepath.Join(tmpDir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	syncer := &recordingIncrementalSyncer{result: &incremental.SyncStats{}}
+	if _, err := svc.Update(ctx, UpdateOptions{BuildOptions: BuildOptions{Dir: tmpDir, SkipSearchRebuild: true}, Syncer: syncer}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if got := len(syncer.calls); got != 2 {
+		t.Fatalf("expected two non-transactional sync batches, got %d", got)
+	}
+	if got := len(syncer.calls[0].files); got != buildFlushFileBatchSize {
+		t.Fatalf("first batch files = %d, want %d", got, buildFlushFileBatchSize)
+	}
+	if got := len(syncer.calls[1].files); got != 1 {
+		t.Fatalf("second batch files = %d, want 1", got)
+	}
+	if len(syncer.calls[0].existingFiles) != 0 {
+		t.Fatalf("first batch existingFiles = %v, want nil", syncer.calls[0].existingFiles)
+	}
+	if len(syncer.calls[1].existingFiles) != 0 {
+		t.Fatalf("second batch existingFiles = %v, want nil", syncer.calls[1].existingFiles)
 	}
 }
 

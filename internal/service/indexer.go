@@ -861,7 +861,13 @@ func (s *GraphService) Update(ctx context.Context, opts UpdateOptions) (*increme
 	ctx = s.withImportPackageContext(ctx, packages)
 
 	if _, ok := opts.Syncer.(transactionalIncrementalSyncer); !ok || s.Store == nil {
-		return s.updateGraphWithoutTx(ctx, absDir, opts, packages)
+		spool, err := s.prepareUpdateSpool(ctx, absDir, opts)
+		if err != nil {
+			return nil, err
+		}
+		defer spool.cleanup(s.logger())
+		spool.packages = packages
+		return s.updateGraphWithoutTx(ctx, absDir, opts, packages, spool)
 	}
 
 	spool, err := s.prepareUpdateSpool(ctx, absDir, opts)
@@ -1149,58 +1155,8 @@ func (u *updateSpool) cleanup(logger *slog.Logger) {
 	}
 }
 
-// @intent run incremental sync without a shared DB transaction when the configured syncer or store cannot provide one.
-func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, opts UpdateOptions, packages map[string]languagePackageInfo) (*incremental.SyncStats, error) {
-	files := make(map[string]incremental.FileInfo)
-	currentHashes := make(map[string]string)
-	var totalParsedBytes int64
-	unreadable := unreadableFileSummary{}
-	if err := walkMatchingFiles(ctx, absDir, opts.BuildOptions, func(path, relPath string) error {
-		if _, ok := s.parserForExt(strings.ToLower(filepath.Ext(path))); !ok {
-			return nil
-		}
-
-		info, err := os.Stat(path)
-		if err != nil {
-			unreadable.add(relPath)
-			s.logger().Warn("skip unreadable update file", "file", relPath, "error", err)
-			return nil
-		}
-		if err := CheckParseFileSize(relPath, info.Size(), opts.MaxFileBytes); err != nil {
-			return err
-		}
-		if err := CheckTotalParsedBytes(relPath, totalParsedBytes, info.Size(), opts.MaxTotalParsedBytes); err != nil {
-			return err
-		}
-
-		content, err := os.ReadFile(path)
-		if err != nil {
-			unreadable.add(relPath)
-			s.logger().Warn("skip unreadable update file", "file", relPath, "error", err)
-			return nil
-		}
-		totalParsedBytes += int64(len(content))
-		if err := CheckTotalParsedBytes(relPath, 0, totalParsedBytes, opts.MaxTotalParsedBytes); err != nil {
-			return err
-		}
-		hash := sha256.Sum256(content)
-		hashString := hex.EncodeToString(hash[:])
-		files[relPath] = incremental.FileInfo{
-			Hash:    hashString,
-			Content: content,
-		}
-		currentHashes[relPath] = hashString
-		return nil
-	}); err != nil {
-		return nil, trace.Wrap(err, "walk update directory")
-	}
-	unreadable.log(s.logger(), "update")
-	if opts.FailOnUnreadable {
-		if errUnreadable := unreadable.asError(); errUnreadable != nil {
-			return nil, errUnreadable
-		}
-	}
-
+// @intent run incremental sync without a shared DB transaction while replaying spooled file batches to bound memory.
+func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, opts UpdateOptions, packages map[string]languagePackageInfo, spool *updateSpool) (*incremental.SyncStats, error) {
 	existingFiles, existingNodesByFile, err := existingGraphFileState(ctx, s.DB)
 	if err != nil {
 		return nil, trace.Wrap(err, "load existing graph files")
@@ -1208,30 +1164,65 @@ func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, 
 	if !opts.Replace && len(opts.IncludePaths) > 0 {
 		existingFiles, existingNodesByFile = filterExistingStateByInclude(existingFiles, existingNodesByFile, opts.IncludePaths)
 	}
-	forceFiles, err := forceReparseFiles(ctx, s.DB, existingNodesByFile, currentHashes)
+	forceFiles, err := forceReparseFiles(ctx, s.DB, existingNodesByFile, spool.currentHashes)
 	if err != nil {
 		return nil, trace.Wrap(err, "load edge source files for changed graph")
 	}
+	spool.forceFiles = forceFiles
 	if s.Store != nil {
 		if err := upsertPackageNodes(ctx, s.Store, packages); err != nil {
 			return nil, trace.Wrap(err, "upsert package nodes")
 		}
 	}
 
-	normalFiles, forcedFiles := splitForcedFiles(files, forceFiles)
+	stats := &incremental.SyncStats{}
 	normalExistingFiles := existingFilesExcluding(existingFiles, forceFiles)
-	stats, err := opts.Syncer.SyncWithExisting(ctx, normalFiles, normalExistingFiles)
-	if err != nil {
-		return nil, trace.Wrap(err, "incremental sync")
+	passedExistingFiles := false
+	for _, path := range spool.records {
+		record, err := spool.readRecord(path)
+		if err != nil {
+			return nil, err
+		}
+		normalFiles, _ := splitForcedFiles(record.Files, spool.forceFiles)
+		if len(normalFiles) == 0 {
+			continue
+		}
+		batchExistingFiles := []string(nil)
+		if !passedExistingFiles {
+			batchExistingFiles = normalExistingFiles
+			passedExistingFiles = true
+		}
+		batchStats, err := opts.Syncer.SyncWithExisting(ctx, normalFiles, batchExistingFiles)
+		if err != nil {
+			return nil, trace.Wrap(err, "incremental sync")
+		}
+		addSyncStats(stats, batchStats)
 	}
-	if len(forcedFiles) > 0 {
-		forcedStats, err := opts.Syncer.SyncWithExisting(ctx, forcedFiles, nil)
+	deletedFiles := existingFilesMissingFromSet(spool.currentFiles, existingFiles)
+	if len(deletedFiles) > 0 && passedExistingFiles {
+		batchStats, err := opts.Syncer.SyncWithExisting(ctx, nil, deletedFiles)
+		if err != nil {
+			return nil, trace.Wrap(err, "incremental delete sync")
+		}
+		addSyncStats(stats, batchStats)
+	}
+	for _, path := range spool.records {
+		record, err := spool.readRecord(path)
+		if err != nil {
+			return nil, err
+		}
+		_, forcedFiles := splitForcedFiles(record.Files, spool.forceFiles)
+		if len(forcedFiles) == 0 {
+			continue
+		}
+		batchStats, err := opts.Syncer.SyncWithExisting(ctx, forcedFiles, nil)
 		if err != nil {
 			return nil, trace.Wrap(err, "incremental force sync")
 		}
-		addSyncStats(stats, forcedStats)
+		addSyncStats(stats, batchStats)
 	}
-	if err := s.refreshPackageSemanticEdges(ctx, s.Store, s.DB, absDir, packages, affectedUpdateFiles(currentHashes, existingNodesByFile, forceFiles), existingFilesMissingFrom(files, existingFiles)); err != nil {
+	changedFiles := affectedUpdateFiles(spool.currentHashes, existingNodesByFile, spool.forceFiles)
+	if err := s.refreshPackageSemanticEdges(ctx, s.Store, s.DB, absDir, packages, changedFiles, deletedFiles); err != nil {
 		return nil, trace.Wrap(err, "refresh package semantic edges")
 	}
 	if s.Store != nil {
@@ -1240,7 +1231,7 @@ func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, 
 		}
 	}
 	if !opts.SkipSearchRebuild {
-		nodeIDs, err := affectedNodeIDsForUpdate(ctx, s.DB, existingNodesByFile, affectedUpdateFiles(currentHashes, existingNodesByFile, forceFiles), existingFilesMissingFrom(files, existingFiles))
+		nodeIDs, err := affectedNodeIDsForUpdate(ctx, s.DB, existingNodesByFile, changedFiles, deletedFiles)
 		if err != nil {
 			return nil, trace.Wrap(err, "load affected search nodes")
 		}
@@ -1277,6 +1268,19 @@ func existingFilesMissingFrom(files map[string]incremental.FileInfo, existingFil
 	return deleted
 }
 
+// @intent detect deleted paths from the spool snapshot without rebuilding a full in-memory FileInfo map.
+func existingFilesMissingFromSet(currentFiles map[string]struct{}, existingFiles []string) []string {
+	deleted := make([]string, 0)
+	for _, fp := range existingFiles {
+		if _, ok := currentFiles[fp]; !ok {
+			deleted = append(deleted, fp)
+		}
+	}
+	return deleted
+}
+
+// existingFilesExcluding filters out paths excluded from the current sync pass.
+// @intent keep incremental sync from revisiting files the caller already ruled out.
 func existingFilesExcluding(existingFiles []string, exclude map[string]struct{}) []string {
 	if len(existingFiles) == 0 {
 		return nil
