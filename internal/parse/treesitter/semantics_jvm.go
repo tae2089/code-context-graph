@@ -22,18 +22,22 @@ type KotlinSemantics struct{}
 // CallRewriter returns a conservative Java receiver-type rewriter.
 // @intent rewrite member-call chains only when local/field declarations prove the receiver types.
 func (JavaSemantics) CallRewriter(ctx SemanticContext) CallRewriter {
+	imports, blocked, hasWildcard := collectJVMImportMetadata(ctx.Root, ctx.Content, map[string]struct{}{"import_declaration": {}})
 	return explicitReceiverTypeCallRewriter{
-		bindings: collectJavaReceiverBindings(ctx.Root, ctx.Content),
-		members:  collectJavaMemberTypes(ctx.Root, ctx.Content),
+		bindings: collectJavaReceiverBindings(ctx.Root, ctx.Content, ctx.Package, imports, blocked, hasWildcard),
+		members:  collectJavaMemberTypes(ctx.Root, ctx.Content, ctx.Package, imports, blocked, hasWildcard),
+		chain:    jvmReceiverChain,
 	}
 }
 
 // CallRewriter returns a conservative Kotlin receiver-type rewriter.
 // @intent rewrite member-call chains only when explicit property/value types prove the receiver chain.
 func (KotlinSemantics) CallRewriter(ctx SemanticContext) CallRewriter {
+	imports, blocked, hasWildcard := collectJVMImportMetadata(ctx.Root, ctx.Content, map[string]struct{}{"import_header": {}})
 	return explicitReceiverTypeCallRewriter{
-		bindings: collectKotlinReceiverBindings(ctx.Root, ctx.Content),
-		members:  collectKotlinMemberTypes(ctx.Root, ctx.Content),
+		bindings: collectKotlinReceiverBindings(ctx.Root, ctx.Content, ctx.Package, imports, blocked, hasWildcard),
+		members:  collectKotlinMemberTypes(ctx.Root, ctx.Content, ctx.Package, imports, blocked, hasWildcard),
+		chain:    jvmReceiverChain,
 	}
 }
 
@@ -281,14 +285,14 @@ func qualifyImportedTypeName(typeName, pkgName string, imports map[string]string
 
 // collectJavaReceiverBindings extracts explicit Java local and field receiver type bindings from source text.
 // @intent enable conservative receiver call rewriting without requiring full Java type checking.
-func collectJavaReceiverBindings(root *sitter.Node, content []byte) map[string]string {
+func collectJavaReceiverBindings(root *sitter.Node, content []byte, pkgName string, imports map[string]string, blocked map[string]struct{}, hasWildcard bool) map[string]string {
 	_ = root
 	bindings := make(map[string]string)
 	for _, match := range regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_\.]*)\s+([A-Za-z_][A-Za-z0-9_]*)\b`).FindAllStringSubmatch(string(content), -1) {
 		if len(match) < 3 {
 			continue
 		}
-		typeName := normalizeReceiverTypeName(match[1])
+		typeName := qualifyJVMReceiverTypeName(match[1], pkgName, imports, blocked, hasWildcard)
 		if isLooseReceiverType(typeName) {
 			continue
 		}
@@ -302,9 +306,9 @@ func collectJavaReceiverBindings(root *sitter.Node, content []byte) map[string]s
 
 // collectJavaMemberTypes collects explicit Java member types keyed by owning type.
 // @intent prove intermediate receiver hops before rewriting Java member-call chains.
-func collectJavaMemberTypes(root *sitter.Node, content []byte) map[string]map[string]string {
+func collectJavaMemberTypes(root *sitter.Node, content []byte, pkgName string, imports map[string]string, blocked map[string]struct{}, hasWildcard bool) map[string]map[string]string {
 	_ = root
-	members := collectJVMMembersFromText(string(content))
+	members := collectJVMMembersFromText(string(content), pkgName, imports, blocked, hasWildcard)
 	if len(members) == 0 {
 		return nil
 	}
@@ -313,14 +317,14 @@ func collectJavaMemberTypes(root *sitter.Node, content []byte) map[string]map[st
 
 // collectKotlinReceiverBindings extracts explicit Kotlin receiver type bindings from source text.
 // @intent support conservative Kotlin receiver call rewriting without smart-cast inference.
-func collectKotlinReceiverBindings(root *sitter.Node, content []byte) map[string]string {
+func collectKotlinReceiverBindings(root *sitter.Node, content []byte, pkgName string, imports map[string]string, blocked map[string]struct{}, hasWildcard bool) map[string]string {
 	_ = root
 	bindings := make(map[string]string)
 	for _, match := range regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_\.]*)`).FindAllStringSubmatch(string(content), -1) {
 		if len(match) < 3 {
 			continue
 		}
-		typeName := normalizeReceiverTypeName(match[2])
+		typeName := qualifyJVMReceiverTypeName(match[2], pkgName, imports, blocked, hasWildcard)
 		if isLooseReceiverType(typeName) {
 			continue
 		}
@@ -334,9 +338,9 @@ func collectKotlinReceiverBindings(root *sitter.Node, content []byte) map[string
 
 // collectKotlinMemberTypes collects explicit Kotlin member types keyed by owning type.
 // @intent prove receiver-member chains before rewriting Kotlin call selectors.
-func collectKotlinMemberTypes(root *sitter.Node, content []byte) map[string]map[string]string {
+func collectKotlinMemberTypes(root *sitter.Node, content []byte, pkgName string, imports map[string]string, blocked map[string]struct{}, hasWildcard bool) map[string]map[string]string {
 	_ = root
-	members := collectJVMMembersFromText(string(content))
+	members := collectJVMMembersFromText(string(content), pkgName, imports, blocked, hasWildcard)
 	if len(members) == 0 {
 		return nil
 	}
@@ -345,7 +349,7 @@ func collectKotlinMemberTypes(root *sitter.Node, content []byte) map[string]map[
 
 // collectJVMMembersFromText scans JVM source text for explicitly typed fields and properties.
 // @intent share one conservative member-type extractor across Java and Kotlin receiver rewriting.
-func collectJVMMembersFromText(src string) map[string]map[string]string {
+func collectJVMMembersFromText(src string, pkgName string, imports map[string]string, blocked map[string]struct{}, hasWildcard bool) map[string]map[string]string {
 	lines := strings.Split(src, "\n")
 	members := make(map[string]map[string]string)
 	owner := ""
@@ -356,7 +360,7 @@ func collectJVMMembersFromText(src string) map[string]map[string]string {
 		trimmed := strings.TrimSpace(line)
 		if owner == "" {
 			if match := ownerPattern.FindStringSubmatch(trimmed); len(match) == 2 {
-				owner = match[1]
+				owner = qualifyTypeName(pkgName, match[1])
 				depth = strings.Count(line, "{") - strings.Count(line, "}")
 				continue
 			}
@@ -365,11 +369,11 @@ func collectJVMMembersFromText(src string) map[string]map[string]string {
 			if match := fieldPattern.FindStringSubmatch(trimmed); len(match) > 0 {
 				var name, typeName string
 				if len(match) >= 3 && match[1] != "" && match[2] != "" {
-					typeName = normalizeReceiverTypeName(match[1])
+					typeName = qualifyJVMReceiverTypeName(match[1], pkgName, imports, blocked, hasWildcard)
 					name = match[2]
 				} else if len(match) >= 5 {
 					name = match[3]
-					typeName = normalizeReceiverTypeName(match[4])
+					typeName = qualifyJVMReceiverTypeName(match[4], pkgName, imports, blocked, hasWildcard)
 				}
 				if name != "" && !isLooseReceiverType(typeName) {
 					if members[owner] == nil {
@@ -386,6 +390,96 @@ func collectJVMMembersFromText(src string) map[string]map[string]string {
 		}
 	}
 	return members
+}
+
+func qualifyJVMReceiverTypeName(typeName string, pkgName string, imports map[string]string, blocked map[string]struct{}, hasWildcard bool) string {
+	typeName = normalizeReceiverTypeName(typeName)
+	if typeName == "" {
+		return ""
+	}
+	if strings.Contains(typeName, ".") {
+		return typeName
+	}
+	if _, ok := blocked[typeName]; ok {
+		return ""
+	}
+	if qualified := qualifyImportedTypeName(typeName, "", imports); qualified != typeName {
+		return qualified
+	}
+	if hasWildcard {
+		return ""
+	}
+	return qualifyTypeName(pkgName, typeName)
+}
+
+func collectJVMImportMetadata(root *sitter.Node, content []byte, allowedTypes map[string]struct{}) (map[string]string, map[string]struct{}, bool) {
+	if root == nil {
+		return nil, nil, false
+	}
+	imports := make(map[string]string)
+	blocked := make(map[string]struct{})
+	hasWildcard := false
+	var walk func(*sitter.Node)
+	walk = func(n *sitter.Node) {
+		if n == nil {
+			return
+		}
+		if _, ok := allowedTypes[n.Type()]; ok {
+			raw := strings.TrimSpace(strings.TrimSuffix(n.Content(content), ";"))
+			raw = strings.TrimPrefix(raw, "import ")
+			raw = strings.TrimSpace(raw)
+			if strings.HasPrefix(raw, "static ") {
+				return
+			}
+			if before, after, ok := strings.Cut(raw, " as "); ok {
+				alias := strings.TrimSpace(after)
+				if alias != "" {
+					blocked[alias] = struct{}{}
+				}
+				raw = strings.TrimSpace(before)
+			}
+			if strings.HasSuffix(raw, ".*") {
+				hasWildcard = true
+				return
+			}
+			if raw != "" {
+				imports[pathBaseName(raw, ".")] = raw
+			}
+		}
+		for i := 0; i < int(n.ChildCount()); i++ {
+			walk(n.Child(i))
+		}
+	}
+	walk(root)
+	if len(imports) == 0 {
+		imports = nil
+	}
+	if len(blocked) == 0 {
+		blocked = nil
+	}
+	return imports, blocked, hasWildcard
+}
+
+func jvmReceiverChain(callNode *sitter.Node, content []byte) []string {
+	if callNode == nil {
+		return nil
+	}
+	if fnNode := callNode.ChildByFieldName("function"); fnNode != nil {
+		return memberChainFromNode(fnNode, content)
+	}
+	if objectNode := callNode.ChildByFieldName("object"); objectNode != nil {
+		chain := memberChainFromNode(objectNode, content)
+		if nameNode := callNode.ChildByFieldName("name"); nameNode != nil {
+			name := selectorPrefix(nameNode.Content(content))
+			if name != "" {
+				return append(chain, name)
+			}
+		}
+		if len(chain) > 0 {
+			return chain
+		}
+	}
+	return selectorChainFromText(callNode.Content(content))
 }
 
 // importAliasesBySimpleName maps imported simple type names to their fully qualified import paths.
@@ -423,6 +517,10 @@ func normalizeImportedTypePath(raw string) string {
 	raw = strings.TrimSpace(raw)
 	raw = strings.TrimPrefix(raw, "import ")
 	raw = strings.TrimPrefix(raw, "package ")
+	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(raw, "static ") {
+		return ""
+	}
 	if before, _, ok := strings.Cut(raw, ";"); ok {
 		raw = strings.TrimSpace(before)
 	}

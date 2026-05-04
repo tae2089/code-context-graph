@@ -303,12 +303,16 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 	// import dedup: "importPath:line" → true
 	importSeen := make(map[string]bool)
 	semantics := semanticsOrDefault(w.spec)
-	callRewriter := callRewriterOrDefault(semantics, SemanticContext{
-		Root:           root,
-		Content:        content,
-		FilePath:       filePath,
-		ImportPackages: importPackages,
-	})
+	buildCallRewriter := func(pkg string) CallRewriter {
+		return callRewriterOrDefault(semantics, SemanticContext{
+			Root:           root,
+			Content:        content,
+			FilePath:       filePath,
+			Package:        pkg,
+			ImportPackages: importPackages,
+		})
+	}
+	callRewriter := buildCallRewriter(pkgName)
 
 	edgeSeen := make(map[string]struct{})
 	interfaceSeen := make(map[string]struct{})
@@ -358,6 +362,7 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 
 		if packageNode != nil {
 			pkgName = packageNode.Content(content)
+			callRewriter = buildCallRewriter(pkgName)
 		}
 
 		if defNode != nil && nameNode != nil {

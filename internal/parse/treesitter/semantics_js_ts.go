@@ -86,6 +86,7 @@ func (TypeScriptSemantics) CallRewriter(ctx SemanticContext) CallRewriter {
 	return explicitReceiverTypeCallRewriter{
 		bindings: collectTypeScriptReceiverBindings(ctx.Root, ctx.Content),
 		members:  collectTypeScriptMemberTypes(ctx.Root, ctx.Content),
+		chain:    typescriptReceiverChain,
 	}
 }
 
@@ -98,12 +99,15 @@ func (JavaScriptSemantics) ImplementedTypes(ctx DefinitionContext) []string {
 // RewriteCall rewrites a member-call chain when explicit type annotations prove every hop.
 // @intent preserve conservative receiver dispatch by upgrading only typed call chains into owner-qualified selectors.
 func (r explicitReceiverTypeCallRewriter) RewriteCall(ctx CallRewriteContext) string {
-	if ctx.Node == nil || len(r.bindings) == 0 || r.chain == nil {
-		// continue below with callee-based parsing
+	if len(r.bindings) == 0 {
+		return ctx.Callee
 	}
-	chain := callChainFromCallee(ctx.Callee)
-	if len(chain) == 0 && r.chain != nil {
+	var chain []string
+	if r.chain != nil {
 		chain = r.chain(ctx.Node, ctx.Content)
+	}
+	if len(chain) == 0 {
+		chain = callChainFromCallee(ctx.Callee)
 	}
 	if len(chain) < 2 {
 		return ctx.Callee
@@ -188,19 +192,7 @@ var typedIdentifierPattern = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\s*:\
 // callChainFromCallee splits a raw callee string into selector segments.
 // @intent share one normalized chain representation across language-specific receiver rewriters.
 func callChainFromCallee(callee string) []string {
-	callee = strings.TrimSpace(callee)
-	callee = strings.TrimSuffix(callee, "()")
-	if callee == "" || !strings.Contains(callee, ".") {
-		return nil
-	}
-	parts := strings.Split(callee, ".")
-	for i := range parts {
-		parts[i] = strings.TrimSpace(parts[i])
-		if parts[i] == "" {
-			return nil
-		}
-	}
-	return parts
+	return selectorChainFromText(callee)
 }
 
 // collectTypeScriptMembersFromText scans TypeScript source text for explicitly typed members.
@@ -289,8 +281,16 @@ func memberChainFromNode(n *sitter.Node, content []byte) []string {
 	if n == nil {
 		return nil
 	}
-	raw := strings.TrimSpace(n.Content(content))
+	return selectorChainFromText(n.Content(content))
+}
+
+func selectorChainFromText(raw string) []string {
+	raw = strings.TrimSpace(raw)
 	if raw == "" {
+		return nil
+	}
+	raw = selectorPrefix(raw)
+	if raw == "" || !strings.Contains(raw, ".") {
 		return nil
 	}
 	parts := strings.Split(raw, ".")
@@ -304,6 +304,20 @@ func memberChainFromNode(n *sitter.Node, content []byte) []string {
 		}
 	}
 	return parts
+}
+
+func selectorPrefix(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	for i, r := range raw {
+		switch r {
+		case '(', '{', ' ', '\t', '\n', '\r':
+			return strings.TrimSpace(raw[:i])
+		}
+	}
+	return raw
 }
 
 // normalizeReceiverTypeName strips suffix syntax that would destabilize receiver type matching.
