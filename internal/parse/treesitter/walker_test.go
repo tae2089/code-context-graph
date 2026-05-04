@@ -2056,6 +2056,46 @@ impl Display for Foo {}
 	t.Fatalf("expected normalized imported Rust trait implements edge, got %#v", implEdges)
 }
 
+func TestWalker_ImplTrait_Rust_NormalizesGroupedImportedTraitPath(t *testing.T) {
+	src := `use std::fmt::{Debug, Display};
+
+struct Foo {}
+impl Display for Foo {}
+`
+	w := NewWalker(RustSpec)
+	_, edges, err := w.Parse("main.rs", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
+	for _, e := range implEdges {
+		if e.Fingerprint == "implements:main.rs:Foo:std::fmt::Display" {
+			return
+		}
+	}
+	t.Fatalf("expected grouped import Rust trait implements edge, got %#v", implEdges)
+}
+
+func TestWalker_ImplTrait_Rust_NormalizesAliasedTraitPath(t *testing.T) {
+	src := `use std::fmt::Display as FmtDisplay;
+
+struct Foo {}
+impl FmtDisplay for Foo {}
+`
+	w := NewWalker(RustSpec)
+	_, edges, err := w.Parse("main.rs", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
+	for _, e := range implEdges {
+		if e.Fingerprint == "implements:main.rs:Foo:std::fmt::Display" {
+			return
+		}
+	}
+	t.Fatalf("expected aliased import Rust trait implements edge, got %#v", implEdges)
+}
+
 func TestWalker_ImplTrait_Rust_StripsGenerics(t *testing.T) {
 	src := `trait Display<T> {}
 

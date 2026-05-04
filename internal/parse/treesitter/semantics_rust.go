@@ -106,10 +106,7 @@ func rustImportAliases(root *sitter.Node, content []byte) map[string]string {
 			return
 		}
 		if n.Type() == "use_declaration" {
-			path := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(n.Content(content), "use "), ";"))
-			if path != "" && !strings.HasSuffix(path, "::*") {
-				aliases[pathBaseName(path, "::")] = path
-			}
+			rustCollectImportAliases(aliases, n.Content(content))
 		}
 		for i := 0; i < int(n.ChildCount()); i++ {
 			walk(n.Child(i))
@@ -120,4 +117,114 @@ func rustImportAliases(root *sitter.Node, content []byte) map[string]string {
 		return nil
 	}
 	return aliases
+}
+
+func rustCollectImportAliases(aliases map[string]string, raw string) {
+	for _, path := range rustExpandUseDeclaration(raw) {
+		if path == "" || strings.HasSuffix(path, "::*") {
+			continue
+		}
+		alias, qualified := rustImportAliasEntry(path)
+		if alias == "" || qualified == "" {
+			continue
+		}
+		aliases[alias] = qualified
+	}
+}
+
+func rustExpandUseDeclaration(raw string) []string {
+	raw = rustTrimUseDeclaration(raw)
+	if raw == "" {
+		return nil
+	}
+	open := strings.Index(raw, "{")
+	if open < 0 {
+		return []string{strings.TrimSpace(raw)}
+	}
+	close := rustMatchingBrace(raw, open)
+	if close < 0 {
+		return []string{strings.TrimSpace(raw)}
+	}
+	prefix := strings.TrimSuffix(strings.TrimSpace(raw[:open]), "::")
+	inner := raw[open+1 : close]
+	parts := rustSplitTopLevel(inner, ',')
+	var expanded []string
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if part == "self" {
+			if prefix != "" {
+				expanded = append(expanded, prefix)
+			}
+			continue
+		}
+		candidate := part
+		if prefix != "" {
+			candidate = prefix + "::" + part
+		}
+		expanded = append(expanded, rustExpandUseDeclaration(candidate)...)
+	}
+	return expanded
+}
+
+func rustTrimUseDeclaration(raw string) string {
+	raw = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(raw), ";"))
+	if idx := strings.Index(raw, "use "); idx >= 0 {
+		return strings.TrimSpace(raw[idx+len("use "):])
+	}
+	return raw
+}
+
+func rustImportAliasEntry(raw string) (string, string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ""
+	}
+	if before, after, ok := strings.Cut(raw, " as "); ok {
+		qualified := strings.TrimSpace(before)
+		alias := strings.TrimSpace(after)
+		return alias, qualified
+	}
+	return pathBaseName(raw, "::"), raw
+}
+
+func rustMatchingBrace(raw string, open int) int {
+	depth := 0
+	for i := open; i < len(raw); i++ {
+		switch raw[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func rustSplitTopLevel(raw string, sep byte) []string {
+	var parts []string
+	depth := 0
+	start := 0
+	for i := 0; i < len(raw); i++ {
+		switch raw[i] {
+		case '{':
+			depth++
+		case '}':
+			if depth > 0 {
+				depth--
+			}
+		case sep:
+			if depth == 0 {
+				parts = append(parts, strings.TrimSpace(raw[start:i]))
+				start = i + 1
+			}
+		}
+	}
+	parts = append(parts, strings.TrimSpace(raw[start:]))
+	return parts
 }
