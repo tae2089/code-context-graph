@@ -789,6 +789,94 @@ func TestUpdate_RemovesStaleCrossFileGoStructuralImplements(t *testing.T) {
 	}
 }
 
+func TestUpdate_RemovesStalePackageSemanticEdgesWhenAnchorChanges(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	walker := treesitter.NewWalker(treesitter.GoSpec)
+	svc := &GraphService{Store: st, DB: db, Walkers: map[string]*treesitter.Walker{".go": walker}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	mustWrite := func(rel, content string) {
+		full := filepath.Join(tmpDir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustWrite("go.mod", "module github.com/example/project\n\ngo 1.25.0\n")
+	mustWrite("mainpkg/b_iface.go", "package mainpkg\n\ntype Writer interface {\n\tWrite([]byte) error\n}\n")
+	mustWrite("mainpkg/c_impl.go", "package mainpkg\n\ntype FileWriter struct{}\n\nfunc (FileWriter) Write(data []byte) error {\n\treturn nil\n}\n")
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	impl, err := st.GetNode(ctx, "mainpkg.FileWriter")
+	if err != nil || impl == nil {
+		t.Fatalf("GetNode impl after build: node=%v err=%v", impl, err)
+	}
+	iface, err := st.GetNode(ctx, "mainpkg.Writer")
+	if err != nil || iface == nil {
+		t.Fatalf("GetNode iface after build: node=%v err=%v", iface, err)
+	}
+	edges, err := st.GetEdgesFrom(ctx, impl.ID)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom after build: %v", err)
+	}
+	var initial []model.Edge
+	for _, edge := range edges {
+		if edge.Kind == model.EdgeKindImplements && edge.ToNodeID == iface.ID {
+			initial = append(initial, edge)
+		}
+	}
+	if len(initial) != 1 {
+		t.Fatalf("expected exactly one initial package semantic edge, got %+v", initial)
+	}
+	if got, want := initial[0].FilePath, filepath.ToSlash(filepath.Join("mainpkg", "b_iface.go")); got != want {
+		t.Fatalf("initial anchor mismatch: got %q want %q", got, want)
+	}
+
+	mustWrite("mainpkg/a_helper.go", "package mainpkg\n\ntype AnchorHelper struct{}\n")
+	syncer := incremental.NewWithRegistry(st, map[string]incremental.Parser{".go": walker}, incremental.WithLogger(slog.Default()))
+	if _, err := svc.Update(ctx, UpdateOptions{BuildOptions: BuildOptions{Dir: tmpDir}, Syncer: syncer}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	impl, err = st.GetNode(ctx, "mainpkg.FileWriter")
+	if err != nil || impl == nil {
+		t.Fatalf("GetNode impl after update: node=%v err=%v", impl, err)
+	}
+	iface, err = st.GetNode(ctx, "mainpkg.Writer")
+	if err != nil || iface == nil {
+		t.Fatalf("GetNode iface after update: node=%v err=%v", iface, err)
+	}
+	edges, err = st.GetEdgesFrom(ctx, impl.ID)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom after update: %v", err)
+	}
+	var implEdges []model.Edge
+	for _, edge := range edges {
+		if edge.Kind == model.EdgeKindImplements && edge.ToNodeID == iface.ID {
+			implEdges = append(implEdges, edge)
+		}
+	}
+	if len(implEdges) != 1 {
+		t.Fatalf("expected exactly one implements edge after anchor change, got %+v", implEdges)
+	}
+	if got, want := implEdges[0].FilePath, filepath.ToSlash(filepath.Join("mainpkg", "a_helper.go")); got != want {
+		t.Fatalf("updated anchor mismatch: got %q want %q", got, want)
+	}
+}
+
 func TestBuild_SuppressesRepoLocalPackageClauseCorrectionOnConflict(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {

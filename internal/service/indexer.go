@@ -1712,7 +1712,7 @@ func (s *GraphService) collectAffectedPackageSemanticBatches(ctx context.Context
 		if len(files) == 0 {
 			continue
 		}
-		anchors = append(anchors, files[0])
+		anchors = append(anchors, files...)
 		for _, filePath := range files {
 			nodes := nodesByFile[filePath]
 			if len(nodes) == 0 {
