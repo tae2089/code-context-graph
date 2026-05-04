@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 )
 
@@ -91,8 +90,7 @@ func runParserUpdate(ctx context.Context, opts RunOptions) error {
 				return fmt.Errorf("parse %s: %w", srcFile, err)
 			}
 			actualNodes := NormalizeNodes(nodes, langDir)
-			nodeMap := buildNodeMap(nodes)
-			actualEdges := NormalizeEdges(edges, nodeMap)
+			actualEdges := NormalizeEdges(edges, nodes)
 
 			golden := GoldenCorpus{
 				Language: lang,
@@ -145,8 +143,7 @@ func runParserCompare(ctx context.Context, opts RunOptions, report *Report) erro
 			}
 
 			actualNodes := NormalizeNodes(nodes, langDir)
-			nodeMap := buildNodeMap(nodes)
-			actualEdges := NormalizeEdges(edges, nodeMap)
+			actualEdges := NormalizeEdges(edges, nodes)
 
 			allExpectedNodes = append(allExpectedNodes, NodeKeys(golden.Nodes)...)
 			allActualNodes = append(allActualNodes, NodeKeys(actualNodes)...)
@@ -184,15 +181,6 @@ func runSearchEval(_ context.Context, opts RunOptions, report *Report) error {
 	}
 	report.Search = &sr
 	return nil
-}
-
-// @intent map parsed node IDs to qualified names so edge normalization can avoid DB lookups.
-func buildNodeMap(nodes []model.Node) map[uint]string {
-	m := make(map[uint]string, len(nodes))
-	for _, n := range nodes {
-		m[n.ID] = n.QualifiedName
-	}
-	return m
 }
 
 // @intent centralize file reads used by parser evaluation so tests can characterize failures consistently.
@@ -233,6 +221,11 @@ func writeTable(w io.Writer, report *Report) error {
 		fmt.Fprintf(w, "R@5:     %.4f\n", report.Search.AvgRecallAt5)
 		fmt.Fprintf(w, "MRR:     %.4f\n", report.Search.AvgMRR)
 		fmt.Fprintf(w, "nDCG@5:  %.4f\n", report.Search.AvgNDCGAt5)
+		if report.Search.NegativeQueries > 0 {
+			fmt.Fprintf(w, "Negatives: %d\n", report.Search.NegativeQueries)
+			fmt.Fprintf(w, "FP:        %d\n", report.Search.NegativeFalsePositives)
+			fmt.Fprintf(w, "Pass Rate: %.4f\n", report.Search.NegativePassRate)
+		}
 	}
 
 	return nil

@@ -198,14 +198,14 @@
 
 ### 테스트
 
-- [ ] `TestUpdateCommand_DeletesRemovedFiles` — `ccg update`가 현재 DB의 기존 파일 목록을 기준으로 삭제된 파일의 노드/엣지/search 문서를 정리
-- [ ] `TestSyncWithExisting_RestoresAnnotationsForModifiedFile` — incremental sync가 수정 파일의 annotation을 full build와 동일하게 복구
-- [ ] `TestBuildOrUpdateGraph_IncrementalIncludePaths_DefaultsToReplace` — MCP incremental + `include_paths` 기본 동작이 기존 replace semantics를 유지함을 명시
-- [ ] `TestBuildOrUpdateGraph_IncrementalIncludePaths_ReplaceFalsePreservesOutOfScopeFiles` — `replace=false`일 때 include 범위 밖 기존 그래프를 유지
-- [ ] `TestDeleteWorkspace_PurgesNamespaceGraphRAGAndCache` — workspace 삭제 시 namespace graph, workspace RAG index, MCP cache가 함께 정리
-- [ ] `TestBuilder_WriteIndex_UsesUniqueTempFileForConcurrentBuilds` — 같은 index dir 동시 빌드에서도 temp file 경합 없이 안전하게 완료
-- [ ] `TestDeleteGraph_LeavesCommunityParentsUntilExplicitCleanup` — 현재 `DeleteGraph`가 community parent row는 직접 정리하지 않는 동작을 characterization으로 고정
-- [ ] `TestDeleteGraph_LeavesFlowParentsUntilExplicitCleanup` — 현재 `DeleteGraph`가 flow parent row는 직접 정리하지 않는 동작을 characterization으로 고정
+- [x] `TestUpdateCommand_DeletesRemovedFiles` — `ccg update`가 현재 DB의 기존 파일 목록을 기준으로 삭제된 파일의 노드/엣지/search 문서를 정리
+- [x] `TestSyncWithExisting_RestoresAnnotationsForModifiedFile` — incremental sync가 수정 파일의 annotation을 full build와 동일하게 복구
+- [x] `TestBuildOrUpdateGraph_IncrementalIncludePaths_DefaultsToReplace` — MCP incremental + `include_paths` 기본 동작이 기존 replace semantics를 유지함을 명시
+- [x] `TestBuildOrUpdateGraph_IncrementalIncludePaths_ReplaceFalsePreservesOutOfScopeFiles` — `replace=false`일 때 include 범위 밖 기존 그래프를 유지
+- [x] `TestDeleteWorkspace_PurgesNamespaceGraphRAGAndCache` — workspace 삭제 시 namespace graph, workspace RAG index, MCP cache가 함께 정리
+- [x] `TestBuilder_WriteIndex_UsesUniqueTempFileForConcurrentBuilds` — 같은 index dir 동시 빌드에서도 temp file 경합 없이 안전하게 완료
+- [x] `TestDeleteGraph_LeavesCommunityParentsUntilExplicitCleanup` — 현재 `DeleteGraph`가 community parent row는 직접 정리하지 않는 동작을 characterization으로 고정
+- [x] `TestDeleteGraph_LeavesFlowParentsUntilExplicitCleanup` — 현재 `DeleteGraph`가 flow parent row는 직접 정리하지 않는 동작을 characterization으로 고정
 
 ### 구현
 
@@ -243,14 +243,14 @@
 
 ### 테스트
 
-- [ ] `TestAutoMigrate_CreatesPostprocessPolicyTables` — GORM test path가 policy state/log 테이블을 생성
-- [ ] `TestRunMigrations_SqliteAppliesPolicyTables` — versioned sqlite migration이 policy 테이블을 만들고 schema version을 올림
-- [ ] `TestPolicyEngine_DecideDefaultsToDegraded` — 명시적 요청이 없고 이력이 없으면 degraded를 선택
-- [ ] `TestPolicyEngine_DecideEscalatesAfterThreeFailures` — 같은 namespace+tool에서 최근 3회 연속 실패면 fail_closed로 승격
-- [ ] `TestPolicyStore_RecordAndUpsertState` — 실행 로그 append와 최신 state upsert가 저장됨
-- [ ] `TestBuildOrUpdateGraph_UsesEnginePolicyWhenCallerOmitsHint` — caller가 `postprocess_policy`를 안 넘기면 엔진 결정을 사용
-- [ ] `TestBuildOrUpdateGraph_CallerPolicyWinsOverEngine` — caller가 명시한 `postprocess_policy`가 엔진보다 우선
-- [ ] `TestRunPostprocess_RecordsPolicyDecision` — run_postprocess가 policy decision과 결과를 기록
+- [x] `TestAutoMigrate_CreatesPostprocessPolicyTables` — GORM test path가 policy state/log 테이블을 생성
+- [x] `TestRunMigrations_SqliteAppliesPolicyTables` — versioned sqlite migration이 policy 테이블을 만들고 schema version을 올림
+- [x] `TestPolicyEngine_DecideDefaultsToDegraded` — 명시적 요청이 없고 이력이 없으면 degraded를 선택
+- [x] `TestPolicyEngine_DecideEscalatesAfterThreeFailures` — 같은 namespace+tool에서 최근 3회 연속 실패면 fail_closed로 승격
+- [x] `TestPolicyStore_RecordAndUpsertState` — 실행 로그 append와 최신 state upsert가 저장됨
+- [x] `TestBuildOrUpdateGraph_UsesEnginePolicyWhenCallerOmitsHint` — caller가 `postprocess_policy`를 안 넘기면 엔진 결정을 사용
+- [x] `TestBuildOrUpdateGraph_CallerPolicyWinsOverEngine` — caller가 명시한 `postprocess_policy`가 엔진보다 우선
+- [x] `TestRunPostprocess_RecordsPolicyDecision` — run_postprocess가 policy decision과 결과를 기록
 
 ### 구현
 
@@ -263,3 +263,196 @@
 - `internal/mcp/deps.go` — PolicyEngine dependency 추가
 - `internal/mcp/handler_parse.go` — build/run_postprocess 경로에 policy 결정/기록 연결
 - `cmd/ccg/main.go` — migration schema version bump, schema parity, engine wiring 추가
+
+---
+
+## Step 15: Parser eval edge endpoint normalization collapse
+
+### 테스트
+
+- [x] `TestNormalizeEdges_PreservesParserStageEndpoints` — parser-stage nodes/edges의 ID==0 상태에서 fingerprint + node context로 from/to 엔드포인트가 서로 collapse되지 않음
+- [x] `TestNormalizeEdges_ImportsFromUsesFilePathAndFullTarget` — imports_from는 From을 file path로 유지하고 fingerprint의 전체 target(import path with colon 포함)을 To로 복원
+- [x] `TestNormalizeEdges_TestedByUsesTestQNameAsFrom` — tested_by는 From을 test qualified name으로, To를 production callee로 복원
+- [x] `TestNormalizeEdges_ImplementsUsesFingerprintEndpoints` — implements는 fallback owner가 아니라 fingerprint에서 From=impl, To=iface를 복원
+- [x] `TestNormalizeEdges_CallsUsesLastColonSafeTargetAndNumericLine` — calls는 target에 콜론이 있어도 마지막 콜론 기준으로 QN와 trailing line을 복원
+- [x] `TestNormalizeEdges_ContainsUsesFullTargetAfterFilePathPrefix` — contains는 filePath prefix 뒤의 전체 QN을 그대로 복원
+
+### 구현
+
+- `internal/eval/parser.go` — parser-stage fingerprint 형식에서 edge endpoint를 복원하는 최소 정상화 로직 추가
+- `internal/eval/runner.go` — ID 기반 맵 대신 parser node 컨텍스트를 NormalizeEdges에 전달
+
+---
+
+## Step 16: Parser eval inherits edge normalization
+
+### 테스트
+
+- [x] `TestNormalizeEdges_InheritsUsesFingerprintEndpoints` — inherits는 v2 fingerprint helper의 colon-safe parent QN을 From/To로 복원
+
+### 구현
+
+- `internal/eval/parser.go` — `EdgeKindInherits` case를 추가해 fingerprint endpoint를 복원
+
+---
+
+## Step 17: Search query corpus Java case expansion
+
+### 테스트
+
+- [x] `TestLoadQueryCorpus_IncludesJavaCase` — `testdata/eval/queries.json`에 Java query case가 포함되어 총 6개가 되고 `class:UserService@Sample.java`가 relevant에 존재
+- [x] `TestLoadQueryCorpus_IncludesRustCase` — `testdata/eval/queries.json`에 Rust query case가 포함되어 총 7개가 되고 `function:get_user@sample.rs`가 relevant에 존재
+- [x] `TestLoadQueryCorpus_UsesFixtureAlignedQueryTexts` — Python/TypeScript/Rust query text와 relevant ID가 실제 fixture와 일치함을 확인
+- [x] `TestLoadQueryCorpus_IncludesJavaScriptCase` — `testdata/eval/queries.json`에 JavaScript query case가 포함되어 총 8개가 되고 `function:getUser@sample.js`가 relevant에 존재
+- [x] `TestLoadQueryCorpus_IncludesKotlinCase` — `testdata/eval/queries.json`에 Kotlin query case가 포함되어 총 9개가 되고 `function:getUser@Sample.kt`가 relevant에 존재
+- [x] `TestLoadQueryCorpus_IncludesPHPCase` — `testdata/eval/queries.json`에 PHP query case가 포함되어 총 10개가 되고 `function:getUser@sample.php`가 relevant에 존재
+- [x] `TestLoadQueryCorpus_CoversRemainingLanguages` — `testdata/eval/queries.json`에 Ruby/C/C++/Lua query cases가 추가되어 총 14개가 되고 네 언어의 relevant ID가 모두 존재
+
+### 구현
+
+- `testdata/eval/queries.json` — Ruby/C/C++/Lua query cases 4개 추가
+
+---
+
+## Step 18: Eval workflow script
+
+### 테스트
+
+- [x] `test_eval_script_exists_and_is_executable` — `scripts/eval.sh`가 존재하고 실행 가능해야 함
+- [x] `test_eval_default_db_path_uses_temp_dir` — 기본 DB 경로 helper가 temp dir 아래 `eval.db`를 반환해야 함
+- [x] `test_eval_build_and_run_cmds_use_shared_db_namespace_and_corpus` — migrate/build/eval command helper가 같은 DB/namespace/corpus를 사용해야 함
+- [x] `test_eval_main_invokes_build_then_eval_in_order` — main이 migrate 후 corpus build, 같은 DB로 eval을 실행해야 함
+
+### 구현
+
+- `scripts/eval.sh` — eval corpus build + eval 실행 wrapper
+- `scripts/eval_test.sh` — shell helper/function tests
+- `guide/eval.md` — script usage 문서화
+
+---
+
+## Step 19: Search eval result key normalization
+
+### 테스트
+
+- [x] `TestNodeToKeys_UsesBaseFilePathForEvalMatching` — search eval key가 corpus relevant ID와 맞도록 `FilePath`의 basename만 사용해야 함
+
+### 구현
+
+- `internal/cli/eval.go` — `nodeToKeys()`가 `filepath.Base(n.FilePath)`를 사용하도록 조정
+- `internal/cli/eval_test.go` — result key normalization test 추가
+
+---
+
+## Step 20: Search FTS content path-token enrichment
+
+### 테스트
+
+- [x] `TestBuildSearchDocuments_IndexesFileBaseAndLanguageTokens` — search document content가 파일 basename과 확장자/언어 alias 토큰을 포함해야 함
+
+### 구현
+
+- `internal/service/indexer.go` — `buildSearchContent()` helper 추출 및 file path token append
+- `internal/service/indexer_test.go` — path token indexing test 추가
+
+---
+
+## Step 21: Exact-name match promotion for bare identifier queries
+
+### 테스트
+
+- [x] `TestExtractExactNameToken` — 단일 identifier query만 exact-name promotion 대상으로 추출해야 함
+- [x] `TestSQLiteFTS_Query_PromotesExactNameMatch` — bare identifier query에서 exact `Name` match가 top-1로 승격되어야 함
+- [x] `TestPromoteExactNameMatch_DoesNotPromoteMultiTokenQuery` — multi-token query에는 exact-name promotion을 적용하지 않아야 함
+- [x] `TestPromoteExactNameMatch_DoesNotPromoteSubstringMatch` — substring match는 승격하면 안 됨
+- [x] `TestPromoteExactNameMatch_PreservesStableOrderAmongNonMatches` — 승격 대상이 없으면 기존 순서를 유지해야 함
+
+### 구현
+
+- `internal/store/search/sanitize.go` — `extractExactNameToken()` / `promoteExactNameMatch()` 추가
+- `internal/store/search/sqlite.go` — SQLite query result post-processing에 exact-name promotion 적용
+- `internal/store/search/postgres.go` — Postgres query result post-processing에 exact-name promotion 적용
+- `internal/store/search/sanitize_test.go` — promotion 경계조건 unit test 추가
+
+---
+
+## Step 22: Multi-relevant corpus contract for ambiguous bare-name queries
+
+### 테스트
+
+- [x] `TestLoadQueryCorpus_BareNameQueriesAreMultiRelevant` — bare identifier query는 동일 이름이 여러 언어에 존재하면 multi-relevant로 취급해야 함
+
+### 구현
+
+- `testdata/eval/queries.json` — `UserService`, `get_user`, `getUser` bare query relevant IDs를 다중 언어로 확장
+- `internal/eval/search_test.go` — multi-relevant corpus contract test 추가
+- `guide/eval.md` — bare query vs language-qualified query relevance 규칙 문서화
+
+---
+
+## Step 23: Negative-control search eval support
+
+### 테스트
+
+- [x] `TestFalsePositiveRate_EmptyRankedReturnsZero` — negative-control query가 결과를 반환하지 않으면 false positive rate는 0이어야 함
+- [x] `TestFalsePositiveRate_NonEmptyRankedReturnsOne` — negative-control query가 어떤 결과라도 반환하면 false positive rate는 1이어야 함
+- [x] `TestEvaluateQueries_NegativeControlExcludedFromRankingAverages` — negative-control case는 ranking average 계산에서 제외되어야 함
+- [x] `TestEvaluateQueries_NegativeControlDetectsLeak` — negative-control case가 결과를 반환하면 false positive로 집계되어야 함
+- [x] `TestEvaluateQueries_PositiveBaselineUnchanged` — negative-control 지원 추가 후에도 positive-only baseline은 그대로여야 함
+- [x] `TestLoadQueryCorpus_IncludesNegativeControl` — real corpus가 최소 1개의 negative-control query를 포함해야 함
+
+### 구현
+
+- `internal/eval/metrics.go` — `FalsePositiveRate()` 추가
+- `internal/eval/schema.go` — `negative_queries`, `negative_false_positives`, `negative_pass_rate` 필드 추가
+- `internal/eval/search.go` — negative-control query를 ranking average에서 분리 집계
+- `internal/eval/metrics_test.go` / `internal/eval/search_test.go` — negative-control semantics tests 추가
+- `testdata/eval/queries.json` — sentinel negative-control query 추가
+- `guide/eval.md` — negative-control metric semantics 문서화
+
+---
+
+## Step 24: Render negative-control metrics in eval table
+
+### 테스트
+
+- [x] `TestWriteTable_RendersNegativeControlBlock` — negative-control metrics가 있을 때 human-readable table에 출력되어야 함
+- [x] `TestWriteTable_OmitsNegativeBlock_WhenZeroNegatives` — negative-control metrics가 없으면 table에 출력되지 않아야 함
+
+### 구현
+
+- `internal/eval/runner.go` — search eval table에 `Negatives`, `FP`, `Pass Rate` conditional block 추가
+- `internal/eval/runner_test.go` — negative-control table rendering tests 추가
+- `guide/eval.md` — table output example 문서화
+
+---
+
+## Step 25: Per-query diagnostics for search eval JSON
+
+### 테스트
+
+- [x] `TestEvaluateQueries_EmitsPerQueryDiagnostics` — search eval이 per-query diagnostic records를 생성해야 함
+- [x] `TestEvaluateQueries_AggregatesUnchangedAfterDiagnostics` — diagnostics 추가 후에도 aggregate metric semantics는 그대로여야 함
+
+### 구현
+
+- `internal/eval/schema.go` — `QueryDiagnostic` / `SearchReport.PerQuery` 추가
+- `internal/eval/search.go` — positive/negative query별 diagnostic record 생성
+- `guide/eval.md` — JSON `per_query` diagnostics 문서화
+
+---
+
+## Step 26: Top returned keys in per-query diagnostics
+
+### 테스트
+
+- [x] `TestEvaluateQueries_NegativeDiagnosticIncludesReturnedKeys` — negative diagnostic이 실제 반환된 result keys를 포함해야 함
+- [x] `TestEvaluateQueries_PositiveDiagnosticIncludesReturnedKeys` — positive diagnostic이 실제 반환된 result keys를 포함해야 함
+- [x] `TestEvaluateQueries_DiagnosticTopResultsCappedAtFive` — stored `top_results`는 최대 5개여야 함
+- [x] `TestEvaluateQueries_AggregatesUnchangedAfterTopResults` — `top_results` 추가 후에도 aggregate semantics는 그대로여야 함
+
+### 구현
+
+- `internal/eval/schema.go` — `QueryDiagnostic.TopResults` 추가
+- `internal/eval/search.go` — `capResults()` helper와 `top_results` population 추가
+- `guide/eval.md` — `top_results` diagnostics 문서화
