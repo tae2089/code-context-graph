@@ -10,6 +10,21 @@ import (
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
+func TestNodeToKeys_UsesBaseFilePathForEvalMatching(t *testing.T) {
+	keys := nodeToKeys([]model.Node{{
+		Kind:     model.NodeKindFunction,
+		Name:     "GetUser",
+		FilePath: "go/sample.go",
+	}})
+
+	if len(keys) != 1 {
+		t.Fatalf("keys length = %d, want 1", len(keys))
+	}
+	if got, want := keys[0], "function:GetUser@sample.go"; got != want {
+		t.Fatalf("key = %q, want %q", got, want)
+	}
+}
+
 type evalSpySearchBackend struct {
 	queryFn func(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error)
 }

@@ -4,6 +4,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/tae2089/trace"
@@ -95,7 +96,7 @@ func extToLangWalkers(walkers map[string]*treesitter.Walker) map[string]*treesit
 func nodeToKeys(nodes []model.Node) []string {
 	keys := make([]string, len(nodes))
 	for i, n := range nodes {
-		keys[i] = string(n.Kind) + ":" + n.Name + "@" + n.FilePath
+		keys[i] = string(n.Kind) + ":" + n.Name + "@" + filepath.Base(n.FilePath)
 	}
 	return keys
 }
