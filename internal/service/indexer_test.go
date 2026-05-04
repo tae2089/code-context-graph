@@ -459,7 +459,7 @@ func TestFlushBuildEdges_ResolvesAndUpsertsBoundedBatches(t *testing.T) {
 	}
 
 	svc := &GraphService{}
-	if err := svc.flushBuildEdges(ctx, st, batches); err != nil {
+	if err := svc.flushBuildEdges(ctx, st, batches, nil); err != nil {
 		t.Fatalf("flushBuildEdges: %v", err)
 	}
 	if got, want := resolveSizes, []int{1, 3}; !reflect.DeepEqual(got, want) {
@@ -508,7 +508,7 @@ func TestFlushBuildEdges_ResolvesImplementsOnlyOnce(t *testing.T) {
 	}
 
 	svc := &GraphService{}
-	if err := svc.flushBuildEdges(ctx, st, batches); err != nil {
+	if err := svc.flushBuildEdges(ctx, st, batches, nil); err != nil {
 		t.Fatalf("flushBuildEdges: %v", err)
 	}
 	if got, want := implementsSeen, []int{1, 0, 0}; !reflect.DeepEqual(got, want) {
@@ -529,7 +529,7 @@ func TestFlushBuildEdges_WarmsImportsAcrossChunkBoundaries(t *testing.T) {
 	}
 
 	svc := &GraphService{}
-	if err := svc.flushBuildEdges(ctx, st, batches); err != nil {
+	if err := svc.flushBuildEdges(ctx, st, batches, nil); err != nil {
 		t.Fatalf("flushBuildEdges: %v", err)
 	}
 	if len(st.upsertedEdges) < 3 {

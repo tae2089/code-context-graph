@@ -250,6 +250,7 @@ type BuildStats struct {
 	TotalFiles int
 	TotalNodes int
 	TotalEdges int
+	Unresolved edgeresolve.FilterResolvedDiagnostics
 }
 
 // UpdateOptions configures one incremental graph sync run.
@@ -321,7 +322,16 @@ func (s *GraphService) Build(ctx context.Context, opts BuildOptions) (BuildStats
 		return stats, err
 	}
 
-	s.logger().Info("build complete", "files", stats.TotalFiles, "nodes", stats.TotalNodes, "edges", stats.TotalEdges)
+	s.logger().Info("build complete",
+		"files", stats.TotalFiles,
+		"nodes", stats.TotalNodes,
+		"edges", stats.TotalEdges,
+		"unresolved_edges", stats.Unresolved.DroppedCount,
+		"unresolved_by_kind", formatEdgeKindCounts(stats.Unresolved.ByKind),
+		"unresolved_by_file", stats.Unresolved.ByFile,
+		"unresolved_by_reason", stats.Unresolved.ByReason,
+		"unresolved_samples", stats.Unresolved.Samples,
+	)
 
 	return stats, nil
 }
@@ -520,7 +530,7 @@ func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.Gr
 	if err := upsertPackageContainsEdges(ctx, txStore, spool.packages); err != nil {
 		return trace.Wrap(err, "upsert package file edges")
 	}
-	if err := s.flushBuildEdges(ctx, txStore, edgeBatches); err != nil {
+	if err := s.flushBuildEdges(ctx, txStore, edgeBatches, &spool.stats); err != nil {
 		return err
 	}
 
@@ -646,7 +656,7 @@ func (s *GraphService) flushBuildBatch(ctx context.Context, txStore store.GraphS
 // @intent attach parsed relationships to stored node IDs without depending on build batch order.
 // @sideEffect upserts graph edges through the transaction-scoped store.
 // @mutates graph edges
-func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphStore, edgeBatches []parsedBuildEdgeBatch) error {
+func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphStore, edgeBatches []parsedBuildEdgeBatch, stats *BuildStats) error {
 	implementsEdges, otherBatches := partitionBuildEdges(edgeBatches)
 	importsByPath := importEdgesByFile(otherBatches)
 	for start := 0; start < len(implementsEdges); start += buildEdgeResolveChunkSize {
@@ -658,7 +668,8 @@ func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphS
 		if err != nil {
 			return trace.Wrap(err, "resolve deferred implements edges")
 		}
-		resolved = edgeresolve.FilterResolved(resolved)
+		resolved, diagnostics := edgeresolve.FilterResolvedWithDiagnostics(resolved)
+		mergeBuildUnresolvedDiagnostics(stats, diagnostics)
 		if err := txStore.UpsertEdges(ctx, resolved); err != nil {
 			return trace.Wrap(err, "upsert deferred implements edges")
 		}
@@ -676,13 +687,71 @@ func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphS
 			if err != nil {
 				return trace.Wrap(err, "resolve deferred edges for "+parsed.relPath)
 			}
-			resolvedChunk := edgeresolve.FilterResolved(resolved[len(resolveInput)-len(chunk):])
+			resolvedChunk, diagnostics := edgeresolve.FilterResolvedWithDiagnostics(resolved[len(resolveInput)-len(chunk):])
+			mergeBuildUnresolvedDiagnostics(stats, diagnostics)
 			if err := txStore.UpsertEdges(ctx, resolvedChunk); err != nil {
 				return trace.Wrap(err, "upsert deferred edges for "+parsed.relPath)
 			}
 		}
 	}
 	return nil
+}
+
+func mergeBuildUnresolvedDiagnostics(stats *BuildStats, diagnostics edgeresolve.FilterResolvedDiagnostics) {
+	if stats == nil || diagnostics.DroppedCount == 0 {
+		return
+	}
+	mergeFilterResolvedDiagnostics(&stats.Unresolved, diagnostics)
+}
+
+func mergeFilterResolvedDiagnostics(dst *edgeresolve.FilterResolvedDiagnostics, src edgeresolve.FilterResolvedDiagnostics) {
+	if dst == nil || src.DroppedCount == 0 {
+		return
+	}
+	dst.DroppedCount += src.DroppedCount
+	if len(src.ByKind) > 0 {
+		if dst.ByKind == nil {
+			dst.ByKind = make(map[model.EdgeKind]int, len(src.ByKind))
+		}
+		for kind, count := range src.ByKind {
+			dst.ByKind[kind] += count
+		}
+	}
+	if len(src.ByFile) > 0 {
+		if dst.ByFile == nil {
+			dst.ByFile = make(map[string]int, len(src.ByFile))
+		}
+		for filePath, count := range src.ByFile {
+			dst.ByFile[filePath] += count
+		}
+	}
+	if len(src.ByReason) > 0 {
+		if dst.ByReason == nil {
+			dst.ByReason = make(map[string]int, len(src.ByReason))
+		}
+		for reason, count := range src.ByReason {
+			dst.ByReason[reason] += count
+		}
+	}
+	remaining := 5 - len(dst.Samples)
+	if remaining <= 0 || len(src.Samples) == 0 {
+		return
+	}
+	if remaining > len(src.Samples) {
+		remaining = len(src.Samples)
+	}
+	dst.Samples = append(dst.Samples, src.Samples[:remaining]...)
+}
+
+func formatEdgeKindCounts(counts map[model.EdgeKind]int) map[string]int {
+	if len(counts) == 0 {
+		return nil
+	}
+	formatted := make(map[string]int, len(counts))
+	for kind, count := range counts {
+		formatted[string(kind)] = count
+	}
+	return formatted
 }
 
 // partitionBuildEdges keeps implements edges available before resolving call edges in later bounded chunks.
@@ -1272,6 +1341,7 @@ func addSyncStats(dst, src *incremental.SyncStats) {
 	dst.Modified += src.Modified
 	dst.Skipped += src.Skipped
 	dst.Deleted += src.Deleted
+	mergeFilterResolvedDiagnostics(&dst.Unresolved, src.Unresolved)
 }
 
 // txDBForExistingFiles picks the transaction-scoped DB if available, otherwise falls back to the base handle.
@@ -1680,7 +1750,7 @@ func (s *GraphService) refreshPackageSemanticEdges(ctx context.Context, graphSto
 	if len(edgeBatches) == 0 {
 		return nil
 	}
-	return s.flushBuildEdges(ctx, graphStore, edgeBatches)
+	return s.flushBuildEdges(ctx, graphStore, edgeBatches, nil)
 }
 
 func (s *GraphService) collectAffectedPackageSemanticBatches(ctx context.Context, graphStore store.GraphStore, absDir string, packages map[string]languagePackageInfo, changedFiles, deletedFiles []string) ([]parsedBuildNodeBatch, []string, error) {
