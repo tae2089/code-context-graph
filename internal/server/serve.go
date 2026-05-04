@@ -38,6 +38,8 @@ import (
 )
 
 // Run starts the MCP server with the configured transport.
+// @intent CLI에서 조립한 의존성과 설정을 실제 MCP 서버 런타임으로 연결한다.
+// @sideEffect telemetry, cache, stdio 또는 HTTP 서버를 초기화하고 종료 훅을 등록한다.
 func Run(deps *cli.Deps, cfg cli.ServeConfig, serviceVersion, ragIndexDir, ragProjectDesc string) error {
 	deps.Logger.Info("starting code-context-graph MCP server")
 	tel, err := ccgobs.Setup(context.Background(), ccgobs.Config{
@@ -133,6 +135,8 @@ func Run(deps *cli.Deps, cfg cli.ServeConfig, serviceVersion, ragIndexDir, ragPr
 }
 
 // FlushMCPQueryCache clears the MCP query cache if it exists.
+// @intent 그래프 변경 직후 MCP 질의가 오래된 캐시를 재사용하지 않게 한다.
+// @sideEffect cache가 있으면 저장된 질의 결과를 비운다.
 func FlushMCPQueryCache(cache *mcp.Cache) {
 	if cache != nil {
 		cache.Flush()
@@ -140,12 +144,14 @@ func FlushMCPQueryCache(cache *mcp.Cache) {
 }
 
 // MCPPostprocessPolicy manages post-processing policies for the MCP server.
+// @intent MCP 서버가 후처리 정책 결정을 공통 래퍼로 호출하게 한다.
 type MCPPostprocessPolicy struct {
 	engine *postprocesspolicy.Engine
 	store  *postprocesspolicy.Store
 }
 
 // NewPostprocessPolicy creates a new MCP post-processing policy wrapper.
+// @intent MCP 실행 경로에서 후처리 정책 엔진과 저장소를 함께 묶어 제공한다.
 func NewPostprocessPolicy(db *gorm.DB) *MCPPostprocessPolicy {
 	if db == nil {
 		return nil
@@ -157,26 +163,34 @@ func NewPostprocessPolicy(db *gorm.DB) *MCPPostprocessPolicy {
 }
 
 // Resolve decides the policy for a given tool and input.
+// @intent 요청된 후처리 도구에 적용할 정책과 출처를 계산한다.
 func (p *MCPPostprocessPolicy) Resolve(ctx context.Context, input postprocesspolicy.DecisionInput) (string, string, error) {
 	return p.engine.Resolve(ctx, p.store, input)
 }
 
 // RecordRun logs the results of a post-processing run.
+// @intent 후처리 실행 결과를 정책 저장소에 기록해 후속 판단에 반영한다.
+// @sideEffect ccg_postprocess_run_logs 상태를 갱신한다.
 func (p *MCPPostprocessPolicy) RecordRun(ctx context.Context, record postprocesspolicy.RunRecord) error {
 	return p.store.RecordRun(ctx, record)
 }
 
 // Status returns the current status summary of post-processing.
+// @intent 운영 상태 엔드포인트가 후처리 건강 상태를 요약해서 볼 수 있게 한다.
 func (p *MCPPostprocessPolicy) Status(ctx context.Context, opts postprocesspolicy.StatusOptions) (*postprocesspolicy.StatusSummary, error) {
 	return p.store.Status(ctx, opts)
 }
 
 // Reset clears the state of a specific post-processing tool.
+// @intent 실패 누적 상태를 초기화해 특정 후처리 도구를 다시 정상 정책으로 돌린다.
+// @sideEffect 해당 도구의 정책 상태를 재설정한다.
 func (p *MCPPostprocessPolicy) Reset(ctx context.Context, tool string) error {
 	return p.store.Reset(ctx, tool)
 }
 
 // RunStreamableHTTP serves the MCP server over streamable HTTP.
+// @intent MCP, health, readiness, status, webhook 엔드포인트를 하나의 HTTP 런타임으로 노출한다.
+// @sideEffect HTTP 서버, 시그널 핸들러, 웹훅 동기화 큐를 생성하고 종료 시 drain한다.
 func RunStreamableHTTP(deps *cli.Deps, srv *mcpgo.MCPServer, cfg cli.ServeConfig, cache *mcp.Cache, postprocessSummary func(context.Context) (*postprocesspolicy.StatusSummary, error)) error {
 	deps.Logger.Info("serving MCP over streamable-http", "addr", cfg.HTTPAddr, "stateless", cfg.Stateless)
 
@@ -355,6 +369,8 @@ func RunStreamableHTTP(deps *cli.Deps, srv *mcpgo.MCPServer, cfg cli.ServeConfig
 }
 
 // ValidateHTTPExposure ensures non-loopback streamable-http requires authentication.
+// @intent 외부 바인딩된 HTTP MCP 서버가 인증 없이 노출되는 구성을 사전에 차단한다.
+// @domainRule loopback이 아닌 주소는 bearer token 또는 insecure override가 필요하다.
 func ValidateHTTPExposure(cfg cli.ServeConfig) error {
 	if cfg.Transport != "streamable-http" {
 		return nil
@@ -372,6 +388,8 @@ func ValidateHTTPExposure(cfg cli.ServeConfig) error {
 }
 
 // MCPAuthMiddleware provides bearer token authentication for MCP HTTP endpoints.
+// @intent /mcp 요청에 선택적 bearer 인증을 적용해 외부 접근을 제한한다.
+// @domainRule token이 비어 있으면 인증을 강제하지 않는다.
 func MCPAuthMiddleware(token string, next http.Handler) http.Handler {
 	if token == "" {
 		return next
@@ -386,6 +404,8 @@ func MCPAuthMiddleware(token string, next http.Handler) http.Handler {
 }
 
 // WithHTTPTraceContext injects HTTP trace data into request context.
+// @intent inbound traceparent를 MCP 요청 컨텍스트에 주입해 downstream 로그 상관관계를 유지한다.
+// @sideEffect 요청 컨텍스트를 추출한 trace 정보로 교체한다.
 func WithHTTPTraceContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := ccgobs.ContextWithHTTPTrace(r.Context(), r.Header)
@@ -394,6 +414,8 @@ func WithHTTPTraceContext(next http.Handler) http.Handler {
 }
 
 // ValidateBearerToken validates a bearer token against an expected value.
+// @intent Authorization 헤더가 기대한 bearer 토큰과 정확히 일치하는지만 판단한다.
+// @domainRule 접두사나 길이가 다르면 constant-time 비교 전에 실패 처리한다.
 func ValidateBearerToken(header, expected string) bool {
 	const prefix = "Bearer "
 	if len(header) <= len(prefix) || header[:len(prefix)] != prefix {
@@ -407,6 +429,7 @@ func ValidateBearerToken(header, expected string) bool {
 }
 
 // IsLoopbackHTTPAddr checks if an address is a loopback address.
+// @intent HTTP listen 주소가 로컬 테스트 전용인지 판별해 보안 규칙에 재사용한다.
 func IsLoopbackHTTPAddr(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -420,6 +443,8 @@ func IsLoopbackHTTPAddr(addr string) bool {
 }
 
 // HandleHealth responds to HTTP health checks.
+// @intent 가장 가벼운 liveness probe로 프로세스 응답 가능 여부만 반환한다.
+// @sideEffect JSON 응답을 기록한다.
 func HandleHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -434,6 +459,8 @@ func HandleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // ReadyHandler handles HTTP ready checks.
+// @intent 호출자가 제공한 readiness 조건을 HTTP probe 응답으로 변환한다.
+// @sideEffect ready 또는 not_ready JSON 응답을 기록한다.
 func ReadyHandler(check func(*http.Request) error) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -456,6 +483,7 @@ func ReadyHandler(check func(*http.Request) error) http.Handler {
 }
 
 // statusResponse defines the response structure for the status endpoint.
+// @intent /status가 DB, webhook, postprocess 상태를 한 payload로 반환하게 한다.
 type statusResponse struct {
 	Status      string                           `json:"status"`
 	DB          string                           `json:"db"`
@@ -464,6 +492,8 @@ type statusResponse struct {
 }
 
 // StatusHandler provides detailed system status including DB, webhooks, and postprocess state.
+// @intent 운영 진단용 상태를 종합해 HTTP 상태 코드와 JSON payload로 노출한다.
+// @sideEffect DB 상태, webhook 큐 상태, 후처리 상태를 읽고 JSON 응답을 기록한다.
 func StatusHandler(dbCheck func(*http.Request) error, webhookTimeout time.Duration, queue func() *webhook.SyncQueue, postprocessSummary func(context.Context) (*postprocesspolicy.StatusSummary, error)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -511,6 +541,7 @@ func StatusHandler(dbCheck func(*http.Request) error, webhookTimeout time.Durati
 }
 
 // WebhookBlockingReadyCheck checks if the webhook queue is blocked.
+// @intent readiness 판단에서 웹훅 큐가 트래픽 차단 상태인지 빠르게 판정한다.
 func WebhookBlockingReadyCheck(q *webhook.SyncQueue, timeout time.Duration) error {
 	if q == nil {
 		return nil
@@ -519,6 +550,8 @@ func WebhookBlockingReadyCheck(q *webhook.SyncQueue, timeout time.Duration) erro
 }
 
 // WebhookStatsBlockingReady checks if webhook stats indicate a blocked state.
+// @intent 큐 포화나 장시간 지연이 readiness 실패 조건인지 공통 규칙으로 판단한다.
+// @domainRule tracked_repos가 max_tracked_repos에 도달하면 not_ready로 본다.
 func WebhookStatsBlockingReady(stats webhook.SyncQueueStats, timeout time.Duration) error {
 	if stats.MaxTrackedRepos > 0 && stats.TrackedRepos >= stats.MaxTrackedRepos {
 		return fmt.Errorf("webhook sync queue full")
@@ -535,6 +568,7 @@ func WebhookStatsBlockingReady(stats webhook.SyncQueueStats, timeout time.Durati
 }
 
 // WebhookStatsDegraded checks if webhook stats indicate a degraded state.
+// @intent 최근 성공보다 최신 실패가 남아 있는 큐 상태를 degraded로 분류한다.
 func WebhookStatsDegraded(stats webhook.SyncQueueStats) bool {
 	if !stats.LastErrorTime.IsZero() && (stats.LastSuccessTime.IsZero() || stats.LastSuccessTime.Before(stats.LastErrorTime)) {
 		return true
@@ -548,6 +582,7 @@ func WebhookStatsDegraded(stats webhook.SyncQueueStats) bool {
 }
 
 // WebhookRepoStatsDegraded checks if a specific repo's stats indicate a degraded state.
+// @intent 저장소별 최근 실패가 아직 성공으로 덮이지 않았는지 판정한다.
 func WebhookRepoStatsDegraded(stats webhook.RepoStats) bool {
 	return !stats.LastErrorTime.IsZero() && (stats.LastSuccessTime.IsZero() || stats.LastSuccessTime.Before(stats.LastErrorTime))
 }

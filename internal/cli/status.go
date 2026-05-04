@@ -140,6 +140,7 @@ func printPostprocessStatus(ctx context.Context, out io.Writer, db *gorm.DB, nam
 
 const timeFormatRFC3339 = "2006-01-02T15:04:05Z07:00"
 
+// @intent 최근 실패 step 목록을 status 출력에 compact한 한 줄 문자열로 직렬화한다.
 func formatStatusList(values []string) string {
 	if len(values) == 0 {
 		return "[]"

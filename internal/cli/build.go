@@ -19,6 +19,7 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 	var excludePatterns []string
 	var noRecursive bool
 	var includePaths []string
+	var fallbackCalls bool
 	var maxFileBytes int64
 	var maxTotalParsedBytes int64
 
@@ -52,6 +53,7 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 				IncludePaths:        paths,
 				MaxFileBytes:        fileLimit,
 				MaxTotalParsedBytes: totalLimit,
+				FallbackCalls:       fallbackCalls,
 			}
 
 			ctx := context.Background()
@@ -73,6 +75,7 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().StringArrayVar(&includePaths, "path", nil, "Only include specific paths (repeatable, e.g. --path src/api --path src/auth)")
 	cmd.Flags().Int64Var(&maxFileBytes, "max-file-bytes", 0, "Maximum bytes allowed per parsed source file (0 disables limit; config: parse.max_file_bytes)")
 	cmd.Flags().Int64Var(&maxTotalParsedBytes, "max-total-parsed-bytes", 0, "Maximum total bytes allowed across parsed source files (0 disables limit; config: parse.max_total_parsed_bytes)")
+	cmd.Flags().BoolVar(&fallbackCalls, "fallback-calls", false, "Fallback to deterministic call resolution when strict matching is ambiguous")
 
 	return cmd
 }

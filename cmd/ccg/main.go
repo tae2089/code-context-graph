@@ -1,3 +1,4 @@
+// @index CLI bootstrap entry point that wires config, database, parsers, and server dependencies.
 package main
 
 import (
@@ -43,6 +44,7 @@ var (
 	date    = "unknown"
 )
 
+// @intent CLI 의존성을 조립하고 명령 실행 실패 시 정리/종료 흐름을 보장한다.
 func main() {
 	logger := slog.Default()
 
@@ -129,7 +131,11 @@ func main() {
 	runCleanup()
 }
 
+// buildWalkers constructs the language parser registry keyed by file extension.
+// @intent 지원 언어별 walker를 확장자 기준으로 등록해 빌드와 서버 경로에서 재사용한다.
 func buildWalkers(logger *slog.Logger) map[string]*treesitter.Walker {
+	// langEntry pairs one language spec with the extensions it should parse.
+	// @intent walker 레지스트리 초기화에서 언어 스펙과 확장자 목록을 함께 다룬다.
 	type langEntry struct {
 		spec *treesitter.LangSpec
 		exts []string
