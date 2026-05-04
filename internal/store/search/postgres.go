@@ -186,6 +186,7 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 		}
 	}
 
+	result = promoteExactNameMatch(result, query)
 	return result, nil
 }
 
