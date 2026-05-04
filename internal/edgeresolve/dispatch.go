@@ -13,8 +13,9 @@ type languageDispatch interface {
 	PackagePrefix(node model.Node) string
 }
 
-// languageDispatchRegistry only includes languages with call-dispatch resolution support.
+// languageDispatchRegistry only includes languages with proven call-dispatch resolution support.
 // @intent distinguish optional dynamic/interface call resolution from generic hierarchy-edge parsing available elsewhere.
+// 현재는 Go만 interface/receiver dispatch 확장 경로를 사용하고, 다른 언어는 generic resolver에 남겨둔다.
 var languageDispatchRegistry = map[string]languageDispatch{
 	"go": goLanguageDispatch{},
 }

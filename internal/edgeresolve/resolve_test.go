@@ -119,6 +119,21 @@ func TestResolveCallsConnectsBareFunctionCall(t *testing.T) {
 	}
 }
 
+func TestDispatchForLanguage_OnlyGoRegistered(t *testing.T) {
+	if dispatchForLanguage("go") == nil {
+		t.Fatal("expected Go dispatch to be registered")
+	}
+	if dispatchForLanguage("python") != nil {
+		t.Fatal("expected Python dispatch to remain unregistered")
+	}
+	if dispatchForLanguage("typescript") != nil {
+		t.Fatal("expected TypeScript dispatch to remain unregistered")
+	}
+	if dispatchForLanguage("rust") != nil {
+		t.Fatal("expected Rust dispatch to remain unregistered")
+	}
+}
+
 func TestResolveCallsConnectsUniqueSelectorMethodInSameFile(t *testing.T) {
 	lookup := fakeLookup{nodes: []model.Node{
 		{ID: 1, QualifiedName: "flows.Tracer.TraceFlow", Name: "TraceFlow", Kind: model.NodeKindFunction, FilePath: "flows.go", StartLine: 10, EndLine: 12, Language: "go"},
