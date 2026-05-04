@@ -318,6 +318,46 @@ func TestStoreStatus_SummarizesFailClosedAndRecentFailures(t *testing.T) {
 	}
 }
 
+func TestStoreStatus_DoesNotReportSuccessfulExplicitFailClosedRun(t *testing.T) {
+	store := setupPolicyStore(t)
+	ctx := ctxns.WithNamespace(context.Background(), "svc")
+
+	if err := store.RecordRun(ctx, RunRecord{
+		Tool:      ToolRunPostprocess,
+		Policy:    PolicyFailClosed,
+		Source:    SourceExplicit,
+		Status:    StatusOK,
+		CreatedAt: time.Unix(1, 0),
+	}); err != nil {
+		t.Fatalf("record explicit success: %v", err)
+	}
+
+	state, err := store.GetState(ctx, ToolRunPostprocess)
+	if err != nil {
+		t.Fatalf("get state: %v", err)
+	}
+	if state == nil {
+		t.Fatal("expected state to exist")
+	}
+	if state.Policy != PolicyDegraded {
+		t.Fatalf("state policy = %q, want %q", state.Policy, PolicyDegraded)
+	}
+
+	summary, err := store.Status(ctx, StatusOptions{Tool: ToolRunPostprocess, RecentLimit: 3})
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if summary.Status != StatusOK {
+		t.Fatalf("summary status = %q, want %q", summary.Status, StatusOK)
+	}
+	if len(summary.FailClosed) != 0 {
+		t.Fatalf("fail_closed entries = %d, want 0", len(summary.FailClosed))
+	}
+	if len(summary.RecentFailures) != 0 {
+		t.Fatalf("recent failures = %d, want 0", len(summary.RecentFailures))
+	}
+}
+
 func setupPolicyStore(t *testing.T) *Store {
 	t.Helper()
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())

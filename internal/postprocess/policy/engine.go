@@ -165,10 +165,14 @@ func (s *Store) RecordRun(ctx context.Context, record RunRecord) error {
 		if err := tx.Create(log).Error; err != nil {
 			return trace.Wrap(err, "create postprocess run log")
 		}
+		effectivePolicy := record.Policy
+		if record.Status == StatusOK {
+			effectivePolicy = PolicyDegraded
+		}
 		state := &model.PostprocessPolicyState{
 			Namespace: ns,
 			Tool:      record.Tool,
-			Policy:    record.Policy,
+			Policy:    effectivePolicy,
 			UpdatedAt: createdAt,
 		}
 		if err := tx.Clauses(clause.OnConflict{
@@ -224,7 +228,7 @@ func (s *Store) Status(ctx context.Context, opts StatusOptions) (*StatusSummary,
 			UpdatedAt:           state.UpdatedAt,
 			ConsecutiveFailures: count,
 		}
-		if state.Policy == PolicyFailClosed {
+		if state.Policy == PolicyFailClosed && count > 0 {
 			summary.FailClosed = append(summary.FailClosed, snapshot)
 		}
 		if count == 0 {
