@@ -1682,6 +1682,19 @@ class User : Base<String, Int>(), Handler<Request<T>, Response>, Serializable
 	}
 }
 
+func TestParseKotlinSupertypesFallbackIgnoresCommasInsideGenericArguments(t *testing.T) {
+	base, traits := parseKotlinSupertypes("class User : Base<String, Int>(), Handler<Request<T>, Response>, Serializable")
+	if base != "Base" {
+		t.Fatalf("base = %q, want %q", base, "Base")
+	}
+	if len(traits) != 2 {
+		t.Fatalf("traits len = %d, want 2 (%+v)", len(traits), traits)
+	}
+	if traits[0] != "Handler" || traits[1] != "Serializable" {
+		t.Fatalf("traits = %+v, want [Handler Serializable]", traits)
+	}
+}
+
 func TestParseGo_DefinitionEnrichmentDedupsOverlappingMatches(t *testing.T) {
 	src := `package main
 

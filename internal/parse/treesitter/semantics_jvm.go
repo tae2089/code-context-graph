@@ -345,7 +345,7 @@ func parseKotlinSupertypes(raw string) (string, []string) {
 	}
 	var base string
 	var traits []string
-	for _, part := range strings.Split(head, ",") {
+	for _, part := range splitKotlinTopLevelCommas(head) {
 		name := strings.TrimSpace(part)
 		if name == "" {
 			continue
@@ -366,6 +366,67 @@ func parseKotlinSupertypes(raw string) (string, []string) {
 		traits = append(traits, name)
 	}
 	return base, traits
+}
+
+// splitKotlinTopLevelCommas splits Kotlin supertype lists on commas outside generic, call, and index nesting.
+// @intent keep fallback Kotlin hierarchy parsing resilient when AST delegation specifiers are unavailable.
+func splitKotlinTopLevelCommas(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var parts []string
+	start := 0
+	depthParen := 0
+	depthAngle := 0
+	depthBracket := 0
+	inString := false
+	escaped := false
+	for i := 0; i < len(raw); i++ {
+		ch := raw[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+		case '(':
+			depthParen++
+		case ')':
+			if depthParen > 0 {
+				depthParen--
+			}
+		case '<':
+			depthAngle++
+		case '>':
+			if depthAngle > 0 {
+				depthAngle--
+			}
+		case '[':
+			depthBracket++
+		case ']':
+			if depthBracket > 0 {
+				depthBracket--
+			}
+		case ',':
+			if depthParen == 0 && depthAngle == 0 && depthBracket == 0 {
+				parts = append(parts, strings.TrimSpace(raw[start:i]))
+				start = i + 1
+			}
+		}
+	}
+	parts = append(parts, strings.TrimSpace(raw[start:]))
+	return parts
 }
 
 // kotlinSupertypes extracts Kotlin superclass/interfaces from AST children before falling back to declaration text parsing.
