@@ -1644,6 +1644,44 @@ class User(val id: String) : Base(), Authenticated
 	}
 }
 
+func TestParseKotlin_HierarchyIgnoresCommasInsideGenericArguments(t *testing.T) {
+	src := `package com.example.auth
+
+import com.example.base.Base
+import com.example.handlers.Handler
+import com.example.io.Serializable
+
+class User : Base<String, Int>(), Handler<Request<T>, Response>, Serializable
+`
+	w := NewWalker(KotlinSpec)
+	_, edges, err := w.Parse("User.kt", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var foundBase, foundHandler, foundSerializable bool
+	for _, e := range edges {
+		switch e.Kind {
+		case model.EdgeKindInherits:
+			if e.Fingerprint == wantInheritsFingerprint("User.kt", "com.example.auth.User", "com.example.base.Base") {
+				foundBase = true
+			}
+		case model.EdgeKindImplements:
+			if e.Fingerprint == "implements:User.kt:com.example.auth.User:com.example.handlers.Handler" {
+				foundHandler = true
+			}
+			if e.Fingerprint == "implements:User.kt:com.example.auth.User:com.example.io.Serializable" {
+				foundSerializable = true
+			}
+			if containsSubstring(e.Fingerprint, "Response") {
+				t.Fatalf("unexpected generic fragment leaked into implements edge: %+v", e)
+			}
+		}
+	}
+	if !foundBase || !foundHandler || !foundSerializable {
+		t.Fatalf("expected generic-safe Kotlin hierarchy edges, got %+v", edges)
+	}
+}
+
 func TestParseGo_DefinitionEnrichmentDedupsOverlappingMatches(t *testing.T) {
 	src := `package main
 

@@ -383,9 +383,56 @@ func kotlinSupertypes(n *sitter.Node, content []byte) (string, []string) {
 // parseKotlinSupertypesNode extracts superclass/interface targets from Kotlin delegation specifier nodes.
 // @intent prefer AST-aware extraction so commas inside generic arguments do not create false interfaces.
 func parseKotlinSupertypesNode(n *sitter.Node, content []byte) (string, []string, bool) {
-	_ = n
-	_ = content
-	return "", nil, false
+	if n == nil {
+		return "", nil, false
+	}
+	var base string
+	var traits []string
+	var found bool
+	for i := 0; i < int(n.NamedChildCount()); i++ {
+		child := n.NamedChild(i)
+		if child == nil || child.Type() != "delegation_specifier" {
+			continue
+		}
+		found = true
+		name := normalizeKotlinSupertypeName(firstJVMTypeReference(child, content))
+		if name == "" {
+			continue
+		}
+		if base == "" && kotlinDelegationSpecifierHasConstructorInvocation(child) {
+			base = name
+			continue
+		}
+		traits = append(traits, name)
+	}
+	if !found || (base == "" && len(traits) == 0) {
+		return "", nil, false
+	}
+	return base, appendUniquePackageFile(nil, traits...), true
+}
+
+// kotlinDelegationSpecifierHasConstructorInvocation reports whether a Kotlin delegation specifier is a superclass constructor call.
+// @intent distinguish superclass entries from interface references in Kotlin AST-based supertype parsing.
+func kotlinDelegationSpecifierHasConstructorInvocation(n *sitter.Node) bool {
+	if n == nil {
+		return false
+	}
+	var found bool
+	var walk func(*sitter.Node)
+	walk = func(cur *sitter.Node) {
+		if cur == nil || found {
+			return
+		}
+		if cur.Type() == "constructor_invocation" {
+			found = true
+			return
+		}
+		for i := 0; i < int(cur.NamedChildCount()); i++ {
+			walk(cur.NamedChild(i))
+		}
+	}
+	walk(n)
+	return found
 }
 
 // firstJVMTypeReference returns the first normalized Java/Kotlin type reference under a subtree.
