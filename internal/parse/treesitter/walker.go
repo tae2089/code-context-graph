@@ -192,6 +192,9 @@ func (w *Walker) ParseWithCommentsAndMetadata(ctx context.Context, filePath stri
 	var comments []CommentBlock
 	var interfaces []interfaceInfo
 	var pkgName string
+	if filePackages := filePackagesFromContext(ctx); len(filePackages) > 0 {
+		pkgName = filePackages[filePath]
+	}
 
 	fileNode := model.Node{
 		QualifiedName: filePath,
@@ -205,7 +208,7 @@ func (w *Walker) ParseWithCommentsAndMetadata(ctx context.Context, filePath stri
 	nodes = append(nodes, fileNode)
 
 	if w.query != nil {
-		nodes, edges, pkgName, interfaces, err = w.executeQueries(root, content, filePath, importPackagesFromContext(ctx), nodes, edges)
+		nodes, edges, pkgName, interfaces, err = w.executeQueries(root, content, filePath, pkgName, importPackagesFromContext(ctx), nodes, edges)
 		if err != nil {
 			return nil, nil, nil, ParseMetadata{}, err
 		}
@@ -268,14 +271,13 @@ func exportPackageInterfaces(interfaces []interfaceInfo) []PackageInterfaceInfo 
 // @mutates nodes and edges slices through appended parse results
 // @requires w.query is compiled for w.spec.Name
 // @return pkgName is the detected package/module name when the grammar exposes one
-func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath string, importPackages map[string]string, nodes []model.Node, edges []model.Edge) ([]model.Node, []model.Edge, string, []interfaceInfo, error) {
+func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath string, pkgName string, importPackages map[string]string, nodes []model.Node, edges []model.Edge) ([]model.Node, []model.Edge, string, []interfaceInfo, error) {
 	// w.query는 NewWalker에서 이미 컴파일됨 (불변이므로 공유 안전)
 	// QueryCursor는 스레드 안전하지 않아 매번 새로 생성한다.
 	qc := sitter.NewQueryCursor()
 	defer qc.Close()
 	qc.Exec(w.query, root)
 
-	var pkgName string
 	var interfaces []interfaceInfo
 
 	// nodeKey → index in nodes slice for O(1) dedup lookup
@@ -379,6 +381,9 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 			var receiver string
 			if receiverNode != nil {
 				receiver = w.extractReceiverStr(receiverNode, content)
+			}
+			if receiver == "" && defNode.Type() == "method_definition" {
+				receiver = w.inferEnclosingReceiver(defNode, content)
 			}
 
 			qName := w.buildQualifiedName(pkgName, receiver, name)
@@ -633,6 +638,20 @@ func (w *Walker) extractReceiverStr(node *sitter.Node, content []byte) string {
 	res := node.Content(content)
 	res = strings.TrimPrefix(res, "*")
 	return res
+}
+
+// inferEnclosingReceiver recovers an owner type name from enclosing class-like declarations.
+// @intent preserve method qualified names when a language query does not capture an explicit receiver.
+func (w *Walker) inferEnclosingReceiver(defNode *sitter.Node, content []byte) string {
+	for cur := defNode; cur != nil; cur = cur.Parent() {
+		switch cur.Type() {
+		case "class_declaration", "class_definition":
+			if nameNode := cur.ChildByFieldName("name"); nameNode != nil {
+				return w.extractReceiverStr(nameNode, content)
+			}
+		}
+	}
+	return ""
 }
 
 // mapDefTypeToNodeKind maps query definition labels to internal node kinds.

@@ -1586,7 +1586,8 @@ func (s *GraphService) packageDiscoverySpecs() []*treesitter.LangSpec {
 // withImportPackageContext attaches discovered package names to the context for use during edge resolution.
 // @intent ensure cross-package imports can be resolved using their semantic names.
 func (s *GraphService) withImportPackageContext(ctx context.Context, packages map[string]languagePackageInfo) context.Context {
-	return treesitter.WithImportPackages(ctx, importPackageNames(packages))
+	ctx = treesitter.WithImportPackages(ctx, importPackageContext(packages))
+	return treesitter.WithFilePackages(ctx, filePackageImportPaths(packages))
 }
 
 // mergeLanguagePackages aggregates discovered packages into a central map while filtering ambiguous paths.
@@ -1628,6 +1629,79 @@ func importPackageNames(packages map[string]languagePackageInfo) map[string]stri
 		}
 	}
 	return names
+}
+
+func importPackageContext(packages map[string]languagePackageInfo) map[string]string {
+	if len(packages) == 0 {
+		return nil
+	}
+	values := make(map[string]string, len(packages))
+	canonicalByDir := make(map[string]string, len(packages))
+	for _, pkg := range packages {
+		if pkg.Language != "typescript" && pkg.Language != "javascript" {
+			continue
+		}
+		if pkg.Dir == "" || pkg.ImportPath == "" {
+			continue
+		}
+		current := canonicalByDir[pkg.Dir]
+		if current == "" || len(pkg.ImportPath) > len(current) {
+			canonicalByDir[pkg.Dir] = pkg.ImportPath
+		}
+	}
+	for importPath, pkg := range packages {
+		if importPath == "" {
+			continue
+		}
+		switch pkg.Language {
+		case "typescript", "javascript":
+			if canonical := canonicalByDir[pkg.Dir]; canonical != "" {
+				values[importPath] = canonical
+				continue
+			}
+			values[importPath] = pkg.ImportPath
+		default:
+			if pkg.Name != "" {
+				values[importPath] = pkg.Name
+			}
+		}
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	return values
+}
+
+// filePackageImportPaths extracts a deterministic mapping of file paths to canonical import paths.
+// @intent seed parser qualified names from discovered package ownership without depending on map iteration order.
+func filePackageImportPaths(packages map[string]languagePackageInfo) map[string]string {
+	if len(packages) == 0 {
+		return nil
+	}
+	paths := sortedPackageImportPaths(packages)
+	filePackages := make(map[string]string)
+	for _, importPath := range paths {
+		pkg := packages[importPath]
+		if pkg.ImportPath == "" {
+			continue
+		}
+		if pkg.Language != "typescript" && pkg.Language != "javascript" {
+			continue
+		}
+		for _, filePath := range pkg.Files {
+			if filePath == "" {
+				continue
+			}
+			if _, exists := filePackages[filePath]; exists {
+				continue
+			}
+			filePackages[filePath] = pkg.ImportPath
+		}
+	}
+	if len(filePackages) == 0 {
+		return nil
+	}
+	return filePackages
 }
 
 // packageNodes converts discovered package info into graph nodes.

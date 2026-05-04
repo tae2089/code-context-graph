@@ -132,6 +132,10 @@ type CommentContext struct {
 // @intent avoid collisions while threading import-package hints through parser calls.
 type importPackagesContextKey struct{}
 
+// filePackagesContextKey is the private context key for repo-local file-to-import-path metadata.
+// @intent avoid collisions while threading canonical file package hints through parser calls.
+type filePackagesContextKey struct{}
+
 // WithImportPackages stores repo-local import-path to package-name mappings in ctx.
 // @intent let build/update provide package-clause-aware import normalization without widening parser interfaces.
 func WithImportPackages(ctx context.Context, packages map[string]string) context.Context {
@@ -164,6 +168,35 @@ func importPackagesFromContext(ctx context.Context) map[string]string {
 		return nil
 	}
 	packages, _ := ctx.Value(importPackagesContextKey{}).(map[string]string)
+	return packages
+}
+
+// WithFilePackages stores repo-local file-path to canonical import-path mappings in ctx.
+// @intent let parsers stamp package-less languages with a deterministic file-level package prefix.
+func WithFilePackages(ctx context.Context, packages map[string]string) context.Context {
+	if len(packages) == 0 {
+		return ctx
+	}
+	cloned := make(map[string]string, len(packages))
+	for filePath, importPath := range packages {
+		if filePath == "" || importPath == "" {
+			continue
+		}
+		cloned[filePath] = importPath
+	}
+	if len(cloned) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, filePackagesContextKey{}, cloned)
+}
+
+// filePackagesFromContext loads repo-local file package metadata from ctx.
+// @intent let walkers seed qualified names from a file's canonical import path when no package capture exists.
+func filePackagesFromContext(ctx context.Context) map[string]string {
+	if ctx == nil {
+		return nil
+	}
+	packages, _ := ctx.Value(filePackagesContextKey{}).(map[string]string)
 	return packages
 }
 

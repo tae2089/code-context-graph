@@ -40,13 +40,19 @@ func (TypeScriptSemantics) AdditionalEdges(ctx SemanticContext) []model.Edge {
 		if n.Type() == "class_declaration" {
 			className := typescriptClassName(n, ctx.Content)
 			if className != "" {
+				childName := qualifyTypeName(ctx.Package, className)
+				imports := typeScriptImportPackages(ctx.Content, ctx.ImportPackages)
 				base, traits := typescriptHeritage(n, ctx.Content)
+				base = qualifyTypeScriptHeritageTypeName(ctx, base, imports)
+				for i := range traits {
+					traits[i] = qualifyTypeScriptHeritageTypeName(ctx, traits[i], imports)
+				}
 				if base != "" {
 					edges = append(edges, model.Edge{
 						Kind:        model.EdgeKindInherits,
 						FilePath:    ctx.FilePath,
 						Line:        int(n.StartPoint().Row) + 1,
-						Fingerprint: model.BuildInheritsFingerprintV2(ctx.FilePath, className, base),
+						Fingerprint: model.BuildInheritsFingerprintV2(ctx.FilePath, childName, base),
 					})
 				}
 				for _, trait := range traits {
@@ -54,7 +60,7 @@ func (TypeScriptSemantics) AdditionalEdges(ctx SemanticContext) []model.Edge {
 						Kind:        model.EdgeKindImplements,
 						FilePath:    ctx.FilePath,
 						Line:        int(n.StartPoint().Row) + 1,
-						Fingerprint: fmt.Sprintf("implements:%s:%s:%s", ctx.FilePath, className, trait),
+						Fingerprint: fmt.Sprintf("implements:%s:%s:%s", ctx.FilePath, childName, trait),
 					})
 				}
 			}
@@ -65,6 +71,73 @@ func (TypeScriptSemantics) AdditionalEdges(ctx SemanticContext) []model.Edge {
 	}
 	walk(ctx.Root)
 	return edges
+}
+
+func qualifyTypeScriptHeritageTypeName(ctx SemanticContext, typeName string, imports map[string]string) string {
+	if typeName == "" {
+		return typeName
+	}
+	if importPkg := imports[typeName]; importPkg != "" {
+		return qualifyTypeName(importPkg, typeName)
+	}
+	return qualifySameFileTypeName(ctx, typeName)
+}
+
+func qualifySameFileTypeName(ctx SemanticContext, typeName string) string {
+	if typeName == "" || ctx.Package == "" {
+		return typeName
+	}
+	for _, node := range ctx.Nodes {
+		if node.FilePath != ctx.FilePath {
+			continue
+		}
+		if node.Kind != model.NodeKindClass && node.Kind != model.NodeKindType {
+			continue
+		}
+		if node.Name == typeName {
+			return qualifyTypeName(ctx.Package, typeName)
+		}
+	}
+	return typeName
+}
+
+func typeScriptImportPackages(content []byte, importPackages map[string]string) map[string]string {
+	if len(importPackages) == 0 {
+		return nil
+	}
+	matches := regexp.MustCompile(`(?m)import\s*{([^}]*)}\s*from\s*["']([^"']+)["']`).FindAllStringSubmatch(string(content), -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	aliases := make(map[string]string)
+	for _, match := range matches {
+		if len(match) < 3 {
+			continue
+		}
+		pkg := importPackages[match[2]]
+		if pkg == "" {
+			continue
+		}
+		for _, part := range strings.Split(match[1], ",") {
+			name := strings.TrimSpace(part)
+			if name == "" {
+				continue
+			}
+			if before, after, ok := strings.Cut(name, " as "); ok {
+				name = strings.TrimSpace(after)
+				if name == "" {
+					name = strings.TrimSpace(before)
+				}
+			}
+			if name != "" {
+				aliases[name] = pkg
+			}
+		}
+	}
+	if len(aliases) == 0 {
+		return nil
+	}
+	return aliases
 }
 
 // ImplementedTypes normalizes query-captured implements targets through the TypeScript heritage parser.

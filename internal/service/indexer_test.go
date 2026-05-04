@@ -1279,6 +1279,409 @@ func TestBuild_TypeScriptAliasFileImportTargetsPackageNode(t *testing.T) {
 	}
 }
 
+func TestBuild_TypeScriptFunctionQualifiedNameUsesFilePackageContext(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{Store: st, DB: db, Walkers: map[string]*treesitter.Walker{".ts": treesitter.NewWalker(treesitter.TypeScriptSpec)}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("src/utils")
+	mustWrite("package.json", `{"name":"@acme/app"}`)
+	mustWrite("tsconfig.json", `{"compilerOptions":{"baseUrl":".","paths":{"@app/*":["src/*"]}}}`)
+	mustWrite("src/utils/math.ts", "export function add(a: number, b: number): number { return a + b; }\n")
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	node, err := st.GetNode(ctx, "@acme/app/src/utils.add")
+	if err != nil || node == nil {
+		t.Fatalf("GetNode function: node=%v err=%v", node, err)
+	}
+	if node.Kind != model.NodeKindFunction {
+		t.Fatalf("function node kind=%q, want %q", node.Kind, model.NodeKindFunction)
+	}
+}
+
+func TestBuild_TypeScriptClassQualifiedNameUsesFilePackageContext(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{Store: st, DB: db, Walkers: map[string]*treesitter.Walker{".ts": treesitter.NewWalker(treesitter.TypeScriptSpec)}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("src/utils")
+	mustWrite("package.json", `{"name":"@acme/app"}`)
+	mustWrite("tsconfig.json", `{"compilerOptions":{"baseUrl":".","paths":{"@app/*":["src/*"]}}}`)
+	mustWrite("src/utils/math.ts", "export class Calculator {}\n")
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	node, err := st.GetNode(ctx, "@acme/app/src/utils.Calculator")
+	if err != nil || node == nil {
+		t.Fatalf("GetNode class: node=%v err=%v", node, err)
+	}
+	if node.Kind != model.NodeKindClass {
+		t.Fatalf("class node kind=%q, want %q", node.Kind, model.NodeKindClass)
+	}
+}
+
+func TestBuild_TypeScriptClassMethodQualifiedNameUsesFilePackageContext(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{Store: st, DB: db, Walkers: map[string]*treesitter.Walker{".ts": treesitter.NewWalker(treesitter.TypeScriptSpec)}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("src/utils")
+	mustWrite("package.json", `{"name":"@acme/app"}`)
+	mustWrite("tsconfig.json", `{"compilerOptions":{"baseUrl":".","paths":{"@app/*":["src/*"]}}}`)
+	mustWrite("src/utils/math.ts", "export class Calculator { run(): number { return 1; } }\n")
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	node, err := st.GetNode(ctx, "@acme/app/src/utils.Calculator.run")
+	if err != nil || node == nil {
+		t.Fatalf("GetNode method: node=%v err=%v", node, err)
+	}
+	if node.Kind != model.NodeKindFunction {
+		t.Fatalf("method node kind=%q, want %q", node.Kind, model.NodeKindFunction)
+	}
+}
+
+func TestBuild_TypeScriptSameFileHeritageUsesQualifiedNames(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{Store: st, DB: db, Walkers: map[string]*treesitter.Walker{".ts": treesitter.NewWalker(treesitter.TypeScriptSpec)}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("src/models")
+	mustWrite("package.json", `{"name":"@acme/app"}`)
+	mustWrite("tsconfig.json", `{"compilerOptions":{"baseUrl":".","paths":{"@app/*":["src/*"]}}}`)
+	mustWrite("src/models/user.ts", "export interface Authenticated {}\nexport class Base {}\nexport class User extends Base implements Authenticated {}\n")
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	user, err := st.GetNode(ctx, "@acme/app/src/models.User")
+	if err != nil || user == nil {
+		t.Fatalf("GetNode user: node=%v err=%v", user, err)
+	}
+	edges, err := st.GetEdgesFrom(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom: %v", err)
+	}
+
+	var foundInherits, foundImplements bool
+	for _, edge := range edges {
+		switch edge.Kind {
+		case model.EdgeKindInherits:
+			if edge.ToNodeID == 0 {
+				continue
+			}
+			baseNode, err := st.GetNodeByID(ctx, edge.ToNodeID)
+			if err == nil && baseNode != nil && baseNode.QualifiedName == "@acme/app/src/models.Base" {
+				foundInherits = true
+			}
+		case model.EdgeKindImplements:
+			if edge.ToNodeID == 0 {
+				continue
+			}
+			ifaceNode, err := st.GetNodeByID(ctx, edge.ToNodeID)
+			if err == nil && ifaceNode != nil && ifaceNode.QualifiedName == "@acme/app/src/models.Authenticated" {
+				foundImplements = true
+			}
+		}
+	}
+	if !foundInherits || !foundImplements {
+		t.Fatalf("expected qualified inherits and implements edges, got %+v", edges)
+	}
+}
+
+func TestBuild_TypeScriptImportedHeritageUsesQualifiedNames(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	svc := &GraphService{Store: st, DB: db, Walkers: map[string]*treesitter.Walker{".ts": treesitter.NewWalker(treesitter.TypeScriptSpec)}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("src/base")
+	mustMkdir("src/contracts")
+	mustMkdir("src/models")
+	mustWrite("package.json", `{"name":"@acme/app"}`)
+	mustWrite("tsconfig.json", `{"compilerOptions":{"baseUrl":".","paths":{"@app/*":["src/*"]}}}`)
+	mustWrite("src/base/index.ts", "export class Base {}\n")
+	mustWrite("src/contracts/index.ts", "export interface Authenticated {}\n")
+	mustWrite("src/models/user.ts", "import { Base } from '@app/base';\nimport { Authenticated } from '@app/contracts';\nexport class User extends Base implements Authenticated {}\n")
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	var edges []model.Edge
+	if err := db.Where("file_path = ?", "src/models/user.ts").Find(&edges).Error; err != nil {
+		t.Fatalf("load raw edges: %v", err)
+	}
+	var foundInherits, foundImplements bool
+	for _, edge := range edges {
+		switch edge.Kind {
+		case model.EdgeKindInherits:
+			child, parent, ok := model.ParseInheritsFingerprint("src/models/user.ts", edge.Fingerprint)
+			if ok && child == "@acme/app/src/models.User" && parent == "@acme/app/src/base.Base" {
+				foundInherits = true
+			}
+		case model.EdgeKindImplements:
+			if edge.Fingerprint == "implements:src/models/user.ts:@acme/app/src/models.User:@acme/app/src/contracts.Authenticated" {
+				foundImplements = true
+			}
+		}
+	}
+	if !foundInherits || !foundImplements {
+		t.Fatalf("expected qualified imported raw heritage edges, got %+v", edges)
+	}
+}
+
+func TestPrepareBuildSpool_TypeScriptImportedHeritageEdgesPresent(t *testing.T) {
+	svc := &GraphService{Walkers: map[string]*treesitter.Walker{".ts": treesitter.NewWalker(treesitter.TypeScriptSpec)}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("src/base")
+	mustMkdir("src/contracts")
+	mustMkdir("src/models")
+	mustWrite("package.json", `{"name":"@acme/app"}`)
+	mustWrite("tsconfig.json", `{"compilerOptions":{"baseUrl":".","paths":{"@app/*":["src/*"]}}}`)
+	mustWrite("src/base/index.ts", "export class Base {}\n")
+	mustWrite("src/contracts/index.ts", "export interface Authenticated {}\n")
+	mustWrite("src/models/user.ts", "import { Base } from '@app/base';\nimport { Authenticated } from '@app/contracts';\nexport class User extends Base implements Authenticated {}\n")
+
+	ctx := context.Background()
+	packages := svc.collectLanguagePackages(ctx, tmpDir, BuildOptions{Dir: tmpDir})
+	ctx = svc.withImportPackageContext(ctx, packages)
+
+	spool, err := svc.prepareBuildSpool(ctx, tmpDir, BuildOptions{Dir: tmpDir})
+	if err != nil {
+		t.Fatalf("prepareBuildSpool: %v", err)
+	}
+	defer spool.cleanup(slog.Default())
+
+	var record spooledBuildRecord
+	foundRecord := false
+	for _, recordPath := range spool.records {
+		got, err := spool.readRecord(recordPath)
+		if err != nil {
+			t.Fatalf("readRecord(%s): %v", recordPath, err)
+		}
+		if got.RelPath == "src/models/user.ts" {
+			record = got
+			foundRecord = true
+			break
+		}
+	}
+	if !foundRecord {
+		t.Fatalf("expected spool record for src/models/user.ts, got %v", spool.records)
+	}
+
+	var foundInherits, foundImplements bool
+	for _, edge := range record.Edges {
+		switch edge.Kind {
+		case model.EdgeKindInherits:
+			child, parent, ok := model.ParseInheritsFingerprint("src/models/user.ts", edge.Fingerprint)
+			if ok && child == "@acme/app/src/models.User" && parent == "@acme/app/src/base.Base" {
+				foundInherits = true
+			}
+		case model.EdgeKindImplements:
+			if edge.Fingerprint == "implements:src/models/user.ts:@acme/app/src/models.User:@acme/app/src/contracts.Authenticated" {
+				foundImplements = true
+			}
+		}
+	}
+	if !foundInherits || !foundImplements {
+		t.Fatalf("expected qualified imported heritage edges in spool record, got %+v", record.Edges)
+	}
+}
+
+func TestImportPackageContext_TypeScriptAliasUsesCanonicalImportPath(t *testing.T) {
+	packages := map[string]languagePackageInfo{
+		"@acme/app/src/base": {
+			ImportPath: "@acme/app/src/base",
+			Name:       "base",
+			Dir:        "src/base",
+			Language:   "typescript",
+			Files:      []string{"src/base/index.ts"},
+		},
+		"@app/base": {
+			ImportPath: "@app/base",
+			Name:       "base",
+			Dir:        "src/base",
+			Language:   "typescript",
+			Files:      []string{"src/base/index.ts"},
+		},
+	}
+
+	got := importPackageContext(packages)
+	if got["@app/base"] != "@acme/app/src/base" {
+		t.Fatalf("importPackageContext()[@app/base] = %q, want %q", got["@app/base"], "@acme/app/src/base")
+	}
+}
+
+func TestUpdate_TypeScriptFunctionQualifiedNameUsesFilePackageContext(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	walker := treesitter.NewWalker(treesitter.TypeScriptSpec)
+	svc := &GraphService{Store: st, DB: db, Walkers: map[string]*treesitter.Walker{".ts": walker}, Logger: slog.Default()}
+	syncer := incremental.NewWithRegistry(st, map[string]incremental.Parser{".ts": walker}, incremental.WithLogger(slog.Default()))
+
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("src/utils")
+	mustWrite("package.json", `{"name":"@acme/app"}`)
+	mustWrite("tsconfig.json", `{"compilerOptions":{"baseUrl":".","paths":{"@app/*":["src/*"]}}}`)
+	mustWrite("src/utils/math.ts", "export function add(a: number, b: number): number { return a + b; }\n")
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	mustWrite("src/utils/math.ts", "export function subtract(a: number, b: number): number { return a - b; }\n")
+	if _, err := svc.Update(ctx, UpdateOptions{BuildOptions: BuildOptions{Dir: tmpDir}, Syncer: syncer}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	node, err := st.GetNode(ctx, "@acme/app/src/utils.subtract")
+	if err != nil || node == nil {
+		t.Fatalf("GetNode function: node=%v err=%v", node, err)
+	}
+	if node.Kind != model.NodeKindFunction {
+		t.Fatalf("function node kind=%q, want %q", node.Kind, model.NodeKindFunction)
+	}
+	oldNode, err := st.GetNode(ctx, "@acme/app/src/utils.add")
+	if err != nil {
+		t.Fatalf("GetNode old function: %v", err)
+	}
+	if oldNode != nil {
+		t.Fatalf("expected old qualified function node removed, got %+v", oldNode)
+	}
+}
+
 func TestBuild_JavaImportedSuperclassResolvesAcrossPackages(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {

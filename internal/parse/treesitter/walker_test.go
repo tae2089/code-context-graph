@@ -1207,6 +1207,28 @@ func TestParseTypeScript_Function(t *testing.T) {
 	}
 }
 
+func TestParseTypeScript_Function_QualifiedNameIncludesFilePackagePrefix(t *testing.T) {
+	src := `function greet(): string {
+    return "hello";
+}
+`
+	ctx := WithFilePackages(context.Background(), map[string]string{
+		"app.ts": "@acme/app",
+	})
+	w := NewWalker(TypeScriptSpec)
+	nodes, _, err := w.ParseWithContext(ctx, "app.ts", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	funcNodes := filterByKind(nodes, model.NodeKindFunction)
+	if len(funcNodes) != 1 {
+		t.Fatalf("expected 1 function node, got %d", len(funcNodes))
+	}
+	if funcNodes[0].QualifiedName != "@acme/app.greet" {
+		t.Fatalf("QualifiedName = %q, want %q", funcNodes[0].QualifiedName, "@acme/app.greet")
+	}
+}
+
 func TestParseTypeScript_Class(t *testing.T) {
 	src := `class User {
     name: string;
@@ -1226,6 +1248,28 @@ func TestParseTypeScript_Class(t *testing.T) {
 	}
 	if classNodes[0].Name != "User" {
 		t.Errorf("Name = %q, want %q", classNodes[0].Name, "User")
+	}
+}
+
+func TestParseTypeScript_ClassMethod_QualifiedNameIncludesReceiver(t *testing.T) {
+	src := `class User {
+    login(): void {}
+}
+`
+	w := NewWalker(TypeScriptSpec)
+	nodes, _, err := w.Parse("models.ts", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	funcNodes := filterByKind(nodes, model.NodeKindFunction)
+	if len(funcNodes) != 1 {
+		t.Fatalf("expected 1 function node, got %d", len(funcNodes))
+	}
+	if funcNodes[0].Name != "login" {
+		t.Fatalf("Name = %q, want %q", funcNodes[0].Name, "login")
+	}
+	if funcNodes[0].QualifiedName != "User.login" {
+		t.Fatalf("QualifiedName = %q, want %q", funcNodes[0].QualifiedName, "User.login")
 	}
 }
 
@@ -1258,6 +1302,208 @@ func TestParseTypeScript_ExtendsAndImplementsEdges(t *testing.T) {
 	if !foundAuth || !foundNamed {
 		t.Fatalf("expected inherits+implements edges, got %+v", edges)
 	}
+}
+
+func TestParseTypeScript_HeritageChildQualifiedNameIncludesFilePackagePrefix(t *testing.T) {
+	src := `class User extends Base implements Authenticated {
+}
+`
+	ctx := WithFilePackages(context.Background(), map[string]string{
+		"src/models/user.ts": "@acme/app/src/models",
+	})
+	w := NewWalker(TypeScriptSpec)
+	_, edges, err := w.ParseWithContext(ctx, "src/models/user.ts", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	qualifiedChild := "@acme/app/src/models.User"
+	inheritEdges := filterEdgesByKind(edges, model.EdgeKindInherits)
+	if len(inheritEdges) != 1 {
+		t.Fatalf("expected 1 inherits edge, got %+v", inheritEdges)
+	}
+	child, parent, ok := model.ParseInheritsFingerprint("src/models/user.ts", inheritEdges[0].Fingerprint)
+	if !ok {
+		t.Fatalf("expected parseable inherits fingerprint, got %q", inheritEdges[0].Fingerprint)
+	}
+	if child != qualifiedChild {
+		t.Fatalf("inherits child = %q, want %q", child, qualifiedChild)
+	}
+	if parent != "Base" {
+		t.Fatalf("inherits parent = %q, want %q", parent, "Base")
+	}
+
+	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
+	wantImpl := "implements:src/models/user.ts:@acme/app/src/models.User:Authenticated"
+	foundImpl := false
+	for _, edge := range implEdges {
+		if edge.Fingerprint == wantImpl {
+			foundImpl = true
+			break
+		}
+	}
+	if !foundImpl {
+		t.Fatalf("expected implements fingerprint %q, got %+v", wantImpl, implEdges)
+	}
+}
+
+func TestParseTypeScript_HeritageSameFileTargetsIncludeFilePackagePrefix(t *testing.T) {
+	src := `interface Authenticated {}
+
+class Base {}
+
+class User extends Base implements Authenticated {
+}
+`
+	ctx := WithFilePackages(context.Background(), map[string]string{
+		"src/models/user.ts": "@acme/app/src/models",
+	})
+	w := NewWalker(TypeScriptSpec)
+	_, edges, err := w.ParseWithContext(ctx, "src/models/user.ts", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	qualifiedUser := "@acme/app/src/models.User"
+	qualifiedBase := "@acme/app/src/models.Base"
+	qualifiedIface := "@acme/app/src/models.Authenticated"
+
+	inheritEdges := filterEdgesByKind(edges, model.EdgeKindInherits)
+	if len(inheritEdges) != 1 {
+		t.Fatalf("expected 1 inherits edge, got %+v", inheritEdges)
+	}
+	child, parent, ok := model.ParseInheritsFingerprint("src/models/user.ts", inheritEdges[0].Fingerprint)
+	if !ok {
+		t.Fatalf("expected parseable inherits fingerprint, got %q", inheritEdges[0].Fingerprint)
+	}
+	if child != qualifiedUser {
+		t.Fatalf("inherits child = %q, want %q", child, qualifiedUser)
+	}
+	if parent != qualifiedBase {
+		t.Fatalf("inherits parent = %q, want %q", parent, qualifiedBase)
+	}
+
+	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
+	wantImpl := "implements:src/models/user.ts:@acme/app/src/models.User:@acme/app/src/models.Authenticated"
+	foundImpl := false
+	for _, edge := range implEdges {
+		if edge.Fingerprint == wantImpl {
+			foundImpl = true
+			break
+		}
+	}
+	if !foundImpl {
+		t.Fatalf("expected implements fingerprint %q, got %+v", wantImpl, implEdges)
+	}
+	_ = qualifiedIface
+}
+
+func TestParseTypeScript_HeritageImportedTargetsIncludeImportPackagePrefix(t *testing.T) {
+	src := `import { Base } from "./base";
+import { Authenticated } from "./contracts";
+
+class User extends Base implements Authenticated {
+}
+`
+	ctx := WithFilePackages(context.Background(), map[string]string{
+		"src/models/user.ts": "@acme/app/src/models",
+	})
+	ctx = WithImportPackages(ctx, map[string]string{
+		"./base":      "@acme/app/src/base",
+		"./contracts": "@acme/app/src/contracts",
+	})
+	w := NewWalker(TypeScriptSpec)
+	_, edges, err := w.ParseWithContext(ctx, "src/models/user.ts", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	qualifiedUser := "@acme/app/src/models.User"
+	qualifiedBase := "@acme/app/src/base.Base"
+	qualifiedIface := "@acme/app/src/contracts.Authenticated"
+
+	inheritEdges := filterEdgesByKind(edges, model.EdgeKindInherits)
+	if len(inheritEdges) != 1 {
+		t.Fatalf("expected 1 inherits edge, got %+v", inheritEdges)
+	}
+	child, parent, ok := model.ParseInheritsFingerprint("src/models/user.ts", inheritEdges[0].Fingerprint)
+	if !ok {
+		t.Fatalf("expected parseable inherits fingerprint, got %q", inheritEdges[0].Fingerprint)
+	}
+	if child != qualifiedUser {
+		t.Fatalf("inherits child = %q, want %q", child, qualifiedUser)
+	}
+	if parent != qualifiedBase {
+		t.Fatalf("inherits parent = %q, want %q", parent, qualifiedBase)
+	}
+
+	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
+	wantImpl := "implements:src/models/user.ts:@acme/app/src/models.User:@acme/app/src/contracts.Authenticated"
+	foundImpl := false
+	for _, edge := range implEdges {
+		if edge.Fingerprint == wantImpl {
+			foundImpl = true
+			break
+		}
+	}
+	if !foundImpl {
+		t.Fatalf("expected implements fingerprint %q, got %+v", wantImpl, implEdges)
+	}
+	_ = qualifiedIface
+}
+
+func TestParseTypeScript_HeritageImportedAliasTargetsIncludeImportPackagePrefix(t *testing.T) {
+	src := `import { Base } from "@app/base";
+import { Authenticated } from "@app/contracts";
+
+class User extends Base implements Authenticated {
+}
+`
+	ctx := WithFilePackages(context.Background(), map[string]string{
+		"src/models/user.ts": "@acme/app/src/models",
+	})
+	ctx = WithImportPackages(ctx, map[string]string{
+		"@app/base":      "@acme/app/src/base",
+		"@app/contracts": "@acme/app/src/contracts",
+	})
+	w := NewWalker(TypeScriptSpec)
+	_, edges, err := w.ParseWithContext(ctx, "src/models/user.ts", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	qualifiedUser := "@acme/app/src/models.User"
+	qualifiedBase := "@acme/app/src/base.Base"
+	qualifiedIface := "@acme/app/src/contracts.Authenticated"
+
+	inheritEdges := filterEdgesByKind(edges, model.EdgeKindInherits)
+	if len(inheritEdges) != 1 {
+		t.Fatalf("expected 1 inherits edge, got %+v", inheritEdges)
+	}
+	child, parent, ok := model.ParseInheritsFingerprint("src/models/user.ts", inheritEdges[0].Fingerprint)
+	if !ok {
+		t.Fatalf("expected parseable inherits fingerprint, got %q", inheritEdges[0].Fingerprint)
+	}
+	if child != qualifiedUser {
+		t.Fatalf("inherits child = %q, want %q", child, qualifiedUser)
+	}
+	if parent != qualifiedBase {
+		t.Fatalf("inherits parent = %q, want %q", parent, qualifiedBase)
+	}
+
+	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
+	wantImpl := "implements:src/models/user.ts:@acme/app/src/models.User:@acme/app/src/contracts.Authenticated"
+	foundImpl := false
+	for _, edge := range implEdges {
+		if edge.Fingerprint == wantImpl {
+			foundImpl = true
+			break
+		}
+	}
+	if !foundImpl {
+		t.Fatalf("expected implements fingerprint %q, got %+v", wantImpl, implEdges)
+	}
+	_ = qualifiedIface
 }
 
 func TestParseTypeScript_HeritageIgnoresCommasInsideGenericArguments(t *testing.T) {

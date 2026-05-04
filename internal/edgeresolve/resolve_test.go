@@ -633,6 +633,33 @@ func TestResolveInheritsBindsQualifiedTypeEndpoints(t *testing.T) {
 	}
 }
 
+func TestResolveTypeScriptImportedHeritageBindsQualifiedEndpoints(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "@acme/app/src/models.User", Name: "User", Kind: model.NodeKindClass, FilePath: "src/models/user.ts", StartLine: 3, EndLine: 5, Language: "typescript"},
+		{ID: 2, QualifiedName: "@acme/app/src/base.Base", Name: "Base", Kind: model.NodeKindClass, FilePath: "src/base/index.ts", StartLine: 1, EndLine: 1, Language: "typescript"},
+		{ID: 3, QualifiedName: "@acme/app/src/contracts.Authenticated", Name: "Authenticated", Kind: model.NodeKindType, FilePath: "src/contracts/index.ts", StartLine: 1, EndLine: 1, Language: "typescript"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindInherits, FilePath: "src/models/user.ts", Line: 3, Fingerprint: model.BuildInheritsFingerprintV2("src/models/user.ts", "@acme/app/src/models.User", "@acme/app/src/base.Base")},
+		{Kind: model.EdgeKindImplements, FilePath: "src/models/user.ts", Line: 3, Fingerprint: "implements:src/models/user.ts:@acme/app/src/models.User:@acme/app/src/contracts.Authenticated"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := edges[0].FromNodeID; got != 1 {
+		t.Fatalf("inherits FromNodeID=%d, want 1", got)
+	}
+	if got := edges[0].ToNodeID; got != 2 {
+		t.Fatalf("inherits ToNodeID=%d, want 2", got)
+	}
+	if got := edges[1].FromNodeID; got != 1 {
+		t.Fatalf("implements FromNodeID=%d, want 1", got)
+	}
+	if got := edges[1].ToNodeID; got != 3 {
+		t.Fatalf("implements ToNodeID=%d, want 3", got)
+	}
+}
+
 func TestResolveInheritsLegacyFingerprint(t *testing.T) {
 	lookup := fakeLookup{nodes: []model.Node{
 		{ID: 1, QualifiedName: "pkg.Child", Name: "Child", Kind: model.NodeKindClass, FilePath: "child.go", StartLine: 3, EndLine: 5, Language: "go"},
