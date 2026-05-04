@@ -276,6 +276,8 @@ func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files ma
 	return stats, nil
 }
 
+// sortedFilePaths returns the file map keys in deterministic order.
+// @intent stabilize incremental sync traversal so logs, batching, and tests stay reproducible.
 func sortedFilePaths(files map[string]FileInfo) []string {
 	paths := make([]string, 0, len(files))
 	for filePath := range files {
@@ -285,6 +287,10 @@ func sortedFilePaths(files map[string]FileInfo) []string {
 	return paths
 }
 
+// resolveAndUpsertEdges resolves parsed edges in dependency-safe phases before persisting them.
+// @intent preserve interface dispatch and import-backed call resolution during incremental sync updates.
+// @sideEffect upserts resolved graph edges through the sync store.
+// @mutates graph edges, stats.Unresolved
 func (s *Syncer) resolveAndUpsertEdges(ctx context.Context, syncStore Store, parsedFiles []parsedSyncFile, stats *SyncStats) error {
 	implementsEdges, otherByFile := partitionParsedSyncEdges(parsedFiles)
 	for _, edgeChunk := range splitEdgeChunks(implementsEdges) {
@@ -323,6 +329,9 @@ func (s *Syncer) resolveAndUpsertEdges(ctx context.Context, syncStore Store, par
 	return nil
 }
 
+// mergeSyncUnresolvedDiagnostics folds one chunk's unresolved-edge diagnostics into sync totals.
+// @intent keep incremental sync logging aligned with chunked edge resolution output.
+// @mutates stats.Unresolved
 func mergeSyncUnresolvedDiagnostics(stats *SyncStats, diagnostics edgeresolve.FilterResolvedDiagnostics) {
 	if stats == nil || diagnostics.DroppedCount == 0 {
 		return
@@ -362,6 +371,8 @@ func mergeSyncUnresolvedDiagnostics(stats *SyncStats, diagnostics edgeresolve.Fi
 	stats.Unresolved.Samples = append(stats.Unresolved.Samples, diagnostics.Samples[:remaining]...)
 }
 
+// formatEdgeKindCounts rewrites edge-kind counters into string-keyed log fields.
+// @intent serialize EdgeKind counters into diagnostics-friendly logging output.
 func formatEdgeKindCounts(counts map[model.EdgeKind]int) map[string]int {
 	if len(counts) == 0 {
 		return nil
@@ -373,6 +384,8 @@ func formatEdgeKindCounts(counts map[model.EdgeKind]int) map[string]int {
 	return formatted
 }
 
+// partitionParsedSyncEdges separates implements edges from per-file edges.
+// @intent resolve interface fulfillment before file-local edge chunks that may depend on those relationships.
 func partitionParsedSyncEdges(parsedFiles []parsedSyncFile) ([]model.Edge, map[string][]model.Edge) {
 	var implementsEdges []model.Edge
 	otherByFile := make(map[string][]model.Edge, len(parsedFiles))
@@ -388,6 +401,8 @@ func partitionParsedSyncEdges(parsedFiles []parsedSyncFile) ([]model.Edge, map[s
 	return implementsEdges, otherByFile
 }
 
+// importEdgesByFile extracts import edges grouped by file path.
+// @intent warm call-edge resolution with import context only for files that actually need it.
 func importEdgesByFile(edgesByFile map[string][]model.Edge) map[string][]model.Edge {
 	imports := make(map[string][]model.Edge, len(edgesByFile))
 	for filePath, edges := range edgesByFile {
@@ -400,6 +415,9 @@ func importEdgesByFile(edgesByFile map[string][]model.Edge) map[string][]model.E
 	return imports
 }
 
+// chunkWithImportWarmup prefixes one edge chunk with its file's import edges when needed.
+// @intent ensure chunked call resolution sees import relationships before resolving dependent call edges.
+// @domainRule import edges are prepended only when the chunk contains call edges.
 func chunkWithImportWarmup(chunk []model.Edge, imports []model.Edge) []model.Edge {
 	if len(chunk) == 0 {
 		return nil
@@ -419,6 +437,8 @@ func chunkWithImportWarmup(chunk []model.Edge, imports []model.Edge) []model.Edg
 	return resolveInput
 }
 
+// splitEdgeChunks breaks a large edge slice into bounded resolver chunks.
+// @intent cap incremental resolution work so large files do not create oversized resolve batches.
 func splitEdgeChunks(edges []model.Edge) [][]model.Edge {
 	if len(edges) == 0 {
 		return nil

@@ -12,10 +12,14 @@ type explicitOwnerLanguageDispatch struct {
 	language string
 }
 
+// Language identifies the language handled by this dispatch strategy.
+// @intent support registry-based lookup for explicit-owner language dispatch.
 func (d explicitOwnerLanguageDispatch) Language() string {
 	return d.language
 }
 
+// CollectQualifiedCallCandidates returns explicit-owner candidates derivable without resolver state.
+// @intent preload fully qualified owner types before polymorphic dispatch resolution runs.
 func (d explicitOwnerLanguageDispatch) CollectQualifiedCallCandidates(caller model.Node, callee string) []string {
 	owner, _, ok := explicitOwnerMethodSelector(callee)
 	if !ok {
@@ -27,6 +31,8 @@ func (d explicitOwnerLanguageDispatch) CollectQualifiedCallCandidates(caller mod
 	return explicitOwnerShortNameCandidates(caller, owner)
 }
 
+// EnsureDispatchTargets returns explicit-owner dispatch targets to prefetch for later resolution.
+// @intent preload owner and unique implementer methods when a conservative explicit-owner selector is available.
 func (d explicitOwnerLanguageDispatch) EnsureDispatchTargets(caller *model.Node, callee string, st *resolveState) []string {
 	owner, method, ok := explicitOwnerMethodSelector(callee)
 	if !ok {
@@ -44,6 +50,8 @@ func (d explicitOwnerLanguageDispatch) EnsureDispatchTargets(caller *model.Node,
 	return names
 }
 
+// ResolveSameReceiverCall leaves same-receiver handling to generic resolution for explicit-owner languages.
+// @intent avoid inventing receiver inference when the call only proves an owner-qualified selector.
 func (d explicitOwnerLanguageDispatch) ResolveSameReceiverCall(caller *model.Node, callee string, st *resolveState) *model.Node {
 	_ = caller
 	_ = callee
@@ -51,6 +59,8 @@ func (d explicitOwnerLanguageDispatch) ResolveSameReceiverCall(caller *model.Nod
 	return nil
 }
 
+// ResolveInterfaceDispatch resolves explicit-owner selectors through a unique implementer when possible.
+// @intent preserve conservative interface-style dispatch for JVM/TypeScript selectors without broad receiver inference.
 func (d explicitOwnerLanguageDispatch) ResolveInterfaceDispatch(caller *model.Node, callee string, st *resolveState) *model.Node {
 	_ = caller
 	owner, method, ok := explicitOwnerMethodSelector(callee)
@@ -70,6 +80,8 @@ func (d explicitOwnerLanguageDispatch) ResolveInterfaceDispatch(caller *model.No
 	return uniqueCallable(st.qnIndex[ownerNode.QualifiedName+"."+method])
 }
 
+// PackagePrefix extracts the namespace-like prefix from explicit-owner qualified names.
+// @intent reuse existing qualified-name prefixes when expanding short owner candidates.
 func (d explicitOwnerLanguageDispatch) PackagePrefix(node model.Node) string {
 	suffix := "." + node.Name
 	if strings.HasSuffix(node.QualifiedName, suffix) {
@@ -78,6 +90,8 @@ func (d explicitOwnerLanguageDispatch) PackagePrefix(node model.Node) string {
 	return ""
 }
 
+// explicitOwnerMethodSelector splits a callee into owner and method segments when it is safe to do so.
+// @intent gate explicit-owner dispatch behind syntactic selectors that look like type-owned method calls.
 func explicitOwnerMethodSelector(callee string) (string, string, bool) {
 	idx := strings.LastIndex(callee, ".")
 	if idx <= 0 || idx == len(callee)-1 {
@@ -94,6 +108,8 @@ func explicitOwnerMethodSelector(callee string) (string, string, bool) {
 	return owner, method, true
 }
 
+// explicitOwnerImplementers returns known concrete implementers for an explicit owner type.
+// @intent reuse implements edges to prefer concrete dispatch targets over abstract owner nodes when unique.
 func explicitOwnerImplementers(st *resolveState, owner string) []model.Node {
 	if st == nil {
 		return nil
@@ -105,6 +121,8 @@ func explicitOwnerImplementers(st *resolveState, owner string) []model.Node {
 	return uniqueNodes(st.implementsBy[target.QualifiedName])
 }
 
+// explicitOwnerTarget resolves an explicit owner string to a unique type or class node.
+// @intent normalize short and fully qualified owner names into one dispatch anchor before method lookup.
 func explicitOwnerTarget(st *resolveState, owner string) *model.Node {
 	if st == nil || owner == "" {
 		return nil
@@ -123,6 +141,8 @@ func explicitOwnerTarget(st *resolveState, owner string) *model.Node {
 	return uniqueTypeNode(candidates)
 }
 
+// explicitOwnerShortNameCandidates expands a short owner name against the caller package prefix.
+// @intent preserve short-owner support without searching unrelated packages outside the caller namespace.
 func explicitOwnerShortNameCandidates(caller model.Node, owner string) []string {
 	if owner == "" {
 		return nil

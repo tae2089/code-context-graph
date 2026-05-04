@@ -72,6 +72,8 @@ func (g *Generator) writeFileDoc(grp nodeGroup) error {
 	return atomicWriteFile(outPath, []byte(generatorManagedMarker+content), 0644)
 }
 
+// safeDocOutputPath resolves one documentation output path while preventing traversal.
+// @intent constrain generated documentation writes to the configured output directory.
 func safeDocOutputPath(outDir, relPath string) (string, error) {
 	clean := filepath.Clean(filepath.FromSlash(relPath))
 	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
@@ -95,6 +97,8 @@ func safeDocOutputPath(outDir, relPath string) (string, error) {
 	return target, nil
 }
 
+// rejectSymlinkPath rejects output paths that traverse through symlinked components.
+// @intent prevent documentation generation from writing through symlink escapes inside the output tree.
 func rejectSymlinkPath(root, relPath string) error {
 	clean := filepath.Clean(relPath)
 	if clean == "." {

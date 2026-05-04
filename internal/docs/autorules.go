@@ -101,6 +101,8 @@ func (s *AutoRuleSet) Save(path string) error {
 	return atomicWriteFile(path, data, 0o644)
 }
 
+// autoRuleKey builds a stable map key for one generated lint rule.
+// @intent deduplicate auto-generated rules by category and pattern before persisting them.
 func autoRuleKey(category, pattern string) string {
 	return category + "\x00" + pattern
 }

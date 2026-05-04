@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 )
 
+// atomicWriteFile writes data by syncing a temp file and renaming it into place.
+// @intent avoid partially written documentation artifacts when generation is interrupted.
+// @sideEffect creates, syncs, renames, and removes temporary files on disk.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".tmp-*")
@@ -37,6 +40,9 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
+// syncDir best-effort syncs a directory after an atomic rename.
+// @intent improve durability of generated documentation updates on filesystems that require directory fsync.
+// @sideEffect opens and syncs the target directory.
 func syncDir(dir string) {
 	d, err := os.Open(dir)
 	if err != nil {

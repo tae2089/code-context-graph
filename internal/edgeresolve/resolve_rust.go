@@ -78,6 +78,8 @@ func (rustLanguageDispatch) PackagePrefix(node model.Node) string {
 	return ""
 }
 
+// rustTraitMethodSelector recognizes both qualified trait calls and UFCS-style selectors.
+// @intent normalize Rust trait call syntaxes before dispatch resolution chooses implementer methods.
 func rustTraitMethodSelector(callee string) (trait string, method string, concrete string, ok bool) {
 	callee = strings.TrimSpace(callee)
 	if concrete, trait, method, ok = rustUFCSTraitMethodSelector(callee); ok {
@@ -90,6 +92,8 @@ func rustTraitMethodSelector(callee string) (trait string, method string, concre
 	return trait, method, "", true
 }
 
+// rustQualifiedTraitMethodSelector parses Trait::method selectors emitted by Rust call rewriting.
+// @intent recover the trait owner and method name from conservative qualified trait call fingerprints.
 func rustQualifiedTraitMethodSelector(callee string) (string, string, bool) {
 	parts := strings.Split(callee, "::")
 	if len(parts) < 2 {
@@ -103,6 +107,8 @@ func rustQualifiedTraitMethodSelector(callee string) (string, string, bool) {
 	return trait, method, true
 }
 
+// rustUFCSTraitMethodSelector parses <Type as Trait>::method selectors.
+// @intent preserve concrete-type disambiguation when Rust calls are rewritten in UFCS form.
 func rustUFCSTraitMethodSelector(callee string) (concrete string, trait string, method string, ok bool) {
 	callee = strings.TrimSpace(callee)
 	if !strings.HasPrefix(callee, "<") {
@@ -126,6 +132,8 @@ func rustUFCSTraitMethodSelector(callee string) (concrete string, trait string, 
 	return concrete, trait, method, true
 }
 
+// rustExactImplementers filters trait implementers to the requested concrete type when provided.
+// @intent narrow Rust trait dispatch candidates before method lookup so ambiguous impl sets stay unresolved.
 func rustExactImplementers(st *resolveState, trait string, concrete string) []model.Node {
 	impls := uniqueNodes(st.implementsBy[trait])
 	if concrete == "" {
@@ -140,6 +148,8 @@ func rustExactImplementers(st *resolveState, trait string, concrete string) []mo
 	return filtered
 }
 
+// rustMatchingAngle finds the closing angle bracket paired with the given opening bracket.
+// @intent parse nested UFCS selectors without confusing generic argument brackets for the outer boundary.
 func rustMatchingAngle(raw string, open int) int {
 	depth := 0
 	for i := open; i < len(raw); i++ {
@@ -156,6 +166,8 @@ func rustMatchingAngle(raw string, open int) int {
 	return -1
 }
 
+// rustTopLevelAsIndex finds the top-level " as " separator inside a UFCS selector body.
+// @intent split concrete and trait types only when the separator is outside nested generic or tuple syntax.
 func rustTopLevelAsIndex(raw string) int {
 	depthAngle := 0
 	depthParen := 0

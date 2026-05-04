@@ -316,6 +316,8 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 	}))
 }
 
+// compactQueryTargetAmbiguity formats ambiguous query_graph matches into one compact error string.
+// @intent 짧은 심볼 이름이 여러 노드와 겹칠 때 사용자가 선택할 후보를 한 줄로 압축해 보여준다.
 func compactQueryTargetAmbiguity(target string, matches []querypkg.CandidateMatch) string {
 	parts := make([]string, 0, len(matches))
 	for _, match := range matches {

@@ -279,6 +279,8 @@ func qualifyImportedTypeName(typeName, pkgName string, imports map[string]string
 	return qualifyTypeName(pkgName, typeName)
 }
 
+// collectJavaReceiverBindings extracts explicit Java local and field receiver type bindings from source text.
+// @intent enable conservative receiver call rewriting without requiring full Java type checking.
 func collectJavaReceiverBindings(root *sitter.Node, content []byte) map[string]string {
 	_ = root
 	bindings := make(map[string]string)
@@ -298,6 +300,8 @@ func collectJavaReceiverBindings(root *sitter.Node, content []byte) map[string]s
 	return bindings
 }
 
+// collectJavaMemberTypes collects explicit Java member types keyed by owning type.
+// @intent prove intermediate receiver hops before rewriting Java member-call chains.
 func collectJavaMemberTypes(root *sitter.Node, content []byte) map[string]map[string]string {
 	_ = root
 	members := collectJVMMembersFromText(string(content))
@@ -307,6 +311,8 @@ func collectJavaMemberTypes(root *sitter.Node, content []byte) map[string]map[st
 	return members
 }
 
+// collectKotlinReceiverBindings extracts explicit Kotlin receiver type bindings from source text.
+// @intent support conservative Kotlin receiver call rewriting without smart-cast inference.
 func collectKotlinReceiverBindings(root *sitter.Node, content []byte) map[string]string {
 	_ = root
 	bindings := make(map[string]string)
@@ -326,6 +332,8 @@ func collectKotlinReceiverBindings(root *sitter.Node, content []byte) map[string
 	return bindings
 }
 
+// collectKotlinMemberTypes collects explicit Kotlin member types keyed by owning type.
+// @intent prove receiver-member chains before rewriting Kotlin call selectors.
 func collectKotlinMemberTypes(root *sitter.Node, content []byte) map[string]map[string]string {
 	_ = root
 	members := collectJVMMembersFromText(string(content))
@@ -335,6 +343,8 @@ func collectKotlinMemberTypes(root *sitter.Node, content []byte) map[string]map[
 	return members
 }
 
+// collectJVMMembersFromText scans JVM source text for explicitly typed fields and properties.
+// @intent share one conservative member-type extractor across Java and Kotlin receiver rewriting.
 func collectJVMMembersFromText(src string) map[string]map[string]string {
 	lines := strings.Split(src, "\n")
 	members := make(map[string]map[string]string)

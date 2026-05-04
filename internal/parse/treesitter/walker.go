@@ -250,6 +250,8 @@ func (w *Walker) ParseWithCommentsAndMetadata(ctx context.Context, filePath stri
 	return nodes, edges, comments, ParseMetadata{Package: pkgName, Interfaces: exportPackageInterfaces(interfaces)}, nil
 }
 
+// exportPackageInterfaces converts internal interface metadata into exported parse metadata.
+// @intent expose package interface summaries without leaking walker-private helper types.
 func exportPackageInterfaces(interfaces []interfaceInfo) []PackageInterfaceInfo {
 	if len(interfaces) == 0 {
 		return nil
@@ -516,6 +518,8 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 	return nodes, edges, pkgName, interfaces, nil
 }
 
+// contentForImplementedTypes extracts implemented-type text from one capture node.
+// @intent normalize raw implements captures into a shared slice before language-specific enrichment.
 func contentForImplementedTypes(content []byte, implementsNode *sitter.Node) []string {
 	if implementsNode == nil {
 		return nil
@@ -527,6 +531,8 @@ func contentForImplementedTypes(content []byte, implementsNode *sitter.Node) []s
 	return splitTopLevelCSV(value)
 }
 
+// appendUniqueEdges appends edges while deduplicating on fingerprint when available.
+// @intent prevent overlapping Tree-sitter captures from emitting duplicate relationship edges.
 func appendUniqueEdges(edges []model.Edge, seen map[string]struct{}, add ...model.Edge) []model.Edge {
 	for _, edge := range add {
 		if edge.Fingerprint == "" {
@@ -542,6 +548,8 @@ func appendUniqueEdges(edges []model.Edge, seen map[string]struct{}, add ...mode
 	return edges
 }
 
+// appendUniqueInterfaces appends interface summaries while deduplicating by name and method set.
+// @intent avoid repeating package interface metadata when multiple query patterns capture the same interface.
 func appendUniqueInterfaces(interfaces []interfaceInfo, seen map[string]struct{}, add ...interfaceInfo) []interfaceInfo {
 	for _, iface := range add {
 		key := iface.name + ":" + strings.Join(iface.methods, ",")
@@ -554,6 +562,8 @@ func appendUniqueInterfaces(interfaces []interfaceInfo, seen map[string]struct{}
 	return interfaces
 }
 
+// splitTopLevelCSV splits a comma-separated list while respecting nested delimiters.
+// @intent preserve generic and tuple type syntax when parsing implements lists from raw query captures.
 func splitTopLevelCSV(value string) []string {
 	value = strings.TrimSpace(value)
 	if value == "" {

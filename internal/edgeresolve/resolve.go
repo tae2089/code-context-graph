@@ -152,6 +152,8 @@ func FilterResolvedWithDiagnostics(edges []model.Edge) ([]model.Edge, FilterReso
 	return out, diagnostics
 }
 
+// unresolvedReason classifies why an edge will be dropped from the resolved output.
+// @intent provide stable reason codes for unresolved-edge diagnostics and logging summaries.
 func unresolvedReason(edge model.Edge) (string, bool) {
 	switch {
 	case edge.FromNodeID == 0 && edge.ToNodeID == 0:
@@ -165,6 +167,9 @@ func unresolvedReason(edge model.Edge) (string, bool) {
 	}
 }
 
+// add aggregates one dropped edge into the diagnostics summary.
+// @intent accumulate per-kind, per-file, and sampled unresolved-edge diagnostics during filtering.
+// @mutates diagnostics counters, maps, and samples
 func (d *FilterResolvedDiagnostics) add(edge model.Edge, reason string) {
 	d.DroppedCount++
 	if d.ByKind == nil {

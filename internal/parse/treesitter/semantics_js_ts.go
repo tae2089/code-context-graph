@@ -95,6 +95,8 @@ func (JavaScriptSemantics) ImplementedTypes(ctx DefinitionContext) []string {
 	return slices.Clone(ctx.ImplementedTypes)
 }
 
+// RewriteCall rewrites a member-call chain when explicit type annotations prove every hop.
+// @intent preserve conservative receiver dispatch by upgrading only typed call chains into owner-qualified selectors.
 func (r explicitReceiverTypeCallRewriter) RewriteCall(ctx CallRewriteContext) string {
 	if ctx.Node == nil || len(r.bindings) == 0 || r.chain == nil {
 		// continue below with callee-based parsing
@@ -124,6 +126,8 @@ func (r explicitReceiverTypeCallRewriter) RewriteCall(ctx CallRewriteContext) st
 	return typeName + "." + chain[len(chain)-1]
 }
 
+// collectTypeScriptReceiverBindings extracts explicit TypeScript variable and parameter type bindings.
+// @intent seed conservative receiver rewriting with only textually provable TypeScript type annotations.
 func collectTypeScriptReceiverBindings(root *sitter.Node, content []byte) map[string]string {
 	_ = root
 	bindings := make(map[string]string)
@@ -143,6 +147,8 @@ func collectTypeScriptReceiverBindings(root *sitter.Node, content []byte) map[st
 	return bindings
 }
 
+// collectTypeScriptMemberTypes collects explicit TypeScript member types keyed by owner type.
+// @intent prove intermediate member hops before rewriting TypeScript call chains.
 func collectTypeScriptMemberTypes(root *sitter.Node, content []byte) map[string]map[string]string {
 	_ = root
 	members := collectTypeScriptMembersFromText(string(content))
@@ -152,6 +158,8 @@ func collectTypeScriptMemberTypes(root *sitter.Node, content []byte) map[string]
 	return members
 }
 
+// typescriptDeclaredTypeName extracts the declared type name from a TypeScript node.
+// @intent normalize AST-derived type names before they participate in receiver rewriting.
 func typescriptDeclaredTypeName(n *sitter.Node, content []byte) string {
 	if n == nil {
 		return ""
@@ -162,6 +170,8 @@ func typescriptDeclaredTypeName(n *sitter.Node, content []byte) string {
 	return ""
 }
 
+// typescriptReceiverChain extracts the selector chain from a TypeScript call node.
+// @intent recover member-call hops directly from the AST when callee text is insufficient.
 func typescriptReceiverChain(callNode *sitter.Node, content []byte) []string {
 	if callNode == nil {
 		return nil
@@ -175,6 +185,8 @@ func typescriptReceiverChain(callNode *sitter.Node, content []byte) []string {
 
 var typedIdentifierPattern = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_\.]*)`)
 
+// callChainFromCallee splits a raw callee string into selector segments.
+// @intent share one normalized chain representation across language-specific receiver rewriters.
 func callChainFromCallee(callee string) []string {
 	callee = strings.TrimSpace(callee)
 	callee = strings.TrimSuffix(callee, "()")
@@ -191,6 +203,8 @@ func callChainFromCallee(callee string) []string {
 	return parts
 }
 
+// collectTypeScriptMembersFromText scans TypeScript source text for explicitly typed members.
+// @intent avoid depending on grammar-specific field captures when proving member-chain types.
 func collectTypeScriptMembersFromText(src string) map[string]map[string]string {
 	lines := strings.Split(src, "\n")
 	members := make(map[string]map[string]string)
@@ -225,6 +239,8 @@ func collectTypeScriptMembersFromText(src string) map[string]map[string]string {
 	return members
 }
 
+// collectTypedMembersInto walks an AST subtree and records typed members under one owner.
+// @intent support future AST-based member extraction without changing the receiver rewrite contract.
 func collectTypedMembersInto(owner string, n *sitter.Node, content []byte, dst map[string]map[string]string) {
 	var walk func(*sitter.Node)
 	walk = func(cur *sitter.Node) {
@@ -248,6 +264,8 @@ func collectTypedMembersInto(owner string, n *sitter.Node, content []byte, dst m
 	walk(n)
 }
 
+// typedNameAndType extracts a member name and type from one typed declaration node.
+// @intent share field-signature parsing between AST-backed member collectors.
 func typedNameAndType(n *sitter.Node, content []byte) (string, string, bool) {
 	if n == nil {
 		return "", "", false
@@ -265,6 +283,8 @@ func typedNameAndType(n *sitter.Node, content []byte) (string, string, bool) {
 	return name, typeName, true
 }
 
+// memberChainFromNode extracts a dotted selector chain from one AST node.
+// @intent reuse AST-derived selector parsing when raw callee strings are incomplete.
 func memberChainFromNode(n *sitter.Node, content []byte) []string {
 	if n == nil {
 		return nil
@@ -286,6 +306,8 @@ func memberChainFromNode(n *sitter.Node, content []byte) []string {
 	return parts
 }
 
+// normalizeReceiverTypeName strips suffix syntax that would destabilize receiver type matching.
+// @intent canonicalize explicit type names before they are used as receiver-chain proof.
 func normalizeReceiverTypeName(raw string) string {
 	raw = strings.TrimSpace(raw)
 	for _, sep := range []string{"=", "{", "<", "(", "?", "!"} {
@@ -301,6 +323,8 @@ func normalizeReceiverTypeName(raw string) string {
 	return raw
 }
 
+// isLooseReceiverType reports whether a type is too imprecise for conservative receiver rewriting.
+// @intent keep any/unknown/object-style declarations from producing false-positive dispatch rewrites.
 func isLooseReceiverType(typeName string) bool {
 	switch typeName {
 	case "", "any", "unknown", "object", "Object", "Any":

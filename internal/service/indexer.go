@@ -546,6 +546,8 @@ func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.Gr
 	return nil
 }
 
+// packageSemanticEdgeBatches derives package-level semantic edges from grouped file batches.
+// @intent regenerate package-scoped semantic relationships after node batches reveal the latest package contents.
 func (s *GraphService) packageSemanticEdgeBatches(batches []parsedBuildNodeBatch) []parsedBuildEdgeBatch {
 	contexts := make(map[string]*treesitter.PackageContext)
 	filesByKey := make(map[string][]string)
@@ -587,6 +589,8 @@ func (s *GraphService) packageSemanticEdgeBatches(batches []parsedBuildNodeBatch
 	return out
 }
 
+// rewriteImplementsFingerprintScope rewrites an implements fingerprint to use a package anchor file.
+// @intent keep synthesized package semantic edges idempotent even when they are rebuilt from different files.
 func rewriteImplementsFingerprintScope(fingerprint, scope string) string {
 	if !strings.HasPrefix(fingerprint, "implements:") {
 		return fingerprint
@@ -697,6 +701,9 @@ func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphS
 	return nil
 }
 
+// mergeBuildUnresolvedDiagnostics folds one chunk's unresolved-edge diagnostics into build totals.
+// @intent keep build-time unresolved-edge reporting aligned with chunked edge resolution output.
+// @mutates stats.Unresolved
 func mergeBuildUnresolvedDiagnostics(stats *BuildStats, diagnostics edgeresolve.FilterResolvedDiagnostics) {
 	if stats == nil || diagnostics.DroppedCount == 0 {
 		return
@@ -704,6 +711,9 @@ func mergeBuildUnresolvedDiagnostics(stats *BuildStats, diagnostics edgeresolve.
 	mergeFilterResolvedDiagnostics(&stats.Unresolved, diagnostics)
 }
 
+// mergeFilterResolvedDiagnostics accumulates one diagnostics payload into another.
+// @intent reuse the same unresolved-edge aggregation rules across build and incremental sync flows.
+// @mutates dst
 func mergeFilterResolvedDiagnostics(dst *edgeresolve.FilterResolvedDiagnostics, src edgeresolve.FilterResolvedDiagnostics) {
 	if dst == nil || src.DroppedCount == 0 {
 		return
@@ -743,6 +753,8 @@ func mergeFilterResolvedDiagnostics(dst *edgeresolve.FilterResolvedDiagnostics, 
 	dst.Samples = append(dst.Samples, src.Samples[:remaining]...)
 }
 
+// formatEdgeKindCounts rewrites edge-kind counters into string-keyed log fields.
+// @intent serialize EdgeKind counters into diagnostics-friendly logging output.
 func formatEdgeKindCounts(counts map[model.EdgeKind]int) map[string]int {
 	if len(counts) == 0 {
 		return nil
@@ -1735,6 +1747,10 @@ func packageContainsFingerprint(importPath, filePath string) string {
 	return fmt.Sprintf("contains:package:%x", sum)
 }
 
+// refreshPackageSemanticEdges rebuilds package-level semantic edges for affected packages only.
+// @intent keep synthesized package relationships in sync after incremental file changes without rebuilding every package.
+// @sideEffect deletes stale package semantic edges and upserts regenerated ones through the graph store.
+// @mutates graph edges
 func (s *GraphService) refreshPackageSemanticEdges(ctx context.Context, graphStore store.GraphStore, db *gorm.DB, absDir string, packages map[string]languagePackageInfo, changedFiles, deletedFiles []string) error {
 	if graphStore == nil || len(packages) == 0 {
 		return nil
@@ -1753,6 +1769,8 @@ func (s *GraphService) refreshPackageSemanticEdges(ctx context.Context, graphSto
 	return s.flushBuildEdges(ctx, graphStore, edgeBatches, nil)
 }
 
+// collectAffectedPackageSemanticBatches gathers node batches for packages touched by changed or deleted files.
+// @intent limit package semantic edge refresh work to packages whose file sets overlap the current update.
 func (s *GraphService) collectAffectedPackageSemanticBatches(ctx context.Context, graphStore store.GraphStore, absDir string, packages map[string]languagePackageInfo, changedFiles, deletedFiles []string) ([]parsedBuildNodeBatch, []string, error) {
 	affected := affectedPackageImportPaths(packages, append(append([]string(nil), changedFiles...), deletedFiles...))
 	if len(affected) == 0 {
@@ -1811,6 +1829,8 @@ func (s *GraphService) collectAffectedPackageSemanticBatches(ctx context.Context
 	return batches, anchors, nil
 }
 
+// packageSemanticMetadataForFile reparses one file to recover package-level semantic metadata.
+// @intent reload package and interface metadata only for files participating in a package semantic refresh.
 func (s *GraphService) packageSemanticMetadataForFile(ctx context.Context, absDir, relPath string) (treesitter.ParseMetadata, string, error) {
 	parser, ok := s.parserForExt(strings.ToLower(filepath.Ext(relPath)))
 	if !ok {
@@ -1831,6 +1851,8 @@ func (s *GraphService) packageSemanticMetadataForFile(ctx context.Context, absDi
 	return meta, mp.Language(), nil
 }
 
+// affectedPackageImportPaths identifies packages whose file lists intersect the changed scope.
+// @intent constrain package semantic refresh to import paths touched directly or by directory-level package splits.
 func affectedPackageImportPaths(packages map[string]languagePackageInfo, affectedFiles []string) []string {
 	if len(packages) == 0 || len(affectedFiles) == 0 {
 		return nil
@@ -1862,6 +1884,10 @@ func affectedPackageImportPaths(packages map[string]languagePackageInfo, affecte
 	return affected
 }
 
+// deletePackageSemanticEdges removes stale synthesized package semantic edges for the given anchor files.
+// @intent clear old package implements edges before rebuilding the affected package semantic snapshot.
+// @sideEffect deletes package semantic edge rows from the edges table.
+// @mutates graph edges
 func deletePackageSemanticEdges(ctx context.Context, db *gorm.DB, anchors []string) error {
 	if db == nil || len(anchors) == 0 {
 		return nil

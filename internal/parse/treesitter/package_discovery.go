@@ -473,6 +473,8 @@ func readTSConfigAliasPrefixes(rootDir, path string) (map[string]string, error) 
 	return readTSConfigAliasPrefixesSeen(rootDir, path, map[string]struct{}{})
 }
 
+// readTSConfigAliasPrefixesSeen resolves tsconfig path aliases while guarding against extends cycles.
+// @intent merge inherited alias prefixes from nested tsconfig chains into one import-path map.
 func readTSConfigAliasPrefixesSeen(rootDir, path string, seen map[string]struct{}) (map[string]string, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
@@ -760,6 +762,8 @@ func workspacePackageRoots(rootDir string, globs []string) []string {
 	return appendUniquePackageFile(nil, roots...)
 }
 
+// splitWorkspacePatterns separates workspace globs into include and exclude lists.
+// @intent normalize npm/pnpm workspace pattern lists before matching concrete package roots.
 func splitWorkspacePatterns(globs []string) (includes []string, excludes []string) {
 	for _, pattern := range globs {
 		pattern = strings.TrimSpace(filepath.ToSlash(pattern))
@@ -780,6 +784,8 @@ func splitWorkspacePatterns(globs []string) (includes []string, excludes []strin
 	return appendUniquePackageFile(nil, includes...), appendUniquePackageFile(nil, excludes...)
 }
 
+// matchesWorkspacePatterns reports whether a relative path is included by workspace rules.
+// @intent apply include-first and negate-after semantics consistently across workspace root discovery.
 func matchesWorkspacePatterns(rel string, includes []string, excludes []string) bool {
 	rel = strings.Trim(filepath.ToSlash(rel), "/")
 	matched := false
@@ -800,6 +806,8 @@ func matchesWorkspacePatterns(rel string, includes []string, excludes []string) 
 	return true
 }
 
+// workspacePatternMatch matches one normalized workspace glob against a relative path.
+// @intent keep workspace package discovery independent from shell-specific glob expansion.
 func workspacePatternMatch(pattern, rel string) bool {
 	pattern = strings.Trim(filepath.ToSlash(pattern), "/")
 	rel = strings.Trim(filepath.ToSlash(rel), "/")
@@ -809,6 +817,8 @@ func workspacePatternMatch(pattern, rel string) bool {
 	return workspacePatternMatchParts(strings.Split(pattern, "/"), strings.Split(rel, "/"))
 }
 
+// workspacePatternMatchParts recursively matches split workspace path segments.
+// @intent implement **-aware workspace glob semantics for package root discovery.
 func workspacePatternMatchParts(patternParts []string, relParts []string) bool {
 	if len(patternParts) == 0 {
 		return len(relParts) == 0

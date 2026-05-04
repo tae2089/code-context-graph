@@ -71,6 +71,8 @@ func (s *Service) nodesByEdge(ctx context.Context, nodeID uint, kind model.EdgeK
 	return normalizeResults(nodes), nil
 }
 
+// normalizeResults deduplicates and sorts graph query results.
+// @intent keep predefined query responses stable across joins that may return duplicate nodes.
 func normalizeResults(nodes []model.Node) []model.Node {
 	if len(nodes) <= 1 {
 		return nodes

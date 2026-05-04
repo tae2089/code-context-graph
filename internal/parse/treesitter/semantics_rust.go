@@ -54,6 +54,8 @@ func (RustSemantics) ImplementedTypes(ctx DefinitionContext) []string {
 	return []string{trait}
 }
 
+// rustImplTraitName extracts the trait name from a Rust impl block.
+// @intent recover stable trait identifiers before implementation edges are emitted.
 func rustImplTraitName(def *sitter.Node, content []byte) string {
 	if def == nil {
 		return ""
@@ -69,6 +71,8 @@ type rustQualifiedCallRewriter struct {
 	imports map[string]string
 }
 
+// RewriteCall normalizes Rust qualified and UFCS call expressions into resolver-friendly selectors.
+// @intent preserve trait owner information in Rust call fingerprints without changing generic walker behavior.
 func (r rustQualifiedCallRewriter) RewriteCall(ctx CallRewriteContext) string {
 	callee := strings.TrimSpace(ctx.Callee)
 	if callee == "" || !strings.Contains(callee, "::") {
@@ -94,6 +98,8 @@ func (r rustQualifiedCallRewriter) RewriteCall(ctx CallRewriteContext) string {
 	return callee
 }
 
+// rustParseQualifiedTraitCall parses Trait::method style selectors.
+// @intent split Rust qualified trait calls into trait and method components for rewriting.
 func rustParseQualifiedTraitCall(callee string) (string, string, bool) {
 	parts := strings.Split(callee, "::")
 	if len(parts) < 2 {
@@ -107,6 +113,8 @@ func rustParseQualifiedTraitCall(callee string) (string, string, bool) {
 	return trait, method, true
 }
 
+// rustParseUFCSCall parses <Type as Trait>::method selectors.
+// @intent recover concrete-type and trait information from Rust UFCS call syntax.
 func rustParseUFCSCall(callee string) (string, string, string, bool) {
 	callee = strings.TrimSpace(callee)
 	if !strings.HasPrefix(callee, "<") {
@@ -130,6 +138,8 @@ func rustParseUFCSCall(callee string) (string, string, string, bool) {
 	return concrete, trait, method, true
 }
 
+// rustNormalizeTypeName strips generic arguments from a Rust type path.
+// @intent keep Rust type and trait names stable across impl headers and rewritten calls.
 func rustNormalizeTypeName(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -154,6 +164,8 @@ func rustNormalizeTypeName(raw string) string {
 	return strings.TrimSpace(b.String())
 }
 
+// rustQualifyImportedTypeName expands a simple type name through collected use aliases.
+// @intent preserve full Rust paths when rewritten calls refer to imported trait names.
 func rustQualifyImportedTypeName(typeName string, imports map[string]string) string {
 	typeName = strings.TrimSpace(typeName)
 	if typeName == "" || strings.Contains(typeName, "::") {
@@ -167,6 +179,8 @@ func rustQualifyImportedTypeName(typeName string, imports map[string]string) str
 	return typeName
 }
 
+// rustImportAliases collects simple-name to qualified-path mappings from use declarations.
+// @intent support Rust trait call normalization when code references imported names.
 func rustImportAliases(root *sitter.Node, content []byte) map[string]string {
 	if root == nil {
 		return nil
@@ -191,6 +205,8 @@ func rustImportAliases(root *sitter.Node, content []byte) map[string]string {
 	return aliases
 }
 
+// rustCollectImportAliases expands one use declaration into alias mappings.
+// @intent reuse nested Rust use-tree parsing while accumulating import aliases into one map.
 func rustCollectImportAliases(aliases map[string]string, raw string) {
 	for _, path := range rustExpandUseDeclaration(raw) {
 		if path == "" || strings.HasSuffix(path, "::*") {
@@ -204,6 +220,8 @@ func rustCollectImportAliases(aliases map[string]string, raw string) {
 	}
 }
 
+// rustExpandUseDeclaration expands a Rust use declaration into fully qualified import entries.
+// @intent flatten nested use trees so alias extraction can treat every import uniformly.
 func rustExpandUseDeclaration(raw string) []string {
 	raw = rustTrimUseDeclaration(raw)
 	if raw == "" {
@@ -241,6 +259,8 @@ func rustExpandUseDeclaration(raw string) []string {
 	return expanded
 }
 
+// rustTrimUseDeclaration removes leading use syntax noise from a declaration string.
+// @intent normalize Rust use declarations before nested path expansion logic runs.
 func rustTrimUseDeclaration(raw string) string {
 	raw = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(raw), ";"))
 	if idx := strings.Index(raw, "use "); idx >= 0 {
@@ -249,6 +269,8 @@ func rustTrimUseDeclaration(raw string) string {
 	return raw
 }
 
+// rustImportAliasEntry converts one expanded import path into alias and qualified-name parts.
+// @intent support both explicit `as` aliases and default basename aliases for Rust imports.
 func rustImportAliasEntry(raw string) (string, string) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -262,6 +284,8 @@ func rustImportAliasEntry(raw string) (string, string) {
 	return pathBaseName(raw, "::"), raw
 }
 
+// rustMatchingBrace finds the closing brace paired with the given opening brace.
+// @intent parse nested Rust use trees without confusing sibling branches for the current scope.
 func rustMatchingBrace(raw string, open int) int {
 	depth := 0
 	for i := open; i < len(raw); i++ {
@@ -278,6 +302,8 @@ func rustMatchingBrace(raw string, open int) int {
 	return -1
 }
 
+// rustMatchingAngle finds the closing angle bracket paired with the given opening bracket.
+// @intent parse nested generic syntax in Rust UFCS selectors without losing the outer boundary.
 func rustMatchingAngle(raw string, open int) int {
 	depth := 0
 	for i := open; i < len(raw); i++ {
@@ -294,6 +320,8 @@ func rustMatchingAngle(raw string, open int) int {
 	return -1
 }
 
+// rustTopLevelAsIndex finds the top-level ` as ` separator in a UFCS inner selector.
+// @intent split concrete and trait types only when nested generic syntax is balanced.
 func rustTopLevelAsIndex(raw string) int {
 	depthAngle := 0
 	depthParen := 0
@@ -326,6 +354,8 @@ func rustTopLevelAsIndex(raw string) int {
 	return -1
 }
 
+// rustSplitTopLevel splits a string on one separator while respecting nested braces.
+// @intent flatten Rust use-tree members without breaking nested grouped imports.
 func rustSplitTopLevel(raw string, sep byte) []string {
 	var parts []string
 	depth := 0

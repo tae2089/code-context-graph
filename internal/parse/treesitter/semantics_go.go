@@ -174,6 +174,8 @@ func goAssertionCallSourceType(expr string, aliases map[string]string) string {
 	return normalizeGoTypeName(asserted, aliases)
 }
 
+// goAssertionAssignedName finds the assigned identifier corresponding to one asserted expression.
+// @intent bind rewritten Go assertion calls to the local variable name that receives the assertion result.
 func goAssertionAssignedName(assignNode, assertion *sitter.Node, content []byte) (string, bool) {
 	left := assignNode.ChildByFieldName("left")
 	right := assignNode.ChildByFieldName("right")
@@ -187,6 +189,8 @@ func goAssertionAssignedName(assignNode, assertion *sitter.Node, content []byte)
 	return goAssignedNameAt(left, idx, content)
 }
 
+// goAssertionVarSpecAssignedName finds the declared variable name corresponding to one asserted expression.
+// @intent recover var-spec bindings so type-assertion rewrites work for multi-value declarations.
 func goAssertionVarSpecAssignedName(varSpec, assertion *sitter.Node, content []byte) (string, bool) {
 	value := varSpec.ChildByFieldName("value")
 	name := varSpec.ChildByFieldName("name")
@@ -200,6 +204,8 @@ func goAssertionVarSpecAssignedName(varSpec, assertion *sitter.Node, content []b
 	return goAssignedNameAt(name, idx, content)
 }
 
+// goAssertionExprIndex returns the child index containing the assertion expression.
+// @intent align the asserted expression with the matching assignment target in tuple-style Go statements.
 func goAssertionExprIndex(container, assertion *sitter.Node) (int, bool) {
 	if container == nil || assertion == nil {
 		return 0, false
@@ -219,6 +225,8 @@ func goAssertionExprIndex(container, assertion *sitter.Node) (int, bool) {
 	return 0, false
 }
 
+// goAssignedNameAt extracts the identifier assigned at a specific tuple position.
+// @intent map assertion result positions back to local names without duplicating assignment-shape parsing.
 func goAssignedNameAt(container *sitter.Node, idx int, content []byte) (string, bool) {
 	if container == nil || idx < 0 {
 		return "", false
@@ -232,6 +240,8 @@ func goAssignedNameAt(container *sitter.Node, idx int, content []byte) (string, 
 	return goAssignmentIdent(container.NamedChild(idx).Content(content))
 }
 
+// goAssignmentIdent validates that a raw assignment target is a usable identifier.
+// @intent reject blanks and non-identifiers before storing assertion-based name bindings.
 func goAssignmentIdent(raw string) (string, bool) {
 	name := strings.TrimSpace(raw)
 	if !isGoIdent(name) || name == "_" {
@@ -240,6 +250,8 @@ func goAssignmentIdent(raw string) (string, bool) {
 	return name, true
 }
 
+// goNodeContains reports whether child is nested inside parent.
+// @intent detect which tuple element owns a type assertion when matching assignment shapes.
 func goNodeContains(parent, child *sitter.Node) bool {
 	if parent == nil || child == nil {
 		return false
