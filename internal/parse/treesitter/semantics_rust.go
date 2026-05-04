@@ -18,6 +18,13 @@ func (RustSemantics) AdditionalEdges(SemanticContext) []model.Edge {
 	return nil
 }
 
+// CallRewriter normalizes Rust qualified trait path and UFCS calls into a stable resolver contract.
+// @intent preserve exact trait path and optional concrete type information without changing generic walker logic.
+func (RustSemantics) CallRewriter(ctx SemanticContext) CallRewriter {
+	imports := rustImportAliases(ctx.Root, ctx.Content)
+	return rustQualifiedCallRewriter{imports: imports}
+}
+
 // DefinitionName normalizes Rust impl target type names captured from impl headers.
 // @intent keep impl_item class names stable when the captured type includes generic arguments.
 func (RustSemantics) DefinitionName(ctx DefinitionContext) string {
@@ -56,6 +63,71 @@ func rustImplTraitName(def *sitter.Node, content []byte) string {
 		return ""
 	}
 	return rustNormalizeTypeName(trait.Content(content))
+}
+
+type rustQualifiedCallRewriter struct {
+	imports map[string]string
+}
+
+func (r rustQualifiedCallRewriter) RewriteCall(ctx CallRewriteContext) string {
+	callee := strings.TrimSpace(ctx.Callee)
+	if callee == "" || !strings.Contains(callee, "::") {
+		return callee
+	}
+	if concrete, trait, method, ok := rustParseUFCSCall(callee); ok {
+		trait = rustQualifyImportedTypeName(trait, r.imports)
+		trait = rustNormalizeTypeName(trait)
+		concrete = rustNormalizeTypeName(concrete)
+		if trait == "" || method == "" || concrete == "" {
+			return callee
+		}
+		return "<" + concrete + " as " + trait + ">::" + method
+	}
+	if trait, method, ok := rustParseQualifiedTraitCall(callee); ok {
+		trait = rustQualifyImportedTypeName(trait, r.imports)
+		trait = rustNormalizeTypeName(trait)
+		if trait == "" || method == "" {
+			return callee
+		}
+		return trait + "::" + method
+	}
+	return callee
+}
+
+func rustParseQualifiedTraitCall(callee string) (string, string, bool) {
+	parts := strings.Split(callee, "::")
+	if len(parts) < 2 {
+		return "", "", false
+	}
+	method := strings.TrimSpace(parts[len(parts)-1])
+	trait := strings.TrimSpace(strings.Join(parts[:len(parts)-1], "::"))
+	if trait == "" || method == "" {
+		return "", "", false
+	}
+	return trait, method, true
+}
+
+func rustParseUFCSCall(callee string) (string, string, string, bool) {
+	callee = strings.TrimSpace(callee)
+	if !strings.HasPrefix(callee, "<") {
+		return "", "", "", false
+	}
+	close := rustMatchingAngle(callee, 0)
+	if close < 0 || close+2 >= len(callee) || callee[close+1] != ':' || callee[close+2] != ':' {
+		return "", "", "", false
+	}
+	method := strings.TrimSpace(callee[close+3:])
+	inner := strings.TrimSpace(callee[1:close])
+	idx := rustTopLevelAsIndex(inner)
+	if idx < 0 {
+		return "", "", "", false
+	}
+	concrete := strings.TrimSpace(inner[:idx])
+	trait := strings.TrimSpace(inner[idx+len(" as "):])
+	if concrete == "" || trait == "" || method == "" {
+		return "", "", "", false
+	}
+	return concrete, trait, method, true
 }
 
 func rustNormalizeTypeName(raw string) string {
@@ -201,6 +273,54 @@ func rustMatchingBrace(raw string, open int) int {
 			if depth == 0 {
 				return i
 			}
+		}
+	}
+	return -1
+}
+
+func rustMatchingAngle(raw string, open int) int {
+	depth := 0
+	for i := open; i < len(raw); i++ {
+		switch raw[i] {
+		case '<':
+			depth++
+		case '>':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func rustTopLevelAsIndex(raw string) int {
+	depthAngle := 0
+	depthParen := 0
+	depthBracket := 0
+	for i := 0; i+4 <= len(raw); i++ {
+		switch raw[i] {
+		case '<':
+			depthAngle++
+		case '>':
+			if depthAngle > 0 {
+				depthAngle--
+			}
+		case '(':
+			depthParen++
+		case ')':
+			if depthParen > 0 {
+				depthParen--
+			}
+		case '[':
+			depthBracket++
+		case ']':
+			if depthBracket > 0 {
+				depthBracket--
+			}
+		}
+		if depthAngle == 0 && depthParen == 0 && depthBracket == 0 && strings.HasPrefix(raw[i:], " as ") {
+			return i
 		}
 	}
 	return -1

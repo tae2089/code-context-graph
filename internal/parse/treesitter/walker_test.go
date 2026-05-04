@@ -2275,6 +2275,69 @@ fn main() {
 	t.Fatalf("expected Rust method call edge, got %#v", callEdges)
 }
 
+func TestParseRust_QualifiedTraitPathCall(t *testing.T) {
+	src := `use crate::traits::MyTrait;
+
+fn main(foo: Foo) {
+	crate::traits::MyTrait::bar(&foo);
+}
+`
+	w := NewWalker(RustSpec)
+	_, edges, err := w.Parse("main.rs", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
+	for _, e := range callEdges {
+		if e.Fingerprint == "calls:main.rs:crate::traits::MyTrait::bar:4" {
+			return
+		}
+	}
+	t.Fatalf("expected qualified Rust trait path call edge, got %#v", callEdges)
+}
+
+func TestParseRust_UFCSCall(t *testing.T) {
+	src := `fn main(foo: Foo) {
+	<Foo as MyTrait>::bar(&foo);
+}
+`
+	w := NewWalker(RustSpec)
+	_, edges, err := w.Parse("main.rs", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
+	for _, e := range callEdges {
+		if e.Fingerprint == "calls:main.rs:<Foo as MyTrait>::bar:2" {
+			return
+		}
+	}
+	t.Fatalf("expected Rust UFCS call edge, got %#v", callEdges)
+}
+
+func TestParseRust_CallRewriteNormalizesQualifiedTraitPath(t *testing.T) {
+	src := `use crate::traits::MyTrait;
+
+fn main(foo: Foo) {
+	crate::traits::MyTrait::bar(&foo);
+}
+`
+	w := NewWalker(RustSpec)
+	ctx := SemanticContext{Root: nil, Content: []byte(src)}
+	_ = ctx
+	_, edges, err := w.Parse("main.rs", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
+	for _, e := range callEdges {
+		if e.Fingerprint == "calls:main.rs:crate::traits::MyTrait::bar:4" {
+			return
+		}
+	}
+	t.Fatalf("expected normalized qualified trait call edge, got %#v", callEdges)
+}
+
 // --- Phase 12.3: C++ ---
 
 func TestParseCpp_Function(t *testing.T) {
