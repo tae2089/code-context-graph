@@ -19,7 +19,7 @@ func (rustLanguageDispatch) Language() string {
 // CollectQualifiedCallCandidates returns Rust-specific prefetch candidates derivable without state.
 // @intent preload trait nodes that can participate in trait-method dispatch.
 func (rustLanguageDispatch) CollectQualifiedCallCandidates(caller model.Node, callee string) []string {
-	trait, _, ok := rustTraitMethodSelector(callee)
+	trait, _, _, ok := rustTraitMethodSelector(callee)
 	if !ok {
 		return nil
 	}
@@ -30,12 +30,12 @@ func (rustLanguageDispatch) CollectQualifiedCallCandidates(caller model.Node, ca
 // @intent preload possible impl methods for trait method dispatch before resolution.
 func (rustLanguageDispatch) EnsureDispatchTargets(caller *model.Node, callee string, st *resolveState) []string {
 	_ = caller
-	trait, method, ok := rustTraitMethodSelector(callee)
+	trait, method, concrete, ok := rustTraitMethodSelector(callee)
 	if !ok {
 		return nil
 	}
 	var names []string
-	for _, impl := range st.implementsBy[trait] {
+	for _, impl := range rustExactImplementers(st, trait, concrete) {
 		names = append(names, impl.QualifiedName+"."+method)
 	}
 	return names
@@ -54,12 +54,16 @@ func (rustLanguageDispatch) ResolveSameReceiverCall(caller *model.Node, callee s
 // @intent support non-Go trait dispatch when call rewriting produces Trait::method selectors.
 func (rustLanguageDispatch) ResolveInterfaceDispatch(caller *model.Node, callee string, st *resolveState) *model.Node {
 	_ = caller
-	trait, method, ok := rustTraitMethodSelector(callee)
+	trait, method, concrete, ok := rustTraitMethodSelector(callee)
 	if !ok {
 		return nil
 	}
+	impls := rustExactImplementers(st, trait, concrete)
+	if len(impls) != 1 {
+		return nil
+	}
 	var candidates []model.Node
-	for _, impl := range uniqueNodes(st.implementsBy[trait]) {
+	for _, impl := range impls {
 		if target := uniqueCallable(st.qnIndex[impl.QualifiedName+"."+method]); target != nil {
 			candidates = append(candidates, *target)
 		}
@@ -74,15 +78,112 @@ func (rustLanguageDispatch) PackagePrefix(node model.Node) string {
 	return ""
 }
 
-func rustTraitMethodSelector(callee string) (string, string, bool) {
+func rustTraitMethodSelector(callee string) (trait string, method string, concrete string, ok bool) {
+	callee = strings.TrimSpace(callee)
+	if concrete, trait, method, ok = rustUFCSTraitMethodSelector(callee); ok {
+		return trait, method, concrete, true
+	}
+	trait, method, ok = rustQualifiedTraitMethodSelector(callee)
+	if !ok {
+		return "", "", "", false
+	}
+	return trait, method, "", true
+}
+
+func rustQualifiedTraitMethodSelector(callee string) (string, string, bool) {
 	parts := strings.Split(callee, "::")
-	if len(parts) != 2 {
+	if len(parts) < 2 {
 		return "", "", false
 	}
-	trait := strings.TrimSpace(parts[len(parts)-2])
+	trait := strings.TrimSpace(strings.Join(parts[:len(parts)-1], "::"))
 	method := strings.TrimSpace(parts[len(parts)-1])
 	if trait == "" || method == "" {
 		return "", "", false
 	}
 	return trait, method, true
+}
+
+func rustUFCSTraitMethodSelector(callee string) (concrete string, trait string, method string, ok bool) {
+	callee = strings.TrimSpace(callee)
+	if !strings.HasPrefix(callee, "<") {
+		return "", "", "", false
+	}
+	close := rustMatchingAngle(callee, 0)
+	if close < 0 || close+2 >= len(callee) || callee[close+1] != ':' || callee[close+2] != ':' {
+		return "", "", "", false
+	}
+	method = strings.TrimSpace(callee[close+3:])
+	inner := strings.TrimSpace(callee[1:close])
+	idx := rustTopLevelAsIndex(inner)
+	if idx < 0 {
+		return "", "", "", false
+	}
+	concrete = strings.TrimSpace(inner[:idx])
+	trait = strings.TrimSpace(inner[idx+len(" as "):])
+	if concrete == "" || trait == "" || method == "" {
+		return "", "", "", false
+	}
+	return concrete, trait, method, true
+}
+
+func rustExactImplementers(st *resolveState, trait string, concrete string) []model.Node {
+	impls := uniqueNodes(st.implementsBy[trait])
+	if concrete == "" {
+		return impls
+	}
+	var filtered []model.Node
+	for _, impl := range impls {
+		if impl.QualifiedName == concrete {
+			filtered = append(filtered, impl)
+		}
+	}
+	return filtered
+}
+
+func rustMatchingAngle(raw string, open int) int {
+	depth := 0
+	for i := open; i < len(raw); i++ {
+		switch raw[i] {
+		case '<':
+			depth++
+		case '>':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func rustTopLevelAsIndex(raw string) int {
+	depthAngle := 0
+	depthParen := 0
+	depthBracket := 0
+	for i := 0; i+4 <= len(raw); i++ {
+		switch raw[i] {
+		case '<':
+			depthAngle++
+		case '>':
+			if depthAngle > 0 {
+				depthAngle--
+			}
+		case '(':
+			depthParen++
+		case ')':
+			if depthParen > 0 {
+				depthParen--
+			}
+		case '[':
+			depthBracket++
+		case ']':
+			if depthBracket > 0 {
+				depthBracket--
+			}
+		}
+		if depthAngle == 0 && depthParen == 0 && depthBracket == 0 && strings.HasPrefix(raw[i:], " as ") {
+			return i
+		}
+	}
+	return -1
 }

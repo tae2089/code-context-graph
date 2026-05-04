@@ -325,7 +325,61 @@ func TestResolveRustAssociatedFunctionDoesNotUseTraitDispatch(t *testing.T) {
 	}
 }
 
-func TestResolveRustQualifiedTraitPathRemainsUnresolved(t *testing.T) {
+func TestImplementsEndpointsHandlesRustQualifiedTraitPath(t *testing.T) {
+	impl, iface, ok := implementsEndpoints(model.Edge{
+		FilePath:    "main.rs",
+		Fingerprint: "implements:main.rs:Foo:crate::traits::MyTrait",
+	})
+	if !ok {
+		t.Fatal("implementsEndpoints returned ok=false, want true")
+	}
+	if impl != "Foo" || iface != "crate::traits::MyTrait" {
+		t.Fatalf("implementsEndpoints() = (%q, %q), want (%q, %q)", impl, iface, "Foo", "crate::traits::MyTrait")
+	}
+}
+
+func TestResolveRustQualifiedTraitPathResolvesExactTraitPath(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "main", Name: "main", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 7, EndLine: 10, Language: "rust"},
+		{ID: 2, QualifiedName: "Foo", Name: "Foo", Kind: model.NodeKindClass, FilePath: "main.rs", StartLine: 1, EndLine: 1, Language: "rust"},
+		{ID: 3, QualifiedName: "crate::traits::MyTrait", Name: "MyTrait", Kind: model.NodeKindType, FilePath: "main.rs", StartLine: 3, EndLine: 3, Language: "rust"},
+		{ID: 4, QualifiedName: "Foo.bar", Name: "bar", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 4, EndLine: 5, Language: "rust"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "main.rs", Line: 3, Fingerprint: "implements:main.rs:Foo:crate::traits::MyTrait"},
+		{Kind: model.EdgeKindCalls, FilePath: "main.rs", Line: 9, Fingerprint: "calls:main.rs:crate::traits::MyTrait::bar:9"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[0].FromNodeID != 2 || edges[0].ToNodeID != 3 {
+		t.Fatalf("implements edge endpoints=(%d,%d), want (2,3)", edges[0].FromNodeID, edges[0].ToNodeID)
+	}
+	if edges[1].ToNodeID != 4 {
+		t.Fatalf("qualified trait path call ToNodeID=%d, want 4", edges[1].ToNodeID)
+	}
+}
+
+func TestResolveRustQualifiedTraitPathDoesNotFallbackByBareName(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "main", Name: "main", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 7, EndLine: 10, Language: "rust"},
+		{ID: 2, QualifiedName: "Foo", Name: "Foo", Kind: model.NodeKindClass, FilePath: "main.rs", StartLine: 1, EndLine: 1, Language: "rust"},
+		{ID: 3, QualifiedName: "other::MyTrait", Name: "MyTrait", Kind: model.NodeKindType, FilePath: "main.rs", StartLine: 3, EndLine: 3, Language: "rust"},
+		{ID: 4, QualifiedName: "Foo.bar", Name: "bar", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 4, EndLine: 5, Language: "rust"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "main.rs", Line: 3, Fingerprint: "implements:main.rs:Foo:other::MyTrait"},
+		{Kind: model.EdgeKindCalls, FilePath: "main.rs", Line: 9, Fingerprint: "calls:main.rs:crate::traits::MyTrait::bar:9"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 0 {
+		t.Fatalf("qualified trait path fallback ToNodeID=%d, want unresolved 0", edges[1].ToNodeID)
+	}
+	}
+
+func TestResolveRustUFCSCall(t *testing.T) {
 	lookup := fakeLookup{nodes: []model.Node{
 		{ID: 1, QualifiedName: "main", Name: "main", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 7, EndLine: 10, Language: "rust"},
 		{ID: 2, QualifiedName: "Foo", Name: "Foo", Kind: model.NodeKindClass, FilePath: "main.rs", StartLine: 1, EndLine: 1, Language: "rust"},
@@ -334,13 +388,32 @@ func TestResolveRustQualifiedTraitPathRemainsUnresolved(t *testing.T) {
 	}}
 	edges, err := Resolve(context.Background(), lookup, []model.Edge{
 		{Kind: model.EdgeKindImplements, FilePath: "main.rs", Line: 3, Fingerprint: "implements:main.rs:Foo:MyTrait"},
-		{Kind: model.EdgeKindCalls, FilePath: "main.rs", Line: 9, Fingerprint: "calls:main.rs:crate::MyTrait::bar:9"},
+		{Kind: model.EdgeKindCalls, FilePath: "main.rs", Line: 9, Fingerprint: "calls:main.rs:<Foo as MyTrait>::bar:9"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 4 {
+		t.Fatalf("UFCS call ToNodeID=%d, want 4", edges[1].ToNodeID)
+	}
+	}
+
+func TestResolveRustUFCSCallLeavesMismatchedConcreteTypeUnresolved(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "main", Name: "main", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 7, EndLine: 10, Language: "rust"},
+		{ID: 2, QualifiedName: "Foo", Name: "Foo", Kind: model.NodeKindClass, FilePath: "main.rs", StartLine: 1, EndLine: 1, Language: "rust"},
+		{ID: 3, QualifiedName: "MyTrait", Name: "MyTrait", Kind: model.NodeKindType, FilePath: "main.rs", StartLine: 3, EndLine: 3, Language: "rust"},
+		{ID: 4, QualifiedName: "Foo.bar", Name: "bar", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 4, EndLine: 5, Language: "rust"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "main.rs", Line: 3, Fingerprint: "implements:main.rs:Foo:MyTrait"},
+		{Kind: model.EdgeKindCalls, FilePath: "main.rs", Line: 9, Fingerprint: "calls:main.rs:<Other as MyTrait>::bar:9"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if edges[1].ToNodeID != 0 {
-		t.Fatalf("qualified trait path call ToNodeID=%d, want unresolved 0", edges[1].ToNodeID)
+		t.Fatalf("UFCS mismatched concrete type ToNodeID=%d, want unresolved 0", edges[1].ToNodeID)
 	}
 }
 

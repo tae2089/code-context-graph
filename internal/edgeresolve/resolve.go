@@ -840,7 +840,7 @@ func implementsEndpoints(edge model.Edge) (string, string, bool) {
 		return "", "", false
 	}
 	rest := strings.TrimPrefix(edge.Fingerprint, prefix)
-	idx := strings.LastIndex(rest, ":")
+	idx := strings.Index(rest, ":")
 	if idx < 0 {
 		return "", "", false
 	}
