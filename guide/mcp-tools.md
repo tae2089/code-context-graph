@@ -92,6 +92,10 @@ current machine-readable operational surfaces.
 
 ### Namespace File Management
 
+Use `namespace` as the canonical isolation term. The `workspace` parameter and
+`list_workspaces` / `delete_workspace` tools remain only as deprecated aliases
+for older callers.
+
 | Tool | Description |
 |------|-------------|
 | `upload_file` | Upload file to namespace (base64) |
@@ -103,6 +107,14 @@ current machine-readable operational surfaces.
 | `delete_namespace` | Delete an entire namespace and all its files |
 | `delete_workspace` | Deprecated alias for `delete_namespace` |
 
+Canonical examples:
+
+```
+upload_file(namespace: "payment-svc", file_path: "handler.go", content: "<base64>")
+list_files(namespace: "payment-svc")
+delete_namespace(namespace: "payment-svc")
+```
+
 ## Claude Code Skills (5)
 
 | Skill | Description |
@@ -111,7 +123,7 @@ current machine-readable operational surfaces.
 | `/ccg-analyze` | Code analysis — impact radius, flow tracing, dead code, architecture |
 | `/ccg-annotate` | Annotation system — AI-driven annotation workflow, tag reference |
 | `/ccg-docs` | Documentation — generate docs, RAG indexing, lint |
-| `/ccg-workspace` | Namespace file management — upload, list, and delete files and namespace directories (legacy skill name) |
+| `/ccg-workspace` | Namespace file management — upload, list, and delete namespace files (`workspace` remains a deprecated parameter alias) |
 
 ### Usage
 
@@ -123,5 +135,5 @@ current machine-readable operational surfaces.
 /ccg-docs lint                   — Check docs health + annotation coverage
 /ccg languages                   — List supported languages
 /ccg-annotate annotate internal/ — AI-generate annotations
-/ccg-workspace                   — Manage namespace files and directories (legacy skill name)
+/ccg-workspace                   — Manage namespace files and directories
 ```

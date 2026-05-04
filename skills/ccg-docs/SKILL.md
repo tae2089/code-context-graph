@@ -100,7 +100,7 @@ If RAG answer quality is low, usually one of:
 | Tool                  | Use                                                   |
 | --------------------- | ----------------------------------------------------- |
 | `run_postprocess`     | Rebuild communities before RAG indexing when missing  |
-| `build_rag_index`     | Build doc-index.json (workspace/namespace option)     |
+| `build_rag_index`     | Build doc-index.json (use `namespace`; `workspace` is a deprecated alias) |
 | `get_rag_tree`        | Navigate and verify the community tree                |
 | `get_doc_content`     | Fetch Markdown body                                   |
 | `search_docs`         | Keyword search the RAG tree                           |

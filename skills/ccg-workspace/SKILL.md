@@ -1,81 +1,89 @@
 ---
 name: ccg-workspace
-description: code-context-graph — workspace isolation for MSA / multi-project. Each workspace = one service, isolated graphs.
+description: code-context-graph — namespace file management for MSA / multi-project isolation. Use namespace as the canonical API; workspace remains a deprecated alias.
 ---
 
-# ccg-workspace — Multi-Project Isolation
+# ccg-workspace — Namespace File Management
 
-Manage multiple services/projects as isolated graphs. Use for **MSA environments or workflows spanning multiple repos.**
+Manage uploaded source or documentation files in isolated **namespaces**. Use this for MSA environments or workflows spanning multiple repositories.
 
-## When to Use
+The skill name remains `/ccg-workspace` for compatibility, but the canonical runtime term is **namespace**.
 
-- Analyzing multiple microservices (separate graph per service)
-- Working across multiple projects (namespace prevents collisions)
-- Scoping AI context to one specific service
+## Terminology
 
-For single-project work, you don't need workspaces. Just use `ccg build .`.
+| Term | Status | Meaning |
+| ---- | ------ | ------- |
+| `namespace` | Canonical | Isolation key for graph data, uploaded files, RAG indexes, and postprocess policy |
+| `--namespace-root` | Canonical | Root directory that stores namespace file trees |
+| `workspace` | Deprecated alias | Still accepted by MCP tools for older callers |
+| `--workspace-root` | Deprecated alias | Still accepted as an alias for `--namespace-root` |
+
+For single-project local work, you usually do not need a named namespace. Use `ccg build .` and the default namespace.
 
 ## Folder Structure
 
 ```
-{workspace-root}/
-├── payment-svc/         # workspace 1
+{namespace-root}/
+├── payment-svc/
 │   ├── handler.go
 │   └── service.go
-├── user-svc/            # workspace 2
+├── user-svc/
 │   └── auth.go
-└── gateway/             # workspace 3
+└── gateway/
     └── router.go
 ```
 
-Configured via `--workspace-root <dir>` (default: `workspaces/`).
+Configured via `ccg serve --namespace-root <dir>` (default: `workspaces/`).
 
 ## Core Patterns
 
-### Pattern A: Upload, then build & search
+### Upload, Then Build And Search
 
 ```
-upload_file(workspace: "payment-svc", file_path: "handler.go", content: "<base64>")
-→ build_or_update_graph(path: "{root}/payment-svc")  # see /ccg
-→ search(query: "payment")                            # see /ccg
+upload_file(namespace: "payment-svc", file_path: "handler.go", content: "<base64>")
+→ build_or_update_graph(namespace: "payment-svc", path: "{namespace-root}/payment-svc")
+→ search(namespace: "payment-svc", query: "payment")
 ```
 
-### Pattern B: Wiki + RAG (per-service isolation)
+### Wiki And RAG Per Namespace
 
 ```
-upload_file(workspace: "my-service", file_path: "docs/handler.go.md", content: "<base64>")
-→ build_rag_index(workspace: "my-service")          # see /ccg-docs
-→ search_docs(workspace: "my-service", query: "handler")
-→ get_doc_content(workspace: "my-service", file_path: "...")
+upload_file(namespace: "my-service", file_path: "docs/handler.go.md", content: "<base64>")
+→ build_rag_index(namespace: "my-service")
+→ search_docs(namespace: "my-service", query: "handler")
+→ get_doc_content(namespace: "my-service", file_path: "docs/handler.go.md")
 ```
 
 ### Bulk Upload
 
 ```
-upload_files(files: '[{"workspace":"payment-svc","file_path":"a.go","content":"<base64>"},...]')
+upload_files(files: '[{"namespace":"payment-svc","file_path":"a.go","content":"<base64>"},...]')
 ```
 
-JSON string of an array. More efficient than many single uploads.
+`files` is a JSON string containing an array. Prefer bulk upload over many single-file calls.
 
 ## MCP Tools
 
-| Tool               | Use                            |
-| ------------------ | ------------------------------ |
-| `upload_file`      | Upload one file (base64)       |
-| `upload_files`     | Upload many files (JSON array) |
-| `list_workspaces`  | List all workspaces            |
-| `list_files`       | List files in a workspace      |
-| `delete_file`      | Delete one file                |
-| `delete_workspace` | Delete entire workspace        |
+| Tool | Use |
+| ---- | --- |
+| `upload_file` | Upload one file to a namespace (base64) |
+| `upload_files` | Upload many files to namespaces (JSON array) |
+| `list_namespaces` | List all namespaces |
+| `list_files` | List files in a namespace |
+| `delete_file` | Delete one file from a namespace |
+| `delete_namespace` | Delete a namespace and its files |
+| `list_workspaces` | Deprecated alias for `list_namespaces` |
+| `delete_workspace` | Deprecated alias for `delete_namespace` |
 
 ## Security
 
-- Path traversal (`../`) blocked
-- File size validated
-- Workspace names sanitized
+- Path traversal (`../`) is blocked
+- Namespace names must be single safe path segments
+- Symlink traversal is rejected before file writes
+- File size and bulk request size are capped
 
 ## Operational Tips
 
-- **Frequently changing service** → isolate workspace for incremental update efficiency
-- **Reference-only service** → keep in separate workspace, rebuild rarely
-- **Deprecated service** → `delete_workspace` to clean up search noise
+- Use one namespace per service or repository when graph/search state should stay isolated.
+- Keep reference-only services in separate namespaces and rebuild them rarely.
+- Delete retired service state with `delete_namespace` to remove graph, RAG, and search noise.

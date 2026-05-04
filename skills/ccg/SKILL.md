@@ -1,6 +1,6 @@
 ---
 name: ccg
-description: code-context-graph — code knowledge graph for token-efficient code understanding. Routes user intent to the right tool (search/analyze/docs/annotate/workspace).
+description: code-context-graph — code knowledge graph for token-efficient code understanding. Routes user intent to the right tool (search/analyze/docs/annotate/namespace).
 ---
 
 # ccg — Routing & Search

@@ -83,7 +83,7 @@ KEEP_CONTAINERS=1 ARTIFACT_DIR=/tmp/ccg-e2e ./scripts/integration-test.sh
 DUMP_ON_SUCCESS=1 ./scripts/integration-test.sh
 ```
 
-Webhook waits prefer MCP-observable graph stats for the target workspace and only fall back to ccg logs when MCP is not ready or not yet showing data.
+Webhook waits prefer MCP-observable graph stats for the target namespace and only fall back to ccg logs when MCP is not ready or not yet showing data.
 MCP initialization and tool responses are strict: malformed JSON, top-level JSON-RPC errors, `result.isError=true`, and missing `result.content[0].text` for content assertions fail the integration run. A run that cannot initialize MCP will not report the full integration test as passed unless the local debug override above is explicitly set, and that override skips MCP tool verification.
 
 ### Manual Container Management

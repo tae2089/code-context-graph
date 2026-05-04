@@ -87,6 +87,10 @@ CCG는 아직 Prometheus `/metrics` 엔드포인트를 제공하지 않습니다
 
 ### 네임스페이스 파일 관리 (Namespace File Management)
 
+격리 단위의 정식 용어는 `namespace`입니다. `workspace` 파라미터와
+`list_workspaces` / `delete_workspace` 도구는 기존 호출자를 위한 사용
+중단 별칭으로만 유지됩니다.
+
 | 도구 | 설명 |
 |------|-------------|
 | `upload_file` | 네임스페이스에 파일 업로드 (base64) |
@@ -98,6 +102,14 @@ CCG는 아직 Prometheus `/metrics` 엔드포인트를 제공하지 않습니다
 | `delete_namespace` | 네임스페이스 전체 및 관련 파일 모두 삭제 |
 | `delete_workspace` | `delete_namespace`에 대한 사용 중단된 별칭 |
 
+정식 예시:
+
+```
+upload_file(namespace: "payment-svc", file_path: "handler.go", content: "<base64>")
+list_files(namespace: "payment-svc")
+delete_namespace(namespace: "payment-svc")
+```
+
 ## Claude Code Skills (5개)
 
 | 스킬 | 설명 |
@@ -106,7 +118,7 @@ CCG는 아직 Prometheus `/metrics` 엔드포인트를 제공하지 않습니다
 | `/ccg-analyze` | 코드 분석 — 영향 범위, 흐름 추적, 데드 코드, 아키텍처 |
 | `/ccg-annotate` | 어노테이션 시스템 — AI 기반 어노테이션 워크플로우, 태그 레퍼런스 |
 | `/ccg-docs` | 문서화 — 문서 생성, RAG 인덱싱, 린트 |
-| `/ccg-workspace` | 네임스페이스 파일 관리 — 파일 및 네임스페이스 디렉토리 업로드, 목록 출력, 삭제 (기존 스킬 이름 유지) |
+| `/ccg-workspace` | 네임스페이스 파일 관리 — 네임스페이스 파일 업로드, 목록 출력, 삭제 (`workspace`는 사용 중단된 파라미터 별칭) |
 
 ### 사용법
 
@@ -118,5 +130,5 @@ CCG는 아직 Prometheus `/metrics` 엔드포인트를 제공하지 않습니다
 /ccg-docs lint                   — 문서 상태 및 어노테이션 커버리지 체크
 /ccg languages                   — 지원 언어 목록 출력
 /ccg-annotate annotate internal/ — AI 기반 어노테이션 생성
-/ccg-workspace                   — 네임스페이스 파일 및 디렉토리 관리 (기존 스킬 이름 유지)
+/ccg-workspace                   — 네임스페이스 파일 및 디렉토리 관리
 ```
