@@ -259,3 +259,14 @@ func packageEdgesOrDefault(semantics LanguageSemantics, ctx PackageContext) []mo
 func PackageEdgesFor(semantics LanguageSemantics, ctx PackageContext) []model.Edge {
 	return packageEdgesOrDefault(semantics, ctx)
 }
+
+// SemanticsForLanguage returns the configured semantics for a language name.
+// @intent let non-parser orchestration reuse the centralized language semantics registry without local language switches.
+func SemanticsForLanguage(language string) LanguageSemantics {
+	for _, spec := range []*LangSpec{GoSpec, PythonSpec, TypeScriptSpec, JavaSpec, CSpec, RustSpec, CppSpec, JavaScriptSpec, RubySpec, KotlinSpec, PHPSpec, LuaSpec} {
+		if spec != nil && spec.Name == language {
+			return semanticsOrDefault(spec)
+		}
+	}
+	return NoopSemantics{}
+}

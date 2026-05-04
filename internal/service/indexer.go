@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -515,7 +516,7 @@ func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.Gr
 	if err := s.flushBuildBatch(ctx, txStore, &batch); err != nil {
 		return err
 	}
-	edgeBatches = append(edgeBatches, packageSemanticEdgeBatches(packageNodeBatches)...)
+	edgeBatches = append(edgeBatches, s.packageSemanticEdgeBatches(packageNodeBatches)...)
 	if err := upsertPackageContainsEdges(ctx, txStore, spool.packages); err != nil {
 		return trace.Wrap(err, "upsert package file edges")
 	}
@@ -535,7 +536,7 @@ func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.Gr
 	return nil
 }
 
-func packageSemanticEdgeBatches(batches []parsedBuildNodeBatch) []parsedBuildEdgeBatch {
+func (s *GraphService) packageSemanticEdgeBatches(batches []parsedBuildNodeBatch) []parsedBuildEdgeBatch {
 	contexts := make(map[string]*treesitter.PackageContext)
 	filesByKey := make(map[string][]string)
 	for _, batch := range batches {
@@ -555,13 +556,7 @@ func packageSemanticEdgeBatches(batches []parsedBuildNodeBatch) []parsedBuildEdg
 	}
 	var out []parsedBuildEdgeBatch
 	for key, ctx := range contexts {
-		var semantics treesitter.LanguageSemantics
-		switch ctx.Language {
-		case "go":
-			semantics = treesitter.GoSemantics{}
-		default:
-			continue
-		}
+		semantics := treesitter.SemanticsForLanguage(ctx.Language)
 		edges := treesitter.PackageEdgesFor(semantics, *ctx)
 		if len(edges) == 0 {
 			continue
@@ -998,6 +993,10 @@ func (s *GraphService) applyUpdateSpoolInTx(ctx context.Context, txStore store.G
 		}
 		addSyncStats(stats, batchStats)
 	}
+	changedFiles := affectedUpdateFiles(spool.currentHashes, existingNodesByFile, spool.forceFiles)
+	if err := s.refreshPackageSemanticEdges(ctx, txStore, txDB, opts.Dir, spool.packages, changedFiles, deletedFiles); err != nil {
+		return nil, trace.Wrap(err, "refresh package semantic edges")
+	}
 	if err := upsertPackageContainsEdges(ctx, txStore, spool.packages); err != nil {
 		return nil, trace.Wrap(err, "upsert package file edges")
 	}
@@ -1149,6 +1148,9 @@ func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, 
 			return nil, trace.Wrap(err, "incremental force sync")
 		}
 		addSyncStats(stats, forcedStats)
+	}
+	if err := s.refreshPackageSemanticEdges(ctx, s.Store, s.DB, absDir, packages, affectedUpdateFiles(currentHashes, existingNodesByFile, forceFiles), existingFilesMissingFrom(files, existingFiles)); err != nil {
+		return nil, trace.Wrap(err, "refresh package semantic edges")
 	}
 	if s.Store != nil {
 		if err := upsertPackageContainsEdges(ctx, s.Store, packages); err != nil {
@@ -1661,6 +1663,143 @@ func singleNodeOfKind(nodes []model.Node, kind model.NodeKind) *model.Node {
 func packageContainsFingerprint(importPath, filePath string) string {
 	sum := sha256.Sum256([]byte(importPath + "\x00" + filePath))
 	return fmt.Sprintf("contains:package:%x", sum)
+}
+
+func (s *GraphService) refreshPackageSemanticEdges(ctx context.Context, graphStore store.GraphStore, db *gorm.DB, absDir string, packages map[string]languagePackageInfo, changedFiles, deletedFiles []string) error {
+	if graphStore == nil || len(packages) == 0 {
+		return nil
+	}
+	batches, anchors, err := s.collectAffectedPackageSemanticBatches(ctx, graphStore, absDir, packages, changedFiles, deletedFiles)
+	if err != nil {
+		return err
+	}
+	if err := deletePackageSemanticEdges(ctx, db, anchors); err != nil {
+		return err
+	}
+	edgeBatches := s.packageSemanticEdgeBatches(batches)
+	if len(edgeBatches) == 0 {
+		return nil
+	}
+	return s.flushBuildEdges(ctx, graphStore, edgeBatches)
+}
+
+func (s *GraphService) collectAffectedPackageSemanticBatches(ctx context.Context, graphStore store.GraphStore, absDir string, packages map[string]languagePackageInfo, changedFiles, deletedFiles []string) ([]parsedBuildNodeBatch, []string, error) {
+	affected := affectedPackageImportPaths(packages, append(append([]string(nil), changedFiles...), deletedFiles...))
+	if len(affected) == 0 {
+		return nil, nil, nil
+	}
+	fileSet := make(map[string]struct{})
+	for _, importPath := range affected {
+		for _, filePath := range packages[importPath].Files {
+			fileSet[filePath] = struct{}{}
+		}
+	}
+	filePaths := make([]string, 0, len(fileSet))
+	for filePath := range fileSet {
+		filePaths = append(filePaths, filePath)
+	}
+	slices.Sort(filePaths)
+	nodesByFile, err := graphStore.GetNodesByFiles(ctx, filePaths)
+	if err != nil {
+		return nil, nil, err
+	}
+	var batches []parsedBuildNodeBatch
+	anchors := make([]string, 0, len(affected))
+	for _, importPath := range affected {
+		pkg := packages[importPath]
+		files := append([]string(nil), pkg.Files...)
+		slices.Sort(files)
+		if len(files) == 0 {
+			continue
+		}
+		anchors = append(anchors, files[0])
+		for _, filePath := range files {
+			nodes := nodesByFile[filePath]
+			if len(nodes) == 0 {
+				continue
+			}
+			meta, language, err := s.packageSemanticMetadataForFile(ctx, absDir, filePath)
+			if err != nil {
+				return nil, nil, err
+			}
+			if language == "" {
+				continue
+			}
+			packageName := meta.Package
+			if packageName == "" {
+				packageName = pkg.Name
+			}
+			batches = append(batches, parsedBuildNodeBatch{
+				relPath:     filePath,
+				nodes:       nodes,
+				packageName: packageName,
+				interfaces:  meta.Interfaces,
+				language:    language,
+			})
+		}
+	}
+	return batches, anchors, nil
+}
+
+func (s *GraphService) packageSemanticMetadataForFile(ctx context.Context, absDir, relPath string) (treesitter.ParseMetadata, string, error) {
+	parser, ok := s.parserForExt(strings.ToLower(filepath.Ext(relPath)))
+	if !ok {
+		return treesitter.ParseMetadata{}, "", nil
+	}
+	mp, ok := parser.(metadataParserWithLanguage)
+	if !ok {
+		return treesitter.ParseMetadata{}, "", nil
+	}
+	content, err := os.ReadFile(filepath.Join(absDir, relPath))
+	if err != nil {
+		return treesitter.ParseMetadata{}, "", err
+	}
+	_, _, _, meta, err := mp.ParseWithCommentsAndMetadata(ctx, relPath, content)
+	if err != nil {
+		return treesitter.ParseMetadata{}, "", err
+	}
+	return meta, mp.Language(), nil
+}
+
+func affectedPackageImportPaths(packages map[string]languagePackageInfo, affectedFiles []string) []string {
+	if len(packages) == 0 || len(affectedFiles) == 0 {
+		return nil
+	}
+	fileSet := make(map[string]struct{}, len(affectedFiles))
+	dirSet := make(map[string]struct{}, len(affectedFiles))
+	for _, filePath := range affectedFiles {
+		filePath = filepath.ToSlash(filePath)
+		fileSet[filePath] = struct{}{}
+		dirSet[path.Dir(filePath)] = struct{}{}
+	}
+	var affected []string
+	for importPath, pkg := range packages {
+		for _, filePath := range pkg.Files {
+			filePath = filepath.ToSlash(filePath)
+			if _, ok := fileSet[filePath]; ok {
+				affected = append(affected, importPath)
+				break
+			}
+		}
+		if len(affected) > 0 && affected[len(affected)-1] == importPath {
+			continue
+		}
+		if _, ok := dirSet[filepath.ToSlash(pkg.Dir)]; ok {
+			affected = append(affected, importPath)
+		}
+	}
+	slices.Sort(affected)
+	return affected
+}
+
+func deletePackageSemanticEdges(ctx context.Context, db *gorm.DB, anchors []string) error {
+	if db == nil || len(anchors) == 0 {
+		return nil
+	}
+	ns := ctxns.FromContext(ctx)
+	return db.WithContext(ctx).
+		Where("namespace = ? AND kind = ? AND line = 0 AND file_path IN ?", ns, model.EdgeKindImplements, anchors).
+		Delete(&model.Edge{}).Error
 }
 
 // appendUniqueString appends a string to a slice only if it is not already present.
