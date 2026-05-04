@@ -199,6 +199,41 @@ func TestServeCmd_UsesHTTPBearerTokenFromEnv(t *testing.T) {
 	}
 }
 
+func TestServeCmdFlags_OTELEndpoint(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+	var got ServeConfig
+	deps.ServeFunc = func(cfg ServeConfig) error {
+		got = cfg
+		return nil
+	}
+
+	err := executeCmd(deps, stdout, stderr, "serve", "--otel-endpoint", "http://localhost:4318/v1/traces")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.OTELEndpoint != "http://localhost:4318/v1/traces" {
+		t.Fatalf("OTELEndpoint = %q", got.OTELEndpoint)
+	}
+}
+
+func TestServeCmd_UsesOTELEndpointFromEnv(t *testing.T) {
+	t.Setenv("CCG_OTEL_ENDPOINT", "http://collector:4318/v1/traces")
+	deps, stdout, stderr := newTestDeps()
+	var got ServeConfig
+	deps.ServeFunc = func(cfg ServeConfig) error {
+		got = cfg
+		return nil
+	}
+
+	err := executeCmd(deps, stdout, stderr, "serve")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.OTELEndpoint != "http://collector:4318/v1/traces" {
+		t.Fatalf("OTELEndpoint = %q", got.OTELEndpoint)
+	}
+}
+
 func TestServeCmd_UsesRepoRootFromEnv(t *testing.T) {
 	t.Setenv("CCG_REPO_ROOT", "/env/repos")
 

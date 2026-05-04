@@ -16,29 +16,30 @@ import (
 // ServeConfig holds parsed flags for the serve subcommand.
 // @intent MCP 서버 실행에 필요한 전송 방식과 세션 관련 옵션을 전달한다.
 type ServeConfig struct {
-	CacheTTL               time.Duration
-	NoCache                bool
-	Transport              string // "stdio" (default) | "streamable-http"
-	HTTPAddr               string // listen address for HTTP transport (default "127.0.0.1:8080")
-	HTTPBearerToken        string
-	InsecureHTTP           bool
-	Stateless              bool   // stateless session management for multi-instance deployments
-	NamespaceRoot          string // root directory for file namespaces (default "workspaces")
-	WorkspaceRoot          string // root directory for file workspaces (default "workspaces")
-	WebhookWorkers         int
-	AllowRepo              []string
-	WebhookSecret          string
-	InsecureWebhook        bool
-	RepoCloneBaseURL       string
-	RepoCloneBaseURLs      []string
-	RepoRoot               string
-	WebhookMaxTrackedRepos int
-	WebhookAttemptTimeout  time.Duration
-	WebhookRetryAttempts   int
-	WebhookRetryBaseDelay  time.Duration
-	WebhookRetryMaxDelay   time.Duration
-	MaxFileBytes           int64
-	MaxTotalParsedBytes    int64
+	CacheTTL                time.Duration
+	NoCache                 bool
+	Transport               string // "stdio" (default) | "streamable-http"
+	HTTPAddr                string // listen address for HTTP transport (default "127.0.0.1:8080")
+	HTTPBearerToken         string
+	OTELEndpoint            string
+	InsecureHTTP            bool
+	Stateless               bool   // stateless session management for multi-instance deployments
+	NamespaceRoot           string // root directory for file namespaces (default "workspaces")
+	WorkspaceRoot           string // root directory for file workspaces (default "workspaces")
+	WebhookWorkers          int
+	AllowRepo               []string
+	WebhookSecret           string
+	InsecureWebhook         bool
+	RepoCloneBaseURL        string
+	RepoCloneBaseURLs       []string
+	RepoRoot                string
+	WebhookMaxTrackedRepos  int
+	WebhookAttemptTimeout   time.Duration
+	WebhookRetryAttempts    int
+	WebhookRetryBaseDelay   time.Duration
+	WebhookRetryMaxDelay    time.Duration
+	MaxFileBytes            int64
+	MaxTotalParsedBytes     int64
 	WebhookFailOnUnreadable bool
 }
 
@@ -138,6 +139,7 @@ func newServeCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().StringVar(&cfg.Transport, "transport", "stdio", "Transport mode: stdio or streamable-http")
 	cmd.Flags().StringVar(&cfg.HTTPAddr, "http-addr", "127.0.0.1:8080", "Listen address for HTTP transport")
 	cmd.Flags().StringVar(&cfg.HTTPBearerToken, "http-bearer-token", os.Getenv("CCG_HTTP_BEARER_TOKEN"), "Bearer token required for MCP HTTP requests when set")
+	cmd.Flags().StringVar(&cfg.OTELEndpoint, "otel-endpoint", os.Getenv("CCG_OTEL_ENDPOINT"), "OTLP HTTP trace endpoint (optional; enables span export when set)")
 	cmd.Flags().BoolVar(&cfg.InsecureHTTP, "insecure-http", false, "Allow externally bound HTTP transport without bearer token (unsafe; testing only)")
 	cmd.Flags().BoolVar(&cfg.Stateless, "stateless", false, "Stateless session management (for multi-instance deployments)")
 	cmd.Flags().StringVar(&cfg.NamespaceRoot, "namespace-root", "workspaces", "Root directory for file namespaces")
