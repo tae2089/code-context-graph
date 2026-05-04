@@ -678,7 +678,7 @@ func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphS
 		resolved, diagnostics := edgeresolve.FilterResolvedWithDiagnosticsFiltered(resolved, shouldSuppressExternalImportUnresolved)
 		mergeBuildUnresolvedDiagnostics(stats, diagnostics)
 		if diagnostics.DroppedCount > 0 {
-			s.logger().WarnContext(ctx, "dropped unresolved implements edges", append(obs.TraceLogArgs(ctx), "count", diagnostics.DroppedCount, "by_kind", formatEdgeKindCounts(diagnostics.ByKind), "by_reason", diagnostics.ByReason)...)
+			s.logger().DebugContext(ctx, "dropped unresolved implements edges", append(obs.TraceLogArgs(ctx), "count", diagnostics.DroppedCount, "by_kind", formatEdgeKindCounts(diagnostics.ByKind), "by_reason", diagnostics.ByReason)...)
 		}
 		if err := txStore.UpsertEdges(ctx, resolved); err != nil {
 			s.logger().ErrorContext(ctx, "upsert deferred implements edges failed", append(obs.TraceLogArgs(ctx), "start", start, "end", end, "error", err)...)
@@ -702,7 +702,7 @@ func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphS
 			resolvedChunk, diagnostics := edgeresolve.FilterResolvedWithDiagnosticsFiltered(resolved[len(resolveInput)-len(chunk):], shouldSuppressExternalImportUnresolved)
 			mergeBuildUnresolvedDiagnostics(stats, diagnostics)
 			if diagnostics.DroppedCount > 0 {
-				s.logger().WarnContext(ctx, "dropped unresolved edges", append(obs.TraceLogArgs(ctx), "file", parsed.relPath, "count", diagnostics.DroppedCount, "by_kind", formatEdgeKindCounts(diagnostics.ByKind), "by_reason", diagnostics.ByReason)...)
+				s.logger().DebugContext(ctx, "dropped unresolved edges", append(obs.TraceLogArgs(ctx), "file", parsed.relPath, "count", diagnostics.DroppedCount, "by_kind", formatEdgeKindCounts(diagnostics.ByKind), "by_reason", diagnostics.ByReason)...)
 			}
 			if err := txStore.UpsertEdges(ctx, resolvedChunk); err != nil {
 				s.logger().ErrorContext(ctx, "upsert deferred edges failed", append(obs.TraceLogArgs(ctx), "file", parsed.relPath, "error", err)...)
