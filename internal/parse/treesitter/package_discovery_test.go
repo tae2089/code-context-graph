@@ -511,6 +511,45 @@ func TestTypeScriptPackageDiscovery_RespectsPnpmWorkspacePackages(t *testing.T) 
 	}
 }
 
+func TestReadPNPMWorkspacePatterns_PreservesNegationAndStopsAtTopLevelSection(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "pnpm-workspace.yaml")
+	content := "packages:\n  - 'packages/*'\n  - '!packages/private/**'\ncatalog:\n  react: 19.0.0\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write pnpm-workspace.yaml: %v", err)
+	}
+
+	got := readPNPMWorkspacePatterns(path)
+	want := []string{"packages/*", "!packages/private/**"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("patterns = %v, want %v", got, want)
+	}
+}
+
+func TestWorkspacePackageRoots_SupportsNegationAndDoubleStar(t *testing.T) {
+	tmpDir := t.TempDir()
+	mustMkdir := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(tmpDir, rel), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	mustWrite := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustMkdir("packages/public/app")
+	mustMkdir("packages/private/secret")
+	mustWrite("packages/public/app/package.json", `{"name":"@acme/public-app"}`)
+	mustWrite("packages/private/secret/package.json", `{"name":"@acme/private-secret"}`)
+
+	got := workspacePackageRoots(tmpDir, []string{"packages/**", "!packages/private/**"})
+	want := []string{"packages/public/app"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("roots = %v, want %v", got, want)
+	}
+}
+
 func TestJavaPackageDiscovery_GroupsByPackageDeclaration(t *testing.T) {
 	tmpDir := t.TempDir()
 	mustMkdir := func(rel string) {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -720,28 +721,117 @@ func readPNPMWorkspacePatterns(path string) []string {
 // workspacePackageRoots resolves workspace glob patterns to package roots that contain a package.json.
 // @intent map workspace manifests to concrete package directories without parsing unrelated nested packages.
 func workspacePackageRoots(rootDir string, globs []string) []string {
+	includePatterns, excludePatterns := splitWorkspacePatterns(globs)
+	if len(includePatterns) == 0 {
+		return nil
+	}
 	var roots []string
-	for _, pattern := range globs {
-		matches, err := filepath.Glob(filepath.Join(rootDir, filepath.FromSlash(pattern)))
+	err := filepath.WalkDir(rootDir, func(current string, d os.DirEntry, err error) error {
 		if err != nil {
-			continue
+			return nil
 		}
-		for _, match := range matches {
-			info, err := os.Stat(match)
-			if err != nil || !info.IsDir() {
-				continue
-			}
-			if _, err := os.Stat(filepath.Join(match, "package.json")); err != nil {
-				continue
-			}
-			rel, err := filepath.Rel(rootDir, match)
-			if err != nil {
-				continue
-			}
-			roots = append(roots, filepath.ToSlash(rel))
+		if !d.IsDir() {
+			return nil
 		}
+		name := d.Name()
+		if name == ".git" || name == "node_modules" {
+			return filepath.SkipDir
+		}
+		if current == rootDir {
+			return nil
+		}
+		if _, err := os.Stat(filepath.Join(current, "package.json")); err != nil {
+			return nil
+		}
+		rel, err := filepath.Rel(rootDir, current)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if !matchesWorkspacePatterns(rel, includePatterns, excludePatterns) {
+			return nil
+		}
+		roots = append(roots, rel)
+		return nil
+	})
+	if err != nil {
+		return appendUniquePackageFile(nil, roots...)
 	}
 	return appendUniquePackageFile(nil, roots...)
+}
+
+func splitWorkspacePatterns(globs []string) (includes []string, excludes []string) {
+	for _, pattern := range globs {
+		pattern = strings.TrimSpace(filepath.ToSlash(pattern))
+		pattern = strings.Trim(pattern, "/")
+		if pattern == "" {
+			continue
+		}
+		if strings.HasPrefix(pattern, "!") {
+			exclude := strings.TrimSpace(strings.TrimPrefix(pattern, "!"))
+			exclude = strings.Trim(filepath.ToSlash(exclude), "/")
+			if exclude != "" {
+				excludes = append(excludes, exclude)
+			}
+			continue
+		}
+		includes = append(includes, pattern)
+	}
+	return appendUniquePackageFile(nil, includes...), appendUniquePackageFile(nil, excludes...)
+}
+
+func matchesWorkspacePatterns(rel string, includes []string, excludes []string) bool {
+	rel = strings.Trim(filepath.ToSlash(rel), "/")
+	matched := false
+	for _, pattern := range includes {
+		if workspacePatternMatch(pattern, rel) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return false
+	}
+	for _, pattern := range excludes {
+		if workspacePatternMatch(pattern, rel) {
+			return false
+		}
+	}
+	return true
+}
+
+func workspacePatternMatch(pattern, rel string) bool {
+	pattern = strings.Trim(filepath.ToSlash(pattern), "/")
+	rel = strings.Trim(filepath.ToSlash(rel), "/")
+	if pattern == "" {
+		return rel == ""
+	}
+	return workspacePatternMatchParts(strings.Split(pattern, "/"), strings.Split(rel, "/"))
+}
+
+func workspacePatternMatchParts(patternParts []string, relParts []string) bool {
+	if len(patternParts) == 0 {
+		return len(relParts) == 0
+	}
+	if patternParts[0] == "**" {
+		if workspacePatternMatchParts(patternParts[1:], relParts) {
+			return true
+		}
+		for i := 0; i < len(relParts); i++ {
+			if workspacePatternMatchParts(patternParts[1:], relParts[i+1:]) {
+				return true
+			}
+		}
+		return false
+	}
+	if len(relParts) == 0 {
+		return false
+	}
+	matched, err := path.Match(patternParts[0], relParts[0])
+	if err != nil || !matched {
+		return false
+	}
+	return workspacePatternMatchParts(patternParts[1:], relParts[1:])
 }
 
 // resolveTSConfigExtends resolves a tsconfig extends entry to a local file path when possible.
