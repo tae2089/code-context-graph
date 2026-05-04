@@ -130,3 +130,10 @@ func NDCG(ranked []string, relevant map[string]bool, k int) float64 {
 	}
 	return dcg / idcg
 }
+
+func FalsePositiveRate(ranked []string) float64 {
+	if len(ranked) == 0 {
+		return 0
+	}
+	return 1
+}

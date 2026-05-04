@@ -137,3 +137,21 @@ func TestPrecisionAtK_EmptyInputs(t *testing.T) {
 		t.Errorf("empty: got %f, want 0", got)
 	}
 }
+
+func TestFalsePositiveRate_EmptyRankedReturnsZero(t *testing.T) {
+	if got := FalsePositiveRate(nil); got != 0 {
+		t.Fatalf("nil ranked: got %f, want 0", got)
+	}
+	if got := FalsePositiveRate([]string{}); got != 0 {
+		t.Fatalf("empty ranked: got %f, want 0", got)
+	}
+}
+
+func TestFalsePositiveRate_NonEmptyRankedReturnsOne(t *testing.T) {
+	if got := FalsePositiveRate([]string{"x"}); got != 1 {
+		t.Fatalf("single result: got %f, want 1", got)
+	}
+	if got := FalsePositiveRate([]string{"x", "y"}); got != 1 {
+		t.Fatalf("multiple results: got %f, want 1", got)
+	}
+}

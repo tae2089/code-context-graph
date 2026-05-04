@@ -13,17 +13,84 @@
     },
     {
       "query": "UserService",
-      "relevant": ["class:UserService@sample.go"],
+      "relevant": [
+        "class:UserService@sample.go",
+        "class:UserService@Sample.java",
+        "class:UserService@sample.php",
+        "class:UserService@sample.cpp"
+      ],
       "k": 5
     },
     {
-      "query": "calculate",
-      "relevant": ["function:calculate@sample.py", "function:add@sample.py"],
+      "query": "get_user",
+      "relevant": [
+        "function:get_user@sample.py",
+        "function:get_user@sample.rs",
+        "function:get_user@sample.rb",
+        "function:get_user@sample.c",
+        "function:handle_request@sample.py"
+      ],
       "k": 5
     },
     {
-      "query": "greet",
-      "relevant": ["function:greet@sample.ts"],
+      "query": "getUser",
+      "relevant": [
+        "function:getUser@sample.ts",
+        "function:getUser@sample.js",
+        "function:getUser@Sample.kt",
+        "function:getUser@sample.php",
+        "function:getUser@sample.cpp"
+      ],
+      "k": 5
+    },
+    {
+      "query": "UserService Java",
+      "relevant": ["class:UserService@Sample.java"],
+      "k": 5
+    },
+    {
+      "query": "get_user Rust",
+      "relevant": ["function:get_user@sample.rs"],
+      "k": 5
+    },
+    {
+      "query": "getUser JavaScript",
+      "relevant": ["function:getUser@sample.js"],
+      "k": 5
+    },
+    {
+      "query": "getUser Kotlin",
+      "relevant": ["function:getUser@Sample.kt"],
+      "k": 5
+    },
+    {
+      "query": "getUser PHP",
+      "relevant": ["function:getUser@sample.php"],
+      "k": 5
+    },
+    {
+      "query": "get_user Ruby",
+      "relevant": ["function:get_user@sample.rb"],
+      "k": 5
+    },
+    {
+      "query": "get_user C",
+      "relevant": ["function:get_user@sample.c"],
+      "k": 5
+    },
+    {
+      "query": "getUser C++",
+      "relevant": ["function:getUser@sample.cpp"],
+      "k": 5
+    },
+    {
+      "query": "UserService:getUser Lua",
+      "relevant": ["function:UserService:getUser@sample.lua"],
+      "k": 5
+    },
+    {
+      "query": "zzz_nonexistent_symbol_xyz",
+      "relevant": [],
       "k": 5
     }
   ]
