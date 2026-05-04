@@ -79,6 +79,7 @@ ccg update ./backend --namespace backend
 | `ccg serve --no-cache` | 메모리 내 MCP serve 세션 캐시 비활성화 |
 | `ccg serve --http-addr 0.0.0.0:9090` | 커스텀 HTTP 리슨 주소 (기본값 `127.0.0.1:8080`) |
 | `ccg serve --http-bearer-token <token>` | 설정된 경우 `/mcp`에 대한 MCP HTTP 요청에 Bearer 토큰 요구 |
+| `ccg serve --otel-endpoint <url>` | 지정된 전체 OTLP HTTP 엔드포인트 URL(예: `http://collector:4318/v1/traces`)로 trace export를 활성화합니다. 설정하지 않으면 CCG는 SDK span을 로컬에서 계속 생성하지만 export는 하지 않습니다 |
 | `ccg serve --insecure-http` | Bearer 토큰 없이 루프백이 아닌 HTTP 바인딩 허용 (테스트 전용) |
 | `ccg serve --stateless` | 상태 비저장 세션 모드 (다중 인스턴스 배포용) |
 | `ccg serve --namespace-root <dir>` | 파일 네임스페이스의 루트 디렉토리 (기본값 `workspaces`) |
@@ -100,7 +101,9 @@ ccg update ./backend --namespace backend
 
 웹훅 관련 serve 플래그는 지원되는 경우 일치하는 환경 변수로도 설정할 수 있습니다: `CCG_WEBHOOK_WORKERS`, `CCG_WEBHOOK_MAX_TRACKED_REPOS`, `CCG_WEBHOOK_ATTEMPT_TIMEOUT`, `CCG_WEBHOOK_RETRY_ATTEMPTS`, `CCG_WEBHOOK_RETRY_BASE_DELAY`, `CCG_WEBHOOK_RETRY_MAX_DELAY`, `CCG_REPO_ROOT`.
 
-`CCG_HTTP_BEARER_TOKEN`은 `--http-bearer-token`에 대해서도 지원됩니다. 이 토큰은 `/mcp`의 MCP HTTP 엔드포인트를 보호하지만, `/health`, `/ready`, `/status`, `/webhook` 자체를 비공개로 만들지는 않습니다.
+`CCG_HTTP_BEARER_TOKEN`은 `--http-bearer-token`에 대해서도 지원되며, `CCG_OTEL_ENDPOINT`는 `--otel-endpoint`에 대해서도 지원됩니다. 이 토큰은 `/mcp`의 MCP HTTP 엔드포인트를 보호하지만, `/health`, `/ready`, `/status`, `/webhook` 자체를 비공개로 만들지는 않습니다.
+
+`--otel-endpoint` 또는 `CCG_OTEL_ENDPOINT`를 설정하지 않아도 CCG는 inbound MCP/웹훅 요청과 내부 웹훅 sync 작업에 대해 실제 OpenTelemetry SDK span을 생성합니다. trace가 연결된 컨텍스트에서 출력되는 로그에는 `trace_id`, `span_id`, `trace_sampled`가 포함되므로 exporter 없이도 로컬 디버깅에 사용할 수 있습니다.
 
 ### 벤치마크 (Benchmark)
 
