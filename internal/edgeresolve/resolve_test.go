@@ -119,18 +119,18 @@ func TestResolveCallsConnectsBareFunctionCall(t *testing.T) {
 	}
 }
 
-func TestDispatchForLanguage_OnlyGoRegistered(t *testing.T) {
+func TestDispatchForLanguage_GoAndRustRegistered(t *testing.T) {
 	if dispatchForLanguage("go") == nil {
 		t.Fatal("expected Go dispatch to be registered")
+	}
+	if dispatchForLanguage("rust") == nil {
+		t.Fatal("expected Rust dispatch to be registered")
 	}
 	if dispatchForLanguage("python") != nil {
 		t.Fatal("expected Python dispatch to remain unregistered")
 	}
 	if dispatchForLanguage("typescript") != nil {
 		t.Fatal("expected TypeScript dispatch to remain unregistered")
-	}
-	if dispatchForLanguage("rust") != nil {
-		t.Fatal("expected Rust dispatch to remain unregistered")
 	}
 }
 
@@ -238,6 +238,109 @@ func TestResolveInterfaceSelectorLeavesAmbiguousImplementersUnresolved(t *testin
 	}
 	if edges[2].ToNodeID != 0 {
 		t.Fatalf("ambiguous call ToNodeID=%d, want unresolved 0", edges[2].ToNodeID)
+	}
+}
+
+func TestResolveRustSameReceiverCallRemainsUnresolvedWithoutSafeReceiverContract(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "Foo.run", Name: "run", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 3, EndLine: 5, Language: "rust"},
+		{ID: 2, QualifiedName: "Foo", Name: "Foo", Kind: model.NodeKindClass, FilePath: "main.rs", StartLine: 1, EndLine: 1, Language: "rust"},
+		{ID: 3, QualifiedName: "Foo.bar", Name: "bar", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 6, EndLine: 7, Language: "rust"},
+		{ID: 4, QualifiedName: "Other.bar", Name: "bar", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 9, EndLine: 10, Language: "rust"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{{
+		Kind:        model.EdgeKindCalls,
+		FilePath:    "main.rs",
+		Line:        4,
+		Fingerprint: "calls:main.rs:self.bar:4",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[0].FromNodeID != 1 {
+		t.Fatalf("call edge FromNodeID=%d, want 1", edges[0].FromNodeID)
+	}
+	if edges[0].ToNodeID != 0 {
+		t.Fatalf("call edge ToNodeID=%d, want unresolved 0", edges[0].ToNodeID)
+	}
+}
+
+func TestResolveRustTraitMethodCall(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "main", Name: "main", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 7, EndLine: 10, Language: "rust"},
+		{ID: 2, QualifiedName: "Foo", Name: "Foo", Kind: model.NodeKindClass, FilePath: "main.rs", StartLine: 1, EndLine: 1, Language: "rust"},
+		{ID: 3, QualifiedName: "MyTrait", Name: "MyTrait", Kind: model.NodeKindType, FilePath: "main.rs", StartLine: 3, EndLine: 3, Language: "rust"},
+		{ID: 4, QualifiedName: "Foo.bar", Name: "bar", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 4, EndLine: 5, Language: "rust"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "main.rs", Line: 3, Fingerprint: "implements:main.rs:Foo:MyTrait"},
+		{Kind: model.EdgeKindCalls, FilePath: "main.rs", Line: 9, Fingerprint: "calls:main.rs:MyTrait::bar:9"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 4 {
+		t.Fatalf("call edge ToNodeID=%d, want 4", edges[1].ToNodeID)
+	}
+}
+
+func TestResolveRustTraitMethodCallLeavesAmbiguousImplementersUnresolved(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "main", Name: "main", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 9, EndLine: 12, Language: "rust"},
+		{ID: 2, QualifiedName: "Foo", Name: "Foo", Kind: model.NodeKindClass, FilePath: "main.rs", StartLine: 1, EndLine: 1, Language: "rust"},
+		{ID: 3, QualifiedName: "AltFoo", Name: "AltFoo", Kind: model.NodeKindClass, FilePath: "main.rs", StartLine: 2, EndLine: 2, Language: "rust"},
+		{ID: 4, QualifiedName: "MyTrait", Name: "MyTrait", Kind: model.NodeKindType, FilePath: "main.rs", StartLine: 4, EndLine: 4, Language: "rust"},
+		{ID: 5, QualifiedName: "Foo.bar", Name: "bar", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 5, EndLine: 6, Language: "rust"},
+		{ID: 6, QualifiedName: "AltFoo.bar", Name: "bar", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 7, EndLine: 8, Language: "rust"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "main.rs", Line: 4, Fingerprint: "implements:main.rs:Foo:MyTrait"},
+		{Kind: model.EdgeKindImplements, FilePath: "main.rs", Line: 4, Fingerprint: "implements:main.rs:AltFoo:MyTrait"},
+		{Kind: model.EdgeKindCalls, FilePath: "main.rs", Line: 11, Fingerprint: "calls:main.rs:MyTrait::bar:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[2].ToNodeID != 0 {
+		t.Fatalf("ambiguous rust call ToNodeID=%d, want unresolved 0", edges[2].ToNodeID)
+	}
+}
+
+func TestResolveRustAssociatedFunctionDoesNotUseTraitDispatch(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "main", Name: "main", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 7, EndLine: 10, Language: "rust"},
+		{ID: 2, QualifiedName: "Foo", Name: "Foo", Kind: model.NodeKindClass, FilePath: "main.rs", StartLine: 1, EndLine: 1, Language: "rust"},
+		{ID: 3, QualifiedName: "MyTrait", Name: "MyTrait", Kind: model.NodeKindType, FilePath: "main.rs", StartLine: 3, EndLine: 3, Language: "rust"},
+		{ID: 4, QualifiedName: "Foo.bar", Name: "bar", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 4, EndLine: 5, Language: "rust"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "main.rs", Line: 3, Fingerprint: "implements:main.rs:Foo:MyTrait"},
+		{Kind: model.EdgeKindCalls, FilePath: "main.rs", Line: 9, Fingerprint: "calls:main.rs:Foo::bar:9"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 0 {
+		t.Fatalf("associated function call ToNodeID=%d, want unresolved 0", edges[1].ToNodeID)
+	}
+}
+
+func TestResolveRustQualifiedTraitPathRemainsUnresolved(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "main", Name: "main", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 7, EndLine: 10, Language: "rust"},
+		{ID: 2, QualifiedName: "Foo", Name: "Foo", Kind: model.NodeKindClass, FilePath: "main.rs", StartLine: 1, EndLine: 1, Language: "rust"},
+		{ID: 3, QualifiedName: "MyTrait", Name: "MyTrait", Kind: model.NodeKindType, FilePath: "main.rs", StartLine: 3, EndLine: 3, Language: "rust"},
+		{ID: 4, QualifiedName: "Foo.bar", Name: "bar", Kind: model.NodeKindFunction, FilePath: "main.rs", StartLine: 4, EndLine: 5, Language: "rust"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "main.rs", Line: 3, Fingerprint: "implements:main.rs:Foo:MyTrait"},
+		{Kind: model.EdgeKindCalls, FilePath: "main.rs", Line: 9, Fingerprint: "calls:main.rs:crate::MyTrait::bar:9"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 0 {
+		t.Fatalf("qualified trait path call ToNodeID=%d, want unresolved 0", edges[1].ToNodeID)
 	}
 }
 

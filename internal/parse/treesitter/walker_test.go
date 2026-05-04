@@ -2010,6 +2010,27 @@ impl Foo {
 	}
 }
 
+func TestWalker_ImplBlock_Rust_MethodQualifiedNameIncludesReceiver(t *testing.T) {
+	src := `struct Foo {}
+
+impl Foo {
+    fn bar(&self) {}
+}
+`
+	w := NewWalker(RustSpec)
+	nodes, _, err := w.Parse("main.rs", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	funcNodes := filterByKind(nodes, model.NodeKindFunction)
+	if len(funcNodes) != 1 {
+		t.Fatalf("expected 1 function node (bar), got %d", len(funcNodes))
+	}
+	if got, want := funcNodes[0].QualifiedName, "Foo.bar"; got != want {
+		t.Fatalf("QualifiedName = %q, want %q", got, want)
+	}
+}
+
 func TestWalker_ImplTrait_Rust(t *testing.T) {
 	src := `trait MyTrait {}
 struct Foo {}
@@ -2226,6 +2247,32 @@ fn main() {
 	if len(callEdges) == 0 {
 		t.Fatal("expected at least 1 CALLS edge, got 0")
 	}
+}
+
+func TestParseRust_MethodCall(t *testing.T) {
+	src := `struct Foo {}
+
+impl Foo {
+    fn bar(&self) {}
+}
+
+fn main() {
+    let foo = Foo {};
+    foo.bar();
+}
+`
+	w := NewWalker(RustSpec)
+	_, edges, err := w.Parse("main.rs", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
+	for _, e := range callEdges {
+		if e.Fingerprint == "calls:main.rs:foo.bar:9" {
+			return
+		}
+	}
+	t.Fatalf("expected Rust method call edge, got %#v", callEdges)
 }
 
 // --- Phase 12.3: C++ ---
