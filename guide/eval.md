@@ -53,6 +53,8 @@ Low precision usually means the parser creates extra nodes or edges. Low recall 
 
 Search eval uses `queries.json`.
 
+Bare identifier queries may list multiple relevant IDs when the corpus intentionally contains the same symbol name across several languages. In that case, any of those exact-name matches counts as relevant. Language-qualified queries such as `getUser JavaScript` or `get_user Rust` should remain narrow and point to one intended fixture.
+
 ```json
 {
   "queries": [
@@ -71,6 +73,29 @@ Search eval uses `queries.json`.
 | R@5 | Fraction of all relevant results found in the top 5 |
 | MRR | Reciprocal rank of the first relevant result |
 | nDCG@5 | Ranking quality in the top 5, rewarding relevant results near the top |
+| negative_queries | Count of negative-control queries with `relevant: []` |
+| negative_false_positives | Number of negative-control queries that still returned results |
+| negative_pass_rate | Fraction of negative-control queries that correctly returned zero results |
+
+### Negative controls
+
+Search eval may include negative-control queries with `"relevant": []`. These cases are excluded from the ranking averages (`P@K`, `R@5`, `MRR`, `nDCG@5`) so the positive-query baseline keeps the same meaning. Instead, they are tracked through `negative_queries`, `negative_false_positives`, and `negative_pass_rate`.
+
+When the corpus contains negative controls, the table output also shows:
+
+```text
+Negatives: 1
+FP:        0
+Pass Rate: 1.0000
+```
+
+This block is omitted when `negative_queries == 0`.
+
+### Per-query diagnostics (JSON only)
+
+JSON output now includes a `per_query` array under `search` so regressions can be traced back to individual queries without re-running them manually. Each entry records the query text, whether it was a `positive` or `negative` case, how many results were returned, and the per-query ranking metrics (or `false_positive` for negative controls).
+
+Each `per_query` entry may also include `top_results`, capped at 5 values. This captures the first returned result keys directly in the eval JSON, which makes negative-control leaks and low-precision positives debuggable without re-running `ccg search` by hand.
 
 ## Commands
 
@@ -89,6 +114,35 @@ ccg eval --corpus testdata/eval
 
 # Machine-readable output
 ccg eval --format json
+```
+
+## Reproducible Baseline Workflow
+
+Search eval depends on a database that already contains the eval corpus. On a fresh DB, run migrate and build first, then evaluate against the same DB and namespace.
+
+The repository provides a wrapper for this flow:
+
+```bash
+scripts/eval.sh
+```
+
+The script runs this sequence against an isolated SQLite DB by default:
+
+1. `ccg migrate`
+2. `ccg build testdata/eval --namespace eval`
+3. `ccg eval --corpus testdata/eval --namespace eval`
+
+Useful overrides:
+
+```bash
+# Keep the generated DB for debugging
+CCG_EVAL_KEEP_DB=1 scripts/eval.sh
+
+# Use a specific DB path
+CCG_EVAL_DB_DSN=.ccg-eval.db scripts/eval.sh
+
+# Use go run instead of an installed ccg binary
+CCG_BIN='go run -tags "fts5" ./cmd/ccg' scripts/eval.sh
 ```
 
 Update golden files only after reviewing the parser diff and confirming the new output is intended.
