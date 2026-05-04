@@ -61,6 +61,7 @@ type SyncStats struct {
 	Modified int
 	Skipped  int
 	Deleted  int
+	Unresolved edgeresolve.FilterResolvedDiagnostics
 }
 
 // Syncer incrementally updates graph data for changed files.
@@ -243,7 +244,7 @@ func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files ma
 			}
 		}
 	}
-	if err := s.resolveAndUpsertEdges(ctx, syncStore, parsedFiles); err != nil {
+	if err := s.resolveAndUpsertEdges(ctx, syncStore, parsedFiles, stats); err != nil {
 		return nil, err
 	}
 	for _, parsed := range parsedFiles {
@@ -265,6 +266,11 @@ func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files ma
 		"modified", stats.Modified,
 		"skipped", stats.Skipped,
 		"deleted", stats.Deleted,
+		"unresolved_edges", stats.Unresolved.DroppedCount,
+		"unresolved_by_kind", formatEdgeKindCounts(stats.Unresolved.ByKind),
+		"unresolved_by_file", stats.Unresolved.ByFile,
+		"unresolved_by_reason", stats.Unresolved.ByReason,
+		"unresolved_samples", stats.Unresolved.Samples,
 	)
 
 	return stats, nil
@@ -279,14 +285,15 @@ func sortedFilePaths(files map[string]FileInfo) []string {
 	return paths
 }
 
-func (s *Syncer) resolveAndUpsertEdges(ctx context.Context, syncStore Store, parsedFiles []parsedSyncFile) error {
+func (s *Syncer) resolveAndUpsertEdges(ctx context.Context, syncStore Store, parsedFiles []parsedSyncFile, stats *SyncStats) error {
 	implementsEdges, otherByFile := partitionParsedSyncEdges(parsedFiles)
 	for _, edgeChunk := range splitEdgeChunks(implementsEdges) {
 		resolved, err := edgeresolve.Resolve(ctx, syncStore, edgeChunk)
 		if err != nil {
 			return err
 		}
-		resolved = edgeresolve.FilterResolved(resolved)
+		resolved, diagnostics := edgeresolve.FilterResolvedWithDiagnostics(resolved)
+		mergeSyncUnresolvedDiagnostics(stats, diagnostics)
 		if len(resolved) == 0 {
 			continue
 		}
@@ -303,7 +310,8 @@ func (s *Syncer) resolveAndUpsertEdges(ctx context.Context, syncStore Store, par
 			if err != nil {
 				return err
 			}
-			resolved = edgeresolve.FilterResolved(resolved[len(resolveInput)-len(edgeChunk):])
+			resolved, diagnostics := edgeresolve.FilterResolvedWithDiagnostics(resolved[len(resolveInput)-len(edgeChunk):])
+			mergeSyncUnresolvedDiagnostics(stats, diagnostics)
 			if len(resolved) == 0 {
 				continue
 			}
@@ -313,6 +321,56 @@ func (s *Syncer) resolveAndUpsertEdges(ctx context.Context, syncStore Store, par
 		}
 	}
 	return nil
+}
+
+func mergeSyncUnresolvedDiagnostics(stats *SyncStats, diagnostics edgeresolve.FilterResolvedDiagnostics) {
+	if stats == nil || diagnostics.DroppedCount == 0 {
+		return
+	}
+	stats.Unresolved.DroppedCount += diagnostics.DroppedCount
+	if len(diagnostics.ByKind) > 0 {
+		if stats.Unresolved.ByKind == nil {
+			stats.Unresolved.ByKind = make(map[model.EdgeKind]int, len(diagnostics.ByKind))
+		}
+		for kind, count := range diagnostics.ByKind {
+			stats.Unresolved.ByKind[kind] += count
+		}
+	}
+	if len(diagnostics.ByFile) > 0 {
+		if stats.Unresolved.ByFile == nil {
+			stats.Unresolved.ByFile = make(map[string]int, len(diagnostics.ByFile))
+		}
+		for filePath, count := range diagnostics.ByFile {
+			stats.Unresolved.ByFile[filePath] += count
+		}
+	}
+	if len(diagnostics.ByReason) > 0 {
+		if stats.Unresolved.ByReason == nil {
+			stats.Unresolved.ByReason = make(map[string]int, len(diagnostics.ByReason))
+		}
+		for reason, count := range diagnostics.ByReason {
+			stats.Unresolved.ByReason[reason] += count
+		}
+	}
+	remaining := 5 - len(stats.Unresolved.Samples)
+	if remaining <= 0 || len(diagnostics.Samples) == 0 {
+		return
+	}
+	if remaining > len(diagnostics.Samples) {
+		remaining = len(diagnostics.Samples)
+	}
+	stats.Unresolved.Samples = append(stats.Unresolved.Samples, diagnostics.Samples[:remaining]...)
+}
+
+func formatEdgeKindCounts(counts map[model.EdgeKind]int) map[string]int {
+	if len(counts) == 0 {
+		return nil
+	}
+	formatted := make(map[string]int, len(counts))
+	for kind, count := range counts {
+		formatted[string(kind)] = count
+	}
+	return formatted
 }
 
 func partitionParsedSyncEdges(parsedFiles []parsedSyncFile) ([]model.Edge, map[string][]model.Edge) {
