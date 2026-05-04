@@ -2,6 +2,7 @@ package treesitter
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -17,6 +18,24 @@ type JavaSemantics struct{}
 // KotlinSemantics recovers Kotlin superclass and interface relationships from class declarations.
 // @intent emit Kotlin hierarchy edges from declaration text while preserving package-qualified child names.
 type KotlinSemantics struct{}
+
+// CallRewriter returns a conservative Java receiver-type rewriter.
+// @intent rewrite member-call chains only when local/field declarations prove the receiver types.
+func (JavaSemantics) CallRewriter(ctx SemanticContext) CallRewriter {
+	return explicitReceiverTypeCallRewriter{
+		bindings: collectJavaReceiverBindings(ctx.Root, ctx.Content),
+		members:  collectJavaMemberTypes(ctx.Root, ctx.Content),
+	}
+}
+
+// CallRewriter returns a conservative Kotlin receiver-type rewriter.
+// @intent rewrite member-call chains only when explicit property/value types prove the receiver chain.
+func (KotlinSemantics) CallRewriter(ctx SemanticContext) CallRewriter {
+	return explicitReceiverTypeCallRewriter{
+		bindings: collectKotlinReceiverBindings(ctx.Root, ctx.Content),
+		members:  collectKotlinMemberTypes(ctx.Root, ctx.Content),
+	}
+}
 
 // AdditionalEdges adds Java extends and implements edges from class declarations.
 // @intent capture Java class hierarchy semantics with package-qualified child names when available.
@@ -258,6 +277,105 @@ func qualifyImportedTypeName(typeName, pkgName string, imports map[string]string
 		}
 	}
 	return qualifyTypeName(pkgName, typeName)
+}
+
+func collectJavaReceiverBindings(root *sitter.Node, content []byte) map[string]string {
+	_ = root
+	bindings := make(map[string]string)
+	for _, match := range regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_\.]*)\s+([A-Za-z_][A-Za-z0-9_]*)\b`).FindAllStringSubmatch(string(content), -1) {
+		if len(match) < 3 {
+			continue
+		}
+		typeName := normalizeReceiverTypeName(match[1])
+		if isLooseReceiverType(typeName) {
+			continue
+		}
+		bindings[match[2]] = typeName
+	}
+	if len(bindings) == 0 {
+		return nil
+	}
+	return bindings
+}
+
+func collectJavaMemberTypes(root *sitter.Node, content []byte) map[string]map[string]string {
+	_ = root
+	members := collectJVMMembersFromText(string(content))
+	if len(members) == 0 {
+		return nil
+	}
+	return members
+}
+
+func collectKotlinReceiverBindings(root *sitter.Node, content []byte) map[string]string {
+	_ = root
+	bindings := make(map[string]string)
+	for _, match := range regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_\.]*)`).FindAllStringSubmatch(string(content), -1) {
+		if len(match) < 3 {
+			continue
+		}
+		typeName := normalizeReceiverTypeName(match[2])
+		if isLooseReceiverType(typeName) {
+			continue
+		}
+		bindings[match[1]] = typeName
+	}
+	if len(bindings) == 0 {
+		return nil
+	}
+	return bindings
+}
+
+func collectKotlinMemberTypes(root *sitter.Node, content []byte) map[string]map[string]string {
+	_ = root
+	members := collectJVMMembersFromText(string(content))
+	if len(members) == 0 {
+		return nil
+	}
+	return members
+}
+
+func collectJVMMembersFromText(src string) map[string]map[string]string {
+	lines := strings.Split(src, "\n")
+	members := make(map[string]map[string]string)
+	owner := ""
+	depth := 0
+	ownerPattern := regexp.MustCompile(`^(?:public\s+|private\s+|protected\s+|abstract\s+|final\s+|open\s+)?(?:class|interface)\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	fieldPattern := regexp.MustCompile(`^(?:public\s+|private\s+|protected\s+|final\s+|open\s+|override\s+|static\s+)?(?:val\s+|var\s+)?([A-Za-z_][A-Za-z0-9_\.]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|;|$)|^(?:public\s+|private\s+|protected\s+|final\s+|open\s+|override\s+)?(?:val|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_\.]*)`)
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if owner == "" {
+			if match := ownerPattern.FindStringSubmatch(trimmed); len(match) == 2 {
+				owner = match[1]
+				depth = strings.Count(line, "{") - strings.Count(line, "}")
+				continue
+			}
+		}
+		if owner != "" {
+			if match := fieldPattern.FindStringSubmatch(trimmed); len(match) > 0 {
+				var name, typeName string
+				if len(match) >= 3 && match[1] != "" && match[2] != "" {
+					typeName = normalizeReceiverTypeName(match[1])
+					name = match[2]
+				} else if len(match) >= 5 {
+					name = match[3]
+					typeName = normalizeReceiverTypeName(match[4])
+				}
+				if name != "" && !isLooseReceiverType(typeName) {
+					if members[owner] == nil {
+						members[owner] = make(map[string]string)
+					}
+					members[owner][name] = typeName
+				}
+			}
+			depth += strings.Count(line, "{") - strings.Count(line, "}")
+			if depth <= 0 {
+				owner = ""
+				depth = 0
+			}
+		}
+	}
+	return members
 }
 
 // importAliasesBySimpleName maps imported simple type names to their fully qualified import paths.

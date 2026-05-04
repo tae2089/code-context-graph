@@ -319,7 +319,7 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 
 		m = qc.FilterPredicates(m, content)
 
-		var defNode, nameNode, receiverNode, importNode, callNode, packageNode, implementsNode *sitter.Node
+		var defNode, nameNode, receiverNode, importNode, callNode, callRefNode, packageNode, implementsNode *sitter.Node
 		var defType string
 
 		for _, c := range m.Captures {
@@ -341,9 +341,7 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 					nameNode = c.Node
 				}
 			} else if capName == "reference.call" {
-				if callNode == nil {
-					callNode = c.Node
-				}
+				callRefNode = c.Node
 			} else if capName == "reference.import" {
 				if importNode == nil {
 					importNode = c.Node
@@ -351,6 +349,9 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 			} else if capName == "reference.implements" {
 				implementsNode = c.Node
 			}
+		}
+		if callRefNode != nil {
+			callNode = callRefNode
 		}
 
 		if packageNode != nil {

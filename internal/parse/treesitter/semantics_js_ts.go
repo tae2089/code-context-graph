@@ -2,6 +2,7 @@ package treesitter
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -17,6 +18,12 @@ type TypeScriptSemantics struct{}
 // JavaScriptSemantics recovers class inheritance edges from JavaScript class heritage clauses.
 // @intent emit extends relationships for JavaScript classes using the same heritage parsing model as TypeScript.
 type JavaScriptSemantics struct{}
+
+type explicitReceiverTypeCallRewriter struct {
+	bindings map[string]string
+	members  map[string]map[string]string
+	chain    func(*sitter.Node, []byte) []string
+}
 
 // AdditionalEdges adds TypeScript extends and implements edges from class heritage clauses.
 // @intent capture TypeScript class hierarchy semantics directly from the parsed AST.
@@ -73,10 +80,234 @@ func (TypeScriptSemantics) ImplementedTypes(ctx DefinitionContext) []string {
 	return traits
 }
 
+// CallRewriter returns a conservative TypeScript receiver-type rewriter.
+// @intent rewrite member-call chains only when explicit type annotations prove each hop.
+func (TypeScriptSemantics) CallRewriter(ctx SemanticContext) CallRewriter {
+	return explicitReceiverTypeCallRewriter{
+		bindings: collectTypeScriptReceiverBindings(ctx.Root, ctx.Content),
+		members:  collectTypeScriptMemberTypes(ctx.Root, ctx.Content),
+	}
+}
+
 // ImplementedTypes returns query-captured relationships unchanged for JavaScript.
 // @intent satisfy shared relationship normalization without inventing JS interface semantics.
 func (JavaScriptSemantics) ImplementedTypes(ctx DefinitionContext) []string {
 	return slices.Clone(ctx.ImplementedTypes)
+}
+
+func (r explicitReceiverTypeCallRewriter) RewriteCall(ctx CallRewriteContext) string {
+	if ctx.Node == nil || len(r.bindings) == 0 || r.chain == nil {
+		// continue below with callee-based parsing
+	}
+	chain := callChainFromCallee(ctx.Callee)
+	if len(chain) == 0 && r.chain != nil {
+		chain = r.chain(ctx.Node, ctx.Content)
+	}
+	if len(chain) < 2 {
+		return ctx.Callee
+	}
+	typeName := r.bindings[chain[0]]
+	if typeName == "" {
+		return ctx.Callee
+	}
+	for i := 1; i < len(chain)-1; i++ {
+		members := r.members[typeName]
+		if len(members) == 0 {
+			return ctx.Callee
+		}
+		nextType := members[chain[i]]
+		if nextType == "" || isLooseReceiverType(nextType) {
+			return ctx.Callee
+		}
+		typeName = nextType
+	}
+	return typeName + "." + chain[len(chain)-1]
+}
+
+func collectTypeScriptReceiverBindings(root *sitter.Node, content []byte) map[string]string {
+	_ = root
+	bindings := make(map[string]string)
+	for _, match := range typedIdentifierPattern.FindAllStringSubmatch(string(content), -1) {
+		if len(match) < 3 {
+			continue
+		}
+		typeName := normalizeReceiverTypeName(match[2])
+		if isLooseReceiverType(typeName) {
+			continue
+		}
+		bindings[match[1]] = typeName
+	}
+	if len(bindings) == 0 {
+		return nil
+	}
+	return bindings
+}
+
+func collectTypeScriptMemberTypes(root *sitter.Node, content []byte) map[string]map[string]string {
+	_ = root
+	members := collectTypeScriptMembersFromText(string(content))
+	if len(members) == 0 {
+		return nil
+	}
+	return members
+}
+
+func typescriptDeclaredTypeName(n *sitter.Node, content []byte) string {
+	if n == nil {
+		return ""
+	}
+	if nameNode := n.ChildByFieldName("name"); nameNode != nil {
+		return normalizeReceiverTypeName(nameNode.Content(content))
+	}
+	return ""
+}
+
+func typescriptReceiverChain(callNode *sitter.Node, content []byte) []string {
+	if callNode == nil {
+		return nil
+	}
+	fnNode := callNode.ChildByFieldName("function")
+	if fnNode == nil {
+		return nil
+	}
+	return memberChainFromNode(fnNode, content)
+}
+
+var typedIdentifierPattern = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_\.]*)`)
+
+func callChainFromCallee(callee string) []string {
+	callee = strings.TrimSpace(callee)
+	callee = strings.TrimSuffix(callee, "()")
+	if callee == "" || !strings.Contains(callee, ".") {
+		return nil
+	}
+	parts := strings.Split(callee, ".")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+		if parts[i] == "" {
+			return nil
+		}
+	}
+	return parts
+}
+
+func collectTypeScriptMembersFromText(src string) map[string]map[string]string {
+	lines := strings.Split(src, "\n")
+	members := make(map[string]map[string]string)
+	owner := ""
+	depth := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if owner == "" {
+			if match := regexp.MustCompile(`^(?:export\s+)?(?:interface|class)\s+([A-Za-z_][A-Za-z0-9_]*)\b`).FindStringSubmatch(trimmed); len(match) == 2 {
+				owner = match[1]
+				depth = strings.Count(line, "{") - strings.Count(line, "}")
+				continue
+			}
+		}
+		if owner != "" {
+			if match := regexp.MustCompile(`^(?:public\s+|private\s+|protected\s+|readonly\s+)?([A-Za-z_][A-Za-z0-9_]*)\??\s*:\s*([A-Za-z_][A-Za-z0-9_\.]*)`).FindStringSubmatch(trimmed); len(match) == 3 {
+				typeName := normalizeReceiverTypeName(match[2])
+				if !isLooseReceiverType(typeName) {
+					if members[owner] == nil {
+						members[owner] = make(map[string]string)
+					}
+					members[owner][match[1]] = typeName
+				}
+			}
+			depth += strings.Count(line, "{") - strings.Count(line, "}")
+			if depth <= 0 {
+				owner = ""
+				depth = 0
+			}
+		}
+	}
+	return members
+}
+
+func collectTypedMembersInto(owner string, n *sitter.Node, content []byte, dst map[string]map[string]string) {
+	var walk func(*sitter.Node)
+	walk = func(cur *sitter.Node) {
+		if cur == nil {
+			return
+		}
+		switch cur.Type() {
+		case "property_signature", "public_field_definition":
+			name, typeName, ok := typedNameAndType(cur, content)
+			if ok && !isLooseReceiverType(typeName) {
+				if dst[owner] == nil {
+					dst[owner] = make(map[string]string)
+				}
+				dst[owner][name] = typeName
+			}
+		}
+		for i := 0; i < int(cur.NamedChildCount()); i++ {
+			walk(cur.NamedChild(i))
+		}
+	}
+	walk(n)
+}
+
+func typedNameAndType(n *sitter.Node, content []byte) (string, string, bool) {
+	if n == nil {
+		return "", "", false
+	}
+	nameNode := n.ChildByFieldName("name")
+	typeNode := n.ChildByFieldName("type")
+	if nameNode == nil || typeNode == nil {
+		return "", "", false
+	}
+	name := strings.TrimSpace(nameNode.Content(content))
+	typeName := normalizeReceiverTypeName(typeNode.Content(content))
+	if name == "" || typeName == "" {
+		return "", "", false
+	}
+	return name, typeName, true
+}
+
+func memberChainFromNode(n *sitter.Node, content []byte) []string {
+	if n == nil {
+		return nil
+	}
+	raw := strings.TrimSpace(n.Content(content))
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ".")
+	if len(parts) < 2 {
+		return nil
+	}
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+		if parts[i] == "" {
+			return nil
+		}
+	}
+	return parts
+}
+
+func normalizeReceiverTypeName(raw string) string {
+	raw = strings.TrimSpace(raw)
+	for _, sep := range []string{"=", "{", "<", "(", "?", "!"} {
+		if before, _, ok := strings.Cut(raw, sep); ok {
+			raw = strings.TrimSpace(before)
+		}
+	}
+	raw = strings.TrimPrefix(raw, "readonly ")
+	raw = strings.TrimPrefix(raw, "public ")
+	raw = strings.TrimPrefix(raw, "private ")
+	raw = strings.TrimPrefix(raw, "protected ")
+	raw = strings.TrimSpace(raw)
+	return raw
+}
+
+func isLooseReceiverType(typeName string) bool {
+	switch typeName {
+	case "", "any", "unknown", "object", "Object", "Any":
+		return true
+	default:
+		return false
+	}
 }
 
 // AdditionalEdges adds JavaScript extends edges from class heritage clauses.

@@ -388,6 +388,164 @@ func handle(value any) {
 	t.Fatalf("expected repo-local type assertion call rewrite edge, got %#v", callEdges)
 }
 
+func TestParseTypeScript_TypedReceiverChainRewritesCall(t *testing.T) {
+	src := `interface FlowTracer {
+	traceFlow(): void
+}
+
+interface Deps {
+	flowTracer: FlowTracer
+}
+
+function start(deps: Deps) {
+	deps.flowTracer.traceFlow()
+}
+`
+	w := NewWalker(TypeScriptSpec)
+	_, edges, err := w.Parse("app.ts", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
+	for _, e := range callEdges {
+		if e.Fingerprint == "calls:app.ts:FlowTracer.traceFlow:10" {
+			return
+		}
+	}
+	t.Fatalf("expected typed TypeScript receiver rewrite edge, got %#v", callEdges)
+}
+
+func TestParseTypeScript_TypedReceiverChainWithoutPropertyTypeStaysRaw(t *testing.T) {
+	src := `interface Deps {
+	flowTracer: any
+}
+
+function start(deps: Deps) {
+	deps.flowTracer.traceFlow()
+}
+`
+	w := NewWalker(TypeScriptSpec)
+	_, edges, err := w.Parse("app.ts", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
+	for _, e := range callEdges {
+		if e.Fingerprint == "calls:app.ts:deps.flowTracer.traceFlow:6" {
+			return
+		}
+	}
+	t.Fatalf("expected raw TypeScript receiver edge without property type, got %#v", callEdges)
+}
+
+func TestParseJava_TypedReceiverChainRewritesCall(t *testing.T) {
+	src := `package com.example;
+
+interface FlowTracer {
+	void traceFlow();
+}
+
+interface Deps {
+	FlowTracer flowTracer = null;
+}
+
+class App {
+	void run(Deps deps) {
+		deps.flowTracer.traceFlow();
+	}
+}
+`
+	w := NewWalker(JavaSpec)
+	_, edges, err := w.Parse("App.java", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
+	for _, e := range callEdges {
+		if e.Fingerprint == "calls:App.java:FlowTracer.traceFlow:13" {
+			return
+		}
+	}
+	t.Fatalf("expected typed Java receiver rewrite edge, got %#v", callEdges)
+}
+
+func TestParseJava_TypedReceiverChainWithoutMemberTypeStaysRaw(t *testing.T) {
+	src := `package com.example;
+
+class App {
+	void run(Object deps) {
+		deps.flowTracer.traceFlow();
+	}
+}
+`
+	w := NewWalker(JavaSpec)
+	_, edges, err := w.Parse("App.java", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
+	for _, e := range callEdges {
+		if e.Fingerprint == "calls:App.java:deps.flowTracer.traceFlow():5" {
+			return
+		}
+	}
+	t.Fatalf("expected raw Java receiver edge without member type, got %#v", callEdges)
+}
+
+func TestParseKotlin_TypedReceiverChainRewritesCall(t *testing.T) {
+	src := `package com.example
+
+interface FlowTracer {
+	fun traceFlow()
+}
+
+interface Deps {
+	val flowTracer: FlowTracer
+}
+
+class App {
+	fun run(deps: Deps) {
+		deps.flowTracer.traceFlow()
+	}
+}
+`
+	w := NewWalker(KotlinSpec)
+	_, edges, err := w.Parse("App.kt", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
+	for _, e := range callEdges {
+		if e.Fingerprint == "calls:App.kt:FlowTracer.traceFlow:13" {
+			return
+		}
+	}
+	t.Fatalf("expected typed Kotlin receiver rewrite edge, got %#v", callEdges)
+}
+
+func TestParseKotlin_TypedReceiverChainWithoutMemberTypeStaysRaw(t *testing.T) {
+	src := `package com.example
+
+class App {
+	fun run(deps: Any) {
+		deps.flowTracer.traceFlow()
+	}
+}
+`
+	w := NewWalker(KotlinSpec)
+	_, edges, err := w.Parse("App.kt", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
+	for _, e := range callEdges {
+		if e.Fingerprint == "calls:App.kt:deps.flowTracer.traceFlow():5" {
+			return
+		}
+	}
+	t.Fatalf("expected raw Kotlin receiver edge without member type, got %#v", callEdges)
+}
+
 func TestParseGo_TypeAssertionCallRewriteMatchesAssertionResultPosition(t *testing.T) {
 	src := `package main
 
