@@ -20,6 +20,10 @@ import (
 	"github.com/tae2089/code-context-graph/internal/store/search"
 )
 
+func wantInheritsFingerprint(filePath, child, parent string) string {
+	return model.BuildInheritsFingerprintV2(filePath, child, parent)
+}
+
 func TestParseWithContext_RespectsContextCancellation(t *testing.T) {
 	w := NewWalker(GoSpec)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -762,16 +766,13 @@ type Child struct {
 	if len(inheritEdges) == 0 {
 		t.Fatal("expected at least 1 INHERITS edge, got 0")
 	}
-	found := false
+	want := wantInheritsFingerprint("main.go", "Child", "Base")
 	for _, e := range inheritEdges {
-		if containsSubstring(e.Fingerprint, "Child") && containsSubstring(e.Fingerprint, "Base") {
-			found = true
-			break
+		if e.Fingerprint == want {
+			return
 		}
 	}
-	if !found {
-		t.Error("expected INHERITS edge from Child to Base")
-	}
+	t.Fatalf("expected INHERITS edge %q, got %+v", want, inheritEdges)
 }
 
 func containsSubstring(s, sub string) bool {
@@ -962,12 +963,13 @@ class User(Base):
 	if len(inheritEdges) == 0 {
 		t.Fatal("expected at least 1 INHERITS edge, got 0")
 	}
+	want := wantInheritsFingerprint("models.py", "User", "Base")
 	for _, e := range inheritEdges {
-		if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Base") {
+		if e.Fingerprint == want {
 			return
 		}
 	}
-	t.Fatalf("expected INHERITS edge linking User to Base, got %+v", inheritEdges)
+	t.Fatalf("expected INHERITS edge %q, got %+v", want, inheritEdges)
 }
 
 func TestParseTypeScript_Function(t *testing.T) {
@@ -1020,12 +1022,13 @@ func TestParseTypeScript_ExtendsAndImplementsEdges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	var foundInherits, foundAuth, foundNamed bool
+	var foundAuth, foundNamed bool
+	wantInherits := wantInheritsFingerprint("models.ts", "User", "Base")
 	for _, e := range edges {
 		switch e.Kind {
 		case model.EdgeKindInherits:
-			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Base") {
-				foundInherits = true
+			if e.Fingerprint != wantInherits {
+				t.Fatalf("unexpected inherits fingerprint: got %q want %q", e.Fingerprint, wantInherits)
 			}
 		case model.EdgeKindImplements:
 			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Authenticated") {
@@ -1036,7 +1039,7 @@ func TestParseTypeScript_ExtendsAndImplementsEdges(t *testing.T) {
 			}
 		}
 	}
-	if !foundInherits || !foundAuth || !foundNamed {
+	if !foundAuth || !foundNamed {
 		t.Fatalf("expected inherits+implements edges, got %+v", edges)
 	}
 }
@@ -1120,12 +1123,13 @@ public class User extends Base implements Authenticated, Named {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	var foundInherits, foundAuth, foundNamed bool
+	var foundAuth, foundNamed bool
+	wantInherits := wantInheritsFingerprint("User.java", "com.example.auth.User", "com.example.auth.Base")
 	for _, e := range edges {
 		switch e.Kind {
 		case model.EdgeKindInherits:
-			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Base") {
-				foundInherits = true
+			if e.Fingerprint != wantInherits {
+				t.Fatalf("unexpected inherits fingerprint: got %q want %q", e.Fingerprint, wantInherits)
 			}
 		case model.EdgeKindImplements:
 			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Authenticated") {
@@ -1136,7 +1140,7 @@ public class User extends Base implements Authenticated, Named {
 			}
 		}
 	}
-	if !foundInherits || !foundAuth || !foundNamed {
+	if !foundAuth || !foundNamed {
 		t.Fatalf("expected inherits+implements edges, got %+v", edges)
 	}
 }
@@ -1156,7 +1160,7 @@ public class User extends Base<String, Integer> implements Handler<Request<T>, R
 	for _, e := range edges {
 		switch e.Kind {
 		case model.EdgeKindInherits:
-			if e.Fingerprint == "inherits:User.java:com.example.auth.User:com.example.auth.Base" {
+			if e.Fingerprint == wantInheritsFingerprint("User.java", "com.example.auth.User", "com.example.auth.Base") {
 				foundBase = true
 			}
 		case model.EdgeKindImplements:
@@ -1363,12 +1367,13 @@ func TestParseJavaScript_ExtendsEdge(t *testing.T) {
 	if len(inheritEdges) == 0 {
 		t.Fatal("expected at least 1 INHERITS edge, got 0")
 	}
+	want := wantInheritsFingerprint("app.js", "User", "Base")
 	for _, e := range inheritEdges {
-		if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Base") {
+		if e.Fingerprint == want {
 			return
 		}
 	}
-	t.Fatalf("expected INHERITS edge linking User to Base, got %+v", inheritEdges)
+	t.Fatalf("expected INHERITS edge %q, got %+v", want, inheritEdges)
 }
 
 func TestParseJS_Import(t *testing.T) {
@@ -1588,12 +1593,13 @@ class User : Base(), Authenticated, Named
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	var foundInherits, foundAuth, foundNamed bool
+	var foundAuth, foundNamed bool
+	wantInherits := wantInheritsFingerprint("User.kt", "com.example.auth.User", "com.example.auth.Base")
 	for _, e := range edges {
 		switch e.Kind {
 		case model.EdgeKindInherits:
-			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Base") {
-				foundInherits = true
+			if e.Fingerprint != wantInherits {
+				t.Fatalf("unexpected inherits fingerprint: got %q want %q", e.Fingerprint, wantInherits)
 			}
 		case model.EdgeKindImplements:
 			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Authenticated") {
@@ -1604,7 +1610,7 @@ class User : Base(), Authenticated, Named
 			}
 		}
 	}
-	if !foundInherits || !foundAuth || !foundNamed {
+	if !foundAuth || !foundNamed {
 		t.Fatalf("expected inherits+implements edges, got %+v", edges)
 	}
 }
@@ -1619,12 +1625,13 @@ class User(val id: String) : Base(), Authenticated
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	var foundInherits, foundAuth bool
+	var foundAuth bool
+	wantInherits := wantInheritsFingerprint("User.kt", "com.example.auth.User", "com.example.auth.Base")
 	for _, e := range edges {
 		switch e.Kind {
 		case model.EdgeKindInherits:
-			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Base") {
-				foundInherits = true
+			if e.Fingerprint != wantInherits {
+				t.Fatalf("unexpected inherits fingerprint: got %q want %q", e.Fingerprint, wantInherits)
 			}
 		case model.EdgeKindImplements:
 			if containsSubstring(e.Fingerprint, "User") && containsSubstring(e.Fingerprint, "Authenticated") {
@@ -1632,7 +1639,7 @@ class User(val id: String) : Base(), Authenticated
 			}
 		}
 	}
-	if !foundInherits || !foundAuth {
+	if !foundAuth {
 		t.Fatalf("expected constructor-safe supertype edges, got %+v", edges)
 	}
 }
@@ -1657,7 +1664,7 @@ type Base struct{}
 	}
 	var inheritCount int
 	for _, e := range edges {
-		if e.Kind == model.EdgeKindInherits && e.Fingerprint == "inherits:main.go:Tracer:Base" {
+		if e.Kind == model.EdgeKindInherits && e.Fingerprint == wantInheritsFingerprint("main.go", "Tracer", "Base") {
 			inheritCount++
 		}
 	}

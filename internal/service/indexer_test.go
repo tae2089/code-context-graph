@@ -789,6 +789,92 @@ func TestUpdate_RemovesStaleCrossFileGoStructuralImplements(t *testing.T) {
 	}
 }
 
+func TestUpdate_ReplacesLegacyInheritsFingerprintWithV2(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	walker := treesitter.NewWalker(treesitter.PythonSpec)
+	svc := &GraphService{Store: st, DB: db, Walkers: map[string]*treesitter.Walker{".py": walker}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	mustWrite := func(rel, content string) {
+		full := filepath.Join(tmpDir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustWrite("models.py", "class Base:\n    pass\n\nclass Child(Base):\n    pass\n")
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	child, err := st.GetNode(ctx, "Child")
+	if err != nil || child == nil {
+		t.Fatalf("GetNode child after build: node=%v err=%v", child, err)
+	}
+	base, err := st.GetNode(ctx, "Base")
+	if err != nil || base == nil {
+		t.Fatalf("GetNode base after build: node=%v err=%v", base, err)
+	}
+
+	legacy := model.Edge{
+		Namespace:   ctxns.DefaultNamespace,
+		FromNodeID:  child.ID,
+		ToNodeID:    base.ID,
+		Kind:        model.EdgeKindInherits,
+		FilePath:    "models.py",
+		Line:        3,
+		Fingerprint: "inherits:models.py:Child:Base",
+	}
+	if err := db.Create(&legacy).Error; err != nil {
+		t.Fatalf("seed legacy edge: %v", err)
+	}
+	mustWrite("models.py", "class Base:\n    note = 1\n\nclass Child(Base):\n    pass\n")
+
+	syncer := incremental.NewWithRegistry(st, map[string]incremental.Parser{".py": walker}, incremental.WithLogger(slog.Default()))
+	if _, err := svc.Update(ctx, UpdateOptions{BuildOptions: BuildOptions{Dir: tmpDir}, Syncer: syncer}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	child, err = st.GetNode(ctx, "Child")
+	if err != nil || child == nil {
+		t.Fatalf("GetNode child after update: node=%v err=%v", child, err)
+	}
+	edges, err := st.GetEdgesFrom(ctx, child.ID)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom after update: %v", err)
+	}
+	var inherits []model.Edge
+	for _, edge := range edges {
+		if edge.Kind == model.EdgeKindInherits {
+			inherits = append(inherits, edge)
+		}
+	}
+	if len(inherits) != 1 {
+		t.Fatalf("expected exactly one inherits edge after update, got %+v", inherits)
+	}
+	want := model.BuildInheritsFingerprintV2("models.py", "Child", "Base")
+	if inherits[0].Fingerprint != want {
+		t.Fatalf("inherits fingerprint = %q, want %q", inherits[0].Fingerprint, want)
+	}
+	var legacyCount int64
+	if err := db.Model(&model.Edge{}).Where("namespace = ? AND fingerprint = ?", ctxns.DefaultNamespace, legacy.Fingerprint).Count(&legacyCount).Error; err != nil {
+		t.Fatalf("count legacy edges: %v", err)
+	}
+	if legacyCount != 0 {
+		t.Fatalf("expected legacy inherits fingerprint to be removed, found %d", legacyCount)
+	}
+}
+
 func TestUpdate_RemovesStalePackageSemanticEdgesWhenAnchorChanges(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {
