@@ -9,6 +9,10 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/tae2089/code-context-graph/internal/obs"
 )
 
 var ErrSyncQueueFull = errors.New("sync queue full")
@@ -137,6 +141,7 @@ type SyncQueueStats struct {
 	Shutdown            bool          `json:"shutdown"`
 	RecentRepos         []RepoStats   `json:"recent_repos,omitempty"`
 }
+
 // NewSyncQueue creates a queue with background workers and default lifecycle settings.
 // @intent provide the smallest constructor for production webhook dispatch.
 func NewSyncQueue(workers int, handler SyncHandlerFunc) *SyncQueue {
@@ -154,6 +159,7 @@ type QueueConfig struct {
 	RetryConfig
 	MaxTrackedRepos int
 }
+
 // NewSyncQueueWithOptions applies retry tuning while keeping default queue limits.
 // @intent expose backoff customization without forcing every caller to build a full queue config.
 func NewSyncQueueWithOptions(ctx context.Context, workers int, handler SyncHandlerFunc, retry RetryConfig) *SyncQueue {
@@ -404,9 +410,12 @@ func (q *SyncQueue) worker() {
 		if !ok {
 			return
 		}
+		processCtx, processSpan := obs.StartSpan(payload.ctx, "webhook.sync.queue.process", attribute.String("repo.full_name", repo))
 
-		slog.Info("sync queue processing", "repo", repo)
+		slog.InfoContext(processCtx, "sync queue processing", append(obs.TraceLogArgs(processCtx), "repo", repo)...)
+		payload.ctx = processCtx
 		success := q.safeHandle(repo, payload)
+		processSpan.End()
 		q.done(repo)
 		if success {
 			q.recordSuccess(repo, payload.branch)
@@ -426,25 +435,25 @@ func (q *SyncQueue) safeHandle(repo string, payload syncPayload) bool {
 			return true
 		}
 		if IsNonRetryable(err) {
-			slog.Error("sync handler failed with non-retryable error", "repo", repo, "error", err)
+			slog.ErrorContext(payload.ctx, "sync handler failed with non-retryable error", append(obs.TraceLogArgs(payload.ctx), "repo", repo, "error", err)...)
 			q.recordFailure(repo, payload.branch, err)
 			return false
 		}
 
 		if attempt == cfg.MaxAttempts {
-			slog.Error("sync handler failed, giving up", "repo", repo, "attempts", attempt, "error", err)
+			slog.ErrorContext(payload.ctx, "sync handler failed, giving up", append(obs.TraceLogArgs(payload.ctx), "repo", repo, "attempts", attempt, "error", err)...)
 			q.recordFailure(repo, payload.branch, err)
 			return false
 		}
 
-		slog.Warn("sync handler failed, retrying", "repo", repo, "attempt", attempt, "retryIn", delay, "error", err)
+		slog.WarnContext(payload.ctx, "sync handler failed, retrying", append(obs.TraceLogArgs(payload.ctx), "repo", repo, "attempt", attempt, "retryIn", delay, "error", err)...)
 
 		select {
 		case <-q.ctx.Done():
-			slog.Warn("sync retry cancelled", "repo", repo, "attempt", attempt)
+			slog.WarnContext(payload.ctx, "sync retry cancelled", append(obs.TraceLogArgs(payload.ctx), "repo", repo, "attempt", attempt)...)
 			return false
 		case <-payload.ctx.Done():
-			slog.Warn("sync retry cancelled by payload context", "repo", repo, "attempt", attempt)
+			slog.WarnContext(payload.ctx, "sync retry cancelled by payload context", append(obs.TraceLogArgs(payload.ctx), "repo", repo, "attempt", attempt)...)
 			return false
 		case <-time.After(delay):
 		}
@@ -510,14 +519,16 @@ func (q *SyncQueue) upsertRepoStatLocked(repo string, branch string, update func
 
 // @intent isolate handler panics and merged cancellation logic around one sync attempt.
 func (q *SyncQueue) tryHandle(repo string, payload syncPayload) (err error) {
+	ctx, cancel := mergeContexts(q.ctx, payload.ctx)
+	ctx, span := obs.StartChildSpan(ctx, "webhook.sync.attempt", attribute.String("repo.full_name", repo), attribute.String("git.branch", payload.branch))
+	defer cancel()
+	defer span.End()
 	defer func() {
 		if r := recover(); r != nil {
-			slog.Error("sync handler panicked", "repo", repo, "panic", r)
+			slog.ErrorContext(ctx, "sync handler panicked", append(obs.TraceLogArgs(ctx), "repo", repo, "panic", r)...)
 			err = fmt.Errorf("panic: %v", r)
 		}
 	}()
-	ctx, cancel := mergeContexts(q.ctx, payload.ctx)
-	defer cancel()
 	return q.handler(ctx, payload.repoFullName, payload.cloneURL, payload.branch)
 }
 

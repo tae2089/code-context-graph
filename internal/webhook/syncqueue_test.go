@@ -7,6 +7,10 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	oteltrace "go.opentelemetry.io/otel/trace"
+
+	"github.com/tae2089/code-context-graph/internal/obs"
 )
 
 func TestSyncQueue_DeduplicatesRapidPushes(t *testing.T) {
@@ -937,4 +941,45 @@ func TestSyncQueueStats_ReportsAgesAndLastSuccess(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("LastSuccessTime was not recorded: %+v", q.Stats())
+}
+
+func TestSyncQueue_TryHandleCreatesChildSpanOnSameTrace(t *testing.T) {
+	ctxSeen := make(chan oteltrace.SpanContext, 1)
+	handler := func(ctx context.Context, repoFullName, cloneURL, branch string) error {
+		ctxSeen <- oteltrace.SpanContextFromContext(ctx)
+		return nil
+	}
+
+	q := NewSyncQueue(1, handler)
+	defer q.Shutdown()
+	tel, err := obs.Setup(context.Background(), obs.Config{ServiceName: "ccg-test", Mode: "test"})
+	if err != nil {
+		t.Fatalf("setup telemetry: %v", err)
+	}
+	obs.SetGlobal(tel)
+	defer func() {
+		_ = tel.Shutdown(context.Background())
+		obs.SetGlobal(nil)
+	}()
+	parentCtx, parentSpan := obs.StartSpan(context.Background(), "parent")
+	defer parentSpan.End()
+	parent := parentSpan.SpanContext()
+	if err := q.Add(parentCtx, "org/svc", "url", "main"); err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+
+	select {
+	case child := <-ctxSeen:
+		if !child.IsValid() {
+			t.Fatal("expected child span context")
+		}
+		if child.TraceID() != parent.TraceID() {
+			t.Fatal("expected same trace id")
+		}
+		if child.SpanID() == parent.SpanID() {
+			t.Fatal("expected different span id")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for handler context")
+	}
 }
