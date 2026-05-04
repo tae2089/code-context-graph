@@ -11,6 +11,10 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/tae2089/code-context-graph/internal/obs"
 )
 
 // @intent define the callback signature webhook intake invokes to trigger repository sync.
@@ -79,6 +83,11 @@ const maxWebhookPayload = 10 << 20
 // @intent turn GitHub or Gitea push deliveries into safe, filtered sync requests for the build pipeline.
 // @sideEffect reads the request body and invokes the configured sync callback.
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx, span := obs.ServerSpan(r.Context(), "webhook.push", r.Header,
+		attribute.String("ccg.component", "webhook"),
+		attribute.String("http.method", r.Method),
+	)
+	defer span.End()
 	r.Body = http.MaxBytesReader(w, r.Body, maxWebhookPayload)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -100,7 +109,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		eventType = r.Header.Get("X-Gitea-Event")
 	}
 	if eventType != "push" {
-		slog.Info("skipping non-push event", "event", eventType)
+		slog.InfoContext(ctx, "skipping non-push event", append(obs.TraceLogArgs(ctx), "event", eventType)...)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -113,19 +122,19 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	branch, ok := NormalizeBranchRef(event.Ref)
 	if !ok {
-		slog.Info("skipping non-branch ref", "repo", event.Repository.FullName, "ref", event.Ref)
+		slog.InfoContext(ctx, "skipping non-branch ref", append(obs.TraceLogArgs(ctx), "repo", event.Repository.FullName, "ref", event.Ref)...)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
 	if isDeletedBranchPush(event) {
-		slog.Info("skipping deleted branch push", "repo", event.Repository.FullName, "ref", event.Ref, "branch", branch)
+		slog.InfoContext(ctx, "skipping deleted branch push", append(obs.TraceLogArgs(ctx), "repo", event.Repository.FullName, "ref", event.Ref, "branch", branch)...)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
 	if !h.filter.IsAllowedBranch(event.Repository.FullName, branch) {
-		slog.Info("skipping disallowed repo or branch", "repo", event.Repository.FullName, "ref", event.Ref)
+		slog.InfoContext(ctx, "skipping disallowed repo or branch", append(obs.TraceLogArgs(ctx), "repo", event.Repository.FullName, "ref", event.Ref)...)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -136,8 +145,8 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("processing push event", "repo", event.Repository.FullName, "ref", event.Ref, "branch", branch)
-	if err := h.onSync(context.WithoutCancel(r.Context()), event.Repository.FullName, cloneURL, branch); err != nil {
+	slog.InfoContext(ctx, "processing push event", append(obs.TraceLogArgs(ctx), "repo", event.Repository.FullName, "ref", event.Ref, "branch", branch)...)
+	if err := h.onSync(ctx, event.Repository.FullName, cloneURL, branch); err != nil {
 		if err == ErrSyncQueueFull {
 			http.Error(w, "sync queue full", http.StatusTooManyRequests)
 			return

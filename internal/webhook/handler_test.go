@@ -12,6 +12,10 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	oteltrace "go.opentelemetry.io/otel/trace"
+
+	"github.com/tae2089/code-context-graph/internal/obs"
 )
 
 func signPayload(secret, payload []byte) string {
@@ -510,5 +514,56 @@ func TestWebhookHandler_ReturnsTooManyRequestsWhenSyncQueueFull(t *testing.T) {
 
 	if rr.Code != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusTooManyRequests)
+	}
+}
+
+func TestWebhookHandler_PropagatesTraceparentToSyncContext(t *testing.T) {
+	secret := []byte("test-secret")
+	al := NewRepoFilter([]string{"org/*"})
+	got := make(chan oteltrace.SpanContext, 1)
+	tel, err := obs.Setup(context.Background(), obs.Config{ServiceName: "ccg-test", Mode: "test"})
+	if err != nil {
+		t.Fatalf("setup telemetry: %v", err)
+	}
+	obs.SetGlobal(tel)
+	defer func() {
+		_ = tel.Shutdown(context.Background())
+		obs.SetGlobal(nil)
+	}()
+	h := NewWebhookHandlerWithConfig(WebhookHandlerConfig{
+		Secret:        secret,
+		Filter:        al,
+		CloneBaseURLs: []string{"https://github.com"},
+		OnSync: func(ctx context.Context, repo, url, branch string) error {
+			got <- oteltrace.SpanContextFromContext(ctx)
+			return nil
+		},
+	})
+
+	payload := makePushEvent("refs/heads/main", "org/svc", "https://github.com/org/svc.git")
+	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
+	req.Header.Set("X-Hub-Signature-256", signPayload(secret, payload))
+	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	select {
+	case sc := <-got:
+		if !sc.IsValid() {
+			t.Fatal("expected valid span context")
+		}
+		if sc.TraceID().String() != "4bf92f3577b34da6a3ce929d0e0e4736" {
+			t.Fatalf("trace id = %q", sc.TraceID().String())
+		}
+		if sc.SpanID().String() == "00f067aa0ba902b7" {
+			t.Fatal("expected server span to create a new local span id")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for sync context")
 	}
 }
