@@ -15,6 +15,7 @@ import (
 // @requires deps.Syncer와 deps.Walkers가 초기화되어 있어야 한다.
 // @sideEffect 파일 시스템을 읽고 증분 동기화 결과를 저장소에 반영한다.
 func newUpdateCmd(deps *Deps) *cobra.Command {
+	var fallbackCalls bool
 	cmd := &cobra.Command{
 		Use:   "update [directory]",
 		Short: "Incrementally sync changed files into the code graph",
@@ -38,7 +39,8 @@ func newUpdateCmd(deps *Deps) *cobra.Command {
 			}
 			stats, err := svc.Update(ctx, service.UpdateOptions{
 				BuildOptions: service.BuildOptions{
-					Dir: dir,
+					Dir:           dir,
+					FallbackCalls: fallbackCalls,
 				},
 				Syncer:  deps.Syncer,
 				Replace: true,
@@ -53,6 +55,8 @@ func newUpdateCmd(deps *Deps) *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&fallbackCalls, "fallback-calls", false, "Fallback to deterministic call resolution when strict matching is ambiguous")
 
 	return cmd
 }

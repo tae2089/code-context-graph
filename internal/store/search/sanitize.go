@@ -52,6 +52,8 @@ func SanitizePostgresTSQuery(query string) string {
 	return strings.Join(parts, " & ")
 }
 
+// extractExactNameToken returns the single sanitized token eligible for exact-name promotion.
+// @intent 다중 토큰 질의에서는 exact-name 승격을 건너뛰고 단일 식별자 질의만 승격 후보로 본다.
 func extractExactNameToken(query string) string {
 	tokens := sanitizeTokens(query)
 	if len(tokens) != 1 {
@@ -60,6 +62,8 @@ func extractExactNameToken(query string) string {
 	return tokens[0]
 }
 
+// promoteExactNameMatch moves an exact node-name match to the front of result ordering when present.
+// @intent 전문 검색 결과 중 정확한 심볼명 일치를 앞세워 탐색 정확도를 높인다.
 func promoteExactNameMatch(nodes []model.Node, query string) []model.Node {
 	target := extractExactNameToken(query)
 	if target == "" || len(nodes) < 2 {

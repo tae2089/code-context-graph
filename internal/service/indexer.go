@@ -99,6 +99,7 @@ var (
 	resolveBuildEdges         resolveBuildEdgesFn = edgeresolve.ResolveWithOptions
 )
 
+// @intent abstract build-time edge resolution so tests and build paths can swap resolver behavior without rewiring callers.
 type resolveBuildEdgesFn func(ctx context.Context, lookup edgeresolve.NodeLookup, edges []model.Edge, options edgeresolve.ResolveOptions) ([]model.Edge, error)
 
 const (

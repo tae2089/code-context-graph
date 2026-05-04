@@ -70,6 +70,7 @@ type Syncer struct {
 	store   Store
 	parser  Parser
 	parsers map[string]Parser
+	opts    edgeresolve.ResolveOptions
 	logger  *slog.Logger
 }
 
@@ -118,6 +119,14 @@ func WithParsers(parsers map[string]Parser) SyncerOption {
 	}
 }
 
+// WithResolveOptions sets edge-resolution options for this syncer instance.
+// @intent keep call resolution behavior configurable without changing core interfaces.
+func WithResolveOptions(opts edgeresolve.ResolveOptions) SyncerOption {
+	return func(s *Syncer) {
+		s.opts = opts
+	}
+}
+
 // New creates an incremental syncer.
 // @intent wire storage, parser, and optional configuration into a sync coordinator
 // @ensures returned syncer always has a non-nil logger
@@ -137,6 +146,12 @@ func New(store Store, parser Parser, opts ...SyncerOption) *Syncer {
 func NewWithRegistry(store Store, parsers map[string]Parser, opts ...SyncerOption) *Syncer {
 	opts = append([]SyncerOption{WithParsers(parsers)}, opts...)
 	return New(store, nil, opts...)
+}
+
+// SetResolveOptions updates edge resolution policy for an existing syncer instance.
+// @intent avoid rebuilding the syncer for every Build/Update invocation.
+func (s *Syncer) SetResolveOptions(opts edgeresolve.ResolveOptions) {
+	s.opts = opts
 }
 
 // Sync updates graph data using only the provided file snapshot.
@@ -296,7 +311,7 @@ func sortedFilePaths(files map[string]FileInfo) []string {
 func (s *Syncer) resolveAndUpsertEdges(ctx context.Context, syncStore Store, parsedFiles []parsedSyncFile, stats *SyncStats) error {
 	implementsEdges, otherByFile := partitionParsedSyncEdges(parsedFiles)
 	for _, edgeChunk := range splitEdgeChunks(implementsEdges) {
-		resolved, err := edgeresolve.Resolve(ctx, syncStore, edgeChunk)
+		resolved, err := edgeresolve.ResolveWithOptions(ctx, syncStore, edgeChunk, s.opts)
 		if err != nil {
 			return err
 		}
@@ -314,7 +329,7 @@ func (s *Syncer) resolveAndUpsertEdges(ctx context.Context, syncStore Store, par
 		edges := otherByFile[parsed.filePath]
 		for _, edgeChunk := range splitEdgeChunks(edges) {
 			resolveInput := chunkWithImportWarmup(edgeChunk, importsByFile[parsed.filePath])
-			resolved, err := edgeresolve.Resolve(ctx, syncStore, resolveInput)
+			resolved, err := edgeresolve.ResolveWithOptions(ctx, syncStore, resolveInput, s.opts)
 			if err != nil {
 				return err
 			}
@@ -386,6 +401,7 @@ func formatEdgeKindCounts(counts map[model.EdgeKind]int) map[string]int {
 	return formatted
 }
 
+// @intent 로컬 그래프에 의도적으로 없는 외부 패키지 import unresolved를 진단 집계에서 제외한다.
 func shouldSuppressExternalImportUnresolved(edge model.Edge, _ string) bool {
 	return edge.Kind == model.EdgeKindImportsFrom && edgeresolve.IsLikelyExternalImportEdge(edge)
 }
@@ -430,7 +446,7 @@ func chunkWithImportWarmup(chunk []model.Edge, imports []model.Edge) []model.Edg
 	}
 	needsWarmup := false
 	for _, edge := range chunk {
-		if edge.Kind == model.EdgeKindCalls {
+		if model.IsCallKind(edge.Kind) {
 			needsWarmup = true
 			break
 		}
