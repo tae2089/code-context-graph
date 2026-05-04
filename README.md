@@ -111,6 +111,11 @@ Edge kinds:
   imports_from: 1128
   inherits:        1
   tested_by:     751
+
+Postprocess:
+  Status: ok
+  Fail-closed: 0
+  Recent failures: 0
 ```
 
 ### 3. Code Search
@@ -139,7 +144,7 @@ After configuring `.mcp.json`, you can ask Claude Code directly:
 Claude calls CCG MCP tools and answers directly from the graph:
 
 ```
-ccg_trace_flow("webhook.WebhookHandler.ServeHTTP")
+trace_flow(qualified_name: "webhook.WebhookHandler.ServeHTTP")
 → WebhookHandler.ServeHTTP
   → SyncQueue.Enqueue
     → safeHandle (retry loop: max 3 attempts, exponential backoff 1s→30s)
@@ -150,7 +155,7 @@ ccg_trace_flow("webhook.WebhookHandler.ServeHTTP")
 > **"Where is the authentication-related code?"**
 
 ```
-ccg_search("authentication")
+search(query: "authentication")
 → internal/webhook/handler.go  (HMAC signature validation)
 → cmd/ccg/main.go              (--webhook-secret flag)
 ```

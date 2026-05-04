@@ -39,7 +39,9 @@ ccg update ./backend --namespace backend
 | `ccg build --exclude <pat>` | Exclude files/paths (repeatable) |
 | `ccg build --no-recursive [dir]` | Only parse top-level directory |
 | `ccg update [dir]` | Incremental sync |
-| `ccg status` | Graph statistics |
+| `ccg status` | Graph statistics and postprocess error summary |
+| `ccg status --errors` | Include recent postprocess failure details |
+| `ccg status --recent <n>` | Number of recent postprocess failures to inspect (default `5`) |
 | `ccg search <query>` | Full-text search |
 | `ccg search --path <prefix> <query>` | Scoped search by path prefix |
 | `ccg docs [--out dir]` | Generate Markdown documentation (prunes stale generator-managed docs by default) |
