@@ -16,6 +16,14 @@ import (
 	"github.com/tae2089/code-context-graph/internal/store"
 )
 
+func edgeFingerprints(edges []model.Edge) []string {
+	fingerprints := make([]string, len(edges))
+	for i, edge := range edges {
+		fingerprints[i] = edge.Fingerprint
+	}
+	return fingerprints
+}
+
 func setupTestDB(t *testing.T) *Store {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
@@ -307,6 +315,41 @@ func TestGetEdgesFrom(t *testing.T) {
 	}
 }
 
+func TestGetEdgesFrom_OrdersBySourceLocation(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := context.Background()
+
+	nodes := []model.Node{
+		{QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "A", FilePath: "root.go", StartLine: 1, EndLine: 2, Language: "go"},
+		{QualifiedName: "pkg.B", Kind: model.NodeKindFunction, Name: "B", FilePath: "root.go", StartLine: 3, EndLine: 4, Language: "go"},
+		{QualifiedName: "pkg.C", Kind: model.NodeKindFunction, Name: "C", FilePath: "root.go", StartLine: 5, EndLine: 6, Language: "go"},
+		{QualifiedName: "pkg.D", Kind: model.NodeKindFunction, Name: "D", FilePath: "root.go", StartLine: 7, EndLine: 8, Language: "go"},
+	}
+	if err := s.UpsertNodes(ctx, nodes); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+	nodeA, _ := s.GetNode(ctx, "pkg.A")
+	nodeB, _ := s.GetNode(ctx, "pkg.B")
+	nodeC, _ := s.GetNode(ctx, "pkg.C")
+	nodeD, _ := s.GetNode(ctx, "pkg.D")
+
+	if err := s.UpsertEdges(ctx, []model.Edge{
+		{FromNodeID: nodeA.ID, ToNodeID: nodeB.ID, Kind: model.EdgeKindCalls, FilePath: "z.go", Line: 30, Fingerprint: "edge-z"},
+		{FromNodeID: nodeA.ID, ToNodeID: nodeC.ID, Kind: model.EdgeKindCalls, FilePath: "a.go", Line: 20, Fingerprint: "edge-a20"},
+		{FromNodeID: nodeA.ID, ToNodeID: nodeD.ID, Kind: model.EdgeKindCalls, FilePath: "a.go", Line: 10, Fingerprint: "edge-a10"},
+	}); err != nil {
+		t.Fatalf("UpsertEdges: %v", err)
+	}
+
+	got, err := s.GetEdgesFrom(ctx, nodeA.ID)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom: %v", err)
+	}
+	if got, want := edgeFingerprints(got), []string{"edge-a10", "edge-a20", "edge-z"}; !slices.Equal(got, want) {
+		t.Fatalf("fingerprints = %v, want %v", got, want)
+	}
+}
+
 func TestGetEdgesTo(t *testing.T) {
 	s := setupTestDB(t)
 	ctx := context.Background()
@@ -329,6 +372,76 @@ func TestGetEdgesTo(t *testing.T) {
 	}
 	if len(got) != 1 {
 		t.Errorf("expected 1 edge, got %d", len(got))
+	}
+}
+
+func TestGetEdgesFromNodes_OrdersBySourceLocation(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := context.Background()
+
+	nodes := []model.Node{
+		{QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "A", FilePath: "root.go", StartLine: 1, EndLine: 2, Language: "go"},
+		{QualifiedName: "pkg.B", Kind: model.NodeKindFunction, Name: "B", FilePath: "root.go", StartLine: 3, EndLine: 4, Language: "go"},
+		{QualifiedName: "pkg.C", Kind: model.NodeKindFunction, Name: "C", FilePath: "root.go", StartLine: 5, EndLine: 6, Language: "go"},
+		{QualifiedName: "pkg.D", Kind: model.NodeKindFunction, Name: "D", FilePath: "root.go", StartLine: 7, EndLine: 8, Language: "go"},
+	}
+	if err := s.UpsertNodes(ctx, nodes); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+	nodeA, _ := s.GetNode(ctx, "pkg.A")
+	nodeB, _ := s.GetNode(ctx, "pkg.B")
+	nodeC, _ := s.GetNode(ctx, "pkg.C")
+	nodeD, _ := s.GetNode(ctx, "pkg.D")
+
+	if err := s.UpsertEdges(ctx, []model.Edge{
+		{FromNodeID: nodeA.ID, ToNodeID: nodeC.ID, Kind: model.EdgeKindCalls, FilePath: "b.go", Line: 20, Fingerprint: "edge-b20"},
+		{FromNodeID: nodeB.ID, ToNodeID: nodeD.ID, Kind: model.EdgeKindCalls, FilePath: "a.go", Line: 30, Fingerprint: "edge-a30"},
+		{FromNodeID: nodeA.ID, ToNodeID: nodeD.ID, Kind: model.EdgeKindCalls, FilePath: "a.go", Line: 10, Fingerprint: "edge-a10"},
+	}); err != nil {
+		t.Fatalf("UpsertEdges: %v", err)
+	}
+
+	got, err := s.GetEdgesFromNodes(ctx, []uint{nodeA.ID, nodeB.ID})
+	if err != nil {
+		t.Fatalf("GetEdgesFromNodes: %v", err)
+	}
+	if got, want := edgeFingerprints(got), []string{"edge-a10", "edge-a30", "edge-b20"}; !slices.Equal(got, want) {
+		t.Fatalf("fingerprints = %v, want %v", got, want)
+	}
+}
+
+func TestGetEdgesToNodes_OrdersBySourceLocation(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := context.Background()
+
+	nodes := []model.Node{
+		{QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "A", FilePath: "root.go", StartLine: 1, EndLine: 2, Language: "go"},
+		{QualifiedName: "pkg.B", Kind: model.NodeKindFunction, Name: "B", FilePath: "root.go", StartLine: 3, EndLine: 4, Language: "go"},
+		{QualifiedName: "pkg.C", Kind: model.NodeKindFunction, Name: "C", FilePath: "root.go", StartLine: 5, EndLine: 6, Language: "go"},
+		{QualifiedName: "pkg.D", Kind: model.NodeKindFunction, Name: "D", FilePath: "root.go", StartLine: 7, EndLine: 8, Language: "go"},
+	}
+	if err := s.UpsertNodes(ctx, nodes); err != nil {
+		t.Fatalf("UpsertNodes: %v", err)
+	}
+	nodeA, _ := s.GetNode(ctx, "pkg.A")
+	nodeB, _ := s.GetNode(ctx, "pkg.B")
+	nodeC, _ := s.GetNode(ctx, "pkg.C")
+	nodeD, _ := s.GetNode(ctx, "pkg.D")
+
+	if err := s.UpsertEdges(ctx, []model.Edge{
+		{FromNodeID: nodeA.ID, ToNodeID: nodeD.ID, Kind: model.EdgeKindCalls, FilePath: "c.go", Line: 50, Fingerprint: "edge-c50"},
+		{FromNodeID: nodeB.ID, ToNodeID: nodeC.ID, Kind: model.EdgeKindCalls, FilePath: "a.go", Line: 20, Fingerprint: "edge-a20"},
+		{FromNodeID: nodeA.ID, ToNodeID: nodeC.ID, Kind: model.EdgeKindCalls, FilePath: "a.go", Line: 10, Fingerprint: "edge-a10"},
+	}); err != nil {
+		t.Fatalf("UpsertEdges: %v", err)
+	}
+
+	got, err := s.GetEdgesToNodes(ctx, []uint{nodeC.ID, nodeD.ID})
+	if err != nil {
+		t.Fatalf("GetEdgesToNodes: %v", err)
+	}
+	if got, want := edgeFingerprints(got), []string{"edge-a10", "edge-a20", "edge-c50"}; !slices.Equal(got, want) {
+		t.Fatalf("fingerprints = %v, want %v", got, want)
 	}
 }
 

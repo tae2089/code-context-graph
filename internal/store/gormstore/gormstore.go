@@ -422,7 +422,13 @@ func (s *Store) UpsertEdges(ctx context.Context, edges []model.Edge) error {
 func (s *Store) GetEdgesFrom(ctx context.Context, nodeID uint) ([]model.Edge, error) {
 	var edges []model.Edge
 	ns := ctxns.FromContext(ctx)
-	if err := s.db.WithContext(ctx).Where("namespace = ? AND from_node_id = ?", ns, nodeID).Find(&edges).Error; err != nil {
+	if err := s.db.WithContext(ctx).
+		Where("namespace = ? AND from_node_id = ?", ns, nodeID).
+		Order("file_path ASC").
+		Order("line ASC").
+		Order("fingerprint ASC").
+		Order("id ASC").
+		Find(&edges).Error; err != nil {
 		return nil, err
 	}
 	return edges, nil
@@ -437,7 +443,13 @@ func (s *Store) GetEdgesFromNodes(ctx context.Context, nodeIDs []uint) ([]model.
 	}
 	var edges []model.Edge
 	ns := ctxns.FromContext(ctx)
-	if err := s.db.WithContext(ctx).Where("namespace = ? AND from_node_id IN ?", ns, nodeIDs).Find(&edges).Error; err != nil {
+	if err := s.db.WithContext(ctx).
+		Where("namespace = ? AND from_node_id IN ?", ns, nodeIDs).
+		Order("file_path ASC").
+		Order("line ASC").
+		Order("fingerprint ASC").
+		Order("id ASC").
+		Find(&edges).Error; err != nil {
 		return nil, err
 	}
 	return edges, nil
@@ -448,7 +460,13 @@ func (s *Store) GetEdgesFromNodes(ctx context.Context, nodeIDs []uint) ([]model.
 func (s *Store) GetEdgesTo(ctx context.Context, nodeID uint) ([]model.Edge, error) {
 	var edges []model.Edge
 	ns := ctxns.FromContext(ctx)
-	if err := s.db.WithContext(ctx).Where("namespace = ? AND to_node_id = ?", ns, nodeID).Find(&edges).Error; err != nil {
+	if err := s.db.WithContext(ctx).
+		Where("namespace = ? AND to_node_id = ?", ns, nodeID).
+		Order("file_path ASC").
+		Order("line ASC").
+		Order("fingerprint ASC").
+		Order("id ASC").
+		Find(&edges).Error; err != nil {
 		return nil, err
 	}
 	return edges, nil
@@ -463,7 +481,13 @@ func (s *Store) GetEdgesToNodes(ctx context.Context, nodeIDs []uint) ([]model.Ed
 	}
 	var edges []model.Edge
 	ns := ctxns.FromContext(ctx)
-	if err := s.db.WithContext(ctx).Where("namespace = ? AND to_node_id IN ?", ns, nodeIDs).Find(&edges).Error; err != nil {
+	if err := s.db.WithContext(ctx).
+		Where("namespace = ? AND to_node_id IN ?", ns, nodeIDs).
+		Order("file_path ASC").
+		Order("line ASC").
+		Order("fingerprint ASC").
+		Order("id ASC").
+		Find(&edges).Error; err != nil {
 		return nil, err
 	}
 	return edges, nil
