@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
@@ -108,4 +109,51 @@ func copyTestCorpus(t *testing.T, dir, lang, filename, content string) {
 	langDir := filepath.Join(dir, lang)
 	os.MkdirAll(langDir, 0o755)
 	os.WriteFile(filepath.Join(langDir, filename), []byte(content), 0o644)
+}
+
+func TestWriteTable_RendersNegativeControlBlock(t *testing.T) {
+	var buf bytes.Buffer
+	report := &Report{Search: &SearchReport{
+		QueriesTotal:            2,
+		AvgPAt1:                 1.0,
+		AvgPAt3:                 0.8333,
+		AvgPAt5:                 0.8,
+		AvgRecallAt5:            1.0,
+		AvgMRR:                  1.0,
+		AvgNDCGAt5:              1.0,
+		NegativeQueries:         1,
+		NegativeFalsePositives:  0,
+		NegativePassRate:        1.0,
+	}}
+
+	if err := writeTable(&buf, report); err != nil {
+		t.Fatalf("writeTable: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"Negatives:", "FP:", "Pass Rate: 1.0000"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestWriteTable_OmitsNegativeBlock_WhenZeroNegatives(t *testing.T) {
+	var buf bytes.Buffer
+	report := &Report{Search: &SearchReport{
+		QueriesTotal:   1,
+		AvgPAt1:        1.0,
+		AvgPAt3:        1.0,
+		AvgPAt5:        1.0,
+		AvgRecallAt5:   1.0,
+		AvgMRR:         1.0,
+		AvgNDCGAt5:     1.0,
+		NegativeQueries: 0,
+	}}
+
+	if err := writeTable(&buf, report); err != nil {
+		t.Fatalf("writeTable: %v", err)
+	}
+	if strings.Contains(buf.String(), "Negatives:") {
+		t.Fatalf("did not expect negative block, got:\n%s", buf.String())
+	}
 }

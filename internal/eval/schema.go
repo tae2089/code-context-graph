@@ -75,6 +75,23 @@ type SearchReport struct {
 	AvgRecallAt5 float64 `json:"avg_recall_at_5"`
 	AvgMRR       float64 `json:"avg_mrr"`
 	AvgNDCGAt5   float64 `json:"avg_ndcg_at_5"`
+	NegativeQueries int  `json:"negative_queries"`
+	NegativeFalsePositives int `json:"negative_false_positives"`
+	NegativePassRate float64 `json:"negative_pass_rate"`
+	PerQuery []QueryDiagnostic `json:"per_query,omitempty"`
+}
+
+type QueryDiagnostic struct {
+	Query           string  `json:"query"`
+	Kind            string  `json:"kind"`
+	ResultsReturned int     `json:"results_returned"`
+	PAt1            float64 `json:"p_at_1,omitempty"`
+	PAt5            float64 `json:"p_at_5,omitempty"`
+	RecallAt5       float64 `json:"recall_at_5,omitempty"`
+	MRR             float64 `json:"mrr,omitempty"`
+	NDCGAt5         float64 `json:"ndcg_at_5,omitempty"`
+	FalsePositive   bool    `json:"false_positive,omitempty"`
+	TopResults      []string `json:"top_results,omitempty"`
 }
 
 // Report bundles parser and search evaluation output into one CLI-facing payload.
