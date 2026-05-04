@@ -1,7 +1,6 @@
 package treesitter
 
 import (
-	"fmt"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -33,7 +32,7 @@ func (PythonSemantics) AdditionalEdges(ctx SemanticContext) []model.Edge {
 						Kind:        model.EdgeKindInherits,
 						FilePath:    ctx.FilePath,
 						Line:        int(n.StartPoint().Row) + 1,
-						Fingerprint: fmt.Sprintf("inherits:%s:%s:%s", ctx.FilePath, className, parentName),
+						Fingerprint: model.BuildInheritsFingerprintV2(ctx.FilePath, className, parentName),
 					})
 				}
 			}

@@ -39,7 +39,7 @@ func (TypeScriptSemantics) AdditionalEdges(ctx SemanticContext) []model.Edge {
 						Kind:        model.EdgeKindInherits,
 						FilePath:    ctx.FilePath,
 						Line:        int(n.StartPoint().Row) + 1,
-						Fingerprint: fmt.Sprintf("inherits:%s:%s:%s", ctx.FilePath, className, base),
+						Fingerprint: model.BuildInheritsFingerprintV2(ctx.FilePath, className, base),
 					})
 				}
 				for _, trait := range traits {
@@ -100,7 +100,7 @@ func (JavaScriptSemantics) AdditionalEdges(ctx SemanticContext) []model.Edge {
 						Kind:        model.EdgeKindInherits,
 						FilePath:    ctx.FilePath,
 						Line:        int(n.StartPoint().Row) + 1,
-						Fingerprint: fmt.Sprintf("inherits:%s:%s:%s", ctx.FilePath, className, base),
+						Fingerprint: model.BuildInheritsFingerprintV2(ctx.FilePath, className, base),
 					})
 				}
 			}

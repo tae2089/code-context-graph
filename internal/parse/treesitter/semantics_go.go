@@ -570,7 +570,7 @@ func extractGoEmbeddings(structNode *sitter.Node, content []byte, filePath, stru
 						Kind:        model.EdgeKindInherits,
 						FilePath:    filePath,
 						Line:        line,
-						Fingerprint: fmt.Sprintf("inherits:%s:%s:%s", filePath, structName, typeName),
+						Fingerprint: model.BuildInheritsFingerprintV2(filePath, structName, typeName),
 					})
 				}
 			}

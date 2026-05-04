@@ -45,7 +45,7 @@ func (JavaSemantics) AdditionalEdges(ctx SemanticContext) []model.Edge {
 						Kind:        model.EdgeKindInherits,
 						FilePath:    ctx.FilePath,
 						Line:        int(n.StartPoint().Row) + 1,
-						Fingerprint: fmt.Sprintf("inherits:%s:%s:%s", ctx.FilePath, childName, base),
+						Fingerprint: model.BuildInheritsFingerprintV2(ctx.FilePath, childName, base),
 					})
 				}
 				for _, trait := range traits {
@@ -110,7 +110,7 @@ func (KotlinSemantics) AdditionalEdges(ctx SemanticContext) []model.Edge {
 						Kind:        model.EdgeKindInherits,
 						FilePath:    ctx.FilePath,
 						Line:        int(n.StartPoint().Row) + 1,
-						Fingerprint: fmt.Sprintf("inherits:%s:%s:%s", ctx.FilePath, childName, base),
+						Fingerprint: model.BuildInheritsFingerprintV2(ctx.FilePath, childName, base),
 					})
 				}
 				for _, trait := range traits {
