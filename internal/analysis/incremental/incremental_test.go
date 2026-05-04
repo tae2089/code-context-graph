@@ -3,6 +3,8 @@ package incremental
 import (
 	"context"
 	"errors"
+	"path"
+	"strings"
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -16,6 +18,7 @@ type recordingStore struct {
 	upsertedEdges []model.Edge
 	annotations   []*model.Annotation
 	nextID        uint
+	operations    []string
 }
 
 func (r *recordingStore) GetNodesByFile(_ context.Context, filePath string) ([]model.Node, error) {
@@ -70,24 +73,80 @@ func (r *recordingStore) GetNodesByQualifiedNames(_ context.Context, names []str
 	return result, nil
 }
 
+func (r *recordingStore) GetFileNodesByPathSuffix(_ context.Context, suffix string) ([]model.Node, error) {
+	suffix = strings.Trim(suffix, "/")
+	var exact []model.Node
+	var result []model.Node
+	bestDepth := -1
+	for _, n := range r.nodes {
+		if n.Kind != model.NodeKindFile {
+			continue
+		}
+		dir := strings.Trim(path.Dir(n.FilePath), "/")
+		if dir == "." || dir == "" {
+			continue
+		}
+		if dir == suffix {
+			exact = append(exact, *n)
+			continue
+		}
+		if depth := commonSuffixDepthForTest(suffix, dir); depth > 0 {
+			if depth > bestDepth {
+				bestDepth = depth
+				result = []model.Node{*n}
+				continue
+			}
+			if depth == bestDepth {
+				result = append(result, *n)
+			}
+		}
+	}
+	if len(exact) > 0 {
+		return exact, nil
+	}
+	return result, nil
+}
+
+func commonSuffixDepthForTest(a, b string) int {
+	a = strings.Trim(a, "/")
+	b = strings.Trim(b, "/")
+	if a == "" || b == "" {
+		return 0
+	}
+	aParts := strings.Split(a, "/")
+	bParts := strings.Split(b, "/")
+	depth := 0
+	for i, j := len(aParts)-1, len(bParts)-1; i >= 0 && j >= 0; i, j = i-1, j-1 {
+		if aParts[i] != bParts[j] {
+			break
+		}
+		depth++
+	}
+	return depth
+}
+
 func (r *recordingStore) UpsertNodes(_ context.Context, nodes []model.Node) error {
+	r.operations = append(r.operations, "upsert_nodes")
 	for _, n := range nodes {
 		if n.ID == 0 {
 			r.nextID++
 			n.ID = r.nextID
 		}
 		r.upserted = append(r.upserted, n.FilePath)
-		r.nodes[n.QualifiedName] = &n
+		copy := n
+		r.nodes[n.QualifiedName] = &copy
 	}
 	return nil
 }
 
 func (r *recordingStore) UpsertEdges(_ context.Context, edges []model.Edge) error {
+	r.operations = append(r.operations, "upsert_edges")
 	r.upsertedEdges = append(r.upsertedEdges, edges...)
 	return nil
 }
 
 func (r *recordingStore) DeleteNodesByFile(_ context.Context, filePath string) error {
+	r.operations = append(r.operations, "delete_nodes")
 	r.deleted = append(r.deleted, filePath)
 	toDelete := []string{}
 	for qn, n := range r.nodes {
@@ -104,6 +163,20 @@ func (r *recordingStore) DeleteNodesByFile(_ context.Context, filePath string) e
 func (r *recordingStore) UpsertAnnotation(_ context.Context, ann *model.Annotation) error {
 	r.annotations = append(r.annotations, ann)
 	return nil
+}
+
+func (r *recordingStore) GetEdgesToNodes(_ context.Context, nodeIDs []uint) ([]model.Edge, error) {
+	set := make(map[uint]struct{}, len(nodeIDs))
+	for _, id := range nodeIDs {
+		set[id] = struct{}{}
+	}
+	var result []model.Edge
+	for _, edge := range r.upsertedEdges {
+		if _, ok := set[edge.ToNodeID]; ok {
+			result = append(result, edge)
+		}
+	}
+	return result, nil
 }
 
 type staticParser struct {
@@ -338,6 +411,39 @@ func TestIncremental_ModifiedFileParseFailurePreservesExistingNodes(t *testing.T
 	}
 }
 
+func TestIncremental_MultiFileParseFailurePreservesEarlierExistingNodes(t *testing.T) {
+	st := newStore()
+	st.nodes["pkg.OldA"] = &model.Node{QualifiedName: "pkg.OldA", Kind: model.NodeKindFunction, Name: "OldA", FilePath: "a.go", Hash: "old_a", Language: "go"}
+	st.nodes["pkg.OldB"] = &model.Node{QualifiedName: "pkg.OldB", Kind: model.NodeKindFunction, Name: "OldB", FilePath: "b.go", Hash: "old_b", Language: "go"}
+	parseErr := errors.New("parse failed")
+	parser := &staticParser{result: map[string]parseResult{
+		"a.go": {
+			nodes: []model.Node{{QualifiedName: "pkg.NewA", Kind: model.NodeKindFunction, Name: "NewA", FilePath: "a.go", StartLine: 1, EndLine: 2, Hash: "new_a", Language: "go"}},
+		},
+		"b.go": {err: parseErr},
+	}}
+
+	syncer := New(st, parser)
+	files := map[string]FileInfo{
+		"a.go": {Hash: "new_a", Content: []byte("package pkg")},
+		"b.go": {Hash: "new_b", Content: []byte("package pkg")},
+	}
+
+	_, err := syncer.Sync(context.Background(), files)
+	if !errors.Is(err, parseErr) {
+		t.Fatalf("expected parse error, got %v", err)
+	}
+	if _, ok := st.nodes["pkg.OldA"]; !ok {
+		t.Fatalf("expected first file existing node to be preserved after later parse failure")
+	}
+	if _, ok := st.nodes["pkg.OldB"]; !ok {
+		t.Fatalf("expected second file existing node to be preserved after parse failure")
+	}
+	if len(st.deleted) != 0 {
+		t.Fatalf("expected no delete before all parses succeed, got %v", st.deleted)
+	}
+}
+
 func TestIncremental_DeletedFile(t *testing.T) {
 	st := newStore()
 	st.nodes["pkg.Gone"] = &model.Node{QualifiedName: "pkg.Gone", Kind: model.NodeKindFunction, Name: "Gone", FilePath: "gone.go", Hash: "h1", Language: "go"}
@@ -560,6 +666,100 @@ func TestSyncWithExisting_ReleasesContentForUnchangedAndUnparsedFiles(t *testing
 	for _, fp := range []string{"exist.go", "note.txt", "mod.go"} {
 		if files[fp].Content != nil {
 			t.Fatalf("expected %s content released, got %d bytes", fp, len(files[fp].Content))
+		}
+	}
+}
+
+func TestIncremental_ResolvesCallEdgesAcrossMultipleFilesInBatch(t *testing.T) {
+	st := newStore()
+	st.nodes["mcp.FlowTracer"] = &model.Node{ID: 10, QualifiedName: "mcp.FlowTracer", Kind: model.NodeKindType, Name: "FlowTracer", FilePath: "mcp/deps.go", StartLine: 1, EndLine: 3, Hash: "iface", Language: "go"}
+	st.nodes["mcp/deps.go"] = &model.Node{ID: 11, QualifiedName: "mcp/deps.go", Kind: model.NodeKindFile, Name: "mcp/deps.go", FilePath: "mcp/deps.go", StartLine: 1, EndLine: 3, Hash: "iface", Language: "go"}
+	parser := &staticParser{result: map[string]parseResult{
+		"flows/tracer.go": {
+			nodes: []model.Node{
+				{QualifiedName: "flows/tracer.go", Kind: model.NodeKindFile, Name: "flows/tracer.go", FilePath: "flows/tracer.go", StartLine: 1, EndLine: 20, Hash: "impl", Language: "go"},
+				{QualifiedName: "flows.Tracer", Kind: model.NodeKindClass, Name: "Tracer", FilePath: "flows/tracer.go", StartLine: 3, EndLine: 7, Hash: "impl", Language: "go"},
+				{QualifiedName: "flows.Tracer.TraceFlow", Kind: model.NodeKindFunction, Name: "TraceFlow", FilePath: "flows/tracer.go", StartLine: 5, EndLine: 6, Hash: "impl", Language: "go"},
+			},
+			edges: []model.Edge{{Kind: model.EdgeKindImplements, FilePath: "flows/tracer.go", Line: 3, Fingerprint: "implements:flows/tracer.go:flows.Tracer:mcp.FlowTracer"}},
+		},
+		"cmd/main.go": {
+			nodes: []model.Node{
+				{QualifiedName: "cmd/main.go", Kind: model.NodeKindFile, Name: "cmd/main.go", FilePath: "cmd/main.go", StartLine: 1, EndLine: 20, Hash: "main", Language: "go"},
+				{QualifiedName: "main.Run", Kind: model.NodeKindFunction, Name: "Run", FilePath: "cmd/main.go", StartLine: 3, EndLine: 8, Hash: "main", Language: "go"},
+			},
+			edges: []model.Edge{
+				{Kind: model.EdgeKindImportsFrom, FilePath: "cmd/main.go", Line: 1, Fingerprint: "imports_from:cmd/main.go:github.com/example/project/mcp:1"},
+				{Kind: model.EdgeKindCalls, FilePath: "cmd/main.go", Line: 4, Fingerprint: "calls:cmd/main.go:h.deps.FlowTracer.TraceFlow:4"},
+			},
+		},
+	}}
+
+	syncer := New(st, parser)
+	_, err := syncer.Sync(context.Background(), map[string]FileInfo{
+		"flows/tracer.go": {Hash: "impl", Content: []byte("package flows")},
+		"cmd/main.go":     {Hash: "main", Content: []byte("package main")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var foundCall bool
+	for _, edge := range st.upsertedEdges {
+		if edge.Kind != model.EdgeKindCalls {
+			continue
+		}
+		foundCall = true
+		if edge.FromNodeID == 0 || edge.ToNodeID == 0 {
+			t.Fatalf("expected call edge to resolve in one batch, got %+v", edge)
+		}
+	}
+	if !foundCall {
+		t.Fatalf("expected resolved call edge in %+v", st.upsertedEdges)
+	}
+}
+
+func TestIncremental_BatchesNodesBeforeResolvingEdges(t *testing.T) {
+	st := newStore()
+	st.nodes["mcp.FlowTracer"] = &model.Node{ID: 10, QualifiedName: "mcp.FlowTracer", Kind: model.NodeKindType, Name: "FlowTracer", FilePath: "mcp/deps.go", StartLine: 1, EndLine: 3, Hash: "iface", Language: "go"}
+	st.nodes["mcp/deps.go"] = &model.Node{ID: 11, QualifiedName: "mcp/deps.go", Kind: model.NodeKindFile, Name: "mcp/deps.go", FilePath: "mcp/deps.go", StartLine: 1, EndLine: 3, Hash: "iface", Language: "go"}
+	parser := &staticParser{result: map[string]parseResult{
+		"flows/tracer.go": {
+			nodes: []model.Node{{QualifiedName: "flows.Tracer", Kind: model.NodeKindClass, Name: "Tracer", FilePath: "flows/tracer.go", StartLine: 3, EndLine: 7, Hash: "impl", Language: "go"}},
+			edges: []model.Edge{{Kind: model.EdgeKindImplements, FilePath: "flows/tracer.go", Line: 3, Fingerprint: "implements:flows/tracer.go:flows.Tracer:mcp.FlowTracer"}},
+		},
+		"cmd/main.go": {
+			nodes: []model.Node{{QualifiedName: "main.Run", Kind: model.NodeKindFunction, Name: "Run", FilePath: "cmd/main.go", StartLine: 3, EndLine: 8, Hash: "main", Language: "go"}},
+			edges: []model.Edge{{Kind: model.EdgeKindCalls, FilePath: "cmd/main.go", Line: 4, Fingerprint: "calls:cmd/main.go:h.deps.FlowTracer.TraceFlow:4"}},
+		},
+	}}
+
+	syncer := New(st, parser)
+	_, err := syncer.Sync(context.Background(), map[string]FileInfo{
+		"flows/tracer.go": {Hash: "impl", Content: []byte("package flows")},
+		"cmd/main.go":     {Hash: "main", Content: []byte("package main")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstEdge := -1
+	nodeOps := 0
+	for i, op := range st.operations {
+		if op == "upsert_nodes" {
+			nodeOps++
+		}
+		if op == "upsert_edges" && firstEdge == -1 {
+			firstEdge = i
+		}
+	}
+	if firstEdge == -1 {
+		t.Fatalf("expected edge upsert operation, got %v", st.operations)
+	}
+	if nodeOps < 2 {
+		t.Fatalf("expected both files to upsert nodes before edges, got ops %v", st.operations)
+	}
+	for i := 0; i < firstEdge; i++ {
+		if st.operations[i] == "upsert_edges" {
+			t.Fatalf("edge upsert happened before all node upserts: %v", st.operations)
 		}
 	}
 }

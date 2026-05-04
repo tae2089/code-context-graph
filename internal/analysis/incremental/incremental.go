@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -69,6 +70,16 @@ type Syncer struct {
 	parser  Parser
 	parsers map[string]Parser
 	logger  *slog.Logger
+}
+
+type parsedSyncFile struct {
+	filePath   string
+	info       FileInfo
+	nodes      []model.Node
+	edges      []model.Edge
+	comments   []treesitter.CommentBlock
+	language   string
+	hadExisting bool
 }
 
 // releaseContent drops the in-memory file content for one path so the sync loop can free memory early.
@@ -173,7 +184,10 @@ func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files ma
 		return nil, err
 	}
 
-	for filePath, info := range files {
+	orderedPaths := sortedFilePaths(files)
+	parsedFiles := make([]parsedSyncFile, 0, len(files))
+	for _, filePath := range orderedPaths {
+		info := files[filePath]
 		existing := existingByFile[filePath]
 		parser := s.resolveParser(filePath)
 		if parser == nil {
@@ -190,53 +204,50 @@ func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files ma
 			continue
 		}
 
-		var nodes []model.Node
-		var edges []model.Edge
-		var comments []treesitter.CommentBlock
-		language := ""
+		parsed := parsedSyncFile{filePath: filePath, info: info, hadExisting: len(existing) > 0}
 
 		if annotatingParser, ok := parser.(AnnotatingParser); ok {
-			nodes, edges, comments, err = annotatingParser.ParseWithComments(ctx, filePath, info.Content)
-			language = annotatingParser.Language()
+			parsed.nodes, parsed.edges, parsed.comments, err = annotatingParser.ParseWithComments(ctx, filePath, info.Content)
+			parsed.language = annotatingParser.Language()
 		} else {
-			nodes, edges, err = parser.Parse(filePath, info.Content)
+			parsed.nodes, parsed.edges, err = parser.Parse(filePath, info.Content)
 		}
 		if err != nil {
 			return nil, err
 		}
+		parsedFiles = append(parsedFiles, parsed)
+	}
 
-		if len(existing) > 0 {
-			if err := syncStore.DeleteNodesByFile(ctx, filePath); err != nil {
-				return nil, err
-			}
-			s.logger.Debug("file modified", "file", filePath)
-			stats.Modified++
-		} else {
-			s.logger.Debug("file added", "file", filePath)
+	for _, parsed := range parsedFiles {
+		if !parsed.hadExisting {
+			s.logger.Debug("file added", "file", parsed.filePath)
 			stats.Added++
+			continue
 		}
+		if err := syncStore.DeleteNodesByFile(ctx, parsed.filePath); err != nil {
+			return nil, err
+		}
+		s.logger.Debug("file modified", "file", parsed.filePath)
+		stats.Modified++
+	}
 
-		if len(nodes) > 0 {
-			if err := syncStore.UpsertNodes(ctx, nodes); err != nil {
+	for _, parsed := range parsedFiles {
+		if len(parsed.nodes) > 0 {
+			if err := syncStore.UpsertNodes(ctx, parsed.nodes); err != nil {
 				return nil, err
 			}
-			if len(comments) > 0 {
-				if err := s.restoreAnnotations(ctx, syncStore, filePath, info.Content, nodes, comments, language); err != nil {
+			if len(parsed.comments) > 0 {
+				if err := s.restoreAnnotations(ctx, syncStore, parsed.filePath, parsed.info.Content, parsed.nodes, parsed.comments, parsed.language); err != nil {
 					return nil, err
 				}
 			}
 		}
-		if len(edges) > 0 {
-			resolved, err := edgeresolve.Resolve(ctx, syncStore, edges)
-			if err != nil {
-				return nil, err
-			}
-			resolved = edgeresolve.FilterResolved(resolved)
-			if err := syncStore.UpsertEdges(ctx, resolved); err != nil {
-				return nil, err
-			}
-		}
-		releaseContent(files, filePath)
+	}
+	if err := s.resolveAndUpsertEdges(ctx, syncStore, parsedFiles); err != nil {
+		return nil, err
+	}
+	for _, parsed := range parsedFiles {
+		releaseContent(files, parsed.filePath)
 	}
 
 	for _, ep := range existingFiles {
@@ -257,6 +268,113 @@ func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files ma
 	)
 
 	return stats, nil
+}
+
+func sortedFilePaths(files map[string]FileInfo) []string {
+	paths := make([]string, 0, len(files))
+	for filePath := range files {
+		paths = append(paths, filePath)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func (s *Syncer) resolveAndUpsertEdges(ctx context.Context, syncStore Store, parsedFiles []parsedSyncFile) error {
+	implementsEdges, otherByFile := partitionParsedSyncEdges(parsedFiles)
+	for _, edgeChunk := range splitEdgeChunks(implementsEdges) {
+		resolved, err := edgeresolve.Resolve(ctx, syncStore, edgeChunk)
+		if err != nil {
+			return err
+		}
+		resolved = edgeresolve.FilterResolved(resolved)
+		if len(resolved) == 0 {
+			continue
+		}
+		if err := syncStore.UpsertEdges(ctx, resolved); err != nil {
+			return err
+		}
+	}
+	importsByFile := importEdgesByFile(otherByFile)
+	for _, parsed := range parsedFiles {
+		edges := otherByFile[parsed.filePath]
+		for _, edgeChunk := range splitEdgeChunks(edges) {
+			resolveInput := chunkWithImportWarmup(edgeChunk, importsByFile[parsed.filePath])
+			resolved, err := edgeresolve.Resolve(ctx, syncStore, resolveInput)
+			if err != nil {
+				return err
+			}
+			resolved = edgeresolve.FilterResolved(resolved[len(resolveInput)-len(edgeChunk):])
+			if len(resolved) == 0 {
+				continue
+			}
+			if err := syncStore.UpsertEdges(ctx, resolved); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func partitionParsedSyncEdges(parsedFiles []parsedSyncFile) ([]model.Edge, map[string][]model.Edge) {
+	var implementsEdges []model.Edge
+	otherByFile := make(map[string][]model.Edge, len(parsedFiles))
+	for _, parsed := range parsedFiles {
+		for _, edge := range parsed.edges {
+			if edge.Kind == model.EdgeKindImplements {
+				implementsEdges = append(implementsEdges, edge)
+				continue
+			}
+			otherByFile[parsed.filePath] = append(otherByFile[parsed.filePath], edge)
+		}
+	}
+	return implementsEdges, otherByFile
+}
+
+func importEdgesByFile(edgesByFile map[string][]model.Edge) map[string][]model.Edge {
+	imports := make(map[string][]model.Edge, len(edgesByFile))
+	for filePath, edges := range edgesByFile {
+		for _, edge := range edges {
+			if edge.Kind == model.EdgeKindImportsFrom {
+				imports[filePath] = append(imports[filePath], edge)
+			}
+		}
+	}
+	return imports
+}
+
+func chunkWithImportWarmup(chunk []model.Edge, imports []model.Edge) []model.Edge {
+	if len(chunk) == 0 {
+		return nil
+	}
+	needsWarmup := false
+	for _, edge := range chunk {
+		if edge.Kind == model.EdgeKindCalls {
+			needsWarmup = true
+			break
+		}
+	}
+	if !needsWarmup || len(imports) == 0 {
+		return append([]model.Edge(nil), chunk...)
+	}
+	resolveInput := append([]model.Edge(nil), imports...)
+	resolveInput = append(resolveInput, chunk...)
+	return resolveInput
+}
+
+func splitEdgeChunks(edges []model.Edge) [][]model.Edge {
+	if len(edges) == 0 {
+		return nil
+	}
+	const chunkSize = 400
+	chunks := make([][]model.Edge, 0, (len(edges)+chunkSize-1)/chunkSize)
+	for start := 0; start < len(edges); start += chunkSize {
+		end := start + chunkSize
+		if end > len(edges) {
+			end = len(edges)
+		}
+		chunks = append(chunks, edges[start:end])
+	}
+	return chunks
 }
 
 // resolveParser picks an extension-specific parser when configured, otherwise the legacy single parser.
