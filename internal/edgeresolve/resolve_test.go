@@ -1004,6 +1004,25 @@ func TestResolveJavaTypedReceiverInterfaceDispatch_ResolvesUniqueImplementerMeth
 	}
 }
 
+func TestResolveJavaTypedReceiverInterfaceDispatch_UsesQualifiedImportedOwner(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "com.example.app.App.run", Name: "run", Kind: model.NodeKindFunction, FilePath: "App.java", StartLine: 10, EndLine: 12, Language: "java"},
+		{ID: 2, QualifiedName: "com.contracts.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "FlowTracer.java", StartLine: 1, EndLine: 3, Language: "java"},
+		{ID: 3, QualifiedName: "com.example.impl.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "Tracer.java", StartLine: 1, EndLine: 6, Language: "java"},
+		{ID: 4, QualifiedName: "com.example.impl.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "Tracer.java", StartLine: 3, EndLine: 5, Language: "java"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "App.java", Line: 2, Fingerprint: "implements:App.java:com.example.impl.Tracer:com.contracts.FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "App.java", Line: 11, Fingerprint: "calls:App.java:com.contracts.FlowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 4 {
+		t.Fatalf("Java qualified typed receiver dispatch ToNodeID=%d, want 4", edges[1].ToNodeID)
+	}
+}
+
 func TestResolveKotlinTypedReceiverInterfaceDispatch_ResolvesUniqueImplementerMethod(t *testing.T) {
 	lookup := fakeLookup{nodes: []model.Node{
 		{ID: 1, QualifiedName: "com.example.App.run", Name: "run", Kind: model.NodeKindFunction, FilePath: "App.kt", StartLine: 10, EndLine: 12, Language: "kotlin"},
@@ -1020,6 +1039,25 @@ func TestResolveKotlinTypedReceiverInterfaceDispatch_ResolvesUniqueImplementerMe
 	}
 	if edges[1].ToNodeID != 4 {
 		t.Fatalf("Kotlin typed receiver dispatch ToNodeID=%d, want 4", edges[1].ToNodeID)
+	}
+}
+
+func TestResolveKotlinTypedReceiverInterfaceDispatch_UsesQualifiedImportedOwner(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "com.example.app.App.run", Name: "run", Kind: model.NodeKindFunction, FilePath: "App.kt", StartLine: 10, EndLine: 12, Language: "kotlin"},
+		{ID: 2, QualifiedName: "com.contracts.FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "FlowTracer.kt", StartLine: 1, EndLine: 3, Language: "kotlin"},
+		{ID: 3, QualifiedName: "com.example.impl.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "Tracer.kt", StartLine: 1, EndLine: 6, Language: "kotlin"},
+		{ID: 4, QualifiedName: "com.example.impl.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "Tracer.kt", StartLine: 3, EndLine: 5, Language: "kotlin"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "App.kt", Line: 2, Fingerprint: "implements:App.kt:com.example.impl.Tracer:com.contracts.FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "App.kt", Line: 11, Fingerprint: "calls:App.kt:com.contracts.FlowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 4 {
+		t.Fatalf("Kotlin qualified typed receiver dispatch ToNodeID=%d, want 4", edges[1].ToNodeID)
 	}
 }
 

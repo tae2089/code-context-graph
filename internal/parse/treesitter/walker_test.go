@@ -462,11 +462,40 @@ class App {
 	}
 	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
 	for _, e := range callEdges {
-		if e.Fingerprint == "calls:App.java:FlowTracer.traceFlow:13" {
+		if e.Fingerprint == "calls:App.java:com.example.FlowTracer.traceFlow:13" {
 			return
 		}
 	}
 	t.Fatalf("expected typed Java receiver rewrite edge, got %#v", callEdges)
+}
+
+func TestParseJava_TypedReceiverChainWithImportedTypeAndArgumentsRewritesCall(t *testing.T) {
+	src := `package com.example.app;
+
+import com.contracts.FlowTracer;
+
+interface Deps {
+	FlowTracer flowTracer = null;
+}
+
+class App {
+	void run(Deps deps, String ctx) {
+		deps.flowTracer.traceFlow(ctx);
+	}
+}
+`
+	w := NewWalker(JavaSpec)
+	_, edges, err := w.Parse("App.java", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
+	for _, e := range callEdges {
+		if e.Fingerprint == "calls:App.java:com.contracts.FlowTracer.traceFlow:11" {
+			return
+		}
+	}
+	t.Fatalf("expected imported Java receiver rewrite edge, got %#v", callEdges)
 }
 
 func TestParseJava_TypedReceiverChainWithoutMemberTypeStaysRaw(t *testing.T) {
@@ -516,11 +545,40 @@ class App {
 	}
 	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
 	for _, e := range callEdges {
-		if e.Fingerprint == "calls:App.kt:FlowTracer.traceFlow:13" {
+		if e.Fingerprint == "calls:App.kt:com.example.FlowTracer.traceFlow:13" {
 			return
 		}
 	}
 	t.Fatalf("expected typed Kotlin receiver rewrite edge, got %#v", callEdges)
+}
+
+func TestParseKotlin_TypedReceiverChainWithImportedTypeAndArgumentsRewritesCall(t *testing.T) {
+	src := `package com.example.app
+
+import com.contracts.FlowTracer
+
+interface Deps {
+	val flowTracer: FlowTracer
+}
+
+class App {
+	fun run(deps: Deps, ctx: String) {
+		deps.flowTracer.traceFlow(ctx)
+	}
+}
+`
+	w := NewWalker(KotlinSpec)
+	_, edges, err := w.Parse("App.kt", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	callEdges := filterEdgesByKind(edges, model.EdgeKindCalls)
+	for _, e := range callEdges {
+		if e.Fingerprint == "calls:App.kt:com.contracts.FlowTracer.traceFlow:11" {
+			return
+		}
+	}
+	t.Fatalf("expected imported Kotlin receiver rewrite edge, got %#v", callEdges)
 }
 
 func TestParseKotlin_TypedReceiverChainWithoutMemberTypeStaysRaw(t *testing.T) {
