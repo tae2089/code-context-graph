@@ -24,6 +24,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/edgeresolve"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/obs"
 	"github.com/tae2089/code-context-graph/internal/parse"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
 	"github.com/tae2089/code-context-graph/internal/pathutil"
@@ -118,12 +119,12 @@ type graphFileNodeState struct {
 // @intent defer comment binding until storage time while keeping per-file source line context available.
 func newParsedBuildNodeBatch(relPath string, content []byte, nodes []model.Node, packageName string, interfaces []treesitter.PackageInterfaceInfo, tsComments []treesitter.CommentBlock, language string) parsedBuildNodeBatch {
 	out := parsedBuildNodeBatch{
-		relPath:    relPath,
-		nodes:      nodes,
+		relPath:     relPath,
+		nodes:       nodes,
 		packageName: packageName,
-		interfaces: interfaces,
-		tsComments: tsComments,
-		language:   language,
+		interfaces:  interfaces,
+		tsComments:  tsComments,
+		language:    language,
 	}
 	if len(tsComments) > 0 {
 		out.sourceLines = strings.Split(string(content), "\n")
@@ -495,6 +496,7 @@ func (s *GraphService) applyBuildSpoolInTx(ctx context.Context, txStore store.Gr
 	for _, path := range spool.records {
 		record, err := spool.readRecord(path)
 		if err != nil {
+			s.logger().ErrorContext(ctx, "read build spool record failed", append(obs.TraceLogArgs(ctx), "path", path, "error", err)...)
 			return err
 		}
 		batch.add(parsedBuildNodeBatch{
@@ -670,11 +672,16 @@ func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphS
 		end := min(start+buildEdgeResolveChunkSize, len(implementsEdges))
 		resolved, err := resolveBuildEdges(ctx, txStore, implementsEdges[start:end])
 		if err != nil {
+			s.logger().ErrorContext(ctx, "resolve deferred implements edges failed", append(obs.TraceLogArgs(ctx), "start", start, "end", end, "error", err)...)
 			return trace.Wrap(err, "resolve deferred implements edges")
 		}
 		resolved, diagnostics := edgeresolve.FilterResolvedWithDiagnostics(resolved)
 		mergeBuildUnresolvedDiagnostics(stats, diagnostics)
+		if diagnostics.DroppedCount > 0 {
+			s.logger().WarnContext(ctx, "dropped unresolved implements edges", append(obs.TraceLogArgs(ctx), "count", diagnostics.DroppedCount, "by_kind", formatEdgeKindCounts(diagnostics.ByKind), "by_reason", diagnostics.ByReason)...)
+		}
 		if err := txStore.UpsertEdges(ctx, resolved); err != nil {
+			s.logger().ErrorContext(ctx, "upsert deferred implements edges failed", append(obs.TraceLogArgs(ctx), "start", start, "end", end, "error", err)...)
 			return trace.Wrap(err, "upsert deferred implements edges")
 		}
 	}
@@ -689,11 +696,16 @@ func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphS
 			resolveInput := chunkWithImportWarmup(chunk, importsByPath[parsed.relPath])
 			resolved, err := resolveBuildEdges(ctx, txStore, resolveInput)
 			if err != nil {
+				s.logger().ErrorContext(ctx, "resolve deferred edges failed", append(obs.TraceLogArgs(ctx), "file", parsed.relPath, "error", err)...)
 				return trace.Wrap(err, "resolve deferred edges for "+parsed.relPath)
 			}
 			resolvedChunk, diagnostics := edgeresolve.FilterResolvedWithDiagnostics(resolved[len(resolveInput)-len(chunk):])
 			mergeBuildUnresolvedDiagnostics(stats, diagnostics)
+			if diagnostics.DroppedCount > 0 {
+				s.logger().WarnContext(ctx, "dropped unresolved edges", append(obs.TraceLogArgs(ctx), "file", parsed.relPath, "count", diagnostics.DroppedCount, "by_kind", formatEdgeKindCounts(diagnostics.ByKind), "by_reason", diagnostics.ByReason)...)
+			}
 			if err := txStore.UpsertEdges(ctx, resolvedChunk); err != nil {
+				s.logger().ErrorContext(ctx, "upsert deferred edges failed", append(obs.TraceLogArgs(ctx), "file", parsed.relPath, "error", err)...)
 				return trace.Wrap(err, "upsert deferred edges for "+parsed.relPath)
 			}
 		}

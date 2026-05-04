@@ -49,13 +49,15 @@ import (
 	mcpserver "github.com/tae2089/code-context-graph/internal/mcp"
 	"github.com/tae2089/code-context-graph/internal/migrationfs"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/obs"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
-	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 	"github.com/tae2089/code-context-graph/internal/pathutil"
+	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 	"github.com/tae2089/code-context-graph/internal/service"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 	"github.com/tae2089/code-context-graph/internal/store/search"
 	"github.com/tae2089/code-context-graph/internal/webhook"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 var (
@@ -874,6 +876,25 @@ func buildWalkers(logger *slog.Logger) map[string]*treesitter.Walker {
 // @sideEffect 캐시를 생성하고 stdio 또는 HTTP 서버를 시작한다.
 func runServe(deps *cli.Deps, cfg cli.ServeConfig) error {
 	deps.Logger.Info("starting code-context-graph MCP server")
+	tel, err := obs.Setup(context.Background(), obs.Config{
+		ServiceName:    "code-context-graph",
+		ServiceVersion: version,
+		Mode:           "serve",
+		Endpoint:       cfg.OTELEndpoint,
+		Logger:         deps.Logger,
+	})
+	if err != nil {
+		return trace.Wrap(err, "setup telemetry")
+	}
+	obs.SetGlobal(tel)
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := tel.Shutdown(shutdownCtx); err != nil {
+			deps.Logger.Error("telemetry shutdown failed", "error", err)
+		}
+		obs.SetGlobal(nil)
+	}()
 
 	var cache *mcpserver.Cache
 	if !cfg.NoCache && cfg.CacheTTL > 0 {
@@ -1018,7 +1039,7 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 	httpSrv := server.NewStreamableHTTPServer(srv, opts...)
 
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcpAuthMiddleware(cfg.HTTPBearerToken, mcpserver.LimitHTTPBody(httpSrv)))
+	mux.Handle("/mcp", mcpAuthMiddleware(cfg.HTTPBearerToken, withHTTPTraceContext(mcpserver.LimitHTTPBody(httpSrv))))
 	mux.HandleFunc("/health", handleHealth)
 	dbReadyCheck := func(r *http.Request) error {
 		if deps.DB == nil {
@@ -1067,21 +1088,23 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 		secret := []byte(cfg.WebhookSecret)
 		repoLocker := webhook.NewRepoLocker(30 * time.Second)
 		syncHandler := func(ctx context.Context, repoFullName, cloneURL, branch string) error {
+			ctx, span := obs.StartSpan(ctx, "webhook.sync", attribute.String("repo.full_name", repoFullName), attribute.String("git.branch", branch))
+			defer span.End()
 			ns := webhook.ExtractNamespace(repoFullName)
-			deps.Logger.Info("webhook sync started", "repo", repoFullName, "namespace", ns, "branch", branch)
+			deps.Logger.InfoContext(ctx, "webhook sync started", append(obs.TraceLogArgs(ctx), "repo", repoFullName, "namespace", ns, "branch", branch)...)
 
 			attemptCtx, attemptCancel := context.WithTimeout(ctx, cfg.WebhookAttemptTimeout)
 			defer attemptCancel()
 
 			if err := webhook.CloneOrPullBranchLocked(attemptCtx, repoLocker, cloneURL, cfg.RepoRoot, repoFullName, ns, branch, nil); err != nil {
-				deps.Logger.Error("webhook clone/pull failed", "repo", repoFullName, "error", err)
+				deps.Logger.ErrorContext(attemptCtx, "webhook clone/pull failed", append(obs.TraceLogArgs(attemptCtx), "repo", repoFullName, "namespace", ns, "branch", branch, "error", err)...)
 				return err
 			}
 
 			repoDir := webhook.RepoDir(cfg.RepoRoot, ns)
 			includePaths, err := pathutil.LoadIncludePathsFromConfig(repoDir)
 			if err != nil {
-				deps.Logger.Error("webhook include_paths config invalid", "repo", repoFullName, "namespace", ns, "error", err)
+				deps.Logger.ErrorContext(attemptCtx, "webhook include_paths config invalid", append(obs.TraceLogArgs(attemptCtx), "repo", repoFullName, "namespace", ns, "branch", branch, "error", err)...)
 				return webhook.NonRetryable(err)
 			}
 			graphSvc := &service.GraphService{
@@ -1104,12 +1127,12 @@ func serveStreamableHTTP(deps *cli.Deps, srv *server.MCPServer, cfg cli.ServeCon
 				FailOnUnreadable: cfg.WebhookFailOnUnreadable,
 			})
 			if err != nil {
-				deps.Logger.Error("webhook update failed", "repo", repoFullName, "error", err)
+				deps.Logger.ErrorContext(attemptCtx, "webhook update failed", append(obs.TraceLogArgs(attemptCtx), "repo", repoFullName, "namespace", ns, "branch", branch, "error", err)...)
 				return err
 			}
 			flushMCPQueryCache(cache)
-			deps.Logger.Info("webhook sync completed", "repo", repoFullName, "namespace", ns,
-				"added", stats.Added, "modified", stats.Modified, "skipped", stats.Skipped, "deleted", stats.Deleted)
+			deps.Logger.InfoContext(attemptCtx, "webhook sync completed", append(obs.TraceLogArgs(attemptCtx), "repo", repoFullName, "namespace", ns,
+				"added", stats.Added, "modified", stats.Modified, "skipped", stats.Skipped, "deleted", stats.Deleted)...)
 			return nil
 		}
 		syncQueue = webhook.NewSyncQueueWithConfig(syncCtx, cfg.WebhookWorkers, syncHandler, webhook.QueueConfig{
@@ -1209,6 +1232,13 @@ func mcpAuthMiddleware(token string, next http.Handler) http.Handler {
 	})
 }
 
+func withHTTPTraceContext(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := obs.ContextWithHTTPTrace(r.Context(), r.Header)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 // validBearerToken validates a bearer token against an expected value.
 // @intent HTTP Authorization 헤더의 Bearer 토큰이 기대하는 값과 일치하는지 상수 시간 비교로 검증한다.
 func validBearerToken(header, expected string) bool {
@@ -1280,10 +1310,10 @@ func readyHandler(check func(*http.Request) error) http.Handler {
 // statusResponse defines the response structure for the status endpoint.
 // @intent 시스템의 전반적인 상태 요약(DB, 웹훅, 후처리 정보)을 포함한 응답 구조를 정의한다.
 type statusResponse struct {
-	Status      string                               `json:"status"`
-	DB          string                               `json:"db"`
-	Webhook     *webhook.SyncQueueStats              `json:"webhook,omitempty"`
-	Postprocess *postprocesspolicy.StatusSummary     `json:"postprocess,omitempty"`
+	Status      string                           `json:"status"`
+	DB          string                           `json:"db"`
+	Webhook     *webhook.SyncQueueStats          `json:"webhook,omitempty"`
+	Postprocess *postprocesspolicy.StatusSummary `json:"postprocess,omitempty"`
 }
 
 // statusHandler provides detailed system status including DB, webhooks, and post-processing.
