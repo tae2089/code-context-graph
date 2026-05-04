@@ -64,6 +64,21 @@ Streamable HTTP MCP 엔드포인트는 외부에서 접근 가능할 때마다 `
 
 CCG가 Ingress, 리버스 프록시 또는 로드 밸런서 뒤에 있는 경우, 공용 인터넷에서 `/health`, `/ready`, `/status`에 접근하지 못하도록 차단하십시오. 이러한 엔드포인트는 운영상 유용하지만 공개 API로 설계되지 않은 런타임 상태를 노출할 수 있습니다.
 
+## 트레이싱 및 로그 상관관계 (Tracing and Log Correlation)
+
+이제 CCG의 serve 모드는 inbound MCP/웹훅 요청과 그 뒤의 웹훅 sync 파이프라인에 대해 실제 OpenTelemetry SDK span을 생성합니다. 이 동작은 exporter가 없어도 활성화됩니다.
+
+- 로컬 trace 연계 로그만 필요하다면 `--otel-endpoint` / `CCG_OTEL_ENDPOINT`를 비워 두십시오.
+- collector로 span을 내보내려면 `--otel-endpoint`에 `http://collector:4318/v1/traces` 같은 전체 OTLP HTTP URL을 설정하십시오.
+- trace가 연결된 컨텍스트에서 출력되는 로그에는 `trace_id`, `span_id`, `trace_sampled`가 포함됩니다.
+
+운영 관점에서는 두 가지 모드로 생각하면 됩니다.
+
+1. **로컬 전용 트레이싱** — 기본값. OTel collector 없이 단일 CCG 프로세스를 디버깅할 때 유용합니다.
+2. **export 트레이싱** — opt-in. Langfuse, Jaeger, Tempo 또는 다른 OTLP 백엔드에서 서비스 간 trace 검색이 필요한 상시 MCP/웹훅 서비스에 적합합니다.
+
+웹훅 sync span은 HTTP 요청이 반환된 뒤에도 이어지므로, 하나의 trace로 요청 수신, 큐 처리, clone/pull, 그래프 업데이트 작업까지 추적할 수 있습니다.
+
 ## 웹훅 운영 (Webhook Operations)
 
 웹훅 배포는 다음 사항들을 설정해야 합니다:

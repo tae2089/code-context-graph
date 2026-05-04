@@ -117,6 +117,23 @@ Push Event → HMAC Verify → RepoFilter.IsAllowedRef()
     → Save to DB
 ```
 
+## Tracing
+
+When CCG runs with Streamable HTTP, the webhook path creates real
+OpenTelemetry SDK spans even if no exporter is configured. Incoming
+`traceparent` headers on `/webhook` become the parent of a server span, and the
+same trace continues through queue processing, retry attempts, clone/pull, and
+graph update work.
+
+- `--otel-endpoint` or `CCG_OTEL_ENDPOINT` unset: spans stay local to the
+  process and are not exported
+- `--otel-endpoint` set: spans are exported through OTLP HTTP to the given full
+  endpoint URL, such as `http://collector:4318/v1/traces`
+- traced webhook logs include `trace_id`, `span_id`, and `trace_sampled`
+
+This means webhook failures can be correlated across HTTP intake, queueing, and
+repository sync logs without changing the webhook payload format.
+
 ### Deduplication
 
 Consecutive pushes to the same repo are automatically merged in the SyncQueue:

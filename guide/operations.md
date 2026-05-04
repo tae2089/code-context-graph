@@ -85,6 +85,30 @@ If CCG is behind an ingress, reverse proxy, or load balancer, block
 can expose runtime state that is useful operationally but not intended as a
 public API.
 
+## Tracing and Log Correlation
+
+CCG's serve mode now creates real OpenTelemetry SDK spans for inbound MCP and
+webhook requests plus the downstream webhook sync pipeline. This behavior does
+not require an exporter.
+
+- Leave `--otel-endpoint` / `CCG_OTEL_ENDPOINT` unset when you only need local
+  trace-aware logs
+- Set `--otel-endpoint` to a full OTLP HTTP URL such as
+  `http://collector:4318/v1/traces` when you want spans exported to a collector
+- Logs emitted from traced contexts include `trace_id`, `span_id`, and
+  `trace_sampled`
+
+Operationally, this gives two modes:
+
+1. **Local-only tracing** — default; useful for debugging a single CCG process
+   without running an OTel collector
+2. **Exported tracing** — opt-in; useful for always-on MCP/webhook services that
+   need cross-service trace search in Langfuse, Jaeger, Tempo, or another OTLP
+   backend
+
+Webhook sync spans continue after the HTTP request returns, so a single trace
+can cover request intake, queue processing, clone/pull, and graph update work.
+
 ## Webhook Operations
 
 Webhook deployments should be configured with:

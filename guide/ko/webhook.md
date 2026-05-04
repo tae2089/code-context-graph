@@ -111,6 +111,16 @@ Push 이벤트 → HMAC 검증 → RepoFilter.IsAllowedRef()
     → DB 저장
 ```
 
+## 트레이싱 (Tracing)
+
+CCG를 Streamable HTTP로 실행하면 exporter가 설정되지 않은 경우에도 웹훅 경로에서 실제 OpenTelemetry SDK span을 생성합니다. `/webhook`으로 들어온 `traceparent` 헤더는 server span의 부모가 되며, 같은 trace가 큐 처리, 재시도, clone/pull, 그래프 업데이트 작업까지 이어집니다.
+
+- `--otel-endpoint` 또는 `CCG_OTEL_ENDPOINT` 미설정: span은 프로세스 내부에만 머물고 export되지 않음
+- `--otel-endpoint` 설정: `http://collector:4318/v1/traces` 같은 전체 엔드포인트 URL로 OTLP HTTP export 수행
+- trace가 연결된 웹훅 로그에는 `trace_id`, `span_id`, `trace_sampled`가 포함됨
+
+따라서 웹훅 페이로드 형식을 바꾸지 않아도 HTTP 수신, 큐잉, 저장소 sync 로그를 하나의 trace로 연관 지어 장애를 추적할 수 있습니다.
+
 ### 중복 제거 (Deduplication)
 
 동일한 저장소에 대한 연속적인 push는 SyncQueue에서 자동으로 병합됩니다:
