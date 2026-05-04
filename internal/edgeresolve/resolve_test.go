@@ -966,6 +966,63 @@ func TestResolveKotlinInterfaceDispatchContract_RemainsUnresolvedUntilReceiverTy
 	}
 }
 
+func TestResolveTypeScriptTypedReceiverInterfaceDispatch_ResolvesUniqueImplementerMethod(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "app.start", Name: "start", Kind: model.NodeKindFunction, FilePath: "app.ts", StartLine: 10, EndLine: 12, Language: "typescript"},
+		{ID: 2, QualifiedName: "FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "contracts.ts", StartLine: 1, EndLine: 3, Language: "typescript"},
+		{ID: 3, QualifiedName: "impl.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "impl.ts", StartLine: 1, EndLine: 6, Language: "typescript"},
+		{ID: 4, QualifiedName: "impl.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "impl.ts", StartLine: 3, EndLine: 5, Language: "typescript"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "app.ts", Line: 2, Fingerprint: "implements:app.ts:impl.Tracer:FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "app.ts", Line: 11, Fingerprint: "calls:app.ts:FlowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 4 {
+		t.Fatalf("TypeScript typed receiver dispatch ToNodeID=%d, want 4", edges[1].ToNodeID)
+	}
+}
+
+func TestResolveJavaTypedReceiverInterfaceDispatch_ResolvesUniqueImplementerMethod(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "com.example.App.run", Name: "run", Kind: model.NodeKindFunction, FilePath: "App.java", StartLine: 10, EndLine: 12, Language: "java"},
+		{ID: 2, QualifiedName: "FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "FlowTracer.java", StartLine: 1, EndLine: 3, Language: "java"},
+		{ID: 3, QualifiedName: "com.example.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "Tracer.java", StartLine: 1, EndLine: 6, Language: "java"},
+		{ID: 4, QualifiedName: "com.example.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "Tracer.java", StartLine: 3, EndLine: 5, Language: "java"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "App.java", Line: 2, Fingerprint: "implements:App.java:com.example.Tracer:FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "App.java", Line: 11, Fingerprint: "calls:App.java:FlowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 4 {
+		t.Fatalf("Java typed receiver dispatch ToNodeID=%d, want 4", edges[1].ToNodeID)
+	}
+}
+
+func TestResolveKotlinTypedReceiverInterfaceDispatch_ResolvesUniqueImplementerMethod(t *testing.T) {
+	lookup := fakeLookup{nodes: []model.Node{
+		{ID: 1, QualifiedName: "com.example.App.run", Name: "run", Kind: model.NodeKindFunction, FilePath: "App.kt", StartLine: 10, EndLine: 12, Language: "kotlin"},
+		{ID: 2, QualifiedName: "FlowTracer", Name: "FlowTracer", Kind: model.NodeKindType, FilePath: "FlowTracer.kt", StartLine: 1, EndLine: 3, Language: "kotlin"},
+		{ID: 3, QualifiedName: "com.example.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "Tracer.kt", StartLine: 1, EndLine: 6, Language: "kotlin"},
+		{ID: 4, QualifiedName: "com.example.Tracer.traceFlow", Name: "traceFlow", Kind: model.NodeKindFunction, FilePath: "Tracer.kt", StartLine: 3, EndLine: 5, Language: "kotlin"},
+	}}
+	edges, err := Resolve(context.Background(), lookup, []model.Edge{
+		{Kind: model.EdgeKindImplements, FilePath: "App.kt", Line: 2, Fingerprint: "implements:App.kt:com.example.Tracer:FlowTracer"},
+		{Kind: model.EdgeKindCalls, FilePath: "App.kt", Line: 11, Fingerprint: "calls:App.kt:FlowTracer.traceFlow:11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges[1].ToNodeID != 4 {
+		t.Fatalf("Kotlin typed receiver dispatch ToNodeID=%d, want 4", edges[1].ToNodeID)
+	}
+}
+
 func TestResolveTypeScriptExplicitOwnerInterfaceDispatch_ResolvesUniqueImplementerMethod(t *testing.T) {
 	lookup := fakeLookup{nodes: []model.Node{
 		{ID: 1, QualifiedName: "app.start", Name: "start", Kind: model.NodeKindFunction, FilePath: "app.ts", StartLine: 10, EndLine: 12, Language: "typescript"},
