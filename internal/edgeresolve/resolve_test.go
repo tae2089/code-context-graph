@@ -132,6 +132,12 @@ func TestDispatchForLanguage_GoAndRustRegistered(t *testing.T) {
 	if dispatchForLanguage("typescript") != nil {
 		t.Fatal("expected TypeScript dispatch to remain unregistered")
 	}
+	if dispatchForLanguage("java") != nil {
+		t.Fatal("expected Java dispatch to remain unregistered")
+	}
+	if dispatchForLanguage("kotlin") != nil {
+		t.Fatal("expected Kotlin dispatch to remain unregistered")
+	}
 }
 
 func TestResolveCallsConnectsUniqueSelectorMethodInSameFile(t *testing.T) {
