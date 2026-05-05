@@ -444,6 +444,7 @@ func TestServeCmdFlags_WebhookOperationalTuning(t *testing.T) {
 	err := executeCmd(deps, stdout, stderr, "serve",
 		"--webhook-max-tracked-repos", "8",
 		"--webhook-attempt-timeout", "2m",
+		"--webhook-shutdown-timeout", "45s",
 		"--webhook-retry-attempts", "5",
 		"--webhook-retry-base-delay", "2s",
 		"--webhook-retry-max-delay", "20s",
@@ -451,7 +452,7 @@ func TestServeCmdFlags_WebhookOperationalTuning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got.WebhookMaxTrackedRepos != 8 || got.WebhookAttemptTimeout != 2*time.Minute ||
+	if got.WebhookMaxTrackedRepos != 8 || got.WebhookAttemptTimeout != 2*time.Minute || got.WebhookShutdownTimeout != 45*time.Second ||
 		got.WebhookRetryAttempts != 5 || got.WebhookRetryBaseDelay != 2*time.Second ||
 		got.WebhookRetryMaxDelay != 20*time.Second {
 		t.Fatalf("unexpected webhook tuning config: %+v", got)
@@ -461,6 +462,7 @@ func TestServeCmdFlags_WebhookOperationalTuning(t *testing.T) {
 func TestServeCmd_UsesWebhookTuningFromEnv(t *testing.T) {
 	t.Setenv("CCG_WEBHOOK_MAX_TRACKED_REPOS", "9")
 	t.Setenv("CCG_WEBHOOK_ATTEMPT_TIMEOUT", "3m")
+	t.Setenv("CCG_WEBHOOK_SHUTDOWN_TIMEOUT", "40s")
 	t.Setenv("CCG_WEBHOOK_RETRY_ATTEMPTS", "6")
 	t.Setenv("CCG_WEBHOOK_RETRY_BASE_DELAY", "3s")
 	t.Setenv("CCG_WEBHOOK_RETRY_MAX_DELAY", "30s")
@@ -476,10 +478,22 @@ func TestServeCmd_UsesWebhookTuningFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got.WebhookMaxTrackedRepos != 9 || got.WebhookAttemptTimeout != 3*time.Minute ||
+	if got.WebhookMaxTrackedRepos != 9 || got.WebhookAttemptTimeout != 3*time.Minute || got.WebhookShutdownTimeout != 40*time.Second ||
 		got.WebhookRetryAttempts != 6 || got.WebhookRetryBaseDelay != 3*time.Second ||
 		got.WebhookRetryMaxDelay != 30*time.Second {
 		t.Fatalf("unexpected webhook env config: %+v", got)
+	}
+}
+
+func TestServeCmd_RejectsNonPositiveWebhookShutdownTimeout(t *testing.T) {
+	deps, stdout, stderr := newTestDeps()
+	deps.ServeFunc = func(cfg ServeConfig) error { return nil }
+
+	for _, timeout := range []string{"0s", "-1s"} {
+		err := executeCmd(deps, stdout, stderr, "serve", "--transport", "streamable-http", "--webhook-shutdown-timeout", timeout)
+		if err == nil || !strings.Contains(err.Error(), "--webhook-shutdown-timeout must be > 0") {
+			t.Fatalf("expected webhook shutdown timeout validation error for %s, got %v", timeout, err)
+		}
 	}
 }
 

@@ -35,6 +35,7 @@ type ServeConfig struct {
 	RepoRoot                string
 	WebhookMaxTrackedRepos  int
 	WebhookAttemptTimeout   time.Duration
+	WebhookShutdownTimeout  time.Duration
 	WebhookRetryAttempts    int
 	WebhookRetryBaseDelay   time.Duration
 	WebhookRetryMaxDelay    time.Duration
@@ -58,6 +59,9 @@ func validateServeConfig(cfg ServeConfig) error {
 	}
 	if cfg.WebhookAttemptTimeout <= 0 {
 		return fmt.Errorf("--webhook-attempt-timeout must be > 0")
+	}
+	if cfg.WebhookShutdownTimeout <= 0 {
+		return fmt.Errorf("--webhook-shutdown-timeout must be > 0")
 	}
 	if cfg.WebhookRetryAttempts <= 0 {
 		return fmt.Errorf("--webhook-retry-attempts must be > 0")
@@ -147,6 +151,7 @@ func newServeCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().IntVar(&cfg.WebhookWorkers, "webhook-workers", envInt("CCG_WEBHOOK_WORKERS", 4), "Number of webhook sync workers")
 	cmd.Flags().IntVar(&cfg.WebhookMaxTrackedRepos, "webhook-max-tracked-repos", envInt("CCG_WEBHOOK_MAX_TRACKED_REPOS", 1024), "Maximum repositories tracked by the webhook sync queue")
 	cmd.Flags().DurationVar(&cfg.WebhookAttemptTimeout, "webhook-attempt-timeout", envDuration("CCG_WEBHOOK_ATTEMPT_TIMEOUT", 15*time.Minute), "Timeout for one webhook sync attempt")
+	cmd.Flags().DurationVar(&cfg.WebhookShutdownTimeout, "webhook-shutdown-timeout", envDuration("CCG_WEBHOOK_SHUTDOWN_TIMEOUT", 30*time.Second), "Timeout for graceful webhook queue shutdown and HTTP drain")
 	cmd.Flags().IntVar(&cfg.WebhookRetryAttempts, "webhook-retry-attempts", envInt("CCG_WEBHOOK_RETRY_ATTEMPTS", 3), "Maximum webhook sync attempts per queued item")
 	cmd.Flags().DurationVar(&cfg.WebhookRetryBaseDelay, "webhook-retry-base-delay", envDuration("CCG_WEBHOOK_RETRY_BASE_DELAY", time.Second), "Initial webhook sync retry delay")
 	cmd.Flags().DurationVar(&cfg.WebhookRetryMaxDelay, "webhook-retry-max-delay", envDuration("CCG_WEBHOOK_RETRY_MAX_DELAY", 30*time.Second), "Maximum webhook sync retry delay")

@@ -310,6 +310,7 @@ func RunStreamableHTTP(deps *cli.Deps, srv *mcpgo.MCPServer, cfg cli.ServeConfig
 				BaseDelay:   cfg.WebhookRetryBaseDelay,
 				MaxDelay:    cfg.WebhookRetryMaxDelay,
 			},
+			ShutdownTimeout: cfg.WebhookShutdownTimeout,
 			MaxTrackedRepos: cfg.WebhookMaxTrackedRepos,
 		})
 		mux.Handle("/webhook", webhook.NewWebhookHandlerWithConfig(webhook.WebhookHandlerConfig{
@@ -358,7 +359,7 @@ func RunStreamableHTTP(deps *cli.Deps, srv *mcpgo.MCPServer, cfg cli.ServeConfig
 		return nil
 	case <-ctx.Done():
 		deps.Logger.Info("shutting down HTTP server")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.WebhookShutdownTimeout)
 		defer cancel()
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			return trace.Wrap(err, "HTTP server shutdown")
