@@ -5,7 +5,7 @@ PKG       = github.com/tae2089/code-context-graph/cmd/ccg
 BASE_LDFLAGS = -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 LDFLAGS      = -s -w $(BASE_LDFLAGS)
 
-.PHONY: build release build-debug install test test-integration-helpers clean
+.PHONY: build release build-debug build-json install vet test test-integration-helpers clean
 
 build: release
 
@@ -15,8 +15,14 @@ release:
 build-debug:
 	CGO_ENABLED=1 go build -tags "fts5" -ldflags '$(BASE_LDFLAGS)' -o ccg ./cmd/ccg/
 
+build-json:
+	CGO_ENABLED=1 go build -json -tags "fts5" ./... > build-results.json
+
 install:
 	CGO_ENABLED=1 go install -tags "fts5" -ldflags '$(LDFLAGS)' ./cmd/ccg/
+
+vet:
+	go vet ./...
 
 test: test-integration-helpers
 	CGO_ENABLED=1 go test -tags "fts5" ./...
