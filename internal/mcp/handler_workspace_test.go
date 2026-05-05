@@ -21,6 +21,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/store"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 	storesearch "github.com/tae2089/code-context-graph/internal/store/search"
+	wsvc "github.com/tae2089/code-context-graph/internal/workspace"
 )
 
 type failDeleteGraphStore struct {
@@ -509,7 +510,7 @@ func TestUploadFiles_PathTraversal(t *testing.T) {
 func TestUploadFiles_RejectsOversizedRawRequest(t *testing.T) {
 	h, _ := workspaceHandlers(t)
 	req := makeCallToolRequest(t, map[string]any{
-		"files": strings.Repeat("x", maxUploadFilesRequestBytes+1),
+		"files": strings.Repeat("x", wsvc.DefaultMaxRequestBytes+1),
 	})
 
 	result, err := h.uploadFiles(t.Context(), req)
@@ -524,8 +525,8 @@ func TestUploadFiles_RejectsOversizedRawRequest(t *testing.T) {
 
 func TestUploadFiles_RejectsOversizedTotalDecodedContent(t *testing.T) {
 	h, root := workspaceHandlers(t)
-	first := base64.StdEncoding.EncodeToString(make([]byte, maxUploadSizeBytes))
-	second := base64.StdEncoding.EncodeToString(make([]byte, maxUploadSizeBytes))
+	first := base64.StdEncoding.EncodeToString(make([]byte, wsvc.DefaultMaxFileBytes))
+	second := base64.StdEncoding.EncodeToString(make([]byte, wsvc.DefaultMaxFileBytes))
 	third := base64.StdEncoding.EncodeToString([]byte("a"))
 	filesJSON, _ := json.Marshal([]map[string]string{
 		{"workspace": "svc-a", "file_path": "a.txt", "content": first},

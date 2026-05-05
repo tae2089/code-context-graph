@@ -154,7 +154,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 
 	start := time.Now()
 	var nodeCount, edgeCount, fileCount int
-	buildSkipSearchRebuild := postprocess == "none"
+	buildSkipSearchRebuild := true
 
 	if fullRebuild || h.deps.Incremental == nil {
 		stats, err := h.graphService().Build(ctx, service.BuildOptions{
@@ -362,7 +362,7 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 
 	var flowsCount, communitiesCount, ftsIndexed int
 	var failedSteps []string
-	var skippedSteps []string
+	skippedSteps := []string{}
 	var failClosedErr error
 
 	if doFlows {

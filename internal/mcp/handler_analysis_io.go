@@ -2,6 +2,8 @@
 package mcp
 
 import (
+	"encoding/json"
+
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/tae2089/code-context-graph/internal/paging"
@@ -36,9 +38,7 @@ type findLargeFuncsInput struct {
 // @intent isolate request parsing and pagination validation for find_dead_code.
 // @ensures returned page request is normalized and limit/offset are non-negative.
 func decodeFindDeadCodeRequest(request mcp.CallToolRequest) (findDeadCodeInput, error) {
-	limit := request.GetInt("limit", 50)
-	offset := request.GetInt("offset", 0)
-	pageReq, err := normalizeListPaging(limit, offset)
+	pageReq, err := decodeListPageRequest(request, 50)
 	if err != nil {
 		return findDeadCodeInput{}, err
 	}
@@ -53,9 +53,7 @@ func decodeFindDeadCodeRequest(request mcp.CallToolRequest) (findDeadCodeInput, 
 // decodeFindSuspectFallbackRequest extracts and validates find_suspect_fallback_edges arguments.
 // @intent isolate request parsing and pagination validation for find_suspect_fallback_edges.
 func decodeFindSuspectFallbackRequest(request mcp.CallToolRequest) (findSuspectFallbackInput, error) {
-	limit := request.GetInt("limit", 50)
-	offset := request.GetInt("offset", 0)
-	pageReq, err := normalizeListPaging(limit, offset)
+	pageReq, err := decodeListPageRequest(request, 50)
 	if err != nil {
 		return findSuspectFallbackInput{}, err
 	}
@@ -68,9 +66,7 @@ func decodeFindSuspectFallbackRequest(request mcp.CallToolRequest) (findSuspectF
 // decodeFindLargeFuncsRequest extracts and validates find_large_functions arguments.
 // @intent isolate request parsing and pagination validation for find_large_functions.
 func decodeFindLargeFuncsRequest(request mcp.CallToolRequest) (findLargeFuncsInput, error) {
-	limit := request.GetInt("limit", 50)
-	offset := request.GetInt("offset", 0)
-	pageReq, err := normalizeListPaging(limit, offset)
+	pageReq, err := decodeListPageRequest(request, 50)
 	if err != nil {
 		return findLargeFuncsInput{}, err
 	}
@@ -80,6 +76,12 @@ func decodeFindLargeFuncsRequest(request mcp.CallToolRequest) (findLargeFuncsInp
 		PathPrefix: request.GetString("path", ""),
 		Namespace:  requestNamespace(request),
 	}, nil
+}
+
+// decodeListPageRequest extracts shared limit/offset arguments and returns a normalized paging request.
+// @intent keep MCP list-style handlers from repeating the same pagination decode boilerplate.
+func decodeListPageRequest(request mcp.CallToolRequest, defaultLimit int) (paging.Request, error) {
+	return normalizeListPaging(request.GetInt("limit", defaultLimit), request.GetInt("offset", 0))
 }
 
 // normalizeListPaging validates limit/offset and returns a normalized paging.Request.
@@ -98,15 +100,26 @@ func normalizeListPaging(limit, offset int) (paging.Request, error) {
 	return pageReq, nil
 }
 
-// encodePagedListResponse serializes a paged list response with the legacy alias key plus shared items/count/pagination fields.
-// @intent keep the {<legacyKey>, items, count, pagination} envelope identical across analysis list handlers.
-// @param legacyKey is the historical response field name retained for backward compatibility.
-func encodePagedListResponse(legacyKey string, items []map[string]any, pagination paging.Page) (string, error) {
+type pagedListResponse[T any] struct {
+	LegacyKey  string
+	Items      []T         `json:"items"`
+	Count      int         `json:"count"`
+	Pagination paging.Page `json:"pagination"`
+}
+
+func (r pagedListResponse[T]) MarshalJSON() ([]byte, error) {
 	resp := map[string]any{
-		legacyKey:    items,
-		"items":      items,
-		"count":      len(items),
-		"pagination": pagination,
+		r.LegacyKey: r.Items,
+		"items":      r.Items,
+		"count":      r.Count,
+		"pagination": r.Pagination,
 	}
-	return marshalJSON(resp)
+	return json.Marshal(resp)
+}
+
+// encodePagedListResponse serializes a paged list response with the legacy alias key plus shared items/count/pagination fields.
+// @intent keep the {<legacyKey>, items, count, pagination} envelope identical across analysis list handlers while allowing typed DTO slices.
+// @param legacyKey is the historical response field name retained for backward compatibility.
+func encodePagedListResponse[T any](legacyKey string, items []T, pagination paging.Page) (string, error) {
+	return marshalJSON(pagedListResponse[T]{LegacyKey: legacyKey, Items: items, Count: len(items), Pagination: pagination})
 }

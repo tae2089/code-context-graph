@@ -84,6 +84,22 @@ func applyQueryPage(items []model.Node, opts query.QueryOptions) query.PagedNode
 	return query.PagedNodes{Nodes: window, TotalCount: total}
 }
 
+func applyPagedResult[T any](items []T, req paging.Request) ([]T, bool) {
+	hasMore := false
+	if req.Offset > 0 {
+		if req.Offset >= len(items) {
+			items = []T{}
+		} else {
+			items = items[req.Offset:]
+		}
+	}
+	if req.Limit > 0 && len(items) > req.Limit {
+		items = items[:req.Limit]
+		hasMore = true
+	}
+	return items, hasMore
+}
+
 func (m *mockQueryService) CallersOf(ctx context.Context, nodeID uint) ([]model.Node, error) {
 	m.callersOfCalled = true
 	m.callersOfCalls++
@@ -213,18 +229,7 @@ func (m *mockLargefuncAnalyzer) FindPage(ctx context.Context, opts largefunc.Opt
 		}
 		items = filtered
 	}
-	hasMore := false
-	if opts.Page.Offset > 0 {
-		if opts.Page.Offset >= len(items) {
-			items = []model.Node{}
-		} else {
-			items = items[opts.Page.Offset:]
-		}
-	}
-	if opts.Page.Limit > 0 && len(items) > opts.Page.Limit {
-		items = items[:opts.Page.Limit]
-		hasMore = true
-	}
+	items, hasMore := applyPagedResult(items, opts.Page)
 	return largefunc.Result{Items: items, Pagination: paging.BuildPage(opts.Page, len(items), hasMore)}, m.err
 }
 
@@ -254,18 +259,7 @@ func (m *mockDeadcodeAnalyzer) FindPage(ctx context.Context, opts deadcode.Optio
 		}
 		items = filtered
 	}
-	hasMore := false
-	if opts.Page.Offset > 0 {
-		if opts.Page.Offset >= len(items) {
-			items = []model.Node{}
-		} else {
-			items = items[opts.Page.Offset:]
-		}
-	}
-	if opts.Page.Limit > 0 && len(items) > opts.Page.Limit {
-		items = items[:opts.Page.Limit]
-		hasMore = true
-	}
+	items, hasMore := applyPagedResult(items, opts.Page)
 	return deadcode.Result{Items: items, Pagination: paging.BuildPage(opts.Page, len(items), hasMore)}, m.err
 }
 
@@ -286,18 +280,7 @@ func (m *mockFallbackAnalyzer) FindSuspectsPage(ctx context.Context, opts fallba
 	m.findPageCalled = true
 	m.findPageOpts = opts
 	items := m.result
-	hasMore := false
-	if opts.Page.Offset > 0 {
-		if opts.Page.Offset >= len(items) {
-			items = []fallbackanalysis.SuspectEdge{}
-		} else {
-			items = items[opts.Page.Offset:]
-		}
-	}
-	if opts.Page.Limit > 0 && len(items) > opts.Page.Limit {
-		items = items[:opts.Page.Limit]
-		hasMore = true
-	}
+	items, hasMore := applyPagedResult(items, opts.Page)
 	return fallbackanalysis.Result{Items: items, Pagination: paging.BuildPage(opts.Page, len(items), hasMore)}, m.err
 }
 

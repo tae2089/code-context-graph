@@ -440,7 +440,7 @@ func TestHandler_GetAnnotation_ExposesDocTagTypeField(t *testing.T) {
 
 func TestDeps_NewInterfaces(t *testing.T) {
 	// The existing six tools must still work even when the new interface fields are nil.
-	deps := setupTestDeps(t)
+	deps := setupTestDepsMinimal(t)
 	ctx := context.Background()
 
 	// Set up the data required by the existing tools.
@@ -1482,7 +1482,7 @@ func TestBuildOrUpdateGraph_PassesExplicitPolicyToResolverAndRecordsRun(t *testi
 		"path":               dir,
 		"full_rebuild":       true,
 		"postprocess":        "full",
-		"postprocess_policy": "fail_closed",
+		"postprocess_policy": "degraded",
 	})
 	if result.IsError {
 		t.Fatalf("expected explicit degraded resolver result not to error, got: %s", getTextContent(result))
@@ -1490,8 +1490,8 @@ func TestBuildOrUpdateGraph_PassesExplicitPolicyToResolverAndRecordsRun(t *testi
 	if got := len(stub.resolvedInputs); got != 1 {
 		t.Fatalf("resolve calls = %d, want 1", got)
 	}
-	if stub.resolvedInputs[0].ExplicitPolicy != "fail_closed" {
-		t.Fatalf("explicit policy = %q, want fail_closed", stub.resolvedInputs[0].ExplicitPolicy)
+	if stub.resolvedInputs[0].ExplicitPolicy != "degraded" {
+		t.Fatalf("explicit policy = %q, want degraded", stub.resolvedInputs[0].ExplicitPolicy)
 	}
 	if got := len(stub.recordedRuns); got != 1 {
 		t.Fatalf("recorded runs = %d, want 1", got)
@@ -1777,7 +1777,7 @@ func TestRunPostprocess_PassesExplicitPolicyToResolverAndRecordsRun(t *testing.T
 		"communities":        false,
 		"fts":                true,
 		"flows":              false,
-		"postprocess_policy": "fail_closed",
+		"postprocess_policy": "degraded",
 	})
 	if result.IsError {
 		t.Fatalf("expected explicit degraded resolver result not to error, got: %s", getTextContent(result))
@@ -1785,8 +1785,8 @@ func TestRunPostprocess_PassesExplicitPolicyToResolverAndRecordsRun(t *testing.T
 	if got := len(stub.resolvedInputs); got != 1 {
 		t.Fatalf("resolve calls = %d, want 1", got)
 	}
-	if stub.resolvedInputs[0].ExplicitPolicy != "fail_closed" {
-		t.Fatalf("explicit policy = %q, want fail_closed", stub.resolvedInputs[0].ExplicitPolicy)
+	if stub.resolvedInputs[0].ExplicitPolicy != "degraded" {
+		t.Fatalf("explicit policy = %q, want degraded", stub.resolvedInputs[0].ExplicitPolicy)
 	}
 	if got := len(stub.recordedRuns); got != 1 {
 		t.Fatalf("recorded runs = %d, want 1", got)
@@ -2725,6 +2725,7 @@ func TestDetectChanges_RejectsRepoRootOutsideConfiguredRoot(t *testing.T) {
 	deps := setupTestDeps(t)
 	deps.ChangesGitClient = &mockGitClient{}
 	deps.RepoRoot = t.TempDir()
+	deps.WorkspaceRoot = t.TempDir()
 	outside := t.TempDir()
 
 	result := callTool(t, deps, "detect_changes", map[string]any{"repo_root": outside})

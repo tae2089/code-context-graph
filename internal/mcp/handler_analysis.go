@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/trace"
@@ -25,6 +26,83 @@ const (
 	defaultImpactMaxNodes = 200
 	defaultTraceMaxNodes  = 200
 )
+
+type impactRadiusMetadata struct {
+	Truncated     bool `json:"truncated"`
+	MaxDepth      int  `json:"max_depth"`
+	MaxNodes      int  `json:"max_nodes"`
+	ReturnedNodes int  `json:"returned_nodes"`
+}
+
+type impactRadiusResponse struct {
+	Nodes    []map[string]any     `json:"nodes"`
+	Metadata impactRadiusMetadata `json:"metadata"`
+}
+
+type traceFlowMember struct {
+	NodeID  uint `json:"node_id"`
+	Ordinal int  `json:"ordinal"`
+}
+
+type traceFlowMetadata struct {
+	Truncated             bool `json:"truncated"`
+	MaxNodes              int  `json:"max_nodes"`
+	ReturnedNodes         int  `json:"returned_nodes"`
+	ContainsFallbackCalls bool `json:"contains_fallback_calls"`
+	FallbackEdgesCount    int  `json:"fallback_edges_count"`
+}
+
+type traceFlowResponse struct {
+	Name     string            `json:"name"`
+	Members  []traceFlowMember `json:"members"`
+	Metadata traceFlowMetadata `json:"metadata"`
+	Evidence map[string]any    `json:"evidence"`
+}
+
+type detectChangesEntry struct {
+	Name      string  `json:"name"`
+	File      string  `json:"file"`
+	HunkCount int     `json:"hunk_count"`
+	RiskScore float64 `json:"risk_score"`
+}
+
+type detectChangesResponse struct {
+	Base       string               `json:"base"`
+	Entries    []detectChangesEntry `json:"entries"`
+	Items      []detectChangesEntry `json:"items"`
+	Pagination paging.Page          `json:"pagination"`
+}
+
+type affectedFlowEntry struct {
+	ID            uint   `json:"id"`
+	Name          string `json:"name"`
+	AffectedNodes []uint `json:"affected_nodes"`
+}
+
+type affectedFlowsResponse struct {
+	Base          string              `json:"base"`
+	AffectedFlows []affectedFlowEntry `json:"affected_flows"`
+	Items         []affectedFlowEntry `json:"items"`
+	Count         int                 `json:"count"`
+	Pagination    paging.Page         `json:"pagination"`
+}
+
+type deadCodeItem struct {
+	Name      string         `json:"name"`
+	Kind      model.NodeKind `json:"kind"`
+	File      string         `json:"file"`
+	StartLine int            `json:"start_line"`
+}
+
+type suspectFallbackEdgeItem struct {
+	EdgeKind    model.EdgeKind `json:"edge_kind"`
+	Fingerprint string         `json:"fingerprint"`
+	Source      string         `json:"source"`
+	SourceFile  string         `json:"source_file"`
+	Target      string         `json:"target"`
+	TargetFile  string         `json:"target_file"`
+	Suspect     bool           `json:"suspect"`
+}
 
 // getImpactRadius returns nodes reachable within a bounded dependency radius.
 // @intent explore the blast radius of a node change so reviewers can prioritize follow-up checks.
@@ -94,13 +172,13 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 		for i, n := range nodes {
 			impactResult[i] = nodeToBasicMap(n)
 		}
-		result, err := marshalJSON(map[string]any{
-			"nodes": impactResult,
-			"metadata": map[string]any{
-				"truncated":      truncated,
-				"max_depth":      maxDepth,
-				"max_nodes":      maxNodes,
-				"returned_nodes": len(impactResult),
+		result, err := marshalJSON(impactRadiusResponse{
+			Nodes: impactResult,
+			Metadata: impactRadiusMetadata{
+				Truncated:     truncated,
+				MaxDepth:      maxDepth,
+				MaxNodes:      maxNodes,
+				ReturnedNodes: len(impactResult),
 			},
 		})
 		if err != nil {
@@ -178,27 +256,23 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 
 		log.InfoContext(ctx, "trace_flow completed", append(obs.TraceLogArgs(ctx), "qualified_name", qn, "members", len(flow.Members))...)
 
-		members := make([]map[string]any, len(flow.Members))
+		members := make([]traceFlowMember, len(flow.Members))
 		for i, m := range flow.Members {
-			members[i] = map[string]any{
-				"node_id": m.NodeID,
-				"ordinal": m.Ordinal,
-			}
+			members[i] = traceFlowMember{NodeID: m.NodeID, Ordinal: m.Ordinal}
 		}
 
-		data := map[string]any{
-			"name":    flow.Name,
-			"members": members,
-			"metadata": map[string]any{
-				"truncated":               truncated,
-				"max_nodes":               maxNodes,
-				"returned_nodes":          len(members),
-				"contains_fallback_calls": containsFallbackCalls,
-				"fallback_edges_count":    fallbackEdgesCount,
+		result, err := marshalJSON(traceFlowResponse{
+			Name:    flow.Name,
+			Members: members,
+			Metadata: traceFlowMetadata{
+				Truncated:             truncated,
+				MaxNodes:              maxNodes,
+				ReturnedNodes:         len(members),
+				ContainsFallbackCalls: containsFallbackCalls,
+				FallbackEdgesCount:    fallbackEdgesCount,
 			},
-			"evidence": h.workspaceEvidenceFromContext(ctx),
-		}
-		result, err := marshalJSON(data)
+			Evidence: h.workspaceEvidenceFromContext(ctx),
+		})
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}
@@ -255,22 +329,17 @@ func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolReques
 			return "", trace.Wrap(err, "changes analyze error")
 		}
 
-		entries := make([]map[string]any, len(page.Items))
+		entries := make([]detectChangesEntry, len(page.Items))
 		for i, r := range page.Items {
-			entries[i] = map[string]any{
-				"name":       r.Node.QualifiedName,
-				"file":       r.Node.FilePath,
-				"hunk_count": r.HunkCount,
-				"risk_score": r.RiskScore,
+			entries[i] = detectChangesEntry{
+				Name:      r.Node.QualifiedName,
+				File:      r.Node.FilePath,
+				HunkCount: r.HunkCount,
+				RiskScore: r.RiskScore,
 			}
 		}
 
-		resp := map[string]any{
-			"base":       base,
-			"entries":    entries,
-			"items":      entries,
-			"pagination": page.Pagination,
-		}
+		resp := detectChangesResponse{Base: base, Entries: entries, Items: entries, Pagination: page.Pagination}
 		result, err := marshalJSON(resp)
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
@@ -346,12 +415,12 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 
 		emptyResp := func() (string, error) {
 			page := paging.BuildPage(pageReq, 0, false)
-			result, err := marshalJSON(map[string]any{
-				"base":           base,
-				"affected_flows": []any{},
-				"items":          []any{},
-				"count":          0,
-				"pagination":     page,
+			result, err := marshalJSON(affectedFlowsResponse{
+				Base:          base,
+				AffectedFlows: []affectedFlowEntry{},
+				Items:         []affectedFlowEntry{},
+				Count:         0,
+				Pagination:    page,
 			})
 			if err != nil {
 				return "", trace.Wrap(err, "marshal result")
@@ -401,22 +470,18 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 			flowList = flowList[:pageReq.Limit]
 		}
 
-		affected := make([]map[string]any, len(flowList))
+		affected := make([]affectedFlowEntry, len(flowList))
 		for i, f := range flowList {
-			affected[i] = map[string]any{
-				"id":             f.ID,
-				"name":           f.Name,
-				"affected_nodes": flowNodes[f.ID],
-			}
+			affected[i] = affectedFlowEntry{ID: f.ID, Name: f.Name, AffectedNodes: flowNodes[f.ID]}
 		}
 
 		page := paging.BuildPage(pageReq, len(affected), hasMore)
-		result, err := marshalJSON(map[string]any{
-			"base":           base,
-			"affected_flows": affected,
-			"items":          affected,
-			"count":          len(affected),
-			"pagination":     page,
+		result, err := marshalJSON(affectedFlowsResponse{
+			Base:          base,
+			AffectedFlows: affected,
+			Items:         affected,
+			Count:         len(affected),
+			Pagination:    page,
 		})
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
@@ -462,14 +527,9 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 			return "", trace.Wrap(err, "deadcode error")
 		}
 
-		items := make([]map[string]any, len(page.Items))
+		items := make([]deadCodeItem, len(page.Items))
 		for i, n := range page.Items {
-			items[i] = map[string]any{
-				"name":       n.QualifiedName,
-				"kind":       n.Kind,
-				"file":       n.FilePath,
-				"start_line": n.StartLine,
-			}
+			items[i] = deadCodeItem{Name: n.QualifiedName, Kind: n.Kind, File: n.FilePath, StartLine: n.StartLine}
 		}
 
 		result, err := encodePagedListResponse("dead_code", items, page.Pagination)
@@ -509,16 +569,16 @@ func (h *handlers) findSuspectFallbackEdges(ctx context.Context, request mcp.Cal
 			return "", trace.Wrap(err, "fallback suspect analysis error")
 		}
 
-		items := make([]map[string]any, len(page.Items))
+		items := make([]suspectFallbackEdgeItem, len(page.Items))
 		for i, result := range page.Items {
-			items[i] = map[string]any{
-				"edge_kind":   result.Edge.Kind,
-				"fingerprint": result.Edge.Fingerprint,
-				"source":      result.Source.QualifiedName,
-				"source_file": result.Source.FilePath,
-				"target":      result.Target.QualifiedName,
-				"target_file": result.Target.FilePath,
-				"suspect":     result.Suspect,
+			items[i] = suspectFallbackEdgeItem{
+				EdgeKind:    result.Edge.Kind,
+				Fingerprint: result.Edge.Fingerprint,
+				Source:      result.Source.QualifiedName,
+				SourceFile:  result.Source.FilePath,
+				Target:      result.Target.QualifiedName,
+				TargetFile:  result.Target.FilePath,
+				Suspect:     result.Suspect,
 			}
 		}
 
@@ -578,12 +638,7 @@ func configuredAnalysisRoots(repoRoot, workspaceRoot string) []string {
 
 // @intent linear membership check for small string slices used by allowlist evaluation.
 func sliceContainsString(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, target)
 }
 
 // validatePathWithinAllowedRoots reports whether target falls inside any of the canonical allowed roots.

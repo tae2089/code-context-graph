@@ -56,6 +56,16 @@ func appendPromptTruncation(sb *strings.Builder, shown int) {
 	sb.WriteString(fmt.Sprintf("_... 일부 결과 생략 (표시: %d건)_\n", shown))
 }
 
+// @intent render a prompt list section and append a truncation marker when needed.
+func appendPromptItems[T any](sb *strings.Builder, items []T, render func(T), truncated bool) {
+	for _, item := range items {
+		render(item)
+	}
+	if truncated {
+		appendPromptTruncation(sb, len(items))
+	}
+}
+
 // @intent preserve risk ordering while collapsing repeated files into a stable coverage worklist.
 func uniqueRiskFiles(risks []changes.RiskEntry) []string {
 	filesSeen := make(map[string]bool, len(risks))
@@ -195,33 +205,29 @@ func (p *promptHandlers) reviewChanges(ctx context.Context, request mcp.GetPromp
 	var sb strings.Builder
 	sb.WriteString("## 변경사항 리스크 분석\n\n")
 
-	for _, r := range risks {
+	appendPromptItems(&sb, risks, func(r changes.RiskEntry) {
 		sb.WriteString(fmt.Sprintf("- **%s** (%s:%d-%d) — 리스크 점수: %.1f, Hunk 수: %d\n",
 			r.Node.QualifiedName, r.Node.FilePath, r.Node.StartLine, r.Node.EndLine,
 			r.RiskScore, r.HunkCount))
-	}
-	if risksPage.Pagination.HasMore {
-		appendPromptTruncation(&sb, len(risks))
-	}
+	}, risksPage.Pagination.HasMore)
 
 	sb.WriteString("\n## 테스트 커버리지 갭\n\n")
 
 	covAnalyzer := p.coverageAnalyzer()
 	files := uniqueRiskFiles(risks)
-	for i, filePath := range files {
-		if i >= coverageLimit {
-			break
-		}
+	coverageFiles := files
+	coverageTruncated := len(files) > coverageLimit
+	if coverageTruncated {
+		coverageFiles = files[:coverageLimit]
+	}
+	appendPromptItems(&sb, coverageFiles, func(filePath string) {
 		fc, err := covAnalyzer.ByFile(ctx, filePath)
 		if err != nil {
-			continue
+			return
 		}
-			sb.WriteString(fmt.Sprintf("- %s: 테스트 %d/%d (%.0f%%)\n",
-				fc.FilePath, fc.Tested, fc.Total, fc.Ratio*100))
-	}
-	if len(files) > coverageLimit {
-		appendPromptTruncation(&sb, min(len(files), coverageLimit))
-	}
+		sb.WriteString(fmt.Sprintf("- %s: 테스트 %d/%d (%.0f%%)\n",
+			fc.FilePath, fc.Tested, fc.Total, fc.Ratio*100))
+	}, coverageTruncated)
 
 	return promptResult(sb.String()), nil
 }
@@ -253,7 +259,7 @@ func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPro
 	if communityTruncated {
 		communities = communities[:sectionLimit]
 	}
-	for _, c := range communities {
+	appendPromptItems(&sb, communities, func(c model.Community) {
 		var memberCount int64
 		memberQ := p.deps.DB.WithContext(ctx).Model(&model.CommunityMembership{}).
 			Joins("JOIN communities ON communities.id = community_memberships.community_id").
@@ -263,10 +269,7 @@ func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPro
 			log.Warn("count community members failed", "community", c.ID, trace.SlogError(err))
 		}
 		sb.WriteString(fmt.Sprintf("- **%s** (전략: %s, 멤버: %d)\n", c.Label, c.Strategy, memberCount))
-	}
-	if communityTruncated {
-		appendPromptTruncation(&sb, len(communities))
-	}
+	}, communityTruncated)
 
 	coupAnalyzer := p.couplingAnalyzer()
 	pairsPage, err := coupAnalyzer.AnalyzePage(ctx, promptPageRequest(sectionLimit))
@@ -277,13 +280,10 @@ func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPro
 
 	if len(pairs) > 0 {
 		sb.WriteString("\n### 모듈 간 결합도\n\n")
-		for _, cp := range pairs {
+		appendPromptItems(&sb, pairs, func(cp coupling.CouplingPair) {
 			sb.WriteString(fmt.Sprintf("- %s → %s: 결합도 %.2f (%d edges)\n",
 				cp.FromCommunity, cp.ToCommunity, cp.Strength, cp.EdgeCount))
-		}
-		if pairsPage.Pagination.HasMore {
-			appendPromptTruncation(&sb, len(pairs))
-		}
+		}, pairsPage.Pagination.HasMore)
 	}
 
 	return promptResult(sb.String()), nil
@@ -351,13 +351,10 @@ func (p *promptHandlers) debugIssue(ctx context.Context, request mcp.GetPromptRe
 		searchTruncated = true
 	}
 
-	for _, n := range nodes {
+	appendPromptItems(&sb, nodes, func(n model.Node) {
 		sb.WriteString(fmt.Sprintf("- **%s** (%s, %s:%d-%d)\n",
 			n.QualifiedName, n.Kind, n.FilePath, n.StartLine, n.EndLine))
-	}
-	if searchTruncated {
-		appendPromptTruncation(&sb, len(nodes))
-	}
+	}, searchTruncated)
 
 	querySvc := p.queryService()
 	sb.WriteString("\n## 호출 그래프\n\n")
@@ -476,14 +473,11 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 	largeFuncs := largeFuncsPage.Items
 	if len(largeFuncs) > 0 {
 		sb.WriteString("\n### 대형 함수 (50줄 초과)\n\n")
-		for _, f := range largeFuncs {
+		appendPromptItems(&sb, largeFuncs, func(f model.Node) {
 			lines := f.EndLine - f.StartLine + 1
-				sb.WriteString(fmt.Sprintf("- %s (%s:%d-%d, %d줄)\n",
-					f.QualifiedName, f.FilePath, f.StartLine, f.EndLine, lines))
-		}
-		if largeFuncsPage.Pagination.HasMore {
-			appendPromptTruncation(&sb, len(largeFuncs))
-		}
+			sb.WriteString(fmt.Sprintf("- %s (%s:%d-%d, %d줄)\n",
+				f.QualifiedName, f.FilePath, f.StartLine, f.EndLine, lines))
+		}, largeFuncsPage.Pagination.HasMore)
 	}
 
 	return promptResult(sb.String()), nil
@@ -532,32 +526,31 @@ func (p *promptHandlers) preMergeCheck(ctx context.Context, request mcp.GetPromp
 	if len(risks) == 0 {
 		sb.WriteString("변경사항이 없습니다.\n")
 	} else {
-		for _, r := range risks {
+		appendPromptItems(&sb, risks, func(r changes.RiskEntry) {
 			sb.WriteString(fmt.Sprintf("- **%s** — 리스크 점수: %.1f\n", r.Node.QualifiedName, r.RiskScore))
-		}
-		if risksPage.Pagination.HasMore {
-			appendPromptTruncation(&sb, len(risks))
-		}
+		}, risksPage.Pagination.HasMore)
 	}
 
 	sb.WriteString("\n### 커버리지\n\n")
 	covAnalyzer2 := p.coverageAnalyzer()
 	files := uniqueRiskFiles(risks)
-	for i, filePath := range files {
-		if i >= sectionLimit {
-			break
-		}
+	coverageFiles := files
+	coverageTruncated := len(files) > sectionLimit
+	if coverageTruncated {
+		coverageFiles = files[:sectionLimit]
+	}
+	appendPromptItems(&sb, coverageFiles, func(filePath string) {
 		fc, err := covAnalyzer2.ByFile(ctx, filePath)
 		if err != nil {
-			continue
+			return
 		}
-			sb.WriteString(fmt.Sprintf("- %s: %d/%d (%.0f%%)\n",
-				fc.FilePath, fc.Tested, fc.Total, fc.Ratio*100))
-	}
+		sb.WriteString(fmt.Sprintf("- %s: %d/%d (%.0f%%)\n",
+			fc.FilePath, fc.Tested, fc.Total, fc.Ratio*100))
+	}, false)
 	if len(risks) == 0 {
 		sb.WriteString("변경사항이 없습니다.\n")
-	} else if len(files) > sectionLimit {
-		appendPromptTruncation(&sb, min(len(files), sectionLimit))
+	} else if coverageTruncated {
+		appendPromptTruncation(&sb, len(coverageFiles))
 	}
 
 	sb.WriteString("\n### 미사용 코드\n\n")
@@ -568,12 +561,9 @@ func (p *promptHandlers) preMergeCheck(ctx context.Context, request mcp.GetPromp
 	}
 	deadNodes := deadPage.Items
 	if len(deadNodes) > 0 {
-		for _, n := range deadNodes {
+		appendPromptItems(&sb, deadNodes, func(n model.Node) {
 			sb.WriteString(fmt.Sprintf("- 미사용: %s (%s)\n", n.QualifiedName, n.FilePath))
-		}
-		if deadPage.Pagination.HasMore {
-			appendPromptTruncation(&sb, len(deadNodes))
-		}
+		}, deadPage.Pagination.HasMore)
 	} else {
 		sb.WriteString("미사용 코드 없음\n")
 	}
@@ -587,13 +577,10 @@ func (p *promptHandlers) preMergeCheck(ctx context.Context, request mcp.GetPromp
 	}
 	largeFuncs = largeFuncsPage.Items
 	if len(largeFuncs) > 0 {
-		for _, f := range largeFuncs {
+		appendPromptItems(&sb, largeFuncs, func(f model.Node) {
 			lines := f.EndLine - f.StartLine + 1
 			sb.WriteString(fmt.Sprintf("- %s (%d줄)\n", f.QualifiedName, lines))
-		}
-		if largeFuncsPage.Pagination.HasMore {
-			appendPromptTruncation(&sb, len(largeFuncs))
-		}
+		}, largeFuncsPage.Pagination.HasMore)
 	} else {
 		sb.WriteString("대형 함수 없음\n")
 	}

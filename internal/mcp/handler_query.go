@@ -24,6 +24,83 @@ const (
 	maxQueryGraphLimit     = 500
 )
 
+type largeFunctionItem struct {
+	Name  string `json:"name"`
+	File  string `json:"file"`
+	Lines int    `json:"lines"`
+}
+
+type annotationTagItem struct {
+	Kind    model.TagKind `json:"kind"`
+	Type    string        `json:"type"`
+	Name    string        `json:"name"`
+	Value   string        `json:"value"`
+	Ordinal int           `json:"ordinal"`
+}
+
+type annotationResponse struct {
+	Summary string              `json:"summary"`
+	Context string              `json:"context"`
+	Tags    []annotationTagItem `json:"tags"`
+}
+
+type queryGraphEvidence struct {
+	FilePath    string `json:"file_path"`
+	Line        int    `json:"line"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+type queryGraphResultItem struct {
+	ID            uint                `json:"id"`
+	QualifiedName string              `json:"qualified_name"`
+	Kind          model.NodeKind      `json:"kind"`
+	Name          string              `json:"name"`
+	FilePath      string              `json:"file_path"`
+	Confidence    string              `json:"confidence,omitempty"`
+	EdgeKind      string              `json:"edge_kind,omitempty"`
+	Evidence      *queryGraphEvidence `json:"evidence,omitempty"`
+}
+
+type queryGraphMetadata struct {
+	Limit                int   `json:"limit"`
+	Offset               int   `json:"offset"`
+	ReturnedCount        int   `json:"returned_count"`
+	TotalCount           int   `json:"total_count"`
+	Truncated            bool  `json:"truncated"`
+	NextOffset           *int  `json:"next_offset,omitempty"`
+	StrictCount          *int  `json:"strict_count,omitempty"`
+	TentativeCount       *int  `json:"tentative_count,omitempty"`
+	IncludeFallbackCalls *bool `json:"include_fallback_calls,omitempty"`
+}
+
+type queryGraphResponse struct {
+	Pattern  string               `json:"pattern"`
+	Target   string               `json:"target"`
+	Results  []queryGraphResultItem `json:"results"`
+	Metadata queryGraphMetadata   `json:"metadata"`
+	Evidence map[string]any       `json:"evidence"`
+}
+
+type searchResultItem struct {
+	ID            uint           `json:"id"`
+	QualifiedName string         `json:"qualified_name"`
+	Kind          model.NodeKind `json:"kind"`
+	Name          string         `json:"name"`
+	FilePath      string         `json:"file_path"`
+}
+
+type nodeResponse struct {
+	ID            uint           `json:"id"`
+	QualifiedName string         `json:"qualified_name"`
+	Kind          model.NodeKind `json:"kind"`
+	Name          string         `json:"name"`
+	FilePath      string         `json:"file_path"`
+	StartLine     int            `json:"start_line"`
+	EndLine       int            `json:"end_line"`
+	Language      string         `json:"language"`
+	Evidence      map[string]any `json:"evidence"`
+}
+
 // getNode returns detailed metadata for a graph node by qualified name.
 // @intent look up a node by qualified name so callers can retrieve its core identity and location metadata.
 // @param request qualified_name is the fully qualified node name to resolve.
@@ -52,16 +129,16 @@ func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*m
 			return "", nodeNotFoundErr(qn)
 		}
 
-		data := map[string]any{
-			"id":             node.ID,
-			"qualified_name": node.QualifiedName,
-			"kind":           node.Kind,
-			"name":           node.Name,
-			"file_path":      node.FilePath,
-			"start_line":     node.StartLine,
-			"end_line":       node.EndLine,
-			"language":       node.Language,
-			"evidence":       h.workspaceEvidenceFromContext(ctx),
+		data := nodeResponse{
+			ID:            node.ID,
+			QualifiedName: node.QualifiedName,
+			Kind:          node.Kind,
+			Name:          node.Name,
+			FilePath:      node.FilePath,
+			StartLine:     node.StartLine,
+			EndLine:       node.EndLine,
+			Language:      node.Language,
+			Evidence:      h.workspaceEvidenceFromContext(ctx),
 		}
 		result, err := marshalJSON(data)
 		if err != nil {
@@ -126,9 +203,9 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 
 		log.Info("search completed", "query", query, "result_count", len(nodes))
 
-		searchResult := make([]map[string]any, len(nodes))
+		searchResult := make([]searchResultItem, len(nodes))
 		for i, n := range nodes {
-			searchResult[i] = nodeToBasicMap(n)
+			searchResult[i] = searchResultItem{ID: n.ID, QualifiedName: n.QualifiedName, Kind: n.Kind, Name: n.Name, FilePath: n.FilePath}
 		}
 		result, err := marshalJSON(searchResult)
 		if err != nil {
@@ -188,22 +265,12 @@ func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolReques
 			return "", newToolResultErr(fmt.Sprintf("no annotation for %q", qn))
 		}
 
-		tags := make([]map[string]any, len(ann.Tags))
+		tags := make([]annotationTagItem, len(ann.Tags))
 		for i, tag := range ann.Tags {
-			tags[i] = map[string]any{
-				"kind":    tag.Kind,
-				"type":    tag.Type,
-				"name":    tag.Name,
-				"value":   tag.Value,
-				"ordinal": tag.Ordinal,
-			}
+			tags[i] = annotationTagItem{Kind: tag.Kind, Type: tag.Type, Name: tag.Name, Value: tag.Value, Ordinal: tag.Ordinal}
 		}
 
-		data := map[string]any{
-			"summary": ann.Summary,
-			"context": ann.Context,
-			"tags":    tags,
-		}
+		data := annotationResponse{Summary: ann.Summary, Context: ann.Context, Tags: tags}
 		result, err := marshalJSON(data)
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
@@ -396,52 +463,36 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 			nextOffset = offset + len(nodes)
 		}
 
-		qgResults := make([]map[string]any, len(nodes))
+		qgResults := make([]queryGraphResultItem, len(nodes))
 		for i, n := range nodes {
-			item := nodeToBasicMap(n)
+			item := queryGraphResultItem{ID: n.ID, QualifiedName: n.QualifiedName, Kind: n.Kind, Name: n.Name, FilePath: n.FilePath}
 			if pattern == "callers_of" || pattern == "callees_of" {
 				edge, hasEvidence := neighborEdgeByNodeID[n.ID]
 				if hasEvidence && edge.Kind == model.EdgeKindCalls {
-					item["confidence"] = "strict"
-					item["edge_kind"] = string(model.EdgeKindCalls)
+					item.Confidence = "strict"
+					item.EdgeKind = string(model.EdgeKindCalls)
 				} else {
-					item["confidence"] = "tentative"
-					item["edge_kind"] = string(model.EdgeKindFallbackCalls)
+					item.Confidence = "tentative"
+					item.EdgeKind = string(model.EdgeKindFallbackCalls)
 				}
 				if hasEvidence {
-					item["evidence"] = map[string]any{
-						"file_path":   edge.FilePath,
-						"line":        edge.Line,
-						"fingerprint": edge.Fingerprint,
-					}
+					item.Evidence = &queryGraphEvidence{FilePath: edge.FilePath, Line: edge.Line, Fingerprint: edge.Fingerprint}
 				}
 			}
 			qgResults[i] = item
 		}
 
-		metadata := map[string]any{
-			"limit":          limit,
-			"offset":         offset,
-			"returned_count": len(qgResults),
-			"total_count":    totalCount,
-			"truncated":      truncated,
-		}
+		metadata := queryGraphMetadata{Limit: limit, Offset: offset, ReturnedCount: len(qgResults), TotalCount: totalCount, Truncated: truncated}
 		if truncated {
-			metadata["next_offset"] = nextOffset
-		}
-		resp := map[string]any{
-			"pattern":  pattern,
-			"target":   target,
-			"results":  qgResults,
-			"metadata": metadata,
-			"evidence": h.workspaceEvidenceFromContext(ctx),
+			metadata.NextOffset = &nextOffset
 		}
 		if pattern == "callers_of" || pattern == "callees_of" {
-			metadata["strict_count"] = strictTotal
-			metadata["tentative_count"] = totalCount - strictTotal
-			metadata["include_fallback_calls"] = includeFallbackCalls
+			tentativeCount := totalCount - strictTotal
+			metadata.StrictCount = &strictTotal
+			metadata.TentativeCount = &tentativeCount
+			metadata.IncludeFallbackCalls = &includeFallbackCalls
 		}
-		result, err := marshalJSON(resp)
+		result, err := marshalJSON(queryGraphResponse{Pattern: pattern, Target: target, Results: qgResults, Metadata: metadata, Evidence: h.workspaceEvidenceFromContext(ctx)})
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}
@@ -633,13 +684,9 @@ func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolR
 			return "", trace.Wrap(err, "largefunc error")
 		}
 
-		items := make([]map[string]any, len(page.Items))
+		items := make([]largeFunctionItem, len(page.Items))
 		for i, n := range page.Items {
-			items[i] = map[string]any{
-				"name":  n.QualifiedName,
-				"file":  n.FilePath,
-				"lines": n.EndLine - n.StartLine + 1,
-			}
+			items[i] = largeFunctionItem{Name: n.QualifiedName, File: n.FilePath, Lines: n.EndLine - n.StartLine + 1}
 		}
 
 		result, err := encodePagedListResponse("results", items, page.Pagination)

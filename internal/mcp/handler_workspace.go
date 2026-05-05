@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
@@ -16,13 +15,37 @@ import (
 	wsvc "github.com/tae2089/code-context-graph/internal/workspace"
 )
 
-// Historical upload size limits, retained as package constants so existing tests can reference them.
-// @intent keep MCP-side aliases for the workspace upload limits so behavior and test diagnostics remain stable.
-const (
-	maxUploadSizeBytes         = wsvc.DefaultMaxFileBytes
-	maxUploadFilesRequestBytes = wsvc.DefaultMaxRequestBytes
-	maxUploadFilesTotalBytes   = wsvc.DefaultMaxTotalDecodedBytes
-)
+type workspaceFileResult struct {
+	Namespace string `json:"namespace"`
+	Workspace string `json:"workspace"`
+	FilePath  string `json:"file_path"`
+	Size      int    `json:"size,omitempty"`
+}
+
+type workspaceUploadResponse struct {
+	Status    string              `json:"status"`
+	Namespace string              `json:"namespace,omitempty"`
+	Workspace string              `json:"workspace,omitempty"`
+	FilePath  string              `json:"file_path,omitempty"`
+	Size      int                 `json:"size,omitempty"`
+	Uploaded  int                 `json:"uploaded,omitempty"`
+	Files     []workspaceFileResult `json:"files,omitempty"`
+}
+
+type workspaceDeleteResponse struct {
+	Status    string `json:"status"`
+	Namespace string `json:"namespace"`
+	Workspace string `json:"workspace"`
+	FilePath  string `json:"file_path,omitempty"`
+}
+
+type workspaceListResponse struct {
+	Namespaces []string    `json:"namespaces"`
+	Files      []string    `json:"files"`
+	Items      []string    `json:"items"`
+	Count      int         `json:"count"`
+	Pagination paging.Page `json:"pagination"`
+}
 
 // workspaceRoot returns the filesystem root used for workspace storage.
 // @intent ensure all file upload tools use the same workspace root.
@@ -57,18 +80,6 @@ func validateWorkspacePath(workspace, filePath string) error {
 	return wsvc.ValidatePath(workspace, filePath)
 }
 
-// @intent canonicalize and create the workspace root before file operations rely on it.
-// @sideEffect creates the workspace root directory when it does not yet exist.
-func (h *handlers) safeWorkspaceRoot() (string, error) {
-	return h.workspaceService().SafeRoot()
-}
-
-// @intent compose filesystem paths without repeating join boilerplate in workspace helpers.
-func safeJoin(base string, parts ...string) string {
-	all := append([]string{base}, parts...)
-	return filepath.Join(all...)
-}
-
 // @intent reject symlink traversal anywhere along a workspace path before file operations touch the filesystem.
 func ensureNoSymlinkInPath(root, relPath string, allowMissingLeaf bool) (string, error) {
 	return wsvc.EnsureNoSymlinkInPath(root, relPath, allowMissingLeaf)
@@ -77,12 +88,6 @@ func ensureNoSymlinkInPath(root, relPath string, allowMissingLeaf bool) (string,
 // @intent resolve a workspace-relative path under the trusted root after validation and symlink checks.
 func (h *handlers) resolveWorkspacePath(workspace, filePath string, allowMissingLeaf bool) (string, error) {
 	return h.workspaceService().ResolvePath(workspace, filePath, allowMissingLeaf)
-}
-
-// @intent write workspace files atomically so partial writes are never observed as final state.
-// @sideEffect creates a temp file and renames it into place.
-func safeWriteFile(path string, data []byte, perm os.FileMode) error {
-	return wsvc.SafeWrite(path, data, perm)
 }
 
 // @intent map workspace.Service errors to MCP user-error responses with the historical message format.
@@ -126,12 +131,12 @@ func (h *handlers) uploadFile(ctx context.Context, request mcp.CallToolRequest) 
 		return workspaceErrorResult(err, ""), nil
 	}
 
-	jsonStr, _ := marshalJSON(map[string]any{
-		"status":    "ok",
-		"namespace": res.Namespace,
-		"workspace": res.Namespace,
-		"file_path": res.FilePath,
-		"size":      res.Size,
+	jsonStr, _ := marshalJSON(workspaceUploadResponse{
+		Status:    "ok",
+		Namespace: res.Namespace,
+		Workspace: res.Namespace,
+		FilePath:  res.FilePath,
+		Size:      res.Size,
 	})
 	return mcp.NewToolResultText(jsonStr), nil
 }
@@ -170,11 +175,11 @@ func (h *handlers) listWorkspaces(ctx context.Context, request mcp.CallToolReque
 		hasMore = true
 	}
 
-	jsonStr, _ := marshalJSON(map[string]any{
-		"namespaces": workspaces,
-		"items":      workspaces,
-		"count":      len(workspaces),
-		"pagination": paging.BuildPage(pageReq, len(workspaces), hasMore),
+	jsonStr, _ := marshalJSON(workspaceListResponse{
+		Namespaces: workspaces,
+		Items:      workspaces,
+		Count:      len(workspaces),
+		Pagination: paging.BuildPage(pageReq, len(workspaces), hasMore),
 	})
 	return mcp.NewToolResultText(jsonStr), nil
 }
@@ -206,11 +211,11 @@ func (h *handlers) listFiles(ctx context.Context, request mcp.CallToolRequest) (
 	files, err := h.workspaceService().ListFiles(workspace)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			jsonStr, _ := marshalJSON(map[string]any{
-				"files":      []string{},
-				"items":      []string{},
-				"count":      0,
-				"pagination": paging.BuildPage(pageReq, 0, false),
+			jsonStr, _ := marshalJSON(workspaceListResponse{
+				Files:      []string{},
+				Items:      []string{},
+				Count:      0,
+				Pagination: paging.BuildPage(pageReq, 0, false),
 			})
 			return mcp.NewToolResultText(jsonStr), nil
 		}
@@ -228,11 +233,11 @@ func (h *handlers) listFiles(ctx context.Context, request mcp.CallToolRequest) (
 		hasMore = true
 	}
 
-	jsonStr, _ := marshalJSON(map[string]any{
-		"files":      files,
-		"items":      files,
-		"count":      len(files),
-		"pagination": paging.BuildPage(pageReq, len(files), hasMore),
+	jsonStr, _ := marshalJSON(workspaceListResponse{
+		Files:      files,
+		Items:      files,
+		Count:      len(files),
+		Pagination: paging.BuildPage(pageReq, len(files), hasMore),
 	})
 	return mcp.NewToolResultText(jsonStr), nil
 }
@@ -257,11 +262,11 @@ func (h *handlers) deleteFile(ctx context.Context, request mcp.CallToolRequest) 
 		return workspaceErrorResult(err, ""), nil
 	}
 
-	jsonStr, _ := marshalJSON(map[string]any{
-		"status":    "deleted",
-		"namespace": workspace,
-		"workspace": workspace,
-		"file_path": filePath,
+	jsonStr, _ := marshalJSON(workspaceDeleteResponse{
+		Status:    "deleted",
+		Namespace: workspace,
+		Workspace: workspace,
+		FilePath:  filePath,
 	})
 	return mcp.NewToolResultText(jsonStr), nil
 }
@@ -291,20 +296,20 @@ func (h *handlers) uploadFiles(ctx context.Context, request mcp.CallToolRequest)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	files := make([]map[string]any, 0, len(results))
+	files := make([]workspaceFileResult, 0, len(results))
 	for _, r := range results {
-		files = append(files, map[string]any{
-			"namespace": r.Namespace,
-			"workspace": r.Namespace,
-			"file_path": r.FilePath,
-			"size":      r.Size,
+		files = append(files, workspaceFileResult{
+			Namespace: r.Namespace,
+			Workspace: r.Namespace,
+			FilePath:  r.FilePath,
+			Size:      r.Size,
 		})
 	}
 
-	jsonStr, _ := marshalJSON(map[string]any{
-		"status":   "ok",
-		"uploaded": len(files),
-		"files":    files,
+	jsonStr, _ := marshalJSON(workspaceUploadResponse{
+		Status:   "ok",
+		Uploaded: len(files),
+		Files:    files,
 	})
 	return mcp.NewToolResultText(jsonStr), nil
 }
@@ -348,10 +353,10 @@ func (h *handlers) deleteWorkspace(ctx context.Context, request mcp.CallToolRequ
 		h.cache.Flush()
 	}
 
-	jsonStr, _ := marshalJSON(map[string]any{
-		"status":    "deleted",
-		"namespace": workspace,
-		"workspace": workspace,
+	jsonStr, _ := marshalJSON(workspaceDeleteResponse{
+		Status:    "deleted",
+		Namespace: workspace,
+		Workspace: workspace,
 	})
 	return mcp.NewToolResultText(jsonStr), nil
 }

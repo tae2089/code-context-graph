@@ -174,6 +174,52 @@ func setupTestDeps(t *testing.T) *Deps {
 	}
 }
 
+// setupTestDepsMinimal creates a Deps with only the core fields initialized.
+// Used to test backward compatibility - that old tools work even when new interfaces are nil.
+func setupTestDepsMinimal(t *testing.T) *Deps {
+	t.Helper()
+	dsn := fmt.Sprintf("file:handlertest-minimal%d?mode=memory&cache=shared", handlerTestDBSeq.Add(1))
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := gormstore.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.SearchDocument{}, &model.Flow{}, &model.FlowMembership{}); err != nil {
+		t.Fatal(err)
+	}
+	sb := search.NewSQLiteBackend()
+	if err := sb.Migrate(db); err != nil {
+		if errors.Is(err, search.ErrFTS5NotAvailable) {
+			t.Skip("fts5 module not available, skipping test")
+		}
+		t.Fatal(err)
+	}
+
+	goParser := &simpleGoParser{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	return &Deps{
+		Store:          st,
+		DB:             db,
+		Parser:         goParser,
+		Walkers:        map[string]Parser{".go": goParser},
+		SearchBackend:  sb,
+		ImpactAnalyzer: impact.New(st),
+		FlowTracer:     flows.New(st),
+		Logger:         logger,
+		PostprocessPolicy: &stubPostprocessPolicy{
+			resolvedPolicy: postprocesspolicy.PolicyDegraded,
+			resolvedSource: postprocesspolicy.SourceAuto,
+		},
+		RepoRoot: os.TempDir(),
+		// Note: QueryService, LargefuncAnalyzer, DeadcodeAnalyzer, CouplingAnalyzer,
+		// CoverageAnalyzer, CommunityBuilder, FlowBuilder, and Incremental are intentionally nil
+	}
+}
+
+
 func setupGraphOnlyTestDeps(t *testing.T) *Deps {
 	t.Helper()
 	dsn := fmt.Sprintf("file:handlertest-graph-only%d?mode=memory&cache=shared", handlerTestDBSeq.Add(1))
@@ -218,13 +264,19 @@ type stubPostprocessPolicy struct {
 	resetTools     []string
 }
 
+
 func (s *stubPostprocessPolicy) Resolve(ctx context.Context, input postprocesspolicy.DecisionInput) (string, string, error) {
 	s.resolvedInputs = append(s.resolvedInputs, input)
 	if s.resolveErr != nil {
 		return "", "", s.resolveErr
 	}
+	// Respect explicit policy if provided
+	if input.ExplicitPolicy != "" {
+		return input.ExplicitPolicy, postprocesspolicy.SourceExplicit, nil
+	}
 	return s.resolvedPolicy, s.resolvedSource, nil
 }
+
 
 func (s *stubPostprocessPolicy) RecordRun(ctx context.Context, record postprocesspolicy.RunRecord) error {
 	s.recordedRuns = append(s.recordedRuns, record)
