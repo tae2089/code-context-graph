@@ -1,3 +1,4 @@
+// @index MCP handlers for source parsing, full/incremental graph builds, and postprocess orchestration.
 package mcp
 
 import (
@@ -52,11 +53,11 @@ func (h *handlers) graphService() *service.GraphService {
 }
 
 // parseProject parses a project directory and stores discovered graph elements.
-// @intent 단순 파싱 도구로 프로젝트 전체를 그래프 저장소에 적재한다.
-// @param request path 파라미터에서 파싱 대상 디렉터리를 읽는다.
-// @requires request.path가 유효한 디렉터리를 가리켜야 한다.
-// @ensures 성공 시 파싱된 파일 수와 오류 수를 JSON으로 반환한다.
-// @sideEffect 파일 시스템 읽기, 그래프 저장소 쓰기, 로그 기록을 수행한다.
+// @intent Loads the entire project into the graph store using a simple parsing tool.
+// @param request Reads the directory to be parsed from the path parameter.
+// @requires request.path must point to a valid directory.
+// @ensures Returns the number of parsed files and error count as JSON on success.
+// @sideEffect Performs filesystem reads, graph store writes, and logging.
 func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h = h.withParseLimitsFromRequest(request)
 	ctx = h.applyWorkspace(ctx, request)
@@ -95,12 +96,12 @@ func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest
 }
 
 // buildOrUpdateGraph builds the graph fully or incrementally and runs postprocessing.
-// @intent 코드 그래프를 최신 상태로 맞추고 검색·커뮤니티 후처리를 함께 수행한다.
-// @param request full_rebuild와 postprocess로 빌드 전략을 제어한다.
-// @domainRule 증분 동기화기가 없으면 항상 전체 재빌드로 처리한다.
-// @requires request.path가 접근 가능한 프로젝트 디렉터리여야 한다.
-// @ensures 성공 시 처리 파일 수와 생성된 노드/엣지 수를 반환한다.
-// @sideEffect 파일 시스템 읽기, 그래프 저장소 갱신, 검색 인덱스/커뮤니티 재빌드를 수행할 수 있다.
+// @intent Synchronizes the code graph to the latest state and performs search and community post-processing.
+// @param request Controls the build strategy via full_rebuild and postprocess.
+// @domainRule Always performs a full rebuild if the incremental syncer is not available.
+// @requires request.path must be an accessible project directory.
+// @ensures Returns the number of processed files and created nodes/edges on success.
+// @sideEffect May perform filesystem reads, graph store updates, and search index/community rebuilds.
 // @mutates graph store state, search index state, community state, h.cache
 func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h = h.withParseLimitsFromRequest(request)
@@ -190,7 +191,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		return nil, err
 	}
 
-	// 후처리
+	// Postprocessing
 	var failedSteps []string
 	var skippedSteps []string
 	var failClosedErr error
@@ -209,7 +210,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		} else {
 			skippedSteps = append(skippedSteps, "flows")
 		}
-		// community 재빌드
+		// community rebuild
 		if h.deps.CommunityBuilder != nil {
 			_, err := h.deps.CommunityBuilder.Rebuild(ctx, community.Config{Depth: 2})
 			if err != nil {
@@ -224,7 +225,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		} else {
 			skippedSteps = appendUniqueStrings(skippedSteps, "communities")
 		}
-		// search 재빌드
+		// search rebuild
 		if h.deps.SearchBackend != nil && h.deps.DB != nil {
 			if _, err := refreshSearchDocuments(ctx, h.deps.DB); err != nil {
 				if failClosed {
@@ -248,7 +249,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		}
 	case "minimal":
 		skippedSteps = appendUniqueStrings(skippedSteps, "communities", "flows")
-		// search만 재빌드
+		// search only rebuild
 		if h.deps.SearchBackend != nil && h.deps.DB != nil {
 			if _, err := refreshSearchDocuments(ctx, h.deps.DB); err != nil {
 				if failClosed {
@@ -271,7 +272,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 			skippedSteps = appendUniqueStrings(skippedSteps, "search_documents", "fts")
 		}
 	case "none":
-		// 스킵
+		// skip
 		skippedSteps = appendUniqueStrings(skippedSteps, "communities", "flows", "search_documents", "fts")
 	}
 
@@ -318,10 +319,10 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 }
 
 // runPostprocess rebuilds selected graph-derived artifacts without reparsing code.
-// @intent 기존 그래프 데이터에서 커뮤니티와 검색 인덱스를 독립적으로 재생성하고 flow bulk rebuild 가용성을 보고한다.
-// @param request flows, communities, fts 플래그로 후처리 대상을 선택한다.
-// @ensures 성공 시 수행된 후처리 결과 요약을 반환한다.
-// @sideEffect 커뮤니티 재계산, 검색 인덱스 재생성, 캐시 비우기를 수행할 수 있다.
+// @intent Independently regenerates communities and search indexes from existing graph data and reports availability for flow bulk rebuilds.
+// @param request Selects post-processing targets via flows, communities, and fts flags.
+// @ensures Returns a summary of post-processing results on success.
+// @sideEffect May recalculate communities, regenerate search indexes, and flush the cache.
 // @mutates community state, search index state, h.cache
 func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
@@ -486,6 +487,8 @@ func appendUniqueStrings(dst []string, values ...string) []string {
 }
 
 // @intent restrict parse and build requests to configured analysis roots before filesystem traversal begins.
+// @domainRule only paths contained in configured analysis roots may be parsed or rebuilt.
+// @ensures returned path is canonical, existing, and contained within an allowed analysis root.
 func (h *handlers) validateAnalysisPath(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("path is required")
@@ -509,6 +512,8 @@ func (h *handlers) validateAnalysisPath(path string) (string, error) {
 }
 
 // @intent resolve a path to its absolute, symlink-evaluated form for analysis-root containment checks.
+// @domainRule symlink evaluation must happen before containment checks against analysis roots.
+// @ensures returned path is cleaned and absolute; existing paths are fully symlink-resolved.
 func canonicalExistingPath(path string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {

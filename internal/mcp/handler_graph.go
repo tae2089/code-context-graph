@@ -1,3 +1,4 @@
+// @index MCP handlers for graph summaries: stored flows, communities, and architecture overviews.
 package mcp
 
 import (
@@ -55,9 +56,9 @@ type flowRow struct {
 }
 
 // listFlows lists stored flows with optional sorting and truncation.
-// @intent 저장된 호출 흐름을 요약 형태로 노출해 탐색과 우선순위 판단을 돕는다.
-// @param request sort_by와 limit로 정렬 방식과 최대 개수를 제어한다.
-// @ensures 성공 시 flow id, 이름, 설명, 멤버 수를 포함한 목록을 반환한다.
+// @intent Exposes stored call flows in a summarized format to aid in exploration and prioritization.
+// @param request sort_by and limit control the sorting method and maximum number of results.
+// @ensures Returns a list including flow ID, name, description, and member count on success.
 // @see mcp.handlers.traceFlow
 func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
@@ -130,9 +131,9 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 }
 
 // listCommunities lists communities with size-based filtering and sorting.
-// @intent 커뮤니티 구조를 크기 기준으로 훑어볼 수 있게 요약 목록을 제공한다.
-// @param request sort_by와 min_size로 응답 필터링 방식을 제어한다.
-// @ensures 성공 시 커뮤니티 id, 라벨, 노드 수를 포함한 목록을 반환한다.
+// @intent Provides a summarized list of the community structure based on size.
+// @param request sort_by and min_size control the filtering and sorting of the response.
+// @ensures Returns a list including community ID, label, and node count on success.
 // @see mcp.handlers.getCommunity
 func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
@@ -203,10 +204,10 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 }
 
 // getCommunity returns community metadata with optional members and coverage.
-// @intent 특정 커뮤니티의 규모와 구성원을 상세 조회할 수 있게 한다.
-// @param request community_id는 필수이며 include_members가 멤버 포함 여부를 제어한다.
-// @requires request.community_id가 존재하는 커뮤니티를 가리켜야 한다.
-// @ensures 성공 시 커뮤니티 기본 정보와 선택적 coverage/members를 반환한다.
+// @intent Enables detailed lookup of a specific community's size and members.
+// @param request community_id is required, and include_members controls whether to include the member list.
+// @requires request.community_id must point to an existing community.
+// @ensures Returns basic community information along with optional coverage and members on success.
 // @see mcp.handlers.listCommunities
 func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
@@ -299,9 +300,9 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 }
 
 // getArchitectureOverview summarizes communities, coupling, and architecture warnings.
-// @intent 코드베이스의 모듈 경계와 강결합 구간을 한 응답으로 요약한다.
-// @ensures 성공 시 커뮤니티 목록, 결합도 쌍, 경고 메시지를 반환한다.
-// @domainRule 결합 강도 0.8 초과 쌍은 경고로 표기한다.
+// @intent Summarizes codebase module boundaries and tightly coupled areas in a single response.
+// @ensures Returns a list of communities, coupling pairs, and warning messages on success.
+// @domainRule Pairs with coupling strength exceeding 0.8 are marked as warnings.
 // @see mcp.handlers.listCommunities
 func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
