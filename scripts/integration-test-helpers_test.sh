@@ -205,7 +205,7 @@ test_start_integration_stack_runs_migrate_before_starting_ccg() {
 
     start_integration_stack
 
-    assert_equals $'up -d postgres gitea\nbuild ccg\nrun --rm --no-deps ccg migrate\nup -d ccg' "$(printf '%s\n' "${compose_calls[@]}")"
+    assert_equals $'up -d postgres gitea\nbuild ccg\nrun --rm --no-deps --entrypoint ccg ccg migrate\nup -d ccg' "$(printf '%s\n' "${compose_calls[@]}")"
     assert_equals $'postgres:30:PostgreSQL\nhealth:http://localhost:3000/api/v1/version:30:Gitea\nhealth:http://localhost:18080/ready:30:ccg' "$(printf '%s\n' "${wait_calls[@]}")"
 }
 

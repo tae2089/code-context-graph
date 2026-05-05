@@ -117,7 +117,7 @@ start_integration_stack() {
     wait_for_health "$GITEA_URL/api/v1/version" 30 "Gitea"
 
     info "Running ccg migrations..."
-    compose run --rm --no-deps ccg migrate
+    compose run --rm --no-deps --entrypoint ccg ccg migrate
 
     info "Starting ccg..."
     compose up -d ccg
