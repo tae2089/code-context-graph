@@ -2,7 +2,7 @@
 
 [English](../mcp-tools.md)
 
-code-context-graph는 35개의 MCP 도구를 제공합니다. `.mcp.json`을 설정하면
+code-context-graph는 33개의 MCP 도구를 제공합니다. `.mcp.json`을 설정하면
 Codex 또는 Claude Code 같은 MCP 지원 코딩 에이전트가 연결할 수 있습니다.
 
 ## 설정 (Setup)
@@ -33,7 +33,7 @@ Codex 또는 Claude Code 같은 MCP 지원 코딩 에이전트가 연결할 수 
 }
 ```
 
-## 도구 (35개)
+## 도구 (33개)
 
 ### 핵심 (Core)
 
@@ -144,20 +144,17 @@ RAG 인덱스 품질은 생성 문서와 비어 있지 않은 community postproc
 
 ### 네임스페이스 파일 관리 (Namespace File Management)
 
-격리 단위의 정식 용어는 `namespace`입니다. `workspace` 파라미터와
-`list_workspaces` / `delete_workspace` 도구는 기존 호출자를 위한 사용
-중단 별칭으로만 유지됩니다.
+업로드 파일, 서비스별 그래프 데이터, 네임스페이스별 RAG 인덱스의 격리 단위는
+`namespace`입니다.
 
 | 도구 | 설명 |
 |------|-------------|
 | `upload_file` | 네임스페이스에 파일 업로드 (base64) |
 | `upload_files` | 단일 호출로 여러 네임스페이스에 다수 파일 업로드 |
 | `list_namespaces` | 모든 네임스페이스 목록 출력 |
-| `list_workspaces` | `list_namespaces`에 대한 사용 중단된 별칭 |
 | `list_files` | 네임스페이스 내 파일 목록 출력 |
 | `delete_file` | 네임스페이스에서 파일 삭제 |
 | `delete_namespace` | 네임스페이스 전체 및 관련 파일 모두 삭제 |
-| `delete_workspace` | `delete_namespace`에 대한 사용 중단된 별칭 |
 
 정식 예시:
 
@@ -175,7 +172,7 @@ delete_namespace(namespace: "payment-svc")
 | `/ccg-analyze` | 코드 분석 — 영향 범위, 흐름 추적, 데드 코드, 아키텍처 |
 | `/ccg-annotate` | 어노테이션 시스템 — AI 기반 어노테이션 워크플로우, 태그 레퍼런스 |
 | `/ccg-docs` | 문서화 — 문서 생성, RAG 인덱싱, 린트 |
-| `/ccg-workspace` | 네임스페이스 파일 관리 — 네임스페이스 파일 업로드, 목록 출력, 삭제 (`workspace`는 사용 중단된 파라미터 별칭) |
+| `/ccg-namespace` | 네임스페이스 파일 관리 — 네임스페이스 파일 업로드, 목록 출력, 삭제 |
 
 이 스킬 파일들은 `skills/`에 있으며 slash-command 스타일의 에이전트
 워크플로우를 위해 작성되었습니다. 일반적인 코딩 에이전트 작업을 적절한
@@ -192,5 +189,5 @@ CLI 및 MCP 표면으로 라우팅합니다.
 /ccg search "query"              — 어노테이션/키워드 기반 후보 검색
 /ccg languages                   — 지원 언어 목록 출력
 /ccg-annotate annotate internal/ — AI 기반 어노테이션 생성
-/ccg-workspace                   — 네임스페이스 파일 및 디렉토리 관리
+/ccg-namespace                   — 네임스페이스 파일 및 디렉토리 관리
 ```

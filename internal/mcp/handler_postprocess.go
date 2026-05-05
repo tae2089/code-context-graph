@@ -25,7 +25,7 @@ type resetPostprocessPolicyResponse struct {
 // @see mcp.handlers.resetPostprocessPolicy
 // @see policy.StatusSummary
 func (h *handlers) getPostprocessPolicy(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	if h.deps.PostprocessPolicy == nil {
 		return mcp.NewToolResultError("postprocess policy engine not configured"), nil
 	}
@@ -58,7 +58,7 @@ func (h *handlers) getPostprocessPolicy(ctx context.Context, request mcp.CallToo
 // @mutates postprocess policy persisted state for the targeted tool.
 // @see mcp.handlers.getPostprocessPolicy
 func (h *handlers) resetPostprocessPolicy(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	if h.deps.PostprocessPolicy == nil {
 		return mcp.NewToolResultError("postprocess policy engine not configured"), nil
 	}

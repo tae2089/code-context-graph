@@ -34,7 +34,7 @@ func NewNamespacePurger(graphStore store.NodeWriter, db *gorm.DB, backend stores
 }
 
 // Purge는 ctx의 namespace에 속한 모든 그래프/서비스/검색 상태를 제거한다.
-// @intent workspace 삭제와 같은 namespace 단위 purge 경로의 단일 진입점을 제공한다.
+// @intent namespace 단위 purge 경로의 단일 진입점을 제공한다.
 // @requires ctx에 ctxns.WithNamespace로 namespace가 설정되어 있어야 한다.
 // @sideEffect 노드, 엣지, 어노테이션, 멤버십, 검색 문서, 커뮤니티, 플로우, 검색 인덱스를 삭제한다.
 func (p *NamespacePurger) Purge(ctx context.Context) error {

@@ -7,11 +7,10 @@ import (
 )
 
 // withNamespaceParam appends canonical namespace arguments to a tool definition.
-// @intent give every namespace-aware MCP tool the same isolation parameters and deprecated workspace alias.
+// @intent give every namespace-aware MCP tool the same isolation parameter.
 func withNamespaceParam(opts ...mcp.ToolOption) []mcp.ToolOption {
 	return append(opts,
 		mcp.WithString("namespace", mcp.Description("Namespace for isolation")),
-		mcp.WithString("workspace", mcp.Description("Deprecated alias for namespace")),
 	)
 }
 

@@ -17,8 +17,8 @@ export CCG_HTTP_BEARER_TOKEN=replace-with-a-long-random-token
 # Mount your project, build the graph, and serve over HTTP.
 docker run -d -p 8080:8080 \
   -e CCG_HTTP_BEARER_TOKEN="$CCG_HTTP_BEARER_TOKEN" \
-  -v $(pwd):/workspace --entrypoint sh ccg \
-  -c "ccg build /workspace && ccg-server --http-addr :8080"
+  -v $(pwd):/repo --entrypoint sh ccg \
+  -c "ccg build /repo && ccg-server --http-addr :8080"
 ```
 
 The image's default HTTP command binds to `:8080`, so you must provide
@@ -64,7 +64,7 @@ when upgrading CCG against an existing schema:
 
 ```bash
 docker run --rm \
-  -v $(pwd):/workspace --entrypoint ccg ccg \
+  -v $(pwd):/repo --entrypoint ccg ccg \
   migrate
 ```
 
@@ -147,8 +147,8 @@ docker run -d -p 8080:8080 \
   -e CCG_HTTP_BEARER_TOKEN="$CCG_HTTP_BEARER_TOKEN" \
   -e CCG_DB_DRIVER=postgres \
   -e CCG_DB_DSN="host=db user=ccg password=ccg dbname=ccg sslmode=disable" \
-  -v $(pwd):/workspace --entrypoint sh ccg \
-  -c "ccg build /workspace && ccg-server --http-addr :8080"
+  -v $(pwd):/repo --entrypoint sh ccg \
+  -c "ccg build /repo && ccg-server --http-addr :8080"
 ```
 
 The one-shot migration command above should be run before build, serve, or

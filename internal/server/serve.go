@@ -41,7 +41,6 @@ func Run(rt *core.Runtime, cfg Config, serviceVersion, ragIndexDir, ragProjectDe
 		NoCache:             cfg.NoCache,
 		OTELEndpoint:        cfg.OTELEndpoint,
 		NamespaceRoot:       cfg.NamespaceRoot,
-		WorkspaceRoot:       cfg.WorkspaceRoot,
 		RepoRoot:            cfg.RepoRoot,
 		MaxFileBytes:        cfg.MaxFileBytes,
 		MaxTotalParsedBytes: cfg.MaxTotalParsedBytes,

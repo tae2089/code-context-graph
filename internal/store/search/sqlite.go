@@ -86,7 +86,7 @@ func (s *SQLiteBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs [
 }
 
 // PurgeNamespace removes the physical FTS index for a specific namespace.
-// @intent Cleans up stale FTS rows even in paths without a rebuild, such as workspace deletion.
+// @intent Cleans up stale FTS rows even in paths without a rebuild, such as namespace deletion.
 func (s *SQLiteBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error {
 	exists, err := sqliteTableExists(db, sqliteFTSTable)
 	if err != nil {

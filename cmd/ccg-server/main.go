@@ -86,10 +86,6 @@ func newRootCmd(rt *core.Runtime, serviceVersion string) *cobra.Command {
 			dbDriver = viper.GetString("db.driver")
 			dbDSN = viper.GetString("db.dsn")
 
-			if cfg.WorkspaceRoot != "" && !cmd.Flags().Changed("namespace-root") {
-				cfg.NamespaceRoot = cfg.WorkspaceRoot
-			}
-			cfg.WorkspaceRoot = cfg.NamespaceRoot
 			if cfg.MaxFileBytes == 0 {
 				cfg.MaxFileBytes = viper.GetInt64("parse.max_file_bytes")
 			}
@@ -135,7 +131,6 @@ func newRootCmd(rt *core.Runtime, serviceVersion string) *cobra.Command {
 	cmd.Flags().BoolVar(&cfg.Stateless, "stateless", false, "Stateless session management (for multi-instance deployments)")
 	cmd.Flags().StringVar(&cfg.WikiDir, "wiki-dir", cfg.WikiDir, "Directory containing built Wiki UI assets; enables /wiki when set")
 	cmd.Flags().StringVar(&cfg.NamespaceRoot, "namespace-root", cfg.NamespaceRoot, "Root directory for file namespaces")
-	cmd.Flags().StringVar(&cfg.WorkspaceRoot, "workspace-root", "", "Deprecated alias for --namespace-root")
 
 	cmd.Flags().IntVar(&cfg.WebhookWorkers, "webhook-workers", cfg.WebhookWorkers, "Number of webhook sync workers")
 	cmd.Flags().IntVar(&cfg.WebhookMaxTrackedRepos, "webhook-max-tracked-repos", cfg.WebhookMaxTrackedRepos, "Maximum repositories tracked by the webhook sync queue")

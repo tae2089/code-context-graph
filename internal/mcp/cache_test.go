@@ -13,9 +13,9 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
-	"github.com/tae2089/code-context-graph/internal/ctxns"
 )
 
 func openTestDB(t *testing.T) *gorm.DB {
@@ -252,14 +252,14 @@ func TestParseProject_FlushesCache(t *testing.T) {
 	}
 }
 
-func TestCachedExecute_UsesContextNamespaceForWorkspaceFallback(t *testing.T) {
+func TestCachedExecute_UsesContextNamespaceForNamespaceFallback(t *testing.T) {
 	deps := setupTestDeps(t)
 	cache := NewCache(5 * time.Minute)
 	h := &handlers{deps: deps, cache: cache}
 	ctx := ctxns.WithNamespace(context.Background(), "alpha")
 
 	callCount := 0
-	result, err := h.cachedExecute(ctx, "test:", map[string]any{"workspace": ""}, func() (string, error) {
+	result, err := h.cachedExecute(ctx, "test:", map[string]any{"namespace": ""}, func() (string, error) {
 		callCount++
 		return "alpha-result", nil
 	})
@@ -267,11 +267,11 @@ func TestCachedExecute_UsesContextNamespaceForWorkspaceFallback(t *testing.T) {
 		t.Fatalf("first call = (%q, %v), want alpha-result, nil", result, err)
 	}
 
-	if _, ok := cache.Get(`test:{"workspace":"alpha"}`); !ok {
-		t.Fatal("expected effective namespace to be used as cache key workspace")
+	if _, ok := cache.Get(`test:{"namespace":"alpha"}`); !ok {
+		t.Fatal("expected effective namespace to be used as cache key namespace")
 	}
 
-	result, err = h.cachedExecute(ctx, "test:", map[string]any{"workspace": ""}, func() (string, error) {
+	result, err = h.cachedExecute(ctx, "test:", map[string]any{"namespace": ""}, func() (string, error) {
 		callCount++
 		return "miss", nil
 	})

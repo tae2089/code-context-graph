@@ -405,12 +405,12 @@ func TestArchitectureMap_NoCommunities(t *testing.T) {
 	}
 }
 
-func TestArchitectureMap_RespectsWorkspaceArgument(t *testing.T) {
+func TestArchitectureMap_RespectsNamespaceArgument(t *testing.T) {
 	deps, db := setupPromptTestDeps(t)
 	db.Create(&model.Community{Namespace: "alpha", Key: "alpha/core", Label: "alpha/core", Strategy: "directory"})
 	db.Create(&model.Community{Namespace: "beta", Key: "beta/core", Label: "beta/core", Strategy: "directory"})
 
-	resultJSON := callPrompt(t, deps, "architecture_map", map[string]string{"workspace": "alpha"})
+	resultJSON := callPrompt(t, deps, "architecture_map", map[string]string{"namespace": "alpha"})
 	text := getPromptText(t, resultJSON)
 
 	if !strings.Contains(text, "alpha/core") {
@@ -837,21 +837,21 @@ func TestPreMergeCheck_RejectsRepoRootOutsideConfiguredRoot(t *testing.T) {
 	}
 }
 
-func TestReviewChanges_AllowsWorkspaceRootWhenRepoRootAlsoConfigured(t *testing.T) {
+func TestReviewChanges_AllowsNamespaceRootWhenRepoRootAlsoConfigured(t *testing.T) {
 	deps, _ := setupPromptTestDeps(t)
 	deps.ChangesGitClient = &mockGitClient{changedFiles: []string{}}
 	deps.RepoRoot = t.TempDir()
-	deps.WorkspaceRoot = t.TempDir()
-	workspaceRoot := t.TempDir()
-	deps.WorkspaceRoot = workspaceRoot
+	deps.NamespaceRoot = t.TempDir()
+	namespaceRoot := t.TempDir()
+	deps.NamespaceRoot = namespaceRoot
 
 	resultJSON := callPrompt(t, deps, "review_changes", map[string]string{
-		"repo_root": workspaceRoot,
+		"repo_root": namespaceRoot,
 		"base":      "HEAD~1",
 	})
 	text := getPromptText(t, resultJSON)
 	if !strings.Contains(text, "변경사항이 없습니다") {
-		t.Fatalf("expected workspace-root repo_root to be accepted, got: %s", text)
+		t.Fatalf("expected namespace-root repo_root to be accepted, got: %s", text)
 	}
 }
 

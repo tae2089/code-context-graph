@@ -216,7 +216,7 @@ func (h *WebhookHandler) verifySignature(payload []byte, signature string) bool 
 	return hmac.Equal([]byte(expectedHex), []byte(sig))
 }
 
-// ExtractNamespace derives a workspace-safe namespace from a repository full name.
+// ExtractNamespace derives a filesystem-safe namespace from a repository full name.
 // @intent keep repo-backed namespaces predictable when organizations contain nested path segments.
 // @param repoFullName is the full repository name, typically org/repo.
 // @return returns the repository portion after the first slash, with any remaining slashes replaced by dashes.

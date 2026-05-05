@@ -129,8 +129,7 @@ MCP/PageIndex retrieval용 기본 `.ccg/doc-index.json` RAG 인덱스를 함께
 | `ccg serve --cache-ttl <dur>` | MCP serve 세션 캐시 TTL (기본값 `5m`; 비활성화하려면 `0` 또는 `--no-cache` 사용) |
 | `ccg serve --no-cache` | 메모리 내 MCP serve 세션 캐시 비활성화 |
 | `ccg serve --otel-endpoint <url>` | 지정된 전체 OTLP HTTP 엔드포인트 URL(예: `http://collector:4318/v1/traces`)로 trace export를 활성화합니다. 설정하지 않으면 CCG는 SDK span을 로컬에서 계속 생성하지만 export는 하지 않습니다 |
-| `ccg serve --namespace-root <dir>` | 파일 네임스페이스의 루트 디렉토리 (기본값 `workspaces`) |
-| `ccg serve --workspace-root <dir>` | `--namespace-root`에 대한 사용 중단된 별칭 |
+| `ccg serve --namespace-root <dir>` | 파일 네임스페이스의 루트 디렉토리 (기본값 `namespaces`) |
 | `ccg serve --max-file-bytes <bytes>` | 파싱된 소스 파일당 허용되는 최대 바이트 수 (`0`은 제한 없음) |
 | `ccg serve --max-total-parsed-bytes <bytes>` | 소스 파일 전체에서 파싱된 최대 총 바이트 수 (`0`은 제한 없음) |
 
@@ -144,8 +143,7 @@ HTTP MCP와 웹훅 호스팅은 전용 `ccg-server` 바이너리에서 제공합
 | `ccg-server --insecure-http` | Bearer 토큰 없이 루프백이 아닌 HTTP 바인딩 허용 (테스트 전용) |
 | `ccg-server --stateless` | 상태 비저장 세션 모드 (다중 인스턴스 배포용) |
 | `ccg-server --wiki-dir <dir>` | 빌드된 React dist 디렉터리로 `/wiki` 브라우저 Wiki UI 활성화; `/wiki/api/*`는 `/mcp`와 같은 Bearer 토큰 사용 |
-| `ccg-server --namespace-root <dir>` | 파일 네임스페이스의 루트 디렉토리 (기본값 `workspaces`) |
-| `ccg-server --workspace-root <dir>` | `--namespace-root`에 대한 사용 중단된 별칭 |
+| `ccg-server --namespace-root <dir>` | 파일 네임스페이스의 루트 디렉토리 (기본값 `namespaces`) |
 | `ccg-server --allow-repo <pat>` | 웹훅 동기화가 허용된 저장소 패턴 (예: `org/*`, `org/api:main,develop`) |
 | `ccg-server --webhook-secret <s>` | 웹훅 서명 검증을 위한 HMAC 비밀키 |
 | `ccg-server --insecure-webhook` | 로컬 테스트 전용으로 서명되지 않은 웹훅 요청 허용 |

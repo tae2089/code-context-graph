@@ -211,9 +211,9 @@ func TestHandler_AnalysisResponses_WireContractFrozen(t *testing.T) {
 
 func TestPagedListResponse_MarshalJSON_PreservesEnvelope(t *testing.T) {
 	b, err := json.Marshal(pagedListResponse[string]{
-		LegacyKey: "dead_code",
-		Items:     []string{"one"},
-		Count:     1,
+		LegacyKey:  "dead_code",
+		Items:      []string{"one"},
+		Count:      1,
 		Pagination: paging.Page{Limit: 10, Offset: 0, Returned: 1, HasMore: false},
 	})
 	if err != nil {

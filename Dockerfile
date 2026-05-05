@@ -26,14 +26,14 @@ FROM alpine:3.21
 RUN apk add --no-cache ca-certificates git \
     && addgroup -S ccg \
     && adduser -S -G ccg -h /home/ccg ccg \
-    && mkdir -p /workspace /repos /home/ccg/.cache /home/ccg/.config/ccg \
-    && chown -R ccg:ccg /workspace /repos /home/ccg
+    && mkdir -p /repo /repos /home/ccg/.cache /home/ccg/.config/ccg \
+    && chown -R ccg:ccg /repo /repos /home/ccg
 
 COPY --from=builder /usr/local/bin/ccg /usr/local/bin/ccg
 COPY --from=builder /usr/local/bin/ccg-server /usr/local/bin/ccg-server
 COPY --from=wiki-builder /src/web/wiki/dist /usr/share/ccg/wiki
 
-WORKDIR /workspace
+WORKDIR /repo
 USER ccg
 ENV HOME=/home/ccg \
     XDG_CACHE_HOME=/home/ccg/.cache \

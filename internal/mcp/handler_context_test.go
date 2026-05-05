@@ -291,7 +291,7 @@ func TestGetMinimalContext_RespectsFlowNamespace(t *testing.T) {
 	deps.DB.Create(&model.FlowMembership{Namespace: "alpha", FlowID: alpha.ID, NodeID: node.ID, Ordinal: 0})
 	deps.DB.Create(&model.FlowMembership{Namespace: "beta", FlowID: beta.ID, NodeID: node.ID, Ordinal: 0})
 
-	result := callTool(t, deps, "get_minimal_context", map[string]any{"workspace": "alpha"})
+	result := callTool(t, deps, "get_minimal_context", map[string]any{"namespace": "alpha"})
 	if result.IsError {
 		t.Fatalf("returned error: %s", getTextContent(result))
 	}

@@ -60,26 +60,22 @@ func (h *handlers) logger() *slog.Logger {
 
 // @intent attach the requested namespace to context before downstream stores and analyzers run.
 // @ensures returns a context carrying the normalized namespace that this request should use.
-func (h *handlers) applyWorkspace(ctx context.Context, request mcp.CallToolRequest) context.Context {
+func (h *handlers) applyNamespace(ctx context.Context, request mcp.CallToolRequest) context.Context {
 	return ctxns.WithNamespace(ctx, resolveNamespace(ctx, requestNamespace(request)))
 }
 
 // @intent prefer an explicit request namespace while falling back to the namespace already carried on context.
 // @domainRule an explicit request namespace always overrides the namespace already on context.
-func resolveNamespace(ctx context.Context, workspace string) string {
-	if workspace != "" {
-		return ctxns.Normalize(workspace)
+func resolveNamespace(ctx context.Context, namespace string) string {
+	if namespace != "" {
+		return ctxns.Normalize(namespace)
 	}
 	return ctxns.FromContext(ctx)
 }
 
-// @intent read namespace isolation arguments while still supporting the deprecated workspace alias.
-// @domainRule namespace takes precedence over workspace when both are present.
+// @intent read the canonical namespace isolation argument.
 func requestNamespace(request mcp.CallToolRequest) string {
-	if namespace := request.GetString("namespace", ""); namespace != "" {
-		return namespace
-	}
-	return request.GetString("workspace", "")
+	return request.GetString("namespace", "")
 }
 
 // toolResultErr carries an MCP tool result alongside an error value.
@@ -172,7 +168,7 @@ func finalizeToolResult(result string, err error) (*mcp.CallToolResult, error) {
 // @param prefix is the tool-specific cache namespace prefix.
 // @param params are the request parameters embedded in the cache key.
 // @sideEffect may read and write the in-memory cache and emit debug logs.
-// @domainRule namespace/workspace values are normalized before key generation, but the original parameter key name is preserved unless namespace is present.
+// @domainRule namespace values are normalized before key generation.
 // @mutates h.cache
 func (h *handlers) cachedExecute(ctx context.Context, prefix string, params map[string]any, fn func() (string, error)) (string, error) {
 	if h.cache == nil {
@@ -184,9 +180,6 @@ func (h *handlers) cachedExecute(ctx context.Context, prefix string, params map[
 	}
 	if namespace, ok := cacheParams["namespace"].(string); ok {
 		cacheParams["namespace"] = resolveNamespace(ctx, namespace)
-		delete(cacheParams, "workspace")
-	} else if workspace, ok := cacheParams["workspace"].(string); ok {
-		cacheParams["workspace"] = resolveNamespace(ctx, workspace)
 	}
 
 	key, err := makeCacheKey(prefix, cacheParams)

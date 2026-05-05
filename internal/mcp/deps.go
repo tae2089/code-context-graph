@@ -189,7 +189,6 @@ type Deps struct {
 	RagProjectDesc string
 
 	NamespaceRoot string
-	WorkspaceRoot string
 	RepoRoot      string
 
 	MaxFileBytes        int64

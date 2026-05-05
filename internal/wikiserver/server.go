@@ -18,8 +18,8 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	nsfs "github.com/tae2089/code-context-graph/internal/namespacefs"
 	"github.com/tae2089/code-context-graph/internal/ragindex"
-	wsvc "github.com/tae2089/code-context-graph/internal/workspace"
 	"github.com/tae2089/trace"
 )
 
@@ -64,7 +64,7 @@ func New(cfg Config) (*Server, error) {
 	}
 	nsRoot := cfg.NamespaceRoot
 	if nsRoot == "" {
-		nsRoot = "workspaces"
+		nsRoot = "namespaces"
 	}
 	logger := cfg.Logger
 	if logger == nil {
@@ -703,12 +703,12 @@ func namespaceParam(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return ns, true
 }
 
-// @intent keep namespace path validation aligned with workspace filesystem rules.
+// @intent keep namespace path validation aligned with namespace filesystem rules.
 func validateNamespace(namespace string) error {
 	if namespace == ctxns.DefaultNamespace {
 		return nil
 	}
-	return wsvc.ValidatePath(namespace, "")
+	return nsfs.ValidatePath(namespace, "")
 }
 
 // @intent parse the optional edge_kinds filter for the Wiki graph API.

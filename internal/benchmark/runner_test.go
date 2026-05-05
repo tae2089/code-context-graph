@@ -23,7 +23,7 @@ func TestBuildClaudeArgs_WithCWD(t *testing.T) {
 	// CWD is passed to Executor.Execute as dir, not as a --cwd CLI flag.
 	cfg := benchmark.RunnerConfig{
 		Mode:         "with-ccg",
-		CWD:          "/tmp/benchmark-workspace",
+		CWD:          "/tmp/benchmark-run",
 		MaxToolCalls: 50,
 		TimeoutSec:   120,
 	}

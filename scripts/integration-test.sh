@@ -231,10 +231,10 @@ print(d.get(os.environ["FIELD"], 0))
     fi
 }
 
-graph_nodes_for_workspace() {
-    local workspace="$1" resp total
+graph_nodes_for_namespace() {
+    local namespace="$1" resp total
     [ -n "${MCP_SESSION:-}" ] || return 1
-    resp=$(mcp_call "list_graph_stats" "{\"workspace\":\"${workspace}\"}")
+    resp=$(mcp_call "list_graph_stats" "{\"namespace\":\"${namespace}\"}")
     [ -n "$resp" ] || return 1
     total=$(echo "$resp" | python3 -c "import sys,json; r=json.load(sys.stdin); d=json.loads(r['result']['content'][0]['text']); print(d.get('total_nodes',0))" 2>/dev/null) || total=0
     [ "${total:-0}" -gt 0 ] 2>/dev/null
@@ -288,39 +288,39 @@ print(matches[-1] if matches else "0")
 }
 
 webhook_logs_completed() {
-    local logs="$1" workspace="$2"
-    if [ -n "$workspace" ]; then
-        [[ "$logs" == *"webhook sync completed"*"$workspace"* ]] && return 0
-        [ "$workspace" = "$REPO_NAME" ] && [[ "$logs" == *"webhook sync completed"* ]]
+    local logs="$1" namespace="$2"
+    if [ -n "$namespace" ]; then
+        [[ "$logs" == *"webhook sync completed"*"$namespace"* ]] && return 0
+        [ "$namespace" = "$REPO_NAME" ] && [[ "$logs" == *"webhook sync completed"* ]]
     else
         [[ "$logs" == *"webhook sync completed"* ]]
     fi
 }
 
 webhook_logs_failed() {
-    local logs="$1" workspace="$2"
-    if [ -n "$workspace" ]; then
-        [[ "$logs" == *"webhook build failed"*"$workspace"* ]] && return 0
-        [ "$workspace" = "$REPO_NAME" ] && [[ "$logs" == *"webhook build failed"* ]]
+    local logs="$1" namespace="$2"
+    if [ -n "$namespace" ]; then
+        [[ "$logs" == *"webhook build failed"*"$namespace"* ]] && return 0
+        [ "$namespace" = "$REPO_NAME" ] && [[ "$logs" == *"webhook build failed"* ]]
     else
         [[ "$logs" == *"webhook build failed"* ]]
     fi
 }
 
 wait_for_webhook_sync() {
-    local workspace="$1" max_seconds="${2:-$WEBHOOK_WAIT_SECONDS}" label="${3:-$workspace}"
+    local namespace="$1" max_seconds="${2:-$WEBHOOK_WAIT_SECONDS}" label="${3:-$namespace}"
     local deadline=$((SECONDS + max_seconds)) logs
     while [ $SECONDS -lt $deadline ]; do
-        if graph_nodes_for_workspace "$workspace"; then
+        if graph_nodes_for_namespace "$namespace"; then
             info "${label} webhook sync observable via MCP"
             return 0
         fi
 
         logs=$(compose logs ccg 2>/dev/null || true)
-        if webhook_logs_failed "$logs" "$workspace"; then
+        if webhook_logs_failed "$logs" "$namespace"; then
             fail "ccg build failed for ${label}. See ${ARTIFACT_DIR}/ccg.log after cleanup. Recent logs:\n$(printf '%s\n' "$logs" | tail -20)"
         fi
-        if mcp_log_fallback_allowed && webhook_logs_completed "$logs" "$workspace"; then
+        if mcp_log_fallback_allowed && webhook_logs_completed "$logs" "$namespace"; then
             info "${label} webhook sync observed via logs"
             return 0
         fi
@@ -446,7 +446,7 @@ else
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
-        -d "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"list_graph_stats\",\"arguments\":{\"workspace\":\"${REPO_NAME}\"}}}" 2>/dev/null) || STATS_RESP=""
+        -d "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"list_graph_stats\",\"arguments\":{\"namespace\":\"${REPO_NAME}\"}}}" 2>/dev/null) || STATS_RESP=""
 
     if [ -z "$STATS_RESP" ]; then
         fail "MCP tools/call returned empty response"
@@ -524,51 +524,51 @@ info "${REPO2_NAME} sync completed"
 
 # Namespace isolation verification via MCP
 if [ -n "$MCP_SESSION" ]; then
-    info "Running postprocess (community detection) for workspace=${REPO_NAME}..."
+    info "Running postprocess (community detection) for namespace=${REPO_NAME}..."
     PP1_RESP=$(curl -fsS -X POST "${CCG_URL}/mcp" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
-        -d "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"tools/call\",\"params\":{\"name\":\"run_postprocess\",\"arguments\":{\"workspace\":\"${REPO_NAME}\",\"communities\":true,\"flows\":false,\"fts\":false}}}" 2>/dev/null) || PP1_RESP=""
+        -d "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"tools/call\",\"params\":{\"name\":\"run_postprocess\",\"arguments\":{\"namespace\":\"${REPO_NAME}\",\"communities\":true,\"flows\":false,\"fts\":false}}}" 2>/dev/null) || PP1_RESP=""
     info "Postprocess ${REPO_NAME}: $(echo "$PP1_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['content'][0]['text'])" 2>/dev/null || echo "$PP1_RESP")"
 
-    info "Running postprocess (community detection) for workspace=${REPO2_NAME}..."
+    info "Running postprocess (community detection) for namespace=${REPO2_NAME}..."
     PP2_RESP=$(curl -fsS -X POST "${CCG_URL}/mcp" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
-        -d "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"tools/call\",\"params\":{\"name\":\"run_postprocess\",\"arguments\":{\"workspace\":\"${REPO2_NAME}\",\"communities\":true,\"flows\":false,\"fts\":false}}}" 2>/dev/null) || PP2_RESP=""
+        -d "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"tools/call\",\"params\":{\"name\":\"run_postprocess\",\"arguments\":{\"namespace\":\"${REPO2_NAME}\",\"communities\":true,\"flows\":false,\"fts\":false}}}" 2>/dev/null) || PP2_RESP=""
     info "Postprocess ${REPO2_NAME}: $(echo "$PP2_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['content'][0]['text'])" 2>/dev/null || echo "$PP2_RESP")"
 
-    info "Checking graph stats per workspace..."
+    info "Checking graph stats per namespace..."
     STATS1=$(curl -fsS -X POST "${CCG_URL}/mcp" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
-        -d "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\",\"params\":{\"name\":\"list_graph_stats\",\"arguments\":{\"workspace\":\"${REPO_NAME}\"}}}" 2>/dev/null) || STATS1=""
+        -d "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\",\"params\":{\"name\":\"list_graph_stats\",\"arguments\":{\"namespace\":\"${REPO_NAME}\"}}}" 2>/dev/null) || STATS1=""
     info "Stats ${REPO_NAME}: $(echo "$STATS1" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['content'][0]['text'])" 2>/dev/null || echo "$STATS1")"
     STATS2=$(curl -fsS -X POST "${CCG_URL}/mcp" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
-        -d "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"tools/call\",\"params\":{\"name\":\"list_graph_stats\",\"arguments\":{\"workspace\":\"${REPO2_NAME}\"}}}" 2>/dev/null) || STATS2=""
+        -d "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"tools/call\",\"params\":{\"name\":\"list_graph_stats\",\"arguments\":{\"namespace\":\"${REPO2_NAME}\"}}}" 2>/dev/null) || STATS2=""
     info "Stats ${REPO2_NAME}: $(echo "$STATS2" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['content'][0]['text'])" 2>/dev/null || echo "$STATS2")"
 
-    info "Building RAG index for workspace=${REPO_NAME}..."
+    info "Building RAG index for namespace=${REPO_NAME}..."
     RAG1_RESP=$(curl -fsS -X POST "${CCG_URL}/mcp" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
-        -d "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\",\"params\":{\"name\":\"build_rag_index\",\"arguments\":{\"workspace\":\"${REPO_NAME}\"}}}" 2>/dev/null) || RAG1_RESP=""
+        -d "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\",\"params\":{\"name\":\"build_rag_index\",\"arguments\":{\"namespace\":\"${REPO_NAME}\"}}}" 2>/dev/null) || RAG1_RESP=""
     info "RAG index build for ${REPO_NAME}:"
     echo "$RAG1_RESP" | python3 -m json.tool 2>/dev/null || echo "$RAG1_RESP"
 
-    info "Building RAG index for workspace=${REPO2_NAME}..."
+    info "Building RAG index for namespace=${REPO2_NAME}..."
     RAG2_RESP=$(curl -fsS -X POST "${CCG_URL}/mcp" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
-        -d "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\",\"params\":{\"name\":\"build_rag_index\",\"arguments\":{\"workspace\":\"${REPO2_NAME}\"}}}" 2>/dev/null) || RAG2_RESP=""
+        -d "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\",\"params\":{\"name\":\"build_rag_index\",\"arguments\":{\"namespace\":\"${REPO2_NAME}\"}}}" 2>/dev/null) || RAG2_RESP=""
     info "RAG index build for ${REPO2_NAME}:"
     echo "$RAG2_RESP" | python3 -m json.tool 2>/dev/null || echo "$RAG2_RESP"
 
@@ -577,14 +577,14 @@ if [ -n "$MCP_SESSION" ]; then
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
-        -d "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/call\",\"params\":{\"name\":\"get_rag_tree\",\"arguments\":{\"workspace\":\"${REPO_NAME}\"}}}" 2>/dev/null) || TREE1_RESP=""
+        -d "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/call\",\"params\":{\"name\":\"get_rag_tree\",\"arguments\":{\"namespace\":\"${REPO_NAME}\"}}}" 2>/dev/null) || TREE1_RESP=""
 
     info "Verifying namespace isolation: get_rag_tree for ${REPO2_NAME}..."
     TREE2_RESP=$(curl -fsS -X POST "${CCG_URL}/mcp" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" \
         -H "Mcp-Session-Id: ${MCP_SESSION}" \
-        -d "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\",\"params\":{\"name\":\"get_rag_tree\",\"arguments\":{\"workspace\":\"${REPO2_NAME}\"}}}" 2>/dev/null) || TREE2_RESP=""
+        -d "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\",\"params\":{\"name\":\"get_rag_tree\",\"arguments\":{\"namespace\":\"${REPO2_NAME}\"}}}" 2>/dev/null) || TREE2_RESP=""
 
     info "RAG tree ${REPO_NAME}:"
     echo "$TREE1_RESP" | python3 -m json.tool 2>/dev/null || echo "$TREE1_RESP"
@@ -631,36 +631,36 @@ if [ -n "$MCP_SESSION" ]; then
     info "Phase 10: Testing Graph Query tools..."
 
     # get_node — lookup greet function from sample-go
-    RESP=$(mcp_call "get_node" "{\"qualified_name\":\"main.greet\",\"workspace\":\"${REPO_NAME}\"}")
+    RESP=$(mcp_call "get_node" "{\"qualified_name\":\"main.greet\",\"namespace\":\"${REPO_NAME}\"}")
     assert_mcp_ok "get_node" "$RESP"
     assert_mcp_contains "get_node" "$RESP" "greet"
 
     # search — full-text search for "greet"
-    RESP=$(mcp_call "search" "{\"query\":\"greet\",\"limit\":5,\"workspace\":\"${REPO_NAME}\"}")
+    RESP=$(mcp_call "search" "{\"query\":\"greet\",\"limit\":5,\"namespace\":\"${REPO_NAME}\"}")
     assert_mcp_ok "search" "$RESP"
     assert_mcp_contains "search" "$RESP" "greet"
 
     # get_annotation — subtract has @intent tag in sample-calc
-    RESP=$(mcp_call "get_annotation" "{\"qualified_name\":\"main.subtract\",\"workspace\":\"${REPO2_NAME}\"}")
+    RESP=$(mcp_call "get_annotation" "{\"qualified_name\":\"main.subtract\",\"namespace\":\"${REPO2_NAME}\"}")
     assert_mcp_ok "get_annotation" "$RESP"
     assert_mcp_contains "get_annotation" "$RESP" "intent"
 
     # query_graph — file_summary for main.go
-    RESP=$(mcp_call "query_graph" "{\"pattern\":\"file_summary\",\"target\":\"main.go\",\"workspace\":\"${REPO_NAME}\"}")
+    RESP=$(mcp_call "query_graph" "{\"pattern\":\"file_summary\",\"target\":\"main.go\",\"namespace\":\"${REPO_NAME}\"}")
     assert_mcp_ok "query_graph(file_summary)" "$RESP"
     assert_mcp_contains "query_graph(file_summary)" "$RESP" "file_summary"
 
     # query_graph — callees_of main.main
-    RESP=$(mcp_call "query_graph" "{\"pattern\":\"callees_of\",\"target\":\"main.main\",\"workspace\":\"${REPO_NAME}\"}")
+    RESP=$(mcp_call "query_graph" "{\"pattern\":\"callees_of\",\"target\":\"main.main\",\"namespace\":\"${REPO_NAME}\"}")
     assert_mcp_ok "query_graph(callees_of)" "$RESP"
 
     # find_large_functions — min_lines=1 to find all functions
-    RESP=$(mcp_call "find_large_functions" "{\"min_lines\":1,\"workspace\":\"${REPO_NAME}\"}")
+    RESP=$(mcp_call "find_large_functions" "{\"min_lines\":1,\"namespace\":\"${REPO_NAME}\"}")
     assert_mcp_ok "find_large_functions" "$RESP"
     assert_mcp_gt0 "find_large_functions" "$RESP" "count"
 
     # find_dead_code — add/multiply in sample-go are never called
-    RESP=$(mcp_call "find_dead_code" "{\"workspace\":\"${REPO_NAME}\"}")
+    RESP=$(mcp_call "find_dead_code" "{\"namespace\":\"${REPO_NAME}\"}")
     assert_mcp_ok "find_dead_code" "$RESP"
 
     info "Phase 10 complete ✅"
@@ -673,26 +673,26 @@ if [ -n "$MCP_SESSION" ]; then
     info "Phase 11: Testing Analysis tools..."
 
     # get_impact_radius — greet function blast radius
-    RESP=$(mcp_call "get_impact_radius" "{\"qualified_name\":\"main.greet\",\"depth\":1,\"workspace\":\"${REPO_NAME}\"}")
+    RESP=$(mcp_call "get_impact_radius" "{\"qualified_name\":\"main.greet\",\"depth\":1,\"namespace\":\"${REPO_NAME}\"}")
     assert_mcp_ok "get_impact_radius" "$RESP"
 
     # trace_flow — main.main flow trace
-    RESP=$(mcp_call "trace_flow" "{\"qualified_name\":\"main.main\",\"workspace\":\"${REPO_NAME}\"}")
+    RESP=$(mcp_call "trace_flow" "{\"qualified_name\":\"main.main\",\"namespace\":\"${REPO_NAME}\"}")
     assert_mcp_ok "trace_flow" "$RESP"
 
-    RESP=$(mcp_call "detect_changes" "{\"repo_root\":\"/repos/${REPO_NAME}\",\"workspace\":\"${REPO_NAME}\"}")
+    RESP=$(mcp_call "detect_changes" "{\"repo_root\":\"/repos/${REPO_NAME}\",\"namespace\":\"${REPO_NAME}\"}")
     assert_mcp_ok "detect_changes" "$RESP"
 
-    RESP=$(mcp_call "get_affected_flows" "{\"repo_root\":\"/repos/${REPO_NAME}\",\"workspace\":\"${REPO_NAME}\"}")
+    RESP=$(mcp_call "get_affected_flows" "{\"repo_root\":\"/repos/${REPO_NAME}\",\"namespace\":\"${REPO_NAME}\"}")
     assert_mcp_ok "get_affected_flows" "$RESP"
 
     # get_architecture_overview — communities exist from Phase 8
-    RESP=$(mcp_call "get_architecture_overview" "{\"workspace\":\"${REPO_NAME}\"}")
+    RESP=$(mcp_call "get_architecture_overview" "{\"namespace\":\"${REPO_NAME}\"}")
     assert_mcp_ok "get_architecture_overview" "$RESP"
     assert_mcp_contains "get_architecture_overview" "$RESP" "communities"
 
     # get_minimal_context — task-based context
-    RESP=$(mcp_call "get_minimal_context" "{\"task\":\"review\",\"workspace\":\"${REPO_NAME}\"}")
+    RESP=$(mcp_call "get_minimal_context" "{\"task\":\"review\",\"namespace\":\"${REPO_NAME}\"}")
     assert_mcp_ok "get_minimal_context" "$RESP"
     assert_mcp_contains "get_minimal_context" "$RESP" "summary"
 
@@ -706,12 +706,12 @@ if [ -n "$MCP_SESSION" ]; then
     info "Phase 12: Testing Graph structure tools..."
 
     # list_flows
-    RESP=$(mcp_call "list_flows" "{\"workspace\":\"${REPO_NAME}\"}")
+    RESP=$(mcp_call "list_flows" "{\"namespace\":\"${REPO_NAME}\"}")
     assert_mcp_ok "list_flows" "$RESP"
     assert_mcp_contains "list_flows" "$RESP" "flows"
 
     # list_communities
-    RESP=$(mcp_call "list_communities" "{\"workspace\":\"${REPO_NAME}\"}")
+    RESP=$(mcp_call "list_communities" "{\"namespace\":\"${REPO_NAME}\"}")
     assert_mcp_ok "list_communities" "$RESP"
     assert_mcp_contains "list_communities" "$RESP" "communities"
 
@@ -724,56 +724,56 @@ comms=d.get('communities',[])
 print(comms[0]['id'] if comms else 0)
 " 2>/dev/null) || COMM_ID=0
     if [ "${COMM_ID:-0}" -gt 0 ]; then
-        RESP=$(mcp_call "get_community" "{\"community_id\":${COMM_ID},\"include_members\":true,\"workspace\":\"${REPO_NAME}\"}")
+        RESP=$(mcp_call "get_community" "{\"community_id\":${COMM_ID},\"include_members\":true,\"namespace\":\"${REPO_NAME}\"}")
         assert_mcp_ok "get_community" "$RESP"
         assert_mcp_contains "get_community" "$RESP" "members"
     else
         warn "No community found — skipping get_community"
     fi
 
-    # list_workspaces
-    RESP=$(mcp_call "list_workspaces" "{}")
-    assert_mcp_ok "list_workspaces" "$RESP"
+    # list_namespaces
+    RESP=$(mcp_call "list_namespaces" "{}")
+    assert_mcp_ok "list_namespaces" "$RESP"
 
     info "Phase 12 complete ✅"
 else
     warn "MCP session unavailable under local debug override — skipping Phase 12"
 fi
 
-# ── Phase 13: Workspace/File management tools ──
+# ── Phase 13: Namespace/File management tools ──
 if [ -n "$MCP_SESSION" ]; then
-    info "Phase 13: Testing Workspace/File management tools..."
+    info "Phase 13: Testing Namespace/File management tools..."
 
-    TEST_WS="e2e-test-ws"
+    TEST_NS="e2e-test-ns"
     B64_CONTENT=$(echo -n "package main\nfunc hello() {}" | base64)
 
     # upload_file
-    RESP=$(mcp_call "upload_file" "{\"workspace\":\"${TEST_WS}\",\"file_path\":\"hello.go\",\"content\":\"${B64_CONTENT}\"}")
+    RESP=$(mcp_call "upload_file" "{\"namespace\":\"${TEST_NS}\",\"file_path\":\"hello.go\",\"content\":\"${B64_CONTENT}\"}")
     assert_mcp_ok "upload_file" "$RESP"
     assert_mcp_contains "upload_file" "$RESP" "ok"
 
     # upload_files — batch upload
     B64_A=$(echo -n "file_a content" | base64)
     B64_B=$(echo -n "file_b content" | base64)
-    FILES_JSON="[{\"workspace\":\"${TEST_WS}\",\"file_path\":\"a.txt\",\"content\":\"${B64_A}\"},{\"workspace\":\"${TEST_WS}\",\"file_path\":\"b.txt\",\"content\":\"${B64_B}\"}]"
+    FILES_JSON="[{\"namespace\":\"${TEST_NS}\",\"file_path\":\"a.txt\",\"content\":\"${B64_A}\"},{\"namespace\":\"${TEST_NS}\",\"file_path\":\"b.txt\",\"content\":\"${B64_B}\"}]"
     RESP=$(mcp_call "upload_files" "{\"files\":$(echo "$FILES_JSON" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}")
     assert_mcp_ok "upload_files" "$RESP"
     assert_mcp_contains "upload_files" "$RESP" "uploaded"
 
     # list_files — should see uploaded files
-    RESP=$(mcp_call "list_files" "{\"workspace\":\"${TEST_WS}\"}")
+    RESP=$(mcp_call "list_files" "{\"namespace\":\"${TEST_NS}\"}")
     assert_mcp_ok "list_files" "$RESP"
     assert_mcp_contains "list_files" "$RESP" "hello.go"
 
     # delete_file — remove a.txt
-    RESP=$(mcp_call "delete_file" "{\"workspace\":\"${TEST_WS}\",\"file_path\":\"a.txt\"}")
+    RESP=$(mcp_call "delete_file" "{\"namespace\":\"${TEST_NS}\",\"file_path\":\"a.txt\"}")
     assert_mcp_ok "delete_file" "$RESP"
     assert_mcp_contains "delete_file" "$RESP" "deleted"
 
-    # delete_workspace — remove entire test workspace
-    RESP=$(mcp_call "delete_workspace" "{\"workspace\":\"${TEST_WS}\"}")
-    assert_mcp_ok "delete_workspace" "$RESP"
-    assert_mcp_contains "delete_workspace" "$RESP" "deleted"
+    # delete_namespace — remove entire test namespace
+    RESP=$(mcp_call "delete_namespace" "{\"namespace\":\"${TEST_NS}\"}")
+    assert_mcp_ok "delete_namespace" "$RESP"
+    assert_mcp_contains "delete_namespace" "$RESP" "deleted"
 
     info "Phase 13 complete ✅"
 else
@@ -785,13 +785,13 @@ if [ -n "$MCP_SESSION" ]; then
     info "Phase 14: Testing Docs/RAG tools..."
 
     # search_docs — search for a keyword in the RAG index (built in Phase 8)
-    RESP=$(mcp_call "search_docs" "{\"query\":\"main\",\"workspace\":\"${REPO_NAME}\"}")
+    RESP=$(mcp_call "search_docs" "{\"query\":\"main\",\"namespace\":\"${REPO_NAME}\"}")
     assert_mcp_ok "search_docs" "$RESP"
 
-    # get_doc_content — read a generated doc from workspace
-    # The RAG builder generates docs at <workspace>/docs/... path pattern
+    # get_doc_content — read a generated doc from namespace
+    # The RAG builder generates docs at <namespace>/docs/... path pattern
     # We first check what files the rag tree has, then try to read one
-    TREE_RESP=$(mcp_call "get_rag_tree" "{\"workspace\":\"${REPO_NAME}\"}")
+    TREE_RESP=$(mcp_call "get_rag_tree" "{\"namespace\":\"${REPO_NAME}\"}")
     DOC_PATH=$(echo "$TREE_RESP" | python3 -c "
 import sys,json
 def find_file(node, depth=0):
@@ -808,15 +808,15 @@ print(find_file(tree))
 
     if [ -n "$DOC_PATH" ]; then
         DOC_B64=$(printf '# Integration Doc\n\nGenerated doc content for get_doc_content.\n' | base64 | tr -d '\n')
-        mcp_call "upload_file" "{\"workspace\":\"${REPO_NAME}\",\"file_path\":\"${DOC_PATH}\",\"content\":\"${DOC_B64}\"}" >/dev/null
-        RESP=$(mcp_call "get_doc_content" "{\"file_path\":\"${DOC_PATH}\",\"workspace\":\"${REPO_NAME}\"}")
+        mcp_call "upload_file" "{\"namespace\":\"${REPO_NAME}\",\"file_path\":\"${DOC_PATH}\",\"content\":\"${DOC_B64}\"}" >/dev/null
+        RESP=$(mcp_call "get_doc_content" "{\"file_path\":\"${DOC_PATH}\",\"namespace\":\"${REPO_NAME}\"}")
         assert_mcp_ok "get_doc_content" "$RESP"
         assert_mcp_contains "get_doc_content" "$RESP" "Generated doc content"
         info "✅ get_doc_content: read ${DOC_PATH}"
     else
         warn "No doc file found in RAG tree — skipping get_doc_content read test"
         # Still verify the tool returns a proper error for missing file
-        RESP=$(mcp_call "get_doc_content" "{\"file_path\":\"docs/nonexistent.md\",\"workspace\":\"${REPO_NAME}\"}")
+        RESP=$(mcp_call "get_doc_content" "{\"file_path\":\"docs/nonexistent.md\",\"namespace\":\"${REPO_NAME}\"}")
         info "✅ get_doc_content: error handling verified"
     fi
 
@@ -829,37 +829,37 @@ fi
 if [ -n "$MCP_SESSION" ]; then
     info "Phase 15: Testing Build tools..."
 
-    # upload a small Go project to a test workspace, then parse and build
-    BUILD_WS="e2e-build-ws"
+    # upload a small Go project to a test namespace, then parse and build
+    BUILD_NS="e2e-build-ns"
     B64_MAIN=$(printf 'package main\n\nfunc Run() string {\n\treturn "running"\n}\n' | base64)
     B64_UTIL=$(printf 'package main\n\nfunc Helper() int {\n\treturn 42\n}\n' | base64)
 
-    mcp_call "upload_file" "{\"workspace\":\"${BUILD_WS}\",\"file_path\":\"main.go\",\"content\":\"${B64_MAIN}\"}" >/dev/null
-    mcp_call "upload_file" "{\"workspace\":\"${BUILD_WS}\",\"file_path\":\"util.go\",\"content\":\"${B64_UTIL}\"}" >/dev/null
+    mcp_call "upload_file" "{\"namespace\":\"${BUILD_NS}\",\"file_path\":\"main.go\",\"content\":\"${B64_MAIN}\"}" >/dev/null
+    mcp_call "upload_file" "{\"namespace\":\"${BUILD_NS}\",\"file_path\":\"util.go\",\"content\":\"${B64_UTIL}\"}" >/dev/null
 
-    # parse_project — parse the uploaded workspace
-    WS_ROOT=$(compose exec -T ccg printenv WORKSPACE_ROOT 2>/dev/null | tr -d '\r') || WS_ROOT=""
-    if [ -z "$WS_ROOT" ]; then
-        WS_ROOT="workspaces"
+    # parse_project — parse the uploaded namespace
+    NS_ROOT=$(compose exec -T ccg printenv NAMESPACE_ROOT 2>/dev/null | tr -d '\r') || NS_ROOT=""
+    if [ -z "$NS_ROOT" ]; then
+        NS_ROOT="namespaces"
     fi
-    PARSE_PATH="${WS_ROOT}/${BUILD_WS}"
+    PARSE_PATH="${NS_ROOT}/${BUILD_NS}"
 
-    RESP=$(mcp_call "parse_project" "{\"path\":\"${PARSE_PATH}\",\"workspace\":\"${BUILD_WS}\"}")
+    RESP=$(mcp_call "parse_project" "{\"path\":\"${PARSE_PATH}\",\"namespace\":\"${BUILD_NS}\"}")
     assert_mcp_ok "parse_project" "$RESP"
     assert_mcp_contains "parse_project" "$RESP" "parsed"
 
     # build_or_update_graph — full rebuild with postprocess
-    RESP=$(mcp_call "build_or_update_graph" "{\"path\":\"${PARSE_PATH}\",\"full_rebuild\":true,\"postprocess\":\"full\",\"workspace\":\"${BUILD_WS}\"}")
+    RESP=$(mcp_call "build_or_update_graph" "{\"path\":\"${PARSE_PATH}\",\"full_rebuild\":true,\"postprocess\":\"full\",\"namespace\":\"${BUILD_NS}\"}")
     assert_mcp_ok "build_or_update_graph" "$RESP"
     assert_mcp_contains "build_or_update_graph" "$RESP" "ok"
 
     # Verify the graph was built via list_graph_stats
-    RESP=$(mcp_call "list_graph_stats" "{\"workspace\":\"${BUILD_WS}\"}")
+    RESP=$(mcp_call "list_graph_stats" "{\"namespace\":\"${BUILD_NS}\"}")
     assert_mcp_ok "list_graph_stats(build)" "$RESP"
     assert_mcp_gt0 "list_graph_stats(build)" "$RESP" "total_nodes"
 
-    # Cleanup: delete build workspace
-    mcp_call "delete_workspace" "{\"workspace\":\"${BUILD_WS}\"}" >/dev/null
+    # Cleanup: delete build namespace
+    mcp_call "delete_namespace" "{\"namespace\":\"${BUILD_NS}\"}" >/dev/null
 
     info "Phase 15 complete ✅"
 else
@@ -883,7 +883,7 @@ fi
 echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
 echo ""
 info "Pipeline: Gitea push → webhook → ccg clone → build → DB ✅"
-info "MCP tools: graph query, analysis, structure, workspace, docs, build ✅"
+info "MCP tools: graph query, analysis, structure, namespace, docs, build ✅"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

@@ -18,10 +18,10 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	nsfs "github.com/tae2089/code-context-graph/internal/namespacefs"
 	"github.com/tae2089/code-context-graph/internal/store"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 	storesearch "github.com/tae2089/code-context-graph/internal/store/search"
-	wsvc "github.com/tae2089/code-context-graph/internal/workspace"
 )
 
 type failDeleteGraphStore struct {
@@ -48,25 +48,25 @@ func (s *spySearchBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeID
 	return nil
 }
 
-func workspaceHandlers(t *testing.T) (*handlers, string) {
+func namespaceHandlers(t *testing.T) (*handlers, string) {
 	t.Helper()
 	root := t.TempDir()
 	h := &handlers{
 		deps: &Deps{
-			WorkspaceRoot: root,
+			NamespaceRoot: root,
 		},
 	}
 	return h, root
 }
 
 func TestUploadFile_Basic(t *testing.T) {
-	h, root := workspaceHandlers(t)
+	h, root := namespaceHandlers(t)
 
 	content := "# Hello World\nThis is a test."
 	encoded := base64.StdEncoding.EncodeToString([]byte(content))
 
 	req := makeCallToolRequest(t, map[string]any{
-		"workspace": "my-service",
+		"namespace": "my-service",
 		"file_path": "docs/readme.md",
 		"content":   encoded,
 	})
@@ -87,7 +87,7 @@ func TestUploadFile_Basic(t *testing.T) {
 }
 
 func TestUploadFile_AcceptsNamespace(t *testing.T) {
-	h, root := workspaceHandlers(t)
+	h, root := namespaceHandlers(t)
 	encoded := base64.StdEncoding.EncodeToString([]byte("hello"))
 
 	req := makeCallToolRequest(t, map[string]any{
@@ -106,54 +106,30 @@ func TestUploadFile_AcceptsNamespace(t *testing.T) {
 	}
 }
 
-func TestUploadFile_NamespaceWinsOverWorkspace(t *testing.T) {
-	h, root := workspaceHandlers(t)
-	encoded := base64.StdEncoding.EncodeToString([]byte("hello"))
-
-	req := makeCallToolRequest(t, map[string]any{
-		"namespace": "new-service",
-		"workspace": "old-service",
-		"file_path": "file.txt",
-		"content":   encoded,
-	})
-
-	result, err := h.uploadFile(t.Context(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	assertToolResultNotError(t, result)
-	if _, err := os.Stat(filepath.Join(root, "new-service", "file.txt")); err != nil {
-		t.Fatalf("namespace path not written: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "old-service", "file.txt")); !os.IsNotExist(err) {
-		t.Fatalf("workspace alias should not win when namespace is present: %v", err)
-	}
-}
-
 func TestUploadFile_PathTraversal(t *testing.T) {
-	h, _ := workspaceHandlers(t)
+	h, _ := namespaceHandlers(t)
 
 	encoded := base64.StdEncoding.EncodeToString([]byte("malicious"))
 
 	tests := []struct {
 		name      string
-		workspace string
+		namespace string
 		filePath  string
 	}{
-		{"dotdot in workspace", "../evil", "file.md"},
+		{"dotdot in namespace", "../evil", "file.md"},
 		{"dotdot in file_path", "ok", "../../etc/passwd"},
-		{"absolute workspace", "/etc", "passwd"},
+		{"absolute namespace", "/etc", "passwd"},
 		{"absolute file_path", "ok", "/etc/passwd"},
-		{"dot workspace", ".", "file.md"},
-		{"double-dot workspace", "..", "file.md"},
-		{"path-like workspace slash", "service/api", "file.md"},
-		{"path-like workspace separator", "service" + string(filepath.Separator) + "api", "file.md"},
+		{"dot namespace", ".", "file.md"},
+		{"double-dot namespace", "..", "file.md"},
+		{"path-like namespace slash", "service/api", "file.md"},
+		{"path-like namespace separator", "service" + string(filepath.Separator) + "api", "file.md"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := makeCallToolRequest(t, map[string]any{
-				"workspace": tt.workspace,
+				"namespace": tt.namespace,
 				"file_path": tt.filePath,
 				"content":   encoded,
 			})
@@ -166,12 +142,12 @@ func TestUploadFile_PathTraversal(t *testing.T) {
 	}
 }
 
-func TestUploadFile_RejectsEmptyWorkspace(t *testing.T) {
-	h, _ := workspaceHandlers(t)
+func TestUploadFile_RejectsEmptyNamespace(t *testing.T) {
+	h, _ := namespaceHandlers(t)
 	encoded := base64.StdEncoding.EncodeToString([]byte("content"))
 
 	req := makeCallToolRequest(t, map[string]any{
-		"workspace": "",
+		"namespace": "",
 		"file_path": "file.md",
 		"content":   encoded,
 	})
@@ -183,10 +159,10 @@ func TestUploadFile_RejectsEmptyWorkspace(t *testing.T) {
 }
 
 func TestUploadFile_InvalidBase64(t *testing.T) {
-	h, _ := workspaceHandlers(t)
+	h, _ := namespaceHandlers(t)
 
 	req := makeCallToolRequest(t, map[string]any{
-		"workspace": "my-service",
+		"namespace": "my-service",
 		"file_path": "file.md",
 		"content":   "not-valid-base64!!!",
 	})
@@ -198,11 +174,11 @@ func TestUploadFile_InvalidBase64(t *testing.T) {
 	assertToolResultIsError(t, result)
 }
 
-func TestListWorkspaces_Empty(t *testing.T) {
-	h, _ := workspaceHandlers(t)
+func TestListNamespaces_Empty(t *testing.T) {
+	h, _ := namespaceHandlers(t)
 
 	req := makeCallToolRequest(t, map[string]any{})
-	result, err := h.listWorkspaces(t.Context(), req)
+	result, err := h.listNamespaces(t.Context(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -227,14 +203,14 @@ func TestListWorkspaces_Empty(t *testing.T) {
 	}
 }
 
-func TestListWorkspaces_WithData(t *testing.T) {
-	h, root := workspaceHandlers(t)
+func TestListNamespaces_WithData(t *testing.T) {
+	h, root := namespaceHandlers(t)
 
 	os.MkdirAll(filepath.Join(root, "service-a"), 0o755)
 	os.MkdirAll(filepath.Join(root, "service-b"), 0o755)
 
 	req := makeCallToolRequest(t, map[string]any{})
-	result, err := h.listWorkspaces(t.Context(), req)
+	result, err := h.listNamespaces(t.Context(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -244,14 +220,14 @@ func TestListWorkspaces_WithData(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &resp); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
-	workspaces := resp["namespaces"].([]any)
-	if len(workspaces) != 2 {
-		t.Errorf("expected 2 workspaces, got %d: %v", len(workspaces), workspaces)
+	namespaces := resp["namespaces"].([]any)
+	if len(namespaces) != 2 {
+		t.Errorf("expected 2 namespaces, got %d: %v", len(namespaces), namespaces)
 	}
 }
 
-func TestListWorkspaces_Pagination(t *testing.T) {
-	h, root := workspaceHandlers(t)
+func TestListNamespaces_Pagination(t *testing.T) {
+	h, root := namespaceHandlers(t)
 	for _, name := range []string{"service-a", "service-b", "service-c"} {
 		if err := os.MkdirAll(filepath.Join(root, name), 0o755); err != nil {
 			t.Fatal(err)
@@ -259,7 +235,7 @@ func TestListWorkspaces_Pagination(t *testing.T) {
 	}
 
 	req := makeCallToolRequest(t, map[string]any{"limit": 2, "offset": 1})
-	result, err := h.listWorkspaces(t.Context(), req)
+	result, err := h.listNamespaces(t.Context(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -280,15 +256,15 @@ func TestListWorkspaces_Pagination(t *testing.T) {
 }
 
 func TestListFiles_Basic(t *testing.T) {
-	h, root := workspaceHandlers(t)
+	h, root := namespaceHandlers(t)
 
-	wsDir := filepath.Join(root, "my-service")
-	os.MkdirAll(filepath.Join(wsDir, "docs"), 0o755)
-	os.WriteFile(filepath.Join(wsDir, "readme.md"), []byte("hello"), 0o644)
-	os.WriteFile(filepath.Join(wsDir, "docs", "api.md"), []byte("api"), 0o644)
+	nsDir := filepath.Join(root, "my-service")
+	os.MkdirAll(filepath.Join(nsDir, "docs"), 0o755)
+	os.WriteFile(filepath.Join(nsDir, "readme.md"), []byte("hello"), 0o644)
+	os.WriteFile(filepath.Join(nsDir, "docs", "api.md"), []byte("api"), 0o644)
 
 	req := makeCallToolRequest(t, map[string]any{
-		"workspace": "my-service",
+		"namespace": "my-service",
 	})
 	result, err := h.listFiles(t.Context(), req)
 	if err != nil {
@@ -311,18 +287,18 @@ func TestListFiles_Basic(t *testing.T) {
 }
 
 func TestListFiles_Pagination(t *testing.T) {
-	h, root := workspaceHandlers(t)
-	wsDir := filepath.Join(root, "my-service")
-	if err := os.MkdirAll(filepath.Join(wsDir, "docs"), 0o755); err != nil {
+	h, root := namespaceHandlers(t)
+	nsDir := filepath.Join(root, "my-service")
+	if err := os.MkdirAll(filepath.Join(nsDir, "docs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	for _, rel := range []string{"a.md", "b.md", "docs/c.md"} {
-		if err := os.WriteFile(filepath.Join(wsDir, rel), []byte(rel), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(nsDir, rel), []byte(rel), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	req := makeCallToolRequest(t, map[string]any{"workspace": "my-service", "limit": 2, "offset": 1})
+	req := makeCallToolRequest(t, map[string]any{"namespace": "my-service", "limit": 2, "offset": 1})
 	result, err := h.listFiles(t.Context(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -343,19 +319,19 @@ func TestListFiles_Pagination(t *testing.T) {
 	}
 }
 
-func TestListWorkspaceAndFiles_InvalidPagination(t *testing.T) {
-	h, _ := workspaceHandlers(t)
+func TestListNamespaceAndFiles_InvalidPagination(t *testing.T) {
+	h, _ := namespaceHandlers(t)
 	for name, req := range map[string]mcp.CallToolRequest{
-		"workspaces limit":  makeCallToolRequest(t, map[string]any{"limit": 0}),
-		"workspaces offset": makeCallToolRequest(t, map[string]any{"offset": -1}),
-		"files limit":       makeCallToolRequest(t, map[string]any{"workspace": "svc", "limit": 0}),
-		"files offset":      makeCallToolRequest(t, map[string]any{"workspace": "svc", "offset": -1}),
+		"namespaces limit":  makeCallToolRequest(t, map[string]any{"limit": 0}),
+		"namespaces offset": makeCallToolRequest(t, map[string]any{"offset": -1}),
+		"files limit":       makeCallToolRequest(t, map[string]any{"namespace": "svc", "limit": 0}),
+		"files offset":      makeCallToolRequest(t, map[string]any{"namespace": "svc", "offset": -1}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			var result *mcp.CallToolResult
 			var err error
-			if strings.HasPrefix(name, "workspaces") {
-				result, err = h.listWorkspaces(t.Context(), req)
+			if strings.HasPrefix(name, "namespaces") {
+				result, err = h.listNamespaces(t.Context(), req)
 			} else {
 				result, err = h.listFiles(t.Context(), req)
 			}
@@ -368,10 +344,10 @@ func TestListWorkspaceAndFiles_InvalidPagination(t *testing.T) {
 }
 
 func TestListFiles_PathTraversal(t *testing.T) {
-	h, _ := workspaceHandlers(t)
+	h, _ := namespaceHandlers(t)
 
 	req := makeCallToolRequest(t, map[string]any{
-		"workspace": "../evil",
+		"namespace": "../evil",
 	})
 	result, err := h.listFiles(t.Context(), req)
 	if err != nil {
@@ -381,15 +357,15 @@ func TestListFiles_PathTraversal(t *testing.T) {
 }
 
 func TestDeleteFile_Basic(t *testing.T) {
-	h, root := workspaceHandlers(t)
+	h, root := namespaceHandlers(t)
 
-	wsDir := filepath.Join(root, "my-service")
-	os.MkdirAll(wsDir, 0o755)
-	filePath := filepath.Join(wsDir, "to-delete.md")
+	nsDir := filepath.Join(root, "my-service")
+	os.MkdirAll(nsDir, 0o755)
+	filePath := filepath.Join(nsDir, "to-delete.md")
 	os.WriteFile(filePath, []byte("bye"), 0o644)
 
 	req := makeCallToolRequest(t, map[string]any{
-		"workspace": "my-service",
+		"namespace": "my-service",
 		"file_path": "to-delete.md",
 	})
 	result, err := h.deleteFile(t.Context(), req)
@@ -404,10 +380,10 @@ func TestDeleteFile_Basic(t *testing.T) {
 }
 
 func TestDeleteFile_NotFound(t *testing.T) {
-	h, _ := workspaceHandlers(t)
+	h, _ := namespaceHandlers(t)
 
 	req := makeCallToolRequest(t, map[string]any{
-		"workspace": "my-service",
+		"namespace": "my-service",
 		"file_path": "nonexistent.md",
 	})
 	result, err := h.deleteFile(t.Context(), req)
@@ -418,10 +394,10 @@ func TestDeleteFile_NotFound(t *testing.T) {
 }
 
 func TestDeleteFile_PathTraversal(t *testing.T) {
-	h, _ := workspaceHandlers(t)
+	h, _ := namespaceHandlers(t)
 
 	req := makeCallToolRequest(t, map[string]any{
-		"workspace": "ok",
+		"namespace": "ok",
 		"file_path": "../../etc/passwd",
 	})
 	result, err := h.deleteFile(t.Context(), req)
@@ -432,14 +408,14 @@ func TestDeleteFile_PathTraversal(t *testing.T) {
 }
 
 func TestUploadFiles_Basic(t *testing.T) {
-	h, root := workspaceHandlers(t)
+	h, root := namespaceHandlers(t)
 
 	file1 := base64.StdEncoding.EncodeToString([]byte("package main"))
 	file2 := base64.StdEncoding.EncodeToString([]byte("package util"))
 
 	filesJSON, _ := json.Marshal([]map[string]string{
-		{"workspace": "svc-a", "file_path": "main.go", "content": file1},
-		{"workspace": "svc-a", "file_path": "util.go", "content": file2},
+		{"namespace": "svc-a", "file_path": "main.go", "content": file1},
+		{"namespace": "svc-a", "file_path": "util.go", "content": file2},
 	})
 
 	req := makeCallToolRequest(t, map[string]any{
@@ -472,7 +448,7 @@ func TestUploadFiles_Basic(t *testing.T) {
 }
 
 func TestUploadFiles_EmptyArray(t *testing.T) {
-	h, _ := workspaceHandlers(t)
+	h, _ := namespaceHandlers(t)
 
 	req := makeCallToolRequest(t, map[string]any{
 		"files": "[]",
@@ -486,7 +462,7 @@ func TestUploadFiles_EmptyArray(t *testing.T) {
 }
 
 func TestUploadFiles_InvalidJSON(t *testing.T) {
-	h, _ := workspaceHandlers(t)
+	h, _ := namespaceHandlers(t)
 
 	req := makeCallToolRequest(t, map[string]any{
 		"files": "not-json",
@@ -500,11 +476,11 @@ func TestUploadFiles_InvalidJSON(t *testing.T) {
 }
 
 func TestUploadFiles_PathTraversal(t *testing.T) {
-	h, _ := workspaceHandlers(t)
+	h, _ := namespaceHandlers(t)
 
 	file1 := base64.StdEncoding.EncodeToString([]byte("data"))
 	filesJSON, _ := json.Marshal([]map[string]string{
-		{"workspace": "../evil", "file_path": "file.go", "content": file1},
+		{"namespace": "../evil", "file_path": "file.go", "content": file1},
 	})
 
 	req := makeCallToolRequest(t, map[string]any{
@@ -519,9 +495,9 @@ func TestUploadFiles_PathTraversal(t *testing.T) {
 }
 
 func TestUploadFiles_RejectsOversizedRawRequest(t *testing.T) {
-	h, _ := workspaceHandlers(t)
+	h, _ := namespaceHandlers(t)
 	req := makeCallToolRequest(t, map[string]any{
-		"files": strings.Repeat("x", wsvc.DefaultMaxRequestBytes+1),
+		"files": strings.Repeat("x", nsfs.DefaultMaxRequestBytes+1),
 	})
 
 	result, err := h.uploadFiles(t.Context(), req)
@@ -535,14 +511,14 @@ func TestUploadFiles_RejectsOversizedRawRequest(t *testing.T) {
 }
 
 func TestUploadFiles_RejectsOversizedTotalDecodedContent(t *testing.T) {
-	h, root := workspaceHandlers(t)
-	first := base64.StdEncoding.EncodeToString(make([]byte, wsvc.DefaultMaxFileBytes))
-	second := base64.StdEncoding.EncodeToString(make([]byte, wsvc.DefaultMaxFileBytes))
+	h, root := namespaceHandlers(t)
+	first := base64.StdEncoding.EncodeToString(make([]byte, nsfs.DefaultMaxFileBytes))
+	second := base64.StdEncoding.EncodeToString(make([]byte, nsfs.DefaultMaxFileBytes))
 	third := base64.StdEncoding.EncodeToString([]byte("a"))
 	filesJSON, _ := json.Marshal([]map[string]string{
-		{"workspace": "svc-a", "file_path": "a.txt", "content": first},
-		{"workspace": "svc-b", "file_path": "b.txt", "content": second},
-		{"workspace": "svc-c", "file_path": "c.txt", "content": third},
+		{"namespace": "svc-a", "file_path": "a.txt", "content": first},
+		{"namespace": "svc-b", "file_path": "b.txt", "content": second},
+		{"namespace": "svc-c", "file_path": "c.txt", "content": third},
 	})
 	req := makeCallToolRequest(t, map[string]any{"files": string(filesJSON)})
 
@@ -565,15 +541,15 @@ func TestUploadFiles_RejectsOversizedTotalDecodedContent(t *testing.T) {
 	}
 }
 
-func TestUploadFiles_MultipleWorkspaces(t *testing.T) {
-	h, root := workspaceHandlers(t)
+func TestUploadFiles_MultipleNamespaces(t *testing.T) {
+	h, root := namespaceHandlers(t)
 
 	file1 := base64.StdEncoding.EncodeToString([]byte("package a"))
 	file2 := base64.StdEncoding.EncodeToString([]byte("package b"))
 
 	filesJSON, _ := json.Marshal([]map[string]string{
-		{"workspace": "svc-a", "file_path": "a.go", "content": file1},
-		{"workspace": "svc-b", "file_path": "b.go", "content": file2},
+		{"namespace": "svc-a", "file_path": "a.go", "content": file1},
+		{"namespace": "svc-b", "file_path": "b.go", "content": file2},
 	})
 
 	req := makeCallToolRequest(t, map[string]any{
@@ -594,30 +570,30 @@ func TestUploadFiles_MultipleWorkspaces(t *testing.T) {
 	}
 }
 
-func TestDeleteWorkspace_Basic(t *testing.T) {
-	h, root := workspaceHandlers(t)
+func TestDeleteNamespace_Basic(t *testing.T) {
+	h, root := namespaceHandlers(t)
 
-	wsDir := filepath.Join(root, "to-delete")
-	os.MkdirAll(filepath.Join(wsDir, "subdir"), 0o755)
-	os.WriteFile(filepath.Join(wsDir, "file.md"), []byte("content"), 0o644)
-	os.WriteFile(filepath.Join(wsDir, "subdir", "nested.md"), []byte("nested"), 0o644)
+	nsDir := filepath.Join(root, "to-delete")
+	os.MkdirAll(filepath.Join(nsDir, "subdir"), 0o755)
+	os.WriteFile(filepath.Join(nsDir, "file.md"), []byte("content"), 0o644)
+	os.WriteFile(filepath.Join(nsDir, "subdir", "nested.md"), []byte("nested"), 0o644)
 
 	req := makeCallToolRequest(t, map[string]any{
-		"workspace": "to-delete",
+		"namespace": "to-delete",
 	})
-	result, err := h.deleteWorkspace(t.Context(), req)
+	result, err := h.deleteNamespace(t.Context(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	assertToolResultNotError(t, result)
 
-	if _, err := os.Stat(wsDir); !os.IsNotExist(err) {
-		t.Error("workspace directory should have been deleted")
+	if _, err := os.Stat(nsDir); !os.IsNotExist(err) {
+		t.Error("namespace directory should have been deleted")
 	}
 }
 
-func TestDeleteWorkspace_PurgesNamespaceGraphRAGAndCache(t *testing.T) {
-	workspaceRoot := t.TempDir()
+func TestDeleteNamespace_PurgesNamespaceGraphRAGAndCache(t *testing.T) {
+	namespaceRoot := t.TempDir()
 	ragRoot := t.TempDir()
 	cache := NewCache(time.Minute)
 	t.Cleanup(cache.Close)
@@ -640,7 +616,7 @@ func TestDeleteWorkspace_PurgesNamespaceGraphRAGAndCache(t *testing.T) {
 
 	h := &handlers{
 		deps: &Deps{
-			WorkspaceRoot: workspaceRoot,
+			NamespaceRoot: namespaceRoot,
 			RagIndexDir:   ragRoot,
 			Store:         st,
 			DB:            db,
@@ -649,12 +625,12 @@ func TestDeleteWorkspace_PurgesNamespaceGraphRAGAndCache(t *testing.T) {
 		cache: cache,
 	}
 
-	wsDir := filepath.Join(workspaceRoot, "svc")
-	if err := os.MkdirAll(wsDir, 0o755); err != nil {
-		t.Fatalf("mkdir workspace: %v", err)
+	nsDir := filepath.Join(namespaceRoot, "svc")
+	if err := os.MkdirAll(nsDir, 0o755); err != nil {
+		t.Fatalf("mkdir namespace: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(wsDir, "file.go"), []byte("package svc"), 0o644); err != nil {
-		t.Fatalf("write workspace file: %v", err)
+	if err := os.WriteFile(filepath.Join(nsDir, "file.go"), []byte("package svc"), 0o644); err != nil {
+		t.Fatalf("write namespace file: %v", err)
 	}
 
 	ragIndexPath := filepath.Join(ragRoot, "svc", "doc-index.json")
@@ -701,18 +677,18 @@ func TestDeleteWorkspace_PurgesNamespaceGraphRAGAndCache(t *testing.T) {
 		t.Fatalf("seed control flow: %v", err)
 	}
 
-	req := makeCallToolRequest(t, map[string]any{"workspace": "svc"})
-	result, err := h.deleteWorkspace(t.Context(), req)
+	req := makeCallToolRequest(t, map[string]any{"namespace": "svc"})
+	result, err := h.deleteNamespace(t.Context(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	assertToolResultNotError(t, result)
 
-	if _, err := os.Stat(wsDir); !os.IsNotExist(err) {
-		t.Fatal("workspace directory should have been deleted")
+	if _, err := os.Stat(nsDir); !os.IsNotExist(err) {
+		t.Fatal("namespace directory should have been deleted")
 	}
 	if _, err := os.Stat(ragIndexPath); !os.IsNotExist(err) {
-		t.Fatal("workspace rag index should have been deleted")
+		t.Fatal("namespace rag index should have been deleted")
 	}
 	if _, ok := cache.Get("search:svc"); ok {
 		t.Fatal("cache should have been flushed")
@@ -723,7 +699,7 @@ func TestDeleteWorkspace_PurgesNamespaceGraphRAGAndCache(t *testing.T) {
 		t.Fatalf("get purged node: %v", err)
 	}
 	if node != nil {
-		t.Fatal("workspace namespace graph should have been purged")
+		t.Fatal("namespace graph should have been purged")
 	}
 
 	otherNode, err := st.GetNode(context.Background(), "other.Handler")
@@ -731,7 +707,7 @@ func TestDeleteWorkspace_PurgesNamespaceGraphRAGAndCache(t *testing.T) {
 		t.Fatalf("get untouched node: %v", err)
 	}
 	if otherNode == nil {
-		t.Fatal("out-of-workspace graph should remain")
+		t.Fatal("out-of-namespace graph should remain")
 	}
 
 	var svcCommunityCount, svcFlowCount, svcCommunityMembershipCount, svcFlowMembershipCount, otherCommunityCount, otherFlowCount int64
@@ -754,16 +730,16 @@ func TestDeleteWorkspace_PurgesNamespaceGraphRAGAndCache(t *testing.T) {
 		t.Fatalf("count other flows: %v", err)
 	}
 	if svcCommunityCount != 0 {
-		t.Fatalf("workspace communities should have been purged, got %d", svcCommunityCount)
+		t.Fatalf("namespace communities should have been purged, got %d", svcCommunityCount)
 	}
 	if svcFlowCount != 0 {
-		t.Fatalf("workspace flows should have been purged, got %d", svcFlowCount)
+		t.Fatalf("namespace flows should have been purged, got %d", svcFlowCount)
 	}
 	if svcCommunityMembershipCount != 0 {
-		t.Fatalf("workspace community memberships should have been purged, got %d", svcCommunityMembershipCount)
+		t.Fatalf("namespace community memberships should have been purged, got %d", svcCommunityMembershipCount)
 	}
 	if svcFlowMembershipCount != 0 {
-		t.Fatalf("workspace flow memberships should have been purged, got %d", svcFlowMembershipCount)
+		t.Fatalf("namespace flow memberships should have been purged, got %d", svcFlowMembershipCount)
 	}
 	if otherCommunityCount != 1 {
 		t.Fatalf("control community should remain, got %d", otherCommunityCount)
@@ -773,37 +749,37 @@ func TestDeleteWorkspace_PurgesNamespaceGraphRAGAndCache(t *testing.T) {
 	}
 }
 
-func TestDeleteWorkspace_PreservesFilesWhenDBPurgeFails(t *testing.T) {
-	workspaceRoot := t.TempDir()
+func TestDeleteNamespace_PreservesFilesWhenDBPurgeFails(t *testing.T) {
+	namespaceRoot := t.TempDir()
 	h := &handlers{
 		deps: &Deps{
-			WorkspaceRoot: workspaceRoot,
+			NamespaceRoot: namespaceRoot,
 			Store:         &failDeleteGraphStore{err: errors.New("boom")},
 		},
 	}
 
-	wsDir := filepath.Join(workspaceRoot, "svc")
-	if err := os.MkdirAll(wsDir, 0o755); err != nil {
-		t.Fatalf("mkdir workspace: %v", err)
+	nsDir := filepath.Join(namespaceRoot, "svc")
+	if err := os.MkdirAll(nsDir, 0o755); err != nil {
+		t.Fatalf("mkdir namespace: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(wsDir, "file.go"), []byte("package svc"), 0o644); err != nil {
-		t.Fatalf("write workspace file: %v", err)
+	if err := os.WriteFile(filepath.Join(nsDir, "file.go"), []byte("package svc"), 0o644); err != nil {
+		t.Fatalf("write namespace file: %v", err)
 	}
 
-	req := makeCallToolRequest(t, map[string]any{"workspace": "svc"})
-	result, err := h.deleteWorkspace(t.Context(), req)
+	req := makeCallToolRequest(t, map[string]any{"namespace": "svc"})
+	result, err := h.deleteNamespace(t.Context(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	assertToolResultIsError(t, result)
 
-	if _, err := os.Stat(wsDir); err != nil {
-		t.Fatalf("workspace directory should remain on DB purge failure: %v", err)
+	if _, err := os.Stat(nsDir); err != nil {
+		t.Fatalf("namespace directory should remain on DB purge failure: %v", err)
 	}
 }
 
-func TestDeleteWorkspace_PurgesOrphanMembershipsAndSearchIndex(t *testing.T) {
-	workspaceRoot := t.TempDir()
+func TestDeleteNamespace_PurgesOrphanMembershipsAndSearchIndex(t *testing.T) {
+	namespaceRoot := t.TempDir()
 	ragRoot := t.TempDir()
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
@@ -819,10 +795,10 @@ func TestDeleteWorkspace_PurgesOrphanMembershipsAndSearchIndex(t *testing.T) {
 	}
 	backend := &spySearchBackend{}
 
-	h := &handlers{deps: &Deps{WorkspaceRoot: workspaceRoot, RagIndexDir: ragRoot, Store: st, DB: db, SearchBackend: backend}}
-	wsDir := filepath.Join(workspaceRoot, "svc")
-	if err := os.MkdirAll(wsDir, 0o755); err != nil {
-		t.Fatalf("mkdir workspace: %v", err)
+	h := &handlers{deps: &Deps{NamespaceRoot: namespaceRoot, RagIndexDir: ragRoot, Store: st, DB: db, SearchBackend: backend}}
+	nsDir := filepath.Join(namespaceRoot, "svc")
+	if err := os.MkdirAll(nsDir, 0o755); err != nil {
+		t.Fatalf("mkdir namespace: %v", err)
 	}
 
 	svcCommunity := model.Community{Namespace: "svc", Key: "svc/core", Label: "svc/core", Strategy: "directory"}
@@ -840,8 +816,8 @@ func TestDeleteWorkspace_PurgesOrphanMembershipsAndSearchIndex(t *testing.T) {
 		t.Fatalf("seed orphan flow membership: %v", err)
 	}
 
-	req := makeCallToolRequest(t, map[string]any{"workspace": "svc"})
-	result, err := h.deleteWorkspace(t.Context(), req)
+	req := makeCallToolRequest(t, map[string]any{"namespace": "svc"})
+	result, err := h.deleteNamespace(t.Context(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -864,12 +840,12 @@ func TestDeleteWorkspace_PurgesOrphanMembershipsAndSearchIndex(t *testing.T) {
 		t.Fatalf("expected one purge call for svc, got %#v", backend.purgeCalls)
 	}
 	if backend.lastDB == nil || backend.lastDB == db {
-		t.Fatal("expected search purge to run inside workspace transaction handle")
+		t.Fatal("expected search purge to run inside namespace transaction handle")
 	}
 }
 
-func TestDeleteWorkspace_PreservesFilesWhenSearchPurgeFails(t *testing.T) {
-	workspaceRoot := t.TempDir()
+func TestDeleteNamespace_PreservesFilesWhenSearchPurgeFails(t *testing.T) {
+	namespaceRoot := t.TempDir()
 	ragRoot := t.TempDir()
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
@@ -885,50 +861,50 @@ func TestDeleteWorkspace_PreservesFilesWhenSearchPurgeFails(t *testing.T) {
 		t.Fatalf("seed node: %v", err)
 	}
 	backend := &spySearchBackend{purgeErr: errors.New("fts purge boom")}
-	h := &handlers{deps: &Deps{WorkspaceRoot: workspaceRoot, RagIndexDir: ragRoot, Store: st, DB: db, SearchBackend: backend}}
+	h := &handlers{deps: &Deps{NamespaceRoot: namespaceRoot, RagIndexDir: ragRoot, Store: st, DB: db, SearchBackend: backend}}
 
-	wsDir := filepath.Join(workspaceRoot, "svc")
-	if err := os.MkdirAll(wsDir, 0o755); err != nil {
-		t.Fatalf("mkdir workspace: %v", err)
+	nsDir := filepath.Join(namespaceRoot, "svc")
+	if err := os.MkdirAll(nsDir, 0o755); err != nil {
+		t.Fatalf("mkdir namespace: %v", err)
 	}
 
-	req := makeCallToolRequest(t, map[string]any{"workspace": "svc"})
-	result, err := h.deleteWorkspace(t.Context(), req)
+	req := makeCallToolRequest(t, map[string]any{"namespace": "svc"})
+	result, err := h.deleteNamespace(t.Context(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	assertToolResultIsError(t, result)
 
-	if _, err := os.Stat(wsDir); err != nil {
-		t.Fatalf("workspace directory should remain on search purge failure: %v", err)
+	if _, err := os.Stat(nsDir); err != nil {
+		t.Fatalf("namespace directory should remain on search purge failure: %v", err)
 	}
 	if got, getErr := st.GetNode(ctx, "svc.Keep"); getErr != nil || got == nil {
 		t.Fatalf("namespace graph should remain on search purge failure, node=%+v err=%v", got, getErr)
 	}
 }
 
-func TestDeleteWorkspace_NotFound(t *testing.T) {
-	h, _ := workspaceHandlers(t)
+func TestDeleteNamespace_NotFound(t *testing.T) {
+	h, _ := namespaceHandlers(t)
 
 	req := makeCallToolRequest(t, map[string]any{
-		"workspace": "nonexistent",
+		"namespace": "nonexistent",
 	})
-	result, err := h.deleteWorkspace(t.Context(), req)
+	result, err := h.deleteNamespace(t.Context(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	assertToolResultIsError(t, result)
 }
 
-func TestDeleteWorkspace_PathTraversal(t *testing.T) {
-	h, _ := workspaceHandlers(t)
+func TestDeleteNamespace_PathTraversal(t *testing.T) {
+	h, _ := namespaceHandlers(t)
 
-	for _, workspace := range []string{"../evil", ".", "..", "service/api"} {
-		t.Run(workspace, func(t *testing.T) {
+	for _, namespace := range []string{"../evil", ".", "..", "service/api"} {
+		t.Run(namespace, func(t *testing.T) {
 			req := makeCallToolRequest(t, map[string]any{
-				"workspace": workspace,
+				"namespace": namespace,
 			})
-			result, err := h.deleteWorkspace(t.Context(), req)
+			result, err := h.deleteNamespace(t.Context(), req)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -937,29 +913,29 @@ func TestDeleteWorkspace_PathTraversal(t *testing.T) {
 	}
 }
 
-func TestDeleteWorkspace_NeverDeletesWorkspaceRoot(t *testing.T) {
-	h, root := workspaceHandlers(t)
+func TestDeleteNamespace_NeverDeletesNamespaceRoot(t *testing.T) {
+	h, root := namespaceHandlers(t)
 	marker := filepath.Join(root, "marker.txt")
 	if err := os.WriteFile(marker, []byte("keep"), 0o644); err != nil {
 		t.Fatalf("write marker: %v", err)
 	}
 
 	req := makeCallToolRequest(t, map[string]any{
-		"workspace": ".",
+		"namespace": ".",
 	})
-	result, err := h.deleteWorkspace(t.Context(), req)
+	result, err := h.deleteNamespace(t.Context(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	assertToolResultIsError(t, result)
 
 	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("workspace root marker should remain: %v", err)
+		t.Fatalf("namespace root marker should remain: %v", err)
 	}
 }
 
-func TestUploadFile_RejectsWorkspaceSymlinkEscape(t *testing.T) {
-	h, root := workspaceHandlers(t)
+func TestUploadFile_RejectsNamespaceSymlinkEscape(t *testing.T) {
+	h, root := namespaceHandlers(t)
 
 	outside := t.TempDir()
 	if err := os.Symlink(outside, filepath.Join(root, "svc")); err != nil {
@@ -968,7 +944,7 @@ func TestUploadFile_RejectsWorkspaceSymlinkEscape(t *testing.T) {
 
 	encoded := base64.StdEncoding.EncodeToString([]byte("malicious"))
 	req := makeCallToolRequest(t, map[string]any{
-		"workspace": "svc",
+		"namespace": "svc",
 		"file_path": "docs/readme.md",
 		"content":   encoded,
 	})
@@ -980,25 +956,25 @@ func TestUploadFile_RejectsWorkspaceSymlinkEscape(t *testing.T) {
 	assertToolResultIsError(t, result)
 
 	if _, err := os.Stat(filepath.Join(outside, "docs", "readme.md")); !os.IsNotExist(err) {
-		t.Fatalf("expected no file to be written outside workspace root")
+		t.Fatalf("expected no file to be written outside namespace root")
 	}
 }
 
 func TestUploadFiles_RejectsIntermediateSymlinkEscape(t *testing.T) {
-	h, root := workspaceHandlers(t)
+	h, root := namespaceHandlers(t)
 
-	wsDir := filepath.Join(root, "svc")
-	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+	nsDir := filepath.Join(root, "svc")
+	if err := os.MkdirAll(nsDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	outside := t.TempDir()
-	if err := os.Symlink(outside, filepath.Join(wsDir, "link")); err != nil {
+	if err := os.Symlink(outside, filepath.Join(nsDir, "link")); err != nil {
 		t.Fatalf("symlink: %v", err)
 	}
 
 	content := base64.StdEncoding.EncodeToString([]byte("package main"))
 	filesJSON, _ := json.Marshal([]map[string]string{{
-		"workspace": "svc",
+		"namespace": "svc",
 		"file_path": "link/main.go",
 		"content":   content,
 	}})
@@ -1015,8 +991,8 @@ func TestUploadFiles_RejectsIntermediateSymlinkEscape(t *testing.T) {
 	}
 }
 
-func TestGetDocContent_RejectsWorkspaceSymlinkEscape(t *testing.T) {
-	h, root := workspaceHandlers(t)
+func TestGetDocContent_RejectsNamespaceSymlinkEscape(t *testing.T) {
+	h, root := namespaceHandlers(t)
 
 	outside := t.TempDir()
 	secretPath := filepath.Join(outside, "secret.md")
@@ -1028,7 +1004,7 @@ func TestGetDocContent_RejectsWorkspaceSymlinkEscape(t *testing.T) {
 	}
 
 	req := makeCallToolRequest(t, map[string]any{
-		"workspace": "svc",
+		"namespace": "svc",
 		"file_path": "secret.md",
 	})
 	result, err := h.getDocContent(t.Context(), req)

@@ -114,7 +114,7 @@ func (p *PostgresBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs
 }
 
 // PurgeNamespace is a no-op as PostgreSQL search_documents deletion does not require separate physical cleanup.
-// @intent Aligns with the Backend interface and maintains consistency in the workspace purge path.
+// @intent Aligns with the Backend interface and maintains consistency in the namespace purge path.
 func (p *PostgresBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error {
 	return nil
 }

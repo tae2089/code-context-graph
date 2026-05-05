@@ -187,7 +187,7 @@ func lockFileName(repoFullName string) string {
 }
 
 // RepoDir maps a namespace to the checkout directory used for repository sync.
-// @intent keep workspace naming stable across clone, pull, and downstream build steps.
+// @intent keep namespace naming stable across clone, pull, and downstream build steps.
 // @return returns the repository checkout path rooted under repoRoot.
 func RepoDir(repoRoot, namespace string) string {
 	return filepath.Join(repoRoot, namespace)

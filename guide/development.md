@@ -117,7 +117,7 @@ internal/
   docs/               — Documentation generation
   eval/               — Parser/search quality evaluation (golden corpus, P/R/F1, P@K, MRR, nDCG)
   mcpruntime/         — Shared MCP runtime assembly, stdio runner, cache, telemetry
-  mcp/                — MCP server (35 tools)
+  mcp/                — MCP server (33 tools)
   wikiserver/         — ccg-server Wiki static serving and viewer API
   wikiindex/          — Wiki presentation index builder (`wiki-index.json`)
   model/              — DB models

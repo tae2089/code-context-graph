@@ -1,13 +1,11 @@
 ---
-name: ccg-workspace
-description: code-context-graph — namespace file management for MSA / multi-project isolation. Use namespace as the canonical API; workspace remains a deprecated alias.
+name: ccg-namespace
+description: code-context-graph — namespace file management for MSA / multi-project isolation.
 ---
 
-# ccg-workspace — Namespace File Management
+# ccg-namespace — Namespace File Management
 
 Manage uploaded source or documentation files in isolated **namespaces**. Use this for MSA environments or workflows spanning multiple repositories.
-
-The skill name remains `/ccg-workspace` for compatibility, but the canonical runtime term is **namespace**.
 
 ## Terminology
 
@@ -15,8 +13,6 @@ The skill name remains `/ccg-workspace` for compatibility, but the canonical run
 | ---- | ------ | ------- |
 | `namespace` | Canonical | Isolation key for graph data, uploaded files, RAG indexes, and postprocess policy |
 | `--namespace-root` | Canonical | Root directory that stores namespace file trees |
-| `workspace` | Deprecated alias | Still accepted by MCP tools for older callers |
-| `--workspace-root` | Deprecated alias | Still accepted as an alias for `--namespace-root` |
 
 For single-project local work, you usually do not need a named namespace. Use `ccg build .` and the default namespace.
 
@@ -35,7 +31,7 @@ For single-project local work, you usually do not need a named namespace. Use `c
 
 Configured via `ccg serve --namespace-root <dir>` for local stdio MCP, or
 `ccg-server --namespace-root <dir>` for self-hosted HTTP MCP (default:
-`workspaces/`).
+`namespaces/`).
 
 ## Core Patterns
 
@@ -74,8 +70,6 @@ upload_files(files: '[{"namespace":"payment-svc","file_path":"a.go","content":"<
 | `list_files` | List files in a namespace |
 | `delete_file` | Delete one file from a namespace |
 | `delete_namespace` | Delete a namespace and its files |
-| `list_workspaces` | Deprecated alias for `list_namespaces` |
-| `delete_workspace` | Deprecated alias for `delete_namespace` |
 
 ## Security
 

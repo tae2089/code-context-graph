@@ -17,7 +17,6 @@ type ServeConfig struct {
 	Transport           string // deprecated compatibility flag; only "stdio" is accepted by ccg
 	OTELEndpoint        string
 	NamespaceRoot       string
-	WorkspaceRoot       string
 	MaxFileBytes        int64
 	MaxTotalParsedBytes int64
 }
@@ -43,7 +42,7 @@ func newServeCmd(deps *Deps) *cobra.Command {
 		CacheTTL:      5 * time.Minute,
 		Transport:     "stdio",
 		OTELEndpoint:  envString("CCG_OTEL_ENDPOINT"),
-		NamespaceRoot: "workspaces",
+		NamespaceRoot: "namespaces",
 	}
 
 	cmd := &cobra.Command{
@@ -66,15 +65,10 @@ func newServeCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().StringVar(&cfg.Transport, "transport", cfg.Transport, "Deprecated compatibility flag; ccg supports stdio only")
 	cmd.Flags().StringVar(&cfg.OTELEndpoint, "otel-endpoint", cfg.OTELEndpoint, "OTLP HTTP trace endpoint (optional; enables span export when set)")
 	cmd.Flags().StringVar(&cfg.NamespaceRoot, "namespace-root", cfg.NamespaceRoot, "Root directory for file namespaces")
-	cmd.Flags().StringVar(&cfg.WorkspaceRoot, "workspace-root", "", "Deprecated alias for --namespace-root")
 	cmd.Flags().Int64Var(&cfg.MaxFileBytes, "max-file-bytes", 0, "Maximum bytes allowed per parsed source file (0 disables limit; config: parse.max_file_bytes)")
 	cmd.Flags().Int64Var(&cfg.MaxTotalParsedBytes, "max-total-parsed-bytes", 0, "Maximum total bytes allowed across parsed source files (0 disables limit; config: parse.max_total_parsed_bytes)")
 
 	cmd.PreRun = func(cmd *cobra.Command, args []string) {
-		if cmd.Flags().Changed("workspace-root") && !cmd.Flags().Changed("namespace-root") {
-			cfg.NamespaceRoot = cfg.WorkspaceRoot
-		}
-		cfg.WorkspaceRoot = cfg.NamespaceRoot
 		cfg.MaxFileBytes = resolveMaxFileBytes(cfg.MaxFileBytes)
 		cfg.MaxTotalParsedBytes = resolveMaxTotalParsedBytes(cfg.MaxTotalParsedBytes)
 	}

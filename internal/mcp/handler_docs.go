@@ -76,13 +76,13 @@ func safePathUnderRoot(root, relPath, field string, createRoot bool, allowMissin
 	return target, nil
 }
 
-// @intent derive the safe doc-index.json path for either the shared docs root or one workspace-specific subtree.
-func (h *handlers) resolvedRagIndexPath(workspace string) (string, error) {
-	if workspace != "" {
-		if err := validateWorkspacePath(workspace, ""); err != nil {
+// @intent derive the safe doc-index.json path for either the shared docs root or one namespace-specific subtree.
+func (h *handlers) resolvedRagIndexPath(namespace string) (string, error) {
+	if namespace != "" {
+		if err := validateNamespacePath(namespace, ""); err != nil {
 			return "", err
 		}
-		return safePathUnderRoot(h.ragIndexRoot(), filepath.Join(workspace, "doc-index.json"), "workspace", false, true)
+		return safePathUnderRoot(h.ragIndexRoot(), filepath.Join(namespace, "doc-index.json"), "namespace", false, true)
 	}
 	return safePathUnderRoot(h.ragIndexRoot(), "doc-index.json", "file_path", false, true)
 }
@@ -97,19 +97,19 @@ func (h *handlers) resolvedRagIndexPath(workspace string) (string, error) {
 func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	outDir := request.GetString("out_dir", "")
 	indexDir := request.GetString("index_dir", "")
-	workspace := requestNamespace(request)
+	namespace := requestNamespace(request)
 
-	if workspace != "" {
-		if err := validateWorkspacePath(workspace, ""); err != nil {
+	if namespace != "" {
+		if err := validateNamespacePath(namespace, ""); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		if outDir == "" {
 			outDir = "docs"
 		}
-		if err := validateWorkspacePath(workspace, outDir); err != nil {
+		if err := validateNamespacePath(namespace, outDir); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		ctx = h.applyWorkspace(ctx, request)
+		ctx = h.applyNamespace(ctx, request)
 	}
 
 	if indexDir == "" {
@@ -122,8 +122,8 @@ func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolReques
 		indexDir = resolvedIndexDir
 	}
 
-	if workspace != "" {
-		indexDir = filepath.Join(indexDir, workspace)
+	if namespace != "" {
+		indexDir = filepath.Join(indexDir, namespace)
 	}
 
 	b := &ragindex.Builder{
@@ -154,8 +154,8 @@ func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) 
 		nodeID = request.GetString("community_id", "")
 	}
 	depth := int(request.GetFloat("depth", 0))
-	workspace := requestNamespace(request)
-	indexPath, err := h.resolvedRagIndexPath(workspace)
+	namespace := requestNamespace(request)
+	indexPath, err := h.resolvedRagIndexPath(namespace)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -165,7 +165,7 @@ func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) 
 		indexMtime = stat.ModTime().UnixNano()
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "get_rag_tree:", map[string]any{"node_id": nodeID, "depth": depth, "namespace": workspace, "mtime": indexMtime}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "get_rag_tree:", map[string]any{"node_id": nodeID, "depth": depth, "namespace": namespace, "mtime": indexMtime}, func() (string, error) {
 		idx, err := ragindex.LoadIndex(indexPath)
 		if err != nil {
 			return "", newToolResultErr(fmt.Sprintf("load doc-index: %v", err))
@@ -201,7 +201,7 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 	if err != nil {
 		return missingParamResult(err)
 	}
-	workspace := requestNamespace(request)
+	namespace := requestNamespace(request)
 
 	clean := filepath.Clean(filePath)
 	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
@@ -209,11 +209,11 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 	}
 
 	var resolvedPath string
-	if workspace != "" {
-		if err := validateWorkspacePath(workspace, filePath); err != nil {
+	if namespace != "" {
+		if err := validateNamespacePath(namespace, filePath); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		resolvedPath, err = h.resolveWorkspacePath(workspace, clean, false)
+		resolvedPath, err = h.resolveNamespacePath(namespace, clean, false)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("resolve namespace path: %v", err)), nil
 		}
@@ -234,7 +234,7 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 		mtime = stat.ModTime().UnixNano()
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "get_doc_content:", map[string]any{"file_path": filePath, "namespace": workspace, "mtime": mtime}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "get_doc_content:", map[string]any{"file_path": filePath, "namespace": namespace, "mtime": mtime}, func() (string, error) {
 		content, err := os.ReadFile(resolvedPath)
 		if err != nil {
 			return "", newToolResultErr(fmt.Sprintf("read file %q: %v. Run 'ccg docs' to generate documentation files.", filePath, err))
@@ -261,8 +261,8 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 	if err != nil {
 		return finalizeToolResult("", newToolResultErr(err.Error()))
 	}
-	workspace := requestNamespace(request)
-	indexPath, err := h.resolvedRagIndexPath(workspace)
+	namespace := requestNamespace(request)
+	indexPath, err := h.resolvedRagIndexPath(namespace)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -272,7 +272,7 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 		indexMtime = stat.ModTime().UnixNano()
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "search_docs:", map[string]any{"query": query, "limit": pageReq.Limit, "namespace": workspace, "mtime": indexMtime}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "search_docs:", map[string]any{"query": query, "limit": pageReq.Limit, "namespace": namespace, "mtime": indexMtime}, func() (string, error) {
 		idx, err := ragindex.LoadIndex(indexPath)
 		if err != nil {
 			return "", newToolResultErr(fmt.Sprintf("load doc-index: %v", err))
@@ -332,8 +332,8 @@ func (h *handlers) retrieveDocs(ctx context.Context, request mcp.CallToolRequest
 		return mcp.NewToolResultError("content_limit must be <= 20000"), nil
 	}
 
-	workspace := requestNamespace(request)
-	indexPath, err := h.resolvedRagIndexPath(workspace)
+	namespace := requestNamespace(request)
+	indexPath, err := h.resolvedRagIndexPath(namespace)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -347,7 +347,7 @@ func (h *handlers) retrieveDocs(ctx context.Context, request mcp.CallToolRequest
 		"query":         query,
 		"limit":         pageReq.Limit,
 		"content_limit": contentLimit,
-		"namespace":     workspace,
+		"namespace":     namespace,
 		"mtime":         indexMtime,
 	}
 	return finalizeToolResult(h.cachedExecute(ctx, "retrieve_docs:", cacheKey, func() (string, error) {
@@ -361,7 +361,7 @@ func (h *handlers) retrieveDocs(ctx context.Context, request mcp.CallToolRequest
 		for _, candidate := range candidates {
 			result := retrieveDocsResult{RetrieveResult: candidate}
 			if contentLimit > 0 {
-				content, truncated, err := h.readIndexedDocContent(workspace, candidate.DocPath, contentLimit)
+				content, truncated, err := h.readIndexedDocContent(namespace, candidate.DocPath, contentLimit)
 				if err != nil {
 					return "", newToolResultErr(err.Error())
 				}
@@ -378,10 +378,10 @@ func (h *handlers) retrieveDocs(ctx context.Context, request mcp.CallToolRequest
 
 // readIndexedDocContent reads a doc_path stored in doc-index.json under the docs/index root.
 // @intent let retrieve_docs return bounded Markdown content while keeping index-provided paths inside a safe root.
-// @domainRule workspace doc paths are resolved from that workspace; shared doc paths are resolved from the parent of the RAG index root.
+// @domainRule namespace doc paths are resolved from that namespace; shared doc paths are resolved from the parent of the RAG index root.
 // @sideEffect reads a generated Markdown file.
-func (h *handlers) readIndexedDocContent(workspace, docPath string, limit int) (string, bool, error) {
-	resolvedPath, err := h.resolveIndexedDocPath(workspace, docPath)
+func (h *handlers) readIndexedDocContent(namespace, docPath string, limit int) (string, bool, error) {
+	resolvedPath, err := h.resolveIndexedDocPath(namespace, docPath)
 	if err != nil {
 		return "", false, err
 	}
@@ -397,15 +397,15 @@ func (h *handlers) readIndexedDocContent(workspace, docPath string, limit int) (
 
 // resolveIndexedDocPath resolves doc-index doc_path values without allowing traversal outside the docs root.
 // @intent safely support both relative docs/... paths and absolute doc paths produced by custom docs output directories.
-func (h *handlers) resolveIndexedDocPath(workspace, docPath string) (string, error) {
+func (h *handlers) resolveIndexedDocPath(namespace, docPath string) (string, error) {
 	if strings.TrimSpace(docPath) == "" {
 		return "", fmt.Errorf("doc_path is empty")
 	}
-	if workspace != "" {
-		if err := validateWorkspacePath(workspace, docPath); err != nil {
+	if namespace != "" {
+		if err := validateNamespacePath(namespace, docPath); err != nil {
 			return "", err
 		}
-		return h.resolveWorkspacePath(workspace, filepath.Clean(docPath), false)
+		return h.resolveNamespacePath(namespace, filepath.Clean(docPath), false)
 	}
 	indexRoot, err := resolveSafeRoot(h.ragIndexRoot(), false)
 	if err != nil {

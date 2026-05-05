@@ -97,7 +97,7 @@ func newTestServer(t *testing.T) *Server {
 		t.Fatalf("chdir: %v", err)
 	}
 
-	srv, err := New(Config{StaticDir: staticDir, RagIndexDir: ragDir, NamespaceRoot: filepath.Join(root, "workspaces"), DB: db})
+	srv, err := New(Config{StaticDir: staticDir, RagIndexDir: ragDir, NamespaceRoot: filepath.Join(root, "namespaces"), DB: db})
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}

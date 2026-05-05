@@ -16,7 +16,7 @@ ccg is a Tree-sitter-based code graph tool. **Complementary to Grep/Read, not a 
 | "What's affected if I change X?"           | `/ccg-analyze`    | Graph traversal                   |
 | "Understand structure/architecture"        | `/ccg-docs` (RAG) | `retrieve_docs` first, then tree  |
 | "Document intent/rules in code"            | `/ccg-annotate`   | AI annotation workflow            |
-| "Manage multiple service codebases"        | `/ccg-workspace`  | MSA namespace isolation           |
+| "Manage multiple service codebases"        | `/ccg-namespace`  | MSA namespace isolation           |
 
 **Don't use ccg when Grep is enough.** ccg MCP context costs hundreds to thousands of tokens per task. For trivial tasks, it's pure overhead.
 

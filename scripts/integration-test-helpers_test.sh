@@ -156,14 +156,14 @@ test_extract_mcp_session_id_reads_header_case_insensitively() {
 
 test_log_fallback_detects_webhook_completion() {
     local logs
-    logs='time=... webhook sync completed workspace=sample-go nodes=4'
+    logs='time=... webhook sync completed namespace=sample-go nodes=4'
     webhook_logs_completed "$logs" "sample-go"
 }
 
 test_log_fallback_matches_without_pipefail_sigpipe_risk() {
     local logs
     logs=$(printf 'noise %.0s' {1..2000})
-    logs+=$'\ntime=... webhook sync completed workspace=sample-go nodes=4\n'
+    logs+=$'\ntime=... webhook sync completed namespace=sample-go nodes=4\n'
     webhook_logs_completed "$logs" "sample-go"
     ! webhook_logs_completed "$logs" "sample-calc"
     assert_equals "4" "$(extract_last_webhook_node_count "$logs")"
@@ -171,13 +171,13 @@ test_log_fallback_matches_without_pipefail_sigpipe_risk() {
 
 test_log_fallback_detects_webhook_failure() {
     local logs
-    logs='time=... webhook build failed workspace=sample-go error=boom'
+    logs='time=... webhook build failed namespace=sample-go error=boom'
     webhook_logs_failed "$logs" "sample-go"
 }
 
 test_wait_for_webhook_sync_requires_mcp_nodes_when_fallback_disabled() {
-    graph_nodes_for_workspace() { return 1; }
-    compose() { printf '%s\n' 'time=... webhook sync completed workspace=sample-go nodes=4'; }
+    graph_nodes_for_namespace() { return 1; }
+    compose() { printf '%s\n' 'time=... webhook sync completed namespace=sample-go nodes=4'; }
     webhook_logs_completed() { return 0; }
     webhook_logs_failed() { return 1; }
     sleep() { SECONDS=$((SECONDS + 2)); }
@@ -186,8 +186,8 @@ test_wait_for_webhook_sync_requires_mcp_nodes_when_fallback_disabled() {
 }
 
 test_wait_for_webhook_sync_allows_log_success_when_fallback_enabled() {
-    graph_nodes_for_workspace() { return 1; }
-    compose() { printf '%s\n' 'time=... webhook sync completed workspace=sample-go nodes=4'; }
+    graph_nodes_for_namespace() { return 1; }
+    compose() { printf '%s\n' 'time=... webhook sync completed namespace=sample-go nodes=4'; }
     webhook_logs_completed() { return 0; }
     webhook_logs_failed() { return 1; }
     sleep() { SECONDS=$((SECONDS + 2)); }

@@ -19,8 +19,8 @@ export CCG_HTTP_BEARER_TOKEN=replace-with-a-long-random-token
 # 프로젝트를 마운트하고 그래프를 빌드한 후 HTTP로 서빙합니다.
 docker run -d -p 8080:8080 \
   -e CCG_HTTP_BEARER_TOKEN="$CCG_HTTP_BEARER_TOKEN" \
-  -v $(pwd):/workspace --entrypoint sh ccg \
-  -c "ccg build /workspace && ccg-server --http-addr :8080"
+  -v $(pwd):/repo --entrypoint sh ccg \
+  -c "ccg build /repo && ccg-server --http-addr :8080"
 ```
 
 이미지의 기본 HTTP 명령어는 `:8080`에 바인딩되므로, 외부 접근을 위해 반드시 `CCG_HTTP_BEARER_TOKEN`을 제공해야 합니다.
@@ -59,7 +59,7 @@ docker run -d -p 8080:8080 \
 
 ```bash
 docker run --rm \
-  -v $(pwd):/workspace --entrypoint ccg ccg \
+  -v $(pwd):/repo --entrypoint ccg ccg \
   migrate
 ```
 
@@ -133,8 +133,8 @@ docker run -d -p 8080:8080 \
   -e CCG_HTTP_BEARER_TOKEN="$CCG_HTTP_BEARER_TOKEN" \
   -e CCG_DB_DRIVER=postgres \
   -e CCG_DB_DSN="host=db user=ccg password=ccg dbname=ccg sslmode=disable" \
-  -v $(pwd):/workspace --entrypoint sh ccg \
-  -c "ccg build /workspace && ccg-server --http-addr :8080"
+  -v $(pwd):/repo --entrypoint sh ccg \
+  -c "ccg build /repo && ccg-server --http-addr :8080"
 ```
 
 위의 일회성 마이그레이션 명령어는 build, serve 또는 다른 런타임 명령어보다 먼저 실행되어야 합니다.

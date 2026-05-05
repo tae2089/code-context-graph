@@ -4,7 +4,7 @@ A local code analysis tool that parses codebases with Tree-sitter and builds a k
 
 ## MCP Server
 
-The ccg MCP server registered in `.mcp.json` provides 35 tools:
+The ccg MCP server registered in `.mcp.json` provides 33 tools:
 
 - `parse_project`, `build_or_update_graph`, `run_postprocess`
 - `get_postprocess_policy`, `reset_postprocess_policy`
@@ -16,7 +16,6 @@ The ccg MCP server registered in `.mcp.json` provides 35 tools:
 - `get_annotation`
 - `build_rag_index`, `get_rag_tree`, `get_doc_content`, `search_docs`, `retrieve_docs`
 - `upload_file`, `upload_files`, `list_namespaces`, `list_files`, `delete_file`, `delete_namespace`
-- `list_workspaces`, `delete_workspace` (deprecated aliases)
 
 `ccg serve` is the local stdio MCP entry point. Self-hosted HTTP mode is provided by
 the separate `ccg-server` binary, which serves `/mcp`, `/health`, `/ready`, `/status`,
@@ -35,7 +34,7 @@ Graceful shutdown: SIGINT/SIGTERM propagates context cancellation to in-progress
 | `/ccg-analyze`   | Code analysis: impact radius, flow tracing, dead code, architecture                          |
 | `/ccg-annotate`  | Annotation system: AI annotation workflow and tag reference                                  |
 | `/ccg-docs`      | Documentation: doc generation, RAG indexing, lint                                            |
-| `/ccg-workspace` | Namespace file management: upload, list, delete (`workspace` is a deprecated alias)          |
+| `/ccg-namespace` | Namespace file management: upload, list, delete                                              |
 
 Skill files are located under `skills/` and are written so coding agents such as Codex and Claude Code
 can use them as slash-command style workflows.
@@ -70,7 +69,7 @@ use ccg MCP tools and Agent Skills first.
 See the `guide/` directory for detailed documentation:
 
 - [CLI Reference](guide/cli-reference.md) - all commands, flags, and config files
-- [MCP Tools](guide/mcp-tools.md) - 35 MCP tools, Agent Skills, AI-Driven Annotation
+- [MCP Tools](guide/mcp-tools.md) - 33 MCP tools, Agent Skills, AI-Driven Annotation
 - [Annotations](guide/annotations.md) - annotation tags, examples, and search
 - [Webhook](guide/webhook.md) - webhook sync, branch filtering, HMAC, graceful shutdown
 - [Docker](guide/docker.md) - Docker builds, MCP server, PostgreSQL deployment

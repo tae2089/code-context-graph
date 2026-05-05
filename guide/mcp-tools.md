@@ -1,6 +1,6 @@
 # MCP Tools
 
-code-context-graph provides 35 MCP tools. MCP-capable coding agents such as
+code-context-graph provides 33 MCP tools. MCP-capable coding agents such as
 Codex or Claude Code can connect after configuring `.mcp.json`.
 
 ## Setup
@@ -33,7 +33,7 @@ Start the self-hosted server with `ccg-server`; clients connect to its `/mcp` en
 }
 ```
 
-## Tools (35)
+## Tools (33)
 
 ### Core
 
@@ -151,20 +151,17 @@ when communities may be missing.
 
 ### Namespace File Management
 
-Use `namespace` as the canonical isolation term. The `workspace` parameter and
-`list_workspaces` / `delete_workspace` tools remain only as deprecated aliases
-for older callers.
+Use `namespace` as the isolation term for uploaded files, per-service graph data,
+and namespace-specific RAG indexes.
 
 | Tool | Description |
 |------|-------------|
 | `upload_file` | Upload file to namespace (base64) |
 | `upload_files` | Upload multiple files to namespaces in a single call |
 | `list_namespaces` | List all namespaces |
-| `list_workspaces` | Deprecated alias for `list_namespaces` |
 | `list_files` | List files in a namespace |
 | `delete_file` | Delete file from namespace |
 | `delete_namespace` | Delete an entire namespace and all its files |
-| `delete_workspace` | Deprecated alias for `delete_namespace` |
 
 Canonical examples:
 
@@ -182,7 +179,7 @@ delete_namespace(namespace: "payment-svc")
 | `/ccg-analyze` | Code analysis — impact radius, flow tracing, dead code, architecture |
 | `/ccg-annotate` | Annotation system — AI-driven annotation workflow, tag reference |
 | `/ccg-docs` | Documentation — generate docs, RAG indexing, lint |
-| `/ccg-workspace` | Namespace file management — upload, list, and delete namespace files (`workspace` remains a deprecated parameter alias) |
+| `/ccg-namespace` | Namespace file management — upload, list, and delete namespace files |
 
 These skill files live in `skills/` and are written for slash-command style
 agent workflows. They route common coding-agent tasks to the right CLI and MCP
@@ -199,5 +196,5 @@ surfaces.
 /ccg search "query"              — Focused annotation/keyword candidate search
 /ccg languages                   — List supported languages
 /ccg-annotate annotate internal/ — AI-generate annotations
-/ccg-workspace                   — Manage namespace files and directories
+/ccg-namespace                   — Manage namespace files and directories
 ```

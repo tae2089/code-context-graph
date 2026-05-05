@@ -37,7 +37,7 @@ get_minimal_context          ← 항상 여기서 시작하십시오 (그래프 
 
 - `search`는 코드뿐만 아니라 어노테이션(`@intent`, `@domainRule` 등)도 검색 대상에 포함합니다.
 - 경로를 지정하여 범위를 좁힐 수 있습니다: `search(path: "internal/auth")`
-- MSA 환경에서는 모든 도구에 `namespace` 파라미터를 사용하여 서비스를 격리하십시오 (`workspace`는 사용이 중단된 별칭으로 남아 있습니다).
+- MSA 환경에서는 모든 도구에 `namespace` 파라미터를 사용하여 서비스를 격리하십시오.
 ````
 
 ---

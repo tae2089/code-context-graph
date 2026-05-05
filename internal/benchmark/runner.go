@@ -18,10 +18,10 @@ type Executor interface {
 }
 
 // RunnerConfig holds configuration for a benchmark run.
-// @intent collect execution mode, workspace, and timeout settings for one benchmark run.
+// @intent collect execution mode, working directory, and timeout settings for one benchmark run.
 type RunnerConfig struct {
 	Mode         string // "with-ccg" | "without-ccg"
-	CWD          string // benchmark workspace directory
+	CWD          string // benchmark working directory
 	MaxToolCalls int
 	TimeoutSec   int
 }

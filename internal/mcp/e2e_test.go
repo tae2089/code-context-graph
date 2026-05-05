@@ -577,9 +577,9 @@ func TestE2E_UploadBuildSearch(t *testing.T) {
 	deps := setupE2EDeps(t)
 
 	wsRoot := t.TempDir()
-	deps.WorkspaceRoot = wsRoot
+	deps.NamespaceRoot = wsRoot
 
-	// Step 1: Upload Go source into the workspace with upload_file.
+	// Step 1: Upload Go source into the namespace with upload_file.
 	goSrc := `package payment
 
 func ProcessPayment(amount int) error {
@@ -593,7 +593,7 @@ func RefundPayment(txID string) error {
 	encoded := base64.StdEncoding.EncodeToString([]byte(goSrc))
 
 	uploadResult := callTool(t, deps, "upload_file", map[string]any{
-		"workspace": "payment-svc",
+		"namespace": "payment-svc",
 		"file_path": "payment.go",
 		"content":   encoded,
 	})
@@ -601,7 +601,7 @@ func RefundPayment(txID string) error {
 		t.Fatalf("upload_file error: %s", getTextContent(uploadResult))
 	}
 
-	// Step 2: Build the workspace path with build_or_update_graph.
+	// Step 2: Build the namespace path with build_or_update_graph.
 	wsPath := filepath.Join(wsRoot, "payment-svc")
 	buildResult := callTool(t, deps, "build_or_update_graph", map[string]any{
 		"path":         wsPath,

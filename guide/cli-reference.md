@@ -141,8 +141,7 @@ recovery.
 | `ccg serve --cache-ttl <dur>` | TTL for MCP serve session cache (default `5m`; use `0` or `--no-cache` to disable) |
 | `ccg serve --no-cache` | Disable the in-memory MCP serve session cache |
 | `ccg serve --otel-endpoint <url>` | Enable OTLP HTTP trace export to the given full endpoint URL (for example `http://collector:4318/v1/traces`); when unset, CCG still creates SDK spans locally but does not export them |
-| `ccg serve --namespace-root <dir>` | Root directory for file namespaces (default `workspaces`) |
-| `ccg serve --workspace-root <dir>` | Deprecated alias for `--namespace-root` |
+| `ccg serve --namespace-root <dir>` | Root directory for file namespaces (default `namespaces`) |
 | `ccg serve --max-file-bytes <bytes>` | Maximum bytes allowed per parsed source file (`0` disables the limit) |
 | `ccg serve --max-total-parsed-bytes <bytes>` | Maximum total bytes parsed across source files (`0` disables the limit) |
 
@@ -156,8 +155,7 @@ HTTP MCP and webhook hosting now live in the dedicated `ccg-server` binary:
 | `ccg-server --insecure-http` | Allow non-loopback HTTP binding without a bearer token (testing only) |
 | `ccg-server --stateless` | Stateless session mode (multi-instance deployments) |
 | `ccg-server --wiki-dir <dir>` | Enable the browser Wiki UI at `/wiki` using a built React dist directory; `/wiki/api/*` uses the same bearer token as `/mcp` |
-| `ccg-server --namespace-root <dir>` | Root directory for file namespaces (default `workspaces`) |
-| `ccg-server --workspace-root <dir>` | Deprecated alias for `--namespace-root` |
+| `ccg-server --namespace-root <dir>` | Root directory for file namespaces (default `namespaces`) |
 | `ccg-server --allow-repo <pat>` | Allowed repo patterns for webhook sync (e.g. `org/*`, `org/api:main,develop`) |
 | `ccg-server --webhook-secret <s>` | HMAC secret for webhook signature verification |
 | `ccg-server --insecure-webhook` | Allow unsigned webhook requests for local testing only |

@@ -63,10 +63,10 @@ type traceFlowMetadata struct {
 // traceFlowResponse is the typed wire payload for traceFlow.
 // @intent preserve a stable response envelope for traced flow results and their evidence.
 type traceFlowResponse struct {
-	Name     string            `json:"name"`
-	Members  []traceFlowMember `json:"members"`
-	Metadata traceFlowMetadata `json:"metadata"`
-	Evidence workspaceEvidenceBlock `json:"evidence"`
+	Name     string                 `json:"name"`
+	Members  []traceFlowMember      `json:"members"`
+	Metadata traceFlowMetadata      `json:"metadata"`
+	Evidence namespaceEvidenceBlock `json:"evidence"`
 }
 
 // detectChangesEntry summarizes one changed node plus its diff-derived risk score.
@@ -133,7 +133,7 @@ type suspectFallbackEdgeItem struct {
 // @ensures returns the impacted node set when analysis succeeds.
 // @see mcp.handlers.getNode
 func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	log := h.logger()
 
 	qn, err := request.RequireString("qualified_name")
@@ -217,7 +217,7 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 // @ensures returns the flow name and ordered members when tracing succeeds.
 // @see mcp.handlers.listFlows
 func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	log := h.logger()
 
 	qn, err := request.RequireString("qualified_name")
@@ -293,7 +293,7 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 				ContainsFallbackCalls: containsFallbackCalls,
 				FallbackEdgesCount:    fallbackEdgesCount,
 			},
-			Evidence: h.workspaceEvidenceFromContext(ctx),
+			Evidence: h.namespaceEvidenceFromContext(ctx),
 		})
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
@@ -310,7 +310,7 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 // @sideEffect reads git diff data from the configured repository root.
 // @see mcp.handlers.getAffectedFlows
 func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	log := h.logger()
 
 	repoRoot, err := request.RequireString("repo_root")
@@ -379,7 +379,7 @@ func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolReques
 // @sideEffect reads git diff data from the configured repository root.
 // @see mcp.handlers.detectChanges
 func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	log := h.logger()
 
 	repoRoot, err := request.RequireString("repo_root")
@@ -504,7 +504,7 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 // @ensures returns dead_code entries and their count when analysis succeeds.
 // @domainRule only nodes without incoming edges qualify as dead code candidates.
 func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	h.logger().Info("find_dead_code called")
 
 	input, err := decodeFindDeadCodeRequest(request)
@@ -553,7 +553,7 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 // @requires FallbackAnalyzer must be configured.
 // @ensures returns legacy suspect_fallback_edges plus items/count/pagination when analysis succeeds.
 func (h *handlers) findSuspectFallbackEdges(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	h.logger().Info("find_suspect_fallback_edges called")
 
 	input, err := decodeFindSuspectFallbackRequest(request)
@@ -599,18 +599,18 @@ func (h *handlers) findSuspectFallbackEdges(ctx context.Context, request mcp.Cal
 
 // @intent validate repo_root inputs against configured analysis roots before git-based analysis reads the filesystem.
 func (h *handlers) validateRepoRoot(repoRoot string) (string, error) {
-	return validateRepoRootWithin(repoRoot, h.deps.RepoRoot, h.workspaceRoot())
+	return validateRepoRootWithin(repoRoot, h.deps.RepoRoot, h.namespaceRoot())
 }
 
 // validateRepoRootWithin checks that repoRoot resolves to a canonical path within one of the allowed analysis roots.
 // @intent prevent git-based analysis from reading paths outside the configured project boundaries.
-// @requires configuredRepoRoot or workspaceRoot must be non-empty; repoRoot must be a valid filesystem path.
+// @requires configuredRepoRoot or namespaceRoot must be non-empty; repoRoot must be a valid filesystem path.
 // @ensures returned path is absolute, symlink-resolved, and contained within an allowed root.
-func validateRepoRootWithin(repoRoot, configuredRepoRoot, workspaceRoot string) (string, error) {
+func validateRepoRootWithin(repoRoot, configuredRepoRoot, namespaceRoot string) (string, error) {
 	if repoRoot == "" {
 		return "", fmt.Errorf("repo_root is required")
 	}
-	allowedRoots := configuredAnalysisRoots(configuredRepoRoot, workspaceRoot)
+	allowedRoots := configuredAnalysisRoots(configuredRepoRoot, namespaceRoot)
 	if len(allowedRoots) == 0 {
 		return "", fmt.Errorf("analysis repo root is not configured")
 	}
@@ -628,11 +628,11 @@ func validateRepoRootWithin(repoRoot, configuredRepoRoot, workspaceRoot string) 
 	return repo, nil
 }
 
-// configuredAnalysisRoots returns the deduplicated list of allowed root paths derived from server config and workspace.
+// configuredAnalysisRoots returns the deduplicated list of allowed root paths derived from server config and namespace storage.
 // @intent build the allowlist used by path validation so each source of truth contributes exactly once.
-func configuredAnalysisRoots(repoRoot, workspaceRoot string) []string {
+func configuredAnalysisRoots(repoRoot, namespaceRoot string) []string {
 	roots := make([]string, 0, 2)
-	for _, root := range []string{repoRoot, workspaceRoot} {
+	for _, root := range []string{repoRoot, namespaceRoot} {
 		if root == "" {
 			continue
 		}

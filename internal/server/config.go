@@ -23,7 +23,6 @@ type Config struct {
 	WikiDir                 string
 	RagIndexDir             string
 	NamespaceRoot           string
-	WorkspaceRoot           string
 	WebhookWorkers          int
 	AllowRepo               []string
 	WebhookSecret           string
@@ -52,7 +51,7 @@ func DefaultConfig() Config {
 		HTTPBearerToken:        os.Getenv("CCG_HTTP_BEARER_TOKEN"),
 		OTELEndpoint:           os.Getenv("CCG_OTEL_ENDPOINT"),
 		WikiDir:                os.Getenv("CCG_WIKI_DIR"),
-		NamespaceRoot:          "workspaces",
+		NamespaceRoot:          "namespaces",
 		WebhookWorkers:         EnvInt("CCG_WEBHOOK_WORKERS", 4),
 		WebhookMaxTrackedRepos: EnvInt("CCG_WEBHOOK_MAX_TRACKED_REPOS", 1024),
 		WebhookAttemptTimeout:  EnvDuration("CCG_WEBHOOK_ATTEMPT_TIMEOUT", 15*time.Minute),

@@ -219,7 +219,6 @@ func setupTestDepsMinimal(t *testing.T) *Deps {
 	}
 }
 
-
 func setupGraphOnlyTestDeps(t *testing.T) *Deps {
 	t.Helper()
 	dsn := fmt.Sprintf("file:handlertest-graph-only%d?mode=memory&cache=shared", handlerTestDBSeq.Add(1))
@@ -264,7 +263,6 @@ type stubPostprocessPolicy struct {
 	resetTools     []string
 }
 
-
 func (s *stubPostprocessPolicy) Resolve(ctx context.Context, input postprocesspolicy.DecisionInput) (string, string, error) {
 	s.resolvedInputs = append(s.resolvedInputs, input)
 	if s.resolveErr != nil {
@@ -276,7 +274,6 @@ func (s *stubPostprocessPolicy) Resolve(ctx context.Context, input postprocesspo
 	}
 	return s.resolvedPolicy, s.resolvedSource, nil
 }
-
 
 func (s *stubPostprocessPolicy) RecordRun(ctx context.Context, record postprocesspolicy.RunRecord) error {
 	s.recordedRuns = append(s.recordedRuns, record)

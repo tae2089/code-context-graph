@@ -71,7 +71,7 @@ GORM ORM 기반 저장소입니다. SQLite 및 PostgreSQL과 호환됩니다.
 
 ### MCP 서버 (MCP Server) (`internal/mcp/`)
 
-MCP 프로토콜을 통해 35개의 도구를 노출합니다. 로컬 `ccg serve` 명령은 이
+MCP 프로토콜을 통해 33개의 도구를 노출합니다. 로컬 `ccg serve` 명령은 이
 도구들을 stdio로 노출합니다. 셀프호스트 `ccg-server` 바이너리는 같은 도구
 surface를 Streamable HTTP로 노출하고 health/status/webhook 엔드포인트를
 추가합니다.

@@ -1,6 +1,6 @@
 //go:build !windows
 
-package workspace
+package namespacefs
 
 import (
 	"os"
@@ -8,7 +8,7 @@ import (
 )
 
 // writeFileNoFollow writes a file without following symlinks on Unix.
-// @intent prevent workspace upload paths from escaping the allowed root through symlink traversal.
+// @intent prevent namespace upload paths from escaping the allowed root through symlink traversal.
 // @sideEffect creates or truncates the target file and fsyncs it to disk.
 func writeFileNoFollow(path string, data []byte, perm os.FileMode) error {
 	fd, err := syscall.Open(path, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_TRUNC|syscall.O_NOFOLLOW, uint32(perm))

@@ -100,7 +100,7 @@ func newBenchmarkRunCmd() *cobra.Command {
 		Short: "Run benchmark queries via claude CLI subprocess",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if cwd == "" {
-				return fmt.Errorf("--cwd is required: set the benchmark workspace directory")
+				return fmt.Errorf("--cwd is required: set the benchmark working directory")
 			}
 			corpus, err := benchmark.LoadCorpus(corpusPath)
 			if err != nil {
@@ -130,7 +130,7 @@ func newBenchmarkRunCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&corpusPath, "corpus", "testdata/benchmark/queries.yaml", "Path to corpus YAML file")
-	cmd.Flags().StringVar(&cwd, "cwd", "", "Benchmark workspace directory (required)")
+	cmd.Flags().StringVar(&cwd, "cwd", "", "Benchmark working directory (required)")
 	cmd.Flags().StringVar(&mode, "mode", "with-ccg", "Benchmark mode: with-ccg or without-ccg")
 	cmd.Flags().StringVar(&outPath, "out", "", "Output file path (JSON); defaults to stdout")
 	return cmd

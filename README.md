@@ -1,6 +1,6 @@
 # code-context-graph
 
-Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 12 languages, 35 MCP tools, and custom annotation search.
+Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 12 languages, 33 MCP tools, and custom annotation search.
 
 CCG is built primarily for GPT, Claude, Codex, and other LLM-based coding agents. It acts as local or self-hosted context infrastructure: agents can search code by intent, inspect call graphs, trace impact, retrieve docs, and keep responses bounded instead of reading entire repositories into context.
 
@@ -11,7 +11,7 @@ Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) 
 ## Features
 
 - **12 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua/Luau
-- **35 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, postprocess operations, namespace file management, and more
+- **33 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, postprocess operations, namespace file management, and more
 - **RAG-first code exploration**: generated docs + community structure let LLM agents answer natural-language questions before drilling into exact graph nodes
 - **Browser Wiki UI**: `ccg-server` can serve generated docs, tree search, PageIndex-style retrieval, Context Tray copying, and an Obsidian-style graph viewer
 - **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context ([details](guide/annotations.md))
@@ -253,7 +253,7 @@ server can also expose `/wiki` when `--wiki-dir` is configured:
 ```
 
 MCP-capable clients such as Codex or Claude Code can connect and get access to
-35 MCP tools. See [MCP Tools Reference](guide/mcp-tools.md) for the full list.
+33 MCP tools. See [MCP Tools Reference](guide/mcp-tools.md) for the full list.
 
 ## Architecture
 
@@ -281,7 +281,7 @@ See [Architecture Details](guide/architecture.md) for component breakdown and DB
 | [CLI Reference](guide/cli-reference.md) | All commands, flags, and config file (`.ccg.yaml`) |
 | [Eval](guide/eval.md) | Parser/search quality evaluation, golden corpus, and metrics |
 | [Lint](guide/lint.md) | Detailed `ccg lint` category reference, interpretation guide, and CI usage |
-| [MCP Tools](guide/mcp-tools.md) | 35 MCP tools, agent skills, AI-Driven Annotation |
+| [MCP Tools](guide/mcp-tools.md) | 33 MCP tools, agent skills, AI-Driven Annotation |
 | [Annotations](guide/annotations.md) | Annotation system — tags, examples, search |
 | [Webhook](guide/webhook.md) | Webhook sync, branch filtering, HMAC, graceful shutdown |
 | [Docker](guide/docker.md) | Docker build, MCP server, Wiki UI, PostgreSQL deployment |

@@ -68,13 +68,13 @@ type minimalContextResponse struct {
 	TopFlows       []minimalContextFlowInfo `json:"top_flows"`
 	DerivedState   map[string]any           `json:"derived_state"`
 	SuggestedTools []string                 `json:"suggested_tools"`
-	Evidence       workspaceEvidenceBlock   `json:"evidence"`
+	Evidence       namespaceEvidenceBlock   `json:"evidence"`
 }
 
 // getMinimalContext returns a compact project snapshot with risk hints and suggested tools.
 // @intent give agents a cheap first read of namespace state before they spend tokens on deeper graph queries.
 func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	log := h.logger()
 
 	task := request.GetString("task", "")
@@ -221,7 +221,7 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 			TopFlows:       flowInfos,
 			DerivedState:   derivedStateSummary(),
 			SuggestedTools: suggestedTools,
-			Evidence:       h.workspaceEvidenceFromContext(ctx),
+			Evidence:       h.namespaceEvidenceFromContext(ctx),
 		}
 
 		result, err := marshalJSON(resp)

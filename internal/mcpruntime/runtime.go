@@ -35,7 +35,6 @@ type Options struct {
 	NoCache             bool
 	OTELEndpoint        string
 	NamespaceRoot       string
-	WorkspaceRoot       string
 	RepoRoot            string
 	MaxFileBytes        int64
 	MaxTotalParsedBytes int64
@@ -108,7 +107,6 @@ func New(rt *core.Runtime, opts Options) (*Instance, error) {
 		RagIndexDir:         opts.RagIndexDir,
 		RagProjectDesc:      opts.RagProjectDesc,
 		NamespaceRoot:       opts.NamespaceRoot,
-		WorkspaceRoot:       opts.WorkspaceRoot,
 		RepoRoot:            opts.RepoRoot,
 		MaxFileBytes:        opts.MaxFileBytes,
 		MaxTotalParsedBytes: opts.MaxTotalParsedBytes,

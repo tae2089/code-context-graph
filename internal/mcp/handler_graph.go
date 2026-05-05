@@ -122,7 +122,7 @@ type flowRow struct {
 // @ensures Returns a list including flow ID, name, description, and member count on success.
 // @see mcp.handlers.traceFlow
 func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	log := h.logger()
 
 	sortBy := request.GetString("sort_by", "name")
@@ -197,7 +197,7 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 // @ensures Returns a list including community ID, label, and node count on success.
 // @see mcp.handlers.getCommunity
 func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	log := h.logger()
 
 	sortBy := request.GetString("sort_by", "size")
@@ -271,7 +271,7 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 // @ensures Returns basic community information along with optional coverage and members on success.
 // @see mcp.handlers.listCommunities
 func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	log := h.logger()
 
 	communityID := request.GetInt("community_id", 0)
@@ -368,7 +368,7 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 // @domainRule Pairs with coupling strength exceeding 0.8 are marked as warnings.
 // @see mcp.handlers.listCommunities
 func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	log := h.logger()
 	communityLimit := request.GetInt("community_limit", defaultQueryGraphLimit)
 	communityOffset := request.GetInt("community_offset", 0)

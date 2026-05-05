@@ -99,28 +99,28 @@ func Hello() {}
 	}
 }
 
-func TestParseProject_AllowsWorkspacePathWhenRepoRootIsAlsoConfigured(t *testing.T) {
+func TestParseProject_AllowsNamespacePathWhenRepoRootIsAlsoConfigured(t *testing.T) {
 	deps := setupTestDeps(t)
 	deps.RepoRoot = t.TempDir()
-	deps.WorkspaceRoot = t.TempDir()
-	workspaceDir := filepath.Join(deps.WorkspaceRoot, "sample-ws")
-	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+	deps.NamespaceRoot = t.TempDir()
+	namespaceDir := filepath.Join(deps.NamespaceRoot, "sample-ns")
+	if err := os.MkdirAll(namespaceDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeGoFile(t, workspaceDir, "main.go", `package main
+	writeGoFile(t, namespaceDir, "main.go", `package main
 func Hello() {}
 `)
 
-	result := callTool(t, deps, "parse_project", map[string]any{"path": workspaceDir, "workspace": "sample-ws"})
+	result := callTool(t, deps, "parse_project", map[string]any{"path": namespaceDir, "namespace": "sample-ns"})
 	if result.IsError {
-		t.Fatalf("expected workspace path to be allowed, got error: %s", getTextContent(result))
+		t.Fatalf("expected namespace path to be allowed, got error: %s", getTextContent(result))
 	}
 }
 
 func TestParseProject_FailsClosedWithoutConfiguredRoot(t *testing.T) {
 	deps := setupTestDeps(t)
 	deps.RepoRoot = ""
-	deps.WorkspaceRoot = ""
+	deps.NamespaceRoot = ""
 	dir := t.TempDir()
 	writeGoFile(t, dir, "main.go", `package main
 func Hello() {}
@@ -128,7 +128,7 @@ func Hello() {}
 
 	result := callTool(t, deps, "parse_project", map[string]any{"path": dir})
 	if !result.IsError {
-		t.Fatal("expected parse_project to fail closed without RepoRoot or WorkspaceRoot")
+		t.Fatal("expected parse_project to fail closed without RepoRoot or NamespaceRoot")
 	}
 }
 
@@ -951,7 +951,7 @@ func Other() {}
 		"path":          dir,
 		"full_rebuild":  false,
 		"postprocess":   "none",
-		"workspace":     "svc",
+		"namespace":     "svc",
 		"include_paths": []string{"src/api"},
 	})
 
@@ -998,7 +998,7 @@ func Other() {}
 		"path":          dir,
 		"full_rebuild":  false,
 		"postprocess":   "none",
-		"workspace":     "svc",
+		"namespace":     "svc",
 		"include_paths": []string{"src/api"},
 		"replace":       false,
 	})
@@ -2824,7 +2824,7 @@ func TestDetectChanges_RejectsRepoRootOutsideConfiguredRoot(t *testing.T) {
 	deps := setupTestDeps(t)
 	deps.ChangesGitClient = &mockGitClient{}
 	deps.RepoRoot = t.TempDir()
-	deps.WorkspaceRoot = t.TempDir()
+	deps.NamespaceRoot = t.TempDir()
 	outside := t.TempDir()
 
 	result := callTool(t, deps, "detect_changes", map[string]any{"repo_root": outside})
@@ -2876,7 +2876,7 @@ func TestGetAffectedFlows_ReturnsFlows(t *testing.T) {
 	}
 }
 
-func TestGetAffectedFlows_RespectsWorkspaceNamespace(t *testing.T) {
+func TestGetAffectedFlows_RespectsNamespace(t *testing.T) {
 	deps := setupTestDeps(t)
 	ctx := ctxns.WithNamespace(context.Background(), "alpha")
 
@@ -2895,7 +2895,7 @@ func TestGetAffectedFlows_RespectsWorkspaceNamespace(t *testing.T) {
 	deps.ChangesGitClient = &mockGitClient{changedFiles: []string{"a.go"}, hunks: []changes.Hunk{{FilePath: "a.go", StartLine: 1, EndLine: 10}}}
 	repoRoot := t.TempDir()
 	deps.RepoRoot = repoRoot
-	result := callTool(t, deps, "get_affected_flows", map[string]any{"repo_root": repoRoot, "workspace": "alpha"})
+	result := callTool(t, deps, "get_affected_flows", map[string]any{"repo_root": repoRoot, "namespace": "alpha"})
 	if result.IsError {
 		t.Fatalf("get_affected_flows error: %s", getTextContent(result))
 	}
@@ -3072,12 +3072,12 @@ func TestListFlows_Empty(t *testing.T) {
 	}
 }
 
-func TestListFlows_RespectsWorkspaceNamespace(t *testing.T) {
+func TestListFlows_RespectsNamespace(t *testing.T) {
 	deps := setupTestDeps(t)
 	deps.DB.Create(&model.Flow{Namespace: "alpha", Name: "alpha-flow"})
 	deps.DB.Create(&model.Flow{Namespace: "beta", Name: "beta-flow"})
 
-	result := callTool(t, deps, "list_flows", map[string]any{"workspace": "alpha"})
+	result := callTool(t, deps, "list_flows", map[string]any{"namespace": "alpha"})
 	if result.IsError {
 		t.Fatalf("list_flows error: %s", getTextContent(result))
 	}
@@ -3227,7 +3227,7 @@ func TestListCommunities_Empty(t *testing.T) {
 	}
 }
 
-func TestListCommunities_WorkspaceScopesResults(t *testing.T) {
+func TestListCommunities_NamespaceScopesResults(t *testing.T) {
 	deps := setupTestDeps(t)
 	ctxAlpha := ctxns.WithNamespace(context.Background(), "alpha")
 	ctxBeta := ctxns.WithNamespace(context.Background(), "beta")
@@ -3248,7 +3248,7 @@ func TestListCommunities_WorkspaceScopesResults(t *testing.T) {
 	deps.DB.Create(&model.CommunityMembership{CommunityID: alphaCommunity.ID, NodeID: alphaNode.ID})
 	deps.DB.Create(&model.CommunityMembership{CommunityID: betaCommunity.ID, NodeID: betaNode.ID})
 
-	result := callTool(t, deps, "list_communities", map[string]any{"workspace": "alpha"})
+	result := callTool(t, deps, "list_communities", map[string]any{"namespace": "alpha"})
 	if result.IsError {
 		t.Fatalf("list_communities error: %s", getTextContent(result))
 	}
@@ -3391,12 +3391,12 @@ func TestGetCommunity_NotFound(t *testing.T) {
 	}
 }
 
-func TestGetCommunity_WorkspaceRejectsForeignCommunity(t *testing.T) {
+func TestGetCommunity_NamespaceRejectsForeignCommunity(t *testing.T) {
 	deps := setupTestDeps(t)
 	community := model.Community{Namespace: "beta", Key: "beta/core", Label: "beta/core", Strategy: "directory"}
 	deps.DB.Create(&community)
 
-	result := callTool(t, deps, "get_community", map[string]any{"community_id": community.ID, "workspace": "alpha"})
+	result := callTool(t, deps, "get_community", map[string]any{"community_id": community.ID, "namespace": "alpha"})
 	if !result.IsError {
 		t.Fatalf("expected scoped lookup to reject foreign community: %s", getTextContent(result))
 	}
@@ -3623,7 +3623,7 @@ func Svc() {}
 		"path":         dir,
 		"full_rebuild": false,
 		"postprocess":  "none",
-		"workspace":    "ns-a",
+		"namespace":    "ns-a",
 	})
 
 	for _, fp := range mockSync.existingFiles {

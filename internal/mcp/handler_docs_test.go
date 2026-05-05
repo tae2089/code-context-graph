@@ -101,7 +101,7 @@ func TestGetDocContent_HappyPath(t *testing.T) {
 	}
 }
 
-func TestGetDocContent_NoWorkspaceRejectsOutsideRagIndexDir(t *testing.T) {
+func TestGetDocContent_NoNamespaceRejectsOutsideRagIndexDir(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()
 	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
@@ -118,11 +118,11 @@ func TestGetDocContent_NoWorkspaceRejectsOutsideRagIndexDir(t *testing.T) {
 		"file_path": "docs/outside.md",
 	})
 	if !result.IsError {
-		t.Fatal("expected no-workspace get_doc_content to reject paths outside RagIndexDir")
+		t.Fatal("expected no-namespace get_doc_content to reject paths outside RagIndexDir")
 	}
 }
 
-func TestGetDocContent_NoWorkspaceRejectsSymlinkEscape(t *testing.T) {
+func TestGetDocContent_NoNamespaceRejectsSymlinkEscape(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()
 	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
@@ -179,11 +179,11 @@ func TestGetRagTree_CommunityIDAlias(t *testing.T) {
 	}
 }
 
-func TestGetRagTree_RejectsInvalidWorkspace(t *testing.T) {
+func TestGetRagTree_RejectsInvalidNamespace(t *testing.T) {
 	deps := setupTestDeps(t)
-	result := callTool(t, deps, "get_rag_tree", map[string]any{"workspace": "../outside"})
+	result := callTool(t, deps, "get_rag_tree", map[string]any{"namespace": "../outside"})
 	if !result.IsError {
-		t.Fatal("expected get_rag_tree to reject invalid workspace")
+		t.Fatal("expected get_rag_tree to reject invalid namespace")
 	}
 }
 
@@ -418,11 +418,11 @@ func TestRetrieveDocs_RejectsLimitAboveMax(t *testing.T) {
 	}
 }
 
-func TestSearchDocs_RejectsInvalidWorkspace(t *testing.T) {
+func TestSearchDocs_RejectsInvalidNamespace(t *testing.T) {
 	deps := setupTestDeps(t)
-	result := callTool(t, deps, "search_docs", map[string]any{"query": "auth", "workspace": "../outside"})
+	result := callTool(t, deps, "search_docs", map[string]any{"query": "auth", "namespace": "../outside"})
 	if !result.IsError {
-		t.Fatal("expected search_docs to reject invalid workspace")
+		t.Fatal("expected search_docs to reject invalid namespace")
 	}
 }
 
@@ -437,20 +437,20 @@ func TestSearchDocs_RejectsLimitAboveMax(t *testing.T) {
 	}
 }
 
-func TestBuildRagIndex_WithWorkspace(t *testing.T) {
+func TestBuildRagIndex_WithNamespace(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()
-	deps.WorkspaceRoot = filepath.Join(tmpDir, "workspaces")
+	deps.NamespaceRoot = filepath.Join(tmpDir, "namespaces")
 	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
 
-	wsDocsDir := filepath.Join(tmpDir, "workspaces", "my-service")
+	wsDocsDir := filepath.Join(tmpDir, "namespaces", "my-service")
 	if err := os.MkdirAll(wsDocsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	result := callTool(t, deps, "build_rag_index", map[string]any{"workspace": "my-service"})
+	result := callTool(t, deps, "build_rag_index", map[string]any{"namespace": "my-service"})
 	if result.IsError {
-		t.Fatalf("build_rag_index with workspace error: %v", getTextContent(result))
+		t.Fatalf("build_rag_index with namespace error: %v", getTextContent(result))
 	}
 	content := getTextContent(result)
 	if !strings.Contains(content, "Built doc-index:") {
@@ -458,15 +458,15 @@ func TestBuildRagIndex_WithWorkspace(t *testing.T) {
 	}
 }
 
-func TestRetrieveDocs_WithWorkspaceReadsWorkspaceRelativeDocPath(t *testing.T) {
+func TestRetrieveDocs_WithNamespaceReadsNamespaceRelativeDocPath(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()
-	deps.WorkspaceRoot = filepath.Join(tmpDir, "workspaces")
+	deps.NamespaceRoot = filepath.Join(tmpDir, "namespaces")
 	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
 
-	ws := "my-service"
-	wsDir := filepath.Join(deps.WorkspaceRoot, ws)
-	docPath := filepath.Join(wsDir, "docs", "service.go.md")
+	ns := "my-service"
+	nsDir := filepath.Join(deps.NamespaceRoot, ns)
+	docPath := filepath.Join(nsDir, "docs", "service.go.md")
 	if err := os.MkdirAll(filepath.Dir(docPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -474,12 +474,12 @@ func TestRetrieveDocs_WithWorkspaceReadsWorkspaceRelativeDocPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	comm := model.Community{Namespace: ws, Key: "svc", Label: "Service"}
+	comm := model.Community{Namespace: ns, Key: "svc", Label: "Service"}
 	if err := deps.DB.Create(&comm).Error; err != nil {
 		t.Fatalf("create community: %v", err)
 	}
 	node := model.Node{
-		Namespace:     ws,
+		Namespace:     ns,
 		QualifiedName: "service.Check",
 		Kind:          model.NodeKindFunction,
 		Name:          "Check",
@@ -502,14 +502,14 @@ func TestRetrieveDocs_WithWorkspaceReadsWorkspaceRelativeDocPath(t *testing.T) {
 		t.Fatalf("create doc tag: %v", err)
 	}
 
-	build := callTool(t, deps, "build_rag_index", map[string]any{"workspace": ws})
+	build := callTool(t, deps, "build_rag_index", map[string]any{"namespace": ns})
 	if build.IsError {
-		t.Fatalf("build_rag_index with workspace error: %v", getTextContent(build))
+		t.Fatalf("build_rag_index with namespace error: %v", getTextContent(build))
 	}
 
-	treeResult := callTool(t, deps, "get_rag_tree", map[string]any{"workspace": ws})
+	treeResult := callTool(t, deps, "get_rag_tree", map[string]any{"namespace": ns})
 	if treeResult.IsError {
-		t.Fatalf("get_rag_tree with workspace error: %v", getTextContent(treeResult))
+		t.Fatalf("get_rag_tree with namespace error: %v", getTextContent(treeResult))
 	}
 	var root ragindex.TreeNode
 	if err := json.Unmarshal([]byte(getTextContent(treeResult)), &root); err != nil {
@@ -524,13 +524,13 @@ func TestRetrieveDocs_WithWorkspaceReadsWorkspaceRelativeDocPath(t *testing.T) {
 	}
 
 	result := callTool(t, deps, "retrieve_docs", map[string]any{
-		"workspace":     ws,
+		"namespace":     ns,
 		"query":         "admin audit",
 		"limit":         float64(5),
 		"content_limit": float64(2000),
 	})
 	if result.IsError {
-		t.Fatalf("retrieve_docs with workspace error: %v", getTextContent(result))
+		t.Fatalf("retrieve_docs with namespace error: %v", getTextContent(result))
 	}
 	var response retrieveDocsResponse
 	if err := json.Unmarshal([]byte(getTextContent(result)), &response); err != nil {
@@ -544,7 +544,7 @@ func TestRetrieveDocs_WithWorkspaceReadsWorkspaceRelativeDocPath(t *testing.T) {
 	}
 }
 
-func TestBuildRagIndex_NoWorkspaceRejectsIndexDirOutsideSafeRoot(t *testing.T) {
+func TestBuildRagIndex_NoNamespaceRejectsIndexDirOutsideSafeRoot(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()
 	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
@@ -556,21 +556,21 @@ func TestBuildRagIndex_NoWorkspaceRejectsIndexDirOutsideSafeRoot(t *testing.T) {
 	}
 }
 
-func TestBuildRagIndex_WorkspaceRejectsIndexDirOutsideSafeRoot(t *testing.T) {
+func TestBuildRagIndex_NamespaceRejectsIndexDirOutsideSafeRoot(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()
-	deps.WorkspaceRoot = filepath.Join(tmpDir, "workspaces")
+	deps.NamespaceRoot = filepath.Join(tmpDir, "namespaces")
 	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
-	if err := os.MkdirAll(filepath.Join(deps.WorkspaceRoot, "my-service"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(deps.NamespaceRoot, "my-service"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	result := callTool(t, deps, "build_rag_index", map[string]any{
-		"workspace": "my-service",
+		"namespace": "my-service",
 		"index_dir": filepath.Join(tmpDir, "outside-index"),
 	})
 	if !result.IsError {
-		t.Fatal("expected workspace build_rag_index to reject index_dir outside RagIndexDir")
+		t.Fatal("expected namespace build_rag_index to reject index_dir outside RagIndexDir")
 	}
 }
 
@@ -592,25 +592,25 @@ func TestBuildRagIndex_RejectsIndexDirSymlinkEscape(t *testing.T) {
 	}
 }
 
-func TestGetDocContent_WithWorkspace(t *testing.T) {
+func TestGetDocContent_WithNamespace(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()
-	deps.WorkspaceRoot = filepath.Join(tmpDir, "workspaces")
+	deps.NamespaceRoot = filepath.Join(tmpDir, "namespaces")
 
-	wsDir := filepath.Join(tmpDir, "workspaces", "my-service")
-	docsDir := filepath.Join(wsDir, "docs", "internal")
+	nsDir := filepath.Join(tmpDir, "namespaces", "my-service")
+	docsDir := filepath.Join(nsDir, "docs", "internal")
 	if err := os.MkdirAll(docsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	docContent := "# Handler Docs\nThis is workspace-aware doc content."
+	docContent := "# Handler Docs\nThis is namespace-aware doc content."
 	docPath := filepath.Join(docsDir, "handler.go.md")
 	if err := os.WriteFile(docPath, []byte(docContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	result := callTool(t, deps, "get_doc_content", map[string]any{"workspace": "my-service", "file_path": "docs/internal/handler.go.md"})
+	result := callTool(t, deps, "get_doc_content", map[string]any{"namespace": "my-service", "file_path": "docs/internal/handler.go.md"})
 	if result.IsError {
-		t.Fatalf("get_doc_content with workspace error: %v", getTextContent(result))
+		t.Fatalf("get_doc_content with namespace error: %v", getTextContent(result))
 	}
 	got := getTextContent(result)
 	if got != docContent {
@@ -618,31 +618,31 @@ func TestGetDocContent_WithWorkspace(t *testing.T) {
 	}
 }
 
-func TestGetDocContent_WorkspacePathTraversal(t *testing.T) {
+func TestGetDocContent_NamespacePathTraversal(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()
-	deps.WorkspaceRoot = filepath.Join(tmpDir, "workspaces")
+	deps.NamespaceRoot = filepath.Join(tmpDir, "namespaces")
 
 	cases := []struct {
 		name      string
-		workspace string
+		namespace string
 		filePath  string
 	}{
-		{"workspace traversal", "../evil", "file.md"},
+		{"namespace traversal", "../evil", "file.md"},
 		{"file_path traversal", "my-service", "../../etc/passwd"},
-		{"absolute workspace", "/etc", "passwd"},
+		{"absolute namespace", "/etc", "passwd"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := callTool(t, deps, "get_doc_content", map[string]any{"workspace": tc.workspace, "file_path": tc.filePath})
+			result := callTool(t, deps, "get_doc_content", map[string]any{"namespace": tc.namespace, "file_path": tc.filePath})
 			if !result.IsError {
-				t.Fatalf("expected error for workspace=%q file_path=%q", tc.workspace, tc.filePath)
+				t.Fatalf("expected error for namespace=%q file_path=%q", tc.namespace, tc.filePath)
 			}
 		})
 	}
 }
 
-func TestSearchDocs_WithWorkspace(t *testing.T) {
+func TestSearchDocs_WithNamespace(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()
 	deps.RagIndexDir = tmpDir
@@ -658,9 +658,9 @@ func TestSearchDocs_WithWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result := callTool(t, deps, "search_docs", map[string]any{"query": "auth", "workspace": "my-service"})
+	result := callTool(t, deps, "search_docs", map[string]any{"query": "auth", "namespace": "my-service"})
 	if result.IsError {
-		t.Fatalf("search_docs with workspace error: %v", getTextContent(result))
+		t.Fatalf("search_docs with namespace error: %v", getTextContent(result))
 	}
 	got := getTextContent(result)
 	if !strings.Contains(got, "auth") {
@@ -668,7 +668,7 @@ func TestSearchDocs_WithWorkspace(t *testing.T) {
 	}
 }
 
-func TestGetRagTree_WithWorkspace(t *testing.T) {
+func TestGetRagTree_WithNamespace(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()
 	deps.RagIndexDir = tmpDir
@@ -684,9 +684,9 @@ func TestGetRagTree_WithWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result := callTool(t, deps, "get_rag_tree", map[string]any{"workspace": "my-service"})
+	result := callTool(t, deps, "get_rag_tree", map[string]any{"namespace": "my-service"})
 	if result.IsError {
-		t.Fatalf("get_rag_tree with workspace error: %v", getTextContent(result))
+		t.Fatalf("get_rag_tree with namespace error: %v", getTextContent(result))
 	}
 	got := getTextContent(result)
 	if !strings.Contains(got, "payments") {

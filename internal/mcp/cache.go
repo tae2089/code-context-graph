@@ -18,10 +18,10 @@ type entry struct {
 // Cache is a simple in-memory TTL cache safe for concurrent use.
 // @intent Reuses MCP read-tool responses in memory for frequently repeated queries.
 type Cache struct {
-	mu      sync.RWMutex
-	entries map[string]entry
-	ttl     time.Duration
-	stopCh  chan struct{}
+	mu        sync.RWMutex
+	entries   map[string]entry
+	ttl       time.Duration
+	stopCh    chan struct{}
 	closeOnce sync.Once
 }
 

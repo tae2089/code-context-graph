@@ -144,23 +144,20 @@ func promptResult(text string) *mcp.GetPromptResult {
 	}
 }
 
-// @intent pick the namespace for a prompt invocation, preferring an explicit argument over the workspace fallback.
+// @intent pick the namespace for a prompt invocation, preferring an explicit argument over context.
 func resolvePromptNamespace(ctx context.Context, args map[string]string) string {
 	if namespace := args["namespace"]; namespace != "" {
 		return ctxns.Normalize(namespace)
 	}
-	return resolveNamespace(ctx, args["workspace"])
+	return resolveNamespace(ctx, "")
 }
 
-// @intent resolve the on-disk root used to validate prompt repo paths, falling back through namespace and workspace roots.
+// @intent resolve the on-disk root used to validate prompt repo paths, falling back to the namespace default.
 func promptNamespaceRoot(deps *Deps) string {
 	if deps.NamespaceRoot != "" {
 		return deps.NamespaceRoot
 	}
-	if deps.WorkspaceRoot != "" {
-		return deps.WorkspaceRoot
-	}
-	return "workspaces"
+	return "namespaces"
 }
 
 // reviewChanges builds a prompt summarizing change risk and coverage gaps.

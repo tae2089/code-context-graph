@@ -74,7 +74,7 @@ Golden corpus-based parser accuracy and search quality evaluation framework.
 
 ### MCP Server (`internal/mcp/`)
 
-Exposes 35 tools via MCP protocol. The local `ccg serve` command exposes these
+Exposes 33 tools via MCP protocol. The local `ccg serve` command exposes these
 tools over stdio. The self-hosted `ccg-server` binary exposes the same tool
 surface over Streamable HTTP and adds health/status/webhook endpoints.
 

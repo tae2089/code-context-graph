@@ -95,7 +95,7 @@ type queryGraphResponse struct {
 	Target   string                 `json:"target"`
 	Results  []queryGraphResultItem `json:"results"`
 	Metadata queryGraphMetadata     `json:"metadata"`
-	Evidence workspaceEvidenceBlock `json:"evidence"`
+	Evidence namespaceEvidenceBlock `json:"evidence"`
 }
 
 // searchResultItem summarizes one node hit returned by full-text search.
@@ -127,7 +127,7 @@ type nodeResponse struct {
 	StartLine     int                    `json:"start_line"`
 	EndLine       int                    `json:"end_line"`
 	Language      string                 `json:"language"`
-	Evidence      workspaceEvidenceBlock `json:"evidence"`
+	Evidence      namespaceEvidenceBlock `json:"evidence"`
 }
 
 // getNode returns detailed metadata for a graph node by qualified name.
@@ -137,7 +137,7 @@ type nodeResponse struct {
 // @ensures returns node metadata as JSON when lookup succeeds.
 // @see mcp.handlers.getAnnotation
 func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	log := h.logger()
 
 	qn, err := request.RequireString("qualified_name")
@@ -167,7 +167,7 @@ func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*m
 			StartLine:     node.StartLine,
 			EndLine:       node.EndLine,
 			Language:      node.Language,
-			Evidence:      h.workspaceEvidenceFromContext(ctx),
+			Evidence:      h.namespaceEvidenceFromContext(ctx),
 		}
 		result, err := marshalJSON(data)
 		if err != nil {
@@ -184,7 +184,7 @@ func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*m
 // @ensures returns up to limit summarized nodes when search succeeds.
 // @see mcp.handlers.getNode
 func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	log := h.logger()
 
 	query, err := request.RequireString("query")
@@ -263,7 +263,7 @@ func validateQueryGraphLimit(limit int) error {
 // @ensures returns a response containing summary, context, and tags when lookup succeeds.
 // @see mcp.handlers.getNode
 func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	log := h.logger()
 
 	qn, err := request.RequireString("qualified_name")
@@ -316,7 +316,7 @@ func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolReques
 // @ensures returns a response containing pattern, target, and results when the query succeeds.
 // @see mcp.QueryService
 func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	log := h.logger()
 
 	pattern, err := request.RequireString("pattern")
@@ -516,7 +516,7 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 			metadata.TentativeCount = &tentativeCount
 			metadata.IncludeFallbackCalls = &includeFallbackCalls
 		}
-		result, err := marshalJSON(queryGraphResponse{Pattern: pattern, Target: target, Results: qgResults, Metadata: metadata, Evidence: h.workspaceEvidenceFromContext(ctx)})
+		result, err := marshalJSON(queryGraphResponse{Pattern: pattern, Target: target, Results: qgResults, Metadata: metadata, Evidence: h.namespaceEvidenceFromContext(ctx)})
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}
@@ -600,14 +600,14 @@ type listGraphStatsResponse struct {
 	NodesByKind     map[string]int64       `json:"nodes_by_kind"`
 	NodesByLanguage map[string]int64       `json:"nodes_by_language"`
 	EdgesByKind     map[string]int64       `json:"edges_by_kind"`
-	Evidence        workspaceEvidenceBlock `json:"evidence"`
+	Evidence        namespaceEvidenceBlock `json:"evidence"`
 }
 
 // listGraphStats returns aggregate node and edge statistics for the graph.
 // @intent summarize the current graph load state with kind and language distributions.
 // @ensures returns total node and edge counts plus kind and language aggregates when the query succeeds.
 func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	log := h.logger()
 	log.Info("list_graph_stats called")
 
@@ -675,7 +675,7 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 			NodesByKind:     nbk,
 			NodesByLanguage: nbl,
 			EdgesByKind:     ebk,
-			Evidence:        h.workspaceEvidenceFromContext(ctx),
+			Evidence:        h.namespaceEvidenceFromContext(ctx),
 		}
 		result, err := marshalJSON(statsData)
 		if err != nil {
@@ -692,7 +692,7 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 // @ensures returns functions exceeding the threshold and their count when analysis succeeds.
 // @domainRule function length is calculated as end_line-start_line+1.
 func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	log := h.logger()
 
 	input, err := decodeFindLargeFuncsRequest(request)

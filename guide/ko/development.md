@@ -119,7 +119,7 @@ internal/
   docs/               — 문서 생성 로직
   eval/               — 파서/검색 품질 평가 (골든 코퍼스, P/R/F1, P@K, MRR, nDCG)
   mcpruntime/         — 공용 MCP runtime assembly, stdio runner, cache, telemetry
-  mcp/                — MCP 서버 (35개 도구)
+  mcp/                — MCP 서버 (33개 도구)
   wikiserver/         — ccg-server Wiki 정적 파일 서빙 및 viewer API
   wikiindex/          — Wiki 표시용 인덱스 생성기 (`wiki-index.json`)
   model/              — DB 모델

@@ -1,4 +1,4 @@
-// @index Workspace and git provenance evidence builders for namespace-scoped MCP responses.
+// @index Namespace and git provenance evidence builders for namespace-scoped MCP responses.
 package mcp
 
 import (
@@ -12,57 +12,57 @@ import (
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 )
 
-// workspaceEvidenceFromContext builds evidence metadata for namespace-scoped graph queries.
-// @intent include workspace path and git state when available so LLM has traceable provenance.
-func (h *handlers) workspaceEvidenceFromContext(ctx context.Context) workspaceEvidenceBlock {
+// namespaceEvidenceFromContext builds evidence metadata for namespace-scoped graph queries.
+// @intent include namespace path and git state when available so LLM has traceable provenance.
+func (h *handlers) namespaceEvidenceFromContext(ctx context.Context) namespaceEvidenceBlock {
 	ns := ctxns.FromContext(ctx)
-	return h.workspaceEvidence(ns)
+	return h.namespaceEvidence(ns)
 }
 
-// workspaceEvidenceBlock captures stable workspace provenance fields shared across MCP responses.
-// @intent keep evidence payloads typed while preserving the legacy namespace/workspace/git JSON shape.
-type workspaceEvidenceBlock struct {
-	Namespace     string                    `json:"namespace"`
-	WorkspacePath string                    `json:"workspace_path,omitempty"`
-	Git           *workspaceGitEvidenceBlock `json:"git,omitempty"`
+// namespaceEvidenceBlock captures stable namespace provenance fields shared across MCP responses.
+// @intent keep evidence payloads typed while exposing namespace and git provenance.
+type namespaceEvidenceBlock struct {
+	Namespace     string                     `json:"namespace"`
+	NamespacePath string                     `json:"namespace_path,omitempty"`
+	Git           *namespaceGitEvidenceBlock `json:"git,omitempty"`
 }
 
-// workspaceGitEvidenceBlock captures git provenance attached to workspace evidence.
-// @intent preserve the legacy git evidence keys while making nil-versus-false behavior explicit.
-type workspaceGitEvidenceBlock struct {
+// namespaceGitEvidenceBlock captures git provenance attached to namespace evidence.
+// @intent preserve git evidence keys while making nil-versus-false behavior explicit.
+type namespaceGitEvidenceBlock struct {
 	Branch string `json:"branch"`
 	Commit string `json:"commit"`
 	Dirty  *bool  `json:"dirty,omitempty"`
 	Remote string `json:"remote,omitempty"`
 }
 
-// @intent collect namespace-scoped workspace and git provenance so MCP responses can explain where graph evidence came from.
-func (h *handlers) workspaceEvidence(namespace string) workspaceEvidenceBlock {
+// @intent collect namespace-scoped path and git provenance so MCP responses can explain where graph evidence came from.
+func (h *handlers) namespaceEvidence(namespace string) namespaceEvidenceBlock {
 	ns := ctxns.Normalize(namespace)
-	evidence := workspaceEvidenceBlock{Namespace: ns}
+	evidence := namespaceEvidenceBlock{Namespace: ns}
 
-	root := h.deps.WorkspaceRoot
+	root := h.deps.NamespaceRoot
 	if root == "" {
 		return evidence
 	}
 
-	workspacePath := filepath.Join(root, ns)
-	stat, err := os.Stat(workspacePath)
+	namespacePath := filepath.Join(root, ns)
+	stat, err := os.Stat(namespacePath)
 	if err != nil || !stat.IsDir() {
 		return evidence
 	}
 
-	evidence.WorkspacePath = workspacePath
+	evidence.NamespacePath = namespacePath
 
-	gitInfo := workspaceGitEvidence(workspacePath)
+	gitInfo := namespaceGitEvidence(namespacePath)
 	if gitInfo != nil {
 		evidence.Git = gitInfo
 	}
 	return evidence
 }
 
-// @intent summarize git branch, commit, remote, and dirty state for workspace-scoped evidence blocks.
-func workspaceGitEvidence(path string) *workspaceGitEvidenceBlock {
+// @intent summarize git branch, commit, remote, and dirty state for namespace-scoped evidence blocks.
+func namespaceGitEvidence(path string) *namespaceGitEvidenceBlock {
 	repo, err := git.PlainOpenWithOptions(path, &git.PlainOpenOptions{DetectDotGit: true})
 	if err != nil {
 		return nil
@@ -73,7 +73,7 @@ func workspaceGitEvidence(path string) *workspaceGitEvidenceBlock {
 		return nil
 	}
 
-	info := &workspaceGitEvidenceBlock{
+	info := &namespaceGitEvidenceBlock{
 		Branch: branchNameForRef(head.Name()),
 		Commit: head.Hash().String(),
 	}
@@ -101,12 +101,12 @@ func workspaceGitEvidence(path string) *workspaceGitEvidenceBlock {
 					remoteURL = r.URLs[0]
 					break
 				}
-				}
-			}
-			if remoteURL != "" {
-				info.Remote = remoteURL
 			}
 		}
+		if remoteURL != "" {
+			info.Remote = remoteURL
+		}
+	}
 
 	return info
 }

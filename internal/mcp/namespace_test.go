@@ -34,46 +34,27 @@ func seedNodeWithNamespace(t *testing.T, db *gorm.DB, ns, qn, kind, filePath str
 	}
 }
 
-func TestMCPHandler_WorkspaceToNamespace(t *testing.T) {
+func TestMCPHandler_NamespaceFiltersGraph(t *testing.T) {
 	deps := setupTestDeps(t)
 	seedNodeWithNamespace(t, deps.DB, "ns-a", "pkg.Foo", "function", "a/foo.go")
 	seedNodeWithNamespace(t, deps.DB, "ns-b", "pkg.Foo", "function", "b/foo.go")
 
-	result := callTool(t, deps, "get_node", map[string]any{"qualified_name": "pkg.Foo", "workspace": "ns-a"})
+	result := callTool(t, deps, "get_node", map[string]any{"qualified_name": "pkg.Foo", "namespace": "ns-a"})
 	if result.IsError {
-		t.Fatalf("get_node with workspace ns-a returned error: %v", getTextContent(result))
+		t.Fatalf("get_node with namespace ns-a returned error: %v", getTextContent(result))
 	}
 	text := getTextContent(result)
 	if !strings.Contains(text, "a/foo.go") || strings.Contains(text, "b/foo.go") {
 		t.Errorf("unexpected ns-a result: %s", text)
 	}
 
-	result2 := callTool(t, deps, "get_node", map[string]any{"qualified_name": "pkg.Foo", "workspace": "ns-b"})
+	result2 := callTool(t, deps, "get_node", map[string]any{"qualified_name": "pkg.Foo", "namespace": "ns-b"})
 	if result2.IsError {
-		t.Fatalf("get_node with workspace ns-b returned error: %v", getTextContent(result2))
+		t.Fatalf("get_node with namespace ns-b returned error: %v", getTextContent(result2))
 	}
 	text2 := getTextContent(result2)
 	if !strings.Contains(text2, "b/foo.go") {
 		t.Errorf("expected file_path 'b/foo.go' for ns-b, got: %s", text2)
-	}
-}
-
-func TestMCPHandler_NamespaceParamTakesPrecedenceOverWorkspace(t *testing.T) {
-	deps := setupTestDeps(t)
-	seedNodeWithNamespace(t, deps.DB, "ns-new", "pkg.Foo", "function", "new/foo.go")
-	seedNodeWithNamespace(t, deps.DB, "ns-old", "pkg.Foo", "function", "old/foo.go")
-
-	result := callTool(t, deps, "get_node", map[string]any{
-		"qualified_name": "pkg.Foo",
-		"namespace":      "ns-new",
-		"workspace":      "ns-old",
-	})
-	if result.IsError {
-		t.Fatalf("get_node with namespace returned error: %v", getTextContent(result))
-	}
-	text := getTextContent(result)
-	if !strings.Contains(text, "new/foo.go") || strings.Contains(text, "old/foo.go") {
-		t.Fatalf("namespace should win over workspace, got: %s", text)
 	}
 }
 
@@ -97,9 +78,9 @@ func TestMCPHandler_SearchWithNamespace(t *testing.T) {
 		}
 	}
 
-	result := callTool(t, deps, "search", map[string]any{"query": "SearchMe", "workspace": "ns-a"})
+	result := callTool(t, deps, "search", map[string]any{"query": "SearchMe", "namespace": "ns-a"})
 	if result.IsError {
-		t.Fatalf("search with workspace ns-a returned error: %v", getTextContent(result))
+		t.Fatalf("search with namespace ns-a returned error: %v", getTextContent(result))
 	}
 	text := getTextContent(result)
 	if !strings.Contains(text, "a/search.go") || strings.Contains(text, "b/search.go") {
@@ -113,9 +94,9 @@ func TestMCPHandler_GraphWithNamespace(t *testing.T) {
 	seedNodeWithNamespace(t, deps.DB, "ns-a", "pkg.Beta", "function", "a/beta.go")
 	seedNodeWithNamespace(t, deps.DB, "ns-b", "pkg.Gamma", "function", "b/gamma.go")
 
-	result := callTool(t, deps, "list_graph_stats", map[string]any{"workspace": "ns-a"})
+	result := callTool(t, deps, "list_graph_stats", map[string]any{"namespace": "ns-a"})
 	if result.IsError {
-		t.Fatalf("list_graph_stats with workspace ns-a returned error: %v", getTextContent(result))
+		t.Fatalf("list_graph_stats with namespace ns-a returned error: %v", getTextContent(result))
 	}
 	text := getTextContent(result)
 
@@ -150,7 +131,7 @@ func TestMCPHandler_ListGraphStats_EmptyNamespaceDoesNotIncludeOtherNamespaces(t
 	}
 }
 
-func TestResolveNamespace_EmptyWorkspaceFallsBackToDefault(t *testing.T) {
+func TestResolveNamespace_EmptyNamespaceFallsBackToDefault(t *testing.T) {
 	got := resolveNamespace(context.Background(), "")
 	if got != "default" {
 		t.Fatalf("resolveNamespace() = %q, want %q", got, "default")
@@ -173,9 +154,9 @@ func TestMCPHandler_QueryWithNamespace(t *testing.T) {
 		t.Fatalf("create edge: %v", err)
 	}
 
-	result := callTool(t, deps, "query_graph", map[string]any{"pattern": "callees_of", "target": "pkg.Caller", "workspace": "ns-a"})
+	result := callTool(t, deps, "query_graph", map[string]any{"pattern": "callees_of", "target": "pkg.Caller", "namespace": "ns-a"})
 	if result.IsError {
-		t.Fatalf("query_graph with workspace ns-a returned error: %v", getTextContent(result))
+		t.Fatalf("query_graph with namespace ns-a returned error: %v", getTextContent(result))
 	}
 	text := getTextContent(result)
 	if !strings.Contains(text, "pkg.Callee") {
@@ -183,19 +164,19 @@ func TestMCPHandler_QueryWithNamespace(t *testing.T) {
 	}
 }
 
-func TestMCPHandler_QueryWithNamespace_IncludesWorkspaceEvidence(t *testing.T) {
+func TestMCPHandler_QueryWithNamespace_IncludesNamespaceEvidence(t *testing.T) {
 	deps := setupTestDeps(t)
 	deps.QueryService = query.New(deps.DB)
-	deps.WorkspaceRoot = t.TempDir()
+	deps.NamespaceRoot = t.TempDir()
 
-	ns := "ws-evidence"
-	workspaceDir := filepath.Join(deps.WorkspaceRoot, ns)
-	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+	ns := "ns-evidence"
+	namespaceDir := filepath.Join(deps.NamespaceRoot, ns)
+	if err := os.MkdirAll(namespaceDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	runGit := func(args ...string) {
 		cmd := exec.Command("git", args...)
-		cmd.Dir = workspaceDir
+		cmd.Dir = namespaceDir
 		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=ccg", "GIT_AUTHOR_EMAIL=ccg@example.com", "GIT_COMMITTER_NAME=ccg", "GIT_COMMITTER_EMAIL=ccg@example.com")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v failed: %v\n%s", args, err, out)
@@ -203,7 +184,7 @@ func TestMCPHandler_QueryWithNamespace_IncludesWorkspaceEvidence(t *testing.T) {
 	}
 	runGit("init")
 	runGit("add", "-A")
-	if err := os.WriteFile(filepath.Join(workspaceDir, "stub.go"), []byte("package main\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(namespaceDir, "stub.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	runGit("add", "stub.go")
@@ -224,9 +205,9 @@ func TestMCPHandler_QueryWithNamespace_IncludesWorkspaceEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result := callTool(t, deps, "query_graph", map[string]any{"pattern": "callees_of", "target": "pkg.Caller", "workspace": ns})
+	result := callTool(t, deps, "query_graph", map[string]any{"pattern": "callees_of", "target": "pkg.Caller", "namespace": ns})
 	if result.IsError {
-		t.Fatalf("query_graph with workspace ns returned error: %v", getTextContent(result))
+		t.Fatalf("query_graph with namespace ns returned error: %v", getTextContent(result))
 	}
 
 	var body map[string]any
@@ -240,36 +221,36 @@ func TestMCPHandler_QueryWithNamespace_IncludesWorkspaceEvidence(t *testing.T) {
 	if evidence["namespace"] != ns {
 		t.Fatalf("expected evidence namespace %q, got %v", ns, evidence["namespace"])
 	}
-	if evidence["workspace_path"] != workspaceDir {
-		t.Fatalf("expected workspace path %q, got %v", workspaceDir, evidence["workspace_path"])
+	if evidence["namespace_path"] != namespaceDir {
+		t.Fatalf("expected namespace path %q, got %v", namespaceDir, evidence["namespace_path"])
 	}
 	gitInfo, ok := evidence["git"].(map[string]any)
 	if !ok {
-		t.Fatal("expected git evidence when workspace is git worktree")
+		t.Fatal("expected git evidence when namespace is git worktree")
 	}
 	if gitInfo["branch"] == nil {
 		t.Fatal("expected branch in git evidence")
 	}
 }
 
-func TestBuildRagIndex_WritesToWorkspaceIndexDir(t *testing.T) {
+func TestBuildRagIndex_WritesToNamespaceIndexDir(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()
 	deps.RagIndexDir = tmpDir
 
-	wsDir := filepath.Join(tmpDir, "workspaces", "my-service", "docs")
-	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+	nsDir := filepath.Join(tmpDir, "namespaces", "my-service", "docs")
+	if err := os.MkdirAll(nsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	deps.WorkspaceRoot = filepath.Join(tmpDir, "workspaces")
+	deps.NamespaceRoot = filepath.Join(tmpDir, "namespaces")
 
-	result := callTool(t, deps, "build_rag_index", map[string]any{"workspace": "my-service"})
+	result := callTool(t, deps, "build_rag_index", map[string]any{"namespace": "my-service"})
 	if result.IsError {
-		t.Fatalf("build_rag_index with workspace error: %v", getTextContent(result))
+		t.Fatalf("build_rag_index with namespace error: %v", getTextContent(result))
 	}
 
 	wsIndexPath := filepath.Join(tmpDir, "my-service", "doc-index.json")
 	if _, err := os.Stat(wsIndexPath); os.IsNotExist(err) {
-		t.Errorf("expected workspace index at %s, but not found", wsIndexPath)
+		t.Errorf("expected namespace index at %s, but not found", wsIndexPath)
 	}
 }

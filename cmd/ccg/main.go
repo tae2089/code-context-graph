@@ -66,7 +66,6 @@ func main() {
 			NoCache:             cfg.NoCache,
 			OTELEndpoint:        cfg.OTELEndpoint,
 			NamespaceRoot:       cfg.NamespaceRoot,
-			WorkspaceRoot:       cfg.WorkspaceRoot,
 			MaxFileBytes:        cfg.MaxFileBytes,
 			MaxTotalParsedBytes: cfg.MaxTotalParsedBytes,
 			ServiceVersion:      version,

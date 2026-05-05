@@ -85,7 +85,7 @@ func (h *handlers) graphService() *service.GraphService {
 // @sideEffect Performs filesystem reads, graph store writes, and logging.
 func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h = h.withParseLimitsFromRequest(request)
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	log := h.logger()
 
 	dirPath, err := request.RequireString("path")
@@ -130,7 +130,7 @@ func (h *handlers) parseProject(ctx context.Context, request mcp.CallToolRequest
 // @mutates graph store state, search index state, community state, h.cache
 func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h = h.withParseLimitsFromRequest(request)
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	log := h.logger()
 
 	dirPath, err := request.RequireString("path")
@@ -350,7 +350,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 // @sideEffect May recalculate communities, regenerate search indexes, and flush the cache.
 // @mutates community state, search index state, h.cache
 func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyWorkspace(ctx, request)
+	ctx = h.applyNamespace(ctx, request)
 	log := h.logger()
 
 	doFlows := request.GetBool("flows", true)
@@ -518,7 +518,7 @@ func (h *handlers) validateAnalysisPath(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("path is required")
 	}
-	allowedRoots := configuredAnalysisRoots(h.deps.RepoRoot, h.workspaceRoot())
+	allowedRoots := configuredAnalysisRoots(h.deps.RepoRoot, h.namespaceRoot())
 	if len(allowedRoots) == 0 {
 		return "", fmt.Errorf("analysis root is not configured")
 	}
