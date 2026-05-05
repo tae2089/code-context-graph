@@ -17,3 +17,9 @@
 docs/
 .ccg
 .claude/**
+.python-version
+uv.lock
+pyproject.toml
+/go-refactoring-design.md
+*.db-shm
+*.db-wal
