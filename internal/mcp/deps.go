@@ -12,6 +12,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
 	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
 	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
+	fallbackanalysis "github.com/tae2089/code-context-graph/internal/analysis/fallback"
 	flowspkg "github.com/tae2089/code-context-graph/internal/analysis/flows"
 	impactpkg "github.com/tae2089/code-context-graph/internal/analysis/impact"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
@@ -69,6 +70,8 @@ type FlowBuilder interface {
 type QueryService interface {
 	CallersOf(ctx context.Context, nodeID uint) ([]model.Node, error)
 	CalleesOf(ctx context.Context, nodeID uint) ([]model.Node, error)
+	CallersOfWithOptions(ctx context.Context, nodeID uint, opts query.QueryOptions) ([]model.Node, error)
+	CalleesOfWithOptions(ctx context.Context, nodeID uint, opts query.QueryOptions) ([]model.Node, error)
 	ImportsOf(ctx context.Context, nodeID uint) ([]model.Node, error)
 	ImportersOf(ctx context.Context, nodeID uint) ([]model.Node, error)
 	ChildrenOf(ctx context.Context, nodeID uint) ([]model.Node, error)
@@ -90,6 +93,13 @@ type LargefuncAnalyzer interface {
 // @see mcp.handlers.findDeadCode
 type DeadcodeAnalyzer interface {
 	Find(ctx context.Context, opts deadcode.Options) ([]model.Node, error)
+}
+
+// FallbackAnalyzer defines the suspect fallback-edge analysis contract.
+// @intent annotation overlap 기반으로 신뢰하기 어려운 fallback call edges를 탐지한다.
+// @see mcp.handlers.findSuspectFallbackEdges
+type FallbackAnalyzer interface {
+	FindSuspects(ctx context.Context, opts fallbackanalysis.Options) ([]fallbackanalysis.SuspectEdge, error)
 }
 
 // CouplingAnalyzer defines the inter-community coupling analysis contract.
@@ -149,6 +159,7 @@ type Deps struct {
 	QueryService      QueryService
 	LargefuncAnalyzer LargefuncAnalyzer
 	DeadcodeAnalyzer  DeadcodeAnalyzer
+	FallbackAnalyzer  FallbackAnalyzer
 	CouplingAnalyzer  CouplingAnalyzer
 	CoverageAnalyzer  CoverageAnalyzer
 	CommunityBuilder  CommunityBuilder
