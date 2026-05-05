@@ -14,15 +14,32 @@ import (
 
 // workspaceEvidenceFromContext builds evidence metadata for namespace-scoped graph queries.
 // @intent include workspace path and git state when available so LLM has traceable provenance.
-func (h *handlers) workspaceEvidenceFromContext(ctx context.Context) map[string]any {
+func (h *handlers) workspaceEvidenceFromContext(ctx context.Context) workspaceEvidenceBlock {
 	ns := ctxns.FromContext(ctx)
 	return h.workspaceEvidence(ns)
 }
 
+// workspaceEvidenceBlock captures stable workspace provenance fields shared across MCP responses.
+// @intent keep evidence payloads typed while preserving the legacy namespace/workspace/git JSON shape.
+type workspaceEvidenceBlock struct {
+	Namespace     string                    `json:"namespace"`
+	WorkspacePath string                    `json:"workspace_path,omitempty"`
+	Git           *workspaceGitEvidenceBlock `json:"git,omitempty"`
+}
+
+// workspaceGitEvidenceBlock captures git provenance attached to workspace evidence.
+// @intent preserve the legacy git evidence keys while making nil-versus-false behavior explicit.
+type workspaceGitEvidenceBlock struct {
+	Branch string `json:"branch"`
+	Commit string `json:"commit"`
+	Dirty  *bool  `json:"dirty,omitempty"`
+	Remote string `json:"remote,omitempty"`
+}
+
 // @intent collect namespace-scoped workspace and git provenance so MCP responses can explain where graph evidence came from.
-func (h *handlers) workspaceEvidence(namespace string) map[string]any {
+func (h *handlers) workspaceEvidence(namespace string) workspaceEvidenceBlock {
 	ns := ctxns.Normalize(namespace)
-	evidence := map[string]any{"namespace": ns}
+	evidence := workspaceEvidenceBlock{Namespace: ns}
 
 	root := h.deps.WorkspaceRoot
 	if root == "" {
@@ -35,17 +52,17 @@ func (h *handlers) workspaceEvidence(namespace string) map[string]any {
 		return evidence
 	}
 
-	evidence["workspace_path"] = workspacePath
+	evidence.WorkspacePath = workspacePath
 
 	gitInfo := workspaceGitEvidence(workspacePath)
-	if len(gitInfo) > 0 {
-		evidence["git"] = gitInfo
+	if gitInfo != nil {
+		evidence.Git = gitInfo
 	}
 	return evidence
 }
 
 // @intent summarize git branch, commit, remote, and dirty state for workspace-scoped evidence blocks.
-func workspaceGitEvidence(path string) map[string]any {
+func workspaceGitEvidence(path string) *workspaceGitEvidenceBlock {
 	repo, err := git.PlainOpenWithOptions(path, &git.PlainOpenOptions{DetectDotGit: true})
 	if err != nil {
 		return nil
@@ -56,15 +73,16 @@ func workspaceGitEvidence(path string) map[string]any {
 		return nil
 	}
 
-	info := map[string]any{
-		"branch": branchNameForRef(head.Name()),
-		"commit": head.Hash().String(),
+	info := &workspaceGitEvidenceBlock{
+		Branch: branchNameForRef(head.Name()),
+		Commit: head.Hash().String(),
 	}
 
 	wt, err := repo.Worktree()
 	if err == nil {
 		if status, err := wt.Status(); err == nil {
-			info["dirty"] = !status.IsClean()
+			dirty := !status.IsClean()
+			info.Dirty = &dirty
 		}
 	}
 
@@ -83,16 +101,13 @@ func workspaceGitEvidence(path string) map[string]any {
 					remoteURL = r.URLs[0]
 					break
 				}
+				}
+			}
+			if remoteURL != "" {
+				info.Remote = remoteURL
 			}
 		}
-		if remoteURL != "" {
-			info["remote"] = remoteURL
-		}
-	}
 
-	if len(info) == 0 {
-		return nil
-	}
 	return info
 }
 

@@ -66,7 +66,7 @@ type traceFlowResponse struct {
 	Name     string            `json:"name"`
 	Members  []traceFlowMember `json:"members"`
 	Metadata traceFlowMetadata `json:"metadata"`
-	Evidence map[string]any    `json:"evidence"`
+	Evidence workspaceEvidenceBlock `json:"evidence"`
 }
 
 // detectChangesEntry summarizes one changed node plus its diff-derived risk score.

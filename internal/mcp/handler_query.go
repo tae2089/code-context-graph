@@ -92,7 +92,7 @@ type queryGraphResponse struct {
 	Target   string                 `json:"target"`
 	Results  []queryGraphResultItem `json:"results"`
 	Metadata queryGraphMetadata     `json:"metadata"`
-	Evidence map[string]any         `json:"evidence"`
+	Evidence workspaceEvidenceBlock `json:"evidence"`
 }
 
 // searchResultItem summarizes one node hit returned by full-text search.
@@ -124,7 +124,7 @@ type nodeResponse struct {
 	StartLine     int            `json:"start_line"`
 	EndLine       int            `json:"end_line"`
 	Language      string         `json:"language"`
-	Evidence      map[string]any `json:"evidence"`
+	Evidence      workspaceEvidenceBlock `json:"evidence"`
 }
 
 // getNode returns detailed metadata for a graph node by qualified name.
@@ -597,7 +597,7 @@ type listGraphStatsResponse struct {
 	NodesByKind     map[string]int64 `json:"nodes_by_kind"`
 	NodesByLanguage map[string]int64 `json:"nodes_by_language"`
 	EdgesByKind     map[string]int64 `json:"edges_by_kind"`
-	Evidence        map[string]any   `json:"evidence"`
+	Evidence        workspaceEvidenceBlock `json:"evidence"`
 }
 
 // listGraphStats returns aggregate node and edge statistics for the graph.

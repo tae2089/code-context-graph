@@ -67,7 +67,7 @@ type minimalContextResponse struct {
 	TopFlows       []minimalContextFlowInfo `json:"top_flows"`
 	DerivedState   map[string]any           `json:"derived_state"`
 	SuggestedTools []string                 `json:"suggested_tools"`
-	Evidence       map[string]any           `json:"evidence"`
+	Evidence       workspaceEvidenceBlock   `json:"evidence"`
 }
 
 // getMinimalContext returns a compact project snapshot with risk hints and suggested tools.
