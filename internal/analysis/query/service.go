@@ -28,6 +28,7 @@ type Service struct {
 	db *gorm.DB
 }
 
+// @intent carry paginated graph query rows together with the total match count for MCP responses.
 type PagedNodes struct {
 	Nodes      []model.Node
 	TotalCount int

@@ -100,12 +100,50 @@ func benchmarkCalleesOf(b *testing.B, includeFallback *bool) {
 	}
 }
 
+func benchmarkCalleesOfPage(b *testing.B, includeFallback *bool, limit, offset int) {
+	db := setupQueryBenchDB(b, true)
+	svc := New(db)
+	ctx := context.Background()
+	targetID := uint(benchNodeCount / 2)
+	if targetID == 0 {
+		targetID = 1
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		got, err := svc.CalleesOfPage(ctx, targetID, QueryOptions{
+			IncludeFallbackCalls: includeFallback,
+			Limit:                limit,
+			Offset:               offset,
+		})
+		if err != nil {
+			b.Fatalf("query: %v", err)
+		}
+		if got.Nodes == nil {
+			b.Fatal("query result should not be nil")
+		}
+	}
+}
+
 func BenchmarkQueryService_CalleesOf_WithFallbackCalls(b *testing.B) {
 	benchmarkCalleesOf(b, nil)
 }
 
 func BenchmarkQueryService_CalleesOf_StrictCallsOnly(b *testing.B) {
 	benchmarkCalleesOf(b, boolRef(false))
+}
+
+func BenchmarkQueryService_CalleesOfPage_FirstPage(b *testing.B) {
+	benchmarkCalleesOfPage(b, nil, 50, 0)
+}
+
+func BenchmarkQueryService_CalleesOfPage_MiddlePage(b *testing.B) {
+	benchmarkCalleesOfPage(b, nil, 50, 200)
+}
+
+func BenchmarkQueryService_CalleesOfPage_StrictCallsOnly(b *testing.B) {
+	benchmarkCalleesOfPage(b, boolRef(false), 50, 0)
 }
 
 func BenchmarkQueryService_CallersOf_StrictCallsOnly(b *testing.B) {
