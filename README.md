@@ -13,6 +13,7 @@ Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) 
 - **12 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua/Luau
 - **35 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, postprocess operations, namespace file management, and more
 - **RAG-first code exploration**: generated docs + community structure let LLM agents answer natural-language questions before drilling into exact graph nodes
+- **Browser Wiki UI**: `ccg-server` can serve generated docs, tree search, PageIndex-style retrieval, Context Tray copying, and an Obsidian-style graph viewer
 - **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context ([details](guide/annotations.md))
 - **Webhook sync**: GitHub / Gitea push events → auto clone + build with per-repo branch filtering and `.ccg.yaml` `include_paths` auto-loading ([details](guide/webhook.md))
 - **Eval**: Golden corpus-based parser accuracy (P/R/F1) and search quality (P@K, MRR, nDCG) evaluation ([details](guide/eval.md))
@@ -68,6 +69,9 @@ ccg search "payment"    # finds functions with @intent/@domainRule about payment
 # Build docs and the default vectorless RAG index for agent-oriented exploration
 ccg docs --out docs
 
+# Serve the browser Wiki UI from built assets
+make wiki-run
+
 # Graph statistics
 ccg status
 
@@ -85,10 +89,12 @@ ccg eval --suite parser
 ccg eval --suite parser --update
 ```
 
-`ccg docs` refreshes community structure and writes `.ccg/doc-index.json` by
-default. Use `--rag=false` when you only want Markdown, or
-`--rag-refresh=false` when you want to rebuild the index from existing community
-rows without recalculating communities.
+`ccg docs` writes generated Markdown plus `.ccg/wiki-index.json` for the browser
+Wiki. By default it also refreshes community structure and writes
+`.ccg/doc-index.json` for vectorless RAG retrieval. Use `--rag=false` when you
+only want Markdown and the Wiki index, or `--rag-refresh=false` when you want to
+rebuild the RAG index from existing community rows without recalculating
+communities.
 
 For LLM agents, treat generated docs and the RAG index as the primary entrypoint
 for natural-language questions such as "how does webhook sync work?" or "where
@@ -102,6 +108,37 @@ upgrade workflow, run `ccg migrate` explicitly before runtime commands. This
 also applies when upgrading CCG against an existing default `ccg.db` created by
 an older version. See the [CLI Reference](guide/cli-reference.md) for the full
 migration contract.
+
+## Browser Wiki
+
+`ccg-server` can serve a React-based Wiki UI at `/wiki` when `--wiki-dir` points
+at a built `web/wiki/dist` directory. Docker images include that built UI at
+`/usr/share/ccg/wiki`; standalone binaries keep the assets separate so binary
+size stays small.
+
+The Wiki is meant for developers and agents inspecting a generated codebase:
+
+- Tree navigation over folders, packages, files, and annotated symbols
+- Keyword search and PageIndex-style `retrieve_docs` over `doc-index.json`
+- Rich symbol detail cards from CCG annotations even when a symbol has no
+  generated Markdown file
+- Context Tray for collecting files and doc-less symbols into one Markdown
+  bundle that can be copied into another LLM tool
+- Graph tab backed by `/wiki/api/graph`, showing namespace nodes and edges with
+  filters for structure, calls, imports, types, and symbols
+
+Local development shortcut:
+
+```bash
+ccg build .
+ccg docs --out docs
+make wiki-run
+```
+
+For self-hosted deployments, run `ccg-server --wiki-dir <dist-dir>` and protect
+`/wiki/api/*` with the same bearer token policy used for `/mcp`. See
+[Docker](guide/docker.md#wiki-ui) and [Runtime Layout](guide/runtime-layout.md)
+for deployment details.
 
 ## Demo
 
@@ -201,7 +238,8 @@ Add `.mcp.json` to your project:
 
 For remote HTTP mode:
 
-Run the self-hosted server with `ccg-server` and connect to `/mcp`:
+Run the self-hosted server with `ccg-server` and connect to `/mcp`. The same
+server can also expose `/wiki` when `--wiki-dir` is configured:
 
 ```json
 {
@@ -226,11 +264,11 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
                                         ↓
                                    FTS Search
                                         ↓
-                         ccg serve          ccg-server
-                         stdio MCP       Streamable HTTP
-                            ↓             ↓          ↑
-                     Coding Agents   Remote Clients  GitHub / Gitea Webhook
-                                             push → clone → build → DB
+                         ccg serve                ccg-server
+                         stdio MCP        Streamable HTTP + Wiki UI
+                            ↓              ↓          ↓          ↑
+                     Coding Agents   Remote Clients  Browser   GitHub / Gitea Webhook
+                                                       Wiki      push → clone → build → DB
 ```
 
 See [Architecture Details](guide/architecture.md) for component breakdown and DB schema.
@@ -246,10 +284,10 @@ See [Architecture Details](guide/architecture.md) for component breakdown and DB
 | [MCP Tools](guide/mcp-tools.md) | 35 MCP tools, agent skills, AI-Driven Annotation |
 | [Annotations](guide/annotations.md) | Annotation system — tags, examples, search |
 | [Webhook](guide/webhook.md) | Webhook sync, branch filtering, HMAC, graceful shutdown |
-| [Docker](guide/docker.md) | Docker build, MCP server, PostgreSQL deployment |
+| [Docker](guide/docker.md) | Docker build, MCP server, Wiki UI, PostgreSQL deployment |
 | [Operations](guide/operations.md) | Deployment profiles, database choice, readiness, webhook operations |
 | [Postprocess Failure Policy](guide/postprocess-failure-policy.md) | Status rules, failure causes, and automatic degraded/fail_closed policy for build and postprocess tools |
-| [Runtime Layout](guide/runtime-layout.md) | `ccg`, `ccg-server`, and shared `ccg-core` ownership boundaries |
+| [Runtime Layout](guide/runtime-layout.md) | `ccg`, `ccg-server`, Wiki serving, and shared `ccg-core` ownership boundaries |
 | [Development](guide/development.md) | Dev guide, integration test, project structure |
 | [Namespace Migration](guide/namespace-migration.md) | Default namespace change and migration guide |
 | [Architecture](guide/architecture.md) | Data flow, components, DB schema |

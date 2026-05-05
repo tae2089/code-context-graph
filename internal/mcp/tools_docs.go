@@ -22,9 +22,10 @@ func docsTools(h *handlers) []server.ServerTool {
 		},
 		{
 			Tool: mcp.NewTool("get_rag_tree",
-				mcp.WithDescription("Get the RAG document tree for navigation. Call without arguments first to see all communities, then pass community_id to drill into a specific one."),
-				mcp.WithString("community_id", mcp.Description("Community node ID as shown in the tree (e.g. 'community:auth'). Omit to get the full tree.")),
-				mcp.WithNumber("depth", mcp.Description("Maximum tree depth to return (1=communities only, 2=communities+files). Default: 0 (unlimited).")),
+				mcp.WithDescription("Get the RAG document tree for navigation. Call without arguments first, then pass node_id to drill into a community, package, file, or symbol node."),
+				mcp.WithString("node_id", mcp.Description("Tree node ID as shown in the tree (e.g. 'community:internal/analysis', 'package:internal/core', or 'file:internal/core/runtime.go'). Omit to get the full tree.")),
+				mcp.WithString("community_id", mcp.Description("Deprecated alias for node_id; accepts any tree node ID for compatibility.")),
+				mcp.WithNumber("depth", mcp.Description("Maximum tree depth to return (1=top-level communities/packages, 2=plus child packages/files). Default: 0 (unlimited).")),
 				mcp.WithString("namespace", mcp.Description("Namespace. When set, reads doc-index.json from the namespace-specific index directory.")),
 				mcp.WithString("workspace", mcp.Description("Deprecated alias for namespace.")),
 			),

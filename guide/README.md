@@ -6,6 +6,12 @@ For LLM-agent workflows, start natural-language code exploration from generated
 docs and the RAG index. Use graph/search tools after the relevant module,
 document, or symbol candidate is identified.
 
+The browser Wiki is served by `ccg-server` when `--wiki-dir` points at built
+React assets. It uses `wiki-index.json` for presentation, `doc-index.json` for
+retrieval, and `/wiki/api/graph` for the visual graph tab. Use it when a human
+developer needs to browse docs, inspect annotation-rich symbol cards, collect
+Context Tray Markdown, or visually explore graph edges.
+
 | Document | Description |
 |----------|-------------|
 | [CLI Reference](cli-reference.md) | Full CLI commands, options, and configuration file (`.ccg.yaml`) |
@@ -14,10 +20,10 @@ document, or symbol candidate is identified.
 | [MCP Tools](mcp-tools.md) | 35 MCP tools, agent skills, RAG-first routing, AI-driven annotation |
 | [Annotations](annotations.md) | Custom annotation system — tags, examples, search/RAG quality |
 | [Webhook](webhook.md) | GitHub / Gitea webhook sync, branch filtering, graceful shutdown |
-| [Docker](docker.md) | Docker image build, MCP server setup, PostgreSQL integration |
+| [Docker](docker.md) | Docker image build, MCP server setup, Wiki UI deployment, PostgreSQL integration |
 | [Operations](operations.md) | Deployment profiles, database choice, readiness, webhook operations, troubleshooting |
 | [Postprocess Failure Policy](postprocess-failure-policy.md) | Status rules, failure causes, and automatic degraded/fail_closed policy for build and postprocess tools |
-| [Runtime Layout](runtime-layout.md) | `ccg`, `ccg-server`, and shared `ccg-core` ownership boundaries |
+| [Runtime Layout](runtime-layout.md) | `ccg`, `ccg-server`, Wiki serving, and shared `ccg-core` ownership boundaries |
 | [Architecture](architecture.md) | System architecture, data flow, DB schema |
 | [Development](development.md) | Build, test, integration test (Gitea + PostgreSQL) |
 | [Namespace Migration](namespace-migration.md) | Default namespace change and migration guide |

@@ -48,10 +48,10 @@ ccg update ./backend --namespace backend
 | `ccg status --recent <n>` | 확인할 최근 사후 처리 실패 개수 (기본값 `5`) |
 | `ccg search <query>` | 전체 텍스트 검색 |
 | `ccg search --path <prefix> <query>` | 경로 접두사로 검색 범위 제한 |
-| `ccg docs [--out dir]` | 마크다운 문서와 기본 RAG 인덱스 생성 (기본적으로 그래프에 없는 generator-managed 문서를 prune) |
-| `ccg docs --rag=false` | community/RAG 인덱스 재생성 없이 Markdown만 생성 |
+| `ccg docs [--out dir]` | 마크다운 문서, `wiki-index.json`, 기본 RAG 인덱스 생성 (기본적으로 그래프에 없는 generator-managed 문서를 prune) |
+| `ccg docs --rag=false` | community/RAG 인덱스 재생성 없이 Markdown과 `wiki-index.json`만 생성 |
 | `ccg docs --rag-refresh=false` | community를 재계산하지 않고 기존 community row로 RAG 인덱스 재생성 |
-| `ccg docs --rag-index-dir <dir>` | doc-index.json 출력 디렉터리 지정 (기본 `.ccg` 또는 `rag.index_dir`) |
+| `ccg docs --rag-index-dir <dir>` | `doc-index.json` 및 `wiki-index.json` 출력 디렉터리 지정 (기본 `.ccg` 또는 `rag.index_dir`) |
 | `ccg docs --prune=false` | 기존 generator-managed 문서를 삭제하지 않고 문서만 다시 생성 |
 | `ccg docs --exclude <pat>` | 문서 생성 대상에서 파일/경로 제외 (반복 가능) |
 | `ccg index [--out dir]` | `index.md`만 재생성 |
@@ -86,11 +86,22 @@ ccg build .
 ccg docs --out docs
 ```
 
-`ccg docs`는 `--rag=false`가 설정되지 않은 한 community 구조를 갱신하고
-기본 `.ccg/doc-index.json` RAG 인덱스를 기록합니다. 기존 community row를
-의도적으로 재사용하려면 `--rag-refresh=false`를 사용하십시오. 독립
-`ccg rag-index` 명령은 생성 문서와 이미 계산된 community를 사용한 수동
-재생성 용도로 남아 있습니다.
+`ccg docs`는 ccg-server Wiki UI를 위한 `.ccg/wiki-index.json`을 항상
+기록합니다. 이 Wiki index는 folder, package, file, symbol에서 직접 만든
+표시용 tree이며 community postprocess에 의존하지 않습니다. Symbol node는
+구조화된 annotation detail을 함께 담기 때문에 symbol 자체에 생성 Markdown
+파일이 없어도 브라우저 Wiki에서 params, returns, rules, side effects 등
+tag를 보여줄 수 있습니다. Wiki와 RAG index는 숨겨진 annotation search text도
+저장하므로 `search_docs`, `retrieve_docs`, Wiki search가 non-intent tag까지
+매칭할 수 있지만, 일반 tree payload에는 이 숨겨진 text를 반환하지 않습니다.
+브라우저 Wiki는 `/wiki/api/graph` 기반 Graph 탭도 제공합니다. 이 탭은 설정된
+데이터베이스에서 해당 네임스페이스의 graph node와 edge를 직접 읽고, 클릭한
+file/symbol node를 같은 문서 viewer로 엽니다.
+`--rag=false`가 설정되지 않은 경우에는 community 구조도 갱신하고
+MCP/PageIndex retrieval용 기본 `.ccg/doc-index.json` RAG 인덱스를 함께
+기록합니다. 기존 community row를 의도적으로 재사용하려면
+`--rag-refresh=false`를 사용하십시오. 독립 `ccg rag-index` 명령은 생성 문서와
+이미 계산된 community를 사용한 수동 재생성 용도로 남아 있습니다.
 
 그 다음 MCP `retrieve_docs`로 문서 후보와 제한된 Markdown 본문을 tree evidence와 함께 가져옵니다. `get_rag_tree`로 모듈/커뮤니티 맥락을 펼치고, `get_doc_content`로 특정 생성 문서를 직접 읽은 뒤 정확한 graph 도구로 내려갑니다. `search_docs`와 `ccg search`는 빠른 키워드 또는 어노테이션 매칭에는 유용하지만, 넓은 자연어 질문의 기본 응답 표면으로 보기는 어렵습니다.
 
@@ -132,6 +143,7 @@ HTTP MCP와 웹훅 호스팅은 전용 `ccg-server` 바이너리에서 제공합
 | `ccg-server --otel-endpoint <url>` | OTLP HTTP trace export 활성화 |
 | `ccg-server --insecure-http` | Bearer 토큰 없이 루프백이 아닌 HTTP 바인딩 허용 (테스트 전용) |
 | `ccg-server --stateless` | 상태 비저장 세션 모드 (다중 인스턴스 배포용) |
+| `ccg-server --wiki-dir <dir>` | 빌드된 React dist 디렉터리로 `/wiki` 브라우저 Wiki UI 활성화; `/wiki/api/*`는 `/mcp`와 같은 Bearer 토큰 사용 |
 | `ccg-server --namespace-root <dir>` | 파일 네임스페이스의 루트 디렉토리 (기본값 `workspaces`) |
 | `ccg-server --workspace-root <dir>` | `--namespace-root`에 대한 사용 중단된 별칭 |
 | `ccg-server --allow-repo <pat>` | 웹훅 동기화가 허용된 저장소 패턴 (예: `org/*`, `org/api:main,develop`) |

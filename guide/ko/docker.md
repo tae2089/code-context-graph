@@ -32,6 +32,8 @@ docker run -d -p 8080:8080 \
 | 경로 | 공용 인터넷 | 내부 네트워크 |
 |------|-------------|---------------|
 | `/mcp` | Bearer 인증 및 네트워크 정책이 있을 때만 허용 | 허용 |
+| `/wiki` | Wiki UI shell을 공개해도 되는 경우에만 허용 | 허용 |
+| `/wiki/api/*` | Bearer 인증 및 네트워크 정책이 있을 때만 허용 | 허용 |
 | `/webhook` | HMAC secret 및 repo allowlist가 있을 때만 허용 | 허용 |
 | `/health` | 차단 | 허용 |
 | `/ready` | 차단 | 허용 |
@@ -78,6 +80,30 @@ PostgreSQL, 커스텀 SQLite DSN 또는 기타 비기본 런타임 설정을 사
   }
 }
 ```
+
+## Wiki UI
+
+Docker 이미지는 빌드된 Wiki UI를 `/usr/share/ccg/wiki`에 포함하며, 기본
+컨테이너 명령은 `--wiki-dir /usr/share/ccg/wiki`로 이를 활성화합니다.
+Standalone 바이너리는 Wiki asset을 embed하지 않습니다. 바이너리 배포에서는
+release 페이지의 `ccg-wiki-dist.tar.gz`를 내려받아 압축을 풀고, 해당
+디렉터리를 `ccg-server`에 전달하십시오:
+
+```bash
+ccg-server \
+  --http-addr :8080 \
+  --http-bearer-token "$CCG_HTTP_BEARER_TOKEN" \
+  --wiki-dir ./wiki
+```
+
+정적 `/wiki` app shell은 브라우저에서 직접 열 수 있도록 요청 헤더 없이
+서빙됩니다. `/wiki/api/*`는 `/mcp`와 같은 Bearer 토큰을 사용하며, UI는 API가
+`401`을 반환하면 토큰 입력을 요청합니다.
+Wiki를 열기 전에 각 네임스페이스에서 `ccg docs --out docs`를 실행해
+`.ccg/wiki-index.json`을 생성하십시오. Wiki API는 `wiki-index.json`을 읽고,
+MCP retrieval은 별도의 community 기반 `doc-index.json`을 계속 사용합니다.
+Wiki Graph 탭은 `/wiki/api/graph`를 통해 설정된 데이터베이스의 graph node와
+edge를 직접 읽으므로 최신 `ccg build` 또는 webhook sync 상태를 반영합니다.
 
 ## SQLite vs PostgreSQL 선택 (Choosing SQLite vs PostgreSQL)
 

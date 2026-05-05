@@ -24,11 +24,43 @@ import (
 // TreeNode는 doc-index.json의 단일 노드이다.
 // @intent RAG 탐색 트리에서 커뮤니티, 파일, 심볼 노드를 동일 구조로 표현한다.
 type TreeNode struct {
-	ID       string      `json:"id"`
-	Label    string      `json:"label"`
-	Summary  string      `json:"summary"`
-	DocPath  string      `json:"doc_path,omitempty"` // file 노드만 설정
-	Children []*TreeNode `json:"children"`
+	ID         string       `json:"id"`
+	Label      string       `json:"label"`
+	Kind       string       `json:"kind"`
+	Summary    string       `json:"summary"`
+	DocPath    string       `json:"doc_path,omitempty"` // file 노드만 설정
+	SearchText string       `json:"search_text,omitempty"`
+	Details    *NodeDetails `json:"details,omitempty"`
+	Children   []*TreeNode  `json:"children"`
+}
+
+// NodeDetails carries browser-facing metadata for a graph node in the Wiki tree.
+// @intent let presentation indexes expose symbol annotations without requiring a generated file doc.
+type NodeDetails struct {
+	QualifiedName string            `json:"qualified_name"`
+	FilePath      string            `json:"file_path"`
+	StartLine     int               `json:"start_line"`
+	EndLine       int               `json:"end_line"`
+	Language      string            `json:"language"`
+	Annotation    *AnnotationDetail `json:"annotation,omitempty"`
+}
+
+// AnnotationDetail preserves structured annotation data for Wiki symbol detail views.
+// @intent serialize annotation summary, context, and tags in a UI-friendly shape.
+type AnnotationDetail struct {
+	Summary string         `json:"summary"`
+	Context string         `json:"context"`
+	Tags    []DocTagDetail `json:"tags"`
+}
+
+// DocTagDetail describes one annotation tag in a JSON-safe index payload.
+// @intent keep tag kind, type, name, and ordering available to browser renderers.
+type DocTagDetail struct {
+	Kind    model.TagKind `json:"kind"`
+	Type    string        `json:"type"`
+	Name    string        `json:"name"`
+	Value   string        `json:"value"`
+	Ordinal int           `json:"ordinal"`
 }
 
 // Index는 .ccg/doc-index.json 전체 포맷이다.
@@ -63,6 +95,7 @@ type nodeInfo struct {
 	FilePath      string
 	Name          string
 	QualifiedName string
+	Kind          model.NodeKind
 }
 
 // Build는 DB에서 커뮤니티와 멤버 노드를 읽어 doc-index.json을 생성한다.
@@ -104,6 +137,7 @@ func (b *Builder) Build(ctx context.Context) (int, int, error) {
 				FilePath:      n.FilePath,
 				Name:          n.Name,
 				QualifiedName: n.QualifiedName,
+				Kind:          n.Kind,
 			}
 		}
 	}
@@ -111,6 +145,9 @@ func (b *Builder) Build(ctx context.Context) (int, int, error) {
 	// 고유 파일 경로 목록 수집
 	filePathSet := make(map[string]struct{})
 	for _, info := range nodeInfoMap {
+		if info.Kind == model.NodeKindPackage {
+			continue
+		}
 		filePathSet[info.FilePath] = struct{}{}
 	}
 	allFilePaths := make([]string, 0, len(filePathSet))
@@ -123,8 +160,12 @@ func (b *Builder) Build(ctx context.Context) (int, int, error) {
 	if err != nil {
 		return 0, 0, trace.Wrap(err, "batchFileSummaries")
 	}
+	fileSearchTexts, err := b.batchFileSearchTexts(ctx, allFilePaths)
+	if err != nil {
+		return 0, 0, trace.Wrap(err, "batchFileSearchTexts")
+	}
 
-	// 4. @intent 태그를 가진 symbol 노드 배치 조회
+	// 4. annotation text를 가진 symbol 노드 배치 조회
 	symbolsByFile, err := b.batchSymbolNodes(ctx, allNodeIDs)
 	if err != nil {
 		return 0, 0, trace.Wrap(err, "batchSymbolNodes")
@@ -133,6 +174,7 @@ func (b *Builder) Build(ctx context.Context) (int, int, error) {
 	root := &TreeNode{
 		ID:       "root",
 		Label:    "Root",
+		Kind:     "root",
 		Summary:  b.ProjectDesc,
 		Children: []*TreeNode{},
 	}
@@ -146,6 +188,7 @@ func (b *Builder) Build(ctx context.Context) (int, int, error) {
 		commNode := &TreeNode{
 			ID:       fmt.Sprintf("community:%s", comm.Key),
 			Label:    comm.Label,
+			Kind:     "community",
 			Summary:  comm.Description,
 			Children: []*TreeNode{},
 		}
@@ -155,6 +198,9 @@ func (b *Builder) Build(ctx context.Context) (int, int, error) {
 			commFilePathSet := make(map[string]struct{})
 			for _, m := range comm.Members {
 				if info, ok := nodeInfoMap[m.NodeID]; ok {
+					if info.Kind == model.NodeKindPackage {
+						continue
+					}
 					commFilePathSet[info.FilePath] = struct{}{}
 				}
 			}
@@ -163,13 +209,14 @@ func (b *Builder) Build(ctx context.Context) (int, int, error) {
 			// 각 파일 경로별 TreeNode 생성
 			for filePath := range commFilePathSet {
 				summary := summaries[filePath]
-				docPath := b.docPath(filePath)
 				fileNode := &TreeNode{
-					ID:       fmt.Sprintf("file:%s", filePath),
-					Label:    filepath.Base(filePath),
-					Summary:  summary,
-					DocPath:  docPath,
-					Children: symbolsByFile[filePath],
+					ID:         fmt.Sprintf("file:%s", filePath),
+					Label:      filepath.Base(filePath),
+					Kind:       "file",
+					Summary:    summary,
+					DocPath:    b.docPath(filePath),
+					SearchText: fileSearchTexts[filePath],
+					Children:   symbolsByFile[filePath],
 				}
 				uniqueFiles[filePath] = struct{}{}
 				commNode.Children = append(commNode.Children, fileNode)
@@ -260,10 +307,33 @@ func (b *Builder) batchFileSummaries(ctx context.Context, filePaths []string) (m
 	return result, nil
 }
 
-// batchSymbolNodes는 @intent 태그를 가진 노드를 filePath → []*TreeNode 맵으로 반환한다.
-// 노드당 첫 번째 @intent 값만 summary로 사용한다.
-// @intent 파일별 심볼 하위 노드를 인덱스 트리에 붙일 수 있게 준비한다.
-// @domainRule 각 심볼은 첫 번째 @intent 태그만 summary로 사용한다.
+// batchFileSearchTexts returns annotation-derived search text for file nodes.
+// @intent keep file-level retrieval searchable by structured file annotations without exposing the text in tree responses.
+func (b *Builder) batchFileSearchTexts(ctx context.Context, filePaths []string) (map[string]string, error) {
+	result := make(map[string]string, len(filePaths))
+	if len(filePaths) == 0 {
+		return result, nil
+	}
+	ns := ctxns.FromContext(ctx)
+	var nodes []model.Node
+	q := b.DB.WithContext(ctx).
+		Where("namespace = ? AND kind = ? AND file_path IN ?", ns, model.NodeKindFile, filePaths).
+		Preload("Annotation.Tags")
+	if err := q.Find(&nodes).Error; err != nil {
+		return nil, trace.Wrap(err, "batch file search text")
+	}
+	for i := range nodes {
+		text := SearchTextForAnnotation(nodes[i].Annotation)
+		if text != "" && result[nodes[i].FilePath] == "" {
+			result[nodes[i].FilePath] = text
+		}
+	}
+	return result, nil
+}
+
+// batchSymbolNodes returns annotated symbol nodes grouped by file path.
+// @intent attach symbol subtrees with full annotation search text so RAG retrieval is not limited to @intent summaries.
+// @domainRule symbols without annotation text are omitted to keep the PageIndex tree compact.
 func (b *Builder) batchSymbolNodes(ctx context.Context, nodeIDs []uint) (map[string][]*TreeNode, error) {
 	result := make(map[string][]*TreeNode)
 	if len(nodeIDs) == 0 {
@@ -271,46 +341,75 @@ func (b *Builder) batchSymbolNodes(ctx context.Context, nodeIDs []uint) (map[str
 	}
 
 	ns := ctxns.FromContext(ctx)
-
-	// @intent 심볼 노드와 첫 번째 intent 태그 값을 함께 담는 배치 조회 결과다.
-	type intentRow struct {
-		NodeID        uint
-		QualifiedName string
-		Name          string
-		FilePath      string
-		Value         string
-	}
-
-	var rows []intentRow
-	sq := b.DB.WithContext(ctx).Table("nodes").
-		Select("nodes.id as node_id, nodes.qualified_name, nodes.name, nodes.file_path, doc_tags.value").
-		Joins("JOIN annotations ON annotations.node_id = nodes.id").
-		Joins("JOIN doc_tags ON doc_tags.annotation_id = annotations.id").
-		Where("nodes.id IN ? AND doc_tags.kind = ?", nodeIDs, string(model.TagIntent)).
-		Where("nodes.namespace = ?", ns)
-	if err := sq.Order("nodes.file_path ASC, doc_tags.ordinal ASC, doc_tags.id ASC").
-		Scan(&rows).Error; err != nil {
+	var nodes []model.Node
+	sq := b.DB.WithContext(ctx).
+		Where("id IN ?", nodeIDs).
+		Where("namespace = ?", ns).
+		Where("kind IN ?", []model.NodeKind{model.NodeKindFunction, model.NodeKindClass, model.NodeKindType, model.NodeKindTest}).
+		Preload("Annotation.Tags").
+		Order("file_path ASC, start_line ASC, qualified_name ASC")
+	if err := sq.Find(&nodes).Error; err != nil {
 		return nil, trace.Wrap(err, "batch symbol nodes")
 	}
 
-	// 첫 번째 @intent 태그만 사용 (node_id 기준 deduplicate)
-	seen := make(map[uint]struct{})
-	for _, r := range rows {
-		if _, ok := seen[r.NodeID]; ok {
+	for i := range nodes {
+		summary := summaryForAnnotation(nodes[i].Annotation)
+		searchText := SearchTextForAnnotation(nodes[i].Annotation)
+		if summary == "" && searchText == "" {
 			continue
 		}
-		seen[r.NodeID] = struct{}{}
-
 		symNode := &TreeNode{
-			ID:       fmt.Sprintf("symbol:%s", r.QualifiedName),
-			Label:    r.Name,
-			Summary:  r.Value,
-			Children: []*TreeNode{},
+			ID:         fmt.Sprintf("symbol:%s", nodes[i].QualifiedName),
+			Label:      nodes[i].Name,
+			Kind:       "symbol",
+			Summary:    summary,
+			SearchText: searchText,
+			Children:   []*TreeNode{},
 		}
-		result[r.FilePath] = append(result[r.FilePath], symNode)
+		result[nodes[i].FilePath] = append(result[nodes[i].FilePath], symNode)
 	}
 
 	return result, nil
+}
+
+// summaryForAnnotation chooses compact display text while search text keeps all annotation tags.
+// @intent keep tree labels concise without discarding non-intent tags from retrieval scoring.
+func summaryForAnnotation(annotation *model.Annotation) string {
+	if annotation == nil {
+		return ""
+	}
+	for _, tag := range annotation.Tags {
+		if tag.Kind == model.TagIndex {
+			return strings.TrimSpace(tag.Value)
+		}
+	}
+	for _, tag := range annotation.Tags {
+		if tag.Kind == model.TagIntent {
+			return strings.TrimSpace(tag.Value)
+		}
+	}
+	return strings.TrimSpace(annotation.Summary)
+}
+
+// SearchTextForAnnotation assembles non-displayed text used by docs search and retrieval.
+// @intent include annotation summary, context, tag kinds, names, types, and values without indexing source or generic node metadata.
+func SearchTextForAnnotation(annotation *model.Annotation) string {
+	var parts []string
+	add := func(values ...string) {
+		for _, value := range values {
+			value = strings.TrimSpace(value)
+			if value != "" {
+				parts = append(parts, value)
+			}
+		}
+	}
+	if annotation != nil {
+		add(annotation.Summary, annotation.Context)
+		for _, tag := range annotation.Tags {
+			add(string(tag.Kind), tag.Type, tag.Name, tag.Value)
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 // docPath는 파일 경로를 기반으로 docs 디렉토리 내의 문서 경로를 반환한다.
@@ -395,11 +494,13 @@ func LoadIndex(path string) (*Index, error) {
 // SearchResult는 Search 함수가 반환하는 단일 매칭 결과이다.
 // @intent 검색 UI나 MCP 응답에서 표시할 최소 결과 정보를 담는다.
 type SearchResult struct {
-	ID      string   `json:"id"`
-	Label   string   `json:"label"`
-	Summary string   `json:"summary"`
-	DocPath string   `json:"doc_path,omitempty"`
-	Path    []string `json:"path"` // root부터 해당 노드까지의 Label 경로
+	ID      string       `json:"id"`
+	Label   string       `json:"label"`
+	Kind    string       `json:"kind"`
+	Summary string       `json:"summary"`
+	DocPath string       `json:"doc_path,omitempty"`
+	Details *NodeDetails `json:"details,omitempty"`
+	Path    []string     `json:"path"` // root부터 해당 노드까지의 Label 경로
 }
 
 // RetrieveResult represents one document candidate selected from tree-aware query matching.
@@ -407,6 +508,7 @@ type SearchResult struct {
 type RetrieveResult struct {
 	ID           string         `json:"id"`
 	Label        string         `json:"label"`
+	Kind         string         `json:"kind"`
 	Summary      string         `json:"summary"`
 	DocPath      string         `json:"doc_path"`
 	Path         []string       `json:"path"`
@@ -415,10 +517,10 @@ type RetrieveResult struct {
 	Matches      []SearchResult `json:"matches,omitempty"`
 }
 
-// Search는 root 트리를 DFS로 순회하며 query를 Label과 Summary에서
+// Search는 root 트리를 DFS로 순회하며 query를 label, summary, search_text에서
 // case-insensitive 검색하여 최대 maxResults개의 결과를 반환한다.
 // root 노드 자체는 결과에 포함하지 않는다.
-// @intent 문서 인덱스 트리에서 제목과 요약 기반 키워드 탐색을 제공한다.
+// @intent 문서 인덱스 트리에서 제목, 요약, 구조화 annotation 기반 키워드 탐색을 제공한다.
 // @requires query가 비어 있지 않아야 의미 있는 결과가 나온다.
 func Search(root *TreeNode, query string, maxResults int) []SearchResult {
 	if root == nil || query == "" {
@@ -444,12 +546,15 @@ func searchNode(n *TreeNode, query string, path []string, results *[]SearchResul
 		childPath[len(path)] = child.Label
 
 		if strings.Contains(strings.ToLower(child.Label), query) ||
-			strings.Contains(strings.ToLower(child.Summary), query) {
+			strings.Contains(strings.ToLower(child.Summary), query) ||
+			strings.Contains(strings.ToLower(child.SearchText), query) {
 			*results = append(*results, SearchResult{
 				ID:      child.ID,
 				Label:   child.Label,
+				Kind:    child.Kind,
 				Summary: child.Summary,
 				DocPath: child.DocPath,
+				Details: child.Details,
 				Path:    childPath,
 			})
 		}
@@ -519,6 +624,7 @@ func collectRetrieveResults(n *TreeNode, terms []string, path []string, results 
 				*results = append(*results, RetrieveResult{
 					ID:           child.ID,
 					Label:        child.Label,
+					Kind:         child.Kind,
 					Summary:      child.Summary,
 					DocPath:      child.DocPath,
 					Path:         childPath,
@@ -542,6 +648,7 @@ func scoreRetrieveSubtree(root *TreeNode, rootPath []string, terms []string) (in
 		matches = append(matches, SearchResult{
 			ID:      root.ID,
 			Label:   root.Label,
+			Kind:    root.Kind,
 			Summary: root.Summary,
 			DocPath: root.DocPath,
 			Path:    rootPath,
@@ -558,6 +665,7 @@ func scoreRetrieveSubtree(root *TreeNode, rootPath []string, terms []string) (in
 				matches = append(matches, SearchResult{
 					ID:      child.ID,
 					Label:   child.Label,
+					Kind:    child.Kind,
 					Summary: child.Summary,
 					DocPath: child.DocPath,
 					Path:    childPath,
@@ -583,6 +691,7 @@ func scoreRetrieveSubtree(root *TreeNode, rootPath []string, terms []string) (in
 func scoreRetrieveNode(n *TreeNode, terms []string, matched map[string]struct{}) int {
 	label := strings.ToLower(n.Label)
 	summary := strings.ToLower(n.Summary)
+	searchText := strings.ToLower(n.SearchText)
 	id := strings.ToLower(n.ID)
 	score := 0
 	for _, term := range terms {
@@ -598,6 +707,9 @@ func scoreRetrieveNode(n *TreeNode, terms []string, matched map[string]struct{})
 		}
 		if strings.Contains(summary, term) {
 			termScore += 2
+		}
+		if strings.Contains(searchText, term) {
+			termScore += 1
 		}
 		if termScore > 0 {
 			matched[term] = struct{}{}
@@ -653,8 +765,10 @@ func pruneNode(n *TreeNode, currentDepth, maxDepth int) *TreeNode {
 	copied := &TreeNode{
 		ID:      n.ID,
 		Label:   n.Label,
+		Kind:    n.Kind,
 		Summary: n.Summary,
 		DocPath: n.DocPath,
+		Details: n.Details,
 	}
 	if maxDepth <= 0 || currentDepth < maxDepth {
 		copied.Children = make([]*TreeNode, 0, len(n.Children))

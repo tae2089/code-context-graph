@@ -133,6 +133,7 @@ func newRootCmd(rt *core.Runtime, serviceVersion string) *cobra.Command {
 	cmd.Flags().StringVar(&cfg.OTELEndpoint, "otel-endpoint", cfg.OTELEndpoint, "OTLP HTTP trace endpoint (optional; enables span export when set)")
 	cmd.Flags().BoolVar(&cfg.InsecureHTTP, "insecure-http", false, "Allow externally bound HTTP transport without bearer token (unsafe; testing only)")
 	cmd.Flags().BoolVar(&cfg.Stateless, "stateless", false, "Stateless session management (for multi-instance deployments)")
+	cmd.Flags().StringVar(&cfg.WikiDir, "wiki-dir", cfg.WikiDir, "Directory containing built Wiki UI assets; enables /wiki when set")
 	cmd.Flags().StringVar(&cfg.NamespaceRoot, "namespace-root", cfg.NamespaceRoot, "Root directory for file namespaces")
 	cmd.Flags().StringVar(&cfg.WorkspaceRoot, "workspace-root", "", "Deprecated alias for --namespace-root")
 

@@ -18,6 +18,8 @@ exclude:
   - ".*\\.pb\\.go$"
   - "bin/.*"
   - "docs/.*"
+  - "web/wiki/dist/.*"
+  - "web/wiki/node_modules/.*"
   - "testdata/.*"
   - ".*\\.gen\\.go$"
   - "scripts/.*"
@@ -46,6 +48,9 @@ rules:
     category: orphan
     action: ignore
   - pattern: "docs/.*"
+    category: orphan
+    action: ignore
+  - pattern: "web/wiki/dist/.*"
     category: orphan
     action: ignore
   - pattern: "testdata/.*"

@@ -13,6 +13,14 @@ Makefile shortcuts:
 make build        # build stripped ccg and ccg-server binaries (same as make release)
 make release      # stripped build with embedded version/commit/date
 make build-debug  # unstripped ccg and ccg-server binaries with embedded version/commit/date
+make wiki-run     # build Wiki UI, migrate local SQLite DB, run ccg-server with /wiki
+```
+
+`make wiki-run` defaults to `127.0.0.1:8080` and `ccg.db`. Override values with
+`WIKI_ADDR`, `WIKI_DB`, and optionally `WIKI_TOKEN`:
+
+```bash
+WIKI_ADDR=127.0.0.1:18080 WIKI_TOKEN=dev-token make wiki-run
 ```
 
 ## Test
@@ -110,6 +118,8 @@ internal/
   eval/               — Parser/search quality evaluation (golden corpus, P/R/F1, P@K, MRR, nDCG)
   mcpruntime/         — Shared MCP runtime assembly, stdio runner, cache, telemetry
   mcp/                — MCP server (35 tools)
+  wikiserver/         — ccg-server Wiki static serving and viewer API
+  wikiindex/          — Wiki presentation index builder (`wiki-index.json`)
   model/              — DB models
   parse/treesitter/   — Tree-sitter parser (12 languages, including Lua/Luau)
   pathutil/           — Path utilities
@@ -123,6 +133,13 @@ guide/                — Project documentation
 docs/                 — Auto-generated docs (ccg docs)
 testdata/eval/        — Eval golden corpus (12-language sources + golden JSON)
 scripts/              — Scripts (integration test, etc.)
+```
+
+The React/Tailwind Wiki UI lives in `web/wiki` and builds to `web/wiki/dist`.
+The dist directory is ignored by git and packaged separately for releases:
+
+```bash
+make wiki-build
 ```
 
 ## Token Benchmark

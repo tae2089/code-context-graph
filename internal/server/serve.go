@@ -25,6 +25,7 @@ import (
 	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 	"github.com/tae2089/code-context-graph/internal/service"
 	"github.com/tae2089/code-context-graph/internal/webhook"
+	"github.com/tae2089/code-context-graph/internal/wikiserver"
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -52,6 +53,7 @@ func Run(rt *core.Runtime, cfg Config, serviceVersion, ragIndexDir, ragProjectDe
 		return err
 	}
 	defer inst.Close()
+	cfg.RagIndexDir = ragIndexDir
 	return RunStreamableHTTP(rt, inst.Server, cfg, inst.Cache, inst.PostprocessSummary)
 }
 
@@ -114,6 +116,25 @@ func RunStreamableHTTP(rt *core.Runtime, srv *mcpgo.MCPServer, cfg Config, cache
 	mux.Handle("/status", StatusHandler(dbReadyCheck, cfg.WebhookAttemptTimeout, func() *webhook.SyncQueue {
 		return syncQueue
 	}, postprocessSummary))
+
+	if cfg.WikiDir != "" {
+		wiki, err := wikiserver.New(wikiserver.Config{
+			StaticDir:     cfg.WikiDir,
+			RagIndexDir:   cfg.RagIndexDir,
+			NamespaceRoot: cfg.NamespaceRoot,
+			DB:            rt.DB,
+			Logger:        rt.Logger,
+		})
+		if err != nil {
+			return err
+		}
+		mux.Handle("/wiki/api/", MCPAuthMiddleware(cfg.HTTPBearerToken, WithHTTPTraceContext(wiki.APIHandler())))
+		mux.Handle("/wiki/", wiki.StaticHandler())
+		mux.HandleFunc("/wiki", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/wiki/", http.StatusMovedPermanently)
+		})
+		rt.Logger.Info("wiki endpoint registered", "path", "/wiki", "dir", cfg.WikiDir)
+	}
 
 	if len(cfg.AllowRepo) > 0 {
 		rules := make([]webhook.RepoRule, 0, len(cfg.AllowRepo))

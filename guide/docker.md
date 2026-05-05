@@ -35,6 +35,8 @@ Example reverse-proxy policy:
 | Path | Public Internet | Internal Network |
 |------|-----------------|------------------|
 | `/mcp` | Allowed only with bearer auth and network policy | Allowed |
+| `/wiki` | Allowed only when the Wiki UI shell should be public | Allowed |
+| `/wiki/api/*` | Allowed only with bearer auth and network policy | Allowed |
 | `/webhook` | Allowed only with HMAC secret and repo allowlist | Allowed |
 | `/health` | Blocked | Allowed |
 | `/ready` | Blocked | Allowed |
@@ -85,6 +87,31 @@ Connect from `.mcp.json`:
   }
 }
 ```
+
+## Wiki UI
+
+Docker images include the built Wiki UI at `/usr/share/ccg/wiki`, and the
+default container command enables it with `--wiki-dir /usr/share/ccg/wiki`.
+Standalone binaries do not embed Wiki assets. For binary deployments, download
+`ccg-wiki-dist.tar.gz` from the release page, extract it, and pass the extracted
+directory to `ccg-server`:
+
+```bash
+ccg-server \
+  --http-addr :8080 \
+  --http-bearer-token "$CCG_HTTP_BEARER_TOKEN" \
+  --wiki-dir ./wiki
+```
+
+The static `/wiki` app shell is served without request headers so browsers can
+open it directly. `/wiki/api/*` uses the same bearer token as `/mcp`; the UI
+prompts for that token when the API returns `401`.
+Run `ccg docs --out docs` for each served namespace before opening the Wiki so
+`.ccg/wiki-index.json` exists. The Wiki API reads `wiki-index.json`; MCP
+retrieval continues to use the separate community-based `doc-index.json`. The
+Wiki Graph tab reads graph nodes and edges directly from the configured
+database via `/wiki/api/graph`, so it reflects the latest `ccg build` or
+webhook sync state.
 
 ## Choosing SQLite vs PostgreSQL
 

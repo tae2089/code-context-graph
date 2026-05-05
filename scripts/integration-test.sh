@@ -261,6 +261,19 @@ mcp_session_required() {
     [ -n "$session" ] || [ "${CCG_E2E_ALLOW_MCP_LOG_FALLBACK:-0}" = "1" ]
 }
 
+verify_wiki_endpoint() {
+    info "Checking Wiki endpoint..."
+    curl -fsS "${CCG_URL}/wiki/" >/dev/null || fail "Wiki UI did not respond"
+
+    local code
+    code=$(curl -sS -o /dev/null -w '%{http_code}' "${CCG_URL}/wiki/api/namespaces")
+    [ "$code" = "401" ] || fail "Expected unauthenticated Wiki API to return 401, got ${code}"
+
+    curl -fsS "${CCG_URL}/wiki/api/namespaces" \
+        -H "Authorization: Bearer ${MCP_BEARER_TOKEN}" >/dev/null || fail "Authenticated Wiki API failed"
+    info "Wiki endpoint ready"
+}
+
 mcp_log_fallback_allowed() {
     [ "${CCG_E2E_ALLOW_MCP_LOG_FALLBACK:-0}" = "1" ]
 }
@@ -321,6 +334,7 @@ run_integration_test() {
 # ── Phase 1: Start containers ──
  info "Starting containers..."
  start_integration_stack
+ verify_wiki_endpoint
 
 # ── Phase 2: Create Gitea admin user ──
 info "Creating Gitea admin user..."
@@ -781,7 +795,7 @@ if [ -n "$MCP_SESSION" ]; then
     DOC_PATH=$(echo "$TREE_RESP" | python3 -c "
 import sys,json
 def find_file(node, depth=0):
-    if node.get('type') == 'file' and node.get('doc_path',''):
+    if node.get('kind') == 'file' and node.get('doc_path',''):
         return node['doc_path']
     for c in node.get('children',[]):
         r = find_file(c, depth+1)
@@ -793,8 +807,11 @@ print(find_file(tree))
 " 2>/dev/null) || DOC_PATH=""
 
     if [ -n "$DOC_PATH" ]; then
+        DOC_B64=$(printf '# Integration Doc\n\nGenerated doc content for get_doc_content.\n' | base64 | tr -d '\n')
+        mcp_call "upload_file" "{\"workspace\":\"${REPO_NAME}\",\"file_path\":\"${DOC_PATH}\",\"content\":\"${DOC_B64}\"}" >/dev/null
         RESP=$(mcp_call "get_doc_content" "{\"file_path\":\"${DOC_PATH}\",\"workspace\":\"${REPO_NAME}\"}")
         assert_mcp_ok "get_doc_content" "$RESP"
+        assert_mcp_contains "get_doc_content" "$RESP" "Generated doc content"
         info "✅ get_doc_content: read ${DOC_PATH}"
     else
         warn "No doc file found in RAG tree — skipping get_doc_content read test"

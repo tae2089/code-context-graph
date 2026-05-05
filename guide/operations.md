@@ -152,8 +152,10 @@ reachable.
 By default, `ccg-server` listens on `127.0.0.1:8080`. Binding to a
 non-loopback address requires either
 `--http-bearer-token` or the explicit testing escape hatch `--insecure-http`.
-Bearer token protection applies to `/mcp` only; `/health`, `/ready`, `/status`,
-and `/webhook` still need network-level exposure control.
+Bearer token protection applies to `/mcp` and `/wiki/api/*`; `/health`,
+`/ready`, `/status`, `/wiki`, and `/webhook` still need network-level exposure
+control. `/wiki` serves only the static app shell, but it should still be
+exposed intentionally.
 
 Keep these endpoints internal:
 
@@ -164,6 +166,8 @@ Keep these endpoints internal:
 | `/status` | Internal operational diagnostics only |
 | `/webhook` | Public only when HMAC verification and repo allowlist are configured |
 | `/mcp` | May be exposed behind bearer auth and network controls |
+| `/wiki` | Public only when the static Wiki app shell should be reachable |
+| `/wiki/api/*` | May be exposed behind bearer auth and network controls |
 
 If CCG is behind an ingress, reverse proxy, or load balancer, block
 `/health`, `/ready`, and `/status` from public internet access. These endpoints

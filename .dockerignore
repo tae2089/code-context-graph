@@ -1,11 +1,14 @@
 .git
 *.db
 ccg
+ccg-server
 docs/
 workspaces/
 archive/
 superpowers/
 node_modules/
+**/node_modules/
+web/wiki/dist/
 *.md
 !go.mod
 !go.sum

@@ -1,5 +1,6 @@
 # Binaries
 /ccg
+/ccg-server
 /dogfood
 *.exe
 
@@ -23,3 +24,5 @@ pyproject.toml
 /go-refactoring-design.md
 *.db-shm
 *.db-wal
+/web/wiki/dist/
+/web/wiki/node_modules/

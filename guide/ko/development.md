@@ -15,6 +15,14 @@ Makefile 단축 명령어:
 make build        # stripped ccg 및 ccg-server 바이너리 빌드 (make release와 동일)
 make release      # 버전/커밋/날짜 정보가 포함된 stripped 빌드
 make build-debug  # 버전/커밋/날짜 정보가 포함된 unstripped ccg 및 ccg-server 바이너리 빌드
+make wiki-run     # Wiki UI 빌드, 로컬 SQLite DB 마이그레이션, /wiki 포함 ccg-server 실행
+```
+
+`make wiki-run`은 기본값으로 `127.0.0.1:8080`과 `ccg.db`를 사용합니다.
+`WIKI_ADDR`, `WIKI_DB`, 필요 시 `WIKI_TOKEN`으로 값을 바꿀 수 있습니다:
+
+```bash
+WIKI_ADDR=127.0.0.1:18080 WIKI_TOKEN=dev-token make wiki-run
 ```
 
 ## 테스트 (Test)
@@ -112,6 +120,8 @@ internal/
   eval/               — 파서/검색 품질 평가 (골든 코퍼스, P/R/F1, P@K, MRR, nDCG)
   mcpruntime/         — 공용 MCP runtime assembly, stdio runner, cache, telemetry
   mcp/                — MCP 서버 (35개 도구)
+  wikiserver/         — ccg-server Wiki 정적 파일 서빙 및 viewer API
+  wikiindex/          — Wiki 표시용 인덱스 생성기 (`wiki-index.json`)
   model/              — DB 모델
   parse/treesitter/   — Tree-sitter 파서 (Lua/Luau 포함 12개 언어)
   pathutil/           — 경로 유틸리티
@@ -125,6 +135,13 @@ guide/                — 프로젝트 문서
 docs/                 — 자동 생성된 문서 (ccg docs)
 testdata/eval/        — 평가용 골든 코퍼스 (12개 언어 소스 + 골든 JSON)
 scripts/              — 스크립트 (통합 테스트 등)
+```
+
+React/Tailwind Wiki UI는 `web/wiki`에 있으며 `web/wiki/dist`로 빌드됩니다.
+dist 디렉터리는 git에서 제외하고 release에서 별도 asset으로 패키징합니다:
+
+```bash
+make wiki-build
 ```
 
 ## 토큰 벤치마크 (Token Benchmark)

@@ -60,6 +60,7 @@ services:
       - CCG_LOG_FORMAT=text
     command:
       - --http-addr=:8080
+      - --wiki-dir=/usr/share/ccg/wiki
       - --http-bearer-token=test-mcp-token
       - --db-driver=postgres
       - --db-dsn=host=postgres user=ccg password=ccg dbname=ccg_integration port=5432 sslmode=disable

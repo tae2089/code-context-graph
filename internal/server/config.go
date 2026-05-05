@@ -20,6 +20,8 @@ type Config struct {
 	OTELEndpoint            string
 	InsecureHTTP            bool
 	Stateless               bool
+	WikiDir                 string
+	RagIndexDir             string
 	NamespaceRoot           string
 	WorkspaceRoot           string
 	WebhookWorkers          int
@@ -49,6 +51,7 @@ func DefaultConfig() Config {
 		HTTPAddr:               "127.0.0.1:8080",
 		HTTPBearerToken:        os.Getenv("CCG_HTTP_BEARER_TOKEN"),
 		OTELEndpoint:           os.Getenv("CCG_OTEL_ENDPOINT"),
+		WikiDir:                os.Getenv("CCG_WIKI_DIR"),
 		NamespaceRoot:          "workspaces",
 		WebhookWorkers:         EnvInt("CCG_WEBHOOK_WORKERS", 4),
 		WebhookMaxTrackedRepos: EnvInt("CCG_WEBHOOK_MAX_TRACKED_REPOS", 1024),

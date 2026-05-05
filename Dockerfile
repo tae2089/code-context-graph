@@ -1,3 +1,12 @@
+# Wiki UI build stage
+FROM node:22-alpine AS wiki-builder
+
+WORKDIR /src/web/wiki
+COPY web/wiki/package.json web/wiki/package-lock.json ./
+RUN npm ci
+COPY web/wiki/ ./
+RUN npm run build
+
 # Build stage
 FROM golang:1.25-alpine AS builder
 
@@ -22,6 +31,7 @@ RUN apk add --no-cache ca-certificates git \
 
 COPY --from=builder /usr/local/bin/ccg /usr/local/bin/ccg
 COPY --from=builder /usr/local/bin/ccg-server /usr/local/bin/ccg-server
+COPY --from=wiki-builder /src/web/wiki/dist /usr/share/ccg/wiki
 
 WORKDIR /workspace
 USER ccg
@@ -31,4 +41,4 @@ ENV HOME=/home/ccg \
 EXPOSE 8080
 
 ENTRYPOINT ["ccg-server"]
-CMD ["--http-addr", ":8080"]
+CMD ["--http-addr", ":8080", "--wiki-dir", "/usr/share/ccg/wiki"]

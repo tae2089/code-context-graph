@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gorm.io/driver/sqlite"
@@ -438,6 +439,9 @@ func TestBuilder_SymbolNodes(t *testing.T) {
 	if err := db.Create(&model.DocTag{AnnotationID: ann.ID, Kind: model.TagIntent, Value: "로그인 요청을 처리하고 JWT를 반환한다", Ordinal: 0}).Error; err != nil {
 		t.Fatalf("create doc tag: %v", err)
 	}
+	if err := db.Create(&model.DocTag{AnnotationID: ann.ID, Kind: model.TagDomainRule, Value: "관리자만 감사 로그를 조회한다", Ordinal: 1}).Error; err != nil {
+		t.Fatalf("create domain rule tag: %v", err)
+	}
 
 	b := &ragindex.Builder{
 		DB:       db,
@@ -459,14 +463,23 @@ func TestBuilder_SymbolNodes(t *testing.T) {
 		t.Fatal("expected community children")
 	}
 	commNode := idx.Root.Children[0]
+	if commNode.Kind != "community" {
+		t.Errorf("community Kind = %q, want community", commNode.Kind)
+	}
 	if len(commNode.Children) == 0 {
 		t.Fatal("expected file children")
 	}
 	fileTreeNode := commNode.Children[0]
+	if fileTreeNode.Kind != "file" {
+		t.Errorf("file Kind = %q, want file", fileTreeNode.Kind)
+	}
 	if len(fileTreeNode.Children) == 0 {
 		t.Fatal("expected symbol children under file node")
 	}
 	sym := fileTreeNode.Children[0]
+	if sym.Kind != "symbol" {
+		t.Errorf("symbol Kind = %q, want symbol", sym.Kind)
+	}
 	if sym.ID != "symbol:internal/auth/handler.go/HandleLogin" {
 		t.Errorf("symbol ID = %q, want %q", sym.ID, "symbol:internal/auth/handler.go/HandleLogin")
 	}
@@ -475,6 +488,9 @@ func TestBuilder_SymbolNodes(t *testing.T) {
 	}
 	if sym.Summary != "로그인 요청을 처리하고 JWT를 반환한다" {
 		t.Errorf("symbol Summary = %q", sym.Summary)
+	}
+	if !strings.Contains(sym.SearchText, "관리자만 감사 로그를 조회한다") {
+		t.Errorf("symbol SearchText should include non-intent tags, got %q", sym.SearchText)
 	}
 	if sym.DocPath != "" {
 		t.Errorf("symbol DocPath should be empty, got %q", sym.DocPath)
@@ -515,6 +531,90 @@ func TestBuilder_NoSymbolsWithoutIntent(t *testing.T) {
 	fileNode := idx.Root.Children[0].Children[0]
 	if len(fileNode.Children) != 0 {
 		t.Errorf("expected 0 symbol children, got %d", len(fileNode.Children))
+	}
+}
+
+func TestBuilder_IncludesSymbolWithNonIntentAnnotation(t *testing.T) {
+	db := setupDB(t)
+	tmpDir := t.TempDir()
+
+	comm := model.Community{Key: "core", Label: "Core"}
+	if err := db.Create(&comm).Error; err != nil {
+		t.Fatalf("create community: %v", err)
+	}
+	node := model.Node{QualifiedName: "core/rules.go/checkAccess", Kind: model.NodeKindFunction, Name: "checkAccess",
+		FilePath: "core/rules.go", StartLine: 1, EndLine: 5, Language: "go"}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := db.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: node.ID}).Error; err != nil {
+		t.Fatalf("create membership: %v", err)
+	}
+	ann := model.Annotation{NodeID: node.ID, Summary: "access rule"}
+	if err := db.Create(&ann).Error; err != nil {
+		t.Fatalf("create annotation: %v", err)
+	}
+	if err := db.Create(&model.DocTag{AnnotationID: ann.ID, Kind: model.TagDomainRule, Value: "admin role required", Ordinal: 0}).Error; err != nil {
+		t.Fatalf("create domain rule tag: %v", err)
+	}
+
+	b := &ragindex.Builder{DB: db, OutDir: filepath.Join(tmpDir, "docs"), IndexDir: tmpDir}
+	if _, _, err := b.Build(context.Background()); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	idx, err := ragindex.LoadIndex(filepath.Join(tmpDir, "doc-index.json"))
+	if err != nil {
+		t.Fatalf("LoadIndex: %v", err)
+	}
+	fileNode := idx.Root.Children[0].Children[0]
+	if len(fileNode.Children) != 1 {
+		t.Fatalf("expected non-intent annotated symbol, got %d children", len(fileNode.Children))
+	}
+	if !strings.Contains(fileNode.Children[0].SearchText, "domainRule") {
+		t.Fatalf("SearchText should include tag kind, got %q", fileNode.Children[0].SearchText)
+	}
+}
+
+// TestBuilder_IgnoresPackageNodes: package graph nodes do not become RAG document candidates.
+func TestBuilder_IgnoresPackageNodes(t *testing.T) {
+	db := setupDB(t)
+	tmpDir := t.TempDir()
+
+	comm := model.Community{Key: "internal", Label: "internal"}
+	if err := db.Create(&comm).Error; err != nil {
+		t.Fatalf("create community: %v", err)
+	}
+	pkgNode := model.Node{
+		QualifiedName: "github.com/example/project/internal/core",
+		Kind:          model.NodeKindPackage,
+		Name:          "core",
+		FilePath:      "internal/core",
+		StartLine:     1,
+		EndLine:       1,
+		Language:      "go",
+	}
+	if err := db.Create(&pkgNode).Error; err != nil {
+		t.Fatalf("create package node: %v", err)
+	}
+	if err := db.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: pkgNode.ID}).Error; err != nil {
+		t.Fatalf("create package membership: %v", err)
+	}
+
+	b := &ragindex.Builder{DB: db, OutDir: filepath.Join(tmpDir, "docs"), IndexDir: tmpDir}
+	_, files, err := b.Build(context.Background())
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if files != 0 {
+		t.Fatalf("files = %d, want 0", files)
+	}
+
+	idx, err := ragindex.LoadIndex(filepath.Join(tmpDir, "doc-index.json"))
+	if err != nil {
+		t.Fatalf("LoadIndex: %v", err)
+	}
+	if ragindex.FindNode(idx.Root, "package:internal/core") != nil {
+		t.Fatal("package node should not be present in doc-index")
 	}
 }
 
@@ -599,6 +699,23 @@ func TestSearch_IncludesBreadcrumb(t *testing.T) {
 	}
 }
 
+func TestSearch_MatchesSearchText(t *testing.T) {
+	root := &ragindex.TreeNode{
+		ID:    "root",
+		Label: "Root",
+		Children: []*ragindex.TreeNode{
+			{ID: "file:policy.go", Label: "policy.go", Summary: "access policy", SearchText: "domainRule 관리자 승인 필요"},
+		},
+	}
+	results := ragindex.Search(root, "관리자", 10)
+	if len(results) != 1 {
+		t.Fatalf("expected search_text result, got %d", len(results))
+	}
+	if results[0].ID != "file:policy.go" {
+		t.Fatalf("result ID = %q", results[0].ID)
+	}
+}
+
 // TestSearch_NoMatch: 매칭 없으면 빈 슬라이스 반환.
 func TestSearch_NoMatch(t *testing.T) {
 	root := &ragindex.TreeNode{ID: "root", Label: "Root", Children: []*ragindex.TreeNode{
@@ -653,6 +770,41 @@ func TestRetrieve_MatchesTermsAcrossFileSubtree(t *testing.T) {
 	}
 	if len(results[0].Matches) < 2 {
 		t.Fatalf("expected symbol evidence for both terms, got %#v", results[0].Matches)
+	}
+}
+
+func TestRetrieve_MatchesSearchTextAcrossFileSubtree(t *testing.T) {
+	root := &ragindex.TreeNode{
+		ID:    "root",
+		Label: "Root",
+		Children: []*ragindex.TreeNode{
+			{
+				ID:    "community:rules",
+				Label: "rules",
+				Children: []*ragindex.TreeNode{
+					{
+						ID:      "file:internal/policy/access.go",
+						Label:   "access.go",
+						DocPath: "docs/internal/policy/access.go.md",
+						Children: []*ragindex.TreeNode{
+							{ID: "symbol:policy.CheckAccess", Label: "CheckAccess", Summary: "access check", SearchText: "domainRule 관리자 승인 필요"},
+							{ID: "symbol:policy.AuditAccess", Label: "AuditAccess", Summary: "audit write", SearchText: "sideEffect 감사 로그 기록"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	results := ragindex.Retrieve(root, "관리자 감사", 10)
+	if len(results) != 1 {
+		t.Fatalf("expected retrieve result, got %d", len(results))
+	}
+	if len(results[0].MatchedTerms) != 2 {
+		t.Fatalf("matched terms = %#v, want 관리자 and 감사", results[0].MatchedTerms)
+	}
+	if len(results[0].Matches) != 2 {
+		t.Fatalf("expected two symbol evidence rows, got %#v", results[0].Matches)
 	}
 }
 

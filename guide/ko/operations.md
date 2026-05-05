@@ -129,7 +129,7 @@ CCG는 호출 엣지를 다음처럼 구분해 저장합니다.
 
 Streamable HTTP MCP 엔드포인트는 외부에서 접근 가능할 때마다 `--http-bearer-token` 또는 `CCG_HTTP_BEARER_TOKEN`으로 보호되어야 합니다.
 
-기본적으로 `ccg-server`는 `127.0.0.1:8080`에서 리슨합니다. 루프백이 아닌 주소에 바인딩하려면 `--http-bearer-token`을 설정하거나 명시적인 테스트용 옵션인 `--insecure-http`를 사용해야 합니다. Bearer 토큰 보호는 `/mcp`에만 적용됩니다. `/health`, `/ready`, `/status`, `/webhook`은 여전히 네트워크 레벨의 노출 제어가 필요합니다.
+기본적으로 `ccg-server`는 `127.0.0.1:8080`에서 리슨합니다. 루프백이 아닌 주소에 바인딩하려면 `--http-bearer-token`을 설정하거나 명시적인 테스트용 옵션인 `--insecure-http`를 사용해야 합니다. Bearer 토큰 보호는 `/mcp`와 `/wiki/api/*`에 적용됩니다. `/health`, `/ready`, `/status`, `/wiki`, `/webhook`은 여전히 네트워크 레벨의 노출 제어가 필요합니다. `/wiki`는 정적 app shell만 제공하지만 의도적으로 노출해야 합니다.
 
 다음 엔드포인트는 내부용으로 유지하십시오:
 
@@ -140,6 +140,8 @@ Streamable HTTP MCP 엔드포인트는 외부에서 접근 가능할 때마다 `
 | `/status` | 내부 운영 진단 전용 |
 | `/webhook` | HMAC 검증 및 저장소 허용 목록이 설정된 경우에만 공개 |
 | `/mcp` | Bearer 인증 및 네트워크 제어 하에 노출 가능 |
+| `/wiki` | 정적 Wiki app shell을 공개해야 하는 경우에만 공개 |
+| `/wiki/api/*` | Bearer 인증 및 네트워크 제어 하에 노출 가능 |
 
 CCG가 Ingress, 리버스 프록시 또는 로드 밸런서 뒤에 있는 경우, 공용 인터넷에서 `/health`, `/ready`, `/status`에 접근하지 못하도록 차단하십시오. 이러한 엔드포인트는 운영상 유용하지만 공개 API로 설계되지 않은 런타임 상태를 노출할 수 있습니다.
 

@@ -145,7 +145,7 @@ func TestGetDocContent_NoWorkspaceRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
-func TestGetRagTree_InvalidCommunityID(t *testing.T) {
+func TestGetRagTree_InvalidNodeID(t *testing.T) {
 	deps := setupTestDeps(t)
 	deps.RagIndexDir = t.TempDir()
 
@@ -155,10 +155,27 @@ func TestGetRagTree_InvalidCommunityID(t *testing.T) {
 	}
 
 	result := callTool(t, deps, "get_rag_tree", map[string]any{
-		"community_id": "community:99999",
+		"node_id": "package:missing",
 	})
 	if !result.IsError {
-		t.Fatal("expected error for nonexistent community_id")
+		t.Fatal("expected error for nonexistent node_id")
+	}
+}
+
+func TestGetRagTree_CommunityIDAlias(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.RagIndexDir = t.TempDir()
+
+	buildResult := callTool(t, deps, "build_rag_index", map[string]any{})
+	if buildResult.IsError {
+		t.Fatalf("build_rag_index error: %v", buildResult.Content)
+	}
+
+	result := callTool(t, deps, "get_rag_tree", map[string]any{
+		"community_id": "root",
+	})
+	if result.IsError {
+		t.Fatalf("get_rag_tree community_id alias error: %v", getTextContent(result))
 	}
 }
 
@@ -438,6 +455,92 @@ func TestBuildRagIndex_WithWorkspace(t *testing.T) {
 	content := getTextContent(result)
 	if !strings.Contains(content, "Built doc-index:") {
 		t.Errorf("expected 'Built doc-index:' in output, got: %s", content)
+	}
+}
+
+func TestRetrieveDocs_WithWorkspaceReadsWorkspaceRelativeDocPath(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.WorkspaceRoot = filepath.Join(tmpDir, "workspaces")
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+
+	ws := "my-service"
+	wsDir := filepath.Join(deps.WorkspaceRoot, ws)
+	docPath := filepath.Join(wsDir, "docs", "service.go.md")
+	if err := os.MkdirAll(filepath.Dir(docPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(docPath, []byte("# service.go\n\nadmin audit trail docs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	comm := model.Community{Namespace: ws, Key: "svc", Label: "Service"}
+	if err := deps.DB.Create(&comm).Error; err != nil {
+		t.Fatalf("create community: %v", err)
+	}
+	node := model.Node{
+		Namespace:     ws,
+		QualifiedName: "service.Check",
+		Kind:          model.NodeKindFunction,
+		Name:          "Check",
+		FilePath:      "service.go",
+		StartLine:     1,
+		EndLine:       10,
+		Language:      "go",
+	}
+	if err := deps.DB.Create(&node).Error; err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := deps.DB.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: node.ID}).Error; err != nil {
+		t.Fatalf("create membership: %v", err)
+	}
+	ann := model.Annotation{NodeID: node.ID}
+	if err := deps.DB.Create(&ann).Error; err != nil {
+		t.Fatalf("create annotation: %v", err)
+	}
+	if err := deps.DB.Create(&model.DocTag{AnnotationID: ann.ID, Kind: model.TagDomainRule, Value: "admin audit", Ordinal: 0}).Error; err != nil {
+		t.Fatalf("create doc tag: %v", err)
+	}
+
+	build := callTool(t, deps, "build_rag_index", map[string]any{"workspace": ws})
+	if build.IsError {
+		t.Fatalf("build_rag_index with workspace error: %v", getTextContent(build))
+	}
+
+	treeResult := callTool(t, deps, "get_rag_tree", map[string]any{"workspace": ws})
+	if treeResult.IsError {
+		t.Fatalf("get_rag_tree with workspace error: %v", getTextContent(treeResult))
+	}
+	var root ragindex.TreeNode
+	if err := json.Unmarshal([]byte(getTextContent(treeResult)), &root); err != nil {
+		t.Fatalf("unmarshal tree: %v", err)
+	}
+	fileNode := ragindex.FindNode(&root, "file:service.go")
+	if fileNode == nil {
+		t.Fatal("expected file node")
+	}
+	if fileNode.DocPath != "docs/service.go.md" {
+		t.Fatalf("doc_path = %q, want docs/service.go.md", fileNode.DocPath)
+	}
+
+	result := callTool(t, deps, "retrieve_docs", map[string]any{
+		"workspace":     ws,
+		"query":         "admin audit",
+		"limit":         float64(5),
+		"content_limit": float64(2000),
+	})
+	if result.IsError {
+		t.Fatalf("retrieve_docs with workspace error: %v", getTextContent(result))
+	}
+	var response retrieveDocsResponse
+	if err := json.Unmarshal([]byte(getTextContent(result)), &response); err != nil {
+		t.Fatalf("unmarshal retrieve response: %v", err)
+	}
+	if len(response.Results) != 1 {
+		t.Fatalf("results = %d, want 1", len(response.Results))
+	}
+	if !strings.Contains(response.Results[0].Content, "admin audit trail docs") {
+		t.Fatalf("content = %q", response.Results[0].Content)
 	}
 }
 

@@ -103,8 +103,37 @@ jobs:
             *.tar.gz
             *.zip
 
+  wiki-dist:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/wiki/package-lock.json
+
+      - name: Build Wiki UI
+        working-directory: web/wiki
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package Wiki UI
+        run: tar czf ccg-wiki-dist.tar.gz -C web/wiki/dist .
+
+      - name: Upload Wiki artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ccg-wiki-dist
+          path: ccg-wiki-dist.tar.gz
+
   release:
-    needs: build
+    needs:
+      - build
+      - wiki-dist
     runs-on: ubuntu-latest
 
     steps:

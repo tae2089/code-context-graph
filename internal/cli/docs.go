@@ -13,6 +13,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/docs"
 	"github.com/tae2089/code-context-graph/internal/ragindex"
+	"github.com/tae2089/code-context-graph/internal/wikiindex"
 )
 
 // newDocsCmd creates the documentation generation command.
@@ -56,6 +57,17 @@ func newDocsCmd(deps *Deps) *cobra.Command {
 			}
 
 			fmt.Fprintf(stdout(cmd), "Docs written to %s\n", absOut)
+			wikiPackages, wikiFiles, err := buildDocsWikiIndex(cmd.Context(), deps, docsWikiOptions{
+				OutDir:      absOut,
+				IndexDir:    resolveRagIndexDir(ragIndexDir),
+				ProjectDesc: resolveRagDescription(projectDesc),
+				Namespace:   viper.GetString("namespace"),
+				Exclude:     resolveExcludes(excludePatterns),
+			})
+			if err != nil {
+				return trace.Wrap(err, "build wiki index")
+			}
+			fmt.Fprintf(stdout(cmd), "Wiki index written: %d packages, %d files\n", wikiPackages, wikiFiles)
 			if buildRAG {
 				communities, files, rebuilt, err := buildDocsRAGIndex(cmd.Context(), deps, docsRAGOptions{
 					OutDir:         absOut,
@@ -97,6 +109,35 @@ type docsRAGOptions struct {
 	Refresh        bool
 	CommunityDepth int
 	Namespace      string
+}
+
+// @intent keep ccg docs Wiki-index settings separate from community-based RAG options.
+type docsWikiOptions struct {
+	OutDir      string
+	IndexDir    string
+	ProjectDesc string
+	Namespace   string
+	Exclude     []string
+}
+
+// buildDocsWikiIndex creates the browser-facing Wiki tree after docs generation.
+// @intent keep ccg-server Wiki navigation independent from community-based RAG retrieval.
+// @sideEffect writes wiki-index.json.
+func buildDocsWikiIndex(ctx context.Context, deps *Deps, opts docsWikiOptions) (int, int, error) {
+	ns := opts.Namespace
+	if ns == "" {
+		ns = ctxns.DefaultNamespace
+	}
+	ctx = ctxns.WithNamespace(ctx, ns)
+	b := &wikiindex.Builder{
+		DB:          deps.DB,
+		OutDir:      opts.OutDir,
+		IndexDir:    opts.IndexDir,
+		ProjectDesc: opts.ProjectDesc,
+		Namespace:   ns,
+		Exclude:     opts.Exclude,
+	}
+	return b.Build(ctx)
 }
 
 // buildDocsRAGIndex creates the vectorless RAG index after docs generation.

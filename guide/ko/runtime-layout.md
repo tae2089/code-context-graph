@@ -35,6 +35,8 @@ Claude Code 같은 로컬 MCP 클라이언트를 위한 경로입니다. HTTP와
 - `/health`: liveness
 - `/ready`: readiness
 - `/status`: 운영 진단
+- `/wiki`: `--wiki-dir`가 빌드된 Wiki asset을 가리키는 경우
+- `/wiki/api/*`: Wiki tree, docs, retrieval, context copy, 시각적 graph data
 - `/webhook`: `--allow-repo`가 설정된 경우 웹훅 수신
 
 원격 클라이언트, 팀 배포, 컨테이너 배포, GitHub/Gitea 웹훅 동기화에는
@@ -62,6 +64,7 @@ Claude Code 같은 로컬 MCP 클라이언트를 위한 경로입니다. HTTP와
 | Cobra 로컬 명령 정의 | `internal/cli` |
 | 로컬 stdio MCP 명령 | `internal/cli/serve.go`, `internal/mcpruntime` |
 | HTTP listen address, bearer token, stateless session | `internal/server`, `cmd/ccg-server` |
+| Wiki 정적 파일 서빙 및 viewer API | `internal/wikiserver`, `web/wiki`, `internal/server` |
 | 웹훅 allowlist, HMAC, clone base URL, repo root, retry 정책 | `internal/server`, `internal/webhook` |
 | MCP tool handler 및 DTO | `internal/mcp` |
 | transport-neutral 공용 MCP runtime | `internal/mcpruntime` |
@@ -79,6 +82,27 @@ ccg search "authentication"
 ccg docs --out docs
 ccg serve
 ```
+
+`ccg docs`는 `/wiki` 탐색용 `.ccg/wiki-index.json`을 기록하고,
+`--rag=false`가 설정되지 않은 경우 MCP retrieval용 `.ccg/doc-index.json`도
+함께 기록합니다.
+
+브라우저 Wiki:
+
+```bash
+ccg build .
+ccg docs --out docs
+ccg-server \
+  --http-addr 127.0.0.1:8080 \
+  --wiki-dir web/wiki/dist
+```
+
+Wiki tree와 search는 `wiki-index.json`을 읽습니다. Retrieve 모드는
+`doc-index.json`을 읽습니다. Graph 탭은 `/wiki/api/graph`를 통해 설정된
+데이터베이스의 graph node와 edge를 직접 읽으므로 최신 `ccg build` 또는
+webhook sync 상태를 반영합니다. Context Tray copy는 생성 문서에 대해
+`/wiki/api/context`를 사용하고, doc-less symbol detail은 브라우저 payload에
+유지합니다.
 
 셀프호스트 HTTP MCP:
 

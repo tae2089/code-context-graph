@@ -103,7 +103,12 @@ func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolReques
 		if err := validateWorkspacePath(workspace, ""); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		outDir = filepath.Join(h.workspaceRoot(), workspace)
+		if outDir == "" {
+			outDir = "docs"
+		}
+		if err := validateWorkspacePath(workspace, outDir); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
 		ctx = h.applyWorkspace(ctx, request)
 	}
 
@@ -137,14 +142,17 @@ func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolReques
 	return mcp.NewToolResultText(fmt.Sprintf("Built doc-index: %d communities, %d files", communities, files)), nil
 }
 
-// getRagTree returns the documentation tree or a pruned community subtree.
+// getRagTree returns the documentation tree or a pruned node subtree.
 // @intent Exposes the documentation RAG index in a tree format to enable exploratory lookups.
-// @param request community_id is the starting point for a subtree, and depth limits the return depth.
+// @param request node_id is the starting point for a subtree, community_id is a deprecated alias, and depth limits the return depth.
 // @requires doc-index.json must have been generated.
 // @ensures Returns the TreeNode JSON for the requested range on success.
 // @see mcp.handlers.buildRagIndex
 func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	communityID := request.GetString("community_id", "")
+	nodeID := request.GetString("node_id", "")
+	if nodeID == "" {
+		nodeID = request.GetString("community_id", "")
+	}
 	depth := int(request.GetFloat("depth", 0))
 	workspace := requestNamespace(request)
 	indexPath, err := h.resolvedRagIndexPath(workspace)
@@ -157,27 +165,25 @@ func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) 
 		indexMtime = stat.ModTime().UnixNano()
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "get_rag_tree:", map[string]any{"community_id": communityID, "depth": depth, "namespace": workspace, "mtime": indexMtime}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "get_rag_tree:", map[string]any{"node_id": nodeID, "depth": depth, "namespace": workspace, "mtime": indexMtime}, func() (string, error) {
 		idx, err := ragindex.LoadIndex(indexPath)
 		if err != nil {
 			return "", newToolResultErr(fmt.Sprintf("load doc-index: %v", err))
 		}
 
 		var node *ragindex.TreeNode
-		if communityID == "" {
+		if nodeID == "" {
 			node = idx.Root
 		} else {
-			node = ragindex.FindNode(idx.Root, communityID)
+			node = ragindex.FindNode(idx.Root, nodeID)
 			if node == nil {
-				return "", newToolResultErr(fmt.Sprintf("community_id %q not found", communityID))
+				return "", newToolResultErr(fmt.Sprintf("node_id %q not found", nodeID))
 			}
 		}
 
-		if depth > 0 {
-			node = ragindex.PruneTree(node, depth)
-		}
+		node = ragindex.PruneTree(node, depth)
 
-		// TreeNode fields are all basic types (string, []*TreeNode); json.Marshal cannot fail.
+		// TreeNode fields are JSON-safe DTO fields; json.Marshal cannot fail for this payload.
 		b, _ := json.Marshal(node)
 		return string(b), nil
 	}))
@@ -355,7 +361,7 @@ func (h *handlers) retrieveDocs(ctx context.Context, request mcp.CallToolRequest
 		for _, candidate := range candidates {
 			result := retrieveDocsResult{RetrieveResult: candidate}
 			if contentLimit > 0 {
-				content, truncated, err := h.readIndexedDocContent(candidate.DocPath, contentLimit)
+				content, truncated, err := h.readIndexedDocContent(workspace, candidate.DocPath, contentLimit)
 				if err != nil {
 					return "", newToolResultErr(err.Error())
 				}
@@ -372,10 +378,10 @@ func (h *handlers) retrieveDocs(ctx context.Context, request mcp.CallToolRequest
 
 // readIndexedDocContent reads a doc_path stored in doc-index.json under the docs/index root.
 // @intent let retrieve_docs return bounded Markdown content while keeping index-provided paths inside a safe root.
-// @domainRule relative doc paths are resolved from the parent of the RAG index root, so ".ccg" pairs with "docs/".
+// @domainRule workspace doc paths are resolved from that workspace; shared doc paths are resolved from the parent of the RAG index root.
 // @sideEffect reads a generated Markdown file.
-func (h *handlers) readIndexedDocContent(docPath string, limit int) (string, bool, error) {
-	resolvedPath, err := h.resolveIndexedDocPath(docPath)
+func (h *handlers) readIndexedDocContent(workspace, docPath string, limit int) (string, bool, error) {
+	resolvedPath, err := h.resolveIndexedDocPath(workspace, docPath)
 	if err != nil {
 		return "", false, err
 	}
@@ -391,9 +397,15 @@ func (h *handlers) readIndexedDocContent(docPath string, limit int) (string, boo
 
 // resolveIndexedDocPath resolves doc-index doc_path values without allowing traversal outside the docs root.
 // @intent safely support both relative docs/... paths and absolute doc paths produced by custom docs output directories.
-func (h *handlers) resolveIndexedDocPath(docPath string) (string, error) {
+func (h *handlers) resolveIndexedDocPath(workspace, docPath string) (string, error) {
 	if strings.TrimSpace(docPath) == "" {
 		return "", fmt.Errorf("doc_path is empty")
+	}
+	if workspace != "" {
+		if err := validateWorkspacePath(workspace, docPath); err != nil {
+			return "", err
+		}
+		return h.resolveWorkspacePath(workspace, filepath.Clean(docPath), false)
 	}
 	indexRoot, err := resolveSafeRoot(h.ragIndexRoot(), false)
 	if err != nil {

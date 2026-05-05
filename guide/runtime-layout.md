@@ -31,6 +31,8 @@ flags are intentionally not part of this command.
 - `/health` for liveness
 - `/ready` for readiness
 - `/status` for operational diagnostics
+- `/wiki` when `--wiki-dir` points at built Wiki assets
+- `/wiki/api/*` for Wiki tree, docs, retrieval, context copying, and visual graph data
 - `/webhook` when `--allow-repo` is configured
 
 Use `ccg-server` for remote clients, team deployments, container deployments,
@@ -59,6 +61,7 @@ parsing stays in `internal/cli` and HTTP/webhook policy stays in
 | Cobra local command definitions | `internal/cli` |
 | Local stdio MCP command | `internal/cli/serve.go`, `internal/mcpruntime` |
 | HTTP listen address, bearer token, stateless sessions | `internal/server` and `cmd/ccg-server` |
+| Wiki static serving and viewer API | `internal/wikiserver`, `web/wiki`, and `internal/server` |
 | Webhook allowlist, HMAC, clone base URL, repo root, retry policy | `internal/server` and `internal/webhook` |
 | MCP tool handlers and DTOs | `internal/mcp` |
 | Shared MCP transport-neutral runtime | `internal/mcpruntime` |
@@ -76,6 +79,25 @@ ccg search "authentication"
 ccg docs --out docs
 ccg serve
 ```
+
+`ccg docs` writes `.ccg/wiki-index.json` for `/wiki` navigation and, unless
+`--rag=false` is set, `.ccg/doc-index.json` for MCP retrieval.
+
+Browser Wiki:
+
+```bash
+ccg build .
+ccg docs --out docs
+ccg-server \
+  --http-addr 127.0.0.1:8080 \
+  --wiki-dir web/wiki/dist
+```
+
+The Wiki tree and search read `wiki-index.json`. Retrieve mode reads
+`doc-index.json`. The Graph tab reads graph nodes and edges directly from the
+configured database through `/wiki/api/graph`, so it follows the latest
+`ccg build` or webhook sync state. Context Tray copy uses `/wiki/api/context`
+for generated docs and keeps doc-less symbol details in the browser payload.
 
 Self-hosted HTTP MCP:
 

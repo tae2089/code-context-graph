@@ -1,0 +1,218 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  min-width: 0;
+}
+
+button,
+select,
+input {
+  font: inherit;
+}
+
+.icon-button {
+  @apply inline-flex h-9 w-9 items-center justify-center rounded border border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-100 disabled:opacity-50;
+}
+
+.command-button {
+  @apply inline-flex h-9 items-center gap-2 rounded border border-emerald-700 bg-emerald-700 px-3 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:border-neutral-300 disabled:bg-neutral-300 disabled:text-neutral-600;
+}
+
+.small-button {
+  @apply inline-flex h-8 items-center justify-center rounded border border-neutral-300 bg-white px-3 text-sm text-neutral-800 hover:bg-neutral-100;
+}
+
+.segmented-control {
+  @apply inline-flex h-9 overflow-hidden rounded border border-neutral-300 bg-white text-sm;
+}
+
+.segmented-control button {
+  @apply px-3 text-neutral-600 hover:bg-neutral-100;
+}
+
+.segmented-control button.active {
+  @apply bg-neutral-900 text-white hover:bg-neutral-900;
+}
+
+.tree-row {
+  @apply flex h-7 items-center gap-1.5 rounded text-sm hover:bg-neutral-200;
+}
+
+.kind-chip {
+  @apply shrink-0 rounded bg-neutral-200 px-1.5 py-0.5 text-[10px] font-medium uppercase leading-4 text-neutral-600;
+}
+
+.markdown-body {
+  @apply max-w-4xl text-sm leading-7 text-neutral-800;
+}
+
+.markdown-body h1 {
+  @apply mb-4 break-words text-2xl font-semibold text-neutral-950;
+}
+
+.markdown-body h2 {
+  @apply mb-3 mt-8 border-b border-neutral-200 pb-2 text-lg font-semibold text-neutral-950;
+}
+
+.markdown-body h3 {
+  @apply mb-2 mt-5 break-words font-mono text-base font-semibold text-neutral-950;
+}
+
+.markdown-body p {
+  @apply my-3;
+}
+
+.markdown-body blockquote {
+  @apply my-4 border-l-4 border-emerald-600 bg-emerald-50 px-4 py-2 text-neutral-700;
+}
+
+.markdown-body ul {
+  @apply my-3 list-disc space-y-1 pl-5;
+}
+
+.markdown-body li {
+  @apply pl-1;
+}
+
+.markdown-body pre {
+  @apply overflow-auto rounded border border-neutral-300 bg-neutral-950 p-4 text-neutral-50;
+}
+
+.markdown-body code {
+  @apply rounded bg-neutral-100 px-1 py-0.5 text-sm;
+}
+
+.markdown-body pre code {
+  @apply bg-transparent p-0;
+}
+
+.doc-hero {
+  @apply rounded border border-neutral-200 bg-white p-5 shadow-sm;
+}
+
+.doc-stat {
+  @apply rounded border border-neutral-200 bg-neutral-50 px-2.5 py-1 text-xs font-medium text-neutral-700;
+}
+
+.doc-section-title {
+  @apply flex items-center gap-2 border-b border-neutral-200 pb-2;
+}
+
+.doc-section-title h2 {
+  @apply text-sm font-semibold uppercase tracking-normal text-neutral-800;
+}
+
+.doc-section-title span {
+  @apply ml-auto rounded bg-neutral-200 px-2 py-0.5 text-xs font-medium text-neutral-700;
+}
+
+.symbol-card {
+  @apply rounded border border-neutral-200 bg-white p-4 shadow-sm transition hover:border-emerald-300 hover:shadow;
+}
+
+.line-badge {
+  @apply shrink-0 rounded bg-neutral-100 px-2 py-1 font-mono text-xs text-neutral-600;
+}
+
+.attribute-label {
+  @apply text-xs font-semibold uppercase tracking-normal text-neutral-500;
+}
+
+.attribute-item {
+  @apply rounded border border-neutral-200 bg-neutral-50 px-2 py-1.5 text-sm leading-5 text-neutral-700;
+}
+
+.intent-block {
+  @apply rounded border border-emerald-200 bg-emerald-50 p-3;
+}
+
+.domain-block {
+  @apply rounded border border-violet-200 bg-violet-50 p-3;
+}
+
+.side-effect-block {
+  @apply rounded border border-amber-200 bg-amber-50 p-3;
+}
+
+.mutates-block {
+  @apply rounded border border-rose-200 bg-rose-50 p-3;
+}
+
+.requires-block {
+  @apply rounded border border-sky-200 bg-sky-50 p-3;
+}
+
+.ensures-block {
+  @apply rounded border border-teal-200 bg-teal-50 p-3;
+}
+
+.returns-block {
+  @apply rounded border border-indigo-200 bg-indigo-50 p-3;
+}
+
+.annotation-list-item {
+  @apply rounded border border-white/70 bg-white/60 px-2 py-1.5 text-sm leading-5 text-neutral-800;
+}
+
+.param-row {
+  @apply grid gap-1 rounded border border-neutral-200 bg-neutral-50 px-2 py-1.5 text-sm leading-5 text-neutral-700 sm:grid-cols-[minmax(7rem,12rem)_minmax(0,1fr)];
+}
+
+.param-row span {
+  @apply font-mono text-xs font-semibold text-neutral-900;
+}
+
+.param-row p {
+  @apply m-0 min-w-0 text-neutral-700;
+}
+
+.call-chip {
+  @apply rounded border border-sky-200 bg-sky-50 px-2 py-1 font-mono text-xs text-sky-800;
+}
+
+.see-chip {
+  @apply rounded border border-violet-200 bg-violet-50 px-2 py-1 font-mono text-xs text-violet-800;
+}
+
+.score-chip {
+  @apply rounded border border-neutral-300 bg-neutral-100 px-2 py-0.5 font-mono text-[11px] text-neutral-700;
+}
+
+.match-chip {
+  @apply rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800;
+}
+
+.retrieve-evidence {
+  @apply mt-2 rounded border border-neutral-200 bg-neutral-50 p-2;
+}
+
+.evidence-heading {
+  @apply mb-1 text-[10px] font-semibold uppercase tracking-normal text-neutral-500;
+}
+
+.evidence-row {
+  @apply flex min-w-0 items-start gap-1.5 rounded border border-neutral-200 bg-white px-2 py-1.5;
+}
+
+.graph-toggle {
+  @apply h-8 rounded border border-neutral-700 bg-neutral-950 px-2.5 text-xs font-medium text-neutral-400 hover:border-neutral-500 hover:text-neutral-100;
+}
+
+.graph-toggle.active {
+  @apply border-emerald-500 bg-emerald-500/15 text-emerald-100;
+}
+
+.graph-icon-button {
+  @apply inline-flex h-8 w-8 items-center justify-center rounded border border-neutral-700 bg-neutral-950 text-neutral-300 hover:border-neutral-500 hover:text-white;
+}
+
+.graph-legend {
+  @apply pointer-events-none absolute bottom-3 left-3 flex flex-wrap gap-3 rounded border border-neutral-800 bg-neutral-950/85 px-3 py-2 text-xs text-neutral-300 shadow-lg;
+}

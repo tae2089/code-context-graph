@@ -3,8 +3,11 @@ COMMIT   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE     ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 BASE_LDFLAGS = -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 LDFLAGS      = -s -w $(BASE_LDFLAGS)
+WIKI_ADDR   ?= 127.0.0.1:8080
+WIKI_DB     ?= ccg.db
+WIKI_TOKEN  ?=
 
-.PHONY: build release build-debug build-json install vet test test-integration-helpers clean
+.PHONY: build release build-debug build-json install vet test test-integration-helpers wiki-build wiki-run clean
 
 build: release
 
@@ -31,6 +34,13 @@ test: test-integration-helpers
 
 test-integration-helpers:
 	bash ./scripts/integration-test-helpers_test.sh
+
+wiki-build:
+	cd web/wiki && npm ci && npm run build
+
+wiki-run: wiki-build
+	CGO_ENABLED=1 go run -tags "fts5" ./cmd/ccg --db-driver sqlite --db-dsn '$(WIKI_DB)' migrate
+	CGO_ENABLED=1 go run -tags "fts5" ./cmd/ccg-server --db-driver sqlite --db-dsn '$(WIKI_DB)' --http-addr '$(WIKI_ADDR)' --http-bearer-token '$(WIKI_TOKEN)' --wiki-dir web/wiki/dist
 
 clean:
 	rm -f ccg ccg-server
