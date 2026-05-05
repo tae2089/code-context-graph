@@ -45,6 +45,15 @@ Graceful shutdown: SIGINT/SIGTERM 시 진행 중인 clone/build에 context cance
 
 `.ccg.yaml`로 exclude 패턴, DB 설정 등을 프로젝트 기본값으로 관리할 수 있습니다.
 
+## 코드 검색 규칙
+
+코드 위치, 관련 구현, 호출 관계, 영향 범위, 아키텍처 맥락을 찾을 때는 먼저 ccg MCP 도구와 CLI Skills를 활용합니다.
+
+- 의미 기반 검색과 관련 코드 탐색은 ccg MCP `search`, `query_graph`, `get_node`, `get_minimal_context` 또는 `/ccg` skill을 우선 사용합니다.
+- 영향 범위, 플로우, 데드코드, 구조 분석은 `/ccg-analyze` skill과 관련 MCP 도구(`get_impact_radius`, `trace_flow`, `find_dead_code`, `get_architecture_overview`)를 우선 사용합니다.
+- 문서/RAG 기반 맥락 검색은 `/ccg-docs` skill과 `search_docs`, `get_rag_tree`, `get_doc_content`를 우선 사용합니다.
+- 단순 문자열 확인, 파일 존재 확인, ccg 인덱스가 없거나 오래된 경우에는 `rg`를 보조로 사용하고, 필요한 경우 `ccg build .` 또는 `ccg update .`로 그래프를 갱신합니다.
+
 ## 문서
 
 상세 문서는 `guide/` 디렉토리를 참조하세요:
