@@ -1,3 +1,4 @@
+// @index Persisted flow rebuild service for namespace-scoped stored flows.
 package flows
 
 import (
@@ -9,32 +10,38 @@ import (
 )
 
 // Config controls persisted flow rebuild behavior.
-// @intent stored flow rebuild 설정 확장 지점을 제공한다.
+// @intent provides an extension point for stored flow rebuild configuration.
 type Config struct{}
 
 // Stats summarizes one rebuilt stored flow.
-// @intent 재생성된 stored flow의 크기를 후처리 결과로 반환한다.
+// @intent returns the size of the rebuilt stored flow as a post-process result.
 type Stats struct {
 	Flow      model.Flow
 	NodeCount int
 }
 
 // Builder rebuilds persisted flows from graph data.
-// @intent entrypoint별 traced flow를 flows 테이블에 다시 저장한다.
+// @intent persists traced flows per entrypoint back into the flows table.
 type Builder struct {
 	db    *gorm.DB
 	store EdgeReader
 }
 
 // NewBuilder creates a persisted flow builder.
-// @intent DB와 graph reader를 묶어 stored flow rebuild 서비스를 만든다.
+// @intent binds the database and graph reader to create a stored flow rebuild service.
 func NewBuilder(db *gorm.DB, store EdgeReader) *Builder {
 	return &Builder{db: db, store: store}
 }
 
 // Rebuild recreates persisted flows for the current namespace.
-// @intent namespace 범위 stored flows를 전량 교체해 list_flows를 최신화한다.
-// @sideEffect 현재 namespace의 flow/flow_membership 레코드를 삭제 후 재생성한다.
+// @intent refreshes list_flows by replacing all stored flows within the namespace.
+// @param ctx extracts the namespace from ctxns to determine the work scope.
+// @param cfg placeholder for future rebuild options; currently ignored.
+// @return a list of rebuilt stored flows and the number of member nodes for each.
+// @sideEffect deletes and recreates flow/flow_membership records for the current namespace.
+// @mutates namespace-scoped rows in the flows and flow_memberships tables.
+// @domainRule rebuilds stored flows by running TraceFlow for each entrypoint within the namespace.
+// @ensures partial updates are not persisted if the transaction fails.
 func (b *Builder) Rebuild(ctx context.Context, cfg Config) ([]Stats, error) {
 	_ = cfg
 	var result []Stats
@@ -98,6 +105,9 @@ func deleteFlows(tx *gorm.DB, ns string) error {
 
 // findEntrypoints returns function and test nodes with no inbound calls edges.
 // @intent locate likely flow entry points by selecting nodes nothing else calls
+// @return a list of entrypoint nodes sorted by ID in ascending order.
+// @domainRule considers only function or test nodes with no inbound call edges as entrypoints.
+// @domainRule inbound detection includes all call types defined in model.CallEdgeKinds().
 func findEntrypoints(tx *gorm.DB, ns string) ([]model.Node, error) {
 	var nodes []model.Node
 	inboundCalls := tx.Model(&model.Edge{}).
