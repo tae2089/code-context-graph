@@ -1,3 +1,4 @@
+// @index Large function and test detection that returns nodes exceeding a line-count threshold in descending size order.
 package largefunc
 
 import (
@@ -22,9 +23,11 @@ func New(db *gorm.DB) *Service {
 
 // Find returns functions and tests longer than the threshold.
 // @intent identify oversized executable nodes for maintainability analysis
-// @param threshold minimum inclusive line-count threshold to exceed
+// @param threshold minimum line-count threshold that results must strictly exceed
 // @return functions and tests ordered from longest to shortest
 // @domainRule only function and test nodes participate in large-function analysis
+// @domainRule line count is computed as (end_line - start_line + 1) and must strictly exceed threshold
+// @see mcp.handlers.findLargeFunctions
 func (s *Service) Find(ctx context.Context, threshold int) ([]model.Node, error) {
 	var nodes []model.Node
 	err := s.db.WithContext(ctx).
