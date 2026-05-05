@@ -1,3 +1,4 @@
+// @index MCP handlers for namespace workspace uploads, listing, and deletion.
 package mcp
 
 import (
@@ -15,6 +16,8 @@ import (
 	wsvc "github.com/tae2089/code-context-graph/internal/workspace"
 )
 
+// workspaceFileResult summarizes one uploaded workspace file.
+// @intent preserve a stable per-file DTO for workspace upload responses.
 type workspaceFileResult struct {
 	Namespace string `json:"namespace"`
 	Workspace string `json:"workspace"`
@@ -22,16 +25,20 @@ type workspaceFileResult struct {
 	Size      int    `json:"size,omitempty"`
 }
 
+// workspaceUploadResponse is the typed wire payload for uploadFile and uploadFiles.
+// @intent preserve a stable confirmation envelope for single and bulk workspace uploads.
 type workspaceUploadResponse struct {
-	Status    string              `json:"status"`
-	Namespace string              `json:"namespace,omitempty"`
-	Workspace string              `json:"workspace,omitempty"`
-	FilePath  string              `json:"file_path,omitempty"`
-	Size      int                 `json:"size,omitempty"`
-	Uploaded  int                 `json:"uploaded,omitempty"`
+	Status    string                `json:"status"`
+	Namespace string                `json:"namespace,omitempty"`
+	Workspace string                `json:"workspace,omitempty"`
+	FilePath  string                `json:"file_path,omitempty"`
+	Size      int                   `json:"size,omitempty"`
+	Uploaded  int                   `json:"uploaded,omitempty"`
 	Files     []workspaceFileResult `json:"files,omitempty"`
 }
 
+// workspaceDeleteResponse is the typed wire payload for deleteFile and deleteWorkspace.
+// @intent preserve a stable confirmation envelope for workspace deletion operations.
 type workspaceDeleteResponse struct {
 	Status    string `json:"status"`
 	Namespace string `json:"namespace"`
@@ -39,9 +46,11 @@ type workspaceDeleteResponse struct {
 	FilePath  string `json:"file_path,omitempty"`
 }
 
+// workspaceListResponse is the typed wire payload for listWorkspaces and listFiles.
+// @intent preserve a stable paged list envelope while omitting irrelevant legacy fields.
 type workspaceListResponse struct {
-	Namespaces []string    `json:"namespaces"`
-	Files      []string    `json:"files"`
+	Namespaces []string    `json:"namespaces,omitempty"`
+	Files      []string    `json:"files,omitempty"`
 	Items      []string    `json:"items"`
 	Count      int         `json:"count"`
 	Pagination paging.Page `json:"pagination"`

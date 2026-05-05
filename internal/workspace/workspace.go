@@ -206,6 +206,8 @@ type ValidationError struct {
 }
 
 // Error returns the validation message.
+// @intent expose the caller-fixable validation message without wrapping it in transport-specific formatting.
+// @return returns the original validation message stored on the error.
 func (e *ValidationError) Error() string { return e.msg }
 
 // IsValidationError reports whether err is a ValidationError.
@@ -215,6 +217,8 @@ func IsValidationError(err error) bool {
 	return errors.As(err, &v)
 }
 
+// newValidationError constructs a ValidationError for caller-fixable workspace input issues.
+// @intent centralize creation of typed validation failures so handlers can recognize them consistently.
 func newValidationError(msg string) *ValidationError { return &ValidationError{msg: msg} }
 
 // UploadFile validates, decodes, and atomically writes a single workspace file.
@@ -232,12 +236,19 @@ func (s *Service) UploadFile(req UploadRequest) (*UploadResult, error) {
 	return &UploadResult{Namespace: req.Namespace, FilePath: req.FilePath, Size: len(prepared.decoded)}, nil
 }
 
+// preparedUpload holds validated upload data before it is written to disk.
+// @intent split validation/decoding from filesystem mutation so bulk uploads can validate before committing files.
 type preparedUpload struct {
 	req     UploadRequest
 	decoded []byte
 	target  string
 }
 
+// prepareUpload validates one upload request, decodes its content, and resolves its destination path.
+// @intent prepare a single upload for later commit while enforcing per-file and aggregate decoded-size limits.
+// @param alreadyDecoded tracks the total decoded bytes accepted earlier in the same bulk request.
+// @return returns a preparedUpload ready for commit when validation succeeds.
+// @domainRule rejects missing fields, invalid paths, invalid base64, oversized files, and oversized aggregate payloads.
 func (s *Service) prepareUpload(req UploadRequest, alreadyDecoded int) (*preparedUpload, error) {
 	limits := s.limitsOrDefault()
 	if req.Namespace == "" || req.FilePath == "" || req.ContentBase64 == "" {
@@ -263,6 +274,9 @@ func (s *Service) prepareUpload(req UploadRequest, alreadyDecoded int) (*prepare
 	return &preparedUpload{req: req, decoded: decoded, target: target}, nil
 }
 
+// commitPrepared creates parent directories, revalidates the path, and atomically writes one prepared upload.
+// @intent separate filesystem mutation from validation so bulk uploads can fail fast before writing any file.
+// @sideEffect creates directories and writes the target file atomically.
 func (s *Service) commitPrepared(p *preparedUpload) error {
 	if err := os.MkdirAll(filepath.Dir(p.target), 0o755); err != nil {
 		return fmt.Errorf("create directory: %w", err)
@@ -276,6 +290,9 @@ func (s *Service) commitPrepared(p *preparedUpload) error {
 	return nil
 }
 
+// limitsOrDefault returns the configured limits with zero values replaced by workspace defaults.
+// @intent ensure upload validation always runs with concrete byte ceilings even when callers omit custom limits.
+// @return returns a Limits value whose file, request, and aggregate byte caps are all populated.
 func (s *Service) limitsOrDefault() Limits {
 	l := s.Limits
 	if l.MaxFileBytes == 0 {
@@ -306,7 +323,14 @@ type BulkEntryError struct {
 	Err   error
 }
 
+// Error formats the failing bulk entry index with the underlying error text.
+// @intent preserve a user-facing error string that points callers to the exact bad entry.
+// @return returns an error string prefixed with the failing entry index.
 func (e *BulkEntryError) Error() string { return fmt.Sprintf("entry %d: %v", e.Index, e.Err) }
+
+// Unwrap returns the underlying entry error.
+// @intent allow callers to inspect the original validation or filesystem failure that broke a bulk upload.
+// @return returns the underlying entry error for errors.Is and errors.As checks.
 func (e *BulkEntryError) Unwrap() error { return e.Err }
 
 // UploadFiles parses a bulk upload JSON payload, validates every entry, and writes them sequentially.

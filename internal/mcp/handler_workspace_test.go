@@ -213,9 +213,17 @@ func TestListWorkspaces_Empty(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &resp); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
-	workspaces := resp["namespaces"].([]any)
-	if len(workspaces) != 0 {
-		t.Errorf("expected empty list, got %v", workspaces)
+	if _, ok := resp["files"]; ok {
+		t.Fatalf("expected files field to be omitted, got %v", resp["files"])
+	}
+	if items := resp["items"].([]any); len(items) != 0 {
+		t.Errorf("expected empty items list, got %v", items)
+	}
+	if count := resp["count"].(float64); count != 0 {
+		t.Errorf("expected count 0, got %v", count)
+	}
+	if _, ok := resp["pagination"].(map[string]any); !ok {
+		t.Fatal("expected pagination object")
 	}
 }
 
@@ -293,6 +301,9 @@ func TestListFiles_Basic(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &resp); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
+	if _, ok := resp["namespaces"]; ok {
+		t.Fatalf("expected namespaces field to be omitted, got %v", resp["namespaces"])
+	}
 	files := resp["files"].([]any)
 	if len(files) != 2 {
 		t.Errorf("expected 2 files, got %d: %v", len(files), files)
@@ -335,10 +346,10 @@ func TestListFiles_Pagination(t *testing.T) {
 func TestListWorkspaceAndFiles_InvalidPagination(t *testing.T) {
 	h, _ := workspaceHandlers(t)
 	for name, req := range map[string]mcp.CallToolRequest{
-		"workspaces limit": makeCallToolRequest(t, map[string]any{"limit": 0}),
+		"workspaces limit":  makeCallToolRequest(t, map[string]any{"limit": 0}),
 		"workspaces offset": makeCallToolRequest(t, map[string]any{"offset": -1}),
-		"files limit":      makeCallToolRequest(t, map[string]any{"workspace": "svc", "limit": 0}),
-		"files offset":     makeCallToolRequest(t, map[string]any{"workspace": "svc", "offset": -1}),
+		"files limit":       makeCallToolRequest(t, map[string]any{"workspace": "svc", "limit": 0}),
+		"files offset":      makeCallToolRequest(t, map[string]any{"workspace": "svc", "offset": -1}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			var result *mcp.CallToolResult
