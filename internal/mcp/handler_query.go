@@ -7,6 +7,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/trace"
+	"gorm.io/gorm"
 
 	querypkg "github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
@@ -15,6 +16,8 @@ import (
 )
 
 var strictFalse = false
+
+const defaultQueryGraphLimit = 50
 
 // getNode returns detailed metadata for a graph node by qualified name.
 // @intent 정규화 이름으로 노드를 조회해 위치와 종류 등 기본 식별 정보를 제공한다.
@@ -211,10 +214,17 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 	if err != nil {
 		return missingParamResult(err)
 	}
+	limit := request.GetInt("limit", defaultQueryGraphLimit)
+	offset := request.GetInt("offset", 0)
+	if err := validatePositiveLimit(limit); err != nil {
+		return finalizeToolResult("", err)
+	}
+	if offset < 0 {
+		return finalizeToolResult("", newToolResultErr(fmt.Sprintf("offset must be >= 0, got %d", offset)))
+	}
 	includeFallbackCalls := request.GetBool("include_fallback_calls", true)
-	queryOpts := querypkg.QueryOptions{IncludeFallbackCalls: &includeFallbackCalls}
 
-	log.Info("query_graph called", "pattern", pattern, "target", target)
+	log.Info("query_graph called", "pattern", pattern, "target", target, "limit", limit, "offset", offset)
 
 	// 패턴 유효성 검사
 	validPatterns := map[string]bool{
@@ -229,6 +239,8 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 	return finalizeToolResult(h.cachedExecute(ctx, "query_graph:", map[string]any{
 		"pattern":                pattern,
 		"target":                 target,
+		"limit":                  limit,
+		"offset":                 offset,
 		"include_fallback_calls": includeFallbackCalls,
 		"namespace":              requestNamespace(request),
 	}, func() (string, error) {
@@ -286,91 +298,100 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 			return "", newToolResultErr("QueryService not configured")
 		}
 
+		queryOpts := querypkg.QueryOptions{
+			IncludeFallbackCalls: &includeFallbackCalls,
+			Limit:                limit,
+			Offset:               offset,
+		}
+
 		var nodes []model.Node
+		var totalCount int
+		var page querypkg.PagedNodes
 		switch pattern {
 		case "callers_of":
-			nodes, err = h.deps.QueryService.CallersOfWithOptions(ctx, node.ID, queryOpts)
+			page, err = h.deps.QueryService.CallersOfPage(ctx, node.ID, queryOpts)
+			nodes = page.Nodes
+			totalCount = page.TotalCount
 		case "callees_of":
-			nodes, err = h.deps.QueryService.CalleesOfWithOptions(ctx, node.ID, queryOpts)
+			page, err = h.deps.QueryService.CalleesOfPage(ctx, node.ID, queryOpts)
+			nodes = page.Nodes
+			totalCount = page.TotalCount
 		case "imports_of":
-			nodes, err = h.deps.QueryService.ImportsOf(ctx, node.ID)
+			page, err = h.deps.QueryService.ImportsOfPage(ctx, node.ID, queryOpts)
+			nodes = page.Nodes
+			totalCount = page.TotalCount
 		case "importers_of":
-			nodes, err = h.deps.QueryService.ImportersOf(ctx, node.ID)
+			page, err = h.deps.QueryService.ImportersOfPage(ctx, node.ID, queryOpts)
+			nodes = page.Nodes
+			totalCount = page.TotalCount
 		case "children_of":
-			nodes, err = h.deps.QueryService.ChildrenOf(ctx, node.ID)
+			page, err = h.deps.QueryService.ChildrenOfPage(ctx, node.ID, queryOpts)
+			nodes = page.Nodes
+			totalCount = page.TotalCount
 		case "tests_for":
-			nodes, err = h.deps.QueryService.TestsFor(ctx, node.ID)
+			page, err = h.deps.QueryService.TestsForPage(ctx, node.ID, queryOpts)
+			nodes = page.Nodes
+			totalCount = page.TotalCount
 		case "inheritors_of":
-			nodes, err = h.deps.QueryService.InheritorsOf(ctx, node.ID)
+			page, err = h.deps.QueryService.InheritorsOfPage(ctx, node.ID, queryOpts)
+			nodes = page.Nodes
+			totalCount = page.TotalCount
 		}
 
 		if err != nil {
 			return "", trace.Wrap(err, "query error")
 		}
 
-		strictNodeIDs := map[uint]struct{}{}
 		neighborEdgeByNodeID := map[uint]model.Edge{}
+		var strictPage querypkg.PagedNodes
 		if pattern == "callers_of" || pattern == "callees_of" {
-			strictOpts := querypkg.QueryOptions{IncludeFallbackCalls: &strictFalse}
-			var strictNodes []model.Node
-			var edges []model.Edge
-			var direction string
-			switch pattern {
-			case "callers_of":
-				strictNodes, err = h.deps.QueryService.CallersOfWithOptions(ctx, node.ID, strictOpts)
-				direction = "incoming"
-			case "callees_of":
-				strictNodes, err = h.deps.QueryService.CalleesOfWithOptions(ctx, node.ID, strictOpts)
-				direction = "outgoing"
+			if includeFallbackCalls {
+				strictOpts := querypkg.QueryOptions{IncludeFallbackCalls: &strictFalse, Limit: 1, Offset: 0}
+				switch pattern {
+				case "callers_of":
+					strictPage, err = h.deps.QueryService.CallersOfPage(ctx, node.ID, strictOpts)
+				case "callees_of":
+					strictPage, err = h.deps.QueryService.CalleesOfPage(ctx, node.ID, strictOpts)
+				}
+				if err != nil {
+					return "", trace.Wrap(err, "strict query error")
+				}
 			}
-			if err != nil {
-				return "", trace.Wrap(err, "strict query error")
-			}
-			for _, strictNode := range strictNodes {
-				strictNodeIDs[strictNode.ID] = struct{}{}
-			}
-			if direction == "incoming" {
-				edges, err = h.deps.Store.GetEdgesTo(ctx, node.ID)
-			} else {
-				edges, err = h.deps.Store.GetEdgesFrom(ctx, node.ID)
-			}
+			// 실제 응답 페이지 기준으로만 엣지 증거를 보강한다.
+			neighborEdgeByNodeID, err = h.callQueryPatternEdges(ctx, node.ID, pattern, nodes)
 			if err != nil {
 				return "", trace.Wrap(err, "query evidence edges")
 			}
-			for _, edge := range edges {
-				switch edge.Kind {
-				case model.EdgeKindCalls, model.EdgeKindFallbackCalls:
-				default:
-					continue
-				}
-				var peerID uint
-				if pattern == "callers_of" {
-					peerID = edge.FromNodeID
-				} else {
-					peerID = edge.ToNodeID
-				}
-				if existing, ok := neighborEdgeByNodeID[peerID]; ok {
-					if existing.Kind == model.EdgeKindFallbackCalls && edge.Kind == model.EdgeKindCalls {
-						neighborEdgeByNodeID[peerID] = edge
-					}
-					continue
-				}
-				neighborEdgeByNodeID[peerID] = edge
+		}
+
+		strictTotal := 0
+		if pattern == "callers_of" || pattern == "callees_of" {
+			if includeFallbackCalls {
+				strictTotal = strictPage.TotalCount
+			} else {
+				strictTotal = totalCount
 			}
+		}
+		truncated := false
+		nextOffset := 0
+		if offset+len(nodes) < totalCount {
+			truncated = true
+			nextOffset = offset + len(nodes)
 		}
 
 		qgResults := make([]map[string]any, len(nodes))
 		for i, n := range nodes {
 			item := nodeToBasicMap(n)
 			if pattern == "callers_of" || pattern == "callees_of" {
-				if _, ok := strictNodeIDs[n.ID]; ok {
+				edge, hasEvidence := neighborEdgeByNodeID[n.ID]
+				if hasEvidence && edge.Kind == model.EdgeKindCalls {
 					item["confidence"] = "strict"
 					item["edge_kind"] = string(model.EdgeKindCalls)
 				} else {
 					item["confidence"] = "tentative"
 					item["edge_kind"] = string(model.EdgeKindFallbackCalls)
 				}
-				if edge, ok := neighborEdgeByNodeID[n.ID]; ok {
+				if hasEvidence {
 					item["evidence"] = map[string]any{
 						"file_path":   edge.FilePath,
 						"line":        edge.Line,
@@ -381,18 +402,27 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 			qgResults[i] = item
 		}
 
+		metadata := map[string]any{
+			"limit":          limit,
+			"offset":         offset,
+			"returned_count": len(qgResults),
+			"total_count":    totalCount,
+			"truncated":      truncated,
+		}
+		if truncated {
+			metadata["next_offset"] = nextOffset
+		}
 		resp := map[string]any{
 			"pattern":  pattern,
 			"target":   target,
 			"results":  qgResults,
+			"metadata": metadata,
 			"evidence": h.workspaceEvidenceFromContext(ctx),
 		}
 		if pattern == "callers_of" || pattern == "callees_of" {
-			resp["metadata"] = map[string]any{
-				"strict_count":           len(strictNodeIDs),
-				"tentative_count":        len(nodes) - len(strictNodeIDs),
-				"include_fallback_calls": includeFallbackCalls,
-			}
+			metadata["strict_count"] = strictTotal
+			metadata["tentative_count"] = totalCount - strictTotal
+			metadata["include_fallback_calls"] = includeFallbackCalls
 		}
 		result, err := marshalJSON(resp)
 		if err != nil {
@@ -400,6 +430,64 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 		}
 		return result, nil
 	}))
+}
+
+// callQueryPatternEdges loads only edge evidence for current page nodes.
+// @intent limit evidence lookup to the response page to avoid scanning full graph.
+func (h *handlers) callQueryPatternEdges(ctx context.Context, anchorID uint, pattern string, page []model.Node) (map[uint]model.Edge, error) {
+	if len(page) == 0 {
+		return map[uint]model.Edge{}, nil
+	}
+	if h.deps.DB == nil {
+		return map[uint]model.Edge{}, nil
+	}
+
+	peerIDs := make([]uint, 0, len(page))
+	for _, n := range page {
+		if n.ID != 0 {
+			peerIDs = append(peerIDs, n.ID)
+		}
+	}
+	if len(peerIDs) == 0 {
+		return map[uint]model.Edge{}, nil
+	}
+
+	var edges []model.Edge
+	var q *gorm.DB
+	switch pattern {
+	case "callers_of":
+		q = h.deps.DB.WithContext(ctx).
+			Model(&model.Edge{}).
+			Where("namespace = ? AND kind IN ? AND from_node_id IN ? AND to_node_id = ?", ctxns.FromContext(ctx), model.CallEdgeKinds(), peerIDs, anchorID)
+	case "callees_of":
+		q = h.deps.DB.WithContext(ctx).
+			Model(&model.Edge{}).
+			Where("namespace = ? AND kind IN ? AND to_node_id IN ? AND from_node_id = ?", ctxns.FromContext(ctx), model.CallEdgeKinds(), peerIDs, anchorID)
+	default:
+		return map[uint]model.Edge{}, nil
+	}
+
+	if err := q.Find(&edges).Error; err != nil {
+		return nil, err
+	}
+
+	peerToEdge := make(map[uint]model.Edge, len(peerIDs))
+	for _, edge := range edges {
+		var peerID uint
+		if pattern == "callers_of" {
+			peerID = edge.FromNodeID
+		} else {
+			peerID = edge.ToNodeID
+		}
+		if existing, ok := peerToEdge[peerID]; ok {
+			if existing.Kind == model.EdgeKindFallbackCalls && edge.Kind == model.EdgeKindCalls {
+				peerToEdge[peerID] = edge
+			}
+			continue
+		}
+		peerToEdge[peerID] = edge
+	}
+	return peerToEdge, nil
 }
 
 // compactQueryTargetAmbiguity formats ambiguous query_graph matches into one compact error string.

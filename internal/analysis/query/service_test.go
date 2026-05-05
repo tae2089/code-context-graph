@@ -180,6 +180,71 @@ func TestCalleesOfWithOptions_IncludesFallbackCallsByDefault(t *testing.T) {
 	}
 }
 
+func TestCalleesOfPage_ReturnsLimitOffsetAndTotalCount(t *testing.T) {
+	db := setupDB(t)
+	seedNode(t, db, 1, "A", model.NodeKindFunction, "a.go")
+	node2 := model.Node{
+		ID:            2,
+		QualifiedName: "pkg.CalleeB",
+		Namespace:     "",
+		Kind:          model.NodeKindFunction,
+		Name:          "CalleeB",
+		FilePath:      "a.go",
+		StartLine:     20,
+		EndLine:       20,
+		Language:      "go",
+	}
+	node3 := model.Node{
+		ID:            3,
+		QualifiedName: "pkg.CalleeC",
+		Namespace:     "",
+		Kind:          model.NodeKindFunction,
+		Name:          "CalleeC",
+		FilePath:      "a.go",
+		StartLine:     10,
+		EndLine:       10,
+		Language:      "go",
+	}
+	node4 := model.Node{
+		ID:            4,
+		QualifiedName: "pkg.CalleeD",
+		Namespace:     "",
+		Kind:          model.NodeKindFunction,
+		Name:          "CalleeD",
+		FilePath:      "a.go",
+		StartLine:     30,
+		EndLine:       30,
+		Language:      "go",
+	}
+	if err := db.Create(&node2).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&node3).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&node4).Error; err != nil {
+		t.Fatal(err)
+	}
+	seedEdge(t, db, 1, 2, model.EdgeKindCalls)
+	seedEdge(t, db, 1, 3, model.EdgeKindCalls)
+	seedEdge(t, db, 1, 4, model.EdgeKindCalls)
+
+	svc := New(db)
+	got, err := svc.CalleesOfPage(context.Background(), 1, QueryOptions{Limit: 2, Offset: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Nodes) != 2 {
+		t.Fatalf("expected 2 callees on page, got %d", len(got.Nodes))
+	}
+	if got.TotalCount != 3 {
+		t.Fatalf("expected total count 3, got %d", got.TotalCount)
+	}
+	if got.Nodes[0].ID != 2 || got.Nodes[1].ID != 4 {
+		t.Fatalf("expected sorted page second slice to be nodes 2 and 4, got %d, %d", got.Nodes[0].ID, got.Nodes[1].ID)
+	}
+}
+
 func TestCallersOfWithOptions_ExcludesFallbackCallsWhenDisabled(t *testing.T) {
 	db := setupDB(t)
 	seedNode(t, db, 1, "A", model.NodeKindFunction, "a.go")

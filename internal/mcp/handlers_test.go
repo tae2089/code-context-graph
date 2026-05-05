@@ -1934,8 +1934,8 @@ func TestQueryGraph_CallersOf(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("query_graph error: %s", getTextContent(result))
 	}
-	if !mockQ.callersOfCalled {
-		t.Error("expected CallersOf to be called")
+	if !mockQ.callersPageCalled {
+		t.Error("expected CallersOfPage to be called")
 	}
 }
 
@@ -1958,8 +1958,8 @@ func TestQueryGraph_CalleesOf(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("query_graph error: %s", getTextContent(result))
 	}
-	if !mockQ.calleesOfCalled {
-		t.Error("expected CalleesOf to be called")
+	if !mockQ.calleesPageCalled {
+		t.Error("expected CalleesOfPage to be called")
 	}
 }
 
@@ -1982,16 +1982,13 @@ func TestQueryGraph_CalleesOf_RespectsIncludeFallbackCalls(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("query_graph error: %s", getTextContent(result))
 	}
-	if !mockQ.calleesOfCalled {
-		t.Fatal("expected CalleesOf query to be called")
+	if !mockQ.calleesPageCalled {
+		t.Fatal("expected CalleesOfPage to be called for query_graph")
 	}
-	if !mockQ.calleesWithOptions {
-		t.Fatal("expected CalleesOfWithOptions to be called for query_graph")
-	}
-	if mockQ.calleesOpts.IncludeFallbackCalls == nil {
+	if mockQ.calleesPageOpts.IncludeFallbackCalls == nil {
 		t.Fatal("expected include_fallback_calls option to be set")
 	}
-	if *mockQ.calleesOpts.IncludeFallbackCalls {
+	if *mockQ.calleesPageOpts.IncludeFallbackCalls {
 		t.Fatal("expected include_fallback_calls=false to be forwarded to QueryService")
 	}
 }
@@ -2081,6 +2078,72 @@ func TestQueryGraph_CalleesOf_ReturnsTentativeProvenance(t *testing.T) {
 	}
 }
 
+func TestQueryGraph_CalleesOf_PaginationMetadata(t *testing.T) {
+	deps := setupGraphOnlyTestDeps(t)
+	ctx := context.Background()
+	deps.QueryService = query.New(deps.DB)
+
+	if err := deps.Store.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.Source", Kind: model.NodeKindFunction, Name: "Source", FilePath: "source.go", StartLine: 1, EndLine: 5, Language: "go"},
+		{QualifiedName: "pkg.C2", Kind: model.NodeKindFunction, Name: "C2", FilePath: "a.go", StartLine: 20, EndLine: 25, Language: "go"},
+		{QualifiedName: "pkg.C1", Kind: model.NodeKindFunction, Name: "C1", FilePath: "a.go", StartLine: 10, EndLine: 15, Language: "go"},
+		{QualifiedName: "pkg.C3", Kind: model.NodeKindFunction, Name: "C3", FilePath: "b.go", StartLine: 5, EndLine: 10, Language: "go"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	source, err := deps.Store.GetNode(ctx, "pkg.Source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c1, err := deps.Store.GetNode(ctx, "pkg.C1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c2, err := deps.Store.GetNode(ctx, "pkg.C2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c3, err := deps.Store.GetNode(ctx, "pkg.C3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := deps.Store.UpsertEdges(ctx, []model.Edge{
+		{FromNodeID: source.ID, ToNodeID: c2.ID, Kind: model.EdgeKindCalls, Fingerprint: "c2"},
+		{FromNodeID: source.ID, ToNodeID: c1.ID, Kind: model.EdgeKindCalls, Fingerprint: "c1"},
+		{FromNodeID: source.ID, ToNodeID: c3.ID, Kind: model.EdgeKindCalls, Fingerprint: "c3"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := callTool(t, deps, "query_graph", map[string]any{"pattern": "callees_of", "target": "pkg.Source", "limit": 2, "offset": 0})
+	if result.IsError {
+		t.Fatalf("query_graph error: %s", getTextContent(result))
+	}
+
+	var resp struct {
+		Results  []map[string]any `json:"results"`
+		Metadata map[string]any   `json:"metadata"`
+	}
+	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+		t.Fatalf("expected JSON response, got: %s", getTextContent(result))
+	}
+	if len(resp.Results) != 2 {
+		t.Fatalf("expected 2 paged results, got %d", len(resp.Results))
+	}
+	if resp.Metadata["returned_count"].(float64) != 2 {
+		t.Fatalf("expected returned_count=2, got %v", resp.Metadata["returned_count"])
+	}
+	if resp.Metadata["total_count"].(float64) != 3 {
+		t.Fatalf("expected total_count=3, got %v", resp.Metadata["total_count"])
+	}
+	if resp.Metadata["truncated"] != true {
+		t.Fatal("expected truncated=true")
+	}
+	if resp.Metadata["next_offset"].(float64) != 2 {
+		t.Fatalf("expected next_offset=2, got %v", resp.Metadata["next_offset"])
+	}
+}
+
 func TestQueryGraph_CacheKeyIncludesFallbackFlag(t *testing.T) {
 	deps := setupGraphOnlyTestDeps(t)
 	ctx := context.Background()
@@ -2114,8 +2177,8 @@ func TestQueryGraph_CacheKeyIncludesFallbackFlag(t *testing.T) {
 		t.Fatalf("query_graph error: %s", getTextContent(result))
 	}
 
-	if mockQ.calleesWithOptionsCalls != 4 {
-		t.Fatalf("expected 4 callee query calls (2 cache keys x strict+main), got %d", mockQ.calleesWithOptionsCalls)
+	if mockQ.calleesPageCalls != 3 {
+		t.Fatalf("expected 3 callee page calls (false:1, true:2), got %d", mockQ.calleesPageCalls)
 	}
 }
 
@@ -2134,8 +2197,8 @@ func TestQueryGraph_ImportsOf(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("query_graph error: %s", getTextContent(result))
 	}
-	if !mockQ.importsOfCalled {
-		t.Error("expected ImportsOf to be called")
+	if !mockQ.importsOfPageCalled {
+		t.Error("expected ImportsOfPage to be called")
 	}
 }
 
@@ -2154,8 +2217,8 @@ func TestQueryGraph_ImportersOf(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("query_graph error: %s", getTextContent(result))
 	}
-	if !mockQ.importersOfCalled {
-		t.Error("expected ImportersOf to be called")
+	if !mockQ.importersOfPageCalled {
+		t.Error("expected ImportersOfPage to be called")
 	}
 }
 
@@ -2174,8 +2237,8 @@ func TestQueryGraph_ChildrenOf(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("query_graph error: %s", getTextContent(result))
 	}
-	if !mockQ.childrenOfCalled {
-		t.Error("expected ChildrenOf to be called")
+	if !mockQ.childrenOfPageCalled {
+		t.Error("expected ChildrenOfPage to be called")
 	}
 }
 
@@ -2194,8 +2257,8 @@ func TestQueryGraph_TestsFor(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("query_graph error: %s", getTextContent(result))
 	}
-	if !mockQ.testsForCalled {
-		t.Error("expected TestsFor to be called")
+	if !mockQ.testsForPageCalled {
+		t.Error("expected TestsForPage to be called")
 	}
 }
 
@@ -2214,8 +2277,8 @@ func TestQueryGraph_InheritorsOf(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("query_graph error: %s", getTextContent(result))
 	}
-	if !mockQ.inheritorsOfCalled {
-		t.Error("expected InheritorsOf to be called")
+	if !mockQ.inheritorsOfPageCalled {
+		t.Error("expected InheritorsOfPage to be called")
 	}
 }
 
@@ -2293,7 +2356,7 @@ func TestQueryGraph_TargetFallbackAutoSelectsSingleShortNameMatch(t *testing.T) 
 	if !mockQ.findMatchesCalled {
 		t.Fatal("expected FindExactNameMatches to be called for short-name fallback")
 	}
-	if !mockQ.callersOfCalled {
+	if !mockQ.callersPageCalled {
 		t.Fatal("expected CallersOf to be called for short-name fallback")
 	}
 }

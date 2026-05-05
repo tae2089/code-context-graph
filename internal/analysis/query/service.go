@@ -28,6 +28,11 @@ type Service struct {
 	db *gorm.DB
 }
 
+type PagedNodes struct {
+	Nodes      []model.Node
+	TotalCount int
+}
+
 // CandidateMatch describes one exact short-name fallback candidate for query_graph.
 // @intent provide compact, stable target suggestions when a short symbol name matches multiple nodes.
 type CandidateMatch struct {
@@ -41,6 +46,8 @@ type CandidateMatch struct {
 // @intent let callers choose between compatibility mode and strict call-edge analysis.
 type QueryOptions struct {
 	IncludeFallbackCalls *bool
+	Limit                int
+	Offset               int
 }
 
 // New creates a predefined query service.
@@ -74,8 +81,19 @@ func (s *Service) nodesByEdge(ctx context.Context, nodeID uint, kind model.EdgeK
 // nodesByEdgeWithOptions loads nodes connected by an edge kind and direction with explicit fallback-call control.
 // @intent let strict graph queries exclude fallback call edges without changing legacy defaults.
 func (s *Service) nodesByEdgeWithOptions(ctx context.Context, nodeID uint, kind model.EdgeKind, direction string, opts QueryOptions) ([]model.Node, error) {
+	pageResult, err := s.nodesByEdgePageWithOptions(ctx, nodeID, kind, direction, opts)
+	if err != nil {
+		return nil, err
+	}
+	return pageResult.Nodes, nil
+}
+
+// nodesByEdgePageWithOptions loads nodes connected by an edge kind and direction with optional pagination.
+// @intent provide paginated graph query results without changing legacy return shape for non-paged callers.
+func (s *Service) nodesByEdgePageWithOptions(ctx context.Context, nodeID uint, kind model.EdgeKind, direction string, opts QueryOptions) (PagedNodes, error) {
 	var nodes []model.Node
 	var q *gorm.DB
+	var total int64
 	edgeKinds := []model.EdgeKind{kind}
 	if kind == model.EdgeKindCalls {
 		edgeKinds = []model.EdgeKind{model.EdgeKindCalls}
@@ -88,19 +106,42 @@ func (s *Service) nodesByEdgeWithOptions(ctx context.Context, nodeID uint, kind 
 	switch direction {
 	case "incoming":
 		q = s.db.WithContext(ctx).
+			Model(&model.Node{}).
 			Where("nodes.namespace = ?", ns).
 			Joins("JOIN edges ON edges.from_node_id = nodes.id").
 			Where("edges.namespace = ? AND edges.to_node_id = ? AND edges.kind IN ?", ns, nodeID, edgeKinds)
 	default:
 		q = s.db.WithContext(ctx).
+			Model(&model.Node{}).
 			Where("nodes.namespace = ?", ns).
 			Joins("JOIN edges ON edges.to_node_id = nodes.id").
 			Where("edges.namespace = ? AND edges.from_node_id = ? AND edges.kind IN ?", ns, nodeID, edgeKinds)
 	}
-	if err := q.Find(&nodes).Error; err != nil {
-		return nil, err
+
+	normalized := defaultQueryOptions(opts)
+	if normalized.Offset < 0 {
+		normalized.Offset = 0
 	}
-	return normalizeResults(nodes), nil
+	countQuery := q.Session(&gorm.Session{})
+	if err := countQuery.Distinct("nodes.id").Count(&total).Error; err != nil {
+		return PagedNodes{}, err
+	}
+
+	q = q.Session(&gorm.Session{}).
+		Select("DISTINCT nodes.*").
+		Order("nodes.file_path ASC").
+		Order("nodes.start_line ASC").
+		Order("nodes.qualified_name ASC")
+	if normalized.Limit > 0 {
+		q = q.Limit(normalized.Limit).Offset(normalized.Offset)
+	}
+	if err := q.Find(&nodes).Error; err != nil {
+		return PagedNodes{}, err
+	}
+	return PagedNodes{
+		Nodes:      normalizeResults(nodes),
+		TotalCount: int(total),
+	}, nil
 }
 
 // normalizeResults deduplicates and sorts graph query results.
@@ -137,6 +178,12 @@ func (s *Service) CallersOf(ctx context.Context, nodeID uint) ([]model.Node, err
 	return s.nodesByEdge(ctx, nodeID, model.EdgeKindCalls, "incoming")
 }
 
+// CallersOfPage returns callers with pagination metadata.
+// @intent support paginated query_graph response pagination and cache metadata.
+func (s *Service) CallersOfPage(ctx context.Context, nodeID uint, opts QueryOptions) (PagedNodes, error) {
+	return s.nodesByEdgePageWithOptions(ctx, nodeID, model.EdgeKindCalls, "incoming", opts)
+}
+
 // CallersOfWithOptions returns nodes that call the target node with explicit fallback-call control.
 // @intent support strict caller lookups that ignore fallback-derived edges when requested.
 func (s *Service) CallersOfWithOptions(ctx context.Context, nodeID uint, opts QueryOptions) ([]model.Node, error) {
@@ -148,6 +195,12 @@ func (s *Service) CallersOfWithOptions(ctx context.Context, nodeID uint, opts Qu
 // @see query.Service.CallersOf
 func (s *Service) CalleesOf(ctx context.Context, nodeID uint) ([]model.Node, error) {
 	return s.nodesByEdge(ctx, nodeID, model.EdgeKindCalls, "outgoing")
+}
+
+// CalleesOfPage returns callees with pagination metadata.
+// @intent support paginated query_graph response pagination and cache metadata.
+func (s *Service) CalleesOfPage(ctx context.Context, nodeID uint, opts QueryOptions) (PagedNodes, error) {
+	return s.nodesByEdgePageWithOptions(ctx, nodeID, model.EdgeKindCalls, "outgoing", opts)
 }
 
 // CalleesOfWithOptions returns nodes called by the target node with explicit fallback-call control.
@@ -162,10 +215,22 @@ func (s *Service) ImportsOf(ctx context.Context, nodeID uint) ([]model.Node, err
 	return s.nodesByEdge(ctx, nodeID, model.EdgeKindImportsFrom, "outgoing")
 }
 
+// ImportsOfPage returns imported nodes with pagination metadata.
+// @intent support paginated query_graph response pagination and cache metadata.
+func (s *Service) ImportsOfPage(ctx context.Context, nodeID uint, opts QueryOptions) (PagedNodes, error) {
+	return s.nodesByEdgePageWithOptions(ctx, nodeID, model.EdgeKindImportsFrom, "outgoing", opts)
+}
+
 // ImportersOf returns nodes that import the target node.
 // @intent reveal reverse import dependencies pointing at the target node
 func (s *Service) ImportersOf(ctx context.Context, nodeID uint) ([]model.Node, error) {
 	return s.nodesByEdge(ctx, nodeID, model.EdgeKindImportsFrom, "incoming")
+}
+
+// ImportersOfPage returns importing nodes with pagination metadata.
+// @intent support paginated query_graph response pagination and cache metadata.
+func (s *Service) ImportersOfPage(ctx context.Context, nodeID uint, opts QueryOptions) (PagedNodes, error) {
+	return s.nodesByEdgePageWithOptions(ctx, nodeID, model.EdgeKindImportsFrom, "incoming", opts)
 }
 
 // ChildrenOf returns nodes contained by the target node.
@@ -174,16 +239,34 @@ func (s *Service) ChildrenOf(ctx context.Context, nodeID uint) ([]model.Node, er
 	return s.nodesByEdge(ctx, nodeID, model.EdgeKindContains, "outgoing")
 }
 
+// ChildrenOfPage returns child nodes with pagination metadata.
+// @intent support paginated query_graph response pagination and cache metadata.
+func (s *Service) ChildrenOfPage(ctx context.Context, nodeID uint, opts QueryOptions) (PagedNodes, error) {
+	return s.nodesByEdgePageWithOptions(ctx, nodeID, model.EdgeKindContains, "outgoing", opts)
+}
+
 // TestsFor returns tests that exercise the target node.
 // @intent find test nodes linked to the target via tested_by edges
 func (s *Service) TestsFor(ctx context.Context, nodeID uint) ([]model.Node, error) {
 	return s.nodesByEdge(ctx, nodeID, model.EdgeKindTestedBy, "incoming")
 }
 
+// TestsForPage returns tests with pagination metadata.
+// @intent support paginated query_graph response pagination and cache metadata.
+func (s *Service) TestsForPage(ctx context.Context, nodeID uint, opts QueryOptions) (PagedNodes, error) {
+	return s.nodesByEdgePageWithOptions(ctx, nodeID, model.EdgeKindTestedBy, "incoming", opts)
+}
+
 // InheritorsOf returns nodes inheriting from the target node.
 // @intent find derived types that point to the target through inheritance edges
 func (s *Service) InheritorsOf(ctx context.Context, nodeID uint) ([]model.Node, error) {
 	return s.nodesByEdge(ctx, nodeID, model.EdgeKindInherits, "incoming")
+}
+
+// InheritorsOfPage returns inheritors with pagination metadata.
+// @intent support paginated query_graph response pagination and cache metadata.
+func (s *Service) InheritorsOfPage(ctx context.Context, nodeID uint, opts QueryOptions) (PagedNodes, error) {
+	return s.nodesByEdgePageWithOptions(ctx, nodeID, model.EdgeKindInherits, "incoming", opts)
 }
 
 // FileSummaryOf returns node counts grouped by kind for one file.

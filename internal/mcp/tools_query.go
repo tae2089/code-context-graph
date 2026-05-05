@@ -47,6 +47,8 @@ func queryTools(h *handlers) []server.ServerTool {
 				mcp.WithDescription("Run predefined graph queries: callers_of, callees_of, imports_of, importers_of, children_of, tests_for, inheritors_of, file_summary"),
 				mcp.WithString("pattern", mcp.Description("Query pattern"), mcp.Required()),
 				mcp.WithString("target", mcp.Description("Target qualified name or file path"), mcp.Required()),
+				mcp.WithNumber("limit", mcp.Description("Maximum number of results returned (default: 50)"), mcp.DefaultNumber(50)),
+				mcp.WithNumber("offset", mcp.Description("Zero-based result offset for pagination (default: 0)"), mcp.DefaultNumber(0)),
 				mcp.WithBoolean("include_fallback_calls", mcp.Description("When false, callers_of/callees_of exclude fallback_calls edges; defaults to true")),
 			)...),
 			Handler: h.queryGraph,
