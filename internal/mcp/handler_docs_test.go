@@ -367,8 +367,81 @@ func TestRetrieveDocs_ReturnsDocumentContentAndEvidence(t *testing.T) {
 	if len(got.MatchedTerms) != 2 {
 		t.Fatalf("matched_terms = %#v, want both terms", got.MatchedTerms)
 	}
+	if len(got.MatchedFields) == 0 {
+		t.Fatalf("matched_fields should be populated, got %#v", got.MatchedFields)
+	}
 	if len(got.Matches) < 2 {
 		t.Fatalf("expected evidence matches for both symbols, got %#v", got.Matches)
+	}
+}
+
+func TestRetrieveDocs_ExposesStructuredMatchedFields(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	docsDir := filepath.Join(tmpDir, "docs")
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+
+	comm := model.Community{Key: "rules", Label: "Rules", Description: "policy rules"}
+	if err := deps.DB.Create(&comm).Error; err != nil {
+		t.Fatalf("create community: %v", err)
+	}
+	node := model.Node{QualifiedName: "policy.CheckAccess", Kind: model.NodeKindFunction, Name: "CheckAccess", FilePath: "internal/policy/access.go", StartLine: 1, EndLine: 20, Language: "go"}
+	if err := deps.DB.Create(&node).Error; err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := deps.DB.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: node.ID}).Error; err != nil {
+		t.Fatalf("create membership: %v", err)
+	}
+	ann := model.Annotation{NodeID: node.ID, Summary: "access policy"}
+	if err := deps.DB.Create(&ann).Error; err != nil {
+		t.Fatalf("create annotation: %v", err)
+	}
+	for i, tag := range []model.DocTag{
+		{AnnotationID: ann.ID, Kind: model.TagDomainRule, Value: "admin approval required", Ordinal: 0},
+		{AnnotationID: ann.ID, Kind: model.TagSideEffect, Value: "admin audit log written", Ordinal: 1},
+	} {
+		if err := deps.DB.Create(&tag).Error; err != nil {
+			t.Fatalf("create doc tag %d: %v", i, err)
+		}
+	}
+
+	docPath := filepath.Join(docsDir, "internal/policy/access.go.md")
+	if err := os.MkdirAll(filepath.Dir(docPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(docPath, []byte("# access.go\n\nadmin approval and audit docs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	b := &ragindex.Builder{DB: deps.DB, IndexDir: deps.RagIndexDir, OutDir: docsDir}
+	if _, _, err := b.Build(context.Background()); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	result := callTool(t, deps, "retrieve_docs", map[string]any{
+		"query":         "admin",
+		"limit":         float64(5),
+		"content_limit": float64(2000),
+	})
+	if result.IsError {
+		t.Fatalf("retrieve_docs error: %v", getTextContent(result))
+	}
+
+	var response retrieveDocsResponse
+	if err := json.Unmarshal([]byte(getTextContent(result)), &response); err != nil {
+		t.Fatalf("unmarshal retrieve response: %v", err)
+	}
+	if len(response.Results) != 1 {
+		t.Fatalf("results = %d, want 1: %#v", len(response.Results), response.Results)
+	}
+	got := map[string]bool{}
+	for _, field := range response.Results[0].MatchedFields {
+		got[field] = true
+	}
+	for _, want := range []string{"domainRule", "sideEffect"} {
+		if !got[want] {
+			t.Fatalf("matched_fields missing %q: %#v", want, response.Results[0].MatchedFields)
+		}
 	}
 }
 

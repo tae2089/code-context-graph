@@ -1014,3 +1014,173 @@ func TestFindNode(t *testing.T) {
 		})
 	}
 }
+
+// TestRetrieve_IntentOutranksGenericHidden verifies the structured retrieval Phase 1
+// scoring puts a node whose @intent bucket matches the query above a node where
+// the same term only appears in flat SearchText (generic hidden fallback).
+func TestRetrieve_IntentOutranksGenericHidden(t *testing.T) {
+	root := &ragindex.TreeNode{
+		ID:    "root",
+		Label: "Root",
+		Children: []*ragindex.TreeNode{
+			{
+				ID:    "community:c",
+				Label: "c",
+				Children: []*ragindex.TreeNode{
+					{
+						ID:      "file:a.go",
+						Label:   "a.go",
+						DocPath: "docs/a.go.md",
+						Children: []*ragindex.TreeNode{
+							{
+								ID:         "symbol:pkg.Generic",
+								Label:      "Generic",
+								Summary:    "misc",
+								SearchText: "payment processing notes",
+							},
+						},
+					},
+					{
+						ID:      "file:b.go",
+						Label:   "b.go",
+						DocPath: "docs/b.go.md",
+						Children: []*ragindex.TreeNode{
+							{
+								ID:    "symbol:pkg.Intentful",
+								Label: "Intentful",
+								FieldTexts: map[string]string{
+									"intent": "payment settlement entrypoint",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	results := ragindex.Retrieve(root, "payment", 10)
+	if len(results) < 2 {
+		t.Fatalf("expected both files to score, got %d", len(results))
+	}
+	if results[0].DocPath != "docs/b.go.md" {
+		t.Fatalf("top doc = %q, want docs/b.go.md (intent bucket should outrank generic hidden)", results[0].DocPath)
+	}
+	hasIntent := false
+	for _, f := range results[0].MatchedFields {
+		if f == "intent" {
+			hasIntent = true
+		}
+	}
+	if !hasIntent {
+		t.Errorf("MatchedFields = %v, want to include intent", results[0].MatchedFields)
+	}
+}
+
+// TestRetrieve_MatchedFieldsExposesAnnotationBuckets verifies that retrieve_docs
+// surfaces the distinct annotation buckets that fired (domainRule, sideEffect,
+// mutates, requires, ensures, see) so callers can audit ranking evidence.
+func TestRetrieve_MatchedFieldsExposesAnnotationBuckets(t *testing.T) {
+	root := &ragindex.TreeNode{
+		ID:    "root",
+		Label: "Root",
+		Children: []*ragindex.TreeNode{
+			{
+				ID:    "community:c",
+				Label: "c",
+				Children: []*ragindex.TreeNode{
+					{
+						ID:      "file:multi.go",
+						Label:   "multi.go",
+						DocPath: "docs/multi.go.md",
+						Children: []*ragindex.TreeNode{
+							{
+								ID:    "symbol:pkg.Rule",
+								Label: "Rule",
+								FieldTexts: map[string]string{
+									"domainRule": "alpha business rule",
+									"requires":   "alpha precondition",
+									"ensures":    "alpha postcondition",
+									"sideEffect": "alpha writes log",
+									"mutates":    "alpha state change",
+									"see":        "alpha related handler",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	results := ragindex.Retrieve(root, "alpha", 5)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	got := map[string]bool{}
+	for _, f := range results[0].MatchedFields {
+		got[f] = true
+	}
+	want := []string{"domainRule", "requires", "ensures", "sideEffect", "mutates", "see"}
+	for _, w := range want {
+		if !got[w] {
+			t.Errorf("MatchedFields missing %q; got %v", w, results[0].MatchedFields)
+		}
+	}
+}
+
+func TestRetrieve_DoesNotDoubleCountSearchTextWhenStructuredFieldMatches(t *testing.T) {
+	root := &ragindex.TreeNode{
+		ID:    "root",
+		Label: "Root",
+		Children: []*ragindex.TreeNode{
+			{
+				ID:    "community:c",
+				Label: "c",
+				Children: []*ragindex.TreeNode{
+					{
+						ID:      "file:intent.go",
+						Label:   "intent.go",
+						DocPath: "docs/intent.go.md",
+						Children: []*ragindex.TreeNode{
+							{
+								ID:         "symbol:pkg.Intent",
+								Label:      "Intent",
+								SearchText: "payment settlement entrypoint",
+								FieldTexts: map[string]string{"intent": "payment settlement entrypoint"},
+							},
+						},
+					},
+					{
+						ID:      "file:generic.go",
+						Label:   "generic.go",
+						DocPath: "docs/generic.go.md",
+						Children: []*ragindex.TreeNode{
+							{
+								ID:         "symbol:pkg.Generic",
+								Label:      "Generic",
+								SearchText: "payment settlement entrypoint",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	results := ragindex.Retrieve(root, "payment", 10)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	if results[0].DocPath != "docs/intent.go.md" {
+		t.Fatalf("top doc = %q, want docs/intent.go.md", results[0].DocPath)
+	}
+	if results[0].Score != 17 {
+		t.Fatalf("intent-backed score = %d, want 17 (7 intent + 10 distinct term bonus)", results[0].Score)
+	}
+	for _, field := range results[0].MatchedFields {
+		if field == "generic" {
+			t.Fatalf("matched_fields should not include generic when structured field already matched: %#v", results[0].MatchedFields)
+		}
+	}
+}

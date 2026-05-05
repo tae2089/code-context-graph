@@ -25,14 +25,16 @@ import (
 // TreeNode는 doc-index.json의 단일 노드이다.
 // @intent RAG 탐색 트리에서 커뮤니티, 파일, 심볼 노드를 동일 구조로 표현한다.
 type TreeNode struct {
-	ID         string       `json:"id"`
-	Label      string       `json:"label"`
-	Kind       string       `json:"kind"`
-	Summary    string       `json:"summary"`
-	DocPath    string       `json:"doc_path,omitempty"` // file 노드만 설정
-	SearchText string       `json:"search_text,omitempty"`
-	Details    *NodeDetails `json:"details,omitempty"`
-	Children   []*TreeNode  `json:"children"`
+	ID         string `json:"id"`
+	Label      string `json:"label"`
+	Kind       string `json:"kind"`
+	Summary    string `json:"summary"`
+	DocPath    string `json:"doc_path,omitempty"` // file 노드만 설정
+	SearchText string `json:"search_text,omitempty"`
+	// @intent expose annotation-derived text bucketed by retrieval field so Retrieve scoring weights @intent/@domainRule/etc. independently of flat SearchText recall.
+	FieldTexts map[string]string `json:"field_texts,omitempty"`
+	Details    *NodeDetails      `json:"details,omitempty"`
+	Children   []*TreeNode       `json:"children"`
 }
 
 // NodeDetails carries browser-facing metadata for a graph node in the Wiki tree.
@@ -180,7 +182,7 @@ func (b *Builder) Build(ctx context.Context) (int, int, error) {
 	if err != nil {
 		return 0, 0, trace.Wrap(err, "batchFileSummaries")
 	}
-	fileSearchTexts, err := b.batchFileSearchTexts(ctx, allFilePaths)
+	fileSearchTexts, fileFieldTexts, err := b.batchFileSearchTexts(ctx, allFilePaths)
 	if err != nil {
 		return 0, 0, trace.Wrap(err, "batchFileSearchTexts")
 	}
@@ -236,6 +238,7 @@ func (b *Builder) Build(ctx context.Context) (int, int, error) {
 					Summary:    summary,
 					DocPath:    b.docPath(filePath),
 					SearchText: fileSearchTexts[filePath],
+					FieldTexts: fileFieldTexts[filePath],
 					Children:   symbolsByFile[filePath],
 				}
 				uniqueFiles[filePath] = struct{}{}
@@ -328,11 +331,12 @@ func (b *Builder) batchFileSummaries(ctx context.Context, filePaths []string) (m
 }
 
 // batchFileSearchTexts returns annotation-derived search text for file nodes.
-// @intent keep file-level retrieval searchable by structured file annotations without exposing the text in tree responses.
-func (b *Builder) batchFileSearchTexts(ctx context.Context, filePaths []string) (map[string]string, error) {
+// @intent keep file-level retrieval searchable by structured file annotations without exposing the text in tree responses, and supply per-field bucketed text for Retrieve scoring.
+func (b *Builder) batchFileSearchTexts(ctx context.Context, filePaths []string) (map[string]string, map[string]map[string]string, error) {
 	result := make(map[string]string, len(filePaths))
+	fields := make(map[string]map[string]string, len(filePaths))
 	if len(filePaths) == 0 {
-		return result, nil
+		return result, fields, nil
 	}
 	ns := ctxns.FromContext(ctx)
 	var nodes []model.Node
@@ -340,15 +344,20 @@ func (b *Builder) batchFileSearchTexts(ctx context.Context, filePaths []string) 
 		Where("namespace = ? AND kind = ? AND file_path IN ?", ns, model.NodeKindFile, filePaths).
 		Preload("Annotation.Tags")
 	if err := q.Find(&nodes).Error; err != nil {
-		return nil, trace.Wrap(err, "batch file search text")
+		return nil, nil, trace.Wrap(err, "batch file search text")
 	}
 	for i := range nodes {
 		text := SearchTextForAnnotation(nodes[i].Annotation)
 		if text != "" && result[nodes[i].FilePath] == "" {
 			result[nodes[i].FilePath] = text
 		}
+		if _, exists := fields[nodes[i].FilePath]; !exists {
+			if ft := fieldTextsForAnnotation(nodes[i].Annotation); ft != nil {
+				fields[nodes[i].FilePath] = ft
+			}
+		}
 	}
-	return result, nil
+	return result, fields, nil
 }
 
 // batchSymbolNodes returns annotated symbol nodes grouped by file path.
@@ -375,8 +384,18 @@ func (b *Builder) batchSymbolNodes(ctx context.Context, nodeIDs []uint) (map[str
 	for i := range nodes {
 		summary := summaryForAnnotation(nodes[i].Annotation)
 		searchText := SearchTextForAnnotation(nodes[i].Annotation)
+		fieldTexts := fieldTextsForAnnotation(nodes[i].Annotation)
 		if summary == "" && searchText == "" {
 			continue
+		}
+		if fieldTexts == nil {
+			fieldTexts = map[string]string{}
+		}
+		if qn := strings.TrimSpace(nodes[i].QualifiedName); qn != "" {
+			fieldTexts[fieldQualifiedName] = strings.ToLower(qn)
+		}
+		if len(fieldTexts) == 0 {
+			fieldTexts = nil
 		}
 		symNode := &TreeNode{
 			ID:         fmt.Sprintf("symbol:%s", nodes[i].QualifiedName),
@@ -384,6 +403,7 @@ func (b *Builder) batchSymbolNodes(ctx context.Context, nodeIDs []uint) (map[str
 			Kind:       "symbol",
 			Summary:    summary,
 			SearchText: searchText,
+			FieldTexts: fieldTexts,
 			Children:   []*TreeNode{},
 		}
 		result[nodes[i].FilePath] = append(result[nodes[i].FilePath], symNode)
@@ -430,6 +450,58 @@ func SearchTextForAnnotation(annotation *model.Annotation) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+// @intent bucket annotation tag values into structured retrieval fields so Retrieve can weight @intent / @domainRule / @sideEffect / @mutates / @requires / @ensures / @see independently from generic hidden text, while unbucketed tags (param/return/throws/typedef) stay in the generic fallback to preserve recall.
+func fieldTextsForAnnotation(annotation *model.Annotation) map[string]string {
+	if annotation == nil {
+		return nil
+	}
+	buckets := map[string][]string{}
+	push := func(field, value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		buckets[field] = append(buckets[field], value)
+	}
+	if s := strings.TrimSpace(annotation.Summary); s != "" {
+		push(fieldAnnotationText, s)
+	}
+	if c := strings.TrimSpace(annotation.Context); c != "" {
+		push(fieldAnnotationText, c)
+	}
+	for _, tag := range annotation.Tags {
+		val := strings.TrimSpace(tag.Value)
+		switch tag.Kind {
+		case model.TagIntent:
+			push(fieldIntent, val)
+		case model.TagIndex:
+			push(fieldIndexSummary, val)
+		case model.TagDomainRule:
+			push(fieldDomainRule, val)
+		case model.TagRequires:
+			push(fieldRequires, val)
+		case model.TagEnsures:
+			push(fieldEnsures, val)
+		case model.TagSideEffect:
+			push(fieldSideEffect, val)
+		case model.TagMutates:
+			push(fieldMutates, val)
+		case model.TagSee:
+			push(fieldSee, val)
+		default:
+			push(fieldGenericHidden, strings.TrimSpace(string(tag.Kind)+" "+tag.Type+" "+tag.Name+" "+val))
+		}
+	}
+	if len(buckets) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(buckets))
+	for k, vs := range buckets {
+		out[k] = strings.ToLower(strings.Join(vs, " "))
+	}
+	return out
 }
 
 // docPath는 파일 경로를 기반으로 docs 디렉토리 내의 문서 경로를 반환한다.
@@ -524,18 +596,54 @@ type SearchResult struct {
 }
 
 // RetrieveResult represents one document candidate selected from tree-aware query matching.
-// @intent return file-level RAG retrieval candidates with the matched tree evidence that caused the hit.
+// @intent return file-level RAG retrieval candidates with the matched tree evidence that caused the hit, including which annotation buckets contributed.
 type RetrieveResult struct {
-	ID           string         `json:"id"`
-	Label        string         `json:"label"`
-	Kind         string         `json:"kind"`
-	Summary      string         `json:"summary"`
-	DocPath      string         `json:"doc_path"`
-	Path         []string       `json:"path"`
-	Score        int            `json:"score"`
-	MatchedTerms []string       `json:"matched_terms"`
-	Matches      []SearchResult `json:"matches,omitempty"`
+	ID            string         `json:"id"`
+	Label         string         `json:"label"`
+	Kind          string         `json:"kind"`
+	Summary       string         `json:"summary"`
+	DocPath       string         `json:"doc_path"`
+	Path          []string       `json:"path"`
+	Score         int            `json:"score"`
+	MatchedTerms  []string       `json:"matched_terms"`
+	MatchedFields []string       `json:"matched_fields"`
+	Matches       []SearchResult `json:"matches,omitempty"`
 }
+
+// @intent named retrieval-bucket weights derived from guide/search-retrieval.md Phase 1 scoring table; centralised so ranking stays auditable.
+const (
+	weightExactLabel        = 12
+	weightLabelContains     = 7
+	weightIntent            = 7
+	weightIndexSummary      = 6
+	weightQualifiedName     = 4
+	weightDomainRule        = 5
+	weightRequires          = 5
+	weightEnsures           = 5
+	weightSideEffect        = 4
+	weightMutates           = 4
+	weightSee               = 3
+	weightAnnotationText    = 2
+	weightGenericHidden     = 1
+	weightDistinctTermBonus = 10
+)
+
+// @intent canonical retrieval field names used both for FieldTexts bucket keys and matched_fields evidence so downstream consumers see a stable vocabulary.
+const (
+	fieldLabel          = "label"
+	fieldLabelContains  = "label_contains"
+	fieldQualifiedName  = "qualified_name"
+	fieldIntent         = "intent"
+	fieldIndexSummary   = "index_summary"
+	fieldDomainRule     = "domainRule"
+	fieldRequires       = "requires"
+	fieldEnsures        = "ensures"
+	fieldSideEffect     = "sideEffect"
+	fieldMutates        = "mutates"
+	fieldSee            = "see"
+	fieldAnnotationText = "annotation_text"
+	fieldGenericHidden  = "generic"
+)
 
 // Search는 root 트리를 DFS로 순회하며 query를 label, summary, search_text에서
 // case-insensitive 검색하여 최대 maxResults개의 결과를 반환한다.
@@ -639,18 +747,19 @@ func collectRetrieveResults(n *TreeNode, terms []string, path []string, results 
 	for _, child := range n.Children {
 		childPath := appendPath(path, child.Label)
 		if child.DocPath != "" {
-			score, matchedTerms, matches := scoreRetrieveSubtree(child, childPath, terms)
+			score, matchedTerms, matchedFields, matches := scoreRetrieveSubtree(child, childPath, terms)
 			if score > 0 {
 				*results = append(*results, RetrieveResult{
-					ID:           child.ID,
-					Label:        child.Label,
-					Kind:         child.Kind,
-					Summary:      child.Summary,
-					DocPath:      child.DocPath,
-					Path:         childPath,
-					Score:        score,
-					MatchedTerms: matchedTerms,
-					Matches:      matches,
+					ID:            child.ID,
+					Label:         child.Label,
+					Kind:          child.Kind,
+					Summary:       child.Summary,
+					DocPath:       child.DocPath,
+					Path:          childPath,
+					Score:         score,
+					MatchedTerms:  matchedTerms,
+					MatchedFields: matchedFields,
+					Matches:       matches,
 				})
 			}
 		}
@@ -659,11 +768,12 @@ func collectRetrieveResults(n *TreeNode, terms []string, path []string, results 
 }
 
 // scoreRetrieveSubtree scores one file node and records direct descendant evidence.
-// @intent allow one document to match queries whose terms are distributed across multiple symbols.
-func scoreRetrieveSubtree(root *TreeNode, rootPath []string, terms []string) (int, []string, []SearchResult) {
+// @intent allow one document to match queries whose terms are distributed across multiple symbols, and surface which annotation buckets fired as matched_fields evidence.
+func scoreRetrieveSubtree(root *TreeNode, rootPath []string, terms []string) (int, []string, []string, []SearchResult) {
 	matched := map[string]struct{}{}
+	matchedFields := map[string]struct{}{}
 	var matches []SearchResult
-	score := scoreRetrieveNode(root, terms, matched)
+	score := scoreRetrieveNode(root, terms, matched, matchedFields)
 	if score > 0 {
 		matches = append(matches, SearchResult{
 			ID:      root.ID,
@@ -679,7 +789,7 @@ func scoreRetrieveSubtree(root *TreeNode, rootPath []string, terms []string) (in
 	walk = func(n *TreeNode, path []string) {
 		for _, child := range n.Children {
 			childPath := appendPath(path, child.Label)
-			childScore := scoreRetrieveNode(child, terms, matched)
+			childScore := scoreRetrieveNode(child, terms, matched, matchedFields)
 			if childScore > 0 {
 				score += childScore
 				matches = append(matches, SearchResult{
@@ -701,35 +811,79 @@ func scoreRetrieveSubtree(root *TreeNode, rootPath []string, terms []string) (in
 		matchedTerms = append(matchedTerms, term)
 	}
 	sort.Strings(matchedTerms)
-	score += len(matchedTerms) * 10
-	return score, matchedTerms, matches
+	fields := make([]string, 0, len(matchedFields))
+	for f := range matchedFields {
+		fields = append(fields, f)
+	}
+	sort.Strings(fields)
+	score += len(matchedTerms) * weightDistinctTermBonus
+	return score, matchedTerms, fields, matches
 }
 
 // scoreRetrieveNode returns a weighted keyword score for one tree node.
-// @intent rank exact labels above summary/id matches while preserving recall.
-// @mutates matched records terms observed on this node.
-func scoreRetrieveNode(n *TreeNode, terms []string, matched map[string]struct{}) int {
+// @intent rank exact label hits and high-signal annotation buckets (intent, index/summary, domainRule, requires, ensures) above lower-signal buckets while keeping SearchText as a +1 generic-hidden fallback so legacy nodes without FieldTexts still contribute recall.
+// @mutates matched records terms observed on this node; matchedFields records which retrieval buckets fired.
+func scoreRetrieveNode(n *TreeNode, terms []string, matched map[string]struct{}, matchedFields map[string]struct{}) int {
 	label := strings.ToLower(n.Label)
 	summary := strings.ToLower(n.Summary)
-	searchText := strings.ToLower(n.SearchText)
 	id := strings.ToLower(n.ID)
+	searchText := strings.ToLower(n.SearchText)
+	bucketWeights := map[string]int{
+		fieldIntent:         weightIntent,
+		fieldIndexSummary:   weightIndexSummary,
+		fieldDomainRule:     weightDomainRule,
+		fieldRequires:       weightRequires,
+		fieldEnsures:        weightEnsures,
+		fieldSideEffect:     weightSideEffect,
+		fieldMutates:        weightMutates,
+		fieldSee:            weightSee,
+		fieldAnnotationText: weightAnnotationText,
+		fieldGenericHidden:  weightGenericHidden,
+		fieldQualifiedName:  weightQualifiedName,
+	}
+	loweredFields := make(map[string]string, len(n.FieldTexts))
+	for k, v := range n.FieldTexts {
+		loweredFields[k] = strings.ToLower(v)
+	}
 	score := 0
 	for _, term := range terms {
 		termScore := 0
+		fieldTextMatched := false
 		if label == term {
-			termScore += 8
+			termScore += weightExactLabel
+			matchedFields[fieldLabel] = struct{}{}
+		} else if strings.Contains(label, term) {
+			termScore += weightLabelContains
+			matchedFields[fieldLabelContains] = struct{}{}
 		}
-		if strings.Contains(label, term) {
-			termScore += 5
+		if _, hasQN := loweredFields[fieldQualifiedName]; !hasQN {
+			if strings.Contains(id, term) {
+				termScore += weightQualifiedName
+				matchedFields[fieldQualifiedName] = struct{}{}
+			}
 		}
-		if strings.Contains(id, term) {
-			termScore += 3
+		for field, weight := range bucketWeights {
+			text, ok := loweredFields[field]
+			if !ok || text == "" {
+				continue
+			}
+			if strings.Contains(text, term) {
+				termScore += weight
+				fieldTextMatched = true
+				matchedFields[field] = struct{}{}
+			}
 		}
-		if strings.Contains(summary, term) {
-			termScore += 2
+		if _, hasIndexBucket := loweredFields[fieldIndexSummary]; !hasIndexBucket {
+			if strings.Contains(summary, term) {
+				termScore += weightIndexSummary
+				matchedFields[fieldIndexSummary] = struct{}{}
+			}
 		}
-		if strings.Contains(searchText, term) {
-			termScore += 1
+		if !fieldTextMatched && searchText != "" && strings.Contains(searchText, term) {
+			if _, alreadyHit := loweredFields[fieldGenericHidden]; !alreadyHit {
+				termScore += weightGenericHidden
+				matchedFields[fieldGenericHidden] = struct{}{}
+			}
 		}
 		if termScore > 0 {
 			matched[term] = struct{}{}
