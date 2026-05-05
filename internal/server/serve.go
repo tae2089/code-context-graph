@@ -15,20 +15,11 @@ import (
 
 	mcpgo "github.com/mark3labs/mcp-go/server"
 	"github.com/tae2089/trace"
-	"gorm.io/gorm"
 
-	"github.com/tae2089/code-context-graph/internal/analysis/changes"
-	"github.com/tae2089/code-context-graph/internal/analysis/community"
-	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
-	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
-	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
-	"github.com/tae2089/code-context-graph/internal/analysis/flows"
-	"github.com/tae2089/code-context-graph/internal/analysis/impact"
-	"github.com/tae2089/code-context-graph/internal/analysis/largefunc"
-	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/core"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/mcp"
+	"github.com/tae2089/code-context-graph/internal/mcpruntime"
 	ccgobs "github.com/tae2089/code-context-graph/internal/obs"
 	"github.com/tae2089/code-context-graph/internal/pathutil"
 	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
@@ -37,155 +28,31 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-// Run starts the MCP server with the configured transport.
-// @intent connect shared core dependencies and server config to the MCP runtime.
-// @sideEffect initializes telemetry, cache, stdio or HTTP server resources, and shutdown hooks.
+// Run starts the self-hosted MCP server over Streamable HTTP.
+// @intent keep HTTP/webhook transport setup isolated from the local ccg stdio binary.
+// @sideEffect initializes shared MCP runtime resources and starts the HTTP server.
 func Run(rt *core.Runtime, cfg Config, serviceVersion, ragIndexDir, ragProjectDesc string) error {
-	rt.Logger.Info("starting code-context-graph MCP server")
-	tel, err := ccgobs.Setup(context.Background(), ccgobs.Config{
-		ServiceName:    "code-context-graph",
-		ServiceVersion: serviceVersion,
-		Mode:           "serve",
-		Endpoint:       cfg.OTELEndpoint,
-		Logger:         rt.Logger,
-	})
-	if err != nil {
-		return trace.Wrap(err, "setup telemetry")
+	if cfg.Transport != "streamable-http" {
+		return fmt.Errorf("ccg-server only supports streamable-http transport")
 	}
-	ccgobs.SetGlobal(tel)
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := tel.Shutdown(shutdownCtx); err != nil {
-			rt.Logger.Error("telemetry shutdown failed", "error", err)
-		}
-		ccgobs.SetGlobal(nil)
-	}()
-
-	var cache *mcp.Cache
-	if !cfg.NoCache && cfg.CacheTTL > 0 {
-		cache = mcp.NewCache(cfg.CacheTTL)
-		defer cache.Close()
-		rt.Logger.Info("MCP cache enabled", "ttl", cfg.CacheTTL)
-	}
-
-	mcpWalkers := make(map[string]mcp.Parser, len(rt.Walkers))
-	for ext, w := range rt.Walkers {
-		mcpWalkers[ext] = w
-	}
-
-	mcpDeps := &mcp.Deps{
-		Store:               rt.Store,
-		DB:                  rt.DB,
-		Parser:              rt.Walkers[".go"],
-		Walkers:             mcpWalkers,
-		SearchBackend:       rt.SearchBackend,
-		ImpactAnalyzer:      impact.New(rt.Store),
-		FlowTracer:          flows.New(rt.Store),
-		ChangesGitClient:    changes.NewExecGitClient(),
-		QueryService:        query.New(rt.DB),
-		LargefuncAnalyzer:   largefunc.New(rt.DB),
-		DeadcodeAnalyzer:    deadcode.New(rt.DB),
-		CouplingAnalyzer:    coupling.New(rt.DB),
-		CoverageAnalyzer:    coverage.New(rt.DB),
-		CommunityBuilder:    community.New(rt.DB),
-		FlowBuilder:         flows.NewBuilder(rt.DB, rt.Store),
-		Incremental:         rt.Syncer,
-		PostprocessPolicy:   NewPostprocessPolicy(rt.DB),
-		Logger:              rt.Logger,
-		Cache:               cache,
-		RagIndexDir:         ragIndexDir,
-		RagProjectDesc:      ragProjectDesc,
+	inst, err := mcpruntime.New(rt, mcpruntime.Options{
+		CacheTTL:            cfg.CacheTTL,
+		NoCache:             cfg.NoCache,
+		OTELEndpoint:        cfg.OTELEndpoint,
 		NamespaceRoot:       cfg.NamespaceRoot,
 		WorkspaceRoot:       cfg.WorkspaceRoot,
 		RepoRoot:            cfg.RepoRoot,
 		MaxFileBytes:        cfg.MaxFileBytes,
 		MaxTotalParsedBytes: cfg.MaxTotalParsedBytes,
+		ServiceVersion:      serviceVersion,
+		RagIndexDir:         ragIndexDir,
+		RagProjectDesc:      ragProjectDesc,
+	})
+	if err != nil {
+		return err
 	}
-	postprocessSummary := func(ctx context.Context) (*postprocesspolicy.StatusSummary, error) {
-		if mcpDeps.PostprocessPolicy == nil {
-			return nil, nil
-		}
-		return mcpDeps.PostprocessPolicy.Status(ctx, postprocesspolicy.StatusOptions{RecentLimit: postprocesspolicy.DefaultStatusLimit})
-	}
-
-	srv := mcp.NewServer(mcpDeps)
-
-	switch cfg.Transport {
-	case "streamable-http":
-		return RunStreamableHTTP(rt, srv, cfg, cache, postprocessSummary)
-	default:
-		rt.Logger.Info("serving MCP over stdio")
-		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-		defer stop()
-		errCh := make(chan error, 1)
-		go func() {
-			errCh <- mcpgo.ServeStdio(srv)
-		}()
-		select {
-		case err := <-errCh:
-			if err != nil {
-				return trace.Wrap(err, "MCP server")
-			}
-		case <-ctx.Done():
-			rt.Logger.Info("received signal, shutting down stdio MCP server")
-		}
-		return nil
-	}
-}
-
-// FlushMCPQueryCache clears the MCP query cache if it exists.
-// @intent 그래프 변경 직후 MCP 질의가 오래된 캐시를 재사용하지 않게 한다.
-// @sideEffect cache가 있으면 저장된 질의 결과를 비운다.
-func FlushMCPQueryCache(cache *mcp.Cache) {
-	if cache != nil {
-		cache.Flush()
-	}
-}
-
-// MCPPostprocessPolicy manages post-processing policies for the MCP server.
-// @intent MCP 서버가 후처리 정책 결정을 공통 래퍼로 호출하게 한다.
-type MCPPostprocessPolicy struct {
-	engine *postprocesspolicy.Engine
-	store  *postprocesspolicy.Store
-}
-
-// NewPostprocessPolicy creates a new MCP post-processing policy wrapper.
-// @intent MCP 실행 경로에서 후처리 정책 엔진과 저장소를 함께 묶어 제공한다.
-func NewPostprocessPolicy(db *gorm.DB) *MCPPostprocessPolicy {
-	if db == nil {
-		return nil
-	}
-	return &MCPPostprocessPolicy{
-		engine: &postprocesspolicy.Engine{},
-		store:  postprocesspolicy.NewStore(db),
-	}
-}
-
-// Resolve decides the policy for a given tool and input.
-// @intent 요청된 후처리 도구에 적용할 정책과 출처를 계산한다.
-func (p *MCPPostprocessPolicy) Resolve(ctx context.Context, input postprocesspolicy.DecisionInput) (string, string, error) {
-	return p.engine.Resolve(ctx, p.store, input)
-}
-
-// RecordRun logs the results of a post-processing run.
-// @intent 후처리 실행 결과를 정책 저장소에 기록해 후속 판단에 반영한다.
-// @sideEffect ccg_postprocess_run_logs 상태를 갱신한다.
-func (p *MCPPostprocessPolicy) RecordRun(ctx context.Context, record postprocesspolicy.RunRecord) error {
-	return p.store.RecordRun(ctx, record)
-}
-
-// Status returns the current status summary of post-processing.
-// @intent 운영 상태 엔드포인트가 후처리 건강 상태를 요약해서 볼 수 있게 한다.
-func (p *MCPPostprocessPolicy) Status(ctx context.Context, opts postprocesspolicy.StatusOptions) (*postprocesspolicy.StatusSummary, error) {
-	return p.store.Status(ctx, opts)
-}
-
-// Reset clears the state of a specific post-processing tool.
-// @intent 실패 누적 상태를 초기화해 특정 후처리 도구를 다시 정상 정책으로 돌린다.
-// @sideEffect 해당 도구의 정책 상태를 재설정한다.
-func (p *MCPPostprocessPolicy) Reset(ctx context.Context, tool string) error {
-	return p.store.Reset(ctx, tool)
+	defer inst.Close()
+	return RunStreamableHTTP(rt, inst.Server, cfg, inst.Cache, inst.PostprocessSummary)
 }
 
 // RunStreamableHTTP serves the MCP server over streamable HTTP.
@@ -305,7 +172,7 @@ func RunStreamableHTTP(rt *core.Runtime, srv *mcpgo.MCPServer, cfg Config, cache
 				rt.Logger.ErrorContext(attemptCtx, "webhook update failed", append(ccgobs.TraceLogArgs(attemptCtx), "repo", repoFullName, "namespace", ns, "branch", branch, "error", err)...)
 				return err
 			}
-			FlushMCPQueryCache(cache)
+			mcpruntime.FlushQueryCache(cache)
 			rt.Logger.InfoContext(attemptCtx, "webhook sync completed", append(ccgobs.TraceLogArgs(attemptCtx), "repo", repoFullName, "namespace", ns,
 				"added", stats.Added, "modified", stats.Modified, "skipped", stats.Skipped, "deleted", stats.Deleted)...)
 			return nil

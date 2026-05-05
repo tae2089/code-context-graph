@@ -8,6 +8,7 @@ CCG는 세 개의 런타임 레이어로 분리됩니다.
 |--------|------|------|
 | `ccg` | `cmd/ccg`, `internal/cli` | 로컬 CLI 명령과 stdio 기반 로컬 MCP |
 | `ccg-server` | `cmd/ccg-server`, `internal/server` | 셀프호스트 Streamable HTTP MCP 서버, health/status 엔드포인트, 웹훅 동기화 |
+| MCP runtime | `internal/mcpruntime` | 공용 MCP handler assembly, cache, telemetry, postprocess policy, stdio runner |
 | `ccg-core` | `internal/core` | 공용 parser, DB, store, search, migration, incremental sync wiring |
 
 이 분리는 로컬 에이전트 사용 경로를 작게 유지하고, 셀프호스트 배포의 HTTP
@@ -59,10 +60,11 @@ Claude Code 같은 로컬 MCP 클라이언트를 위한 경로입니다. HTTP와
 | 관심사 | 소유 위치 |
 |--------|-----------|
 | Cobra 로컬 명령 정의 | `internal/cli` |
-| 로컬 stdio MCP 명령 | `internal/cli/serve.go` |
+| 로컬 stdio MCP 명령 | `internal/cli/serve.go`, `internal/mcpruntime` |
 | HTTP listen address, bearer token, stateless session | `internal/server`, `cmd/ccg-server` |
 | 웹훅 allowlist, HMAC, clone base URL, repo root, retry 정책 | `internal/server`, `internal/webhook` |
 | MCP tool handler 및 DTO | `internal/mcp` |
+| transport-neutral 공용 MCP runtime | `internal/mcpruntime` |
 | 공용 graph runtime dependency | `internal/core` |
 | graph build/update 비즈니스 동작 | `internal/service` |
 | Docker 기본 프로세스 | `ccg-server` |
@@ -129,6 +131,11 @@ ccg-server ...
 `ccg serve --transport streamable-http`는 이제 HTTP를 시작하지 않고 안내
 오류를 반환합니다. 기존 stdio MCP 클라이언트는 그대로 `ccg serve`를
 사용할 수 있습니다.
+
+로컬 `ccg` 바이너리는 `internal/server` 또는 `internal/webhook`을 import하지
+않습니다. 두 바이너리는 여전히 `internal/mcpruntime`, `internal/mcp`,
+parser, DB, analysis 패키지를 공유하므로 대부분의 코드 크기는 공통으로
+남지만, HTTP/웹훅 코드는 `ccg-server`에만 링크됩니다.
 
 ## 설정 메모
 

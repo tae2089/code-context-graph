@@ -110,6 +110,7 @@ internal/
   ctxns/              — 컨텍스트 네임스페이스
   docs/               — 문서 생성 로직
   eval/               — 파서/검색 품질 평가 (골든 코퍼스, P/R/F1, P@K, MRR, nDCG)
+  mcpruntime/         — 공용 MCP runtime assembly, stdio runner, cache, telemetry
   mcp/                — MCP 서버 (35개 도구)
   model/              — DB 모델
   parse/treesitter/   — Tree-sitter 파서 (Lua/Luau 포함 12개 언어)

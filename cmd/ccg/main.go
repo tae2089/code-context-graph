@@ -9,7 +9,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/cli"
 	ccgconfig "github.com/tae2089/code-context-graph/internal/config"
 	"github.com/tae2089/code-context-graph/internal/core"
-	ccgserver "github.com/tae2089/code-context-graph/internal/server"
+	"github.com/tae2089/code-context-graph/internal/mcpruntime"
 	"github.com/tae2089/trace"
 )
 
@@ -61,16 +61,18 @@ func main() {
 	}
 
 	deps.ServeFunc = func(cfg cli.ServeConfig) error {
-		return ccgserver.Run(rt, ccgserver.Config{
+		return mcpruntime.RunStdio(rt, mcpruntime.Options{
 			CacheTTL:            cfg.CacheTTL,
 			NoCache:             cfg.NoCache,
-			Transport:           "stdio",
 			OTELEndpoint:        cfg.OTELEndpoint,
 			NamespaceRoot:       cfg.NamespaceRoot,
 			WorkspaceRoot:       cfg.WorkspaceRoot,
 			MaxFileBytes:        cfg.MaxFileBytes,
 			MaxTotalParsedBytes: cfg.MaxTotalParsedBytes,
-		}, version, ccgconfig.RagIndexDir(), ccgconfig.RagDescription())
+			ServiceVersion:      version,
+			RagIndexDir:         ccgconfig.RagIndexDir(),
+			RagProjectDesc:      ccgconfig.RagDescription(),
+		})
 	}
 
 	cmd := cli.NewRootCmd(deps)

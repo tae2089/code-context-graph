@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// Config holds self-hosted server and stdio MCP runtime options.
-// @intent keep long-running server, HTTP, webhook, cache, and parse-limit settings out of the local CLI layer.
+// Config holds self-hosted HTTP server runtime options.
+// @intent keep long-running HTTP, webhook, cache, and parse-limit settings out of the local CLI layer.
 type Config struct {
 	CacheTTL                time.Duration
 	NoCache                 bool
@@ -40,8 +40,8 @@ type Config struct {
 	WebhookFailOnUnreadable bool
 }
 
-// DefaultConfig returns the server defaults used by both stdio and self-hosted modes.
-// @intent centralize default server flag values so ccg and ccg-server stay aligned.
+// DefaultConfig returns the self-hosted server defaults.
+// @intent centralize default server flag values for ccg-server.
 func DefaultConfig() Config {
 	return Config{
 		CacheTTL:               5 * time.Minute,

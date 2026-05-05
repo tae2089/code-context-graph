@@ -108,6 +108,7 @@ internal/
   ctxns/              — Context namespace
   docs/               — Documentation generation
   eval/               — Parser/search quality evaluation (golden corpus, P/R/F1, P@K, MRR, nDCG)
+  mcpruntime/         — Shared MCP runtime assembly, stdio runner, cache, telemetry
   mcp/                — MCP server (35 tools)
   model/              — DB models
   parse/treesitter/   — Tree-sitter parser (12 languages, including Lua/Luau)

@@ -6,6 +6,7 @@ CCG is split into three runtime layers:
 |-------|------|----------------|
 | `ccg` | `cmd/ccg`, `internal/cli` | Local CLI commands and local MCP over stdio |
 | `ccg-server` | `cmd/ccg-server`, `internal/server` | Self-hosted Streamable HTTP MCP server, health/status endpoints, and webhook sync |
+| MCP runtime | `internal/mcpruntime` | Shared MCP handler assembly, cache, telemetry, postprocess policy, and stdio runner |
 | `ccg-core` | `internal/core` | Shared parser, DB, store, search, migration, and incremental-sync wiring |
 
 This split keeps local agent usage small while letting self-hosted deployments
@@ -56,10 +57,11 @@ parsing stays in `internal/cli` and HTTP/webhook policy stays in
 | Concern | Owner |
 |---------|-------|
 | Cobra local command definitions | `internal/cli` |
-| Local stdio MCP command | `internal/cli/serve.go` |
+| Local stdio MCP command | `internal/cli/serve.go`, `internal/mcpruntime` |
 | HTTP listen address, bearer token, stateless sessions | `internal/server` and `cmd/ccg-server` |
 | Webhook allowlist, HMAC, clone base URL, repo root, retry policy | `internal/server` and `internal/webhook` |
 | MCP tool handlers and DTOs | `internal/mcp` |
+| Shared MCP transport-neutral runtime | `internal/mcpruntime` |
 | Shared graph runtime dependencies | `internal/core` |
 | Business graph build/update behavior | `internal/service` |
 | Docker default process | `ccg-server` |
@@ -125,6 +127,11 @@ ccg-server ...
 
 `ccg serve --transport streamable-http` now returns guidance instead of starting
 HTTP. Existing stdio MCP clients can keep using `ccg serve`.
+
+The local `ccg` binary does not import `internal/server` or `internal/webhook`.
+Both binaries still share `internal/mcpruntime`, `internal/mcp`, parser, DB, and
+analysis packages, so most code size remains common while HTTP/webhook code is
+linked only into `ccg-server`.
 
 ## Config Notes
 
