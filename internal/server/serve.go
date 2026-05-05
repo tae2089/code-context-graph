@@ -253,6 +253,12 @@ func RunStreamableHTTP(deps *cli.Deps, srv *mcpgo.MCPServer, cfg cli.ServeConfig
 		for _, s := range cfg.AllowRepo {
 			rules = append(rules, webhook.ParseRepoRule(s))
 		}
+		if spansMultipleOwners, owners := webhook.AllowRulesSpanMultipleOwners(rules); spansMultipleOwners {
+			deps.Logger.Warn("webhook allow-repo spans multiple owners; repo-name namespace strategy can collide for equal repo names",
+				"owners", owners,
+				"namespace_strategy", "repo_name",
+			)
+		}
 		filter := webhook.NewRepoFilterFromRules(rules)
 		secret := []byte(cfg.WebhookSecret)
 		repoLocker := webhook.NewRepoLocker(30 * time.Second)

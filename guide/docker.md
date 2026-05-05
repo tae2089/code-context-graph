@@ -30,6 +30,33 @@ balancer, keep health and status endpoints internal. `/health`, `/ready`, and
 to the public internet. See the [Operations Guide](operations.md#http-exposure)
 for endpoint exposure guidance.
 
+Example reverse-proxy policy:
+
+| Path | Public Internet | Internal Network |
+|------|-----------------|------------------|
+| `/mcp` | Allowed only with bearer auth and network policy | Allowed |
+| `/webhook` | Allowed only with HMAC secret and repo allowlist | Allowed |
+| `/health` | Blocked | Allowed |
+| `/ready` | Blocked | Allowed |
+| `/status` | Blocked | Allowed |
+
+For webhook service mode, use a canonical clone base URL and keep one
+organization/owner per CCG instance unless the repo names are guaranteed unique:
+
+```bash
+docker run -d -p 8080:8080 \
+  -e CCG_HTTP_BEARER_TOKEN="$CCG_HTTP_BEARER_TOKEN" \
+  -e CCG_DB_DRIVER=postgres \
+  -e CCG_DB_DSN="$CCG_DB_DSN" \
+  -e CCG_REPO_ROOT=/data/repos \
+  -v ccg-repos:/data/repos \
+  --entrypoint ccg ccg \
+  serve --transport streamable-http --http-addr :8080 \
+    --allow-repo "acme/*" \
+    --webhook-secret "$WEBHOOK_SECRET" \
+    --repo-clone-base-url https://github.com
+```
+
 For the mounted default local SQLite database, use an explicit migration command
 when upgrading CCG against an existing schema:
 

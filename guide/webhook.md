@@ -82,6 +82,30 @@ Use the `--allow-repo` flag to configure allowed branches per repository.
 2. Rejected if no matching rule found
 3. `refs/heads/` prefix is automatically stripped from the `ref` field in webhook payload
 
+### Namespace Strategy and Single-Org Operation
+
+Webhook sync derives the graph namespace and checkout directory from the
+repository name portion of `org/repo`. For example, `acme/api` maps to the
+`api` namespace and `/data/repos/api` checkout.
+
+This keeps single-organization deployments short and predictable, which is the
+recommended operating model. If the allowlist spans multiple owners, such as
+`acme/*` plus `external/shared` or `*/*`, CCG logs a startup warning because
+repositories with the same final name can collide:
+
+| Repo | Derived namespace |
+|------|-------------------|
+| `acme/api` | `api` |
+| `external/api` | `api` |
+
+Operational policy:
+
+- Prefer one owner/organization per webhook CCG instance.
+- Do not allow two repositories with the same final repo name in the same
+  instance.
+- If multi-owner sync becomes necessary, run separate CCG instances or change
+  the namespace strategy before enabling those rules.
+
 ## Signature Verification
 
 Verifies webhook payload with HMAC-SHA256.
@@ -101,11 +125,12 @@ By default, webhook requests fail closed unless `--webhook-secret` is configured
 
 On SIGINT/SIGTERM:
 
-1. **HTTP server shutdown** — stops accepting new requests (5-second timeout)
+1. **HTTP server shutdown** — stops accepting new requests (`--webhook-shutdown-timeout`, default 30 seconds)
 2. **sync context cancel** — propagates `context.Done()` to in-progress clone/build operations
-3. **worker drain** — waits for SyncQueue workers to finish (30-second timeout)
+3. **worker drain** — waits for SyncQueue workers to finish (`--webhook-shutdown-timeout`, default 30 seconds)
 
 In-progress clone/build operations receive the context cancel and stop immediately, minimizing shutdown wait time.
+After shutdown begins, new webhook deliveries are rejected with `503 Service Unavailable` so providers can retry instead of treating the event as successfully accepted.
 
 ## Pipeline
 
@@ -233,6 +258,29 @@ same repo clears that repo's error state.
 
 CCG does not currently expose a `/metrics` endpoint for webhook operations.
 Treat `/status` as the primary structured runtime view.
+
+### Recovery Runbook
+
+Use this runbook when `/status` reports a degraded webhook sync, queue age keeps
+growing, or a deployment restart may have interrupted an accepted event.
+
+1. Check `/status.webhook.recent_repos` and logs for `repo`, `branch`, and
+   `last_error`.
+2. Fix non-retryable repository configuration failures, such as malformed
+   `.ccg.yaml` `include_paths`.
+3. Trigger a new push on the same branch when the upstream provider should
+   drive recovery.
+4. For manual recovery, update the namespace from the checkout directory:
+
+   ```bash
+   ccg update /data/repos/api --namespace api
+   ccg status --namespace api --errors
+   ```
+
+5. If search, communities, or saved flows still look stale, call the MCP
+   `run_postprocess` tool for namespace `api` with the needed postprocess flags.
+6. Recheck `/status`; a successful sync for the same repo clears the repo-level
+   unresolved error.
 
 For deployment profiles, database choice, namespace size guidance, and common
 failure modes, see [Operations](operations.md).

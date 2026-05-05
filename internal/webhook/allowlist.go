@@ -3,6 +3,7 @@ package webhook
 
 import (
 	"path"
+	"sort"
 	"strings"
 )
 
@@ -151,6 +152,37 @@ func ParseRepoRule(s string) RepoRule {
 	}
 	branches := strings.Split(branchStr, ",")
 	return RepoRule{Pattern: pattern, Branches: branches}
+}
+
+// AllowRuleOwners returns the positive repository owner prefixes present in allow rules.
+// @intent let server startup warn when repo-name namespace extraction is used with multi-owner webhook allowlists.
+// @domainRule deny rules are ignored because they only narrow the positive admission surface.
+func AllowRuleOwners(rules []RepoRule) []string {
+	owners := make(map[string]struct{})
+	for _, rule := range rules {
+		pattern := strings.TrimSpace(rule.Pattern)
+		if pattern == "" || strings.HasPrefix(pattern, "!") {
+			continue
+		}
+		owner, _, ok := strings.Cut(pattern, "/")
+		if !ok || owner == "" {
+			continue
+		}
+		owners[owner] = struct{}{}
+	}
+	out := make([]string, 0, len(owners))
+	for owner := range owners {
+		out = append(out, owner)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// AllowRulesSpanMultipleOwners reports whether webhook rules admit repositories under more than one owner prefix.
+// @intent identify configurations that can collide under the current repo-name namespace strategy.
+func AllowRulesSpanMultipleOwners(rules []RepoRule) (bool, []string) {
+	owners := AllowRuleOwners(rules)
+	return len(owners) > 1 || (len(owners) == 1 && owners[0] == "*"), owners
 }
 
 // @intent apply one compiled allow or deny pattern to a repository full name during filter evaluation.

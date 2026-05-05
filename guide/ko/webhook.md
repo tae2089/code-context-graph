@@ -76,6 +76,23 @@ ccg serve --transport streamable-http \
 2. 일치하는 규칙이 없으면 거부됩니다.
 3. 웹훅 페이로드의 `ref` 필드에서 `refs/heads/` 접두사는 자동으로 제거됩니다.
 
+### 네임스페이스 전략과 단일 조직 운영
+
+웹훅 동기화는 `org/repo` 중 마지막 저장소 이름을 그래프 네임스페이스와 checkout 디렉터리로 사용합니다. 예를 들어 `acme/api`는 `api` 네임스페이스와 `/data/repos/api` checkout으로 매핑됩니다.
+
+이 방식은 단일 조직 배포에서 짧고 예측 가능한 이름을 유지하기 위한 전략이며, 권장 운영 모델입니다. 허용 목록이 `acme/*`와 `external/shared`처럼 여러 owner를 포함하거나 `*/*`를 사용하면, 같은 마지막 저장소 이름이 충돌할 수 있으므로 CCG는 시작 시 경고 로그를 남깁니다.
+
+| 저장소 | 파생 네임스페이스 |
+|------|-------------------|
+| `acme/api` | `api` |
+| `external/api` | `api` |
+
+운영 정책:
+
+- 웹훅 CCG 인스턴스 하나에는 하나의 owner/조직을 사용하는 것을 권장합니다.
+- 같은 인스턴스 안에 마지막 저장소 이름이 같은 저장소를 허용하지 마십시오.
+- 여러 owner의 동기화가 필요하면 별도 CCG 인스턴스를 사용하거나, 네임스페이스 전략을 변경한 뒤 활성화하십시오.
+
 ## 서명 검증 (Signature Verification)
 
 HMAC-SHA256을 사용하여 웹훅 페이로드를 검증합니다.
@@ -95,11 +112,12 @@ HMAC-SHA256을 사용하여 웹훅 페이로드를 검증합니다.
 
 SIGINT/SIGTERM 수신 시:
 
-1. **HTTP 서버 종료** — 새로운 요청 수락 중단 (5초 타임아웃)
+1. **HTTP 서버 종료** — 새로운 요청 수락 중단 (`--webhook-shutdown-timeout`, 기본 30초)
 2. **동기화 컨텍스트 취소** — 진행 중인 복제/빌드 작업에 `context.Done()` 전달
-3. **워커 드레인(drain)** — SyncQueue 워커가 종료될 때까지 대기 (30초 타임아웃)
+3. **워커 드레인(drain)** — SyncQueue 워커가 종료될 때까지 대기 (`--webhook-shutdown-timeout`, 기본 30초)
 
 진행 중인 복제/빌드 작업은 컨텍스트 취소를 수신하고 즉시 중단되어 종료 대기 시간을 최소화합니다.
+종료가 시작된 뒤 새 웹훅 delivery가 들어오면 `503 Service Unavailable`을 반환하므로, provider가 성공 처리 대신 재시도할 수 있습니다.
 
 ## 파이프라인 (Pipeline)
 
@@ -200,6 +218,23 @@ include_paths:
 합산된 최신 실패가 해결되지 않았거나 최근 저장소 중 해결되지 않은 실패가 있는 경우 `/status`는 `degraded`를 보고합니다. 동일한 저장소에 대해 이후 동기화가 성공하면 해당 저장소의 오류 상태가 해제됩니다.
 
 CCG는 현재 웹훅 운영을 위한 `/metrics` 엔드포인트를 제공하지 않습니다. `/status`를 주요 구조화된 런타임 뷰로 활용하십시오.
+
+### 복구 Runbook
+
+`/status`가 degraded 웹훅 동기화를 보고하거나, 큐 대기 시간이 계속 증가하거나, 배포 재시작 중 수락된 이벤트가 중단되었을 수 있을 때는 아래 절차를 사용하십시오.
+
+1. `/status.webhook.recent_repos`와 로그에서 `repo`, `branch`, `last_error`를 확인합니다.
+2. 잘못된 `.ccg.yaml` `include_paths`처럼 재시도 불가능한 저장소 설정 오류를 수정합니다.
+3. upstream provider가 복구를 주도해야 한다면 같은 브랜치에 새 push를 발생시킵니다.
+4. 수동 복구가 필요하면 checkout 디렉터리 기준으로 네임스페이스를 업데이트합니다.
+
+   ```bash
+   ccg update /data/repos/api --namespace api
+   ccg status --namespace api --errors
+   ```
+
+5. 검색, 커뮤니티, 저장된 flow가 여전히 오래된 것처럼 보이면 namespace `api`에 대해 필요한 postprocess 플래그와 함께 MCP `run_postprocess` 도구를 호출합니다.
+6. `/status`를 다시 확인합니다. 같은 저장소의 동기화가 성공하면 저장소별 unresolved error가 해제됩니다.
 
 배포 프로필, 데이터베이스 선택, 네임스페이스 크기 가이드 및 일반적인 실패 모드에 대해서는 [운영(Operations)](operations.md)을 참조하십시오.
 

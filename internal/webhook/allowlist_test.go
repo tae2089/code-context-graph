@@ -104,6 +104,55 @@ func TestRepoAllowlist_GlobalWildcardWithNegation(t *testing.T) {
 	}
 }
 
+func TestAllowRulesSpanMultipleOwners(t *testing.T) {
+	tests := []struct {
+		name       string
+		rules      []RepoRule
+		wantWarn   bool
+		wantOwners []string
+	}{
+		{
+			name:       "single owner wildcard",
+			rules:      []RepoRule{{Pattern: "org/*"}, {Pattern: "!org/private"}},
+			wantOwners: []string{"org"},
+		},
+		{
+			name:       "single owner exact repos",
+			rules:      []RepoRule{{Pattern: "org/api"}, {Pattern: "org/web"}},
+			wantOwners: []string{"org"},
+		},
+		{
+			name:       "multiple owners",
+			rules:      []RepoRule{{Pattern: "org/*"}, {Pattern: "external/shared"}},
+			wantWarn:   true,
+			wantOwners: []string{"external", "org"},
+		},
+		{
+			name:       "global wildcard",
+			rules:      []RepoRule{{Pattern: "*/*"}},
+			wantWarn:   true,
+			wantOwners: []string{"*"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotWarn, gotOwners := AllowRulesSpanMultipleOwners(tt.rules)
+			if gotWarn != tt.wantWarn {
+				t.Fatalf("warning = %v, want %v", gotWarn, tt.wantWarn)
+			}
+			if len(gotOwners) != len(tt.wantOwners) {
+				t.Fatalf("owners = %#v, want %#v", gotOwners, tt.wantOwners)
+			}
+			for i := range gotOwners {
+				if gotOwners[i] != tt.wantOwners[i] {
+					t.Fatalf("owners = %#v, want %#v", gotOwners, tt.wantOwners)
+				}
+			}
+		})
+	}
+}
+
 func TestRepoFilter_PerRepoBranch_ExactRepo(t *testing.T) {
 	f := NewRepoFilterFromRules([]RepoRule{
 		{Pattern: "org/api", Branches: []string{"main", "develop"}},

@@ -27,6 +27,32 @@ docker run -d -p 8080:8080 \
 
 이 컨테이너가 Ingress, 리버스 프록시 또는 로드 밸런서를 통해 노출되는 경우, 헬스 체크 및 상태 엔드포인트는 내부용으로 유지하십시오. `/health`, `/ready`, `/status`는 신뢰할 수 있는 운영 체크를 위한 것이며 공용 인터넷에 노출되어서는 안 됩니다. 엔드포인트 노출 가이드는 [운영 가이드](operations.md#http-exposure)를 참조하십시오.
 
+리버스 프록시 정책 예시:
+
+| 경로 | 공용 인터넷 | 내부 네트워크 |
+|------|-------------|---------------|
+| `/mcp` | Bearer 인증 및 네트워크 정책이 있을 때만 허용 | 허용 |
+| `/webhook` | HMAC secret 및 repo allowlist가 있을 때만 허용 | 허용 |
+| `/health` | 차단 | 허용 |
+| `/ready` | 차단 | 허용 |
+| `/status` | 차단 | 허용 |
+
+웹훅 서비스 모드에서는 canonical clone base URL을 사용하고, repo 이름 중복이 없다는 보장이 없다면 CCG 인스턴스 하나에는 하나의 조직/owner만 연결하십시오.
+
+```bash
+docker run -d -p 8080:8080 \
+  -e CCG_HTTP_BEARER_TOKEN="$CCG_HTTP_BEARER_TOKEN" \
+  -e CCG_DB_DRIVER=postgres \
+  -e CCG_DB_DSN="$CCG_DB_DSN" \
+  -e CCG_REPO_ROOT=/data/repos \
+  -v ccg-repos:/data/repos \
+  --entrypoint ccg ccg \
+  serve --transport streamable-http --http-addr :8080 \
+    --allow-repo "acme/*" \
+    --webhook-secret "$WEBHOOK_SECRET" \
+    --repo-clone-base-url https://github.com
+```
+
 마운트된 기본 로컬 SQLite 데이터베이스의 경우, 기존 스키마에 대해 CCG를 업그레이드할 때는 명시적인 마이그레이션 명령어를 사용하십시오:
 
 ```bash

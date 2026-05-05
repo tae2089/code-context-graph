@@ -92,6 +92,9 @@ func (s *Service) FindPage(ctx context.Context, opts Options) (Result, error) {
 	return Result{Items: nodes, Pagination: paging.BuildPage(req, len(nodes), hasMore)}, nil
 }
 
+// normalizePathPrefix cleans a path prefix and returns an empty string if the cleaned result is ".".
+// @intent ensure path prefix filtering is consistent regardless of trailing slashes or "." input
+// @domainRule a path prefix of "." should be treated the same as an empty prefix (no filtering)
 func normalizePathPrefix(prefix string) string {
 	if prefix == "" {
 		return ""

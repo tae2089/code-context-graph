@@ -205,6 +205,21 @@ Webhook deployments should be configured with:
 - `--repo-root` on durable local storage
 - `--db-driver postgres` for team or always-on deployments
 
+Webhook namespace extraction uses the final repository name. For example,
+`acme/api` is stored in namespace `api` and checked out under
+`$REPO_ROOT/api`. This is intended for single-owner webhook deployments. If an
+allowlist spans multiple owners, the server logs a warning because `acme/api`
+and `external/api` would collide in the same namespace and checkout path.
+
+Recommended policy:
+
+- Use one organization/owner per webhook CCG instance.
+- Keep repo final names unique inside an instance.
+- Use separate CCG instances when different organizations may contain matching
+  repo names.
+- Treat `*/*` as a development or carefully isolated configuration, not a
+  normal production allowlist.
+
 SQLite webhook deployments default to one worker unless
 `--webhook-workers` or `CCG_WEBHOOK_WORKERS` is explicitly set. This avoids
 creating multiple concurrent writers against the same SQLite database. With
@@ -268,10 +283,26 @@ single event is roughly 46 minutes before it is abandoned.
 
 On SIGINT/SIGTERM:
 
-1. HTTP stops accepting new requests with a 5-second shutdown window.
+1. HTTP stops accepting new requests with `--webhook-shutdown-timeout` (default
+   30 seconds).
 2. The sync context is cancelled and in-progress clone/build work observes
    `context.Done()`.
-3. SyncQueue workers get up to 30 seconds to drain.
+3. SyncQueue workers get up to `--webhook-shutdown-timeout` to drain.
+
+Webhook deliveries received after queue shutdown starts return `503 Service
+Unavailable`, which lets GitHub/Gitea retry instead of treating the event as
+accepted. A request accepted immediately before shutdown can still be cancelled
+by process shutdown; recover it with a new push or a manual namespace update.
+
+Manual recovery:
+
+```bash
+ccg update /data/repos/api --namespace api
+ccg status --namespace api --errors
+```
+
+If search, communities, or saved flows still look stale, call the MCP
+`run_postprocess` tool for namespace `api` with the needed postprocess flags.
 
 The Streamable HTTP server does not use a fixed `WriteTimeout` because MCP
 streams can be long-lived. Put idle connection limits and request buffering
