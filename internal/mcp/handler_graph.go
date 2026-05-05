@@ -36,7 +36,7 @@ type graphCommInfo struct {
 type listFlowsResponse struct {
 	Flows        []graphFlowInfo `json:"flows"`
 	DerivedState map[string]any  `json:"derived_state"`
-	Pagination   map[string]any  `json:"pagination"`
+	Pagination   paging.Page     `json:"pagination"`
 }
 
 // listCommunitiesResponse holds the listCommunities wire payload.
@@ -44,7 +44,7 @@ type listFlowsResponse struct {
 type listCommunitiesResponse struct {
 	Communities  []graphCommInfo `json:"communities"`
 	DerivedState map[string]any  `json:"derived_state"`
-	Pagination   map[string]any  `json:"pagination"`
+	Pagination   paging.Page     `json:"pagination"`
 }
 
 // communityMemberSummary is a typed member entry for getCommunity.
@@ -60,7 +60,7 @@ type getCommunityResponse struct {
 	DerivedState      map[string]any           `json:"derived_state"`
 	Coverage          *float64                 `json:"coverage,omitempty"`
 	Members           []communityMemberSummary `json:"members,omitempty"`
-	MembersPagination map[string]any           `json:"members_pagination,omitempty"`
+	MembersPagination *paging.Page             `json:"members_pagination,omitempty"`
 }
 
 // archCommCount is a helper struct for counting community nodes in architecture overview.
@@ -92,9 +92,9 @@ type architectureOverviewCoupling struct {
 // @intent preserve the legacy architecture overview response shape with typed fields.
 type architectureOverviewResponse struct {
 	Communities           []architectureOverviewCommunity `json:"communities"`
-	CommunitiesPagination map[string]any                  `json:"communities_pagination"`
+	CommunitiesPagination paging.Page                     `json:"communities_pagination"`
 	Coupling              []architectureOverviewCoupling  `json:"coupling"`
-	CouplingPagination    map[string]any                  `json:"coupling_pagination"`
+	CouplingPagination    paging.Page                     `json:"coupling_pagination"`
 	Warnings              []string                        `json:"warnings"`
 	DerivedState          map[string]any                  `json:"derived_state"`
 }
@@ -182,7 +182,7 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 		result, err := marshalJSON(listFlowsResponse{
 			Flows:        infos,
 			DerivedState: derivedStateFlows(),
-			Pagination:   buildPaginationMetadata(limit, offset, len(infos), hasMore),
+			Pagination:   paging.BuildPage(paging.Request{Limit: limit, Offset: offset}, len(infos), hasMore),
 		})
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
@@ -255,7 +255,7 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 		result, err := marshalJSON(listCommunitiesResponse{
 			Communities:  infos,
 			DerivedState: derivedStateCommunities(),
-			Pagination:   buildPaginationMetadata(limit, offset, len(infos), hasMore),
+			Pagination:   paging.BuildPage(paging.Request{Limit: limit, Offset: offset}, len(infos), hasMore),
 		})
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
@@ -350,7 +350,8 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 				members[i] = nodeToSummary(n)
 			}
 			gcData.Members = members
-			gcData.MembersPagination = buildPaginationMetadata(memberLimit, memberOffset, len(members), hasMore)
+			page := paging.BuildPage(paging.Request{Limit: memberLimit, Offset: memberOffset}, len(members), hasMore)
+			gcData.MembersPagination = &page
 		}
 
 		result, err := marshalJSON(gcData)
@@ -443,9 +444,9 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 
 		result, err := marshalJSON(architectureOverviewResponse{
 			Communities:           commInfos,
-			CommunitiesPagination: buildPaginationMetadata(communityLimit, communityOffset, len(commInfos), communityHasMore),
+			CommunitiesPagination: paging.BuildPage(paging.Request{Limit: communityLimit, Offset: communityOffset}, len(commInfos), communityHasMore),
 			Coupling:              couplingPairs,
-			CouplingPagination:    buildPaginationMetadata(couplingLimit, couplingOffset, len(couplingPairs), couplingHasMore),
+			CouplingPagination:    paging.BuildPage(paging.Request{Limit: couplingLimit, Offset: couplingOffset}, len(couplingPairs), couplingHasMore),
 			Warnings:              warnings,
 			DerivedState:          derivedStateSummary(),
 		})

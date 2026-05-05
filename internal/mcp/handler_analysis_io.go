@@ -111,6 +111,7 @@ type pagedListResponse[T any] struct {
 
 // MarshalJSON emits both the legacy alias key and the shared paging fields.
 // @intent preserve backward-compatible response keys while allowing handlers to work with typed slices.
+// @domainRule the temporary map allocation remains because the legacy alias key is dynamic per handler and must coexist with the shared typed envelope.
 // @return returns a JSON object containing the legacy alias, items, count, and pagination fields.
 func (r pagedListResponse[T]) MarshalJSON() ([]byte, error) {
 	resp := map[string]any{

@@ -138,22 +138,6 @@ func validateOffset(offset int) error {
 	return nil
 }
 
-// buildPaginationMetadata builds a compact pagination descriptor for tool consumers.
-// @intent provide one consistent pagination metadata shape across tool responses.
-// @ensures includes next_offset only when hasMore is true.
-func buildPaginationMetadata(limit, offset, returned int, hasMore bool) map[string]any {
-	pagination := map[string]any{
-		"limit":    limit,
-		"offset":   offset,
-		"returned": returned,
-		"has_more": hasMore,
-	}
-	if hasMore {
-		pagination["next_offset"] = offset + limit
-	}
-	return pagination
-}
-
 // unwrapToolResultErr extracts an embedded MCP tool result from an error.
 // @intent recover user-facing MCP tool results from the internal error flow at one shared exit point.
 // @return returns the embedded MCP result and true when err is a toolResultErr.
@@ -248,19 +232,5 @@ func nodeToSummary(n model.Node) nodeSummary {
 		Kind:          n.Kind,
 		Name:          n.Name,
 		FilePath:      n.FilePath,
-	}
-}
-
-// nodeToBasicMap converts a graph node into a compact response payload.
-// @intent preserve the legacy map-based node shape for existing MCP callers.
-// @param n is the graph node to include in an MCP response.
-// @return returns a map with identifier, name, kind, and file path fields.
-func nodeToBasicMap(n model.Node) map[string]any {
-	return map[string]any{
-		"id":             n.ID,
-		"qualified_name": n.QualifiedName,
-		"kind":           n.Kind,
-		"name":           n.Name,
-		"file_path":      n.FilePath,
 	}
 }
