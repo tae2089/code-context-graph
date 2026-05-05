@@ -4,6 +4,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -17,12 +18,102 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/paging"
 )
+
+const (
+	promptHardCap      = 20
+	promptSectionCap   = 10
+	promptCallGraphCap = 10
+)
+
+// @intent build a bounded page request for prompt-only analyzer reads.
+// @domainRule prompt handlers never request more than their hard cap from paged services.
+func promptPageRequest(limit int) paging.Request {
+	return paging.Request{Limit: limit}
+}
+
+// @intent clamp the optional prompt limit argument to the handler's hard cap.
+// @domainRule invalid or non-positive prompt limits fall back to the section default instead of failing the prompt.
+func promptLimitArg(args map[string]string, defaultLimit, hardCap int) int {
+	raw := strings.TrimSpace(args["limit"])
+	if raw == "" {
+		return defaultLimit
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit <= 0 {
+		return defaultLimit
+	}
+	return min(limit, hardCap)
+}
+
+// @intent append a visible truncation marker when a prompt section omits extra items.
+// @domainRule prompt truncation messages show how many items were rendered, not an expensive total count.
+func appendPromptTruncation(sb *strings.Builder, shown int) {
+	if shown <= 0 {
+		return
+	}
+	sb.WriteString(fmt.Sprintf("_... 일부 결과 생략 (표시: %d건)_\n", shown))
+}
+
+// @intent preserve risk ordering while collapsing repeated files into a stable coverage worklist.
+func uniqueRiskFiles(risks []changes.RiskEntry) []string {
+	filesSeen := make(map[string]bool, len(risks))
+	files := make([]string, 0, len(risks))
+	for _, r := range risks {
+		if filesSeen[r.Node.FilePath] {
+			continue
+		}
+		filesSeen[r.Node.FilePath] = true
+		files = append(files, r.Node.FilePath)
+	}
+	return files
+}
 
 // promptHandlers groups dependencies for MCP prompt generation.
 // @intent Groups dependencies so prompt handlers can reuse the shared database and analyzers.
 type promptHandlers struct {
 	deps *Deps
+}
+
+// @intent resolve the coverage analyzer dependency with a DB-backed default.
+func (p *promptHandlers) coverageAnalyzer() CoverageAnalyzer {
+	if p.deps.CoverageAnalyzer != nil {
+		return p.deps.CoverageAnalyzer
+	}
+	return coverage.New(p.deps.DB)
+}
+
+// @intent resolve the coupling analyzer dependency with a DB-backed default.
+func (p *promptHandlers) couplingAnalyzer() CouplingAnalyzer {
+	if p.deps.CouplingAnalyzer != nil {
+		return p.deps.CouplingAnalyzer
+	}
+	return coupling.New(p.deps.DB)
+}
+
+// @intent resolve the query service dependency with a DB-backed default.
+func (p *promptHandlers) queryService() QueryService {
+	if p.deps.QueryService != nil {
+		return p.deps.QueryService
+	}
+	return query.New(p.deps.DB)
+}
+
+// @intent resolve the large-function analyzer dependency with a DB-backed default.
+func (p *promptHandlers) largefuncAnalyzer() LargefuncAnalyzer {
+	if p.deps.LargefuncAnalyzer != nil {
+		return p.deps.LargefuncAnalyzer
+	}
+	return largefunc.New(p.deps.DB)
+}
+
+// @intent resolve the dead-code analyzer dependency with a DB-backed default.
+func (p *promptHandlers) deadcodeAnalyzer() DeadcodeAnalyzer {
+	if p.deps.DeadcodeAnalyzer != nil {
+		return p.deps.DeadcodeAnalyzer
+	}
+	return deadcode.New(p.deps.DB)
 }
 
 // promptResult wraps plain text in the MCP prompt result shape.
@@ -72,6 +163,8 @@ func promptNamespaceRoot(deps *Deps) string {
 func (p *promptHandlers) reviewChanges(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	args := request.Params.Arguments
 	ctx = ctxns.WithNamespace(ctx, resolvePromptNamespace(ctx, args))
+	riskLimit := promptLimitArg(args, promptHardCap, promptHardCap)
+	coverageLimit := promptLimitArg(args, promptSectionCap, promptSectionCap)
 	repoRoot := args["repo_root"]
 	base := args["base"]
 	if base == "" {
@@ -89,10 +182,11 @@ func (p *promptHandlers) reviewChanges(ctx context.Context, request mcp.GetPromp
 	}
 
 	chSvc := changes.New(p.deps.DB, p.deps.ChangesGitClient)
-	risks, err := chSvc.Analyze(ctx, repoRoot, base)
+	risksPage, err := chSvc.AnalyzePage(ctx, repoRoot, base, promptPageRequest(riskLimit))
 	if err != nil {
 		return nil, trace.Wrap(err, "changes analyze")
 	}
+	risks := risksPage.Items
 
 	if len(risks) == 0 {
 		return promptResult("변경사항이 없습니다"), nil
@@ -106,27 +200,27 @@ func (p *promptHandlers) reviewChanges(ctx context.Context, request mcp.GetPromp
 			r.Node.QualifiedName, r.Node.FilePath, r.Node.StartLine, r.Node.EndLine,
 			r.RiskScore, r.HunkCount))
 	}
+	if risksPage.Pagination.HasMore {
+		appendPromptTruncation(&sb, len(risks))
+	}
 
 	sb.WriteString("\n## 테스트 커버리지 갭\n\n")
 
-	var covAnalyzer CoverageAnalyzer
-	if p.deps.CoverageAnalyzer != nil {
-		covAnalyzer = p.deps.CoverageAnalyzer
-	} else {
-		covAnalyzer = coverage.New(p.deps.DB)
-	}
-	filesSeen := map[string]bool{}
-	for _, r := range risks {
-		if filesSeen[r.Node.FilePath] {
-			continue
+	covAnalyzer := p.coverageAnalyzer()
+	files := uniqueRiskFiles(risks)
+	for i, filePath := range files {
+		if i >= coverageLimit {
+			break
 		}
-		filesSeen[r.Node.FilePath] = true
-		fc, err := covAnalyzer.ByFile(ctx, r.Node.FilePath)
+		fc, err := covAnalyzer.ByFile(ctx, filePath)
 		if err != nil {
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("- %s: 테스트 %d/%d (%.0f%%)\n",
-			fc.FilePath, fc.Tested, fc.Total, fc.Ratio*100))
+			sb.WriteString(fmt.Sprintf("- %s: 테스트 %d/%d (%.0f%%)\n",
+				fc.FilePath, fc.Tested, fc.Total, fc.Ratio*100))
+	}
+	if len(files) > coverageLimit {
+		appendPromptTruncation(&sb, min(len(files), coverageLimit))
 	}
 
 	return promptResult(sb.String()), nil
@@ -137,10 +231,12 @@ func (p *promptHandlers) reviewChanges(ctx context.Context, request mcp.GetPromp
 // @ensures Returns a prompt containing a list of communities and inter-module coupling on success.
 // @sideEffect Queries community and coupling information from the database.
 func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-	ctx = ctxns.WithNamespace(ctx, resolvePromptNamespace(ctx, request.Params.Arguments))
+	args := request.Params.Arguments
+	ctx = ctxns.WithNamespace(ctx, resolvePromptNamespace(ctx, args))
+	sectionLimit := promptLimitArg(args, promptSectionCap, promptSectionCap)
 	ns := ctxns.FromContext(ctx)
 	var communities []model.Community
-	query := p.deps.DB.WithContext(ctx).Where("namespace = ?", ns)
+	query := p.deps.DB.WithContext(ctx).Where("namespace = ?", ns).Order("id ASC").Limit(sectionLimit + 1)
 	if err := query.Find(&communities).Error; err != nil {
 		return nil, trace.Wrap(err, "query communities")
 	}
@@ -153,6 +249,10 @@ func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPro
 	sb.WriteString("## 아키텍처 맵\n\n### 커뮤니티 목록\n\n")
 
 	log := p.deps.Logger
+	communityTruncated := len(communities) > sectionLimit
+	if communityTruncated {
+		communities = communities[:sectionLimit]
+	}
 	for _, c := range communities {
 		var memberCount int64
 		memberQ := p.deps.DB.WithContext(ctx).Model(&model.CommunityMembership{}).
@@ -164,23 +264,25 @@ func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPro
 		}
 		sb.WriteString(fmt.Sprintf("- **%s** (전략: %s, 멤버: %d)\n", c.Label, c.Strategy, memberCount))
 	}
-
-	var coupAnalyzer CouplingAnalyzer
-	if p.deps.CouplingAnalyzer != nil {
-		coupAnalyzer = p.deps.CouplingAnalyzer
-	} else {
-		coupAnalyzer = coupling.New(p.deps.DB)
+	if communityTruncated {
+		appendPromptTruncation(&sb, len(communities))
 	}
-	pairs, err := coupAnalyzer.Analyze(ctx)
+
+	coupAnalyzer := p.couplingAnalyzer()
+	pairsPage, err := coupAnalyzer.AnalyzePage(ctx, promptPageRequest(sectionLimit))
 	if err != nil {
 		return nil, trace.Wrap(err, "coupling analyze")
 	}
+	pairs := pairsPage.Items
 
 	if len(pairs) > 0 {
 		sb.WriteString("\n### 모듈 간 결합도\n\n")
 		for _, cp := range pairs {
 			sb.WriteString(fmt.Sprintf("- %s → %s: 결합도 %.2f (%d edges)\n",
 				cp.FromCommunity, cp.ToCommunity, cp.Strength, cp.EdgeCount))
+		}
+		if pairsPage.Pagination.HasMore {
+			appendPromptTruncation(&sb, len(pairs))
 		}
 	}
 
@@ -197,28 +299,43 @@ func (p *promptHandlers) debugIssue(ctx context.Context, request mcp.GetPromptRe
 	args := request.Params.Arguments
 	ctx = ctxns.WithNamespace(ctx, resolvePromptNamespace(ctx, args))
 	description := args["description"]
+	resultLimit := promptLimitArg(args, promptHardCap, promptHardCap)
+	callGraphLimit := promptLimitArg(args, promptCallGraphCap, promptCallGraphCap)
+	searchFetchLimit := resultLimit + 1
 
 	if p.deps.SearchBackend == nil || p.deps.DB == nil {
 		return promptResult("검색 백엔드가 설정되지 않았습니다."), nil
 	}
 
-	nodes, err := p.deps.SearchBackend.Query(ctx, p.deps.DB, description, 10)
+	nodes, err := p.deps.SearchBackend.Query(ctx, p.deps.DB, description, searchFetchLimit)
 	if err != nil {
 		return nil, trace.Wrap(err, "search")
 	}
+	searchTruncated := len(nodes) > resultLimit
 
 	if len(nodes) == 0 {
 		seen := map[uint]bool{}
 		for _, token := range strings.Fields(description) {
-			tokenNodes, err := p.deps.SearchBackend.Query(ctx, p.deps.DB, token, 10)
+			tokenNodes, err := p.deps.SearchBackend.Query(ctx, p.deps.DB, token, searchFetchLimit)
 			if err != nil {
 				continue
+			}
+			if len(tokenNodes) > resultLimit {
+				searchTruncated = true
 			}
 			for _, n := range tokenNodes {
 				if !seen[n.ID] {
 					nodes = append(nodes, n)
 					seen[n.ID] = true
+					if len(nodes) > resultLimit {
+						searchTruncated = true
+						nodes = nodes[:resultLimit]
+						break
+					}
 				}
+			}
+			if len(nodes) >= resultLimit {
+				break
 			}
 		}
 	}
@@ -229,30 +346,41 @@ func (p *promptHandlers) debugIssue(ctx context.Context, request mcp.GetPromptRe
 
 	var sb strings.Builder
 	sb.WriteString("## 관련 코드 검색 결과\n\n")
+	if len(nodes) > resultLimit {
+		nodes = nodes[:resultLimit]
+		searchTruncated = true
+	}
 
 	for _, n := range nodes {
 		sb.WriteString(fmt.Sprintf("- **%s** (%s, %s:%d-%d)\n",
 			n.QualifiedName, n.Kind, n.FilePath, n.StartLine, n.EndLine))
 	}
-
-	var querySvc QueryService
-	if p.deps.QueryService != nil {
-		querySvc = p.deps.QueryService
-	} else {
-		querySvc = query.New(p.deps.DB)
+	if searchTruncated {
+		appendPromptTruncation(&sb, len(nodes))
 	}
+
+	querySvc := p.queryService()
 	sb.WriteString("\n## 호출 그래프\n\n")
+	pageOpts := query.QueryOptions{Limit: callGraphLimit}
 	for _, n := range nodes {
-		callers, _ := querySvc.CallersOf(ctx, n.ID)
-		callees, _ := querySvc.CalleesOf(ctx, n.ID)
+		callersPage, _ := querySvc.CallersOfPage(ctx, n.ID, pageOpts)
+		calleesPage, _ := querySvc.CalleesOfPage(ctx, n.ID, pageOpts)
+		callers := callersPage.Nodes
+		callees := calleesPage.Nodes
 
 		if len(callers) > 0 || len(callees) > 0 {
 			sb.WriteString(fmt.Sprintf("### %s\n", n.QualifiedName))
 			for _, c := range callers {
 				sb.WriteString(fmt.Sprintf("  ← 호출자: %s\n", c.QualifiedName))
 			}
+			if callersPage.TotalCount > len(callers) {
+				appendPromptTruncation(&sb, len(callers))
+			}
 			for _, c := range callees {
 				sb.WriteString(fmt.Sprintf("  → 호출 대상: %s\n", c.QualifiedName))
+			}
+			if calleesPage.TotalCount > len(callees) {
+				appendPromptTruncation(&sb, len(callees))
 			}
 		}
 	}
@@ -265,7 +393,9 @@ func (p *promptHandlers) debugIssue(ctx context.Context, request mcp.GetPromptRe
 // @ensures Returns an onboarding statistics and structure summary prompt on success.
 // @sideEffect Queries statistics, communities, and large functions from the database.
 func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-	ctx = ctxns.WithNamespace(ctx, resolvePromptNamespace(ctx, request.Params.Arguments))
+	args := request.Params.Arguments
+	ctx = ctxns.WithNamespace(ctx, resolvePromptNamespace(ctx, args))
+	sectionLimit := promptLimitArg(args, promptSectionCap, promptSectionCap)
 	log := p.deps.Logger
 	ns := ctxns.FromContext(ctx)
 	var nodeCount int64
@@ -296,6 +426,9 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 		Select("language, COUNT(*) as count").
 		Group("language").
 		Having("language != ''").
+		Order("count DESC").
+		Order("language ASC").
+		Limit(sectionLimit + 1).
 		Scan(&langs).Error; err != nil {
 		log.Warn("scan language stats failed", trace.SlogError(err))
 	}
@@ -305,38 +438,51 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 	sb.WriteString(fmt.Sprintf("- 전체 노드: %d\n", nodeCount))
 	sb.WriteString(fmt.Sprintf("- 전체 엣지: %d\n", edgeCount))
 	sb.WriteString("\n### 언어 분포\n\n")
+	langsTruncated := len(langs) > sectionLimit
+	if langsTruncated {
+		langs = langs[:sectionLimit]
+	}
 	for _, l := range langs {
 		sb.WriteString(fmt.Sprintf("- %s: %d\n", l.Language, l.Count))
 	}
+	if langsTruncated {
+		appendPromptTruncation(&sb, len(langs))
+	}
 
 	var communities []model.Community
-	commQ := p.deps.DB.WithContext(ctx).Where("namespace = ?", ns)
+	commQ := p.deps.DB.WithContext(ctx).Where("namespace = ?", ns).Order("id ASC").Limit(sectionLimit + 1)
 	if err := commQ.Find(&communities).Error; err != nil {
 		log.Warn("find communities failed", trace.SlogError(err))
+	}
+	communitiesTruncated := len(communities) > sectionLimit
+	if communitiesTruncated {
+		communities = communities[:sectionLimit]
 	}
 	if len(communities) > 0 {
 		sb.WriteString("\n### 커뮤니티 구조\n\n")
 		for _, c := range communities {
 			sb.WriteString(fmt.Sprintf("- %s (%s)\n", c.Label, c.Strategy))
 		}
+		if communitiesTruncated {
+			appendPromptTruncation(&sb, len(communities))
+		}
 	}
 
-	var lfAnalyzer LargefuncAnalyzer
-	if p.deps.LargefuncAnalyzer != nil {
-		lfAnalyzer = p.deps.LargefuncAnalyzer
-	} else {
-		lfAnalyzer = largefunc.New(p.deps.DB)
-	}
-	largeFuncs, err := lfAnalyzer.Find(ctx, 50)
+	lfAnalyzer := p.largefuncAnalyzer()
+	largeFuncsPage, err := lfAnalyzer.FindPage(ctx, largefunc.Options{Threshold: 50, Page: promptPageRequest(sectionLimit)})
 	if err != nil {
 		log.Warn("find large functions failed", trace.SlogError(err))
 	}
+	largeFuncs := largeFuncsPage.Items
 	if len(largeFuncs) > 0 {
 		sb.WriteString("\n### 대형 함수 (50줄 초과)\n\n")
 		for _, f := range largeFuncs {
 			lines := f.EndLine - f.StartLine + 1
-			sb.WriteString(fmt.Sprintf("- %s (%s:%d-%d, %d줄)\n",
-				f.QualifiedName, f.FilePath, f.StartLine, f.EndLine, lines))
+				sb.WriteString(fmt.Sprintf("- %s (%s:%d-%d, %d줄)\n",
+					f.QualifiedName, f.FilePath, f.StartLine, f.EndLine, lines))
+		}
+		if largeFuncsPage.Pagination.HasMore {
+			appendPromptTruncation(&sb, len(largeFuncs))
 		}
 	}
 
@@ -354,6 +500,8 @@ func (p *promptHandlers) preMergeCheck(ctx context.Context, request mcp.GetPromp
 	log := p.deps.Logger
 	args := request.Params.Arguments
 	ctx = ctxns.WithNamespace(ctx, resolvePromptNamespace(ctx, args))
+	riskLimit := promptLimitArg(args, promptHardCap, promptHardCap)
+	sectionLimit := promptLimitArg(args, promptSectionCap, promptSectionCap)
 	repoRoot := args["repo_root"]
 	base := args["base"]
 	if base == "" {
@@ -371,10 +519,11 @@ func (p *promptHandlers) preMergeCheck(ctx context.Context, request mcp.GetPromp
 	}
 
 	chSvc := changes.New(p.deps.DB, p.deps.ChangesGitClient)
-	risks, err := chSvc.Analyze(ctx, repoRoot, base)
+	risksPage, err := chSvc.AnalyzePage(ctx, repoRoot, base, promptPageRequest(riskLimit))
 	if err != nil {
 		return nil, trace.Wrap(err, "changes analyze")
 	}
+	risks := risksPage.Items
 
 	var sb strings.Builder
 	sb.WriteString("## 머지 전 체크리스트\n\n")
@@ -386,67 +535,64 @@ func (p *promptHandlers) preMergeCheck(ctx context.Context, request mcp.GetPromp
 		for _, r := range risks {
 			sb.WriteString(fmt.Sprintf("- **%s** — 리스크 점수: %.1f\n", r.Node.QualifiedName, r.RiskScore))
 		}
+		if risksPage.Pagination.HasMore {
+			appendPromptTruncation(&sb, len(risks))
+		}
 	}
 
 	sb.WriteString("\n### 커버리지\n\n")
-	var covAnalyzer2 CoverageAnalyzer
-	if p.deps.CoverageAnalyzer != nil {
-		covAnalyzer2 = p.deps.CoverageAnalyzer
-	} else {
-		covAnalyzer2 = coverage.New(p.deps.DB)
-	}
-	filesSeen := map[string]bool{}
-	for _, r := range risks {
-		if filesSeen[r.Node.FilePath] {
-			continue
+	covAnalyzer2 := p.coverageAnalyzer()
+	files := uniqueRiskFiles(risks)
+	for i, filePath := range files {
+		if i >= sectionLimit {
+			break
 		}
-		filesSeen[r.Node.FilePath] = true
-		fc, err := covAnalyzer2.ByFile(ctx, r.Node.FilePath)
+		fc, err := covAnalyzer2.ByFile(ctx, filePath)
 		if err != nil {
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("- %s: %d/%d (%.0f%%)\n",
-			fc.FilePath, fc.Tested, fc.Total, fc.Ratio*100))
+			sb.WriteString(fmt.Sprintf("- %s: %d/%d (%.0f%%)\n",
+				fc.FilePath, fc.Tested, fc.Total, fc.Ratio*100))
 	}
 	if len(risks) == 0 {
 		sb.WriteString("변경사항이 없습니다.\n")
+	} else if len(files) > sectionLimit {
+		appendPromptTruncation(&sb, min(len(files), sectionLimit))
 	}
 
 	sb.WriteString("\n### 미사용 코드\n\n")
-	var dcAnalyzer DeadcodeAnalyzer
-	if p.deps.DeadcodeAnalyzer != nil {
-		dcAnalyzer = p.deps.DeadcodeAnalyzer
-	} else {
-		dcAnalyzer = deadcode.New(p.deps.DB)
-	}
-	deadNodes, err := dcAnalyzer.Find(ctx, deadcode.Options{})
+	dcAnalyzer := p.deadcodeAnalyzer()
+	deadPage, err := dcAnalyzer.FindPage(ctx, deadcode.Options{Page: promptPageRequest(sectionLimit)})
 	if err != nil {
 		log.Warn("find dead code failed", trace.SlogError(err))
 	}
+	deadNodes := deadPage.Items
 	if len(deadNodes) > 0 {
 		for _, n := range deadNodes {
 			sb.WriteString(fmt.Sprintf("- 미사용: %s (%s)\n", n.QualifiedName, n.FilePath))
+		}
+		if deadPage.Pagination.HasMore {
+			appendPromptTruncation(&sb, len(deadNodes))
 		}
 	} else {
 		sb.WriteString("미사용 코드 없음\n")
 	}
 
 	sb.WriteString("\n### 대형 함수\n\n")
-	var lfAnalyzer2 LargefuncAnalyzer
-	if p.deps.LargefuncAnalyzer != nil {
-		lfAnalyzer2 = p.deps.LargefuncAnalyzer
-	} else {
-		lfAnalyzer2 = largefunc.New(p.deps.DB)
-	}
+	lfAnalyzer2 := p.largefuncAnalyzer()
 	var largeFuncs []model.Node
-	largeFuncs, err = lfAnalyzer2.Find(ctx, 50)
+	largeFuncsPage, err := lfAnalyzer2.FindPage(ctx, largefunc.Options{Threshold: 50, Page: promptPageRequest(sectionLimit)})
 	if err != nil {
 		log.Warn("find large functions failed", trace.SlogError(err))
 	}
+	largeFuncs = largeFuncsPage.Items
 	if len(largeFuncs) > 0 {
 		for _, f := range largeFuncs {
 			lines := f.EndLine - f.StartLine + 1
 			sb.WriteString(fmt.Sprintf("- %s (%d줄)\n", f.QualifiedName, lines))
+		}
+		if largeFuncsPage.Pagination.HasMore {
+			appendPromptTruncation(&sb, len(largeFuncs))
 		}
 	} else {
 		sb.WriteString("대형 함수 없음\n")

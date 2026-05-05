@@ -17,6 +17,8 @@ import (
 	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
+	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
+	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
@@ -108,6 +110,10 @@ func getPromptText(t *testing.T, resultJSON string) string {
 	msg0 := messages[0].(map[string]any)
 	content := msg0["content"].(map[string]any)
 	return content["text"].(string)
+}
+
+func countOccurrences(text, needle string) int {
+	return strings.Count(text, needle)
 }
 
 // ============================================================
@@ -276,6 +282,70 @@ func TestReviewChanges_DefaultBase(t *testing.T) {
 	}
 }
 
+func TestReviewChanges_TruncatesRiskAndCoverageSections(t *testing.T) {
+	deps, db := setupPromptTestDeps(t)
+
+	changedFiles := make([]string, 0, 22)
+	hunks := make([]changes.Hunk, 0, 22)
+	for i := 1; i <= 22; i++ {
+		filePath := fmt.Sprintf("risk%02d.go", i)
+		qualifiedName := fmt.Sprintf("pkg.Risk%02d", i)
+		db.Create(&model.Node{QualifiedName: qualifiedName, Kind: model.NodeKindFunction, Name: fmt.Sprintf("Risk%02d", i), FilePath: filePath, StartLine: 1, EndLine: 20, Language: "go"})
+		changedFiles = append(changedFiles, filePath)
+		hunks = append(hunks, changes.Hunk{FilePath: filePath, StartLine: 1, EndLine: 20})
+	}
+
+	deps.ChangesGitClient = &mockGitClient{changedFiles: changedFiles, hunks: hunks}
+	deps.CoverageAnalyzer = &perFileCoverageAnalyzer{}
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
+
+	text := getPromptText(t, callPrompt(t, deps, "review_changes", map[string]string{
+		"repo_root": repoRoot,
+		"limit":     "25",
+	}))
+
+	if got := countOccurrences(text, "— 리스크 점수:"); got != 20 {
+		t.Fatalf("expected 20 risk entries, got %d\n%s", got, text)
+	}
+	if got := countOccurrences(text, ": 테스트 1/2 (50%)"); got != 10 {
+		t.Fatalf("expected 10 coverage entries, got %d\n%s", got, text)
+	}
+	if !strings.Contains(text, "표시: 20건") || !strings.Contains(text, "표시: 10건") {
+		t.Fatalf("expected truncation markers for risk and coverage sections: %s", text)
+	}
+}
+
+func TestReviewChanges_RespectsSmallerLimitArgument(t *testing.T) {
+	deps, db := setupPromptTestDeps(t)
+
+	changedFiles := make([]string, 0, 5)
+	hunks := make([]changes.Hunk, 0, 5)
+	for i := 1; i <= 5; i++ {
+		filePath := fmt.Sprintf("small%02d.go", i)
+		db.Create(&model.Node{QualifiedName: fmt.Sprintf("pkg.Small%02d", i), Kind: model.NodeKindFunction, Name: fmt.Sprintf("Small%02d", i), FilePath: filePath, StartLine: 1, EndLine: 20, Language: "go"})
+		changedFiles = append(changedFiles, filePath)
+		hunks = append(hunks, changes.Hunk{FilePath: filePath, StartLine: 1, EndLine: 20})
+	}
+
+	deps.ChangesGitClient = &mockGitClient{changedFiles: changedFiles, hunks: hunks}
+	deps.CoverageAnalyzer = &perFileCoverageAnalyzer{}
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
+
+	text := getPromptText(t, callPrompt(t, deps, "review_changes", map[string]string{
+		"repo_root": repoRoot,
+		"limit":     "3",
+	}))
+
+	if got := countOccurrences(text, "— 리스크 점수:"); got != 3 {
+		t.Fatalf("expected 3 risk entries, got %d\n%s", got, text)
+	}
+	if got := countOccurrences(text, ": 테스트 1/2 (50%)"); got != 3 {
+		t.Fatalf("expected 3 coverage entries, got %d\n%s", got, text)
+	}
+}
+
 // ============================================================
 // 10.2 architecture_map tests
 // ============================================================
@@ -369,6 +439,36 @@ func TestArchitectureMap_FallsBackToContextNamespace(t *testing.T) {
 	}
 }
 
+func TestArchitectureMap_TruncatesCommunityAndCouplingSections(t *testing.T) {
+	deps, db := setupPromptTestDeps(t)
+	deps.CouplingAnalyzer = &mockCouplingAnalyzer{}
+
+	for i := 1; i <= 12; i++ {
+		db.Create(&model.Community{Key: fmt.Sprintf("community%02d", i), Label: fmt.Sprintf("community%02d", i), Strategy: "directory"})
+	}
+	deps.CouplingAnalyzer.(*mockCouplingAnalyzer).result = make([]coupling.CouplingPair, 0, 12)
+	for i := 1; i <= 12; i++ {
+		deps.CouplingAnalyzer.(*mockCouplingAnalyzer).result = append(deps.CouplingAnalyzer.(*mockCouplingAnalyzer).result, coupling.CouplingPair{
+			FromCommunity: fmt.Sprintf("from%02d", i),
+			ToCommunity:   fmt.Sprintf("to%02d", i),
+			EdgeCount:     int64(i),
+			Strength:      1,
+		})
+	}
+
+	text := getPromptText(t, callPrompt(t, deps, "architecture_map", map[string]string{"limit": "25"}))
+
+	if got := countOccurrences(text, "(전략:"); got != 10 {
+		t.Fatalf("expected 10 communities, got %d\n%s", got, text)
+	}
+	if got := countOccurrences(text, ": 결합도 "); got != 10 {
+		t.Fatalf("expected 10 coupling pairs, got %d\n%s", got, text)
+	}
+	if got := countOccurrences(text, "표시: 10건"); got < 2 {
+		t.Fatalf("expected truncation markers for both sections, got %d\n%s", got, text)
+	}
+}
+
 // ============================================================
 // 10.3 debug_issue tests
 // ============================================================
@@ -427,6 +527,39 @@ func TestDebugIssue_NoResults(t *testing.T) {
 
 	if !strings.Contains(text, "찾을 수 없습니다") {
 		t.Errorf("expected no results message, got: %s", text)
+	}
+}
+
+func TestDebugIssue_TruncatesPerNodeCallGraph(t *testing.T) {
+	deps, db := setupPromptTestDeps(t)
+	ctx := context.Background()
+
+	target := model.Node{QualifiedName: "pkg.Target", Kind: model.NodeKindFunction, Name: "Target", FilePath: "target.go", StartLine: 1, EndLine: 10, Language: "go"}
+	db.Create(&target)
+	db.Create(&model.SearchDocument{NodeID: target.ID, Content: "Target issue handler", Language: "go"})
+	if err := deps.SearchBackend.Rebuild(ctx, deps.DB); err != nil {
+		t.Fatal(err)
+	}
+
+	queryMock := &mockQueryService{}
+	for i := 1; i <= 12; i++ {
+		queryMock.result = append(queryMock.result, model.Node{QualifiedName: fmt.Sprintf("pkg.Neighbor%02d", i)})
+	}
+	deps.QueryService = queryMock
+
+	text := getPromptText(t, callPrompt(t, deps, "debug_issue", map[string]string{
+		"description": "Target issue",
+		"limit":       "25",
+	}))
+
+	if got := countOccurrences(text, "← 호출자:"); got != 10 {
+		t.Fatalf("expected 10 callers, got %d\n%s", got, text)
+	}
+	if got := countOccurrences(text, "→ 호출 대상:"); got != 10 {
+		t.Fatalf("expected 10 callees, got %d\n%s", got, text)
+	}
+	if got := countOccurrences(text, "표시: 10건"); got < 2 {
+		t.Fatalf("expected truncation markers for callers and callees, got %d\n%s", got, text)
 	}
 }
 
@@ -490,6 +623,35 @@ func TestOnboardDeveloper_EmptyProject(t *testing.T) {
 
 	if !strings.Contains(text, "비어있습니다") {
 		t.Errorf("expected empty project message, got: %s", text)
+	}
+}
+
+func TestOnboardDeveloper_TruncatesSections(t *testing.T) {
+	deps, db := setupPromptTestDeps(t)
+	deps.LargefuncAnalyzer = &mockLargefuncAnalyzer{}
+
+	for i := 1; i <= 12; i++ {
+		lang := fmt.Sprintf("lang%02d", i)
+		db.Create(&model.Node{QualifiedName: fmt.Sprintf("pkg.Node%02d", i), Kind: model.NodeKindFunction, Name: fmt.Sprintf("Node%02d", i), FilePath: fmt.Sprintf("node%02d.go", i), StartLine: 1, EndLine: 5, Language: lang})
+		db.Create(&model.Community{Key: fmt.Sprintf("community%02d", i), Label: fmt.Sprintf("community%02d", i), Strategy: "directory"})
+		deps.LargefuncAnalyzer.(*mockLargefuncAnalyzer).result = append(deps.LargefuncAnalyzer.(*mockLargefuncAnalyzer).result,
+			model.Node{QualifiedName: fmt.Sprintf("pkg.BigFunc%02d", i), Kind: model.NodeKindFunction, Name: fmt.Sprintf("BigFunc%02d", i), FilePath: fmt.Sprintf("big%02d.go", i), StartLine: 1, EndLine: 80, Language: "go"},
+		)
+	}
+
+	text := getPromptText(t, callPrompt(t, deps, "onboard_developer", map[string]string{"limit": "25"}))
+
+	if got := countOccurrences(text, "- lang"); got != 10 {
+		t.Fatalf("expected 10 language entries, got %d\n%s", got, text)
+	}
+	if got := countOccurrences(text, "- community"); got != 10 {
+		t.Fatalf("expected 10 community entries, got %d\n%s", got, text)
+	}
+	if got := countOccurrences(text, "- pkg.BigFunc"); got != 10 {
+		t.Fatalf("expected 10 large functions, got %d\n%s", got, text)
+	}
+	if got := countOccurrences(text, "표시: 10건"); got < 3 {
+		t.Fatalf("expected truncation markers for onboarding sections, got %d\n%s", got, text)
 	}
 }
 
@@ -588,6 +750,55 @@ func TestPreMergeCheck_EmptyChanges(t *testing.T) {
 	}
 }
 
+func TestPreMergeCheck_TruncatesSections(t *testing.T) {
+	deps, db := setupPromptTestDeps(t)
+	deps.CoverageAnalyzer = &perFileCoverageAnalyzer{}
+	deps.DeadcodeAnalyzer = &mockDeadcodeAnalyzer{}
+	deps.LargefuncAnalyzer = &mockLargefuncAnalyzer{}
+
+	changedFiles := make([]string, 0, 22)
+	hunks := make([]changes.Hunk, 0, 22)
+	for i := 1; i <= 22; i++ {
+		filePath := fmt.Sprintf("merge%02d.go", i)
+		db.Create(&model.Node{QualifiedName: fmt.Sprintf("pkg.Merge%02d", i), Kind: model.NodeKindFunction, Name: fmt.Sprintf("Merge%02d", i), FilePath: filePath, StartLine: 1, EndLine: 60, Language: "go"})
+		changedFiles = append(changedFiles, filePath)
+		hunks = append(hunks, changes.Hunk{FilePath: filePath, StartLine: 1, EndLine: 60})
+	}
+	for i := 1; i <= 12; i++ {
+		deps.DeadcodeAnalyzer.(*mockDeadcodeAnalyzer).result = append(deps.DeadcodeAnalyzer.(*mockDeadcodeAnalyzer).result,
+			model.Node{QualifiedName: fmt.Sprintf("pkg.Unused%02d", i), Kind: model.NodeKindFunction, FilePath: fmt.Sprintf("unused%02d.go", i)},
+		)
+		deps.LargefuncAnalyzer.(*mockLargefuncAnalyzer).result = append(deps.LargefuncAnalyzer.(*mockLargefuncAnalyzer).result,
+			model.Node{QualifiedName: fmt.Sprintf("pkg.Huge%02d", i), Kind: model.NodeKindFunction, FilePath: fmt.Sprintf("huge%02d.go", i), StartLine: 1, EndLine: 60},
+		)
+	}
+
+	deps.ChangesGitClient = &mockGitClient{changedFiles: changedFiles, hunks: hunks}
+	repoRoot := t.TempDir()
+	deps.RepoRoot = repoRoot
+
+	text := getPromptText(t, callPrompt(t, deps, "pre_merge_check", map[string]string{
+		"repo_root": repoRoot,
+		"limit":     "25",
+	}))
+
+	if got := countOccurrences(text, "리스크 점수:"); got != 20 {
+		t.Fatalf("expected 20 risk entries, got %d\n%s", got, text)
+	}
+	if got := countOccurrences(text, "1/2 (50%)"); got != 10 {
+		t.Fatalf("expected 10 coverage entries, got %d\n%s", got, text)
+	}
+	if got := countOccurrences(text, "- 미사용: "); got != 10 {
+		t.Fatalf("expected 10 dead-code entries, got %d\n%s", got, text)
+	}
+	if got := countOccurrences(text, "(60줄)"); got != 10 {
+		t.Fatalf("expected 10 large-function entries, got %d\n%s", got, text)
+	}
+	if !strings.Contains(text, "표시: 20건") || countOccurrences(text, "표시: 10건") < 3 {
+		t.Fatalf("expected truncation markers across pre-merge sections\n%s", text)
+	}
+}
+
 func TestReviewChanges_RejectsRepoRootOutsideConfiguredRoot(t *testing.T) {
 	deps, _ := setupPromptTestDeps(t)
 	deps.ChangesGitClient = &mockGitClient{}
@@ -652,6 +863,16 @@ type mockGitClient struct {
 	changedFiles []string
 	hunks        []changes.Hunk
 	lastBaseRef  string
+}
+
+type perFileCoverageAnalyzer struct{}
+
+func (p *perFileCoverageAnalyzer) ByFile(ctx context.Context, filePath string) (*coverage.FileCoverage, error) {
+	return &coverage.FileCoverage{FilePath: filePath, Tested: 1, Total: 2, Ratio: 0.5}, nil
+}
+
+func (p *perFileCoverageAnalyzer) ByCommunity(ctx context.Context, communityID uint) (*coverage.CommunityCoverage, error) {
+	return &coverage.CommunityCoverage{}, nil
 }
 
 func (m *mockGitClient) ChangedFiles(ctx context.Context, repoDir, baseRef string) ([]string, error) {

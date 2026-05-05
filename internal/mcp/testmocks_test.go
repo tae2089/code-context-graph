@@ -10,9 +10,12 @@ import (
 	fallbackanalysis "github.com/tae2089/code-context-graph/internal/analysis/fallback"
 	"github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
+	"github.com/tae2089/code-context-graph/internal/analysis/largefunc"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/paging"
+	"github.com/tae2089/code-context-graph/internal/pathutil"
 )
 
 type mockQueryService struct {
@@ -65,6 +68,22 @@ type mockQueryService struct {
 	err                     error
 }
 
+func applyQueryPage(items []model.Node, opts query.QueryOptions) query.PagedNodes {
+	total := len(items)
+	start := opts.Offset
+	if start < 0 {
+		start = 0
+	}
+	if start > total {
+		start = total
+	}
+	window := append([]model.Node(nil), items[start:]...)
+	if opts.Limit > 0 && len(window) > opts.Limit {
+		window = window[:opts.Limit]
+	}
+	return query.PagedNodes{Nodes: window, TotalCount: total}
+}
+
 func (m *mockQueryService) CallersOf(ctx context.Context, nodeID uint) ([]model.Node, error) {
 	m.callersOfCalled = true
 	m.callersOfCalls++
@@ -74,7 +93,7 @@ func (m *mockQueryService) CallersOfPage(ctx context.Context, nodeID uint, opts 
 	m.callersPageCalled = true
 	m.callersPageCalls++
 	m.callersPageOpts = opts
-	return query.PagedNodes{Nodes: m.result, TotalCount: len(m.result)}, m.err
+	return applyQueryPage(m.result, opts), m.err
 }
 func (m *mockQueryService) CallersOfWithOptions(ctx context.Context, nodeID uint, opts query.QueryOptions) ([]model.Node, error) {
 	m.callersOfCalled = true
@@ -93,7 +112,7 @@ func (m *mockQueryService) CalleesOfPage(ctx context.Context, nodeID uint, opts 
 	m.calleesPageCalled = true
 	m.calleesPageCalls++
 	m.calleesPageOpts = opts
-	return query.PagedNodes{Nodes: m.result, TotalCount: len(m.result)}, m.err
+	return applyQueryPage(m.result, opts), m.err
 }
 func (m *mockQueryService) CalleesOfWithOptions(ctx context.Context, nodeID uint, opts query.QueryOptions) ([]model.Node, error) {
 	m.calleesOfCalled = true
@@ -112,7 +131,7 @@ func (m *mockQueryService) ImportsOfPage(ctx context.Context, nodeID uint, opts 
 	m.importsOfPageCalled = true
 	m.importsOfPageCalls++
 	m.importsOfPageOpts = opts
-	return query.PagedNodes{Nodes: m.result, TotalCount: len(m.result)}, m.err
+	return applyQueryPage(m.result, opts), m.err
 }
 func (m *mockQueryService) ImportersOf(ctx context.Context, nodeID uint) ([]model.Node, error) {
 	m.importersOfCalled = true
@@ -123,7 +142,7 @@ func (m *mockQueryService) ImportersOfPage(ctx context.Context, nodeID uint, opt
 	m.importersOfPageCalled = true
 	m.importersOfPageCalls++
 	m.importersOfPageOpts = opts
-	return query.PagedNodes{Nodes: m.result, TotalCount: len(m.result)}, m.err
+	return applyQueryPage(m.result, opts), m.err
 }
 func (m *mockQueryService) ChildrenOf(ctx context.Context, nodeID uint) ([]model.Node, error) {
 	m.childrenOfCalled = true
@@ -134,7 +153,7 @@ func (m *mockQueryService) ChildrenOfPage(ctx context.Context, nodeID uint, opts
 	m.childrenOfPageCalled = true
 	m.childrenOfPageCalls++
 	m.childrenOfPageOpts = opts
-	return query.PagedNodes{Nodes: m.result, TotalCount: len(m.result)}, m.err
+	return applyQueryPage(m.result, opts), m.err
 }
 func (m *mockQueryService) TestsFor(ctx context.Context, nodeID uint) ([]model.Node, error) {
 	m.testsForCalled = true
@@ -145,7 +164,7 @@ func (m *mockQueryService) TestsForPage(ctx context.Context, nodeID uint, opts q
 	m.testsForPageCalled = true
 	m.testsForPageCalls++
 	m.testsForPageOpts = opts
-	return query.PagedNodes{Nodes: m.result, TotalCount: len(m.result)}, m.err
+	return applyQueryPage(m.result, opts), m.err
 }
 func (m *mockQueryService) InheritorsOf(ctx context.Context, nodeID uint) ([]model.Node, error) {
 	m.inheritorsOfCalled = true
@@ -156,7 +175,7 @@ func (m *mockQueryService) InheritorsOfPage(ctx context.Context, nodeID uint, op
 	m.inheritorsOfPageCalled = true
 	m.inheritorsOfPageCalls++
 	m.inheritorsOfPageOpts = opts
-	return query.PagedNodes{Nodes: m.result, TotalCount: len(m.result)}, m.err
+	return applyQueryPage(m.result, opts), m.err
 }
 func (m *mockQueryService) FileSummaryOf(ctx context.Context, filePath string) (*query.FileSummary, error) {
 	m.fileSummaryCalled = true
@@ -169,9 +188,11 @@ func (m *mockQueryService) FindExactNameMatches(ctx context.Context, target stri
 }
 
 type mockLargefuncAnalyzer struct {
-	findCalled bool
-	result     []model.Node
-	err        error
+	findCalled     bool
+	findPageCalled bool
+	findPageOpts   largefunc.Options
+	result         []model.Node
+	err            error
 }
 
 func (m *mockLargefuncAnalyzer) Find(ctx context.Context, threshold int) ([]model.Node, error) {
@@ -179,10 +200,40 @@ func (m *mockLargefuncAnalyzer) Find(ctx context.Context, threshold int) ([]mode
 	return m.result, m.err
 }
 
+func (m *mockLargefuncAnalyzer) FindPage(ctx context.Context, opts largefunc.Options) (largefunc.Result, error) {
+	m.findPageCalled = true
+	m.findPageOpts = opts
+	items := m.result
+	if opts.PathPrefix != "" {
+		filtered := make([]model.Node, 0, len(items))
+		for _, item := range items {
+			if pathutil.HasPathPrefix(item.FilePath, opts.PathPrefix) {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
+	hasMore := false
+	if opts.Page.Offset > 0 {
+		if opts.Page.Offset >= len(items) {
+			items = []model.Node{}
+		} else {
+			items = items[opts.Page.Offset:]
+		}
+	}
+	if opts.Page.Limit > 0 && len(items) > opts.Page.Limit {
+		items = items[:opts.Page.Limit]
+		hasMore = true
+	}
+	return largefunc.Result{Items: items, Pagination: paging.BuildPage(opts.Page, len(items), hasMore)}, m.err
+}
+
 type mockDeadcodeAnalyzer struct {
-	findCalled bool
-	result     []model.Node
-	err        error
+	findCalled     bool
+	findPageCalled bool
+	findPageOpts   deadcode.Options
+	result         []model.Node
+	err            error
 }
 
 func (m *mockDeadcodeAnalyzer) Find(ctx context.Context, opts deadcode.Options) ([]model.Node, error) {
@@ -190,10 +241,40 @@ func (m *mockDeadcodeAnalyzer) Find(ctx context.Context, opts deadcode.Options) 
 	return m.result, m.err
 }
 
+func (m *mockDeadcodeAnalyzer) FindPage(ctx context.Context, opts deadcode.Options) (deadcode.Result, error) {
+	m.findPageCalled = true
+	m.findPageOpts = opts
+	items := m.result
+	if opts.FilePattern != "" {
+		filtered := make([]model.Node, 0, len(items))
+		for _, item := range items {
+			if pathutil.HasPathPrefix(item.FilePath, opts.FilePattern) {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
+	hasMore := false
+	if opts.Page.Offset > 0 {
+		if opts.Page.Offset >= len(items) {
+			items = []model.Node{}
+		} else {
+			items = items[opts.Page.Offset:]
+		}
+	}
+	if opts.Page.Limit > 0 && len(items) > opts.Page.Limit {
+		items = items[:opts.Page.Limit]
+		hasMore = true
+	}
+	return deadcode.Result{Items: items, Pagination: paging.BuildPage(opts.Page, len(items), hasMore)}, m.err
+}
+
 type mockFallbackAnalyzer struct {
-	findCalled bool
-	result     []fallbackanalysis.SuspectEdge
-	err        error
+	findCalled     bool
+	findPageCalled bool
+	findPageOpts   fallbackanalysis.Options
+	result         []fallbackanalysis.SuspectEdge
+	err            error
 }
 
 func (m *mockFallbackAnalyzer) FindSuspects(ctx context.Context, opts fallbackanalysis.Options) ([]fallbackanalysis.SuspectEdge, error) {
@@ -201,15 +282,57 @@ func (m *mockFallbackAnalyzer) FindSuspects(ctx context.Context, opts fallbackan
 	return m.result, m.err
 }
 
+func (m *mockFallbackAnalyzer) FindSuspectsPage(ctx context.Context, opts fallbackanalysis.Options) (fallbackanalysis.Result, error) {
+	m.findPageCalled = true
+	m.findPageOpts = opts
+	items := m.result
+	hasMore := false
+	if opts.Page.Offset > 0 {
+		if opts.Page.Offset >= len(items) {
+			items = []fallbackanalysis.SuspectEdge{}
+		} else {
+			items = items[opts.Page.Offset:]
+		}
+	}
+	if opts.Page.Limit > 0 && len(items) > opts.Page.Limit {
+		items = items[:opts.Page.Limit]
+		hasMore = true
+	}
+	return fallbackanalysis.Result{Items: items, Pagination: paging.BuildPage(opts.Page, len(items), hasMore)}, m.err
+}
+
 type mockCouplingAnalyzer struct {
-	analyzeCalled bool
-	result        []coupling.CouplingPair
-	err           error
+	analyzeCalled     bool
+	analyzePageCalled bool
+	result            []coupling.CouplingPair
+	err               error
 }
 
 func (m *mockCouplingAnalyzer) Analyze(ctx context.Context) ([]coupling.CouplingPair, error) {
 	m.analyzeCalled = true
 	return m.result, m.err
+}
+
+func (m *mockCouplingAnalyzer) AnalyzePage(ctx context.Context, req paging.Request) (coupling.Result, error) {
+	m.analyzePageCalled = true
+	if m.err != nil {
+		return coupling.Result{}, m.err
+	}
+	normalized, err := paging.Normalize(req)
+	if err != nil {
+		return coupling.Result{}, err
+	}
+	total := len(m.result)
+	if normalized.Offset >= total {
+		return coupling.Result{Items: []coupling.CouplingPair{}, Pagination: paging.BuildPage(normalized, 0, false)}, nil
+	}
+	end := normalized.Offset + normalized.Limit
+	hasMore := end < total
+	if end > total {
+		end = total
+	}
+	items := append([]coupling.CouplingPair(nil), m.result[normalized.Offset:end]...)
+	return coupling.Result{Items: items, Pagination: paging.BuildPage(normalized, len(items), hasMore)}, nil
 }
 
 type mockCoverageAnalyzer struct {
