@@ -523,8 +523,8 @@ func TestPrompts_UsesDepsInterfaces(t *testing.T) {
 	_ = rpcResp
 
 	// Check that mockLF.findCalled is true to verify that Deps.LargefuncAnalyzer was used.
-	if !mockLF.findCalled {
-		t.Error("expected prompts.go to use Deps.LargefuncAnalyzer instead of inline creation")
+	if !mockLF.findPageCalled {
+		t.Error("expected prompts.go to use Deps.LargefuncAnalyzer.FindPage instead of inline creation")
 	}
 }
 
@@ -2526,8 +2526,8 @@ func TestFindLargeFunctions_DefaultThreshold(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("find_large_functions error: %s", getTextContent(result))
 	}
-	if !mockLF.findCalled {
-		t.Error("expected Find to be called")
+	if !mockLF.findPageCalled {
+		t.Error("expected FindPage to be called")
 	}
 }
 
@@ -3407,8 +3407,8 @@ func TestFindDeadCode_FilterByKind(t *testing.T) {
 		"kinds": []any{"function"},
 	})
 
-	if !mockDC.findCalled {
-		t.Error("expected Find to be called")
+	if !mockDC.findPageCalled {
+		t.Error("expected FindPage to be called")
 	}
 }
 
@@ -3422,8 +3422,8 @@ func TestFindDeadCode_FilterByFilePattern(t *testing.T) {
 		"path": "internal/",
 	})
 
-	if !mockDC.findCalled {
-		t.Error("expected Find to be called")
+	if !mockDC.findPageCalled {
+		t.Error("expected FindPage to be called")
 	}
 }
 
