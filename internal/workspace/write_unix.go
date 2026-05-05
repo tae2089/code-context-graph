@@ -1,14 +1,13 @@
 //go:build !windows
 
-// @index Unix-specific symlink-safe workspace file writes for MCP handlers.
-package mcp
+package workspace
 
 import (
 	"os"
 	"syscall"
 )
 
-// writeFileNoFollow writes workspace files without following symlinks on Unix.
+// writeFileNoFollow writes a file without following symlinks on Unix.
 // @intent prevent workspace upload paths from escaping the allowed root through symlink traversal.
 // @sideEffect creates or truncates the target file and fsyncs it to disk.
 func writeFileNoFollow(path string, data []byte, perm os.FileMode) error {

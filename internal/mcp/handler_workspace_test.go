@@ -208,10 +208,11 @@ func TestListWorkspaces_Empty(t *testing.T) {
 	assertToolResultNotError(t, result)
 
 	text := extractText(result)
-	var workspaces []string
-	if err := json.Unmarshal([]byte(text), &workspaces); err != nil {
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
+	workspaces := resp["namespaces"].([]any)
 	if len(workspaces) != 0 {
 		t.Errorf("expected empty list, got %v", workspaces)
 	}
@@ -230,12 +231,42 @@ func TestListWorkspaces_WithData(t *testing.T) {
 	}
 
 	text := extractText(result)
-	var workspaces []string
-	if err := json.Unmarshal([]byte(text), &workspaces); err != nil {
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
+	workspaces := resp["namespaces"].([]any)
 	if len(workspaces) != 2 {
 		t.Errorf("expected 2 workspaces, got %d: %v", len(workspaces), workspaces)
+	}
+}
+
+func TestListWorkspaces_Pagination(t *testing.T) {
+	h, root := workspaceHandlers(t)
+	for _, name := range []string{"service-a", "service-b", "service-c"} {
+		if err := os.MkdirAll(filepath.Join(root, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := makeCallToolRequest(t, map[string]any{"limit": 2, "offset": 1})
+	result, err := h.listWorkspaces(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultNotError(t, result)
+
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(extractText(result)), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	items := resp["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	pagination := resp["pagination"].(map[string]any)
+	if pagination["offset"].(float64) != 1 || pagination["returned"].(float64) != 2 {
+		t.Fatalf("unexpected pagination: %v", pagination)
 	}
 }
 
@@ -257,12 +288,70 @@ func TestListFiles_Basic(t *testing.T) {
 	assertToolResultNotError(t, result)
 
 	text := extractText(result)
-	var files []string
-	if err := json.Unmarshal([]byte(text), &files); err != nil {
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
+	files := resp["files"].([]any)
 	if len(files) != 2 {
 		t.Errorf("expected 2 files, got %d: %v", len(files), files)
+	}
+}
+
+func TestListFiles_Pagination(t *testing.T) {
+	h, root := workspaceHandlers(t)
+	wsDir := filepath.Join(root, "my-service")
+	if err := os.MkdirAll(filepath.Join(wsDir, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"a.md", "b.md", "docs/c.md"} {
+		if err := os.WriteFile(filepath.Join(wsDir, rel), []byte(rel), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := makeCallToolRequest(t, map[string]any{"workspace": "my-service", "limit": 2, "offset": 1})
+	result, err := h.listFiles(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertToolResultNotError(t, result)
+
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(extractText(result)), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	files := resp["files"].([]any)
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
+	}
+	pagination := resp["pagination"].(map[string]any)
+	if pagination["offset"].(float64) != 1 || pagination["returned"].(float64) != 2 {
+		t.Fatalf("unexpected pagination: %v", pagination)
+	}
+}
+
+func TestListWorkspaceAndFiles_InvalidPagination(t *testing.T) {
+	h, _ := workspaceHandlers(t)
+	for name, req := range map[string]mcp.CallToolRequest{
+		"workspaces limit": makeCallToolRequest(t, map[string]any{"limit": 0}),
+		"workspaces offset": makeCallToolRequest(t, map[string]any{"offset": -1}),
+		"files limit":      makeCallToolRequest(t, map[string]any{"workspace": "svc", "limit": 0}),
+		"files offset":     makeCallToolRequest(t, map[string]any{"workspace": "svc", "offset": -1}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			var result *mcp.CallToolResult
+			var err error
+			if strings.HasPrefix(name, "workspaces") {
+				result, err = h.listWorkspaces(t.Context(), req)
+			} else {
+				result, err = h.listFiles(t.Context(), req)
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			assertToolResultIsError(t, result)
+		})
 	}
 }
 
