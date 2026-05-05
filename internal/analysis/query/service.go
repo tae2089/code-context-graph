@@ -37,10 +37,27 @@ type CandidateMatch struct {
 	StartLine     int
 }
 
+// QueryOptions controls how predefined relationship lookups treat lower-confidence edges.
+// @intent let callers choose between compatibility mode and strict call-edge analysis.
+type QueryOptions struct {
+	IncludeFallbackCalls *bool
+}
+
 // New creates a predefined query service.
 // @intent construct a service for common graph traversal queries
 func New(db *gorm.DB) *Service {
 	return &Service{db: db}
+}
+
+// defaultQueryOptions normalizes zero-value options into the compatibility-preserving defaults.
+// @intent keep legacy callers fallback-inclusive unless they explicitly opt into strict mode.
+func defaultQueryOptions(opts QueryOptions) QueryOptions {
+	if opts.IncludeFallbackCalls != nil {
+		return opts
+	}
+	includeFallbackCalls := true
+	opts.IncludeFallbackCalls = &includeFallbackCalls
+	return opts
 }
 
 // nodesByEdge loads nodes connected by an edge kind and direction.
@@ -50,11 +67,22 @@ func New(db *gorm.DB) *Service {
 // @param direction incoming selects source nodes, otherwise destination nodes
 // @return nodes connected to the anchor node by the requested relationship
 func (s *Service) nodesByEdge(ctx context.Context, nodeID uint, kind model.EdgeKind, direction string) ([]model.Node, error) {
+	includeFallbackCalls := true
+	return s.nodesByEdgeWithOptions(ctx, nodeID, kind, direction, QueryOptions{IncludeFallbackCalls: &includeFallbackCalls})
+}
+
+// nodesByEdgeWithOptions loads nodes connected by an edge kind and direction with explicit fallback-call control.
+// @intent let strict graph queries exclude fallback call edges without changing legacy defaults.
+func (s *Service) nodesByEdgeWithOptions(ctx context.Context, nodeID uint, kind model.EdgeKind, direction string, opts QueryOptions) ([]model.Node, error) {
 	var nodes []model.Node
 	var q *gorm.DB
 	edgeKinds := []model.EdgeKind{kind}
 	if kind == model.EdgeKindCalls {
-		edgeKinds = model.CallEdgeKinds()
+		edgeKinds = []model.EdgeKind{model.EdgeKindCalls}
+		normalized := defaultQueryOptions(opts)
+		if normalized.IncludeFallbackCalls != nil && *normalized.IncludeFallbackCalls {
+			edgeKinds = model.CallEdgeKinds()
+		}
 	}
 	ns := ctxns.FromContext(ctx)
 	switch direction {
@@ -109,11 +137,23 @@ func (s *Service) CallersOf(ctx context.Context, nodeID uint) ([]model.Node, err
 	return s.nodesByEdge(ctx, nodeID, model.EdgeKindCalls, "incoming")
 }
 
+// CallersOfWithOptions returns nodes that call the target node with explicit fallback-call control.
+// @intent support strict caller lookups that ignore fallback-derived edges when requested.
+func (s *Service) CallersOfWithOptions(ctx context.Context, nodeID uint, opts QueryOptions) ([]model.Node, error) {
+	return s.nodesByEdgeWithOptions(ctx, nodeID, model.EdgeKindCalls, "incoming", opts)
+}
+
 // CalleesOf returns nodes called by the target node.
 // @intent find downstream call dependencies of a function or method node
 // @see query.Service.CallersOf
 func (s *Service) CalleesOf(ctx context.Context, nodeID uint) ([]model.Node, error) {
 	return s.nodesByEdge(ctx, nodeID, model.EdgeKindCalls, "outgoing")
+}
+
+// CalleesOfWithOptions returns nodes called by the target node with explicit fallback-call control.
+// @intent support strict callee lookups that ignore fallback-derived edges when requested.
+func (s *Service) CalleesOfWithOptions(ctx context.Context, nodeID uint, opts QueryOptions) ([]model.Node, error) {
+	return s.nodesByEdgeWithOptions(ctx, nodeID, model.EdgeKindCalls, "outgoing", opts)
 }
 
 // ImportsOf returns nodes imported by the target node.
