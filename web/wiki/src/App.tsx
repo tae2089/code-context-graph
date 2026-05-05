@@ -17,12 +17,14 @@ import {
   Package,
   RefreshCw,
   Search,
+  Share2,
   X
 } from "lucide-react";
 import {
   APIError,
   GraphNode,
   NodeDetails,
+  RefTarget,
   SearchResult as DocSearchResult,
   TreeNode,
   buildContext,
@@ -30,6 +32,7 @@ import {
   getTree,
   listNamespaces,
   retrieveDocs,
+  resolveRef,
   searchDocs
 } from "./api";
 
@@ -81,6 +84,7 @@ export default function App() {
   const [searchResults, setSearchResults] = useState<SelectedDoc[]>([]);
   const [selected, setSelected] = useState<SelectedDoc[]>([]);
   const [contextMarkdown, setContextMarkdown] = useState("");
+  const [graphFocusNodeID, setGraphFocusNodeID] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [needsToken, setNeedsToken] = useState(false);
@@ -145,7 +149,12 @@ export default function App() {
 
   // @intent open a selected tree/search item in the Markdown viewer.
   async function openDoc(item: SelectedDoc) {
-    setDocPath(item.path);
+    await openDocInNamespace(namespace, item);
+  }
+
+  // @intent open a selected item from a specific namespace without waiting for state propagation.
+  async function openDocInNamespace(ns: string, item: SelectedDoc) {
+    setDocPath(docDisplayPath(item));
     setDocError("");
     setDocContent("");
     if (!item.path) {
@@ -153,7 +162,7 @@ export default function App() {
       return;
     }
     try {
-      const res = await getDoc(namespace, item.path, token);
+      const res = await getDoc(ns, item.path, token);
       setDocContent(res.content);
       setNeedsToken(false);
     } catch (err) {
@@ -162,6 +171,34 @@ export default function App() {
       } else {
         handleError(err);
       }
+    }
+  }
+
+  // @intent follow a ccg:// ref into the resolved namespace and show its Wiki doc or symbol details.
+  async function openRefDoc(rawRef: string) {
+    try {
+      const res = await resolveRef(rawRef, token);
+      const item = selectedDocFromRefTarget(res.target);
+      setNamespace(res.namespace);
+      setViewMode("docs");
+      setGraphFocusNodeID(res.target.graph_node_id || "");
+      await openDocInNamespace(res.namespace, item);
+      setNeedsToken(false);
+    } catch (err) {
+      handleError(err);
+    }
+  }
+
+  // @intent follow a ccg:// ref into the graph viewer and focus the resolved graph node when available.
+  async function openRefGraph(rawRef: string) {
+    try {
+      const res = await resolveRef(rawRef, token);
+      setNamespace(res.namespace);
+      setGraphFocusNodeID(res.target.graph_node_id || "");
+      setViewMode("graph");
+      setNeedsToken(false);
+    } catch (err) {
+      handleError(err);
     }
   }
 
@@ -354,7 +391,7 @@ export default function App() {
         <section className="overflow-auto bg-white">
           {viewMode === "graph" ? (
             <Suspense fallback={<EmptyState label="Loading graph viewer..." />}>
-              <GraphView namespace={namespace} token={token} onError={handleError} onOpenNode={openGraphNode} />
+              <GraphView namespace={namespace} token={token} focusNodeID={graphFocusNodeID} onError={handleError} onOpenNode={openGraphNode} />
             </Suspense>
           ) : (
             <>
@@ -366,7 +403,7 @@ export default function App() {
               </div>
               <article className="max-w-none px-8 py-6">
                 {docContent ? (
-                  <DocumentView content={docContent} />
+                  <DocumentView content={docContent} onOpenRef={openRefDoc} onGraphRef={openRefGraph} />
                 ) : docError ? (
                   <EmptyState label={docError} />
                 ) : (
@@ -513,6 +550,26 @@ function EvidenceList({ evidence }: { evidence: RetrieveEvidence[] }) {
 // @intent render compact placeholder copy for empty Wiki panels.
 function EmptyState({ label }: { label: string }) {
   return <div className="py-10 text-center text-sm text-neutral-500">{label}</div>;
+}
+
+// @intent convert a resolved ccg:// API target into the viewer's normal selected-item shape.
+function selectedDocFromRefTarget(target: RefTarget): SelectedDoc {
+  return {
+    path: target.doc_path || "",
+    label: target.label,
+    kind: normalizeKind(target.kind, `ref:${target.label}`, target.doc_path),
+    summary: target.summary || target.details?.file_path || "",
+    details: target.details
+  };
+}
+
+// @intent show a stable location label even for symbol-only tree items without generated Markdown paths.
+function docDisplayPath(item: SelectedDoc) {
+  if (item.path) return item.path;
+  if (item.details?.file_path) {
+    return `${item.details.file_path}#${item.details.qualified_name || item.label}`;
+  }
+  return item.label || "";
 }
 
 // @intent build a local fallback Markdown context when server-side docs are unavailable.
@@ -755,7 +812,7 @@ type GeneratedDoc = {
 };
 
 // @intent switch generated ccg Markdown into a denser visual reader while preserving generic Markdown fallback.
-function DocumentView({ content }: { content: string }) {
+function DocumentView({ content, onOpenRef, onGraphRef }: { content: string; onOpenRef: (ref: string) => void; onGraphRef: (ref: string) => void }) {
   const generated = parseGeneratedDoc(content);
   if (!generated) {
     return (
@@ -764,11 +821,11 @@ function DocumentView({ content }: { content: string }) {
       </div>
     );
   }
-  return <GeneratedDocView doc={generated} />;
+  return <GeneratedDocView doc={generated} onOpenRef={onOpenRef} onGraphRef={onGraphRef} />;
 }
 
 // @intent render generated file docs as browsable symbol cards instead of a flat Markdown page.
-function GeneratedDocView({ doc }: { doc: GeneratedDoc }) {
+function GeneratedDocView({ doc, onOpenRef, onGraphRef }: { doc: GeneratedDoc; onOpenRef: (ref: string) => void; onGraphRef: (ref: string) => void }) {
   const totalSymbols = doc.sections.reduce((sum, section) => sum + section.symbols.length, 0);
   return (
     <div className="space-y-6">
@@ -798,7 +855,7 @@ function GeneratedDocView({ doc }: { doc: GeneratedDoc }) {
             <span>{section.symbols.length}</span>
           </div>
           <div className="grid gap-3 xl:grid-cols-2">
-            {section.symbols.map((symbol) => <SymbolCard key={`${section.title}:${symbol.name}`} symbol={symbol} />)}
+            {section.symbols.map((symbol) => <SymbolCard key={`${section.title}:${symbol.name}`} symbol={symbol} onOpenRef={onOpenRef} onGraphRef={onGraphRef} />)}
           </div>
         </section>
       ))}
@@ -807,7 +864,7 @@ function GeneratedDocView({ doc }: { doc: GeneratedDoc }) {
 }
 
 // @intent show one generated function/type entry with metadata grouped by annotation kind.
-function SymbolCard({ symbol }: { symbol: DocSymbol }) {
+function SymbolCard({ symbol, onOpenRef, onGraphRef }: { symbol: DocSymbol; onOpenRef: (ref: string) => void; onGraphRef: (ref: string) => void }) {
   const visibleAttributes = symbol.attributes.filter((attribute) => attribute.label !== "Lines");
   return (
     <div className="symbol-card">
@@ -823,7 +880,7 @@ function SymbolCard({ symbol }: { symbol: DocSymbol }) {
 
       {visibleAttributes.length > 0 && (
         <div className="mt-4 space-y-3">
-          {visibleAttributes.map((attribute) => <AttributeBlock key={attribute.label} attribute={attribute} />)}
+          {visibleAttributes.map((attribute) => <AttributeBlock key={attribute.label} attribute={attribute} onOpenRef={onOpenRef} onGraphRef={onGraphRef} />)}
         </div>
       )}
     </div>
@@ -831,7 +888,7 @@ function SymbolCard({ symbol }: { symbol: DocSymbol }) {
 }
 
 // @intent format generated annotation fields as readable chips and short labeled blocks.
-function AttributeBlock({ attribute }: { attribute: DocAttribute }) {
+function AttributeBlock({ attribute, onOpenRef, onGraphRef }: { attribute: DocAttribute; onOpenRef: (ref: string) => void; onGraphRef: (ref: string) => void }) {
   const label = attribute.label;
   if ((label === "Calls" || label === "See") && attribute.value) {
     return (
@@ -839,7 +896,7 @@ function AttributeBlock({ attribute }: { attribute: DocAttribute }) {
         <div className="attribute-label">{label}</div>
         <div className="mt-1 flex flex-wrap gap-1.5">
           {attribute.value.split(",").map((item) => item.trim()).filter(Boolean).map((item) => (
-            label === "See" ? <CcgRefChip key={item} value={item} /> : <span key={item} className="call-chip">{item}</span>
+            label === "See" ? <CcgRefChip key={item} value={item} onOpenRef={onOpenRef} onGraphRef={onGraphRef} /> : <span key={item} className="call-chip">{item}</span>
           ))}
         </div>
       </div>
@@ -900,16 +957,21 @@ function AttributeBlock({ attribute }: { attribute: DocAttribute }) {
 }
 
 // @intent render ccg:// @see refs as recognizable cross-namespace chips while leaving local refs unchanged.
-function CcgRefChip({ value }: { value: string }) {
+function CcgRefChip({ value, onOpenRef, onGraphRef }: { value: string; onOpenRef: (ref: string) => void; onGraphRef: (ref: string) => void }) {
   const ref = parseCcgRef(value);
   if (!ref) {
     return <span className="see-chip">{value}</span>;
   }
   return (
-    <span className="see-chip ccg-ref-chip" title={ref.raw}>
-      <span className="ccg-ref-namespace">{ref.namespace}</span>
-      {ref.path && <span className="ccg-ref-path">/{ref.path}</span>}
-      {ref.symbol && <span className="ccg-ref-symbol">#{ref.symbol}</span>}
+    <span className="ccg-ref-actions">
+      <button className="see-chip ccg-ref-chip" title={ref.raw} onClick={() => onOpenRef(ref.raw)}>
+        <span className="ccg-ref-namespace">{ref.namespace}</span>
+        {ref.path && <span className="ccg-ref-path">/{ref.path}</span>}
+        {ref.symbol && <span className="ccg-ref-symbol">#{ref.symbol}</span>}
+      </button>
+      <button className="ccg-ref-graph-button" title="Open in graph" onClick={() => onGraphRef(ref.raw)}>
+        <Share2 className="h-3.5 w-3.5" />
+      </button>
     </span>
   );
 }

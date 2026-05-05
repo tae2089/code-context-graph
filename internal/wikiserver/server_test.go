@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,6 +56,48 @@ func newTestServer(t *testing.T) *Server {
 	if err := os.WriteFile(filepath.Join(ragDir, "doc-index.json"), data, 0o644); err != nil {
 		t.Fatalf("write rag index json: %v", err)
 	}
+	authIdx := &ragindex.Index{
+		Version: 1,
+		BuiltAt: time.Date(2026, 5, 5, 0, 0, 0, 0, time.UTC),
+		Root: &ragindex.TreeNode{
+			ID: "root", Label: "Root",
+			Children: []*ragindex.TreeNode{
+				{
+					ID: "folder:internal", Label: "internal", Kind: "folder",
+					Children: []*ragindex.TreeNode{
+						{
+							ID: "folder:internal/auth", Label: "auth", Kind: "folder",
+							Children: []*ragindex.TreeNode{
+								{
+									ID: "file:internal/auth/token.go", Label: "token.go", Kind: "file", DocPath: "docs/internal/auth/token.go.md", Summary: "Token file",
+									Children: []*ragindex.TreeNode{
+										{
+											ID: "symbol:auth.ValidateToken", Label: "ValidateToken", Kind: "function", Summary: "validates tokens",
+											Details: &ragindex.NodeDetails{
+												QualifiedName: "auth.ValidateToken",
+												FilePath:      "internal/auth/token.go",
+												StartLine:     10,
+												EndLine:       24,
+												Language:      "go",
+											},
+											Children: []*ragindex.TreeNode{},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	authData, _ := json.Marshal(authIdx)
+	if err := os.MkdirAll(filepath.Join(ragDir, "auth-svc"), 0o755); err != nil {
+		t.Fatalf("create auth namespace index dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(ragDir, "auth-svc", "wiki-index.json"), authData, 0o644); err != nil {
+		t.Fatalf("write auth wiki index json: %v", err)
+	}
 	if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
 		t.Fatalf("create docs dir: %v", err)
 	}
@@ -66,7 +109,7 @@ func newTestServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Node{}, &model.Edge{}); err != nil {
+	if err := db.AutoMigrate(&model.Node{}, &model.Edge{}, &model.Annotation{}, &model.DocTag{}); err != nil {
 		t.Fatalf("migrate nodes: %v", err)
 	}
 	fileNode := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "main.go", Kind: model.NodeKindFile, Name: "main.go", FilePath: "main.go", StartLine: 1, EndLine: 20, Language: "go"}
@@ -82,6 +125,10 @@ func newTestServer(t *testing.T) *Server {
 	}
 	if err := db.Create(&model.Node{Namespace: "sample-go", QualifiedName: "main.Run", Kind: model.NodeKindFunction, Name: "Run", FilePath: "main.go"}).Error; err != nil {
 		t.Fatalf("create node: %v", err)
+	}
+	authNode := model.Node{Namespace: "auth-svc", QualifiedName: "auth.ValidateToken", Kind: model.NodeKindFunction, Name: "ValidateToken", FilePath: "internal/auth/token.go", StartLine: 10, EndLine: 24, Language: "go"}
+	if err := db.Create(&authNode).Error; err != nil {
+		t.Fatalf("create auth node: %v", err)
 	}
 
 	cwd, err := os.Getwd()
@@ -232,6 +279,47 @@ func TestAPI_GraphReturnsNodesAndEdges(t *testing.T) {
 	}
 	if got.Edges[0].Kind != string(model.EdgeKindContains) {
 		t.Fatalf("edge kind = %q", got.Edges[0].Kind)
+	}
+}
+
+func TestAPI_RefResolvesWikiAndGraphTarget(t *testing.T) {
+	srv := newTestServer(t)
+	rawRef := "ccg://auth-svc/internal/auth/token.go#ValidateToken"
+	req := httptest.NewRequest(http.MethodGet, "/wiki/api/ref?ref="+url.QueryEscape(rawRef), nil)
+	rec := httptest.NewRecorder()
+
+	srv.APIHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ref status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var got refResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode ref: %v", err)
+	}
+	if got.Namespace != "auth-svc" {
+		t.Fatalf("namespace = %q", got.Namespace)
+	}
+	if got.Target.Label != "ValidateToken" || got.Target.Kind != "function" {
+		t.Fatalf("target = %#v", got.Target)
+	}
+	if got.Target.GraphNodeID == "" {
+		t.Fatalf("expected graph node id in target: %#v", got.Target)
+	}
+	if got.Target.Details == nil || got.Target.Details.FilePath != "internal/auth/token.go" {
+		t.Fatalf("details = %#v", got.Target.Details)
+	}
+}
+
+func TestAPI_RefReturnsNotFoundForMissingTarget(t *testing.T) {
+	srv := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/wiki/api/ref?ref="+url.QueryEscape("ccg://auth-svc/internal/auth/token.go#Missing"), nil)
+	rec := httptest.NewRecorder()
+
+	srv.APIHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

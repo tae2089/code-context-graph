@@ -120,6 +120,23 @@ export type DocResponse = {
   content: string;
 };
 
+// @intent describe the Wiki and graph destination resolved from one ccg:// ref.
+export type RefTarget = {
+  label: string;
+  kind: string;
+  summary?: string;
+  doc_path?: string;
+  graph_node_id?: string;
+  details?: NodeDetails;
+};
+
+// @intent return the parsed ref plus the browser navigation target for a ccg:// link.
+export type RefResponse = {
+  namespace: string;
+  ref: CCGRef;
+  target: RefTarget;
+};
+
 // @intent return a server-assembled Markdown bundle for selected docs.
 export type ContextResponse = {
   markdown: string;
@@ -178,6 +195,12 @@ export function getTree(namespace: string, token: string) {
 export function getDoc(namespace: string, path: string, token: string) {
   const qs = new URLSearchParams({ namespace, path });
   return request<DocResponse>(`/doc?${qs.toString()}`, token);
+}
+
+// @intent resolve a ccg:// annotation reference for Wiki doc navigation and graph focus.
+export function resolveRef(ref: string, token: string) {
+  const qs = new URLSearchParams({ ref });
+  return request<RefResponse>(`/ref?${qs.toString()}`, token);
 }
 
 // @intent search the active namespace's RAG tree by label and summary.

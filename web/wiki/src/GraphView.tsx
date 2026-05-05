@@ -8,6 +8,7 @@ import { APIError, GraphEdge, GraphNode, getGraph } from "./api";
 type GraphViewProps = {
   namespace: string;
   token: string;
+  focusNodeID?: string;
   onError: (err: unknown) => void;
   onOpenNode: (node: GraphNode) => void;
 };
@@ -15,6 +16,8 @@ type GraphViewProps = {
 // @intent extend graph API nodes with a numeric value used by the force layout.
 type CanvasNode = GraphNode & {
   val: number;
+  x?: number;
+  y?: number;
 };
 
 // @intent allow force-graph to replace link endpoints with resolved node objects after simulation starts.
@@ -30,7 +33,7 @@ const importEdgeKinds = new Set(["imports_from"]);
 const typeEdgeKinds = new Set(["inherits", "implements", "tested_by"]);
 
 // @intent render an Obsidian-style force-directed graph for one CCG namespace.
-export function GraphView({ namespace, token, onError, onOpenNode }: GraphViewProps) {
+export function GraphView({ namespace, token, focusNodeID, onError, onOpenNode }: GraphViewProps) {
   const graphRef = useRef<ForceGraphMethods<CanvasNode, CanvasLink> | undefined>(undefined);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const [graph, setGraph] = useState<{ nodes: CanvasNode[]; links: CanvasLink[] }>({ nodes: [], links: [] });
@@ -89,6 +92,17 @@ export function GraphView({ namespace, token, onError, onOpenNode }: GraphViewPr
     configureForces();
   }, [visibleGraph.nodes.length, visibleGraph.links.length, showSymbols, showStructure, showCalls, showImports, showTypes]);
 
+  useEffect(() => {
+    if (!focusNodeID || graph.nodes.length === 0) return;
+    const target = graph.nodes.find((node) => node.id === focusNodeID);
+    if (!target) return;
+    if (symbolKinds.has(target.kind)) {
+      setShowSymbols(true);
+    }
+    setFilter("");
+    window.setTimeout(() => focusNode(target), 160);
+  }, [focusNodeID, graph.nodes]);
+
   // @intent refresh graph data when namespace or token changes.
   async function load() {
     setLoading(true);
@@ -138,6 +152,14 @@ export function GraphView({ namespace, token, onError, onOpenNode }: GraphViewPr
 
     graph.d3Force("collide", forceCollide<NodeObject<CanvasNode>>((node) => collisionRadius(node.kind)).strength(0.74).iterations(2));
     graph.d3ReheatSimulation();
+  }
+
+  // @intent center and zoom the graph around a resolved ccg:// reference destination.
+  function focusNode(node: CanvasNode) {
+    const graph = graphRef.current;
+    if (!graph) return;
+    graph.centerAt(node.x || 0, node.y || 0, 650);
+    graph.zoom(2.4, 650);
   }
 
   return (
@@ -191,7 +213,7 @@ export function GraphView({ namespace, token, onError, onOpenNode }: GraphViewPr
             nodeLabel={(node) => nodeTitle(node)}
             nodeColor={(node) => nodeColor(node.kind)}
             nodeCanvasObjectMode={() => "replace"}
-            nodeCanvasObject={paintNode}
+            nodeCanvasObject={(node, ctx, scale) => paintNode(node, ctx, scale, node.id === focusNodeID)}
             linkColor={(link) => edgeColor(link.kind)}
             linkWidth={(link) => edgeWidth(link.kind)}
             linkDirectionalArrowLength={3}
@@ -235,8 +257,17 @@ function LegendDot({ label, color }: { label: string; color: string }) {
 }
 
 // @intent paint graph nodes with readable labels at normal zoom levels.
-function paintNode(node: NodeObject<CanvasNode>, ctx: CanvasRenderingContext2D, globalScale: number) {
+function paintNode(node: NodeObject<CanvasNode>, ctx: CanvasRenderingContext2D, globalScale: number, focused = false) {
   const radius = screenRadiusForKind(node.kind) / globalScale;
+  if (focused) {
+    ctx.beginPath();
+    ctx.arc(node.x || 0, node.y || 0, radius + 6 / globalScale, 0, 2 * Math.PI, false);
+    ctx.fillStyle = "rgba(16, 185, 129, 0.2)";
+    ctx.fill();
+    ctx.lineWidth = 2 / globalScale;
+    ctx.strokeStyle = "rgba(52, 211, 153, 0.95)";
+    ctx.stroke();
+  }
   ctx.beginPath();
   ctx.arc(node.x || 0, node.y || 0, radius, 0, 2 * Math.PI, false);
   ctx.fillStyle = nodeColor(node.kind);

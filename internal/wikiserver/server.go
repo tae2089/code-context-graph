@@ -16,6 +16,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/tae2089/code-context-graph/internal/ccgref"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	nsfs "github.com/tae2089/code-context-graph/internal/namespacefs"
@@ -112,6 +113,7 @@ func (s *Server) APIHandler() http.Handler {
 	mux.HandleFunc("/wiki/api/namespaces", s.handleNamespaces)
 	mux.HandleFunc("/wiki/api/tree", s.handleTree)
 	mux.HandleFunc("/wiki/api/doc", s.handleDoc)
+	mux.HandleFunc("/wiki/api/ref", s.handleRef)
 	mux.HandleFunc("/wiki/api/search", s.handleSearch)
 	mux.HandleFunc("/wiki/api/retrieve", s.handleRetrieve)
 	mux.HandleFunc("/wiki/api/graph", s.handleGraph)
@@ -393,6 +395,50 @@ func (s *Server) handleDoc(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// @intent resolve a ccg:// annotation reference to a Wiki target and optional graph node.
+func (s *Server) handleRef(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	rawRef := strings.TrimSpace(r.URL.Query().Get("ref"))
+	if rawRef == "" {
+		writeError(w, http.StatusBadRequest, "ref must not be empty", nil)
+		return
+	}
+	ref, err := ccgref.Parse(rawRef)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "parse ref", err)
+		return
+	}
+	if err := validateNamespace(ref.Namespace); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	idx, indexErr := s.loadIndex(ref.Namespace)
+	var treeNode *ragindex.TreeNode
+	if indexErr == nil {
+		treeNode = findRefTreeNode(idx.Root, ref)
+	}
+	graphNode, graphErr := s.findRefGraphNode(r, ref)
+	if treeNode == nil && graphNode == nil {
+		if indexErr != nil {
+			writeError(w, statusForReadErr(indexErr), "load wiki-index", indexErr)
+			return
+		}
+		if graphErr != nil && !errors.Is(graphErr, gorm.ErrRecordNotFound) {
+			writeError(w, http.StatusInternalServerError, "resolve graph ref", graphErr)
+			return
+		}
+		writeError(w, http.StatusNotFound, "ref target not found", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, refResponse{
+		Namespace: ref.Namespace,
+		Ref:       ref,
+		Target:    refTargetFromMatches(treeNode, graphNode),
+	})
+}
+
 // @intent assemble selected docs or summaries into one Markdown block for LLM context.
 func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPost) {
@@ -468,6 +514,23 @@ type retrieveResult struct {
 	ragindex.RetrieveResult
 	Content          string `json:"content,omitempty"`
 	ContentTruncated bool   `json:"content_truncated,omitempty"`
+}
+
+// @intent return the resolved Wiki navigation target for one ccg:// ref.
+type refResponse struct {
+	Namespace string      `json:"namespace"`
+	Ref       *ccgref.Ref `json:"ref"`
+	Target    refTarget   `json:"target"`
+}
+
+// @intent describe the doc and graph destinations available for a resolved ccg:// ref.
+type refTarget struct {
+	Label       string                `json:"label"`
+	Kind        string                `json:"kind"`
+	Summary     string                `json:"summary,omitempty"`
+	DocPath     string                `json:"doc_path,omitempty"`
+	GraphNodeID string                `json:"graph_node_id,omitempty"`
+	Details     *ragindex.NodeDetails `json:"details,omitempty"`
 }
 
 // @intent describe one graph node in the Wiki force graph API.
@@ -675,6 +738,151 @@ func findDocPath(root *ragindex.TreeNode, docPath string) *ragindex.TreeNode {
 		}
 	}
 	return nil
+}
+
+// @intent locate the Wiki tree node that best matches a parsed ccg:// ref.
+func findRefTreeNode(root *ragindex.TreeNode, ref *ccgref.Ref) *ragindex.TreeNode {
+	if root == nil || ref == nil {
+		return nil
+	}
+	if ref.Path == "" && ref.Symbol == "" {
+		return root
+	}
+	if refPathMatchesTree(root, ref) {
+		return root
+	}
+	for _, child := range root.Children {
+		if found := findRefTreeNode(child, ref); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+// @intent compare a ccg:// path/symbol target against one Wiki tree node.
+func refPathMatchesTree(node *ragindex.TreeNode, ref *ccgref.Ref) bool {
+	if ref.Symbol != "" {
+		if node.Details == nil {
+			return false
+		}
+		if ref.Path != "" && !sameRefPath(node.Details.FilePath, ref.Path) {
+			return false
+		}
+		return symbolMatches(node.Label, node.Details.QualifiedName, ref.Symbol)
+	}
+	if ref.Path == "" {
+		return false
+	}
+	if node.Details != nil && sameRefPath(node.Details.FilePath, ref.Path) {
+		return true
+	}
+	if node.DocPath != "" && filepath.ToSlash(node.DocPath) == filepath.ToSlash(docPathForSource(ref.Path)) {
+		return true
+	}
+	idPath := strings.TrimPrefix(strings.TrimPrefix(node.ID, "file:"), "package:")
+	idPath = strings.TrimPrefix(idPath, "folder:")
+	return sameRefPath(idPath, ref.Path)
+}
+
+// @intent resolve a ccg:// ref against graph nodes so the browser graph can focus the destination.
+func (s *Server) findRefGraphNode(r *http.Request, ref *ccgref.Ref) (*graphNode, error) {
+	if s.db == nil || ref == nil {
+		return nil, gorm.ErrRecordNotFound
+	}
+	if ref.Path == "" && ref.Symbol == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var nodes []model.Node
+	query := s.db.WithContext(r.Context()).
+		Where("namespace = ?", ref.Namespace).
+		Preload("Annotation.Tags").
+		Order("kind ASC, file_path ASC, start_line ASC, qualified_name ASC")
+	if ref.Path != "" && ref.Symbol != "" {
+		query = query.Where("file_path = ?", ref.Path)
+	}
+	if err := query.Find(&nodes).Error; err != nil {
+		return nil, err
+	}
+	for _, node := range nodes {
+		if ref.Symbol != "" {
+			if !symbolMatches(node.Name, node.QualifiedName, ref.Symbol) {
+				continue
+			}
+		} else if ref.Path != "" {
+			if !sameRefPath(node.FilePath, ref.Path) && !strings.HasPrefix(filepath.ToSlash(node.FilePath), strings.TrimSuffix(filepath.ToSlash(ref.Path), "/")+"/") {
+				continue
+			}
+		}
+		graphNode := graphNodeFromModel(node)
+		if node.Annotation != nil && graphNode.Details != nil {
+			graphNode.Details.Annotation = annotationDetailFromModel(node.Annotation)
+		}
+		return &graphNode, nil
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
+// @intent merge tree and graph matches into one browser navigation payload.
+func refTargetFromMatches(treeNode *ragindex.TreeNode, graphNode *graphNode) refTarget {
+	target := refTarget{}
+	if treeNode != nil {
+		target.Label = treeNode.Label
+		target.Kind = treeNode.Kind
+		target.Summary = treeNode.Summary
+		target.DocPath = treeNode.DocPath
+		target.Details = treeNode.Details
+	}
+	if graphNode != nil {
+		if target.Label == "" {
+			target.Label = graphNode.Label
+		}
+		if target.Kind == "" {
+			target.Kind = graphNode.Kind
+		}
+		if target.Summary == "" {
+			target.Summary = strings.TrimSpace(graphNode.FilePath)
+		}
+		if target.DocPath == "" {
+			target.DocPath = graphNode.DocPath
+		}
+		if target.Details == nil {
+			target.Details = graphNode.Details
+		}
+		target.GraphNodeID = graphNode.ID
+	}
+	return target
+}
+
+// @intent convert a stored annotation into the same details shape used by wiki-index.json.
+func annotationDetailFromModel(annotation *model.Annotation) *ragindex.AnnotationDetail {
+	if annotation == nil {
+		return nil
+	}
+	tags := make([]ragindex.DocTagDetail, 0, len(annotation.Tags))
+	for _, tag := range annotation.Tags {
+		tags = append(tags, ragindex.DocTagDetailFromModel(tag))
+	}
+	return &ragindex.AnnotationDetail{
+		Summary: strings.TrimSpace(annotation.Summary),
+		Context: strings.TrimSpace(annotation.Context),
+		Tags:    tags,
+	}
+}
+
+// @intent match ccg:// file paths against graph and Wiki slash-separated paths.
+func sameRefPath(left, right string) bool {
+	return strings.Trim(filepath.ToSlash(left), "/") == strings.Trim(filepath.ToSlash(right), "/")
+}
+
+// @intent allow short symbol refs to match names and language-qualified names.
+func symbolMatches(name, qualifiedName, want string) bool {
+	if want == "" {
+		return true
+	}
+	return name == want ||
+		qualifiedName == want ||
+		strings.HasSuffix(qualifiedName, "."+want) ||
+		strings.HasSuffix(qualifiedName, "::"+want)
 }
 
 // @intent render a Wiki tree node as fallback Markdown when no generated file exists.

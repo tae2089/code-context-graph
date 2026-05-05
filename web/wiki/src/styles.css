@@ -178,11 +178,19 @@ input {
 }
 
 .see-chip {
-  @apply rounded border border-violet-200 bg-violet-50 px-2 py-1 font-mono text-xs text-violet-800;
+  @apply inline-flex items-center rounded border border-violet-200 bg-violet-50 px-2 py-1 font-mono text-xs text-violet-800;
+}
+
+.ccg-ref-actions {
+  @apply inline-flex items-stretch overflow-hidden rounded border border-emerald-200 bg-emerald-50;
 }
 
 .ccg-ref-chip {
-  @apply border-emerald-200 bg-emerald-50 text-emerald-900;
+  @apply rounded-none border-0 bg-emerald-50 text-emerald-900 hover:bg-emerald-100;
+}
+
+.ccg-ref-graph-button {
+  @apply inline-flex items-center justify-center border-l border-emerald-200 bg-emerald-50 px-1.5 text-emerald-800 hover:bg-emerald-100;
 }
 
 .ccg-ref-namespace {
