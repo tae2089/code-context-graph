@@ -2,7 +2,7 @@
 
 [English](../mcp-tools.md)
 
-code-context-graph는 33개의 MCP 도구를 제공합니다. `.mcp.json`을 설정하면 Claude Code에서 자동으로 연결됩니다.
+code-context-graph는 35개의 MCP 도구를 제공합니다. `.mcp.json`을 설정하면 Claude Code에서 자동으로 연결됩니다.
 
 ## 설정 (Setup)
 
@@ -32,7 +32,7 @@ code-context-graph는 33개의 MCP 도구를 제공합니다. `.mcp.json`을 설
 }
 ```
 
-## 도구 (33개)
+## 도구 (35개)
 
 ### 핵심 (Core)
 
@@ -104,6 +104,24 @@ CCG는 아직 Prometheus `/metrics` 엔드포인트를 제공하지 않습니다
 | `get_rag_tree` | RAG 문서 트리 탐색 (네임스페이스 지원) |
 | `get_doc_content` | 문서 파일 내용 확인 (네임스페이스 지원) |
 | `search_docs` | 키워드로 RAG 문서 트리 검색 (네임스페이스 지원) |
+| `retrieve_docs` | RAG tree에서 관련 문서를 찾아 evidence와 제한된 Markdown 본문 반환 |
+
+자연어 기반 코드 이해에는 문서/RAG 도구를 먼저 사용하십시오.
+`retrieve_docs`는 file subtree를 점수화하므로 여러 키워드가 관련 심볼에
+나뉘어 있어도 같은 문서를 후보로 찾고, tree evidence와 제한된 Markdown
+본문을 반환합니다. `get_rag_tree`는 주변 모듈 구조를 펼치며,
+`get_doc_content`는 특정 생성 Markdown 파일을 직접 읽습니다. 이후 정확한
+심볼, edge, flow, 영향 범위가 필요할 때 `get_node`, `query_graph`,
+`trace_flow`, `get_impact_radius` 같은 graph 도구로 내려가십시오.
+`search_docs` 또는 MCP `search`는 넓은 아키텍처 질문이나 "어떻게
+동작하나?" 류의 기본 표면이 아니라, 어노테이션/키워드 기반 후보 검색에
+사용하는 것을 권장합니다.
+
+RAG 인덱스 품질은 생성 문서와 비어 있지 않은 community postprocess 결과에
+의존합니다. CLI `ccg docs` 명령은 community를 갱신하고 기본 RAG 인덱스를
+자동으로 기록합니다. MCP만 사용하는 워크플로우에서 community가 없을 수
+있으면 `build_rag_index` 전에 `run_postprocess`를 `communities=true`,
+`flows=false`, `fts=false`로 호출하십시오.
 
 ### 네임스페이스 파일 관리 (Namespace File Management)
 
@@ -145,9 +163,10 @@ delete_namespace(namespace: "payment-svc")
 ```
 /ccg build .                     — 코드 그래프 빌드
 /ccg status                      — 그래프 통계 및 사후 처리 오류 요약 확인
-/ccg search "query"              — 전체 텍스트 검색
-/ccg-docs docs                   — 문서 생성
+/ccg-docs docs                   — 문서와 기본 RAG 인덱스 생성
+/ccg-docs rag-index              — 기존 문서/community 기반 RAG 인덱스 재생성
 /ccg-docs lint                   — 문서 상태 및 어노테이션 커버리지 체크
+/ccg search "query"              — 어노테이션/키워드 기반 후보 검색
 /ccg languages                   — 지원 언어 목록 출력
 /ccg-annotate annotate internal/ — AI 기반 어노테이션 생성
 /ccg-workspace                   — 네임스페이스 파일 및 디렉토리 관리

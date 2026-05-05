@@ -610,6 +610,52 @@ func TestSearch_NoMatch(t *testing.T) {
 	}
 }
 
+func TestRetrieve_MatchesTermsAcrossFileSubtree(t *testing.T) {
+	root := &ragindex.TreeNode{
+		ID:    "root",
+		Label: "Root",
+		Children: []*ragindex.TreeNode{
+			{
+				ID:    "community:analysis",
+				Label: "analysis",
+				Children: []*ragindex.TreeNode{
+					{
+						ID:      "file:internal/analysis/deadcode/service.go",
+						Label:   "service.go",
+						DocPath: "docs/internal/analysis/deadcode/service.go.md",
+						Children: []*ragindex.TreeNode{
+							{ID: "symbol:deadcode.Service.FindPage", Label: "FindPage", Summary: "bounded page"},
+							{ID: "symbol:deadcode.normalizePathPrefix", Label: "normalizePathPrefix", Summary: "clean path prefix"},
+						},
+					},
+					{
+						ID:      "file:internal/analysis/other/service.go",
+						Label:   "service.go",
+						DocPath: "docs/internal/analysis/other/service.go.md",
+						Children: []*ragindex.TreeNode{
+							{ID: "symbol:other.Service.FindPage", Label: "FindPage", Summary: "bounded page"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	results := ragindex.Retrieve(root, "FindPage normalizePathPrefix", 10)
+	if len(results) == 0 {
+		t.Fatal("expected retrieve result")
+	}
+	if results[0].DocPath != "docs/internal/analysis/deadcode/service.go.md" {
+		t.Fatalf("top doc = %q, want deadcode service doc", results[0].DocPath)
+	}
+	if len(results[0].MatchedTerms) != 2 {
+		t.Fatalf("matched terms = %#v, want both query terms", results[0].MatchedTerms)
+	}
+	if len(results[0].Matches) < 2 {
+		t.Fatalf("expected symbol evidence for both terms, got %#v", results[0].Matches)
+	}
+}
+
 // TestBuilder_NamespaceFilter: namespace가 설정된 context로 Build 호출 시
 // 해당 namespace의 데이터만 인덱스에 포함되는지 검증한다.
 func TestBuilder_NamespaceFilter(t *testing.T) {

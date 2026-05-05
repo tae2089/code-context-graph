@@ -4,7 +4,7 @@
 
 ## MCP 서버
 
-`.mcp.json`에 등록된 ccg MCP 서버가 33개 도구를 제공합니다:
+`.mcp.json`에 등록된 ccg MCP 서버가 35개 도구를 제공합니다:
 
 - `parse_project`, `build_or_update_graph`, `run_postprocess`
 - `get_postprocess_policy`, `reset_postprocess_policy`
@@ -14,7 +14,7 @@
 - `detect_changes`, `get_affected_flows`, `list_flows`
 - `list_communities`, `get_community`, `get_architecture_overview`
 - `get_annotation`
-- `build_rag_index`, `get_rag_tree`, `get_doc_content`, `search_docs`
+- `build_rag_index`, `get_rag_tree`, `get_doc_content`, `search_docs`, `retrieve_docs`
 - `upload_file`, `upload_files`, `list_namespaces`, `list_files`, `delete_file`, `delete_namespace`
 - `list_workspaces`, `delete_workspace` (deprecated aliases)
 
@@ -38,8 +38,9 @@ Graceful shutdown: SIGINT/SIGTERM 시 진행 중인 clone/build에 context cance
 주요 커맨드:
 
 - `ccg build [dir]` — 코드 그래프 빌드 (`--exclude`, `--no-recursive` 지원)
+- `ccg docs [--out dir]` — 마크다운 문서 및 기본 RAG 인덱스 생성
+- `ccg rag-index [--out dir]` — 이미 계산된 커뮤니티와 생성 문서 기반 RAG 인덱스 생성
 - `ccg search <query>` — 전문 검색 (어노테이션 포함)
-- `ccg docs [--out dir]` — 마크다운 문서 생성
 - `ccg lint [--strict]` — 문서 품질 체크
 - `ccg annotate [file|dir]` — AI 어노테이션 생성
 
@@ -49,9 +50,10 @@ Graceful shutdown: SIGINT/SIGTERM 시 진행 중인 clone/build에 context cance
 
 코드 위치, 관련 구현, 호출 관계, 영향 범위, 아키텍처 맥락을 찾을 때는 먼저 ccg MCP 도구와 CLI Skills를 활용합니다.
 
-- 의미 기반 검색과 관련 코드 탐색은 ccg MCP `search`, `query_graph`, `get_node`, `get_minimal_context` 또는 `/ccg` skill을 우선 사용합니다.
+- 자연어 기반 코드 이해, 모듈 탐색, 아키텍처 맥락 수집은 `/ccg-docs` skill과 `retrieve_docs`, `get_rag_tree`, `get_doc_content`를 우선 사용합니다.
+- 정확한 심볼 위치, 호출 관계, 그래프 메타데이터 확인은 ccg MCP `query_graph`, `get_node`, `get_minimal_context` 또는 `/ccg` skill을 사용합니다.
+- 어노테이션/키워드 기반 후보 검색은 ccg MCP `search` 또는 `ccg search`를 보조로 사용합니다.
 - 영향 범위, 플로우, 데드코드, 구조 분석은 `/ccg-analyze` skill과 관련 MCP 도구(`get_impact_radius`, `trace_flow`, `find_dead_code`, `get_architecture_overview`)를 우선 사용합니다.
-- 문서/RAG 기반 맥락 검색은 `/ccg-docs` skill과 `search_docs`, `get_rag_tree`, `get_doc_content`를 우선 사용합니다.
 - 단순 문자열 확인, 파일 존재 확인, ccg 인덱스가 없거나 오래된 경우에는 `rg`를 보조로 사용하고, 필요한 경우 `ccg build .` 또는 `ccg update .`로 그래프를 갱신합니다.
 
 ## 문서
@@ -59,7 +61,7 @@ Graceful shutdown: SIGINT/SIGTERM 시 진행 중인 clone/build에 context cance
 상세 문서는 `guide/` 디렉토리를 참조하세요:
 
 - [CLI Reference](guide/cli-reference.md) — 전체 명령어, 플래그, 설정 파일
-- [MCP Tools](guide/mcp-tools.md) — 33개 MCP 도구, Skills, AI-Driven Annotation
+- [MCP Tools](guide/mcp-tools.md) — 35개 MCP 도구, Skills, AI-Driven Annotation
 - [Annotations](guide/annotations.md) — 어노테이션 태그, 예시, 검색
 - [Webhook](guide/webhook.md) — Webhook sync, 브랜치 필터링, HMAC, graceful shutdown
 - [Docker](guide/docker.md) — Docker 빌드, MCP 서버, PostgreSQL 배포

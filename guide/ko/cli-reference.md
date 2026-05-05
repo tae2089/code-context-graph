@@ -48,11 +48,14 @@ ccg update ./backend --namespace backend
 | `ccg status --recent <n>` | 확인할 최근 사후 처리 실패 개수 (기본값 `5`) |
 | `ccg search <query>` | 전체 텍스트 검색 |
 | `ccg search --path <prefix> <query>` | 경로 접두사로 검색 범위 제한 |
-| `ccg docs [--out dir]` | 마크다운 문서 생성 (기본적으로 그래프에 없는 generator-managed 문서를 prune) |
+| `ccg docs [--out dir]` | 마크다운 문서와 기본 RAG 인덱스 생성 (기본적으로 그래프에 없는 generator-managed 문서를 prune) |
+| `ccg docs --rag=false` | community/RAG 인덱스 재생성 없이 Markdown만 생성 |
+| `ccg docs --rag-refresh=false` | community를 재계산하지 않고 기존 community row로 RAG 인덱스 재생성 |
+| `ccg docs --rag-index-dir <dir>` | doc-index.json 출력 디렉터리 지정 (기본 `.ccg` 또는 `rag.index_dir`) |
 | `ccg docs --prune=false` | 기존 generator-managed 문서를 삭제하지 않고 문서만 다시 생성 |
 | `ccg docs --exclude <pat>` | 문서 생성 대상에서 파일/경로 제외 (반복 가능) |
 | `ccg index [--out dir]` | `index.md`만 재생성 |
-| `ccg rag-index [--out dir]` | 생성된 문서와 커뮤니티 구조 기반 RAG 인덱스 생성 |
+| `ccg rag-index [--out dir]` | 생성된 문서와 이미 계산된 커뮤니티 구조 기반 RAG 인덱스 재생성 |
 | `ccg languages` | 지원되는 언어 및 확장자 목록 출력 |
 | `ccg example [language]` | 어노테이션 작성 예시 출력 |
 | `ccg tags` | 모든 어노테이션 태그 레퍼런스 출력 |
@@ -64,6 +67,32 @@ ccg update ./backend --namespace backend
 | `ccg benchmark token-bench` | 토큰 감소율 측정: 일반 방식 vs 그래프 검색 (LLM 미사용) |
 
 기본 로컬 SQLite 데이터베이스(`ccg.db`, `./ccg.db`, `ccg.db`로 끝나는 절대 경로 및 해당 파일에 대한 `file:` DSN 포함)의 경우, 실행 명령어는 스키마가 없는 경우에만 마이그레이션을 자동으로 실행합니다. 기존 SQLite 스키마, PostgreSQL, 커스텀 SQLite DSN 및 제어된 업그레이드에는 명시적인 `ccg migrate`가 필요합니다. 이전 버전의 CCG에서 생성된 기본 `ccg.db`가 이미 있는 경우, 이를 기존 스키마로 취급하고 업그레이드 후 `ccg migrate`를 실행하십시오.
+
+### 검색과 RAG 라우팅 (Search and RAG Routing)
+
+CCG에는 역할이 다른 두 검색 표면이 있습니다.
+
+| 사용 사례 | 우선 진입점 |
+|----------|-------------|
+| 자연어 기반 코드 이해, 모듈 탐색, 아키텍처 질문 | `ccg docs`, 이후 MCP `retrieve_docs`, `get_rag_tree`, `get_doc_content` |
+| 정확한 심볼 조회, caller/callee, import, bounded graph traversal | MCP `get_node`, `query_graph`, `get_minimal_context` |
+| 영향 분석, flow 추적, dead code, large function | `get_impact_radius`, `trace_flow`, `find_dead_code`, `find_large_functions` 같은 MCP 분석 도구 |
+| 어노테이션/키워드 기반 후보 검색 | `ccg search` 또는 MCP `search` |
+
+코딩 에이전트의 자연어 탐색에는 다음 흐름을 권장합니다.
+
+```bash
+ccg build .
+ccg docs --out docs
+```
+
+`ccg docs`는 `--rag=false`가 설정되지 않은 한 community 구조를 갱신하고
+기본 `.ccg/doc-index.json` RAG 인덱스를 기록합니다. 기존 community row를
+의도적으로 재사용하려면 `--rag-refresh=false`를 사용하십시오. 독립
+`ccg rag-index` 명령은 생성 문서와 이미 계산된 community를 사용한 수동
+재생성 용도로 남아 있습니다.
+
+그 다음 MCP `retrieve_docs`로 문서 후보와 제한된 Markdown 본문을 tree evidence와 함께 가져옵니다. `get_rag_tree`로 모듈/커뮤니티 맥락을 펼치고, `get_doc_content`로 특정 생성 문서를 직접 읽은 뒤 정확한 graph 도구로 내려갑니다. `search_docs`와 `ccg search`는 빠른 키워드 또는 어노테이션 매칭에는 유용하지만, 넓은 자연어 질문의 기본 응답 표면으로 보기는 어렵습니다.
 
 ### 데이터베이스 선택 (Database Choice)
 

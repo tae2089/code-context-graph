@@ -1,6 +1,6 @@
 # MCP Tools
 
-code-context-graph provides 33 MCP tools. Automatically connects from Claude Code after configuring `.mcp.json`.
+code-context-graph provides 35 MCP tools. Automatically connects from Claude Code after configuring `.mcp.json`.
 
 ## Setup
 
@@ -109,6 +109,24 @@ truncating the response.
 | `get_rag_tree` | Navigate RAG document tree (supports namespace) |
 | `get_doc_content` | Get documentation file content (supports namespace) |
 | `search_docs` | Search RAG document tree by keyword (supports namespace) |
+| `retrieve_docs` | Retrieve relevant docs from the RAG tree with matched evidence and bounded Markdown content |
+
+Use the documentation/RAG tools as the first stop for natural-language code
+understanding. `retrieve_docs` scores file subtrees so multi-keyword queries can
+match across related symbols and returns bounded Markdown content with tree
+evidence. `get_rag_tree` expands the surrounding module structure, and
+`get_doc_content` reads one generated Markdown file directly. After that, use
+graph tools such as `get_node`, `query_graph`, `trace_flow`, or
+`get_impact_radius` when the task needs exact symbols, edges, flows, or impact
+sets. Use `search_docs` or MCP `search` for focused keyword/annotation
+candidate search, not as the default surface for broad architecture or "how does
+this work?" questions.
+
+RAG index quality depends on generated docs and non-empty community
+postprocessing. The CLI `ccg docs` command refreshes communities and writes the
+default RAG index automatically. In MCP-only workflows, run `run_postprocess`
+with `communities=true`, `flows=false`, and `fts=false` before
+`build_rag_index` when communities may be missing.
 
 ### Namespace File Management
 
@@ -150,9 +168,10 @@ delete_namespace(namespace: "payment-svc")
 ```
 /ccg build .                     — Build code graph
 /ccg status                      — Graph statistics and postprocess error summary
-/ccg search "query"              — Full-text search
-/ccg-docs docs                   — Generate documentation
+/ccg-docs docs                   — Generate documentation and the default RAG index
+/ccg-docs rag-index              — Rebuild RAG index from existing docs/communities
 /ccg-docs lint                   — Check docs health + annotation coverage
+/ccg search "query"              — Focused annotation/keyword candidate search
 /ccg languages                   — List supported languages
 /ccg-annotate annotate internal/ — AI-generate annotations
 /ccg-workspace                   — Manage namespace files and directories

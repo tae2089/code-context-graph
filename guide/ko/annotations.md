@@ -2,7 +2,9 @@
 
 [English](../annotations.md)
 
-코드에 구조화된 메타데이터를 추가하여 AI와 검색 엔진이 비즈니스 컨텍스트를 활용할 수 있도록 합니다. 어노테이션은 인덱싱되어 `ccg search`를 통해 검색할 수 있습니다.
+코드에 구조화된 메타데이터를 추가하여 AI, 생성 문서, RAG, 집중 검색이 비즈니스 컨텍스트를 활용할 수 있도록 합니다. 어노테이션은 `ccg search`를 위해 인덱싱되며, RAG 인덱스의 입력이 되는 생성 Markdown에도 반영됩니다.
+
+LLM 에이전트의 자연어 기반 코드 탐색에는 docs/RAG 경로를 먼저 사용하십시오. `ccg docs`를 실행한 뒤 MCP `retrieve_docs`, `get_rag_tree`, `get_doc_content`를 사용합니다. `ccg search`는 어노테이션/키워드에 매칭되는 심볼 후보 목록이 필요할 때 사용하십시오.
 
 어노테이션 품질은 `ccg lint`에 의해 검증됩니다. `unannotated`, `incomplete`, `dead-ref`, `contradiction`, `drifted`와 같은 카테고리의 의미는 [Lint 가이드](lint.md)를 참조하십시오.
 

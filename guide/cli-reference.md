@@ -46,11 +46,14 @@ ccg update ./backend --namespace backend
 | `ccg status --recent <n>` | Number of recent postprocess failures to inspect (default `5`) |
 | `ccg search <query>` | Full-text search |
 | `ccg search --path <prefix> <query>` | Scoped search by path prefix |
-| `ccg docs [--out dir]` | Generate Markdown documentation (prunes stale generator-managed docs by default) |
+| `ccg docs [--out dir]` | Generate Markdown documentation and the default RAG index (prunes stale generator-managed docs by default) |
+| `ccg docs --rag=false` | Generate Markdown only, without rebuilding communities or the RAG index |
+| `ccg docs --rag-refresh=false` | Rebuild the RAG index from existing community rows instead of refreshing communities |
+| `ccg docs --rag-index-dir <dir>` | Override the doc-index.json output directory (default `.ccg` or `rag.index_dir`) |
 | `ccg docs --prune=false` | Regenerate docs without deleting older generator-managed files |
 | `ccg docs --exclude <pat>` | Exclude files/paths from generated docs (repeatable) |
 | `ccg index [--out dir]` | Regenerate `index.md` only |
-| `ccg rag-index [--out dir]` | Build RAG index from generated docs and community structure |
+| `ccg rag-index [--out dir]` | Rebuild RAG index from generated docs and already-computed community structure |
 | `ccg languages` | List supported languages and extensions |
 | `ccg example [language]` | Show annotation writing example |
 | `ccg tags` | Show all annotation tag reference |
@@ -62,6 +65,37 @@ ccg update ./backend --namespace backend
 | `ccg benchmark token-bench` | Measure token reduction: naive vs graph search (no LLM) |
 
 For the default local SQLite database (`ccg.db`, including `./ccg.db`, absolute paths ending in `ccg.db`, and `file:` DSNs for that file), runtime commands auto-run migrations only when the schema is missing. Existing SQLite schemas, PostgreSQL, custom SQLite DSNs, and controlled upgrades require an explicit `ccg migrate`. If you already have a default `ccg.db` from an older CCG version, treat it as an existing schema and run `ccg migrate` after upgrading.
+
+### Search and RAG Routing
+
+CCG has two search surfaces with different jobs:
+
+| Use case | Preferred entrypoint |
+|----------|----------------------|
+| Natural-language code understanding, module exploration, architecture questions | `ccg docs`, then MCP `retrieve_docs`, `get_rag_tree`, `get_doc_content` |
+| Exact symbol lookup, callers/callees, imports, bounded graph traversal | MCP `get_node`, `query_graph`, `get_minimal_context` |
+| Impact analysis, flow tracing, dead code, large functions | MCP analysis tools such as `get_impact_radius`, `trace_flow`, `find_dead_code`, `find_large_functions` |
+| Focused annotation/keyword candidate search | `ccg search` or MCP `search` |
+
+For coding agents, the recommended natural-language path is:
+
+```bash
+ccg build .
+ccg docs --out docs
+```
+
+`ccg docs` refreshes community structure and writes the default
+`.ccg/doc-index.json` RAG index unless `--rag=false` is set. Use
+`--rag-refresh=false` only when you intentionally want to reuse existing
+community rows. The standalone `ccg rag-index` command remains available for
+manual rebuilds from generated docs and already-computed communities.
+
+Then use MCP `retrieve_docs` to retrieve document candidates and bounded
+Markdown content with tree evidence. Use `get_rag_tree` to expand the
+module/community context and `get_doc_content` to read a specific generated doc
+directly. `search_docs` and `ccg search` remain useful for quick keyword or
+annotation matches, but they should not be treated as the primary answering
+surface for broad natural-language questions.
 
 ### Database Choice
 

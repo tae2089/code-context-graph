@@ -2,13 +2,17 @@
 
 Documentation index for code-context-graph.
 
+For LLM-agent workflows, start natural-language code exploration from generated
+docs and the RAG index. Use graph/search tools after the relevant module,
+document, or symbol candidate is identified.
+
 | Document | Description |
 |----------|-------------|
 | [CLI Reference](cli-reference.md) | Full CLI commands, options, and configuration file (`.ccg.yaml`) |
 | [Eval](eval.md) | Parser/search quality evaluation, golden corpus, and metrics |
 | [Lint](lint.md) | Detailed `ccg lint` category reference, interpretation guide, and CI usage |
-| [MCP Tools](mcp-tools.md) | 33 MCP tools, Claude Code Skills, AI-driven annotation |
-| [Annotations](annotations.md) | Custom annotation system — tags, examples, search |
+| [MCP Tools](mcp-tools.md) | 35 MCP tools, Claude Code Skills, RAG-first routing, AI-driven annotation |
+| [Annotations](annotations.md) | Custom annotation system — tags, examples, search/RAG quality |
 | [Webhook](webhook.md) | GitHub / Gitea webhook sync, branch filtering, graceful shutdown |
 | [Docker](docker.md) | Docker image build, MCP server setup, PostgreSQL integration |
 | [Operations](operations.md) | Deployment profiles, database choice, readiness, webhook operations, troubleshooting |

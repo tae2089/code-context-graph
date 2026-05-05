@@ -8,8 +8,10 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"gorm.io/gorm"
 
@@ -400,6 +402,19 @@ type SearchResult struct {
 	Path    []string `json:"path"` // root부터 해당 노드까지의 Label 경로
 }
 
+// RetrieveResult represents one document candidate selected from tree-aware query matching.
+// @intent return file-level RAG retrieval candidates with the matched tree evidence that caused the hit.
+type RetrieveResult struct {
+	ID           string         `json:"id"`
+	Label        string         `json:"label"`
+	Summary      string         `json:"summary"`
+	DocPath      string         `json:"doc_path"`
+	Path         []string       `json:"path"`
+	Score        int            `json:"score"`
+	MatchedTerms []string       `json:"matched_terms"`
+	Matches      []SearchResult `json:"matches,omitempty"`
+}
+
 // Search는 root 트리를 DFS로 순회하며 query를 Label과 Summary에서
 // case-insensitive 검색하여 최대 maxResults개의 결과를 반환한다.
 // root 노드 자체는 결과에 포함하지 않는다.
@@ -440,6 +455,165 @@ func searchNode(n *TreeNode, query string, path []string, results *[]SearchResul
 		}
 		searchNode(child, query, childPath, results, maxResults)
 	}
+}
+
+// Retrieve scores file nodes by matching query terms against the file node and its symbol descendants.
+// @intent support PageIndex-style document retrieval where multiple query terms can be satisfied across one subtree.
+// @requires query must contain at least one searchable term.
+func Retrieve(root *TreeNode, query string, maxResults int) []RetrieveResult {
+	if root == nil || maxResults <= 0 {
+		return nil
+	}
+	terms := queryTerms(query)
+	if len(terms) == 0 {
+		return nil
+	}
+
+	var results []RetrieveResult
+	collectRetrieveResults(root, terms, []string{root.Label}, &results)
+	sort.SliceStable(results, func(i, j int) bool {
+		if len(results[i].MatchedTerms) != len(results[j].MatchedTerms) {
+			return len(results[i].MatchedTerms) > len(results[j].MatchedTerms)
+		}
+		if results[i].Score != results[j].Score {
+			return results[i].Score > results[j].Score
+		}
+		return strings.Join(results[i].Path, "/") < strings.Join(results[j].Path, "/")
+	})
+	if len(results) > maxResults {
+		results = results[:maxResults]
+	}
+	return results
+}
+
+// queryTerms tokenizes a natural-language query into unique lowercase terms.
+// @intent let retrieve_docs handle multi-keyword queries without relying on exact substring matching.
+func queryTerms(query string) []string {
+	seen := map[string]struct{}{}
+	var terms []string
+	for _, part := range strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		part = strings.TrimSpace(part)
+		if len([]rune(part)) < 2 {
+			continue
+		}
+		if _, ok := seen[part]; ok {
+			continue
+		}
+		seen[part] = struct{}{}
+		terms = append(terms, part)
+	}
+	return terms
+}
+
+// collectRetrieveResults walks the tree and evaluates each file node as a retrievable document.
+// @intent keep retrieve result granularity at documentation files while using descendant symbols as evidence.
+// @mutates results
+func collectRetrieveResults(n *TreeNode, terms []string, path []string, results *[]RetrieveResult) {
+	for _, child := range n.Children {
+		childPath := appendPath(path, child.Label)
+		if child.DocPath != "" {
+			score, matchedTerms, matches := scoreRetrieveSubtree(child, childPath, terms)
+			if score > 0 {
+				*results = append(*results, RetrieveResult{
+					ID:           child.ID,
+					Label:        child.Label,
+					Summary:      child.Summary,
+					DocPath:      child.DocPath,
+					Path:         childPath,
+					Score:        score,
+					MatchedTerms: matchedTerms,
+					Matches:      matches,
+				})
+			}
+		}
+		collectRetrieveResults(child, terms, childPath, results)
+	}
+}
+
+// scoreRetrieveSubtree scores one file node and records direct descendant evidence.
+// @intent allow one document to match queries whose terms are distributed across multiple symbols.
+func scoreRetrieveSubtree(root *TreeNode, rootPath []string, terms []string) (int, []string, []SearchResult) {
+	matched := map[string]struct{}{}
+	var matches []SearchResult
+	score := scoreRetrieveNode(root, terms, matched)
+	if score > 0 {
+		matches = append(matches, SearchResult{
+			ID:      root.ID,
+			Label:   root.Label,
+			Summary: root.Summary,
+			DocPath: root.DocPath,
+			Path:    rootPath,
+		})
+	}
+
+	var walk func(*TreeNode, []string)
+	walk = func(n *TreeNode, path []string) {
+		for _, child := range n.Children {
+			childPath := appendPath(path, child.Label)
+			childScore := scoreRetrieveNode(child, terms, matched)
+			if childScore > 0 {
+				score += childScore
+				matches = append(matches, SearchResult{
+					ID:      child.ID,
+					Label:   child.Label,
+					Summary: child.Summary,
+					DocPath: child.DocPath,
+					Path:    childPath,
+				})
+			}
+			walk(child, childPath)
+		}
+	}
+	walk(root, rootPath)
+
+	matchedTerms := make([]string, 0, len(matched))
+	for term := range matched {
+		matchedTerms = append(matchedTerms, term)
+	}
+	sort.Strings(matchedTerms)
+	score += len(matchedTerms) * 10
+	return score, matchedTerms, matches
+}
+
+// scoreRetrieveNode returns a weighted keyword score for one tree node.
+// @intent rank exact labels above summary/id matches while preserving recall.
+// @mutates matched records terms observed on this node.
+func scoreRetrieveNode(n *TreeNode, terms []string, matched map[string]struct{}) int {
+	label := strings.ToLower(n.Label)
+	summary := strings.ToLower(n.Summary)
+	id := strings.ToLower(n.ID)
+	score := 0
+	for _, term := range terms {
+		termScore := 0
+		if label == term {
+			termScore += 8
+		}
+		if strings.Contains(label, term) {
+			termScore += 5
+		}
+		if strings.Contains(id, term) {
+			termScore += 3
+		}
+		if strings.Contains(summary, term) {
+			termScore += 2
+		}
+		if termScore > 0 {
+			matched[term] = struct{}{}
+			score += termScore
+		}
+	}
+	return score
+}
+
+// appendPath returns a new breadcrumb slice with label appended.
+// @intent avoid sharing backing arrays between recursive tree traversal paths.
+func appendPath(path []string, label string) []string {
+	out := make([]string, len(path)+1)
+	copy(out, path)
+	out[len(path)] = label
+	return out
 }
 
 // FindNode는 root 트리에서 id와 일치하는 TreeNode를 재귀적으로 찾아 반환한다.

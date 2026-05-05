@@ -282,3 +282,140 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 		return string(b), nil
 	}))
 }
+
+// retrieveDocsResponse is the JSON envelope returned by retrieve_docs.
+// @intent keep retrieve_docs responses extensible while preserving a stable top-level results array.
+type retrieveDocsResponse struct {
+	Results []retrieveDocsResult `json:"results"`
+}
+
+// retrieveDocsResult combines tree retrieval metadata with optional Markdown content.
+// @intent return both why a document matched and the bounded document body needed for agent reasoning.
+type retrieveDocsResult struct {
+	ragindex.RetrieveResult
+	Content          string `json:"content,omitempty"`
+	ContentTruncated bool   `json:"content_truncated,omitempty"`
+}
+
+// retrieveDocs retrieves generated Markdown docs using tree-aware multi-term matching.
+// @intent provide PageIndex-style document retrieval over the generated RAG tree without replacing quick keyword search.
+// @param request query is the natural-language retrieval prompt, limit bounds document count, and content_limit bounds each Markdown payload.
+// @requires doc-index.json and generated docs must exist.
+// @ensures returns file-level matches with tree evidence and bounded document content.
+// @sideEffect reads doc-index.json and generated Markdown files.
+func (h *handlers) retrieveDocs(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	query, err := request.RequireString("query")
+	if err != nil {
+		return missingParamResult(err)
+	}
+	if strings.TrimSpace(query) == "" {
+		return mcp.NewToolResultError("query must not be empty"), nil
+	}
+	pageReq, err := paging.NormalizeWithDefault(paging.Request{Limit: int(request.GetFloat("limit", 5))}, 5)
+	if err != nil {
+		return finalizeToolResult("", newToolResultErr(err.Error()))
+	}
+	if pageReq.Limit > 50 {
+		return mcp.NewToolResultError("limit must be <= 50"), nil
+	}
+	contentLimit := int(request.GetFloat("content_limit", 4000))
+	if contentLimit < 0 {
+		return mcp.NewToolResultError("content_limit must be >= 0"), nil
+	}
+	if contentLimit > 20000 {
+		return mcp.NewToolResultError("content_limit must be <= 20000"), nil
+	}
+
+	workspace := requestNamespace(request)
+	indexPath, err := h.resolvedRagIndexPath(workspace)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	var indexMtime int64
+	if stat, statErr := os.Stat(indexPath); statErr == nil {
+		indexMtime = stat.ModTime().UnixNano()
+	}
+
+	cacheKey := map[string]any{
+		"query":         query,
+		"limit":         pageReq.Limit,
+		"content_limit": contentLimit,
+		"namespace":     workspace,
+		"mtime":         indexMtime,
+	}
+	return finalizeToolResult(h.cachedExecute(ctx, "retrieve_docs:", cacheKey, func() (string, error) {
+		idx, err := ragindex.LoadIndex(indexPath)
+		if err != nil {
+			return "", newToolResultErr(fmt.Sprintf("load doc-index: %v", err))
+		}
+
+		candidates := ragindex.Retrieve(idx.Root, query, pageReq.Limit)
+		response := retrieveDocsResponse{Results: make([]retrieveDocsResult, 0, len(candidates))}
+		for _, candidate := range candidates {
+			result := retrieveDocsResult{RetrieveResult: candidate}
+			if contentLimit > 0 {
+				content, truncated, err := h.readIndexedDocContent(candidate.DocPath, contentLimit)
+				if err != nil {
+					return "", newToolResultErr(err.Error())
+				}
+				result.Content = content
+				result.ContentTruncated = truncated
+			}
+			response.Results = append(response.Results, result)
+		}
+
+		b, _ := json.Marshal(response)
+		return string(b), nil
+	}))
+}
+
+// readIndexedDocContent reads a doc_path stored in doc-index.json under the docs/index root.
+// @intent let retrieve_docs return bounded Markdown content while keeping index-provided paths inside a safe root.
+// @domainRule relative doc paths are resolved from the parent of the RAG index root, so ".ccg" pairs with "docs/".
+// @sideEffect reads a generated Markdown file.
+func (h *handlers) readIndexedDocContent(docPath string, limit int) (string, bool, error) {
+	resolvedPath, err := h.resolveIndexedDocPath(docPath)
+	if err != nil {
+		return "", false, err
+	}
+	content, err := os.ReadFile(resolvedPath)
+	if err != nil {
+		return "", false, fmt.Errorf("read doc_path %q: %w. Run 'ccg docs' to generate documentation files", docPath, err)
+	}
+	if len(content) <= limit {
+		return string(content), false, nil
+	}
+	return string(content[:limit]), true, nil
+}
+
+// resolveIndexedDocPath resolves doc-index doc_path values without allowing traversal outside the docs root.
+// @intent safely support both relative docs/... paths and absolute doc paths produced by custom docs output directories.
+func (h *handlers) resolveIndexedDocPath(docPath string) (string, error) {
+	if strings.TrimSpace(docPath) == "" {
+		return "", fmt.Errorf("doc_path is empty")
+	}
+	indexRoot, err := resolveSafeRoot(h.ragIndexRoot(), false)
+	if err != nil {
+		return "", err
+	}
+	base := filepath.Dir(indexRoot)
+	clean := filepath.Clean(docPath)
+	if filepath.IsAbs(clean) {
+		if realDocPath, err := filepath.EvalSymlinks(clean); err == nil {
+			clean = realDocPath
+		}
+		rel, err := filepath.Rel(base, clean)
+		if err != nil {
+			return "", fmt.Errorf("resolve doc_path: %w", err)
+		}
+		if rel == "." {
+			return base, nil
+		}
+		if strings.HasPrefix(rel, "..") {
+			return "", fmt.Errorf("doc_path %q is outside configured docs root", docPath)
+		}
+		return safePathUnderRoot(base, rel, "doc_path", false, false)
+	}
+	return safePathUnderRoot(base, clean, "doc_path", false, false)
+}

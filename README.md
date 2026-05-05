@@ -1,6 +1,6 @@
 # code-context-graph
 
-Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 12 languages, 33 MCP tools, and custom annotation search.
+Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 12 languages, 35 MCP tools, and custom annotation search.
 
 CCG is built primarily for GPT, Claude, Codex, and other LLM-based coding agents. It acts as local or self-hosted context infrastructure: agents can search code by intent, inspect call graphs, trace impact, retrieve docs, and keep responses bounded instead of reading entire repositories into context.
 
@@ -11,7 +11,8 @@ Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) 
 ## Features
 
 - **12 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua/Luau
-- **33 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, postprocess operations, namespace file management, and more
+- **35 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, postprocess operations, namespace file management, and more
+- **RAG-first code exploration**: generated docs + community structure let LLM agents answer natural-language questions before drilling into exact graph nodes
 - **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context ([details](guide/annotations.md))
 - **Webhook sync**: GitHub / Gitea push events → auto clone + build with per-repo branch filtering and `.ccg.yaml` `include_paths` auto-loading ([details](guide/webhook.md))
 - **Eval**: Golden corpus-based parser accuracy (P/R/F1) and search quality (P@K, MRR, nDCG) evaluation ([details](guide/eval.md))
@@ -60,6 +61,9 @@ ccg search "authentication"
 # Search by business context
 ccg search "payment"    # finds functions with @intent/@domainRule about payments
 
+# Build docs and the default vectorless RAG index for agent-oriented exploration
+ccg docs --out docs
+
 # Graph statistics
 ccg status
 
@@ -76,6 +80,18 @@ ccg eval --suite parser
 # Update golden corpus
 ccg eval --suite parser --update
 ```
+
+`ccg docs` refreshes community structure and writes `.ccg/doc-index.json` by
+default. Use `--rag=false` when you only want Markdown, or
+`--rag-refresh=false` when you want to rebuild the index from existing community
+rows without recalculating communities.
+
+For LLM agents, treat generated docs and the RAG index as the primary entrypoint
+for natural-language questions such as "how does webhook sync work?" or "where
+are the operational risks?". Use graph tools for exact symbols, call relations,
+impact radius, and pagination-safe result sets. Use `ccg search` as a focused
+annotation/keyword candidate search rather than the first tool for broad code
+understanding.
 
 If you use PostgreSQL, a custom SQLite DSN, an existing schema, or a controlled
 upgrade workflow, run `ccg migrate` explicitly before runtime commands. This
@@ -192,7 +208,7 @@ For remote HTTP mode:
 }
 ```
 
-Claude Code automatically connects and gets access to 33 MCP tools. See [MCP Tools Reference](guide/mcp-tools.md) for the full list.
+Claude Code automatically connects and gets access to 35 MCP tools. See [MCP Tools Reference](guide/mcp-tools.md) for the full list.
 
 ## Architecture
 
@@ -223,7 +239,7 @@ See [Architecture Details](guide/architecture.md) for component breakdown and DB
 | [CLI Reference](guide/cli-reference.md) | All commands, flags, and config file (`.ccg.yaml`) |
 | [Eval](guide/eval.md) | Parser/search quality evaluation, golden corpus, and metrics |
 | [Lint](guide/lint.md) | Detailed `ccg lint` category reference, interpretation guide, and CI usage |
-| [MCP Tools](guide/mcp-tools.md) | 33 MCP tools, Skills, AI-Driven Annotation |
+| [MCP Tools](guide/mcp-tools.md) | 35 MCP tools, Skills, AI-Driven Annotation |
 | [Annotations](guide/annotations.md) | Annotation system — tags, examples, search |
 | [Webhook](guide/webhook.md) | Webhook sync, branch filtering, HMAC, graceful shutdown |
 | [Docker](guide/docker.md) | Docker build, MCP server, PostgreSQL deployment |

@@ -283,6 +283,124 @@ func TestSearchDocs_NoIndex(t *testing.T) {
 	}
 }
 
+func TestRetrieveDocs_ReturnsDocumentContentAndEvidence(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	docsDir := filepath.Join(tmpDir, "docs")
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+
+	comm := model.Community{Key: "analysis", Label: "Analysis", Description: "analysis tools"}
+	if err := deps.DB.Create(&comm).Error; err != nil {
+		t.Fatalf("create community: %v", err)
+	}
+	findPage := model.Node{QualifiedName: "deadcode.Service.FindPage", Kind: model.NodeKindFunction, Name: "FindPage", FilePath: "internal/analysis/deadcode/service.go", StartLine: 1, EndLine: 20, Language: "go"}
+	normalize := model.Node{QualifiedName: "deadcode.normalizePathPrefix", Kind: model.NodeKindFunction, Name: "normalizePathPrefix", FilePath: "internal/analysis/deadcode/service.go", StartLine: 22, EndLine: 30, Language: "go"}
+	if err := deps.DB.Create(&findPage).Error; err != nil {
+		t.Fatalf("create findPage: %v", err)
+	}
+	if err := deps.DB.Create(&normalize).Error; err != nil {
+		t.Fatalf("create normalize: %v", err)
+	}
+	for _, node := range []model.Node{findPage, normalize} {
+		if err := deps.DB.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: node.ID}).Error; err != nil {
+			t.Fatalf("create membership: %v", err)
+		}
+		ann := model.Annotation{NodeID: node.ID}
+		if err := deps.DB.Create(&ann).Error; err != nil {
+			t.Fatalf("create annotation: %v", err)
+		}
+		if err := deps.DB.Create(&model.DocTag{AnnotationID: ann.ID, Kind: model.TagIntent, Value: node.Name + " intent", Ordinal: 0}).Error; err != nil {
+			t.Fatalf("create doc tag: %v", err)
+		}
+	}
+
+	docPath := filepath.Join(docsDir, "internal/analysis/deadcode/service.go.md")
+	if err := os.MkdirAll(filepath.Dir(docPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(docPath, []byte("# service.go\n\nFindPage calls normalizePathPrefix for path filtering.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	b := &ragindex.Builder{DB: deps.DB, IndexDir: deps.RagIndexDir, OutDir: docsDir}
+	if _, _, err := b.Build(context.Background()); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	result := callTool(t, deps, "retrieve_docs", map[string]any{
+		"query":         "FindPage normalizePathPrefix",
+		"limit":         float64(5),
+		"content_limit": float64(2000),
+	})
+	if result.IsError {
+		t.Fatalf("retrieve_docs error: %v", getTextContent(result))
+	}
+
+	var response retrieveDocsResponse
+	if err := json.Unmarshal([]byte(getTextContent(result)), &response); err != nil {
+		t.Fatalf("unmarshal retrieve response: %v", err)
+	}
+	if len(response.Results) != 1 {
+		t.Fatalf("results = %d, want 1: %#v", len(response.Results), response.Results)
+	}
+	got := response.Results[0]
+	if !strings.Contains(got.Content, "FindPage calls normalizePathPrefix") {
+		t.Fatalf("content missing expected text: %q", got.Content)
+	}
+	if len(got.MatchedTerms) != 2 {
+		t.Fatalf("matched_terms = %#v, want both terms", got.MatchedTerms)
+	}
+	if len(got.Matches) < 2 {
+		t.Fatalf("expected evidence matches for both symbols, got %#v", got.Matches)
+	}
+}
+
+func TestRetrieveDocs_ContentLimitZeroOmitsContent(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	docsDir := filepath.Join(tmpDir, "docs")
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+
+	comm := model.Community{Key: "auth", Label: "Auth"}
+	if err := deps.DB.Create(&comm).Error; err != nil {
+		t.Fatalf("create community: %v", err)
+	}
+	node := model.Node{QualifiedName: "auth.Login", Kind: model.NodeKindFunction, Name: "Login", FilePath: "auth/login.go", StartLine: 1, EndLine: 10, Language: "go"}
+	if err := deps.DB.Create(&node).Error; err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := deps.DB.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: node.ID}).Error; err != nil {
+		t.Fatalf("create membership: %v", err)
+	}
+	docPath := filepath.Join(docsDir, "auth/login.go.md")
+	if err := os.MkdirAll(filepath.Dir(docPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(docPath, []byte("# login\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	b := &ragindex.Builder{DB: deps.DB, IndexDir: deps.RagIndexDir, OutDir: docsDir}
+	if _, _, err := b.Build(context.Background()); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	result := callTool(t, deps, "retrieve_docs", map[string]any{"query": "login", "content_limit": float64(0)})
+	if result.IsError {
+		t.Fatalf("retrieve_docs error: %v", getTextContent(result))
+	}
+	if strings.Contains(getTextContent(result), "# login") {
+		t.Fatalf("content should be omitted when content_limit=0: %s", getTextContent(result))
+	}
+}
+
+func TestRetrieveDocs_RejectsLimitAboveMax(t *testing.T) {
+	deps := setupTestDeps(t)
+	result := callTool(t, deps, "retrieve_docs", map[string]any{"query": "auth", "limit": float64(51)})
+	if !result.IsError {
+		t.Fatal("expected retrieve_docs to reject limit above max")
+	}
+}
+
 func TestSearchDocs_RejectsInvalidWorkspace(t *testing.T) {
 	deps := setupTestDeps(t)
 	result := callTool(t, deps, "search_docs", map[string]any{"query": "auth", "workspace": "../outside"})

@@ -11,7 +11,7 @@
                                         ↓
                                    FTS 검색
                                         ↓
-                               MCP 서버 (33개 도구)
+                               MCP 서버 (35개 도구)
                                      ↓         ↓
                                stdio       Streamable HTTP
                                  ↓              ↓
@@ -74,7 +74,7 @@ GORM ORM 기반 저장소입니다. SQLite 및 PostgreSQL과 호환됩니다.
 
 ### MCP 서버 (MCP Server) (`internal/mcp/`)
 
-MCP 프로토콜을 통해 33개의 도구를 노출합니다. stdio 및 Streamable HTTP 두 가지 전송 모드를 지원합니다.
+MCP 프로토콜을 통해 35개의 도구를 노출합니다. stdio 및 Streamable HTTP 두 가지 전송 모드를 지원합니다.
 
 ### 안정성 (Reliability)
 
