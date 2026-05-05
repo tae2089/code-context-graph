@@ -7,7 +7,9 @@ import (
 	"slices"
 	"testing"
 
+	fallbackanalysis "github.com/tae2089/code-context-graph/internal/analysis/fallback"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/paging"
 )
 
 func TestHandler_AnalysisResponses_WireContractFrozen(t *testing.T) {
@@ -118,6 +120,113 @@ func TestHandler_AnalysisResponses_WireContractFrozen(t *testing.T) {
 			t.Fatalf("unexpected evidence keys: %v", sortedKeys(evidence))
 		}
 	})
+
+	t.Run("find_dead_code", func(t *testing.T) {
+		deps := setupTestDeps(t)
+		deps.DeadcodeAnalyzer = &mockDeadcodeAnalyzer{result: []model.Node{{QualifiedName: "pkg.Dead", Kind: model.NodeKindFunction, Name: "Dead", FilePath: "dead.go", StartLine: 10, EndLine: 20, Language: "go"}}}
+
+		result := callTool(t, deps, "find_dead_code", map[string]any{"limit": 10, "offset": 0})
+		if result.IsError {
+			t.Fatalf("find_dead_code returned error: %s", getTextContent(result))
+		}
+
+		var resp map[string]any
+		if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+			t.Fatalf("expected JSON response, got: %s", getTextContent(result))
+		}
+
+		if !reflect.DeepEqual(sortedKeys(resp), []string{"count", "dead_code", "items", "pagination"}) {
+			t.Fatalf("unexpected top-level keys: %v", sortedKeys(resp))
+		}
+		pagination, ok := resp["pagination"].(map[string]any)
+		if !ok {
+			t.Fatalf("pagination type = %T, want map[string]any", resp["pagination"])
+		}
+		if !reflect.DeepEqual(sortedKeys(pagination), []string{"has_more", "limit", "offset", "returned"}) {
+			t.Fatalf("unexpected pagination keys: %v", sortedKeys(pagination))
+		}
+	})
+
+	t.Run("find_suspect_fallback_edges", func(t *testing.T) {
+		deps := setupTestDeps(t)
+		deps.FallbackAnalyzer = &mockFallbackAnalyzer{result: []fallbackanalysis.SuspectEdge{{
+			Edge:    model.Edge{Kind: model.EdgeKindFallbackCalls, Fingerprint: "fallback-edge"},
+			Source:  model.Node{QualifiedName: "pkg.Source", FilePath: "source.go"},
+			Target:  model.Node{QualifiedName: "pkg.Target", FilePath: "target.go"},
+			Suspect: true,
+		}}}
+
+		result := callTool(t, deps, "find_suspect_fallback_edges", map[string]any{"limit": 10, "offset": 0})
+		if result.IsError {
+			t.Fatalf("find_suspect_fallback_edges returned error: %s", getTextContent(result))
+		}
+
+		var resp map[string]any
+		if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+			t.Fatalf("expected JSON response, got: %s", getTextContent(result))
+		}
+
+		if !reflect.DeepEqual(sortedKeys(resp), []string{"count", "items", "pagination", "suspect_fallback_edges"}) {
+			t.Fatalf("unexpected top-level keys: %v", sortedKeys(resp))
+		}
+		pagination, ok := resp["pagination"].(map[string]any)
+		if !ok {
+			t.Fatalf("pagination type = %T, want map[string]any", resp["pagination"])
+		}
+		if !reflect.DeepEqual(sortedKeys(pagination), []string{"has_more", "limit", "offset", "returned"}) {
+			t.Fatalf("unexpected pagination keys: %v", sortedKeys(pagination))
+		}
+	})
+
+	t.Run("find_large_functions", func(t *testing.T) {
+		deps := setupTestDeps(t)
+		deps.LargefuncAnalyzer = &mockLargefuncAnalyzer{result: []model.Node{{QualifiedName: "pkg.Big", Kind: model.NodeKindFunction, Name: "Big", FilePath: "big.go", StartLine: 1, EndLine: 100}}}
+
+		result := callTool(t, deps, "find_large_functions", map[string]any{"limit": 3, "offset": 0})
+		if result.IsError {
+			t.Fatalf("find_large_functions returned error: %s", getTextContent(result))
+		}
+
+		var resp map[string]any
+		if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+			t.Fatalf("expected JSON response, got: %s", getTextContent(result))
+		}
+
+		if !reflect.DeepEqual(sortedKeys(resp), []string{"count", "items", "pagination", "results"}) {
+			t.Fatalf("unexpected top-level keys: %v", sortedKeys(resp))
+		}
+		pagination, ok := resp["pagination"].(map[string]any)
+		if !ok {
+			t.Fatalf("pagination type = %T, want map[string]any", resp["pagination"])
+		}
+		if _, hasNext := pagination["next_offset"]; hasNext {
+			if !reflect.DeepEqual(sortedKeys(pagination), []string{"has_more", "limit", "next_offset", "offset", "returned"}) {
+				t.Fatalf("unexpected pagination keys: %v", sortedKeys(pagination))
+			}
+		} else if !reflect.DeepEqual(sortedKeys(pagination), []string{"has_more", "limit", "offset", "returned"}) {
+			t.Fatalf("unexpected pagination keys: %v", sortedKeys(pagination))
+		}
+	})
+}
+
+func TestPagedListResponse_MarshalJSON_PreservesEnvelope(t *testing.T) {
+	b, err := json.Marshal(pagedListResponse[string]{
+		LegacyKey: "dead_code",
+		Items:     []string{"one"},
+		Count:     1,
+		Pagination: paging.Page{Limit: 10, Offset: 0, Returned: 1, HasMore: false},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(b, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(sortedKeys(resp), []string{"count", "dead_code", "items", "pagination"}) {
+		t.Fatalf("unexpected top-level keys: %v", sortedKeys(resp))
+	}
 }
 
 func sortedKeys(m map[string]any) []string {
