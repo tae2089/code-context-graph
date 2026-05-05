@@ -42,6 +42,7 @@ type TraceResult struct {
 	FallbackEdgesCount int
 }
 
+// @intent default flow tracing to include fallback call edges unless a caller explicitly requests strict mode.
 func defaultTraceOptions(opts TraceOptions) TraceOptions {
 	if opts.IncludeFallbackCalls != nil {
 		return opts

@@ -18,6 +18,7 @@ func (h *handlers) workspaceEvidenceFromContext(ctx context.Context) map[string]
 	return h.workspaceEvidence(ns)
 }
 
+// @intent collect namespace-scoped workspace and git provenance so MCP responses can explain where graph evidence came from.
 func (h *handlers) workspaceEvidence(namespace string) map[string]any {
 	ns := ctxns.Normalize(namespace)
 	evidence := map[string]any{"namespace": ns}
@@ -42,6 +43,7 @@ func (h *handlers) workspaceEvidence(namespace string) map[string]any {
 	return evidence
 }
 
+// @intent summarize git branch, commit, remote, and dirty state for workspace-scoped evidence blocks.
 func workspaceGitEvidence(path string) map[string]any {
 	repo, err := git.PlainOpenWithOptions(path, &git.PlainOpenOptions{DetectDotGit: true})
 	if err != nil {
@@ -93,6 +95,7 @@ func workspaceGitEvidence(path string) map[string]any {
 	return info
 }
 
+// @intent normalize git reference names into human-readable branch labels inside evidence metadata.
 func branchNameForRef(ref plumbing.ReferenceName) string {
 	if ref.IsBranch() {
 		return ref.Short()

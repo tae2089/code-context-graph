@@ -12,8 +12,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// @intent reserve request-level knobs for suspect fallback analysis without changing the public API shape later.
 type Options struct{}
 
+// @intent carry one fallback edge with its endpoint nodes and suspect classification for downstream reporting.
 type SuspectEdge struct {
 	Edge    model.Edge
 	Source  model.Node
@@ -21,15 +23,18 @@ type SuspectEdge struct {
 	Suspect bool
 }
 
+// @intent bundle graph and annotation access needed to detect low-confidence fallback edges with weak semantic overlap.
 type Service struct {
 	db    *gorm.DB
 	store store.GraphStore
 }
 
+// @intent construct the suspect fallback analyzer from the active graph DB and annotation-capable store.
 func New(db *gorm.DB, graphStore store.GraphStore) *Service {
 	return &Service{db: db, store: graphStore}
 }
 
+// @intent report fallback call edges whose source and target annotations share no intent or domain-rule vocabulary.
 func (s *Service) FindSuspects(ctx context.Context, opts Options) ([]SuspectEdge, error) {
 	_ = opts
 	ns := ctxns.FromContext(ctx)
@@ -75,6 +80,7 @@ func (s *Service) FindSuspects(ctx context.Context, opts Options) ([]SuspectEdge
 
 var tokenSplitter = regexp.MustCompile(`[^a-z0-9]+`)
 
+// @intent suppress suspect reports when source and target annotations already share meaningful intent/domain vocabulary.
 func annotationsOverlap(source, target *model.Annotation) bool {
 	left := annotationTokens(source)
 	right := annotationTokens(target)
@@ -89,6 +95,7 @@ func annotationsOverlap(source, target *model.Annotation) bool {
 	return false
 }
 
+// @intent extract normalized intent/domainRule tokens so annotation overlap checks can ignore punctuation and casing.
 func annotationTokens(ann *model.Annotation) map[string]struct{} {
 	if ann == nil {
 		return nil

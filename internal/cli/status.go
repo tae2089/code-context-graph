@@ -184,6 +184,7 @@ func formatStatusList(values []string) string {
 	return strings.Join(values, ",")
 }
 
+// @intent compute the share of fallback call edges within all call-like edges for operator-facing health reporting.
 func callFallbackRatio(strictCalls, fallbackCalls int64) float64 {
 	total := strictCalls + fallbackCalls
 	if total == 0 {
@@ -192,6 +193,7 @@ func callFallbackRatio(strictCalls, fallbackCalls int64) float64 {
 	return float64(fallbackCalls) / float64(total)
 }
 
+// @intent convert fallback edge ratio thresholds into compact operator warning levels for ccg status output.
 func callFallbackWarning(ratio float64, noCalls bool) string {
 	if noCalls || math.Abs(ratio) < 1e-12 {
 		return "ok"
