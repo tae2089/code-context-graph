@@ -118,7 +118,8 @@ func (s *Service) Analyze(ctx context.Context) ([]CouplingPair, error) {
 }
 
 // AnalyzePage returns one bounded page of coupling pairs.
-// @intent push pagination into the coupling service so handlers expose stable limit/offset windows without slicing unbounded slices.
+// @intent bound the response size for handlers while Analyze still aggregates the full coupling set before slicing.
+// @domainRule pagination limits returned items, but compute cost still scales with the full edge aggregation.
 // @domainRule pairs are sorted by descending strength, then descending edge count, then from/to community for stable pagination.
 func (s *Service) AnalyzePage(ctx context.Context, req paging.Request) (Result, error) {
 	normalized, err := paging.Normalize(req)

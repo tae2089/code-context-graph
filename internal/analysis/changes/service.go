@@ -84,7 +84,8 @@ func (s *Service) Analyze(ctx context.Context, repoDir, baseRef string) ([]RiskE
 }
 
 // AnalyzePage detects changed functions and returns one bounded page of risk entries.
-// @intent push pagination into the change-risk service so handlers expose stable limit/offset windows.
+// @intent bound the response size for handlers while Analyze still materializes the full risk list before slicing.
+// @domainRule pagination limits returned items, but compute cost still scales with the full diff-to-risk pipeline.
 // @domainRule entries are sorted by descending risk_score, then file_path, then qualified_name for stable ordering.
 func (s *Service) AnalyzePage(ctx context.Context, repoDir, baseRef string, req paging.Request) (Result, error) {
 	normalized, err := paging.Normalize(req)
