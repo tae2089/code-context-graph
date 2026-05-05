@@ -291,6 +291,17 @@ func TestSearchDocs_RejectsInvalidWorkspace(t *testing.T) {
 	}
 }
 
+func TestSearchDocs_RejectsLimitAboveMax(t *testing.T) {
+	deps := setupTestDeps(t)
+	result := callTool(t, deps, "search_docs", map[string]any{"query": "auth", "limit": float64(501)})
+	if !result.IsError {
+		t.Fatal("expected search_docs to reject limit above max")
+	}
+	if !strings.Contains(getTextContent(result), "limit must be <= 500") {
+		t.Fatalf("unexpected error: %s", getTextContent(result))
+	}
+}
+
 func TestBuildRagIndex_WithWorkspace(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()

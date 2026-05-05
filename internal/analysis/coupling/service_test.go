@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/paging"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
@@ -203,5 +204,82 @@ func TestAnalyze_NoCommunities(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("expected 0, got %d", len(got))
+	}
+}
+
+func seedCrossPair(t *testing.T, db *gorm.DB, fromNode, toNode uint, count int, tag string) {
+	t.Helper()
+	for i := 0; i < count; i++ {
+		if err := db.Create(&model.Edge{FromNodeID: fromNode, ToNodeID: toNode, Kind: model.EdgeKindCalls, Fingerprint: fmt.Sprintf("%s-%d", tag, i)}).Error; err != nil {
+			t.Fatalf("seed edge: %v", err)
+		}
+	}
+}
+
+func TestAnalyzePage_AppliesLimitOffsetAndHasMore(t *testing.T) {
+	db := setupDB(t)
+	for i := uint(1); i <= 4; i++ {
+		seedNode(t, db, i, fmt.Sprintf("N%d", i), fmt.Sprintf("c%d/c.go", i))
+		seedCommunity(t, db, i, fmt.Sprintf("c%d", i), i)
+	}
+	seedCrossPair(t, db, 1, 2, 10, "ab")
+	seedCrossPair(t, db, 1, 3, 7, "ac")
+	seedCrossPair(t, db, 1, 4, 4, "ad")
+	seedCrossPair(t, db, 2, 3, 2, "bc")
+
+	svc := New(db)
+
+	page1, err := svc.AnalyzePage(context.Background(), paging.Request{Limit: 2, Offset: 0})
+	if err != nil {
+		t.Fatalf("page1: %v", err)
+	}
+	if len(page1.Items) != 2 {
+		t.Fatalf("page1 items=%d, want 2", len(page1.Items))
+	}
+	if !page1.Pagination.HasMore {
+		t.Fatalf("page1 has_more=false, want true")
+	}
+	if page1.Items[0].Strength < page1.Items[1].Strength {
+		t.Fatalf("page1 not sorted by strength desc: %+v", page1.Items)
+	}
+
+	page2, err := svc.AnalyzePage(context.Background(), paging.Request{Limit: 2, Offset: 2})
+	if err != nil {
+		t.Fatalf("page2: %v", err)
+	}
+	if len(page2.Items) != 2 {
+		t.Fatalf("page2 items=%d, want 2", len(page2.Items))
+	}
+	if page2.Pagination.HasMore {
+		t.Fatalf("page2 has_more=true, want false")
+	}
+}
+
+func TestAnalyzePage_RejectsLimitAboveMax(t *testing.T) {
+	db := setupDB(t)
+	svc := New(db)
+	if _, err := svc.AnalyzePage(context.Background(), paging.Request{Limit: paging.MaxLimit + 1}); err == nil {
+		t.Fatal("expected error for over-max limit")
+	}
+}
+
+func TestAnalyzePage_OffsetBeyondTotalReturnsEmpty(t *testing.T) {
+	db := setupDB(t)
+	seedNode(t, db, 1, "A1", "a/a.go")
+	seedNode(t, db, 2, "B1", "b/b.go")
+	seedCommunity(t, db, 1, "a", 1)
+	seedCommunity(t, db, 2, "b", 2)
+	seedCrossPair(t, db, 1, 2, 3, "ab")
+
+	svc := New(db)
+	page, err := svc.AnalyzePage(context.Background(), paging.Request{Limit: 10, Offset: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("items=%d, want 0", len(page.Items))
+	}
+	if page.Pagination.HasMore {
+		t.Fatal("has_more=true, want false")
 	}
 }

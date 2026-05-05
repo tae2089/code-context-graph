@@ -7,6 +7,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/paging"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
@@ -204,5 +205,48 @@ func TestFind_RespectsNamespace(t *testing.T) {
 	}
 	if got[0].Name != "UnusedB" {
 		t.Errorf("expected UnusedB, got %s", got[0].Name)
+	}
+}
+
+func TestFindPage_ReturnsBoundedResultsAndPagination(t *testing.T) {
+	db := setupDB(t)
+	seedNode(t, db, 1, "UnusedA", model.NodeKindFunction, "a.go")
+	seedNode(t, db, 2, "UnusedB", model.NodeKindFunction, "b.go")
+	seedNode(t, db, 3, "UnusedC", model.NodeKindFunction, "c.go")
+
+	svc := New(db)
+	got, err := svc.FindPage(context.Background(), Options{Page: paging.Request{Limit: 2, Offset: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(got.Items))
+	}
+	if got.Items[0].Name != "UnusedB" || got.Items[1].Name != "UnusedC" {
+		t.Fatalf("unexpected page order: %#v", []string{got.Items[0].Name, got.Items[1].Name})
+	}
+	if got.Pagination.Limit != 2 || got.Pagination.Offset != 1 || got.Pagination.Returned != 2 {
+		t.Fatalf("unexpected pagination: %+v", got.Pagination)
+	}
+	if got.Pagination.HasMore {
+		t.Fatal("expected has_more=false on final page")
+	}
+}
+
+func TestFindPage_PathFilterRespectsBoundary(t *testing.T) {
+	db := setupDB(t)
+	seedNode(t, db, 1, "Internal", model.NodeKindFunction, "internal/a.go")
+	seedNode(t, db, 2, "InternalTwo", model.NodeKindFunction, "internal2/b.go")
+
+	svc := New(db)
+	got, err := svc.FindPage(context.Background(), Options{FilePattern: "internal", Page: paging.Request{Limit: 10}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(got.Items))
+	}
+	if got.Items[0].FilePath != "internal/a.go" {
+		t.Fatalf("unexpected file path: %s", got.Items[0].FilePath)
 	}
 }

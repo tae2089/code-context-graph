@@ -7,6 +7,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/paging"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
@@ -153,5 +154,52 @@ func TestFind_RespectsNamespace(t *testing.T) {
 	}
 	if got[0].Name != "BigA" {
 		t.Errorf("expected BigA, got %s", got[0].Name)
+	}
+}
+
+func TestFindPage_ReturnsBoundedResultsAndPagination(t *testing.T) {
+	db := setupDB(t)
+	seedNode(t, db, 1, "One", model.NodeKindFunction, 1, 100)
+	seedNode(t, db, 2, "Two", model.NodeKindFunction, 1, 90)
+	seedNode(t, db, 3, "Three", model.NodeKindFunction, 1, 80)
+
+	svc := New(db)
+	got, err := svc.FindPage(context.Background(), Options{Threshold: 30, Page: paging.Request{Limit: 2, Offset: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(got.Items))
+	}
+	if got.Items[0].Name != "Two" || got.Items[1].Name != "Three" {
+		t.Fatalf("unexpected page order: %#v", []string{got.Items[0].Name, got.Items[1].Name})
+	}
+	if got.Pagination.Limit != 2 || got.Pagination.Offset != 1 || got.Pagination.Returned != 2 {
+		t.Fatalf("unexpected pagination: %+v", got.Pagination)
+	}
+	if got.Pagination.HasMore {
+		t.Fatal("expected has_more=false on final page")
+	}
+}
+
+func TestFindPage_PathFilterRespectsBoundary(t *testing.T) {
+	db := setupDB(t)
+	if err := db.Create(&model.Node{ID: 1, QualifiedName: "pkg.API", Namespace: "", Kind: model.NodeKindFunction, Name: "API", FilePath: "internal/api/handler.go", StartLine: 1, EndLine: 100, Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.Node{ID: 2, QualifiedName: "pkg.API2", Namespace: "", Kind: model.NodeKindFunction, Name: "API2", FilePath: "internal/api2/handler.go", StartLine: 1, EndLine: 120, Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	svc := New(db)
+	got, err := svc.FindPage(context.Background(), Options{Threshold: 30, PathPrefix: "internal/api", Page: paging.Request{Limit: 10}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items) != 1 {
+		t.Fatalf("expected 1 boundary-safe item, got %d", len(got.Items))
+	}
+	if got.Items[0].FilePath != "internal/api/handler.go" {
+		t.Fatalf("unexpected file path: %s", got.Items[0].FilePath)
 	}
 }

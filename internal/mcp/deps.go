@@ -16,8 +16,10 @@ import (
 	flowspkg "github.com/tae2089/code-context-graph/internal/analysis/flows"
 	impactpkg "github.com/tae2089/code-context-graph/internal/analysis/impact"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
+	"github.com/tae2089/code-context-graph/internal/analysis/largefunc"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/paging"
 	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 	"github.com/tae2089/code-context-graph/internal/store"
 	storesearch "github.com/tae2089/code-context-graph/internal/store/search"
@@ -93,6 +95,7 @@ type QueryService interface {
 // @see mcp.handlers.findLargeFunctions
 type LargefuncAnalyzer interface {
 	Find(ctx context.Context, threshold int) ([]model.Node, error)
+	FindPage(ctx context.Context, opts largefunc.Options) (largefunc.Result, error)
 }
 
 // DeadcodeAnalyzer defines the unused-code detection contract.
@@ -100,6 +103,7 @@ type LargefuncAnalyzer interface {
 // @see mcp.handlers.findDeadCode
 type DeadcodeAnalyzer interface {
 	Find(ctx context.Context, opts deadcode.Options) ([]model.Node, error)
+	FindPage(ctx context.Context, opts deadcode.Options) (deadcode.Result, error)
 }
 
 // FallbackAnalyzer defines the suspect fallback-edge analysis contract.
@@ -107,6 +111,7 @@ type DeadcodeAnalyzer interface {
 // @see mcp.handlers.findSuspectFallbackEdges
 type FallbackAnalyzer interface {
 	FindSuspects(ctx context.Context, opts fallbackanalysis.Options) ([]fallbackanalysis.SuspectEdge, error)
+	FindSuspectsPage(ctx context.Context, opts fallbackanalysis.Options) (fallbackanalysis.Result, error)
 }
 
 // CouplingAnalyzer defines the inter-community coupling analysis contract.
@@ -114,6 +119,7 @@ type FallbackAnalyzer interface {
 // @see mcp.handlers.getArchitectureOverview
 type CouplingAnalyzer interface {
 	Analyze(ctx context.Context) ([]coupling.CouplingPair, error)
+	AnalyzePage(ctx context.Context, req paging.Request) (coupling.Result, error)
 }
 
 // CoverageAnalyzer defines file and community coverage lookup operations.

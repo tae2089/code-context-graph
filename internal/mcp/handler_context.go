@@ -13,7 +13,13 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/paging"
 )
+
+// minimalContextRiskPageLimit bounds how many recent risk entries minimal-context summarizes.
+// @intent cap risk-aggregation work in get_minimal_context so a large diff cannot drive an unbounded scan.
+// @domainRule risk_score average and test_gaps count reflect the top-N riskiest entries (sorted by changes.Service), not the full diff.
+const minimalContextRiskPageLimit = 50
 
 // fileCount carries a single COUNT(DISTINCT file_path) scan result.
 // @intent capture the distinct-file count returned by the minimal-context summary query.
@@ -69,10 +75,11 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 	log.Info("get_minimal_context called", "task", task, "repo_root", repoRoot, "base", base)
 
 	return finalizeToolResult(h.cachedExecute(ctx, "get_minimal_context:", map[string]any{
-		"task":      task,
-		"repo_root": repoRoot,
-		"base":      base,
-		"namespace": requestNamespace(request),
+		"task":            task,
+		"repo_root":       repoRoot,
+		"base":            base,
+		"namespace":       requestNamespace(request),
+		"risk_page_limit": minimalContextRiskPageLimit,
 	}, func() (string, error) {
 		ns := ctxns.FromContext(ctx)
 
@@ -101,7 +108,8 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 
 		if repoRoot != "" && h.deps.ChangesGitClient != nil {
 			chSvc := changes.New(h.deps.DB, h.deps.ChangesGitClient)
-			risks, err := chSvc.Analyze(ctx, repoRoot, base)
+			page, err := chSvc.AnalyzePage(ctx, repoRoot, base, paging.Request{Limit: minimalContextRiskPageLimit, Offset: 0})
+			risks := page.Items
 			if err == nil && len(risks) > 0 {
 				var maxRisk float64
 				var totalRisk float64

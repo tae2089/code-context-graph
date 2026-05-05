@@ -2,9 +2,11 @@ package fallback
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/paging"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -22,10 +24,6 @@ func setupFallbackDB(t *testing.T) *gorm.DB {
 		t.Fatal(err)
 	}
 	return db
-}
-
-func boolPtr(v bool) *bool {
-	return &v
 }
 
 func TestSuspectFallbackEdges_FlagsDisjointIntentAndDomainRule(t *testing.T) {
@@ -93,5 +91,44 @@ func TestSuspectFallbackEdges_IgnoresOverlappingAnnotationContext(t *testing.T) 
 	}
 	if len(results) != 0 {
 		t.Fatalf("expected overlapping annotation context to suppress suspect edge, got %d results", len(results))
+	}
+}
+
+func TestSuspectFallbackEdges_FindPageBoundsFallbackEdgeAnalysis(t *testing.T) {
+	db := setupFallbackDB(t)
+	ctx := context.Background()
+	store := gormstore.New(db)
+
+	for _, suffix := range []string{"A", "B", "C", "D"} {
+		source := model.Node{QualifiedName: "pkg.Source" + suffix, Kind: model.NodeKindFunction, Name: "Source", FilePath: "src.go", StartLine: 1, EndLine: 2, Language: "go"}
+		target := model.Node{QualifiedName: "pkg.Target" + suffix, Kind: model.NodeKindFunction, Name: "Target", FilePath: "target.go", StartLine: 1, EndLine: 2, Language: "go"}
+		if err := store.UpsertNodes(ctx, []model.Node{source, target}); err != nil {
+			t.Fatal(err)
+		}
+		sourceNode, _ := store.GetNode(ctx, source.QualifiedName)
+		targetNode, _ := store.GetNode(ctx, target.QualifiedName)
+		if err := store.UpsertEdges(ctx, []model.Edge{{FromNodeID: sourceNode.ID, ToNodeID: targetNode.ID, Kind: model.EdgeKindFallbackCalls, Fingerprint: "fallback-" + strings.ToLower(suffix)}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.UpsertAnnotation(ctx, &model.Annotation{NodeID: sourceNode.ID, Tags: []model.DocTag{{Kind: model.TagIntent, Value: "source auth", Ordinal: 0}}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.UpsertAnnotation(ctx, &model.Annotation{NodeID: targetNode.ID, Tags: []model.DocTag{{Kind: model.TagIntent, Value: "invoice render", Ordinal: 0}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := New(db, store).FindSuspectsPage(ctx, Options{Page: paging.Request{Limit: 2, Offset: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items) != 2 {
+		t.Fatalf("expected 2 bounded suspect edges, got %d", len(got.Items))
+	}
+	if got.Items[0].Edge.Fingerprint != "fallback-b" || got.Items[1].Edge.Fingerprint != "fallback-c" {
+		t.Fatalf("unexpected bounded edge page: %s, %s", got.Items[0].Edge.Fingerprint, got.Items[1].Edge.Fingerprint)
+	}
+	if got.Pagination.Limit != 2 || got.Pagination.Offset != 1 || got.Pagination.Returned != 2 || !got.Pagination.HasMore {
+		t.Fatalf("unexpected pagination: %+v", got.Pagination)
 	}
 }

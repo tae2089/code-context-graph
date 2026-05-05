@@ -17,6 +17,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/obs"
+	"github.com/tae2089/code-context-graph/internal/paging"
 )
 
 const (
@@ -207,9 +208,9 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 
 // detectChanges analyzes git diff hunks and returns node-level risk scores.
 // @intent identify changed files and functions with elevated review risk from recent git diff hunks.
-// @param request uses repo_root as the Git repository root and base as the comparison commit.
+// @param request uses repo_root as the Git repository root, base as the comparison commit, plus optional limit/offset.
 // @requires ChangesGitClient must be configured.
-// @ensures returns per-node hunk counts and risk scores when analysis succeeds.
+// @ensures returns per-node hunk counts and risk scores plus pagination metadata when analysis succeeds.
 // @sideEffect reads git diff data from the configured repository root.
 // @see mcp.handlers.getAffectedFlows
 func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -222,27 +223,40 @@ func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolReques
 	}
 	base := request.GetString("base", "HEAD~1")
 
+	limit := request.GetInt("limit", 50)
+	offset := request.GetInt("offset", 0)
+	if err := validatePositiveLimit(limit); err != nil {
+		return finalizeToolResult("", err)
+	}
+	if err := validateOffset(offset); err != nil {
+		return finalizeToolResult("", err)
+	}
+	pageReq, err := paging.Normalize(paging.Request{Limit: limit, Offset: offset})
+	if err != nil {
+		return finalizeToolResult("", newToolResultErr(err.Error()))
+	}
+
 	validatedRepoRoot, err := h.validateRepoRoot(repoRoot)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	repoRoot = validatedRepoRoot
 
-	log.Info("detect_changes called", "repo_root", repoRoot, "base", base)
+	log.Info("detect_changes called", "repo_root", repoRoot, "base", base, "limit", pageReq.Limit, "offset", pageReq.Offset)
 
 	if h.deps.ChangesGitClient == nil {
 		return mcp.NewToolResultError("ChangesGitClient not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "detect_changes:", map[string]any{"repo_root": repoRoot, "base": base, "namespace": requestNamespace(request)}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "detect_changes:", map[string]any{"repo_root": repoRoot, "base": base, "limit": pageReq.Limit, "offset": pageReq.Offset, "namespace": requestNamespace(request)}, func() (string, error) {
 		chSvc := changes.New(h.deps.DB, h.deps.ChangesGitClient)
-		risks, err := chSvc.Analyze(ctx, repoRoot, base)
+		page, err := chSvc.AnalyzePage(ctx, repoRoot, base, pageReq)
 		if err != nil {
 			return "", trace.Wrap(err, "changes analyze error")
 		}
 
-		entries := make([]map[string]any, len(risks))
-		for i, r := range risks {
+		entries := make([]map[string]any, len(page.Items))
+		for i, r := range page.Items {
 			entries[i] = map[string]any{
 				"name":       r.Node.QualifiedName,
 				"file":       r.Node.FilePath,
@@ -252,8 +266,10 @@ func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolReques
 		}
 
 		resp := map[string]any{
-			"base":    base,
-			"entries": entries,
+			"base":       base,
+			"entries":    entries,
+			"items":      entries,
+			"pagination": page.Pagination,
 		}
 		result, err := marshalJSON(resp)
 		if err != nil {
@@ -265,9 +281,9 @@ func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolReques
 
 // getAffectedFlows finds stored flows touched by recent code changes.
 // @intent trace flows touched by changed nodes so regression review can happen at the flow level.
-// @param request uses repo_root and base to define the diff range.
+// @param request uses repo_root and base to define the diff range, plus optional limit/offset for pagination.
 // @requires ChangesGitClient must be configured.
-// @ensures returns affected flows with their changed node IDs when analysis succeeds.
+// @ensures returns affected flows with their changed node IDs plus pagination metadata when analysis succeeds.
 // @sideEffect reads git diff data from the configured repository root.
 // @see mcp.handlers.detectChanges
 func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -280,37 +296,73 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 	}
 	base := request.GetString("base", "HEAD~1")
 
+	limit := request.GetInt("limit", 50)
+	offset := request.GetInt("offset", 0)
+	if err := validatePositiveLimit(limit); err != nil {
+		return finalizeToolResult("", err)
+	}
+	if err := validateOffset(offset); err != nil {
+		return finalizeToolResult("", err)
+	}
+	pageReq, err := paging.Normalize(paging.Request{Limit: limit, Offset: offset})
+	if err != nil {
+		return finalizeToolResult("", newToolResultErr(err.Error()))
+	}
+
 	validatedRepoRoot, err := h.validateRepoRoot(repoRoot)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	repoRoot = validatedRepoRoot
 
-	log.Info("get_affected_flows called", "repo_root", repoRoot, "base", base)
+	log.Info("get_affected_flows called", "repo_root", repoRoot, "base", base, "limit", pageReq.Limit, "offset", pageReq.Offset)
 
 	if h.deps.ChangesGitClient == nil {
 		return mcp.NewToolResultError("ChangesGitClient not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "get_affected_flows:", map[string]any{"repo_root": repoRoot, "base": base, "namespace": requestNamespace(request)}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "get_affected_flows:", map[string]any{"repo_root": repoRoot, "base": base, "limit": pageReq.Limit, "offset": pageReq.Offset, "namespace": requestNamespace(request)}, func() (string, error) {
 		chSvc := changes.New(h.deps.DB, h.deps.ChangesGitClient)
-		risks, err := chSvc.Analyze(ctx, repoRoot, base)
-		if err != nil {
-			return "", trace.Wrap(err, "changes analyze error")
+		changedNodeIDs := make([]uint, 0)
+		seenNodeIDs := map[uint]struct{}{}
+		scanReq := paging.Request{Limit: paging.MaxLimit, Offset: 0}
+		for {
+			page, err := chSvc.AnalyzePage(ctx, repoRoot, base, scanReq)
+			if err != nil {
+				return "", trace.Wrap(err, "changes analyze error")
+			}
+			for _, r := range page.Items {
+				if _, ok := seenNodeIDs[r.Node.ID]; ok {
+					continue
+				}
+				seenNodeIDs[r.Node.ID] = struct{}{}
+				changedNodeIDs = append(changedNodeIDs, r.Node.ID)
+			}
+			if !page.Pagination.HasMore || page.Pagination.NextOffset == nil {
+				break
+			}
+			scanReq.Offset = *page.Pagination.NextOffset
 		}
 
-		if len(risks) == 0 {
-			result, err := marshalJSON(map[string]any{"affected_flows": []any{}})
+		emptyResp := func() (string, error) {
+			page := paging.BuildPage(pageReq, 0, false)
+			result, err := marshalJSON(map[string]any{
+				"base":           base,
+				"affected_flows": []any{},
+				"items":          []any{},
+				"count":          0,
+				"pagination":     page,
+			})
 			if err != nil {
 				return "", trace.Wrap(err, "marshal result")
 			}
 			return result, nil
 		}
 
-		changedNodeIDs := make([]uint, 0, len(risks))
-		for _, r := range risks {
-			changedNodeIDs = append(changedNodeIDs, r.Node.ID)
+		if len(changedNodeIDs) == 0 {
+			return emptyResp()
 		}
+
 		ns := ctxns.FromContext(ctx)
 
 		var memberships []model.FlowMembership
@@ -325,11 +377,7 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 		}
 
 		if len(flowNodes) == 0 {
-			result, err := marshalJSON(map[string]any{"affected_flows": []any{}})
-			if err != nil {
-				return "", trace.Wrap(err, "marshal result")
-			}
-			return result, nil
+			return emptyResp()
 		}
 
 		flowIDs := make([]uint, 0, len(flowNodes))
@@ -338,9 +386,19 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 		}
 
 		var flowList []model.Flow
-		flowQ := h.deps.DB.WithContext(ctx).Where("id IN ?", flowIDs).Where("namespace = ?", ns)
+		flowQ := h.deps.DB.WithContext(ctx).
+			Where("id IN ?", flowIDs).
+			Where("namespace = ?", ns).
+			Order("name ASC").
+			Order("id ASC").
+			Limit(pageReq.Limit + 1).
+			Offset(pageReq.Offset)
 		if err := flowQ.Find(&flowList).Error; err != nil {
 			return "", trace.Wrap(err, "find affected flows")
+		}
+		hasMore := len(flowList) > pageReq.Limit
+		if hasMore {
+			flowList = flowList[:pageReq.Limit]
 		}
 
 		affected := make([]map[string]any, len(flowList))
@@ -352,7 +410,14 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 			}
 		}
 
-		result, err := marshalJSON(map[string]any{"affected_flows": affected})
+		page := paging.BuildPage(pageReq, len(affected), hasMore)
+		result, err := marshalJSON(map[string]any{
+			"base":           base,
+			"affected_flows": affected,
+			"items":          affected,
+			"count":          len(affected),
+			"pagination":     page,
+		})
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}
@@ -368,30 +433,38 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 // @domainRule only nodes without incoming edges qualify as dead code candidates.
 func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
-	log := h.logger()
-	log.Info("find_dead_code called")
+	h.logger().Info("find_dead_code called")
 
-	opts := deadcode.Options{}
-	kinds := request.GetStringSlice("kinds", nil)
-	for _, k := range kinds {
-		opts.Kinds = append(opts.Kinds, model.NodeKind(k))
+	input, err := decodeFindDeadCodeRequest(request)
+	if err != nil {
+		return finalizeToolResult("", err)
 	}
-	pathPrefix := request.GetString("path", "")
-	opts.FilePattern = pathPrefix
 
 	if h.deps.DeadcodeAnalyzer == nil {
 		return mcp.NewToolResultError("DeadcodeAnalyzer not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "find_dead_code:", map[string]any{"path": pathPrefix, "kinds": kinds, "namespace": requestNamespace(request)}, func() (string, error) {
-		nodes, err := h.deps.DeadcodeAnalyzer.Find(ctx, opts)
+	opts := deadcode.Options{Page: input.Page, FilePattern: input.PathPrefix}
+	for _, k := range input.Kinds {
+		opts.Kinds = append(opts.Kinds, model.NodeKind(k))
+	}
+
+	cacheParams := map[string]any{
+		"path":      input.PathPrefix,
+		"kinds":     input.Kinds,
+		"limit":     input.Page.Limit,
+		"offset":    input.Page.Offset,
+		"namespace": input.Namespace,
+	}
+	return finalizeToolResult(h.cachedExecute(ctx, "find_dead_code:", cacheParams, func() (string, error) {
+		page, err := h.deps.DeadcodeAnalyzer.FindPage(ctx, opts)
 		if err != nil {
 			return "", trace.Wrap(err, "deadcode error")
 		}
 
-		dcResults := make([]map[string]any, len(nodes))
-		for i, n := range nodes {
-			dcResults[i] = map[string]any{
+		items := make([]map[string]any, len(page.Items))
+		for i, n := range page.Items {
+			items[i] = map[string]any{
 				"name":       n.QualifiedName,
 				"kind":       n.Kind,
 				"file":       n.FilePath,
@@ -399,11 +472,7 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 			}
 		}
 
-		resp := map[string]any{
-			"dead_code": dcResults,
-			"count":     len(dcResults),
-		}
-		result, err := marshalJSON(resp)
+		result, err := encodePagedListResponse("dead_code", items, page.Pagination)
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}
@@ -413,25 +482,35 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 
 // findSuspectFallbackEdges returns fallback call edges whose source/target annotations do not overlap on intent/domain rules.
 // @intent surface low-confidence fallback call candidates so operators can manually review weakly explained edges.
+// @param request supports optional limit and offset to bound fallback suspect analysis.
 // @requires FallbackAnalyzer must be configured.
-// @ensures returns suspect fallback edge entries and their count when analysis succeeds.
+// @ensures returns legacy suspect_fallback_edges plus items/count/pagination when analysis succeeds.
 func (h *handlers) findSuspectFallbackEdges(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
-	log := h.logger()
-	log.Info("find_suspect_fallback_edges called")
+	h.logger().Info("find_suspect_fallback_edges called")
+
+	input, err := decodeFindSuspectFallbackRequest(request)
+	if err != nil {
+		return finalizeToolResult("", err)
+	}
 
 	if h.deps.FallbackAnalyzer == nil {
 		return mcp.NewToolResultError("FallbackAnalyzer not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "find_suspect_fallback_edges:", map[string]any{"namespace": requestNamespace(request)}, func() (string, error) {
-		results, err := h.deps.FallbackAnalyzer.FindSuspects(ctx, fallbackanalysis.Options{})
+	cacheParams := map[string]any{
+		"limit":     input.Page.Limit,
+		"offset":    input.Page.Offset,
+		"namespace": input.Namespace,
+	}
+	return finalizeToolResult(h.cachedExecute(ctx, "find_suspect_fallback_edges:", cacheParams, func() (string, error) {
+		page, err := h.deps.FallbackAnalyzer.FindSuspectsPage(ctx, fallbackanalysis.Options{Page: input.Page})
 		if err != nil {
 			return "", trace.Wrap(err, "fallback suspect analysis error")
 		}
 
-		items := make([]map[string]any, len(results))
-		for i, result := range results {
+		items := make([]map[string]any, len(page.Items))
+		for i, result := range page.Items {
 			items[i] = map[string]any{
 				"edge_kind":   result.Edge.Kind,
 				"fingerprint": result.Edge.Fingerprint,
@@ -443,11 +522,7 @@ func (h *handlers) findSuspectFallbackEdges(ctx context.Context, request mcp.Cal
 			}
 		}
 
-		resp := map[string]any{
-			"suspect_fallback_edges": items,
-			"count":                  len(items),
-		}
-		payload, err := marshalJSON(resp)
+		payload, err := encodePagedListResponse("suspect_fallback_edges", items, page.Pagination)
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}

@@ -3,9 +3,11 @@ package deadcode
 
 import (
 	"context"
+	"path"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/paging"
 	"gorm.io/gorm"
 )
 
@@ -14,6 +16,14 @@ import (
 type Options struct {
 	Kinds       []model.NodeKind
 	FilePattern string
+	Page        paging.Request
+}
+
+// Result carries one dead-code page plus pagination metadata.
+// @intent let callers expose bounded dead-code responses while preserving legacy fields.
+type Result struct {
+	Items      []model.Node
+	Pagination paging.Page
 }
 
 // Service finds unreachable graph nodes.
@@ -36,6 +46,21 @@ func New(db *gorm.DB) *Service {
 // @domainRule file and test nodes are always excluded from results
 // @domainRule supports filtering by node kind and file path pattern
 func (s *Service) Find(ctx context.Context, opts Options) ([]model.Node, error) {
+	page, err := s.FindPage(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	return page.Items, nil
+}
+
+// FindPage detects unused code with no incoming edges and returns one bounded page.
+// @intent push dead-code pagination into the query layer so handlers do not slice full results.
+func (s *Service) FindPage(ctx context.Context, opts Options) (Result, error) {
+	req, err := paging.Normalize(opts.Page)
+	if err != nil {
+		return Result{}, err
+	}
+
 	q := s.db.WithContext(ctx).
 		Where("namespace = ?", ctxns.FromContext(ctx)).
 		Where("kind NOT IN ?", []model.NodeKind{model.NodeKindFile, model.NodeKindTest}).
@@ -46,13 +71,34 @@ func (s *Service) Find(ctx context.Context, opts Options) ([]model.Node, error) 
 	if len(opts.Kinds) > 0 {
 		q = q.Where("kind IN ?", opts.Kinds)
 	}
-	if opts.FilePattern != "" {
-		q = q.Where("file_path LIKE ?", opts.FilePattern+"%")
+	if cleanPrefix := normalizePathPrefix(opts.FilePattern); cleanPrefix != "" {
+		q = q.Where("file_path = ? OR file_path LIKE ?", cleanPrefix, cleanPrefix+"/%")
 	}
 
 	var nodes []model.Node
-	if err := q.Find(&nodes).Error; err != nil {
-		return nil, err
+	if err := q.
+		Order("file_path ASC").
+		Order("start_line ASC").
+		Order("qualified_name ASC").
+		Limit(req.Limit + 1).
+		Offset(req.Offset).
+		Find(&nodes).Error; err != nil {
+		return Result{}, err
 	}
-	return nodes, nil
+	hasMore := len(nodes) > req.Limit
+	if hasMore {
+		nodes = nodes[:req.Limit]
+	}
+	return Result{Items: nodes, Pagination: paging.BuildPage(req, len(nodes), hasMore)}, nil
+}
+
+func normalizePathPrefix(prefix string) string {
+	if prefix == "" {
+		return ""
+	}
+	clean := path.Clean(prefix)
+	if clean == "." {
+		return ""
+	}
+	return clean
 }

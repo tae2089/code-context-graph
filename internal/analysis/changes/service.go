@@ -3,9 +3,11 @@ package changes
 
 import (
 	"context"
+	"sort"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/paging"
 	"gorm.io/gorm"
 )
 
@@ -30,6 +32,13 @@ type RiskEntry struct {
 	Node      model.Node
 	HunkCount int
 	RiskScore float64
+}
+
+// Result carries one bounded page of risk entries plus pagination metadata.
+// @intent expose paged change-risk results while keeping legacy callers working with []RiskEntry.
+type Result struct {
+	Items      []RiskEntry
+	Pagination paging.Page
 }
 
 // Service coordinates git-based change detection and graph-backed scoring.
@@ -66,7 +75,59 @@ func (s *Service) Analyze(ctx context.Context, repoDir, baseRef string) ([]RiskE
 		return nil, err
 	}
 
-	return computeRiskScores(s.db, ctx, hits)
+	risks, err := computeRiskScores(s.db, ctx, hits)
+	if err != nil {
+		return nil, err
+	}
+	sortRiskEntries(risks)
+	return risks, nil
+}
+
+// AnalyzePage detects changed functions and returns one bounded page of risk entries.
+// @intent push pagination into the change-risk service so handlers expose stable limit/offset windows.
+// @domainRule entries are sorted by descending risk_score, then file_path, then qualified_name for stable ordering.
+func (s *Service) AnalyzePage(ctx context.Context, repoDir, baseRef string, req paging.Request) (Result, error) {
+	normalized, err := paging.Normalize(req)
+	if err != nil {
+		return Result{}, err
+	}
+	all, err := s.Analyze(ctx, repoDir, baseRef)
+	if err != nil {
+		return Result{}, err
+	}
+	total := len(all)
+	if normalized.Offset >= total {
+		return Result{Items: []RiskEntry{}, Pagination: paging.BuildPage(normalized, 0, false)}, nil
+	}
+	end := normalized.Offset + normalized.Limit + 1
+	if end > total {
+		end = total
+	}
+	window := all[normalized.Offset:end]
+	hasMore := len(window) > normalized.Limit
+	if hasMore {
+		window = window[:normalized.Limit]
+	}
+	out := make([]RiskEntry, len(window))
+	copy(out, window)
+	return Result{Items: out, Pagination: paging.BuildPage(normalized, len(out), hasMore)}, nil
+}
+
+// sortRiskEntries orders entries deterministically for stable pagination windows.
+// @intent guarantee identical limit/offset slices regardless of map iteration order in computeRiskScores.
+func sortRiskEntries(entries []RiskEntry) {
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].RiskScore != entries[j].RiskScore {
+			return entries[i].RiskScore > entries[j].RiskScore
+		}
+		if entries[i].Node.FilePath != entries[j].Node.FilePath {
+			return entries[i].Node.FilePath < entries[j].Node.FilePath
+		}
+		if entries[i].Node.StartLine != entries[j].Node.StartLine {
+			return entries[i].Node.StartLine < entries[j].Node.StartLine
+		}
+		return entries[i].Node.QualifiedName < entries[j].Node.QualifiedName
+	})
 }
 
 // collectDiffHunks retrieves changed files and their diff hunks from git,

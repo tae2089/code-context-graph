@@ -10,6 +10,7 @@ import (
 	"github.com/tae2089/trace"
 	"gorm.io/gorm"
 
+	"github.com/tae2089/code-context-graph/internal/analysis/largefunc"
 	querypkg "github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -608,54 +609,40 @@ func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolR
 	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
 
-	minLines := request.GetInt("min_lines", 50)
-	limit := request.GetInt("limit", 50)
-	pathPrefix := request.GetString("path", "")
-	if err := validatePositiveLimit(limit); err != nil {
+	input, err := decodeFindLargeFuncsRequest(request)
+	if err != nil {
 		return finalizeToolResult("", err)
 	}
 
-	log.Info("find_large_functions called", "min_lines", minLines, "limit", limit, "path", pathPrefix)
+	log.Info("find_large_functions called", "min_lines", input.MinLines, "limit", input.Page.Limit, "offset", input.Page.Offset, "path", input.PathPrefix)
 
 	if h.deps.LargefuncAnalyzer == nil {
 		return mcp.NewToolResultError("LargefuncAnalyzer not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "find_large_functions:", map[string]any{"min_lines": minLines, "limit": limit, "path": pathPrefix, "namespace": requestNamespace(request)}, func() (string, error) {
-		nodes, err := h.deps.LargefuncAnalyzer.Find(ctx, minLines)
+	cacheParams := map[string]any{
+		"min_lines": input.MinLines,
+		"limit":     input.Page.Limit,
+		"offset":    input.Page.Offset,
+		"path":      input.PathPrefix,
+		"namespace": input.Namespace,
+	}
+	return finalizeToolResult(h.cachedExecute(ctx, "find_large_functions:", cacheParams, func() (string, error) {
+		page, err := h.deps.LargefuncAnalyzer.FindPage(ctx, largefunc.Options{Threshold: input.MinLines, PathPrefix: input.PathPrefix, Page: input.Page})
 		if err != nil {
 			return "", trace.Wrap(err, "largefunc error")
 		}
 
-		if pathPrefix != "" {
-			filtered := nodes[:0]
-			for _, n := range nodes {
-				if pathutil.HasPathPrefix(n.FilePath, pathPrefix) {
-					filtered = append(filtered, n)
-				}
-			}
-			nodes = filtered
-		}
-
-		if len(nodes) > limit {
-			nodes = nodes[:limit]
-		}
-
-		lfResults := make([]map[string]any, len(nodes))
-		for i, n := range nodes {
-			lines := n.EndLine - n.StartLine + 1
-			lfResults[i] = map[string]any{
+		items := make([]map[string]any, len(page.Items))
+		for i, n := range page.Items {
+			items[i] = map[string]any{
 				"name":  n.QualifiedName,
 				"file":  n.FilePath,
-				"lines": lines,
+				"lines": n.EndLine - n.StartLine + 1,
 			}
 		}
 
-		resp := map[string]any{
-			"results": lfResults,
-			"count":   len(lfResults),
-		}
-		result, err := marshalJSON(resp)
+		result, err := encodePagedListResponse("results", items, page.Pagination)
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/paging"
 )
 
 // graphFlowInfo represents a summarized flow response entry.
@@ -369,10 +370,11 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 			warnings = []string{"No communities found. Run community rebuild first."}
 		}
 
+		couplingHasMore := false
 		if h.deps.CouplingAnalyzer != nil {
-			pairs, err := h.deps.CouplingAnalyzer.Analyze(ctx)
+			page, err := h.deps.CouplingAnalyzer.AnalyzePage(ctx, paging.Request{Limit: couplingLimit, Offset: couplingOffset})
 			if err == nil {
-				for _, cp := range pairs {
+				for _, cp := range page.Items {
 					couplingPairs = append(couplingPairs, map[string]any{
 						"from":       cp.FromCommunity,
 						"to":         cp.ToCommunity,
@@ -383,21 +385,8 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 						warnings = append(warnings, fmt.Sprintf("High coupling between %s and %s (strength: %.2f)", cp.FromCommunity, cp.ToCommunity, cp.Strength))
 					}
 				}
+				couplingHasMore = page.Pagination.HasMore
 			}
-		}
-
-		couplingTotal := len(couplingPairs)
-		couplingHasMore := false
-		if couplingOffset > couplingTotal {
-			couplingOffset = couplingTotal
-		}
-		couplingEnd := couplingOffset + couplingLimit
-		if couplingEnd > couplingTotal {
-			couplingEnd = couplingTotal
-		}
-		couplingPairs = couplingPairs[couplingOffset:couplingEnd]
-		if couplingTotal > couplingEnd {
-			couplingHasMore = true
 		}
 
 		result, err := marshalJSON(map[string]any{

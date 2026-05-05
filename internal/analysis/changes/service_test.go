@@ -7,6 +7,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/paging"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
@@ -202,5 +203,90 @@ func TestAnalyze_RespectsNamespace(t *testing.T) {
 	}
 	if got[0].Node.Name != "FooA" {
 		t.Errorf("expected FooA, got %s", got[0].Node.Name)
+	}
+}
+
+func TestAnalyzePage_AppliesLimitOffsetAndHasMore(t *testing.T) {
+	db := setupDB(t)
+	for i := 1; i <= 5; i++ {
+		seedNode(t, db, uint(i), fmt.Sprintf("Fn%d", i), fmt.Sprintf("f%d.go", i), 1, 50)
+	}
+
+	hunks := []Hunk{}
+	files := []string{}
+	for i := 1; i <= 5; i++ {
+		file := fmt.Sprintf("f%d.go", i)
+		files = append(files, file)
+		hunks = append(hunks, Hunk{FilePath: file, StartLine: 10, EndLine: 20})
+	}
+	for i := 1; i <= 5; i++ {
+		for j := 0; j < i; j++ {
+			seedEdge(t, db, uint(i), uint(100+j))
+		}
+	}
+
+	svc := New(db, &mockGit{files: files, hunks: hunks})
+
+	page1, err := svc.AnalyzePage(context.Background(), ".", "main", paging.Request{Limit: 2, Offset: 0})
+	if err != nil {
+		t.Fatalf("page1: %v", err)
+	}
+	if len(page1.Items) != 2 {
+		t.Fatalf("page1 items = %d, want 2", len(page1.Items))
+	}
+	if !page1.Pagination.HasMore {
+		t.Fatalf("page1 has_more = false, want true")
+	}
+	if page1.Items[0].RiskScore < page1.Items[1].RiskScore {
+		t.Fatalf("page1 not sorted by risk desc: %v", page1.Items)
+	}
+
+	page2, err := svc.AnalyzePage(context.Background(), ".", "main", paging.Request{Limit: 2, Offset: 2})
+	if err != nil {
+		t.Fatalf("page2: %v", err)
+	}
+	if len(page2.Items) != 2 {
+		t.Fatalf("page2 items = %d, want 2", len(page2.Items))
+	}
+	if !page2.Pagination.HasMore {
+		t.Fatalf("page2 has_more = false, want true")
+	}
+
+	page3, err := svc.AnalyzePage(context.Background(), ".", "main", paging.Request{Limit: 2, Offset: 4})
+	if err != nil {
+		t.Fatalf("page3: %v", err)
+	}
+	if len(page3.Items) != 1 {
+		t.Fatalf("page3 items = %d, want 1", len(page3.Items))
+	}
+	if page3.Pagination.HasMore {
+		t.Fatalf("page3 has_more = true, want false")
+	}
+}
+
+func TestAnalyzePage_RejectsLimitAboveMax(t *testing.T) {
+	db := setupDB(t)
+	svc := New(db, &mockGit{})
+	if _, err := svc.AnalyzePage(context.Background(), ".", "main", paging.Request{Limit: paging.MaxLimit + 1}); err == nil {
+		t.Fatal("expected error for over-max limit")
+	}
+}
+
+func TestAnalyzePage_OffsetBeyondTotalReturnsEmpty(t *testing.T) {
+	db := setupDB(t)
+	seedNode(t, db, 1, "Foo", "a.go", 10, 30)
+	svc := New(db, &mockGit{
+		files: []string{"a.go"},
+		hunks: []Hunk{{FilePath: "a.go", StartLine: 12, EndLine: 15}},
+	})
+	page, err := svc.AnalyzePage(context.Background(), ".", "main", paging.Request{Limit: 10, Offset: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("items = %d, want 0", len(page.Items))
+	}
+	if page.Pagination.HasMore {
+		t.Fatal("has_more = true, want false")
 	}
 }

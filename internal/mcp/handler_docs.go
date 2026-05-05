@@ -11,6 +11,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/tae2089/code-context-graph/internal/paging"
 	"github.com/tae2089/code-context-graph/internal/ragindex"
 )
 
@@ -250,9 +251,9 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 	if strings.TrimSpace(query) == "" {
 		return mcp.NewToolResultError("query must not be empty"), nil
 	}
-	limit := int(request.GetFloat("limit", 10))
-	if limit <= 0 {
-		limit = 10
+	pageReq, err := paging.NormalizeWithDefault(paging.Request{Limit: int(request.GetFloat("limit", 10))}, 10)
+	if err != nil {
+		return finalizeToolResult("", newToolResultErr(err.Error()))
 	}
 	workspace := requestNamespace(request)
 	indexPath, err := h.resolvedRagIndexPath(workspace)
@@ -265,13 +266,13 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 		indexMtime = stat.ModTime().UnixNano()
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "search_docs:", map[string]any{"query": query, "limit": limit, "namespace": workspace, "mtime": indexMtime}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "search_docs:", map[string]any{"query": query, "limit": pageReq.Limit, "namespace": workspace, "mtime": indexMtime}, func() (string, error) {
 		idx, err := ragindex.LoadIndex(indexPath)
 		if err != nil {
 			return "", newToolResultErr(fmt.Sprintf("load doc-index: %v", err))
 		}
 
-		results := ragindex.Search(idx.Root, query, limit)
+		results := ragindex.Search(idx.Root, query, pageReq.Limit)
 		if results == nil {
 			results = []ragindex.SearchResult{}
 		}

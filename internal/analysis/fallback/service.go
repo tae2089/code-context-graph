@@ -9,12 +9,22 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/paging"
 	"github.com/tae2089/code-context-graph/internal/store"
 	"gorm.io/gorm"
 )
 
-// @intent reserve request-level knobs for suspect fallback analysis without changing the public API shape later.
-type Options struct{}
+// @intent carry bounded pagination inputs for suspect fallback analysis.
+type Options struct {
+	Page paging.Request
+}
+
+// Result carries one suspect fallback edge page plus pagination metadata.
+// @intent let callers expose bounded fallback suspect responses while preserving legacy fields.
+type Result struct {
+	Items      []SuspectEdge
+	Pagination paging.Page
+}
 
 // @intent carry one fallback edge with its endpoint nodes and suspect classification for downstream reporting.
 type SuspectEdge struct {
@@ -37,38 +47,59 @@ func New(db *gorm.DB, graphStore store.GraphStore) *Service {
 
 // @intent report fallback call edges whose source and target annotations share no intent or domain-rule vocabulary.
 // @param ctx carries the namespace that ctxns.FromContext uses to scope analysis.
-// @param opts reserves room for future analysis options and is currently ignored.
+// @param opts carries pagination bounds for the returned suspect edge window.
 // @return returns suspect edges sorted by source qualified name and then target qualified name.
 // @domainRule exclude an edge from suspect results as soon as source and target share any intent/domainRule token.
 // @see mcp.handlers.findSuspectFallbackEdges
 func (s *Service) FindSuspects(ctx context.Context, opts Options) ([]SuspectEdge, error) {
-	_ = opts
+	page, err := s.FindSuspectsPage(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	return page.Items, nil
+}
+
+// FindSuspectsPage reports suspect fallback call edges and returns one bounded page.
+// @intent bound fallback suspect analysis before annotation lookups so large graphs cannot expand unbounded responses.
+// @domainRule fetch limit+offset+1 fallback edges before suspect filtering; pagination applies to analyzed edge order, not global suspect total.
+func (s *Service) FindSuspectsPage(ctx context.Context, opts Options) (Result, error) {
+	req, err := paging.Normalize(opts.Page)
+	if err != nil {
+		return Result{}, err
+	}
+
 	ns := ctxns.FromContext(ctx)
 	var edges []model.Edge
 	if err := s.db.WithContext(ctx).
 		Where("namespace = ? AND kind = ?", ns, model.EdgeKindFallbackCalls).
 		Order("fingerprint ASC").
+		Limit(req.Limit + 1).
+		Offset(req.Offset).
 		Find(&edges).Error; err != nil {
-		return nil, err
+		return Result{}, err
+	}
+	hasMore := len(edges) > req.Limit
+	if hasMore {
+		edges = edges[:req.Limit]
 	}
 
 	results := make([]SuspectEdge, 0, len(edges))
 	for _, edge := range edges {
 		source, err := s.store.GetNodeByID(ctx, edge.FromNodeID)
 		if err != nil || source == nil {
-			return nil, err
+			return Result{}, err
 		}
 		target, err := s.store.GetNodeByID(ctx, edge.ToNodeID)
 		if err != nil || target == nil {
-			return nil, err
+			return Result{}, err
 		}
 		sourceAnn, err := s.store.GetAnnotation(ctx, source.ID)
 		if err != nil {
-			return nil, err
+			return Result{}, err
 		}
 		targetAnn, err := s.store.GetAnnotation(ctx, target.ID)
 		if err != nil {
-			return nil, err
+			return Result{}, err
 		}
 		if annotationsOverlap(sourceAnn, targetAnn) {
 			continue
@@ -81,7 +112,7 @@ func (s *Service) FindSuspects(ctx context.Context, opts Options) ([]SuspectEdge
 		}
 		return results[i].Target.QualifiedName < results[j].Target.QualifiedName
 	})
-	return results, nil
+	return Result{Items: results, Pagination: paging.BuildPage(req, len(results), hasMore)}, nil
 }
 
 var tokenSplitter = regexp.MustCompile(`[^a-z0-9]+`)

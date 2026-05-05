@@ -43,7 +43,7 @@ func docsTools(h *handlers) []server.ServerTool {
 			Tool: mcp.NewTool("search_docs",
 				mcp.WithDescription("Search the RAG document tree by keyword. Matches against node labels and summaries. Returns breadcrumb paths to matching nodes."),
 				mcp.WithString("query", mcp.Description("Search keyword (case-insensitive)"), mcp.Required()),
-				mcp.WithNumber("limit", mcp.Description("Maximum number of results (default: 10)")),
+				mcp.WithNumber("limit", mcp.Description("Maximum number of results (default: 10, max: 500)")),
 				mcp.WithString("namespace", mcp.Description("Namespace. When set, searches the namespace-specific doc-index.json.")),
 				mcp.WithString("workspace", mcp.Description("Deprecated alias for namespace.")),
 			),

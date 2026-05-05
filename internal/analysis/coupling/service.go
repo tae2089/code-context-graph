@@ -3,9 +3,11 @@ package coupling
 
 import (
 	"context"
+	"sort"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
+	"github.com/tae2089/code-context-graph/internal/paging"
 	"gorm.io/gorm"
 )
 
@@ -16,6 +18,13 @@ type CouplingPair struct {
 	ToCommunity   string
 	EdgeCount     int64
 	Strength      float64
+}
+
+// Result carries one bounded page of coupling pairs plus pagination metadata.
+// @intent expose paged architecture-coupling results so MCP handlers stop slicing unbounded slices in memory.
+type Result struct {
+	Items      []CouplingPair
+	Pagination paging.Page
 }
 
 // Service analyzes architectural coupling from graph edges.
@@ -104,5 +113,53 @@ func (s *Service) Analyze(ctx context.Context) ([]CouplingPair, error) {
 		})
 	}
 
+	sortCouplingPairs(result)
 	return result, nil
+}
+
+// AnalyzePage returns one bounded page of coupling pairs.
+// @intent push pagination into the coupling service so handlers expose stable limit/offset windows without slicing unbounded slices.
+// @domainRule pairs are sorted by descending strength, then descending edge count, then from/to community for stable pagination.
+func (s *Service) AnalyzePage(ctx context.Context, req paging.Request) (Result, error) {
+	normalized, err := paging.Normalize(req)
+	if err != nil {
+		return Result{}, err
+	}
+	all, err := s.Analyze(ctx)
+	if err != nil {
+		return Result{}, err
+	}
+	total := len(all)
+	if normalized.Offset >= total {
+		return Result{Items: []CouplingPair{}, Pagination: paging.BuildPage(normalized, 0, false)}, nil
+	}
+	end := normalized.Offset + normalized.Limit + 1
+	if end > total {
+		end = total
+	}
+	window := all[normalized.Offset:end]
+	hasMore := len(window) > normalized.Limit
+	if hasMore {
+		window = window[:normalized.Limit]
+	}
+	out := make([]CouplingPair, len(window))
+	copy(out, window)
+	return Result{Items: out, Pagination: paging.BuildPage(normalized, len(out), hasMore)}, nil
+}
+
+// sortCouplingPairs orders pairs deterministically for stable pagination windows.
+// @intent guarantee identical limit/offset slices regardless of map iteration order in Analyze.
+func sortCouplingPairs(pairs []CouplingPair) {
+	sort.SliceStable(pairs, func(i, j int) bool {
+		if pairs[i].Strength != pairs[j].Strength {
+			return pairs[i].Strength > pairs[j].Strength
+		}
+		if pairs[i].EdgeCount != pairs[j].EdgeCount {
+			return pairs[i].EdgeCount > pairs[j].EdgeCount
+		}
+		if pairs[i].FromCommunity != pairs[j].FromCommunity {
+			return pairs[i].FromCommunity < pairs[j].FromCommunity
+		}
+		return pairs[i].ToCommunity < pairs[j].ToCommunity
+	})
 }
