@@ -214,6 +214,67 @@ func TestGetMinimalContext_CommunitiesAndFlows(t *testing.T) {
 	if firstFlow["node_count"].(float64) != 8 {
 		t.Errorf("first flow node_count = %v, want 8", firstFlow["node_count"])
 	}
+	if comms[1].(map[string]any)["label"] != "internal/api" || comms[2].(map[string]any)["label"] != "internal/db" {
+		t.Fatalf("unexpected community ordering: %v", comms)
+	}
+	if fl[1].(map[string]any)["name"] != "checkout_flow" || fl[2].(map[string]any)["name"] != "signup_flow" {
+		t.Fatalf("unexpected flow ordering: %v", fl)
+	}
+}
+
+func TestGetMinimalContext_CommunitiesAndFlows_StableTieBreakByID(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	for i := 1; i <= 6; i++ {
+		deps.DB.Create(&model.Node{
+			QualifiedName: fmt.Sprintf("pkg.Tie%d", i),
+			Kind:          model.NodeKindFunction,
+			Name:          fmt.Sprintf("Tie%d", i),
+			FilePath:      "tie.go",
+			StartLine:     i,
+			EndLine:       i,
+			Language:      "go",
+		})
+	}
+
+	var communities []model.Community
+	for _, label := range []string{"comm-a", "comm-b", "comm-c", "comm-d"} {
+		comm := model.Community{Label: label, Key: label, Strategy: "directory"}
+		deps.DB.Create(&comm)
+		communities = append(communities, comm)
+	}
+	for i, comm := range communities {
+		deps.DB.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: uint(i + 1)})
+	}
+
+	var flows []model.Flow
+	for _, name := range []string{"flow-a", "flow-b", "flow-c", "flow-d"} {
+		flow := model.Flow{Name: name}
+		deps.DB.Create(&flow)
+		flows = append(flows, flow)
+	}
+	for i, flow := range flows {
+		deps.DB.Create(&model.FlowMembership{FlowID: flow.ID, NodeID: uint(i + 1), Ordinal: 0})
+	}
+
+	result := callTool(t, deps, "get_minimal_context", map[string]any{})
+	if result.IsError {
+		t.Fatalf("returned error: %s", getTextContent(result))
+	}
+
+	var data map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &data); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	comms := data["top_communities"].([]any)
+	if got := []string{comms[0].(map[string]any)["label"].(string), comms[1].(map[string]any)["label"].(string), comms[2].(map[string]any)["label"].(string)}; fmt.Sprint(got) != fmt.Sprint([]string{"comm-a", "comm-b", "comm-c"}) {
+		t.Fatalf("unexpected tied community order: %v", got)
+	}
+	fl := data["top_flows"].([]any)
+	if got := []string{fl[0].(map[string]any)["name"].(string), fl[1].(map[string]any)["name"].(string), fl[2].(map[string]any)["name"].(string)}; fmt.Sprint(got) != fmt.Sprint([]string{"flow-a", "flow-b", "flow-c"}) {
+		t.Fatalf("unexpected tied flow order: %v", got)
+	}
 }
 
 func TestGetMinimalContext_RespectsFlowNamespace(t *testing.T) {

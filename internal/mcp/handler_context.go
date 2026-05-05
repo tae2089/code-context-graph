@@ -4,7 +4,6 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -30,6 +29,7 @@ type fileCount struct {
 // commCount holds aggregated membership counts per community.
 // @intent transport GROUP BY community_id results into MCP response shaping.
 type commCount struct {
+	Label       string
 	CommunityID uint
 	Count       int
 }
@@ -44,6 +44,7 @@ type minimalContextCommInfo struct {
 // flowCount holds aggregated membership counts per flow.
 // @intent transport GROUP BY flow_id results into MCP response shaping.
 type flowCount struct {
+	Name   string
 	FlowID uint
 	Count  int
 }
@@ -175,60 +176,37 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 			Joins("JOIN communities ON communities.id = community_memberships.community_id").
 			Where("communities.namespace = ?", ns)
 		if err := commCountQ.
-			Select("community_id, COUNT(*) as count").
+			Select("community_id, communities.label as label, COUNT(*) as count").
 			Group("community_id").
+			Group("communities.label").
+			Order("count DESC").
+			Order("community_id ASC").
+			Limit(3).
 			Scan(&ccRows).Error; err != nil {
 			return "", trace.Wrap(err, "group community memberships")
 		}
-		ccMap := make(map[uint]int, len(ccRows))
-		for _, r := range ccRows {
-			ccMap[r.CommunityID] = r.Count
-		}
-
-		var communities []model.Community
-		communityQ := h.deps.DB.WithContext(ctx).Where("namespace = ?", ns)
-		if err := communityQ.Find(&communities).Error; err != nil {
-			return "", trace.Wrap(err, "find communities")
-		}
-		commInfos := make([]minimalContextCommInfo, len(communities))
-		for i, c := range communities {
-			commInfos[i] = minimalContextCommInfo{Label: c.Label, NodeCount: ccMap[c.ID]}
-		}
-		sort.Slice(commInfos, func(i, j int) bool {
-			return commInfos[i].NodeCount > commInfos[j].NodeCount
-		})
-		if len(commInfos) > 3 {
-			commInfos = commInfos[:3]
+		commInfos := make([]minimalContextCommInfo, len(ccRows))
+		for i, r := range ccRows {
+			commInfos[i] = minimalContextCommInfo{Label: r.Label, NodeCount: r.Count}
 		}
 		var fcRows []flowCount
 		flowCountQ := h.deps.DB.WithContext(ctx).
 			Model(&model.FlowMembership{}).
-			Where("namespace = ?", ns)
+			Joins("JOIN flows ON flows.id = flow_memberships.flow_id").
+			Where("flow_memberships.namespace = ?", ns)
 		if err := flowCountQ.
-			Select("flow_id, COUNT(*) as count").
+			Select("flow_id, flows.name as name, COUNT(*) as count").
 			Group("flow_id").
+			Group("flows.name").
+			Order("count DESC").
+			Order("flow_id ASC").
+			Limit(3).
 			Scan(&fcRows).Error; err != nil {
 			return "", trace.Wrap(err, "group flow memberships")
 		}
-		fcMap := make(map[uint]int, len(fcRows))
-		for _, r := range fcRows {
-			fcMap[r.FlowID] = r.Count
-		}
-
-		var flowList []model.Flow
-		flowQ := h.deps.DB.WithContext(ctx).Where("namespace = ?", ns)
-		if err := flowQ.Find(&flowList).Error; err != nil {
-			return "", trace.Wrap(err, "find flows")
-		}
-		flowInfos := make([]minimalContextFlowInfo, len(flowList))
-		for i, f := range flowList {
-			flowInfos[i] = minimalContextFlowInfo{Name: f.Name, NodeCount: fcMap[f.ID]}
-		}
-		sort.Slice(flowInfos, func(i, j int) bool {
-			return flowInfos[i].NodeCount > flowInfos[j].NodeCount
-		})
-		if len(flowInfos) > 3 {
-			flowInfos = flowInfos[:3]
+		flowInfos := make([]minimalContextFlowInfo, len(fcRows))
+		for i, r := range fcRows {
+			flowInfos[i] = minimalContextFlowInfo{Name: r.Name, NodeCount: r.Count}
 		}
 
 		suggestedTools := suggestTools(task)
