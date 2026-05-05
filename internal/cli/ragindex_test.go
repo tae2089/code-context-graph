@@ -141,7 +141,7 @@ func TestRagIndexCmd_NamespaceFiltersDocIndex(t *testing.T) {
 		t.Fatalf("Execute() error: %v", err)
 	}
 
-	idx, err := ragindex.LoadIndex(filepath.Join(indexDir, "doc-index.json"))
+	idx, err := ragindex.LoadIndex(filepath.Join(indexDir, "backend", "doc-index.json"))
 	if err != nil {
 		t.Fatalf("loadIndex: %v", err)
 	}

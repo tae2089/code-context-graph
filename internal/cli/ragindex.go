@@ -41,12 +41,12 @@ func newRagIndexCmd(deps *Deps) *cobra.Command {
 			b := &ragindex.Builder{
 				DB:          deps.DB,
 				OutDir:      resolveOutDir(outDir),
-				IndexDir:    indexDir,
+				IndexDir:    namespaceRagIndexDir(indexDir, viper.GetString("namespace")),
 				ProjectDesc: projectDesc,
 			}
 
 			ctx := cmd.Context()
-			ns, _ := cmd.Flags().GetString("namespace")
+			ns := viper.GetString("namespace")
 			ctx = ctxns.WithNamespace(ctx, ns)
 
 			communities, files, err := b.Build(ctx)

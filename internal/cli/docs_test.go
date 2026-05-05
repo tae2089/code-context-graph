@@ -98,6 +98,40 @@ func TestDocsCommand_BuildsRAGIndexByDefault(t *testing.T) {
 	}
 }
 
+func TestDocsCommand_BuildsNamespaceIndexes(t *testing.T) {
+	deps, stdout, stderr, db := setupDocsTest(t)
+
+	db.Create(&model.Node{
+		Namespace:     "alpha",
+		QualifiedName: "pkg.Main",
+		Kind:          model.NodeKindFunction,
+		Name:          "Main",
+		FilePath:      "pkg/main.go",
+		StartLine:     1, EndLine: 5,
+		Hash: "h1", Language: "go",
+	})
+
+	outDir := t.TempDir()
+	indexDir := t.TempDir()
+	if err := executeCmd(deps, stdout, stderr, "--namespace", "alpha", "docs", "--out", outDir, "--rag-index-dir", indexDir); err != nil {
+		t.Fatalf("docs: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(indexDir, "alpha", "doc-index.json")); err != nil {
+		t.Fatalf("expected namespace doc-index.json to be created: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(indexDir, "alpha", "wiki-index.json")); err != nil {
+		t.Fatalf("expected namespace wiki-index.json to be created: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(indexDir, "doc-index.json")); !os.IsNotExist(err) {
+		t.Fatalf("default doc-index.json should not be written for named namespace, stat err=%v", err)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "Wiki index written:") || !strings.Contains(out, "RAG index written:") {
+		t.Fatalf("expected index output, got:\n%s", out)
+	}
+}
+
 func TestDocsCommand_RAGFlagCanDisableIndexBuild(t *testing.T) {
 	deps, stdout, stderr, db := setupDocsTest(t)
 
