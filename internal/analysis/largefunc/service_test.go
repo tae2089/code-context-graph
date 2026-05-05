@@ -137,6 +137,25 @@ func TestFind_OrderByLineCount(t *testing.T) {
 	}
 }
 
+func TestFind_ReturnsMoreThanMaxLimit(t *testing.T) {
+	db := setupDB(t)
+	for i := range make([]struct{}, paging.MaxLimit+1) {
+		seedNode(t, db, uint(i+1), fmt.Sprintf("Func%03d", i+1), model.NodeKindFunction, 1, 100+i)
+	}
+
+	svc := New(db)
+	got, err := svc.Find(context.Background(), 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != paging.MaxLimit+1 {
+		t.Fatalf("expected %d, got %d", paging.MaxLimit+1, len(got))
+	}
+	if got[0].Name != "Func501" || got[len(got)-1].Name != "Func001" {
+		t.Fatalf("unexpected boundary order: first=%s last=%s", got[0].Name, got[len(got)-1].Name)
+	}
+}
+
 func TestFind_RespectsNamespace(t *testing.T) {
 	db := setupDB(t)
 	seedNodeNS(t, db, 1, "BigA", model.NodeKindFunction, 1, 100, "ns-a")

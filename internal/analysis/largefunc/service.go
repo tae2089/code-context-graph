@@ -46,11 +46,17 @@ func New(db *gorm.DB) *Service {
 // @domainRule line count is computed as (end_line - start_line + 1) and must strictly exceed threshold
 // @see mcp.handlers.findLargeFunctions
 func (s *Service) Find(ctx context.Context, threshold int) ([]model.Node, error) {
-	page, err := s.FindPage(ctx, Options{Threshold: threshold, Page: paging.Request{Limit: paging.MaxLimit}})
-	if err != nil {
-		return nil, err
+	var nodes []model.Node
+	for offset := 0; ; offset += paging.MaxLimit {
+		page, err := s.FindPage(ctx, Options{Threshold: threshold, Page: paging.Request{Limit: paging.MaxLimit, Offset: offset}})
+		if err != nil {
+			return nil, err
+		}
+		nodes = append(nodes, page.Items...)
+		if !page.Pagination.HasMore {
+			return nodes, nil
+		}
 	}
-	return page.Items, nil
 }
 
 // FindPage returns a bounded page of functions and tests longer than the threshold.
