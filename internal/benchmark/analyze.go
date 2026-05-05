@@ -1,7 +1,27 @@
 // @index Match analysis helpers for benchmark run results.
 package benchmark
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+)
+
+type queryGraphResultItem struct {
+	QualifiedName string `json:"qualified_name"`
+	Confidence    string `json:"confidence"`
+}
+
+type queryGraphToolResponse struct {
+	Pattern  string               `json:"pattern"`
+	Results  []queryGraphResultItem `json:"results"`
+}
+
+type queryConfidenceCoverage struct {
+	StrictCount     int
+	TentativeCount  int
+	StrictMatched   int
+	TentativeMatched int
+}
 
 // fileMatches reports whether actual matches expected, supporting both
 // exact match and suffix match to handle absolute vs relative path differences.
@@ -70,16 +90,118 @@ func CountCcgToolCalls(result RunResult) int {
 	return count
 }
 
+// matchSymbolsFromToolOutputs computes strict/tentative symbol hit ratios from query_graph
+// call outputs. Returns 1.0 when no expectation is provided.
+func matchSymbolsFromToolOutputs(result RunResult, expectedStrict, expectedTentative []string) queryConfidenceCoverage {
+	expectedStrictSet := make(map[string]struct{}, len(expectedStrict))
+	for _, sym := range expectedStrict {
+		expectedStrictSet[sym] = struct{}{}
+	}
+	expectedTentativeSet := make(map[string]struct{}, len(expectedTentative))
+	for _, sym := range expectedTentative {
+		expectedTentativeSet[sym] = struct{}{}
+	}
+
+	coverage := queryConfidenceCoverage{
+		StrictCount:     len(expectedStrict),
+		TentativeCount:  len(expectedTentative),
+	}
+	strictMatched := make(map[string]struct{}, len(expectedStrict))
+	tentativeMatched := make(map[string]struct{}, len(expectedTentative))
+
+	for _, tc := range result.ToolCalls {
+		if tc.Tool != "mcp__ccg__query_graph" || tc.Output == "" {
+			continue
+		}
+		var parsed queryGraphToolResponse
+		if err := json.Unmarshal([]byte(tc.Output), &parsed); err != nil {
+			continue
+		}
+		if parsed.Pattern != "callers_of" && parsed.Pattern != "callees_of" {
+			continue
+		}
+		for _, item := range parsed.Results {
+			switch item.Confidence {
+			case "strict":
+				if _, ok := expectedStrictSet[item.QualifiedName]; ok {
+					if _, exists := strictMatched[item.QualifiedName]; exists {
+						continue
+					}
+					coverage.StrictMatched++
+					strictMatched[item.QualifiedName] = struct{}{}
+				}
+			case "tentative":
+				if _, ok := expectedTentativeSet[item.QualifiedName]; ok {
+					if _, exists := tentativeMatched[item.QualifiedName]; exists {
+						continue
+					}
+					coverage.TentativeMatched++
+					tentativeMatched[item.QualifiedName] = struct{}{}
+				}
+			}
+		}
+	}
+	return coverage
+}
+
+func safeRatio(n, d int) float64 {
+	if d == 0 {
+		return 1.0
+	}
+	return float64(n) / float64(d)
+}
+
+// computeLLMStrictBias returns:
+// - 1.0 when strict expectations are all met or no strict expectation exists.
+// - 0.5 when strict is mentioned but tentative evidence appears equally or less.
+// - 0.0 when strict was ignored while tentative was preferred or no strict evidence exists.
+func computeLLMStrictBias(result RunResult, query Query) float64 {
+	strictHit := MatchSymbols(result, Query{ExpectedSymbols: query.ExpectedStrictSymbols})
+	tentativeHit := MatchSymbols(result, Query{ExpectedSymbols: query.ExpectedTentativeSymbols})
+	if len(query.ExpectedStrictSymbols) == 0 {
+		return 1.0
+	}
+	if strictHit == 0.0 {
+		return 0.0
+	}
+	if len(query.ExpectedTentativeSymbols) == 0 || strictHit >= tentativeHit {
+		return 1.0
+	}
+	if strictHit > 0.0 {
+		return 0.5
+	}
+	return 0.0
+}
+
+func computeStrictContamination(result RunResult, query Query) float64 {
+	strictHit := MatchSymbols(result, Query{ExpectedSymbols: query.ExpectedStrictSymbols})
+	tentativeHit := MatchSymbols(result, Query{ExpectedSymbols: query.ExpectedTentativeSymbols})
+	if len(query.ExpectedStrictSymbols) == 0 || len(query.ExpectedTentativeSymbols) == 0 {
+		return 0.0
+	}
+	if strictHit > 0.0 {
+		return 0.0
+	}
+	return tentativeHit
+}
+
 // ComputeMatch derives a MatchResult from a single RunResult and its Query.
 // @intent consolidate per-query benchmark scoring into one reusable result structure.
 func ComputeMatch(result RunResult, query Query) MatchResult {
+	coverage := matchSymbolsFromToolOutputs(result, query.ExpectedStrictSymbols, query.ExpectedTentativeSymbols)
 	return MatchResult{
-		QueryID:          result.QueryID,
-		FileHitRatio:     MatchFiles(result, query),
-		SymbolHitRatio:   MatchSymbols(result, query),
-		TotalToolCalls:   len(result.ToolCalls),
-		CcgToolCalls:     CountCcgToolCalls(result),
-		TotalInputTokens: result.InputTokens,
+		QueryID:                result.QueryID,
+		FileHitRatio:           MatchFiles(result, query),
+		SymbolHitRatio:         MatchSymbols(result, query),
+		StrictSymbolHitRatio:    MatchSymbols(result, Query{ExpectedSymbols: query.ExpectedStrictSymbols}),
+		TentativeSymbolHitRatio: MatchSymbols(result, Query{ExpectedSymbols: query.ExpectedTentativeSymbols}),
+		LLMStrictBias:           computeLLMStrictBias(result, query),
+		StrictContaminationRate:  computeStrictContamination(result, query),
+		ToolAwareStrictRatio:     safeRatio(coverage.StrictMatched, coverage.StrictCount),
+		ToolAwareTentativeRatio:  safeRatio(coverage.TentativeMatched, coverage.TentativeCount),
+		TotalToolCalls:          len(result.ToolCalls),
+		CcgToolCalls:            CountCcgToolCalls(result),
+		TotalInputTokens:        result.InputTokens,
 	}
 }
 

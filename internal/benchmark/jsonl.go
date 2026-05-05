@@ -20,8 +20,9 @@ var (
 type SessionMessage struct {
 	Type      string          `json:"type"`
 	Message   *MessagePayload `json:"message,omitempty"`
-	Content   string          `json:"content,omitempty"` // tool_result plain string
+	Content   json.RawMessage `json:"content,omitempty"`
 	ToolUseID string          `json:"tool_use_id,omitempty"`
+	IsError   bool            `json:"is_error,omitempty"`
 }
 
 // MessagePayload is the nested message object inside a SessionMessage.
@@ -94,7 +95,7 @@ const (
 func extractMarker(m SessionMessage) (queryID string, isStart bool, found bool) {
 	var text string
 	if m.Type == "tool_result" {
-		text = m.Content
+		text = parseFirstText(m.Content)
 	} else if m.Message != nil {
 		for _, b := range m.Message.Content {
 			if b.Type == "text" {
@@ -145,6 +146,7 @@ func ExtractQuerySegments(msgs []SessionMessage) ([]QuerySegment, error) {
 // ExtractToolCalls collects all tool_use blocks from a segment's messages.
 // @intent recover structured tool invocation history for one benchmark query.
 func ExtractToolCalls(seg QuerySegment) []ToolCall {
+	outputs := extractToolOutputs(seg.Messages)
 	var calls []ToolCall
 	for _, m := range seg.Messages {
 		if m.Message == nil {
@@ -156,7 +158,15 @@ func ExtractToolCalls(seg QuerySegment) []ToolCall {
 				if len(b.Input) > 0 {
 					inputStr = string(b.Input)
 				}
-				calls = append(calls, ToolCall{Tool: b.Name, Input: inputStr})
+				call := ToolCall{
+					Tool:  b.Name,
+					Input: inputStr,
+				}
+				if b.ID != "" {
+					call.ToolUseID = b.ID
+					call.Output = outputs[b.ID]
+				}
+				calls = append(calls, call)
 			}
 		}
 	}
@@ -186,6 +196,46 @@ func ExtractFilesRead(seg QuerySegment) []string {
 		}
 	}
 	return files
+}
+
+func extractToolOutputs(messages []SessionMessage) map[string]string {
+	outputs := make(map[string]string)
+	for _, m := range messages {
+		if m.Type != "tool_result" || m.ToolUseID == "" {
+			continue
+		}
+		outputs[m.ToolUseID] = parseFirstText(m.Content)
+	}
+	return outputs
+}
+
+func parseFirstText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+}
+
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return strings.TrimSpace(text)
+	}
+
+	var blocks []ContentBlock
+	if err := json.Unmarshal(raw, &blocks); err == nil {
+		for _, b := range blocks {
+			if b.Type == "text" && b.Text != "" {
+				return strings.TrimSpace(b.Text)
+			}
+		}
+		return ""
+	}
+
+	var block ContentBlock
+	if err := json.Unmarshal(raw, &block); err == nil {
+		if block.Type == "text" {
+			return strings.TrimSpace(block.Text)
+		}
+	}
+	return ""
 }
 
 // ExtractTokens sums input and output token counts across all messages in a segment.

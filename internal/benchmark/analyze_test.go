@@ -74,6 +74,54 @@ func TestMatchSymbols_PartialMatch(t *testing.T) {
 	}
 }
 
+func TestMatchSymbolsFromToolOutputs_StrictTentative(t *testing.T) {
+	toolOut := `{"pattern":"callers_of","results":[{"qualified_name":"StrictA","confidence":"strict"},{"qualified_name":"TentativeA","confidence":"tentative"},{"qualified_name":"TentativeA","confidence":"tentative"}]}`
+	result := benchmark.RunResult{
+		QueryID: "q1",
+		Answer:  "StrictA",
+		ToolCalls: []benchmark.ToolCall{
+			{Tool: "mcp__ccg__query_graph", Output: toolOut},
+		},
+	}
+	query := benchmark.Query{
+		ExpectedStrictSymbols:    []string{"StrictA"},
+		ExpectedTentativeSymbols: []string{"TentativeA", "TentativeMissing"},
+	}
+	m := benchmark.ComputeMatch(result, query)
+	if m.StrictSymbolHitRatio != 1.0 {
+		t.Errorf("StrictSymbolHitRatio: got %.3f, want 1.0", m.StrictSymbolHitRatio)
+	}
+	if m.TentativeSymbolHitRatio != 0.0 {
+		t.Errorf("TentativeSymbolHitRatio: got %.3f, want 0.0", m.TentativeSymbolHitRatio)
+	}
+	if m.ToolAwareStrictRatio != 1.0 {
+		t.Errorf("ToolAwareStrictRatio: got %.3f, want 1.0", m.ToolAwareStrictRatio)
+	}
+	if m.ToolAwareTentativeRatio != 0.5 {
+		t.Errorf("ToolAwareTentativeRatio: got %.3f, want 0.5", m.ToolAwareTentativeRatio)
+	}
+}
+
+func TestLLMStrictBias_Contamination(t *testing.T) {
+	result := benchmark.RunResult{
+		Answer: "TentativeA 사용 지점만 확인",
+		ToolCalls: []benchmark.ToolCall{
+			{Tool: "mcp__ccg__query_graph", Output: `{"pattern":"callees_of","results":[]}`},
+		},
+	}
+	query := benchmark.Query{
+		ExpectedStrictSymbols:    []string{"StrictA"},
+		ExpectedTentativeSymbols: []string{"TentativeA"},
+	}
+	m := benchmark.ComputeMatch(result, query)
+	if m.LLMStrictBias != 0.0 {
+		t.Errorf("LLMStrictBias: got %.3f, want 0.0", m.LLMStrictBias)
+	}
+	if m.StrictContaminationRate != 1.0 {
+		t.Errorf("StrictContaminationRate: got %.3f, want 1.0", m.StrictContaminationRate)
+	}
+}
+
 func TestCountCcgToolCalls(t *testing.T) {
 	result := benchmark.RunResult{
 		ToolCalls: []benchmark.ToolCall{
@@ -90,6 +138,7 @@ func TestCountCcgToolCalls(t *testing.T) {
 }
 
 func TestComputeMatch_FullResult(t *testing.T) {
+	toolOut := `{"pattern":"callees_of","results":[{"qualified_name":"WebhookHandler","confidence":"strict"},{"qualified_name":"SyncQueue","confidence":"tentative"}]}`
 	result := benchmark.RunResult{
 		QueryID:     "q1",
 		FilesRead:   []string{"internal/webhook/handler.go"},
@@ -97,13 +146,16 @@ func TestComputeMatch_FullResult(t *testing.T) {
 		InputTokens: 200,
 		ToolCalls: []benchmark.ToolCall{
 			{Tool: "mcp__ccg__search"},
+			{Tool: "mcp__ccg__query_graph", Output: toolOut},
 			{Tool: "Read"},
 		},
 	}
 	query := benchmark.Query{
-		ID:              "q1",
-		ExpectedFiles:   []string{"internal/webhook/handler.go"},
-		ExpectedSymbols: []string{"WebhookHandler"},
+		ID:                      "q1",
+		ExpectedFiles:           []string{"internal/webhook/handler.go"},
+		ExpectedSymbols:         []string{"WebhookHandler"},
+		ExpectedStrictSymbols:   []string{"WebhookHandler"},
+		ExpectedTentativeSymbols: []string{"SyncQueue"},
 	}
 	m := benchmark.ComputeMatch(result, query)
 	if m.QueryID != "q1" {
@@ -115,11 +167,29 @@ func TestComputeMatch_FullResult(t *testing.T) {
 	if m.SymbolHitRatio != 1.0 {
 		t.Errorf("SymbolHitRatio: got %.3f, want 1.0", m.SymbolHitRatio)
 	}
-	if m.TotalToolCalls != 2 {
-		t.Errorf("TotalToolCalls: got %d, want 2", m.TotalToolCalls)
+	if m.StrictSymbolHitRatio != 1.0 {
+		t.Errorf("StrictSymbolHitRatio: got %.3f, want 1.0", m.StrictSymbolHitRatio)
 	}
-	if m.CcgToolCalls != 1 {
-		t.Errorf("CcgToolCalls: got %d, want 1", m.CcgToolCalls)
+	if m.TentativeSymbolHitRatio != 0.0 {
+		t.Errorf("TentativeSymbolHitRatio: got %.3f, want 0.0", m.TentativeSymbolHitRatio)
+	}
+	if m.ToolAwareStrictRatio != 1.0 {
+		t.Errorf("ToolAwareStrictRatio: got %.3f, want 1.0", m.ToolAwareStrictRatio)
+	}
+	if m.ToolAwareTentativeRatio != 1.0 {
+		t.Errorf("ToolAwareTentativeRatio: got %.3f, want 1.0", m.ToolAwareTentativeRatio)
+	}
+	if m.LLMStrictBias != 1.0 {
+		t.Errorf("LLMStrictBias: got %.3f, want 1.0", m.LLMStrictBias)
+	}
+	if m.StrictContaminationRate != 0.0 {
+		t.Errorf("StrictContaminationRate: got %.3f, want 0.0", m.StrictContaminationRate)
+	}
+	if m.TotalToolCalls != 3 {
+		t.Errorf("TotalToolCalls: got %d, want 3", m.TotalToolCalls)
+	}
+	if m.CcgToolCalls != 2 {
+		t.Errorf("CcgToolCalls: got %d, want 2", m.CcgToolCalls)
 	}
 	if m.TotalInputTokens != 200 {
 		t.Errorf("TotalInputTokens: got %d, want 200", m.TotalInputTokens)

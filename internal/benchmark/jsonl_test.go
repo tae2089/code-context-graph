@@ -1,8 +1,10 @@
 package benchmark_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/benchmark"
@@ -144,6 +146,54 @@ func TestExtractToolCalls_FromSegment(t *testing.T) {
 	}
 	if calls[0].Tool != "mcp__ccg__search" {
 		t.Errorf("calls[0].Tool: got %q", calls[0].Tool)
+	}
+}
+
+func TestExtractToolCalls_WithToolResultOutput(t *testing.T) {
+	t.Helper()
+	toolResult := `{"pattern":"callers_of","results":[{"qualified_name":"Foo","confidence":"strict"}]}`
+	toolResultJSON, err := json.Marshal(toolResult)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	path := writeSampleJSONL(t, []string{
+		markerLine(`===BENCHMARK_QUERY_START id=q1===`),
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"x1","name":"mcp__ccg__query_graph","input":{"pattern":"callers_of","target":"pkg.Foo"}}]}}`,
+		`{"type":"tool_result","tool_use_id":"x1","content":` + string(toolResultJSON) + `}`,
+		markerLine(`===BENCHMARK_QUERY_END id=q1===`),
+	})
+	msgs, _ := benchmark.ParseJSONL(path)
+	segs, _ := benchmark.ExtractQuerySegments(msgs)
+	calls := benchmark.ExtractToolCalls(segs[0])
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(calls))
+	}
+	if calls[0].ToolUseID != "x1" {
+		t.Errorf("ToolUseID: got %q", calls[0].ToolUseID)
+	}
+	if calls[0].Output != toolResult {
+		t.Errorf("Output: got %q want %q", calls[0].Output, toolResult)
+	}
+}
+
+func TestExtractToolCalls_WithToolResultArrayContent(t *testing.T) {
+	path := writeSampleJSONL(t, []string{
+		markerLine(`===BENCHMARK_QUERY_START id=q1===`),
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"x1","name":"mcp__ccg__query_graph","input":{"pattern":"callees_of","target":"pkg.Bar"}}]}}`,
+		`{"type":"tool_result","tool_use_id":"x1","content":[{"type":"text","text":"{\"pattern\":\"callees_of\",\"results\":[{\"qualified_name\":\"Bar\",\"confidence\":\"strict\"}]}"}]}`,
+		markerLine(`===BENCHMARK_QUERY_END id=q1===`),
+	})
+	msgs, _ := benchmark.ParseJSONL(path)
+	segs, _ := benchmark.ExtractQuerySegments(msgs)
+	calls := benchmark.ExtractToolCalls(segs[0])
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(calls))
+	}
+	if calls[0].Output == "" {
+		t.Fatalf("tool output should be captured")
+	}
+	if !strings.Contains(calls[0].Output, `"qualified_name":"Bar"`) {
+		t.Errorf("tool output not captured as JSON text: %q", calls[0].Output)
 	}
 }
 
