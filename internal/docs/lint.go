@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/tae2089/code-context-graph/internal/ccgref"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/pathutil"
 )
@@ -220,6 +221,27 @@ func (g *Generator) Lint() (*LintReport, error) {
 			if tag.Kind != model.TagSee {
 				continue
 			}
+			if ccgref.Is(tag.Value) {
+				ref, err := ccgref.Parse(tag.Value)
+				if err != nil {
+					report.DeadRefs = append(report.DeadRefs, DeadRef{
+						QualifiedName: n.QualifiedName,
+						SeeTarget:     tag.Value,
+					})
+					continue
+				}
+				ok, err := g.ccgRefExists(*ref)
+				if err != nil {
+					return nil, fmt.Errorf("query dead ccg ref for %q → %q: %w", n.QualifiedName, tag.Value, err)
+				}
+				if !ok {
+					report.DeadRefs = append(report.DeadRefs, DeadRef{
+						QualifiedName: n.QualifiedName,
+						SeeTarget:     tag.Value,
+					})
+				}
+				continue
+			}
 			var count int64
 			refQ := g.DB.Model(&model.Node{}).Where("qualified_name = ?", tag.Value)
 			if g.Namespace != "" {
@@ -277,4 +299,32 @@ func (g *Generator) Lint() (*LintReport, error) {
 	sort.Strings(report.Unannotated)
 
 	return report, nil
+}
+
+// ccgRefExists checks whether a parsed ccg:// @see ref resolves to graph data.
+// @intent let docs lint validate cross-namespace refs while keeping local @see lookup semantics unchanged.
+func (g *Generator) ccgRefExists(ref ccgref.Ref) (bool, error) {
+	q := g.DB.Model(&model.Node{}).Where("namespace = ?", ref.Namespace)
+	if ref.Path != "" {
+		if ref.Symbol != "" {
+			suffixDot := "%." + ref.Symbol
+			suffixColon := "%::" + ref.Symbol
+			q = q.Where(
+				"file_path = ? AND (name = ? OR qualified_name = ? OR qualified_name LIKE ? OR qualified_name LIKE ?)",
+				ref.Path, ref.Symbol, ref.Symbol, suffixDot, suffixColon,
+			)
+		} else {
+			prefix := strings.TrimSuffix(ref.Path, "/") + "/%"
+			q = q.Where("file_path = ? OR file_path LIKE ?", ref.Path, prefix)
+		}
+	} else if ref.Symbol != "" {
+		suffixDot := "%." + ref.Symbol
+		suffixColon := "%::" + ref.Symbol
+		q = q.Where("name = ? OR qualified_name = ? OR qualified_name LIKE ? OR qualified_name LIKE ?", ref.Symbol, ref.Symbol, suffixDot, suffixColon)
+	}
+	var count int64
+	if err := q.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }

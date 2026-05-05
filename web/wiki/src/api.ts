@@ -33,6 +33,16 @@ export type AnnotationTag = {
   name: string;
   value: string;
   ordinal: number;
+  ref?: CCGRef;
+};
+
+// @intent describe a parsed ccg:// cross-namespace reference attached to @see annotations.
+export type CCGRef = {
+  raw: string;
+  namespace: string;
+  path?: string;
+  symbol?: string;
+  scope: string;
 };
 
 // @intent carry a namespace-scoped RAG tree payload from the Wiki API.

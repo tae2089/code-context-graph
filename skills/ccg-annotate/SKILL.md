@@ -27,7 +27,7 @@ Add structured business metadata to code. **This is what makes search and RAG ac
 | `@requires`   | Precondition                        | `user.IsActive == true`                  |
 | `@ensures`    | Postcondition                       | `returns valid JWT with 24h expiry`      |
 | `@index`      | One-line file/package summary       | `User authentication service`            |
-| `@see`        | Related function link               | `SessionManager.Create`                  |
+| `@see`        | Related function or CCG ref         | `SessionManager.Create`, `ccg://auth-svc/internal/auth/token.go#ValidateToken` |
 
 ## AI Workflow (`/ccg-annotate annotate <path>`)
 
@@ -50,6 +50,13 @@ Read the code and determine:
 - Business rules → `@domainRule` (must be specific)
 - Real side effects → `@sideEffect`
 - State changes → `@mutates`
+
+For cross-namespace behavior, explain the reason in the semantic tag and put the target in `@see`:
+
+```go
+// @sideEffect records token validation audit in auth-svc.
+// @see ccg://auth-svc/internal/audit/token_audit.go#RecordTokenAudit
+```
 
 ### Step 3: Write
 

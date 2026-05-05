@@ -448,6 +448,42 @@ func TestHandler_GetAnnotation_ExposesDocTagTypeField(t *testing.T) {
 	}
 }
 
+func TestHandler_GetAnnotation_ExposesCCGSeeRef(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+
+	deps.Store.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.Fn", Kind: model.NodeKindFunction, Name: "Fn", FilePath: "f.go", StartLine: 1, EndLine: 3, Language: "go"},
+	})
+	node, _ := deps.Store.GetNode(ctx, "pkg.Fn")
+	deps.Store.UpsertAnnotation(ctx, &model.Annotation{
+		NodeID:  node.ID,
+		Summary: "s",
+		Tags: []model.DocTag{
+			{Kind: model.TagSee, Value: "ccg://auth-svc/internal/auth/token.go#ValidateToken", Ordinal: 0},
+		},
+	})
+
+	result := callTool(t, deps, "get_annotation", map[string]any{"qualified_name": "pkg.Fn"})
+	if result.IsError {
+		t.Fatalf("get_annotation error: %s", getTextContent(result))
+	}
+
+	var ann map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &ann); err != nil {
+		t.Fatalf("expected JSON, got: %s", getTextContent(result))
+	}
+	tags := ann["tags"].([]any)
+	tag := tags[0].(map[string]any)
+	ref, ok := tag["ref"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected parsed ref, got %v", tag)
+	}
+	if ref["namespace"] != "auth-svc" || ref["path"] != "internal/auth/token.go" || ref["symbol"] != "ValidateToken" {
+		t.Fatalf("unexpected ref: %v", ref)
+	}
+}
+
 // ============================================================
 // 11.0 Structural change (Tidy First)
 // ============================================================

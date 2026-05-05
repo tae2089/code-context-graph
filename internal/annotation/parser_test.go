@@ -160,6 +160,20 @@ func TestParse_See(t *testing.T) {
 	}
 }
 
+func TestParse_CCGSeeRef(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@see ccg://auth-svc/internal/auth/token.go#ValidateToken")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != model.TagSee {
+		t.Errorf("Kind = %q, want %q", ann.Tags[0].Kind, model.TagSee)
+	}
+	if ann.Tags[0].Value != "ccg://auth-svc/internal/auth/token.go#ValidateToken" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
 func TestParse_MultipleSee(t *testing.T) {
 	p := NewParser()
 	ann, _ := p.Parse("@see LoginHandler.Handle\n@see SessionManager.Create")

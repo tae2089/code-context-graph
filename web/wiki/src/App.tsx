@@ -839,7 +839,7 @@ function AttributeBlock({ attribute }: { attribute: DocAttribute }) {
         <div className="attribute-label">{label}</div>
         <div className="mt-1 flex flex-wrap gap-1.5">
           {attribute.value.split(",").map((item) => item.trim()).filter(Boolean).map((item) => (
-            <span key={item} className={label === "Calls" ? "call-chip" : "see-chip"}>{item}</span>
+            label === "See" ? <CcgRefChip key={item} value={item} /> : <span key={item} className="call-chip">{item}</span>
           ))}
         </div>
       </div>
@@ -897,6 +897,45 @@ function AttributeBlock({ attribute }: { attribute: DocAttribute }) {
       {attribute.value && <div className="mt-1 text-sm leading-6 text-neutral-700">{attribute.value}</div>}
     </div>
   );
+}
+
+// @intent render ccg:// @see refs as recognizable cross-namespace chips while leaving local refs unchanged.
+function CcgRefChip({ value }: { value: string }) {
+  const ref = parseCcgRef(value);
+  if (!ref) {
+    return <span className="see-chip">{value}</span>;
+  }
+  return (
+    <span className="see-chip ccg-ref-chip" title={ref.raw}>
+      <span className="ccg-ref-namespace">{ref.namespace}</span>
+      {ref.path && <span className="ccg-ref-path">/{ref.path}</span>}
+      {ref.symbol && <span className="ccg-ref-symbol">#{ref.symbol}</span>}
+    </span>
+  );
+}
+
+type ParsedCcgRef = {
+  raw: string;
+  namespace: string;
+  path: string;
+  symbol: string;
+};
+
+// @intent parse raw ccg:// refs in generated Markdown so visual docs can distinguish external namespace links.
+function parseCcgRef(value: string): ParsedCcgRef | null {
+  if (!value.trim().startsWith("ccg://")) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "ccg:" || !url.hostname) return null;
+    return {
+      raw: value,
+      namespace: url.hostname,
+      path: decodeURIComponent(url.pathname.replace(/^\/+/, "")),
+      symbol: decodeURIComponent(url.hash.replace(/^#/, ""))
+    };
+  } catch {
+    return null;
+  }
 }
 
 function blockClass(label: string) {

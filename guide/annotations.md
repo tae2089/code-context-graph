@@ -50,9 +50,18 @@ func AuthenticateUser(username, password string) (string, error) {
 | `@ensures` | Postcondition | `@ensures session != nil` |
 | `@param` | Parameter description | `@param username the login ID` |
 | `@return` | Return description | `@return JWT token on success` |
-| `@see` | Related function | `@see SessionManager.Create` |
+| `@see` | Related function or CCG ref | `@see SessionManager.Create`, `@see ccg://auth-svc/internal/auth/token.go#ValidateToken` |
 
 `@intent` is especially important because a symbol with annotations but no `@intent` is reported as `incomplete` by `ccg lint`. `@see` tags are also linted and can produce `dead-ref` findings if they point to non-existent symbols.
+
+Use `ccg://{namespace}/{path}#{symbol}` in `@see` when a behavior depends on code in another namespace. Keep the reason in the semantic tag and the concrete target in `@see`:
+
+```go
+// @sideEffect records token validation audit in auth-svc.
+// @see ccg://auth-svc/internal/audit/token_audit.go#RecordTokenAudit
+```
+
+The path and symbol are optional, so `ccg://auth-svc/internal/auth` can point at a package/path scope and `ccg://auth-svc/` can point at a whole namespace.
 
 ## AI-Driven Annotation
 

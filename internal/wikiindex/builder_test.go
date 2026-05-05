@@ -46,6 +46,7 @@ func TestBuilder_BuildsPackageFileSymbolTree(t *testing.T) {
 	createAnnotation(t, db, fn.ID,
 		model.DocTag{Kind: model.TagIntent, Value: "construct runtime", Ordinal: 0},
 		model.DocTag{Kind: model.TagDomainRule, Value: "runtime dependencies are assembled once", Ordinal: 1},
+		model.DocTag{Kind: model.TagSee, Value: "ccg://auth-svc/internal/auth/token.go#ValidateToken", Ordinal: 2},
 	)
 
 	builder := &wikiindex.Builder{DB: db, OutDir: filepath.Join(tmpDir, "docs"), IndexDir: filepath.Join(tmpDir, ".ccg")}
@@ -95,11 +96,14 @@ func TestBuilder_BuildsPackageFileSymbolTree(t *testing.T) {
 	if symNode.Details.StartLine != 10 || symNode.Details.EndLine != 20 {
 		t.Fatalf("symbol lines = %d-%d, want 10-20", symNode.Details.StartLine, symNode.Details.EndLine)
 	}
-	if symNode.Details.Annotation == nil || len(symNode.Details.Annotation.Tags) != 2 {
-		t.Fatalf("expected two annotation tags, got %#v", symNode.Details.Annotation)
+	if symNode.Details.Annotation == nil || len(symNode.Details.Annotation.Tags) != 3 {
+		t.Fatalf("expected three annotation tags, got %#v", symNode.Details.Annotation)
 	}
 	if symNode.Details.Annotation.Tags[1].Kind != model.TagDomainRule {
 		t.Fatalf("second tag kind = %q, want domainRule", symNode.Details.Annotation.Tags[1].Kind)
+	}
+	if symNode.Details.Annotation.Tags[2].Ref == nil || symNode.Details.Annotation.Tags[2].Ref.Namespace != "auth-svc" {
+		t.Fatalf("expected parsed CCG ref on @see tag, got %#v", symNode.Details.Annotation.Tags[2])
 	}
 }
 

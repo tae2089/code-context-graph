@@ -17,6 +17,7 @@ import (
 
 	"github.com/tae2089/trace"
 
+	"github.com/tae2089/code-context-graph/internal/ccgref"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
@@ -61,6 +62,25 @@ type DocTagDetail struct {
 	Name    string        `json:"name"`
 	Value   string        `json:"value"`
 	Ordinal int           `json:"ordinal"`
+	Ref     *ccgref.Ref   `json:"ref,omitempty"`
+}
+
+// DocTagDetailFromModel converts a stored annotation tag into an index-safe DTO.
+// @intent attach parsed ccg:// metadata to @see tags without changing stored annotation rows.
+func DocTagDetailFromModel(tag model.DocTag) DocTagDetail {
+	detail := DocTagDetail{
+		Kind:    tag.Kind,
+		Type:    tag.Type,
+		Name:    tag.Name,
+		Value:   tag.Value,
+		Ordinal: tag.Ordinal,
+	}
+	if tag.Kind == model.TagSee && ccgref.Is(tag.Value) {
+		if ref, err := ccgref.Parse(tag.Value); err == nil {
+			detail.Ref = ref
+		}
+	}
+	return detail
 }
 
 // Index는 .ccg/doc-index.json 전체 포맷이다.

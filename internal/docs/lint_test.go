@@ -399,6 +399,79 @@ func TestLint_ValidRef_NotDeadRef(t *testing.T) {
 	}
 }
 
+func TestLint_CCGSeeRefResolvesAcrossNamespace(t *testing.T) {
+	db := newLintTestDB(t)
+	outDir := t.TempDir()
+
+	target := model.Node{
+		Namespace:     "auth-svc",
+		QualifiedName: "auth.ValidateToken",
+		Kind:          model.NodeKindFunction,
+		Name:          "ValidateToken",
+		FilePath:      "internal/auth/token.go",
+		StartLine:     1, EndLine: 5,
+		Hash: "h1", Language: "go",
+	}
+	db.Create(&target)
+
+	source := model.Node{
+		Namespace:     "payment-svc",
+		QualifiedName: "payment.Charge",
+		Kind:          model.NodeKindFunction,
+		Name:          "Charge",
+		FilePath:      "internal/payment/charge.go",
+		StartLine:     1, EndLine: 10,
+		Hash: "h2", Language: "go",
+	}
+	db.Create(&source)
+	db.Create(&model.Annotation{
+		NodeID: source.ID,
+		Tags: []model.DocTag{
+			{Kind: model.TagSee, Value: "ccg://auth-svc/internal/auth/token.go#ValidateToken", Ordinal: 0},
+		},
+	})
+
+	gen := &Generator{DB: db, OutDir: outDir, Namespace: "payment-svc"}
+	report, err := gen.Lint()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(report.DeadRefs) != 0 {
+		t.Fatalf("expected 0 dead refs, got %v", report.DeadRefs)
+	}
+}
+
+func TestLint_CCGSeeRefMissingTargetIsDeadRef(t *testing.T) {
+	db := newLintTestDB(t)
+	outDir := t.TempDir()
+
+	source := model.Node{
+		Namespace:     "payment-svc",
+		QualifiedName: "payment.Charge",
+		Kind:          model.NodeKindFunction,
+		Name:          "Charge",
+		FilePath:      "internal/payment/charge.go",
+		StartLine:     1, EndLine: 10,
+		Hash: "h2", Language: "go",
+	}
+	db.Create(&source)
+	db.Create(&model.Annotation{
+		NodeID: source.ID,
+		Tags: []model.DocTag{
+			{Kind: model.TagSee, Value: "ccg://auth-svc/internal/auth/token.go#ValidateToken", Ordinal: 0},
+		},
+	})
+
+	gen := &Generator{DB: db, OutDir: outDir, Namespace: "payment-svc"}
+	report, err := gen.Lint()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(report.DeadRefs) != 1 {
+		t.Fatalf("expected 1 dead ref, got %d: %v", len(report.DeadRefs), report.DeadRefs)
+	}
+}
+
 func TestLint_NoContradiction_WhenAnnotationFresh(t *testing.T) {
 	db := newLintTestDB(t)
 	outDir := t.TempDir()

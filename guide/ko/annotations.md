@@ -46,9 +46,18 @@ func AuthenticateUser(username, password string) (string, error) {
 | `@ensures` | 사후 조건 | `@ensures session != nil` |
 | `@param` | 파라미터 설명 | `@param username 로그인 ID` |
 | `@return` | 반환 값 설명 | `@return 성공 시 JWT 토큰` |
-| `@see` | 관련 함수 | `@see SessionManager.Create` |
+| `@see` | 관련 함수 또는 CCG ref | `@see SessionManager.Create`, `@see ccg://auth-svc/internal/auth/token.go#ValidateToken` |
 
 `@intent`는 특히 중요합니다. 어노테이션은 있지만 `@intent`가 없는 심볼은 `ccg lint`에서 `incomplete`로 보고되기 때문입니다. `@see` 태그 또한 린트 대상이며, 존재하지 않는 심볼을 가리키는 경우 `dead-ref` 결과가 발생할 수 있습니다.
+
+다른 네임스페이스의 코드를 함께 봐야 하는 동작은 `@see`에 `ccg://{namespace}/{path}#{symbol}` 형식으로 기록합니다. 이유는 의미 태그에 두고, 구체적인 대상은 `@see`에 둡니다.
+
+```go
+// @sideEffect auth-svc에 토큰 검증 감사 기록을 남긴다.
+// @see ccg://auth-svc/internal/audit/token_audit.go#RecordTokenAudit
+```
+
+path와 symbol은 선택 사항입니다. `ccg://auth-svc/internal/auth`는 패키지/경로 범위, `ccg://auth-svc/`는 네임스페이스 전체를 가리킬 수 있습니다.
 
 ## AI 기반 어노테이션 (AI-Driven Annotation)
 

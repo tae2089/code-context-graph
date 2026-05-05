@@ -181,6 +181,22 @@ input {
   @apply rounded border border-violet-200 bg-violet-50 px-2 py-1 font-mono text-xs text-violet-800;
 }
 
+.ccg-ref-chip {
+  @apply border-emerald-200 bg-emerald-50 text-emerald-900;
+}
+
+.ccg-ref-namespace {
+  @apply font-semibold;
+}
+
+.ccg-ref-path {
+  @apply text-emerald-800;
+}
+
+.ccg-ref-symbol {
+  @apply text-emerald-700;
+}
+
 .score-chip {
   @apply rounded border border-neutral-300 bg-neutral-100 px-2 py-0.5 font-mono text-[11px] text-neutral-700;
 }

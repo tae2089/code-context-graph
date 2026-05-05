@@ -12,6 +12,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/analysis/largefunc"
 	querypkg "github.com/tae2089/code-context-graph/internal/analysis/query"
+	"github.com/tae2089/code-context-graph/internal/ccgref"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/pathutil"
@@ -43,6 +44,7 @@ type annotationTagItem struct {
 	Name    string        `json:"name"`
 	Value   string        `json:"value"`
 	Ordinal int           `json:"ordinal"`
+	Ref     *ccgref.Ref   `json:"ref,omitempty"`
 }
 
 // annotationResponse is the typed wire payload for getAnnotation.
@@ -297,6 +299,11 @@ func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolReques
 		tags := make([]annotationTagItem, len(ann.Tags))
 		for i, tag := range ann.Tags {
 			tags[i] = annotationTagItem{Kind: tag.Kind, Type: tag.Type, Name: tag.Name, Value: tag.Value, Ordinal: tag.Ordinal}
+			if tag.Kind == model.TagSee && ccgref.Is(tag.Value) {
+				if ref, err := ccgref.Parse(tag.Value); err == nil {
+					tags[i].Ref = ref
+				}
+			}
 		}
 
 		data := annotationResponse{Summary: ann.Summary, Context: ann.Context, Tags: tags}

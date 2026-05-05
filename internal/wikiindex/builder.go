@@ -275,13 +275,7 @@ func detailsForNode(node model.Node, annotation *model.Annotation) *ragindex.Nod
 	}
 	tags := make([]ragindex.DocTagDetail, 0, len(annotation.Tags))
 	for _, tag := range annotation.Tags {
-		tags = append(tags, ragindex.DocTagDetail{
-			Kind:    tag.Kind,
-			Type:    tag.Type,
-			Name:    tag.Name,
-			Value:   tag.Value,
-			Ordinal: tag.Ordinal,
-		})
+		tags = append(tags, ragindex.DocTagDetailFromModel(tag))
 	}
 	detail.Annotation = &ragindex.AnnotationDetail{
 		Summary: strings.TrimSpace(annotation.Summary),
