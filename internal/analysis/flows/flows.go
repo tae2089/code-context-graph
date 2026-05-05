@@ -25,7 +25,8 @@ type Tracer struct {
 // TraceOptions bounds how far a single flow trace is allowed to expand.
 // @intent let callers cap traversal cost when tracing large call graphs
 type TraceOptions struct {
-	MaxNodes int
+	MaxNodes             int
+	IncludeFallbackCalls *bool
 }
 
 // TraceResult wraps a built flow with the metadata needed to detect truncation.
@@ -35,6 +36,19 @@ type TraceResult struct {
 	Truncated     bool
 	MaxNodes      int
 	ReturnedNodes int
+	// ContainsFallbackCalls indicates whether the traced flow used at least one fallback call edge.
+	ContainsFallbackCalls bool
+	// FallbackEdgesCount counts fallback call edges that participated in flow expansion.
+	FallbackEdgesCount int
+}
+
+func defaultTraceOptions(opts TraceOptions) TraceOptions {
+	if opts.IncludeFallbackCalls != nil {
+		return opts
+	}
+	includeFallbackCalls := true
+	opts.IncludeFallbackCalls = &includeFallbackCalls
+	return opts
 }
 
 // New creates a flow tracer.
@@ -65,11 +79,14 @@ func (t *Tracer) TraceFlow(ctx context.Context, startNodeID uint) (*model.Flow, 
 // @domainRule only calls edges enqueue new BFS nodes
 // @ensures Truncated is true only when MaxNodes stopped traversal
 func (t *Tracer) TraceFlowBounded(ctx context.Context, startNodeID uint, opts TraceOptions) (*TraceResult, error) {
+	opts = defaultTraceOptions(opts)
 	visited := map[uint]bool{}
 	var members []model.FlowMembership
 	ordinal := 0
 	ns := ctxns.FromContext(ctx)
 	truncated := false
+	fallbackEdges := 0
+	containsFallbackCalls := false
 
 	queue := []uint{startNodeID}
 	visited[startNodeID] = true
@@ -90,14 +107,22 @@ func (t *Tracer) TraceFlowBounded(ctx context.Context, startNodeID uint, opts Tr
 			return nil, err
 		}
 		for _, e := range edges {
-			if model.IsCallKind(e.Kind) && !visited[e.ToNodeID] {
-				if opts.MaxNodes > 0 && len(visited) >= opts.MaxNodes {
-					truncated = true
-					break
-				}
-				visited[e.ToNodeID] = true
-				queue = append(queue, e.ToNodeID)
+			if !model.IsCallKind(e.Kind) || visited[e.ToNodeID] {
+				continue
 			}
+			if e.Kind == model.EdgeKindFallbackCalls {
+				if !*opts.IncludeFallbackCalls {
+					continue
+				}
+				fallbackEdges++
+				containsFallbackCalls = true
+			}
+			if opts.MaxNodes > 0 && len(visited) >= opts.MaxNodes {
+				truncated = true
+				break
+			}
+			visited[e.ToNodeID] = true
+			queue = append(queue, e.ToNodeID)
 		}
 	}
 
@@ -112,5 +137,12 @@ func (t *Tracer) TraceFlowBounded(ctx context.Context, startNodeID uint, opts Tr
 		Name:      name,
 		Members:   members,
 	}
-	return &TraceResult{Flow: flow, Truncated: truncated, MaxNodes: opts.MaxNodes, ReturnedNodes: len(members)}, nil
+	return &TraceResult{
+		Flow:                  flow,
+		Truncated:             truncated,
+		MaxNodes:              opts.MaxNodes,
+		ReturnedNodes:         len(members),
+		ContainsFallbackCalls:  containsFallbackCalls,
+		FallbackEdgesCount:    fallbackEdges,
+	}, nil
 }

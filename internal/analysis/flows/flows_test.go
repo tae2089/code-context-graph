@@ -15,6 +15,10 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+func boolPtr(v bool) *bool {
+	return &v
+}
+
 var flowBuilderTestDBSeq atomic.Int64
 
 type mockStore struct {
@@ -119,6 +123,58 @@ func TestTraceFlow_IncludesFallbackCalls(t *testing.T) {
 	}
 	got := flowMemberIDs(flow)
 	assertUintSliceEqual(t, got, []uint{1, 2, 3})
+}
+
+func TestTraceFlowBounded_ExcludesFallbackCallsWhenDisabled(t *testing.T) {
+	ms := &mockStore{
+		nodes: map[uint]*model.Node{1: newNode(1, "A"), 2: newNode(2, "B"), 3: newNode(3, "C")},
+		edges: map[uint][]model.Edge{
+			1: {
+				{ID: 1, FromNodeID: 1, ToNodeID: 2, Kind: model.EdgeKindCalls, Fingerprint: "call-1"},
+				{ID: 2, FromNodeID: 1, ToNodeID: 3, Kind: model.EdgeKindFallbackCalls, Fingerprint: "call-2"},
+			},
+		},
+	}
+	tracer := New(ms)
+
+	result, err := tracer.TraceFlowBounded(context.Background(), 1, TraceOptions{IncludeFallbackCalls: boolPtr(false)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertUintSliceEqual(t, flowMemberIDs(result.Flow), []uint{1, 2})
+	if result.ContainsFallbackCalls {
+		t.Fatal("expected strict trace to report no fallback calls")
+	}
+	if result.FallbackEdgesCount != 0 {
+		t.Fatalf("expected fallback edge count 0, got %d", result.FallbackEdgesCount)
+	}
+}
+
+func TestTraceFlowBounded_ReportsFallbackMetadata(t *testing.T) {
+	ms := &mockStore{
+		nodes: map[uint]*model.Node{1: newNode(1, "A"), 2: newNode(2, "B"), 3: newNode(3, "C")},
+		edges: map[uint][]model.Edge{
+			1: {
+				{ID: 1, FromNodeID: 1, ToNodeID: 2, Kind: model.EdgeKindCalls, Fingerprint: "call-1"},
+				{ID: 2, FromNodeID: 1, ToNodeID: 3, Kind: model.EdgeKindFallbackCalls, Fingerprint: "call-2"},
+			},
+		},
+	}
+	tracer := New(ms)
+
+	result, err := tracer.TraceFlowBounded(context.Background(), 1, TraceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertUintSliceEqual(t, flowMemberIDs(result.Flow), []uint{1, 2, 3})
+	if !result.ContainsFallbackCalls {
+		t.Fatal("expected fallback-inclusive trace to report fallback calls")
+	}
+	if result.FallbackEdgesCount != 1 {
+		t.Fatalf("expected fallback edge count 1, got %d", result.FallbackEdgesCount)
+	}
 }
 
 func TestTraceFlow_Branch(t *testing.T) {
