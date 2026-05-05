@@ -24,7 +24,7 @@ import (
 )
 
 // Parser defines the source parser contract used by MCP graph builds.
-// @intent 추상 파서를 주입해 파일 확장자별 파싱 구현을 서버에서 조합한다.
+// @intent Injects an abstract parser to combine language-specific parsing implementations on the server.
 // @see mcp.Deps
 type Parser interface {
 	Parse(filePath string, content []byte) ([]model.Node, []model.Edge, error)
@@ -32,7 +32,7 @@ type Parser interface {
 }
 
 // ImpactAnalyzer defines the blast-radius analysis contract for graph nodes.
-// @intent 노드 변경 영향 범위를 계산하는 분석기를 서버 핸들러에 주입한다.
+// @intent Injects an analyzer that calculates the impact radius of node changes into the server handler.
 // @see mcp.handlers.getImpactRadius
 type ImpactAnalyzer interface {
 	ImpactRadius(ctx context.Context, nodeID uint, depth int) ([]model.Node, error)
@@ -45,7 +45,7 @@ type BoundedImpactAnalyzer interface {
 }
 
 // FlowTracer defines the call-flow tracing contract for graph nodes.
-// @intent 시작 노드 기준 호출 흐름을 복원하는 분석기를 서버에 연결한다.
+// @intent Connects an analyzer to the server that reconstructs call flows starting from a given node.
 // @see mcp.handlers.traceFlow
 type FlowTracer interface {
 	TraceFlow(ctx context.Context, startNodeID uint) (*model.Flow, error)
@@ -58,14 +58,14 @@ type BoundedFlowTracer interface {
 }
 
 // FlowBuilder defines the persisted flow rebuild contract.
-// @intent stored flow 후처리를 재생성하는 빌더를 MCP 핸들러에 주입한다.
+// @intent Injects a builder into the MCP handler that regenerates stored flow post-processing results.
 // @see mcp.handlers.runPostprocess
 type FlowBuilder interface {
 	Rebuild(ctx context.Context, cfg flowspkg.Config) ([]flowspkg.Stats, error)
 }
 
 // QueryService defines predefined graph query operations exposed over MCP.
-// @intent 표준 그래프 질의를 한 서비스 인터페이스로 추상화해 핸들러를 단순화한다.
+// @intent Simplifies handlers by abstracting standard graph queries into a single service interface.
 // @see mcp.handlers.queryGraph
 type QueryService interface {
 	CallersOf(ctx context.Context, nodeID uint) ([]model.Node, error)
@@ -89,35 +89,35 @@ type QueryService interface {
 }
 
 // LargefuncAnalyzer defines the oversized-function detection contract.
-// @intent 유지보수 비용이 높은 대형 함수를 탐지하는 분석기를 주입한다.
+// @intent Injects an analyzer to detect large functions with high maintenance costs.
 // @see mcp.handlers.findLargeFunctions
 type LargefuncAnalyzer interface {
 	Find(ctx context.Context, threshold int) ([]model.Node, error)
 }
 
 // DeadcodeAnalyzer defines the unused-code detection contract.
-// @intent 참조되지 않는 노드를 탐지해 정리 후보를 찾는 분석기를 주입한다.
+// @intent Injects an analyzer to find unreferenced nodes as candidates for cleanup.
 // @see mcp.handlers.findDeadCode
 type DeadcodeAnalyzer interface {
 	Find(ctx context.Context, opts deadcode.Options) ([]model.Node, error)
 }
 
 // FallbackAnalyzer defines the suspect fallback-edge analysis contract.
-// @intent annotation overlap 기반으로 신뢰하기 어려운 fallback call edges를 탐지한다.
+// @intent Detects untrustworthy fallback call edges based on annotation overlap.
 // @see mcp.handlers.findSuspectFallbackEdges
 type FallbackAnalyzer interface {
 	FindSuspects(ctx context.Context, opts fallbackanalysis.Options) ([]fallbackanalysis.SuspectEdge, error)
 }
 
 // CouplingAnalyzer defines the inter-community coupling analysis contract.
-// @intent 아키텍처 경계 간 결합도를 계산하는 분석기를 서버에 연결한다.
+// @intent Connects an analyzer to the server that calculates coupling between architectural boundaries.
 // @see mcp.handlers.getArchitectureOverview
 type CouplingAnalyzer interface {
 	Analyze(ctx context.Context) ([]coupling.CouplingPair, error)
 }
 
 // CoverageAnalyzer defines file and community coverage lookup operations.
-// @intent 리스크 요약과 커뮤니티 상세 응답에 테스트 커버리지 정보를 제공한다.
+// @intent Provides test coverage information for risk summaries and community detail responses.
 // @see mcp.handlers.getCommunity
 // @see mcp.promptHandlers.reviewChanges
 type CoverageAnalyzer interface {
@@ -126,14 +126,14 @@ type CoverageAnalyzer interface {
 }
 
 // CommunityBuilder defines the community rebuild contract.
-// @intent 그래프 후처리에서 모듈 커뮤니티를 재계산하는 구현을 주입한다.
+// @intent Injects an implementation to recalculate module communities during graph post-processing.
 // @see mcp.handlers.runPostprocess
 type CommunityBuilder interface {
 	Rebuild(ctx context.Context, cfg community.Config) ([]community.Stats, error)
 }
 
 // IncrementalSyncer defines the incremental graph synchronization contract.
-// @intent 전체 재파싱 없이 변경 파일만 그래프에 반영하는 동기화기를 주입한다.
+// @intent Injects a syncer that reflects only changed files into the graph without full re-parsing.
 // @see mcp.handlers.buildOrUpdateGraph
 type IncrementalSyncer interface {
 	Sync(ctx context.Context, files map[string]incremental.FileInfo) (*incremental.SyncStats, error)
@@ -150,7 +150,7 @@ type PostprocessPolicy interface {
 }
 
 // Deps collects the services and stores required by MCP handlers.
-// @intent MCP 서버 구성요소를 한 번에 주입해 도구와 프롬프트 핸들러를 조립한다.
+// @intent Assembles tool and prompt handlers by injecting all MCP server components at once.
 type Deps struct {
 	Store            store.GraphStore
 	DB               *gorm.DB
@@ -162,7 +162,7 @@ type Deps struct {
 	ChangesGitClient changes.GitClient
 	Logger           *slog.Logger
 
-	// Phase 11 추가
+	// Added in Phase 11
 	QueryService      QueryService
 	LargefuncAnalyzer LargefuncAnalyzer
 	DeadcodeAnalyzer  DeadcodeAnalyzer
@@ -174,12 +174,12 @@ type Deps struct {
 	Incremental       IncrementalSyncer
 	PostprocessPolicy PostprocessPolicy
 
-	// Cache — nil이면 캐시 비활성화
+	// Cache — nil disables caching
 	Cache *Cache
 
-	// RagIndexDir — doc-index.json이 저장되는 디렉토리 (기본: ".ccg")
+	// RagIndexDir — Directory where doc-index.json is stored (default: ".ccg")
 	RagIndexDir string
-	// RagProjectDesc — root 노드 summary에 사용되는 프로젝트 설명
+	// RagProjectDesc — Project description used in root node summary
 	RagProjectDesc string
 
 	NamespaceRoot string

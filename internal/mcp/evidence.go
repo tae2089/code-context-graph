@@ -1,3 +1,4 @@
+// @index Workspace and git provenance evidence builders for namespace-scoped MCP responses.
 package mcp
 
 import (
