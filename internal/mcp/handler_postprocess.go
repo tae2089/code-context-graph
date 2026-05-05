@@ -11,6 +11,11 @@ import (
 
 // getPostprocessPolicy returns the recorded postprocess policy summary for a namespace and tool.
 // @intent expose automatic fail-open versus fail-closed decisions so operators can diagnose degraded postprocess behavior.
+// @param request optional tool filter (build_or_update_graph or run_postprocess) and recent_limit for failure history depth.
+// @return JSON-encoded StatusSummary with current decision, fail-closed entries, and recent failures.
+// @requires deps.PostprocessPolicy is configured.
+// @see mcp.handlers.resetPostprocessPolicy
+// @see policy.StatusSummary
 func (h *handlers) getPostprocessPolicy(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
 	if h.deps.PostprocessPolicy == nil {
@@ -38,6 +43,12 @@ func (h *handlers) getPostprocessPolicy(ctx context.Context, request mcp.CallToo
 
 // resetPostprocessPolicy clears the stored failure streak for a postprocess tool.
 // @intent let operators recover from fail-closed state after they have fixed the underlying issue.
+// @param request requires tool name (build_or_update_graph or run_postprocess) to reset.
+// @requires deps.PostprocessPolicy is configured and tool name is valid.
+// @ensures next policy resolve treats the tool as if no recent failures occurred.
+// @sideEffect writes a reset marker run record into the postprocess policy store.
+// @mutates postprocess policy persisted state for the targeted tool.
+// @see mcp.handlers.getPostprocessPolicy
 func (h *handlers) resetPostprocessPolicy(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
 	if h.deps.PostprocessPolicy == nil {

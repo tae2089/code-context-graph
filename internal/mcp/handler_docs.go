@@ -1,3 +1,4 @@
+// @index MCP handlers for documentation RAG index build and retrieval over generated docs.
 package mcp
 
 import (
@@ -23,6 +24,10 @@ func (h *handlers) ragIndexRoot() string {
 }
 
 // @intent normalize a docs/index root to an absolute, symlink-evaluated path before path checks.
+// @requires root must be a filesystem path that can be resolved or created as needed.
+// @ensures returned path is absolute, cleaned, and symlink-resolved when it exists.
+// @domainRule safe-root containment checks must happen after symlink evaluation.
+// @sideEffect may create the root directory on disk when create is true.
 func resolveSafeRoot(root string, create bool) (string, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -46,6 +51,10 @@ func resolveSafeRoot(root string, create bool) (string, error) {
 }
 
 // @intent reject relative paths that would resolve outside the resolved docs root.
+// @requires relPath must be a relative, traversal-free path fragment.
+// @ensures returned path stays within the resolved safe root and has no symlink escape.
+// @domainRule traversal checks happen before symlink evaluation, and containment checks happen after it.
+// @sideEffect may create the configured root directory indirectly through resolveSafeRoot when createRoot is true.
 func safePathUnderRoot(root, relPath, field string, createRoot bool, allowMissingLeaf bool) (string, error) {
 	clean := filepath.Clean(relPath)
 	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
@@ -78,10 +87,10 @@ func (h *handlers) resolvedRagIndexPath(workspace string) (string, error) {
 }
 
 // buildRagIndex builds the documentation RAG index from generated docs and communities.
-// @intent 문서 탐색용 트리를 재생성해 MCP 문서 검색 도구들이 최신 구조를 보게 한다.
-// @param request out_dir와 index_dir로 문서 루트와 인덱스 출력 경로를 덮어쓸 수 있다.
-// @ensures 성공 시 생성된 커뮤니티 수와 파일 수를 요약해 반환한다.
-// @sideEffect doc-index.json 파일을 기록하고 캐시를 비운다.
+// @intent Regenerates the documentation traversal tree so MCP documentation tools see the latest structure.
+// @param request out_dir and index_dir can override the documentation root and index output paths.
+// @ensures Returns a summary of the number of communities and files generated on success.
+// @sideEffect Writes the doc-index.json file and flushes the cache.
 // @mutates documentation index state, h.cache
 // @see mcp.handlers.getRagTree
 func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -128,10 +137,10 @@ func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolReques
 }
 
 // getRagTree returns the documentation tree or a pruned community subtree.
-// @intent 문서 RAG 인덱스를 트리 형태로 노출해 탐색형 조회를 가능하게 한다.
-// @param request community_id는 하위 트리 시작점이고 depth는 반환 깊이 제한이다.
-// @requires doc-index.json이 생성되어 있어야 한다.
-// @ensures 성공 시 요청한 범위의 TreeNode JSON을 반환한다.
+// @intent Exposes the documentation RAG index in a tree format to enable exploratory lookups.
+// @param request community_id is the starting point for a subtree, and depth limits the return depth.
+// @requires doc-index.json must have been generated.
+// @ensures Returns the TreeNode JSON for the requested range on success.
 // @see mcp.handlers.buildRagIndex
 func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	communityID := request.GetString("community_id", "")
@@ -174,12 +183,12 @@ func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) 
 }
 
 // getDocContent reads a generated documentation file by relative path.
-// @intent 문서 파일 내용을 직접 반환해 에이전트가 세부 설명을 읽을 수 있게 한다.
-// @param request file_path는 작업 디렉터리 기준 상대 문서 경로다.
-// @requires file_path는 상대 경로여야 하며 경로 순회를 포함하면 안 된다.
-// @ensures 성공 시 문서 파일 본문을 텍스트로 반환한다.
-// @domainRule 1MB를 초과하는 문서 파일은 반환하지 않는다.
-// @sideEffect 파일 시스템 읽기를 수행한다.
+// @intent Returns the content of a documentation file directly so agents can read detailed descriptions.
+// @param request file_path is the relative documentation path based on the working directory.
+// @requires file_path must be a relative path and must not contain path traversal.
+// @ensures Returns the body of the documentation file as text on success.
+// @domainRule Documentation files exceeding 1MB are not returned.
+// @sideEffect Performs a filesystem read.
 func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	filePath, err := request.RequireString("file_path")
 	if err != nil {
@@ -228,10 +237,10 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 }
 
 // searchDocs searches the documentation tree by keyword.
-// @intent 문서 노드 라벨과 요약을 키워드로 검색해 관련 문서를 빠르게 찾게 한다.
-// @param request query는 필수 검색어이고 limit는 최대 결과 수다.
-// @requires query는 공백만으로 이루어질 수 없다.
-// @ensures 성공 시 breadcrumb를 포함한 검색 결과 배열을 반환한다.
+// @intent Searches documentation node labels and summaries by keyword to quickly find relevant documents.
+// @param request query is the required search term, and limit is the maximum number of results.
+// @requires query must not consist only of whitespace.
+// @ensures Returns an array of search results including breadcrumbs on success.
 // @see mcp.handlers.getRagTree
 func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	query, err := request.RequireString("query")
