@@ -15,42 +15,52 @@ import (
 )
 
 type mockQueryService struct {
-	callersOfCalled    bool
-	calleesOfCalled    bool
-	callersWithOptions bool
-	calleesWithOptions bool
-	callersOpts        query.QueryOptions
-	calleesOpts        query.QueryOptions
-	importsOfCalled    bool
-	importersOfCalled  bool
-	childrenOfCalled   bool
-	testsForCalled     bool
-	inheritorsOfCalled bool
-	fileSummaryCalled  bool
-	findMatchesCalled   bool
-	result             []model.Node
-	fileSummaryResult  *query.FileSummary
-	matchResult        []query.CandidateMatch
-	err                error
+	callersOfCalled         bool
+	calleesOfCalled         bool
+	callersWithOptions      bool
+	calleesWithOptions      bool
+	callersOfCalls          int
+	calleesOfCalls          int
+	callersWithOptionsCalls int
+	calleesWithOptionsCalls int
+	callersOpts             query.QueryOptions
+	calleesOpts             query.QueryOptions
+	importsOfCalled         bool
+	importersOfCalled       bool
+	childrenOfCalled        bool
+	testsForCalled          bool
+	inheritorsOfCalled      bool
+	fileSummaryCalled       bool
+	findMatchesCalled       bool
+	result                  []model.Node
+	fileSummaryResult       *query.FileSummary
+	matchResult             []query.CandidateMatch
+	err                     error
 }
 
 func (m *mockQueryService) CallersOf(ctx context.Context, nodeID uint) ([]model.Node, error) {
 	m.callersOfCalled = true
+	m.callersOfCalls++
 	return m.result, m.err
 }
 func (m *mockQueryService) CallersOfWithOptions(ctx context.Context, nodeID uint, opts query.QueryOptions) ([]model.Node, error) {
 	m.callersOfCalled = true
 	m.callersWithOptions = true
+	m.callersWithOptionsCalls++
+	m.callersOfCalls++
 	m.callersOpts = opts
 	return m.result, m.err
 }
 func (m *mockQueryService) CalleesOf(ctx context.Context, nodeID uint) ([]model.Node, error) {
 	m.calleesOfCalled = true
+	m.calleesOfCalls++
 	return m.result, m.err
 }
 func (m *mockQueryService) CalleesOfWithOptions(ctx context.Context, nodeID uint, opts query.QueryOptions) ([]model.Node, error) {
 	m.calleesOfCalled = true
 	m.calleesWithOptions = true
+	m.calleesWithOptionsCalls++
+	m.calleesOfCalls++
 	m.calleesOpts = opts
 	return m.result, m.err
 }

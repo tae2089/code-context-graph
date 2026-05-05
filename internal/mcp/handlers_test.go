@@ -651,7 +651,7 @@ func TestTraceFlow_RespectsIncludeFallbackCalls(t *testing.T) {
 	}
 
 	result := callTool(t, deps, "trace_flow", map[string]any{
-		"qualified_name":          "pkg.StrictStart",
+		"qualified_name":         "pkg.StrictStart",
 		"include_fallback_calls": false,
 	})
 	if result.IsError {
@@ -1996,7 +1996,7 @@ func TestQueryGraph_CalleesOf_RespectsIncludeFallbackCalls(t *testing.T) {
 	}
 }
 
-func TestQueryGraph_CalleesOf_ReturnsFallbackProvenance(t *testing.T) {
+func TestQueryGraph_CalleesOf_ReturnsTentativeProvenance(t *testing.T) {
 	deps := setupGraphOnlyTestDeps(t)
 	ctx := context.Background()
 
@@ -2011,8 +2011,8 @@ func TestQueryGraph_CalleesOf_ReturnsFallbackProvenance(t *testing.T) {
 	strict, _ := deps.Store.GetNode(ctx, "pkg.Strict")
 	fallback, _ := deps.Store.GetNode(ctx, "pkg.Fallback")
 	if err := deps.Store.UpsertEdges(ctx, []model.Edge{
-		{FromNodeID: source.ID, ToNodeID: strict.ID, Kind: model.EdgeKindCalls, Fingerprint: "source-strict"},
-		{FromNodeID: source.ID, ToNodeID: fallback.ID, Kind: model.EdgeKindFallbackCalls, Fingerprint: "source-fallback"},
+		{FromNodeID: source.ID, ToNodeID: strict.ID, Kind: model.EdgeKindCalls, FilePath: "pkg/source.go", Line: 11, Fingerprint: "source-strict"},
+		{FromNodeID: source.ID, ToNodeID: fallback.ID, Kind: model.EdgeKindFallbackCalls, FilePath: "pkg/fallback.go", Line: 22, Fingerprint: "source-fallback"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -2024,7 +2024,8 @@ func TestQueryGraph_CalleesOf_ReturnsFallbackProvenance(t *testing.T) {
 	}
 
 	var resp struct {
-		Results []map[string]any `json:"results"`
+		Results  []map[string]any `json:"results"`
+		Metadata map[string]any   `json:"metadata"`
 	}
 	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
 		t.Fatalf("expected JSON response, got: %s", getTextContent(result))
@@ -2043,11 +2044,78 @@ func TestQueryGraph_CalleesOf_ReturnsFallbackProvenance(t *testing.T) {
 	if byName["pkg.Strict"]["edge_kind"] != string(model.EdgeKindCalls) {
 		t.Fatalf("expected pkg.Strict edge_kind=calls, got %v", byName["pkg.Strict"]["edge_kind"])
 	}
-	if byName["pkg.Fallback"]["confidence"] != "fallback" {
-		t.Fatalf("expected pkg.Fallback confidence=fallback, got %v", byName["pkg.Fallback"]["confidence"])
+	if byName["pkg.Strict"]["evidence"] == nil {
+		t.Fatal("expected strict item evidence")
+	}
+	strictEvidence := byName["pkg.Strict"]["evidence"].(map[string]any)
+	if strictEvidence["fingerprint"] != "source-strict" {
+		t.Fatalf("expected strict evidence fingerprint=source-strict, got %v", strictEvidence["fingerprint"])
+	}
+	if strictEvidence["line"] != float64(11) {
+		t.Fatalf("expected strict evidence line=11, got %v", strictEvidence["line"])
+	}
+
+	if byName["pkg.Fallback"]["confidence"] != "tentative" {
+		t.Fatalf("expected pkg.Fallback confidence=tentative, got %v", byName["pkg.Fallback"]["confidence"])
 	}
 	if byName["pkg.Fallback"]["edge_kind"] != string(model.EdgeKindFallbackCalls) {
 		t.Fatalf("expected pkg.Fallback edge_kind=fallback_calls, got %v", byName["pkg.Fallback"]["edge_kind"])
+	}
+	if byName["pkg.Fallback"]["evidence"] == nil {
+		t.Fatal("expected tentative item evidence")
+	}
+	fallbackEvidence := byName["pkg.Fallback"]["evidence"].(map[string]any)
+	if fallbackEvidence["fingerprint"] != "source-fallback" {
+		t.Fatalf("expected tentative evidence fingerprint=source-fallback, got %v", fallbackEvidence["fingerprint"])
+	}
+	if fallbackEvidence["line"] != float64(22) {
+		t.Fatalf("expected tentative evidence line=22, got %v", fallbackEvidence["line"])
+	}
+
+	metadata := resp.Metadata
+	if metadata["strict_count"] != float64(1) {
+		t.Fatalf("expected strict_count=1, got %v", metadata["strict_count"])
+	}
+	if metadata["tentative_count"] != float64(1) {
+		t.Fatalf("expected tentative_count=1, got %v", metadata["tentative_count"])
+	}
+}
+
+func TestQueryGraph_CacheKeyIncludesFallbackFlag(t *testing.T) {
+	deps := setupGraphOnlyTestDeps(t)
+	ctx := context.Background()
+
+	mockQ := &mockQueryService{
+		result: []model.Node{
+			{QualifiedName: "pkg.Caller", Kind: model.NodeKindFunction, Name: "Caller", FilePath: "caller.go"},
+		},
+	}
+	deps.QueryService = mockQ
+
+	deps.Store.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.Func", Kind: model.NodeKindFunction, Name: "Func", FilePath: "func.go", StartLine: 1, EndLine: 5, Language: "go"},
+		{QualifiedName: "pkg.Caller", Kind: model.NodeKindFunction, Name: "Caller", FilePath: "caller.go", StartLine: 10, EndLine: 20, Language: "go"},
+	})
+
+	result := callTool(t, deps, "query_graph", map[string]any{
+		"pattern":                "callees_of",
+		"target":                 "pkg.Func",
+		"include_fallback_calls": false,
+	})
+	if result.IsError {
+		t.Fatalf("query_graph error: %s", getTextContent(result))
+	}
+	result = callTool(t, deps, "query_graph", map[string]any{
+		"pattern":                "callees_of",
+		"target":                 "pkg.Func",
+		"include_fallback_calls": true,
+	})
+	if result.IsError {
+		t.Fatalf("query_graph error: %s", getTextContent(result))
+	}
+
+	if mockQ.calleesWithOptionsCalls != 4 {
+		t.Fatalf("expected 4 callee query calls (2 cache keys x strict+main), got %d", mockQ.calleesWithOptionsCalls)
 	}
 }
 

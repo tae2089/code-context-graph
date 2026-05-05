@@ -226,7 +226,12 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 		return mcp.NewToolResultError(fmt.Sprintf("unknown pattern: %q", pattern)), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "query_graph:", map[string]any{"pattern": pattern, "target": target, "namespace": requestNamespace(request)}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "query_graph:", map[string]any{
+		"pattern":                pattern,
+		"target":                 target,
+		"include_fallback_calls": includeFallbackCalls,
+		"namespace":              requestNamespace(request),
+	}, func() (string, error) {
 		// file_summary는 노드 조회가 불필요
 		if pattern == "file_summary" {
 			if h.deps.QueryService == nil {
@@ -304,20 +309,53 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 		}
 
 		strictNodeIDs := map[uint]struct{}{}
+		neighborEdgeByNodeID := map[uint]model.Edge{}
 		if pattern == "callers_of" || pattern == "callees_of" {
 			strictOpts := querypkg.QueryOptions{IncludeFallbackCalls: &strictFalse}
 			var strictNodes []model.Node
+			var edges []model.Edge
+			var direction string
 			switch pattern {
 			case "callers_of":
 				strictNodes, err = h.deps.QueryService.CallersOfWithOptions(ctx, node.ID, strictOpts)
+				direction = "incoming"
 			case "callees_of":
 				strictNodes, err = h.deps.QueryService.CalleesOfWithOptions(ctx, node.ID, strictOpts)
+				direction = "outgoing"
 			}
 			if err != nil {
 				return "", trace.Wrap(err, "strict query error")
 			}
 			for _, strictNode := range strictNodes {
 				strictNodeIDs[strictNode.ID] = struct{}{}
+			}
+			if direction == "incoming" {
+				edges, err = h.deps.Store.GetEdgesTo(ctx, node.ID)
+			} else {
+				edges, err = h.deps.Store.GetEdgesFrom(ctx, node.ID)
+			}
+			if err != nil {
+				return "", trace.Wrap(err, "query evidence edges")
+			}
+			for _, edge := range edges {
+				switch edge.Kind {
+				case model.EdgeKindCalls, model.EdgeKindFallbackCalls:
+				default:
+					continue
+				}
+				var peerID uint
+				if pattern == "callers_of" {
+					peerID = edge.FromNodeID
+				} else {
+					peerID = edge.ToNodeID
+				}
+				if existing, ok := neighborEdgeByNodeID[peerID]; ok {
+					if existing.Kind == model.EdgeKindFallbackCalls && edge.Kind == model.EdgeKindCalls {
+						neighborEdgeByNodeID[peerID] = edge
+					}
+					continue
+				}
+				neighborEdgeByNodeID[peerID] = edge
 			}
 		}
 
@@ -329,8 +367,15 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 					item["confidence"] = "strict"
 					item["edge_kind"] = string(model.EdgeKindCalls)
 				} else {
-					item["confidence"] = "fallback"
+					item["confidence"] = "tentative"
 					item["edge_kind"] = string(model.EdgeKindFallbackCalls)
+				}
+				if edge, ok := neighborEdgeByNodeID[n.ID]; ok {
+					item["evidence"] = map[string]any{
+						"file_path":   edge.FilePath,
+						"line":        edge.Line,
+						"fingerprint": edge.Fingerprint,
+					}
 				}
 			}
 			qgResults[i] = item
@@ -345,7 +390,7 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 		if pattern == "callers_of" || pattern == "callees_of" {
 			resp["metadata"] = map[string]any{
 				"strict_count":           len(strictNodeIDs),
-				"fallback_count":         len(nodes) - len(strictNodeIDs),
+				"tentative_count":        len(nodes) - len(strictNodeIDs),
 				"include_fallback_calls": includeFallbackCalls,
 			}
 		}
