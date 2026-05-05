@@ -1,6 +1,7 @@
 # MCP Tools
 
-code-context-graph provides 35 MCP tools. Automatically connects from Claude Code after configuring `.mcp.json`.
+code-context-graph provides 35 MCP tools. MCP-capable coding agents such as
+Codex or Claude Code can connect after configuring `.mcp.json`.
 
 ## Setup
 
@@ -30,7 +31,7 @@ code-context-graph provides 35 MCP tools. Automatically connects from Claude Cod
 }
 ```
 
-## Tools (33)
+## Tools (35)
 
 ### Core
 
@@ -68,6 +69,7 @@ current machine-readable operational surfaces.
 | `trace_flow` | Call-chain flow tracing |
 | `find_large_functions` | Functions exceeding line threshold; supports `limit` |
 | `find_dead_code` | Unused code detection |
+| `find_suspect_fallback_edges` | Suspect fallback call-edge quality report with pagination |
 | `detect_changes` | Git diff risk scoring |
 | `get_affected_flows` | Flows affected by changes |
 | `list_flows` | List traced flows with `limit` / `offset` pagination |
@@ -153,7 +155,7 @@ list_files(namespace: "payment-svc")
 delete_namespace(namespace: "payment-svc")
 ```
 
-## Claude Code Skills (5)
+## Agent Skills (5)
 
 | Skill | Description |
 |-------|-------------|
@@ -162,6 +164,10 @@ delete_namespace(namespace: "payment-svc")
 | `/ccg-annotate` | Annotation system — AI-driven annotation workflow, tag reference |
 | `/ccg-docs` | Documentation — generate docs, RAG indexing, lint |
 | `/ccg-workspace` | Namespace file management — upload, list, and delete namespace files (`workspace` remains a deprecated parameter alias) |
+
+These skill files live in `skills/` and are written for slash-command style
+agent workflows. They route common coding-agent tasks to the right CLI and MCP
+surfaces.
 
 ### Usage
 

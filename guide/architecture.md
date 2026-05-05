@@ -9,11 +9,11 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
                                         ↓
                                    FTS Search
                                         ↓
-                              MCP Server (33 tools)
+                              MCP Server (35 tools)
                                     ↓         ↓
                               stdio       Streamable HTTP
                                 ↓              ↓
-                           Claude Code    Remote Clients
+                         Coding Agents    Remote Clients
                                                ↑
                                 GitHub / Gitea Webhook
                                     push → clone → build → DB
@@ -77,7 +77,7 @@ Golden corpus-based parser accuracy and search quality evaluation framework.
 
 ### MCP Server (`internal/mcp/`)
 
-Exposes 33 tools via MCP protocol. Supports two transport modes: stdio and Streamable HTTP.
+Exposes 35 tools via MCP protocol. Supports two transport modes: stdio and Streamable HTTP.
 
 ### Reliability
 

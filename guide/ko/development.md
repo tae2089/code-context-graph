@@ -115,7 +115,7 @@ internal/
   service/            — 비즈니스 로직
   store/              — GORM 저장소
   webhook/            — 웹훅 핸들러, SyncQueue, RepoFilter
-skills/               — Claude Code 스킬 파일
+skills/               — 에이전트 스킬 파일
 guide/                — 프로젝트 문서
 docs/                 — 자동 생성된 문서 (ccg docs)
 testdata/eval/        — 평가용 골든 코퍼스 (12개 언어 소스 + 골든 JSON)

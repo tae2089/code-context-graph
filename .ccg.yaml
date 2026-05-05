@@ -2,6 +2,8 @@ db:
   driver: sqlite # sqlite | postgres
   dsn: ccg.db
 
+namespace: default
+
 output:
   dir: ./docs
   per_file: true

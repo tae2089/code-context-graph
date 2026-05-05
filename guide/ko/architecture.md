@@ -15,7 +15,7 @@
                                      ↓         ↓
                                stdio       Streamable HTTP
                                  ↓              ↓
-                           Claude Code    원격 클라이언트
+                          코딩 에이전트    원격 클라이언트
                                                 ↑
                                 GitHub / Gitea 웹훅
                                     push → 복제 → 빌드 → DB

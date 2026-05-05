@@ -11,7 +11,7 @@ document, or symbol candidate is identified.
 | [CLI Reference](cli-reference.md) | Full CLI commands, options, and configuration file (`.ccg.yaml`) |
 | [Eval](eval.md) | Parser/search quality evaluation, golden corpus, and metrics |
 | [Lint](lint.md) | Detailed `ccg lint` category reference, interpretation guide, and CI usage |
-| [MCP Tools](mcp-tools.md) | 35 MCP tools, Claude Code Skills, RAG-first routing, AI-driven annotation |
+| [MCP Tools](mcp-tools.md) | 35 MCP tools, agent skills, RAG-first routing, AI-driven annotation |
 | [Annotations](annotations.md) | Custom annotation system — tags, examples, search/RAG quality |
 | [Webhook](webhook.md) | GitHub / Gitea webhook sync, branch filtering, graceful shutdown |
 | [Docker](docker.md) | Docker image build, MCP server setup, PostgreSQL integration |

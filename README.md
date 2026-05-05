@@ -155,13 +155,13 @@ deadcode.Service.Find     function  internal/analysis/deadcode/service.go:38
 mcp.handlers.findDeadCode function  internal/mcp/handler_analysis.go:273
 ```
 
-### 4. Claude Integration via MCP
+### 4. Agent Integration via MCP
 
-After configuring `.mcp.json`, you can ask Claude Code directly:
+After configuring `.mcp.json`, you can ask an MCP-capable coding agent directly:
 
 > **"Explain the webhook sync flow in this project"**
 
-Claude calls CCG MCP tools and answers directly from the graph:
+The agent calls CCG MCP tools and answers directly from the graph:
 
 ```
 trace_flow(qualified_name: "webhook.WebhookHandler.ServeHTTP")
@@ -208,7 +208,8 @@ For remote HTTP mode:
 }
 ```
 
-Claude Code automatically connects and gets access to 35 MCP tools. See [MCP Tools Reference](guide/mcp-tools.md) for the full list.
+MCP-capable clients such as Codex or Claude Code can connect and get access to
+35 MCP tools. See [MCP Tools Reference](guide/mcp-tools.md) for the full list.
 
 ## Architecture
 
@@ -219,11 +220,11 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
                                         ↓
                                    FTS Search
                                         ↓
-                              MCP Server (33 tools)
+                              MCP Server (35 tools)
                                     ↓         ↓
                               stdio       Streamable HTTP
                                 ↓              ↓
-                           Claude Code    Remote Clients
+                         Coding Agents    Remote Clients
                                                ↑
                                 GitHub / Gitea Webhook
                                     push → clone → build → DB
@@ -239,7 +240,7 @@ See [Architecture Details](guide/architecture.md) for component breakdown and DB
 | [CLI Reference](guide/cli-reference.md) | All commands, flags, and config file (`.ccg.yaml`) |
 | [Eval](guide/eval.md) | Parser/search quality evaluation, golden corpus, and metrics |
 | [Lint](guide/lint.md) | Detailed `ccg lint` category reference, interpretation guide, and CI usage |
-| [MCP Tools](guide/mcp-tools.md) | 35 MCP tools, Skills, AI-Driven Annotation |
+| [MCP Tools](guide/mcp-tools.md) | 35 MCP tools, agent skills, AI-Driven Annotation |
 | [Annotations](guide/annotations.md) | Annotation system — tags, examples, search |
 | [Webhook](guide/webhook.md) | Webhook sync, branch filtering, HMAC, graceful shutdown |
 | [Docker](guide/docker.md) | Docker build, MCP server, PostgreSQL deployment |

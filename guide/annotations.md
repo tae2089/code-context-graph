@@ -56,13 +56,14 @@ func AuthenticateUser(username, password string) (string, error) {
 
 ## AI-Driven Annotation
 
-Claude Code can analyze your codebase and automatically generate annotations:
+Coding agents with the `/ccg-annotate` skill can analyze your codebase and
+generate annotations:
 
 ```
 You: "Add annotations to this project"
-Claude: reads code → generates @intent, @domainRule, @sideEffect, @mutates
-      → writes annotations → rebuilds index
-      → now searchable by business context
+Agent: reads code → generates @intent, @domainRule, @sideEffect, @mutates
+       → writes annotations → rebuilds index
+       → now searchable by business context
 ```
 
 ### CLI
@@ -78,7 +79,7 @@ ccg tags
 
 ### Skill
 
-Use directly in Claude Code with the `/ccg-annotate` skill:
+Use directly in a skill-capable coding agent with the `/ccg-annotate` skill:
 
 ```
 /ccg-annotate annotate internal/   — AI-generate annotations

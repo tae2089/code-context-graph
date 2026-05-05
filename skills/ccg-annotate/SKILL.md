@@ -29,9 +29,11 @@ Add structured business metadata to code. **This is what makes search and RAG ac
 | `@index`      | One-line file/package summary       | `User authentication service`            |
 | `@see`        | Related function link               | `SessionManager.Create`                  |
 
-## AI Workflow (`ccg annotate <path>`)
+## AI Workflow (`/ccg-annotate annotate <path>`)
 
-Not a CLI binary — **a workflow Claude executes.**
+This is an agent skill workflow, not a `ccg` CLI subcommand. The CLI provides
+`ccg example <language>` and `ccg tags` for writing guidance; the agent reads
+and edits code directly.
 
 ### Step 1: Pick targets
 

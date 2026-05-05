@@ -11,9 +11,10 @@ Generate Markdown wiki from code graph. Build RAG tree for fast AI exploration. 
 
 | Task                                                   | Tool                                     |
 | ------------------------------------------------------ | ---------------------------------------- |
+| Broad natural-language question ("how does auth work?") | `retrieve_docs` first                    |
 | Semantic keyword search ("payment code")               | `ccg search` (`/ccg` skill)              |
-| Module/domain exploration ("payment module structure") | `search_docs` + `get_rag_tree`           |
-| Wiki-style answer ("how does auth work?")              | `get_doc_content`                        |
+| Module/domain exploration ("payment module structure") | `get_rag_tree` after `retrieve_docs`     |
+| Exact generated doc body                               | `get_doc_content`                        |
 | Exact signature/location                               | `query_graph`, `get_node` (`/ccg` skill) |
 | Dynamic call tracing                                   | `trace_flow` (`/ccg-analyze`)            |
 
@@ -40,9 +41,10 @@ and call `build_rag_index` again.
 ## RAG Usage Pattern
 
 ```
-search_docs("auth")          # keyword → tree node candidates
+retrieve_docs("auth flow")   # broad question → bounded docs + evidence
 get_rag_tree(community_id)   # expand specific community
-get_doc_content(doc_path)    # fetch Markdown body
+get_doc_content(doc_path)    # fetch exact Markdown body
+search_docs("auth")          # focused keyword → tree node candidates
 ```
 
 ## CLI Commands
@@ -104,10 +106,15 @@ If RAG answer quality is low, usually one of:
 | `get_rag_tree`        | Navigate and verify the community tree                |
 | `get_doc_content`     | Fetch Markdown body                                   |
 | `search_docs`         | Keyword search the RAG tree                           |
+| `retrieve_docs`       | Retrieve ranked docs with tree evidence and bounded Markdown content |
 
 When the user explicitly asks to build the RAG index through MCP, call
 `build_rag_index` through MCP rather than substituting the CLI command. Use CLI
 only when the user asks for a terminal command or when MCP is unavailable.
+
+Use `retrieve_docs` as the default MCP read path for architecture or "how does
+this work?" questions. Use `search_docs` when the user needs a focused keyword
+candidate list rather than a synthesized documentation context.
 
 ## Prerequisites
 

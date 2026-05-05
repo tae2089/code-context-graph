@@ -14,7 +14,7 @@ ccg is a Tree-sitter-based code graph tool. **Complementary to Grep/Read, not a 
 | "Where is X?" — simple location lookup     | Grep + Read       | Faster and cheaper than ccg       |
 | "Find code related to X" — semantic search | `ccg search`      | Annotation/keyword semantic match |
 | "What's affected if I change X?"           | `/ccg-analyze`    | Graph traversal                   |
-| "Understand structure/architecture"        | `/ccg-docs` (RAG) | Pre-built tree, one call          |
+| "Understand structure/architecture"        | `/ccg-docs` (RAG) | `retrieve_docs` first, then tree  |
 | "Document intent/rules in code"            | `/ccg-annotate`   | AI annotation workflow            |
 | "Manage multiple service codebases"        | `/ccg-workspace`  | MSA namespace isolation           |
 
@@ -27,6 +27,7 @@ ccg build .          # Build graph + search index (first time or after big chang
 ccg update .         # Incremental — changed files only
 ccg search "<query>" # FTS search (includes annotations)
 ccg status           # Graph statistics
+ccg docs --out docs  # Generate docs + default RAG index
 ccg serve            # Start MCP server (stdio)
 ```
 
@@ -58,8 +59,23 @@ ccg search --path internal/auth "login"  # Path-scoped
 | `query_graph`      | Structured queries (callers/callees/imports) |
 | `get_node`         | Lookup by qualified name                     |
 | `list_graph_stats` | Graph size check                             |
+| `get_minimal_context` | Compact project snapshot and tool suggestions |
 
 For other tools, see `/ccg-analyze`, `/ccg-docs` skills.
+
+## Agent Entry Pattern
+
+For broad natural-language questions, start with generated docs/RAG before
+pulling exact graph edges:
+
+```bash
+ccg build .
+ccg docs --out docs
+```
+
+Then use MCP `retrieve_docs` for bounded Markdown evidence, `get_rag_tree` to
+expand module context, and only then `query_graph`, `get_node`, or
+`trace_flow` for exact symbols and relationships.
 
 ## Response Budget Rule
 

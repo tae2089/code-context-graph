@@ -2,7 +2,8 @@
 
 [English](../mcp-tools.md)
 
-code-context-graph는 35개의 MCP 도구를 제공합니다. `.mcp.json`을 설정하면 Claude Code에서 자동으로 연결됩니다.
+code-context-graph는 35개의 MCP 도구를 제공합니다. `.mcp.json`을 설정하면
+Codex 또는 Claude Code 같은 MCP 지원 코딩 에이전트가 연결할 수 있습니다.
 
 ## 설정 (Setup)
 
@@ -63,6 +64,7 @@ CCG는 아직 Prometheus `/metrics` 엔드포인트를 제공하지 않습니다
 | `trace_flow` | 호출 체인 흐름 추적 |
 | `find_large_functions` | 라인 제한을 초과하는 함수 찾기; `limit` 지원 |
 | `find_dead_code` | 사용되지 않는 코드 감지 |
+| `find_suspect_fallback_edges` | 의심스러운 fallback 호출 엣지 품질 리포트, 페이지네이션 지원 |
 | `detect_changes` | Git diff 리스크 점수 계산 |
 | `get_affected_flows` | 변경 사항의 영향을 받는 흐름 확인 |
 | `list_flows` | `limit` / `offset` 페이지네이션으로 추적된 흐름 목록 출력 |
@@ -148,7 +150,7 @@ list_files(namespace: "payment-svc")
 delete_namespace(namespace: "payment-svc")
 ```
 
-## Claude Code Skills (5개)
+## Agent Skills (5개)
 
 | 스킬 | 설명 |
 |-------|-------------|
@@ -157,6 +159,10 @@ delete_namespace(namespace: "payment-svc")
 | `/ccg-annotate` | 어노테이션 시스템 — AI 기반 어노테이션 워크플로우, 태그 레퍼런스 |
 | `/ccg-docs` | 문서화 — 문서 생성, RAG 인덱싱, 린트 |
 | `/ccg-workspace` | 네임스페이스 파일 관리 — 네임스페이스 파일 업로드, 목록 출력, 삭제 (`workspace`는 사용 중단된 파라미터 별칭) |
+
+이 스킬 파일들은 `skills/`에 있으며 slash-command 스타일의 에이전트
+워크플로우를 위해 작성되었습니다. 일반적인 코딩 에이전트 작업을 적절한
+CLI 및 MCP 표면으로 라우팅합니다.
 
 ### 사용법
 

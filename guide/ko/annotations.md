@@ -52,11 +52,12 @@ func AuthenticateUser(username, password string) (string, error) {
 
 ## AI 기반 어노테이션 (AI-Driven Annotation)
 
-Claude Code는 코드베이스를 분석하여 어노테이션을 자동으로 생성할 수 있습니다:
+`/ccg-annotate` 스킬을 사용할 수 있는 코딩 에이전트는 코드베이스를 분석하여
+어노테이션을 생성할 수 있습니다:
 
 ```
 사용자: "이 프로젝트에 어노테이션을 추가해줘"
-Claude: 코드 분석 → @intent, @domainRule, @sideEffect, @mutates 생성
+Agent: 코드 분석 → @intent, @domainRule, @sideEffect, @mutates 생성
        → 어노테이션 작성 → 인덱스 재빌드
        → 이제 비즈니스 컨텍스트로 검색 가능
 ```
@@ -74,7 +75,7 @@ ccg tags
 
 ### 스킬 (Skill)
 
-Claude Code에서 `/ccg-annotate` 스킬을 직접 사용하십시오:
+스킬을 지원하는 코딩 에이전트에서 `/ccg-annotate` 스킬을 직접 사용하십시오:
 
 ```
 /ccg-annotate annotate internal/   — AI를 사용하여 어노테이션 자동 생성

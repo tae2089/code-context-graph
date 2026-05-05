@@ -105,7 +105,7 @@ internal/
   ctxns/              — Context namespace
   docs/               — Documentation generation
   eval/               — Parser/search quality evaluation (golden corpus, P/R/F1, P@K, MRR, nDCG)
-  mcp/                — MCP server (33 tools)
+  mcp/                — MCP server (35 tools)
   model/              — DB models
   parse/treesitter/   — Tree-sitter parser (12 languages, including Lua/Luau)
   pathutil/           — Path utilities
@@ -113,7 +113,7 @@ internal/
   service/            — Business logic
   store/              — GORM store
   webhook/            — Webhook handler, SyncQueue, RepoFilter
-skills/               — Claude Code skill files
+skills/               — Agent skill files
 guide/                — Project documentation
 docs/                 — Auto-generated docs (ccg docs)
 testdata/eval/        — Eval golden corpus (12-language sources + golden JSON)
