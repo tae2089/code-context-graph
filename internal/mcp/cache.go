@@ -1,3 +1,4 @@
+// @index In-memory TTL cache for repeat MCP read-tool responses with background eviction.
 package mcp
 
 import (
@@ -8,14 +9,14 @@ import (
 const maxCacheEntries = 1000
 
 // entry stores a cached string value with its expiration time.
-// @intent 캐시 항목의 값과 TTL 만료 시점을 함께 보관한다.
+// @intent Stores the value of a cache entry along with its TTL expiration point.
 type entry struct {
 	value     string
 	expiresAt time.Time
 }
 
 // Cache is a simple in-memory TTL cache safe for concurrent use.
-// @intent 반복 조회가 많은 MCP 읽기 도구의 응답을 메모리에 재사용한다.
+// @intent Reuses MCP read-tool responses in memory for frequently repeated queries.
 type Cache struct {
 	mu      sync.RWMutex
 	entries map[string]entry
@@ -26,10 +27,10 @@ type Cache struct {
 
 // NewCache creates a Cache with the given TTL and starts a background cleanup goroutine.
 // Call Close() when the cache is no longer needed to stop the goroutine.
-// @intent TTL 기반 메모리 캐시를 생성하고 만료 항목 정리 루프를 시작한다.
-// @param ttl 각 항목이 유효한 최대 시간이다.
-// @ensures 반환된 Cache는 빈 엔트리 맵과 활성 cleanup goroutine을 가진다.
-// @sideEffect 백그라운드 cleanup goroutine을 시작한다.
+// @intent Creates a TTL-based memory cache and starts the expired entry cleanup loop.
+// @param ttl The maximum duration each entry remains valid.
+// @ensures The returned Cache has an empty entry map and an active cleanup goroutine.
+// @sideEffect Starts a background cleanup goroutine.
 func NewCache(ttl time.Duration) *Cache {
 	c := &Cache{
 		entries: make(map[string]entry),
@@ -41,9 +42,9 @@ func NewCache(ttl time.Duration) *Cache {
 }
 
 // Get returns the cached value and true if the key exists and has not expired.
-// @intent 유효 기간이 남아 있는 캐시 응답만 반환한다.
-// @param key 조회할 캐시 키다.
-// @return 키가 존재하고 만료되지 않았을 때 값과 true를 반환한다.
+// @intent Returns only cached responses that are still within their validity period.
+// @param key The cache key to look up.
+// @return Returns the value and true if the key exists and is not expired.
 func (c *Cache) Get(key string) (string, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -55,8 +56,8 @@ func (c *Cache) Get(key string) (string, bool) {
 }
 
 // Set stores the value under key with the cache's configured TTL.
-// @intent 읽기 도구 결과를 TTL과 함께 캐시에 저장한다.
-// @param key 저장할 캐시 키다.
+// @intent Stores read-tool results in the cache with the configured TTL.
+// @param key The cache key to store under.
 // @mutates c.entries
 func (c *Cache) Set(key string, value string) {
 	c.mu.Lock()
@@ -68,7 +69,7 @@ func (c *Cache) Set(key string, value string) {
 }
 
 // Flush removes all entries from the cache.
-// @intent 그래프나 인덱스 갱신 후 오래된 읽기 결과를 모두 무효화한다.
+// @intent Invalidates all cached read results after a graph or index update.
 // @mutates c.entries
 func (c *Cache) Flush() {
 	c.mu.Lock()
@@ -77,8 +78,8 @@ func (c *Cache) Flush() {
 }
 
 // Close stops the background cleanup goroutine.
-// @intent 캐시 사용 종료 시 정리 goroutine을 안전하게 멈춘다.
-// @sideEffect stopCh를 닫아 cleanup 루프를 종료시킨다.
+// @intent Safely stops the cleanup goroutine when the cache is no longer used.
+// @sideEffect Closes stopCh to terminate the cleanup loop.
 // @mutates c.stopCh
 func (c *Cache) Close() {
 	c.closeOnce.Do(func() {
@@ -87,6 +88,8 @@ func (c *Cache) Close() {
 }
 
 // @intent drop one cache entry to keep total size at or below the configured maximum.
+// @requires c.mu is held for writing and c.entries is initialized.
+// @mutates c.entries
 func (c *Cache) evictOneLocked() {
 	if len(c.entries) <= maxCacheEntries {
 		return
@@ -107,8 +110,8 @@ func (c *Cache) evictOneLocked() {
 }
 
 // cleanup runs every 30s and removes expired entries to prevent unbounded growth.
-// @intent 만료된 캐시 항목을 주기적으로 제거해 메모리 사용량을 제한한다.
-// @sideEffect 주기적인 타이머 대기와 캐시 엔트리 삭제를 수행한다.
+// @intent Periodically removes expired cache entries to limit memory usage.
+// @sideEffect Performs periodic timer waits and deletes cache entries.
 // @mutates c.entries
 func (c *Cache) cleanup() {
 	ticker := time.NewTicker(30 * time.Second)

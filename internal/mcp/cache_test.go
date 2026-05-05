@@ -96,8 +96,8 @@ func TestCache_Concurrent(t *testing.T) {
 func TestCache_Close(t *testing.T) {
 	c := NewCache(5 * time.Minute)
 	c.Set("k", "v")
-	c.Close() // goroutine 종료 — panic 없어야 함
-	// Close 후에도 기존 Get은 정상 동작
+	c.Close() // Stop the goroutine; this must not panic.
+	// Existing Get calls should still work after Close.
 	val, ok := c.Get("k")
 	if !ok || val != "v" {
 		t.Fatal("expected cache to still work after Close")
