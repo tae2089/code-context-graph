@@ -16,10 +16,10 @@ func TestMCPServer_ListTools(t *testing.T) {
 	srv := NewServer(deps)
 	tools := srv.ListTools()
 
-	expected := []string{
-		"parse_project",
-		"get_postprocess_policy",
-		"reset_postprocess_policy",
+		expected := []string{
+			"parse_project",
+			"get_postprocess_policy",
+			"reset_postprocess_policy",
 		"get_node",
 		"get_impact_radius",
 		"search",
@@ -35,9 +35,10 @@ func TestMCPServer_ListTools(t *testing.T) {
 		"list_flows",
 		"list_communities",
 		"get_community",
-		"get_architecture_overview",
-		"find_dead_code",
-		"build_rag_index",
+			"get_architecture_overview",
+			"find_dead_code",
+			"find_suspect_fallback_edges",
+			"build_rag_index",
 		"get_rag_tree",
 		"get_doc_content",
 		"search_docs",
@@ -79,8 +80,8 @@ func TestMCPServer_ListTools_18(t *testing.T) {
 	srv := NewServer(deps)
 	tools := srv.ListTools()
 
-	if len(tools) != 33 {
-		t.Fatalf("expected 33 tools, got %d", len(tools))
+	if len(tools) != 34 {
+		t.Fatalf("expected 34 tools, got %d", len(tools))
 	}
 }
 
@@ -185,6 +186,7 @@ func TestMCPServer_ToolRequiredFlags(t *testing.T) {
 		"get_community":         {"community_id"},
 		"get_architecture_overview": nil,
 		"find_dead_code":             nil,
+		"find_suspect_fallback_edges": nil,
 		"build_rag_index":            nil,
 		"get_rag_tree":               nil,
 		"get_doc_content":            {"file_path"},
