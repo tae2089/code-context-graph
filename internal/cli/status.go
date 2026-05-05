@@ -109,11 +109,17 @@ func newStatusCmd(deps *Deps) *cobra.Command {
 
 				callEdgeTotal := strictCalls + fallbackCalls
 				fallbackRatio := callFallbackRatio(strictCalls, fallbackCalls)
-				callHealth := callEdgeHealth(fallbackRatio, callEdgeTotal == 0)
-				fmt.Fprintln(out, "\nCall edge health:")
-				fmt.Fprintf(out, "  Strict call edges: %d\n", strictCalls)
-				fmt.Fprintf(out, "  Fallback call edges: %d (%.2f%%)\n", fallbackCalls, fallbackRatio*100)
-				fmt.Fprintf(out, "  Status: %s\n", callHealth)
+				fmt.Fprintln(out, "\nFallback call analysis:")
+				fmt.Fprintf(out, "  calls: %d\n", strictCalls)
+				fmt.Fprintf(out, "  fallback_calls: %d\n", fallbackCalls)
+				fmt.Fprintf(out, "  fallback_ratio: %.2f%%\n", fallbackRatio*100)
+				switch callFallbackWarning(fallbackRatio, callEdgeTotal == 0) {
+				case "warn":
+					fmt.Fprintln(out, "  Warning: fallback call ratio is elevated")
+					fmt.Fprintln(out, "  Review fallback edge quality before trusting high-confidence analysis")
+				case "watch":
+					fmt.Fprintln(out, "  Warning: fallback call ratio is elevated")
+				}
 			}
 
 			if err := printPostprocessStatus(ctx, out, deps.DB, ctxns.FromContext(ctx), recentLimit, showErrors); err != nil {
@@ -186,7 +192,7 @@ func callFallbackRatio(strictCalls, fallbackCalls int64) float64 {
 	return float64(fallbackCalls) / float64(total)
 }
 
-func callEdgeHealth(ratio float64, noCalls bool) string {
+func callFallbackWarning(ratio float64, noCalls bool) string {
 	if noCalls || math.Abs(ratio) < 1e-12 {
 		return "ok"
 	}

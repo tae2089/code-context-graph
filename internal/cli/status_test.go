@@ -72,8 +72,8 @@ func S() {}
 	if !strings.Contains(out, "Files:") {
 		t.Fatalf("expected 'Files:' in output, got: %s", out)
 	}
-	if !strings.Contains(out, "Call edge health:") {
-		t.Fatalf("expected 'Call edge health:' in output, got: %s", out)
+	if !strings.Contains(out, "Fallback call analysis:") {
+		t.Fatalf("expected 'Fallback call analysis:' in output, got: %s", out)
 	}
 }
 
@@ -126,7 +126,7 @@ func TestStatusCommand_EmptyDB(t *testing.T) {
 	}
 }
 
-func TestStatusCommand_ShowsCallFallbackHealth(t *testing.T) {
+func TestStatusCommand_ShowsFallbackCallRatio(t *testing.T) {
 	deps, stdout, stderr, db := setupStatusTest(t)
 
 	from := model.Node{
@@ -209,17 +209,90 @@ func TestStatusCommand_ShowsCallFallbackHealth(t *testing.T) {
 	}
 
 	out := stdout.String()
-	if !strings.Contains(out, "Call edge health:") {
-		t.Fatalf("expected 'Call edge health:' in output, got: %s", out)
+	if !strings.Contains(out, "Fallback call analysis:") {
+		t.Fatalf("expected 'Fallback call analysis:' in output, got: %s", out)
 	}
-	if !strings.Contains(out, "Strict call edges: 3") {
-		t.Fatalf("expected 3 strict call edges in output, got: %s", out)
+	if !strings.Contains(out, "calls: 3") {
+		t.Fatalf("expected calls: 3 in output, got: %s", out)
 	}
-	if !strings.Contains(out, "Fallback call edges: 1") {
-		t.Fatalf("expected 1 fallback call edge in output, got: %s", out)
+	if !strings.Contains(out, "fallback_calls: 1") {
+		t.Fatalf("expected fallback_calls: 1 in output, got: %s", out)
 	}
-	if !strings.Contains(out, "Status: warn") {
-		t.Fatalf("expected warning status in output, got: %s", out)
+	if !strings.Contains(out, "fallback_ratio: 25.00%") {
+		t.Fatalf("expected fallback_ratio: 25.00%% in output, got: %s", out)
+	}
+}
+
+func TestStatusCommand_WarnsOnElevatedFallbackRatio(t *testing.T) {
+	deps, stdout, stderr, db := setupStatusTest(t)
+
+	from := model.Node{
+		Namespace:     ctxns.DefaultNamespace,
+		QualifiedName: "default.FromWarn",
+		Kind:          model.NodeKindFunction,
+		Name:          "FromWarn",
+		FilePath:      "from_warn.go",
+		StartLine:     1,
+		EndLine:       2,
+		Language:      "go",
+	}
+	to := model.Node{
+		Namespace:     ctxns.DefaultNamespace,
+		QualifiedName: "default.ToWarn",
+		Kind:          model.NodeKindFunction,
+		Name:          "ToWarn",
+		FilePath:      "to_warn.go",
+		StartLine:     1,
+		EndLine:       2,
+		Language:      "go",
+	}
+	if err := db.Create(&from).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&to).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 4; i++ {
+		edge := model.Edge{
+			Namespace:   ctxns.DefaultNamespace,
+			FromNodeID:  from.ID,
+			ToNodeID:    to.ID,
+			Kind:        model.EdgeKindCalls,
+			FilePath:    "from_warn.go",
+			Line:        i + 1,
+			Fingerprint: "calls:warn:" + string(rune('a'+i)),
+		}
+		if err := db.Create(&edge).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	fallbackEdge := model.Edge{
+		Namespace:   ctxns.DefaultNamespace,
+		FromNodeID:  from.ID,
+		ToNodeID:    to.ID,
+		Kind:        model.EdgeKindFallbackCalls,
+		FilePath:    "from_warn.go",
+		Line:        20,
+		Fingerprint: "fallback_calls:warn:20",
+	}
+	if err := db.Create(&fallbackEdge).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+
+	if err := executeCmd(deps, stdout, stderr, "status"); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "Warning: fallback call ratio is elevated") {
+		t.Fatalf("expected elevated fallback ratio warning, got: %s", out)
+	}
+	if !strings.Contains(out, "Review fallback edge quality before trusting high-confidence analysis") {
+		t.Fatalf("expected high-ratio warning guidance, got: %s", out)
 	}
 }
 
