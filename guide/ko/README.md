@@ -4,6 +4,8 @@
 
 code-context-graph의 문서 인덱스입니다. 한국어 문서는 영어 가이드를 미러링하며, 코드 및 CLI 식별자는 원문 그대로 유지합니다.
 
+CCG는 GPT, Claude, Codex 같은 LLM 기반 코딩 에이전트가 개발 중 코드베이스 맥락을 정확하고 작게 가져오도록 만든 로컬/셀프호스트 context infrastructure입니다. 일반 SaaS 관리자용 제품이 아니라, CLI, MCP, 로그, 문서를 이해하는 개발자와 코딩 에이전트가 코드 검색, 영향 분석, 호출 그래프, 문서/RAG, bounded response를 활용하도록 설계되었습니다.
+
 | 문서 | 설명 |
 |------|------|
 | [CLI 레퍼런스](cli-reference.md) | 모든 CLI 명령어, 옵션 및 설정 파일(`.ccg.yaml`) 안내 |

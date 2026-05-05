@@ -2,6 +2,10 @@
 
 Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 12 languages, 33 MCP tools, and custom annotation search.
 
+CCG is built primarily for GPT, Claude, Codex, and other LLM-based coding agents. It acts as local or self-hosted context infrastructure: agents can search code by intent, inspect call graphs, trace impact, retrieve docs, and keep responses bounded instead of reading entire repositories into context.
+
+This is a developer-operated tool, not a general SaaS admin product. The expected users are coding agents and developers who can run CLI commands, configure MCP, read logs, and use the generated graph/docs to guide code changes.
+
 Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) — a Python-based code analysis tool. This project reimplements and extends the concept in Go with multi-DB support, custom annotation system, and MCP integration for AI-powered code understanding.
 
 ## Features
