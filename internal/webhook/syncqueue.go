@@ -15,7 +15,10 @@ import (
 	"github.com/tae2089/code-context-graph/internal/obs"
 )
 
-var ErrSyncQueueFull = errors.New("sync queue full")
+var (
+	ErrSyncQueueFull         = errors.New("sync queue full")
+	ErrSyncQueueShuttingDown = errors.New("sync queue shutting down")
+)
 
 // @intent mark sync failures that should stop retry backoff immediately.
 type nonRetryableError struct {
@@ -98,6 +101,7 @@ type SyncQueue struct {
 	ctx             context.Context
 	handler         SyncHandlerFunc
 	retryConfig     RetryConfig
+	shutdownTimeout time.Duration
 	maxTrackedRepos int
 	mu              sync.Mutex
 	queue           []string
@@ -164,6 +168,7 @@ func NewSyncQueueWithContext(ctx context.Context, workers int, handler SyncHandl
 // @intent configure queue retry policy and memory bounds when constructing a SyncQueue.
 type QueueConfig struct {
 	RetryConfig
+	ShutdownTimeout time.Duration
 	MaxTrackedRepos int
 }
 
@@ -179,13 +184,16 @@ func NewSyncQueueWithOptions(ctx context.Context, workers int, handler SyncHandl
 // @intent coalesce bursty webhook pushes per repository while still allowing different repos to sync concurrently.
 // @param cfg controls retry behavior and how many repositories may be tracked at once.
 // @sideEffect starts worker goroutines and allocates queue state maps.
-// @ensures non-positive MaxAttempts becomes 1 and non-positive MaxTrackedRepos becomes 1024.
+// @ensures non-positive MaxAttempts becomes 1, non-positive ShutdownTimeout becomes 30s, and non-positive MaxTrackedRepos becomes 1024.
 func NewSyncQueueWithConfig(ctx context.Context, workers int, handler SyncHandlerFunc, cfg QueueConfig) *SyncQueue {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if cfg.MaxAttempts <= 0 {
 		cfg.MaxAttempts = 1
+	}
+	if cfg.ShutdownTimeout <= 0 {
+		cfg.ShutdownTimeout = 30 * time.Second
 	}
 	if cfg.MaxTrackedRepos <= 0 {
 		cfg.MaxTrackedRepos = 1024
@@ -194,6 +202,7 @@ func NewSyncQueueWithConfig(ctx context.Context, workers int, handler SyncHandle
 		ctx:             ctx,
 		handler:         handler,
 		retryConfig:     cfg.RetryConfig,
+		shutdownTimeout: cfg.ShutdownTimeout,
 		maxTrackedRepos: cfg.MaxTrackedRepos,
 		dirty:           make(map[string]bool),
 		processing:      make(map[string]bool),
@@ -216,7 +225,7 @@ func NewSyncQueueWithConfig(ctx context.Context, workers int, handler SyncHandle
 // @intent collapse repeated push events into one queued sync while preserving the newest branch and clone data.
 // @mutates SyncQueue.queue, SyncQueue.dirty, SyncQueue.payloads.
 // @param repoFullName identifies the deduplication key for queueing.
-// @return returns ErrSyncQueueFull when a new repository would exceed the bounded tracked-repo set.
+// @return returns ErrSyncQueueFull when a new repository would exceed the bounded tracked-repo set and ErrSyncQueueShuttingDown after graceful shutdown begins.
 // @domainRule repeated events for the same repository replace payload data instead of enqueueing duplicate work.
 func (q *SyncQueue) Add(ctx context.Context, repoFullName, cloneURL, branch string) error {
 	if ctx != nil {
@@ -230,7 +239,7 @@ func (q *SyncQueue) Add(ctx context.Context, repoFullName, cloneURL, branch stri
 	defer q.mu.Unlock()
 
 	if q.shutdown {
-		return nil
+		return ErrSyncQueueShuttingDown
 	}
 
 	if ctx == nil {
@@ -240,7 +249,7 @@ func (q *SyncQueue) Add(ctx context.Context, repoFullName, cloneURL, branch stri
 		q.queueFullTotal++
 		return ErrSyncQueueFull
 	}
-	q.payloads[repoFullName] = syncPayload{ctx: ctx, repoFullName: repoFullName, cloneURL: cloneURL, branch: branch}
+	q.payloads[repoFullName] = syncPayload{ctx: context.WithoutCancel(ctx), repoFullName: repoFullName, cloneURL: cloneURL, branch: branch}
 
 	now := time.Now()
 	if q.dirty[repoFullName] {
@@ -279,9 +288,10 @@ func (q *SyncQueue) Shutdown() {
 
 	select {
 	case <-done:
-	case <-time.After(30 * time.Second):
-		slog.Error("sync queue shutdown timed out after 30s, abandoning workers")
-		q.recordFailure("shutdown", "", errors.New("sync queue shutdown timed out after 30s"))
+	case <-time.After(q.shutdownTimeout):
+		err := fmt.Errorf("sync queue shutdown timed out after %s", q.shutdownTimeout)
+		slog.Error(err.Error())
+		q.recordFailure("shutdown", "", err)
 	}
 }
 

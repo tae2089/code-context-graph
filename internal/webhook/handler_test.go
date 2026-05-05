@@ -517,6 +517,31 @@ func TestWebhookHandler_ReturnsTooManyRequestsWhenSyncQueueFull(t *testing.T) {
 	}
 }
 
+func TestWebhookHandler_ReturnsServiceUnavailableWhenSyncQueueShuttingDown(t *testing.T) {
+	secret := []byte("test-secret")
+	al := NewRepoFilter([]string{"org/*"})
+	h := NewWebhookHandlerWithConfig(WebhookHandlerConfig{
+		Secret:        secret,
+		Filter:        al,
+		CloneBaseURLs: []string{"https://github.com"},
+		OnSync: func(context.Context, string, string, string) error {
+			return ErrSyncQueueShuttingDown
+		},
+	})
+
+	payload := makePushEvent("refs/heads/main", "org/svc", "https://github.com/org/svc.git")
+	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(payload))
+	req.Header.Set("X-Hub-Signature-256", signPayload(secret, payload))
+	req.Header.Set("X-GitHub-Event", "push")
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
+	}
+}
+
 func TestWebhookHandler_PropagatesTraceparentToSyncContext(t *testing.T) {
 	secret := []byte("test-secret")
 	al := NewRepoFilter([]string{"org/*"})

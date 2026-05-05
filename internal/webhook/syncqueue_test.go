@@ -405,12 +405,15 @@ func TestSyncQueue_AddHonorsPerCallContextCancel(t *testing.T) {
 	}
 }
 
-func TestSyncQueue_AddPerCallTimeoutPropagates(t *testing.T) {
+func TestSyncQueue_AddDetachesPerCallTimeoutAfterEnqueue(t *testing.T) {
+	handlerStarted := make(chan struct{}, 1)
 	handlerDone := make(chan error, 1)
+	release := make(chan struct{})
 	handler := func(ctx context.Context, repoFullName, cloneURL, branch string) error {
-		<-ctx.Done()
+		handlerStarted <- struct{}{}
+		<-release
 		handlerDone <- ctx.Err()
-		return ctx.Err()
+		return nil
 	}
 
 	q := NewSyncQueue(1, handler)
@@ -418,15 +421,26 @@ func TestSyncQueue_AddPerCallTimeoutPropagates(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	q.Add(ctx, "org/svc", "url", "main")
+	if err := q.Add(ctx, "org/svc", "url", "main"); err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+
+	select {
+	case <-handlerStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for handler start")
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	close(release)
 
 	select {
 	case err := <-handlerDone:
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("expected deadline exceeded, got %v", err)
+		if err != nil {
+			t.Fatalf("expected detached handler context, got %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for handler")
+		t.Fatal("timed out waiting for handler completion")
 	}
 }
 
@@ -543,6 +557,54 @@ func TestSyncQueue_AddAllowsExistingRepoUpdateWhenAtCapacity(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for second handler call")
+	}
+}
+
+func TestSyncQueue_AddRejectsAfterShutdownStarts(t *testing.T) {
+	q := NewSyncQueueWithConfig(context.Background(), 0, func(context.Context, string, string, string) error {
+		return nil
+	}, QueueConfig{
+		RetryConfig:     RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		ShutdownTimeout: time.Second,
+		MaxTrackedRepos: 1,
+	})
+	defer q.Shutdown()
+
+	q.Shutdown()
+
+	err := q.Add(context.Background(), "org/svc", "url", "main")
+	if !errors.Is(err, ErrSyncQueueShuttingDown) {
+		t.Fatalf("Add error = %v, want %v", err, ErrSyncQueueShuttingDown)
+	}
+}
+
+func TestSyncQueue_ShutdownUsesConfiguredTimeout(t *testing.T) {
+	release := make(chan struct{})
+	q := NewSyncQueueWithConfig(context.Background(), 1, func(context.Context, string, string, string) error {
+		<-release
+		return nil
+	}, QueueConfig{
+		RetryConfig:     RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		ShutdownTimeout: 30 * time.Millisecond,
+		MaxTrackedRepos: 1,
+	})
+
+	if err := q.Add(context.Background(), "org/svc", "url", "main"); err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	start := time.Now()
+	q.Shutdown()
+	elapsed := time.Since(start)
+	close(release)
+
+	if elapsed > 250*time.Millisecond {
+		t.Fatalf("Shutdown took %s, want close to configured timeout", elapsed)
+	}
+	stats := q.Stats()
+	if stats.FailureTotal == 0 {
+		t.Fatalf("expected shutdown timeout failure to be recorded, got %+v", stats)
 	}
 }
 
@@ -899,8 +961,9 @@ func TestSyncQueueStats_RecentRepos_IncludesQueuedAndProcessingBeforeFirstOutcom
 func TestSyncQueueStats_ReportsAgesAndLastSuccess(t *testing.T) {
 	release := make(chan struct{})
 	started := make(chan struct{})
+	var once sync.Once
 	q := NewSyncQueueWithConfig(context.Background(), 1, func(context.Context, string, string, string) error {
-		close(started)
+		once.Do(func() { close(started) })
 		<-release
 		return nil
 	}, QueueConfig{

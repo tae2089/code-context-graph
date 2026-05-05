@@ -161,6 +161,10 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "sync queue full", http.StatusTooManyRequests)
 			return
 		}
+		if err == ErrSyncQueueShuttingDown {
+			http.Error(w, "sync queue shutting down", http.StatusServiceUnavailable)
+			return
+		}
 		http.Error(w, "sync dispatch failed", http.StatusInternalServerError)
 		return
 	}
