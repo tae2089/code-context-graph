@@ -66,19 +66,39 @@ current machine-readable operational surfaces.
 |------|-------------|
 | `get_impact_radius` | BFS blast-radius analysis |
 | `trace_flow` | Call-chain flow tracing |
-| `find_large_functions` | Functions exceeding line threshold |
+| `find_large_functions` | Functions exceeding line threshold; supports `limit` |
 | `find_dead_code` | Unused code detection |
 | `detect_changes` | Git diff risk scoring |
 | `get_affected_flows` | Flows affected by changes |
-| `list_flows` | List all traced flows |
+| `list_flows` | List traced flows with `limit` / `offset` pagination |
 
 ### Community & Architecture
 
 | Tool | Description |
 |------|-------------|
-| `list_communities` | List module communities |
-| `get_community` | Community details + coverage |
-| `get_architecture_overview` | Architecture summary with coupling |
+| `list_communities` | List module communities with `limit` / `offset` pagination |
+| `get_community` | Community details + coverage; member listing supports `member_limit` / `member_offset` |
+| `get_architecture_overview` | Architecture summary with community and coupling pagination |
+
+### Pagination and Response Budgets
+
+Use paginated graph tools when a namespace may contain many flows,
+communities, members, or coupling pairs. Paginated responses include
+`has_more`; when it is true, call the same tool again with `next_offset`.
+
+| Tool | Pagination Parameters | Notes |
+|------|-----------------------|-------|
+| `query_graph` | `limit`, `offset` | Max `limit` is 500 |
+| `list_flows` | `limit`, `offset` | Response includes `pagination` |
+| `list_communities` | `limit`, `offset` | Response includes `pagination` |
+| `get_community` | `member_limit`, `member_offset` | Applies when `include_members=true`; response includes `members_pagination` |
+| `get_architecture_overview` | `community_limit`, `community_offset`, `coupling_limit`, `coupling_offset` | Response includes separate community and coupling pagination objects |
+
+Some analysis tools still return full result sets internally. On large
+namespaces, prefer scoped inputs before calling `find_dead_code`,
+`find_suspect_fallback_edges`, or broad MCP prompts. `find_large_functions`
+accepts `limit`, but it currently performs the line-threshold query before
+truncating the response.
 
 ### Annotation & Documentation
 

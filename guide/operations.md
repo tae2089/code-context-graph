@@ -58,6 +58,40 @@ Incremental updates rebuild only affected search documents and FTS rows. Full
 builds, explicit `run_postprocess`, and community rebuilds can still be
 namespace-wide, so namespace boundaries remain the main cost control.
 
+## MCP Response Budgets
+
+Large namespaces should be queried with explicit response budgets. The primary
+graph browsing tools expose pagination and return `has_more`; when it is true,
+repeat the same request with `next_offset`.
+
+Use these parameters as the default operating surface for agent-facing queries:
+
+| Tool | Budget Parameters |
+|------|-------------------|
+| `query_graph` | `limit`, `offset` |
+| `list_flows` | `limit`, `offset` |
+| `list_communities` | `limit`, `offset` |
+| `get_community` with `include_members=true` | `member_limit`, `member_offset` |
+| `get_architecture_overview` | `community_limit`, `community_offset`, `coupling_limit`, `coupling_offset` |
+
+The maximum accepted page size for the paginated graph tools is 500. Start with
+smaller pages, such as 50 or 100, when the caller is an LLM agent. This keeps
+responses inspectable and reduces context pollution.
+
+Known high-volume surfaces that should be scoped before use:
+
+- `find_dead_code` can return every unreferenced node in a namespace.
+- `find_suspect_fallback_edges` can return every suspect fallback edge.
+- `find_large_functions` accepts `limit`, but the current implementation still
+  finds all matching functions before truncating the response.
+- MCP prompts such as architecture and onboarding prompts summarize broad
+  project state and are best used after the graph has been scoped by namespace.
+
+For shared services, prefer path filters, namespace splitting, and paginated
+tools before broad analysis requests. Treat unexpectedly large tool responses
+as an operational signal that the namespace is too broad or the caller needs a
+narrower first question.
+
 ## Call Resolution Hygiene
 
 CCG currently has two call edge kinds:

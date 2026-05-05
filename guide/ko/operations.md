@@ -46,6 +46,37 @@
 
 증분 업데이트는 영향을 받는 검색 문서와 FTS 행만 재생성합니다. 전체 빌드, 명시적인 `run_postprocess` 및 커뮤니티 재생성은 여전히 네임스페이스 전체에 걸쳐 이루어질 수 있으므로, 네임스페이스 경계가 주요 비용 제어 수단으로 남습니다.
 
+## MCP 응답 예산 (MCP Response Budgets)
+
+큰 네임스페이스는 명시적인 응답 예산으로 조회해야 합니다. 주요 그래프 탐색
+도구는 페이지네이션을 제공하며 `has_more`를 반환합니다. `has_more`가
+`true`이면 같은 요청을 `next_offset`으로 다시 호출하십시오.
+
+에이전트 대상 쿼리에서는 다음 파라미터를 기본 운영 표면으로 사용하십시오:
+
+| 도구 | 예산 파라미터 |
+|------|-------------------|
+| `query_graph` | `limit`, `offset` |
+| `list_flows` | `limit`, `offset` |
+| `list_communities` | `limit`, `offset` |
+| `get_community` with `include_members=true` | `member_limit`, `member_offset` |
+| `get_architecture_overview` | `community_limit`, `community_offset`, `coupling_limit`, `coupling_offset` |
+
+페이지네이션 가능한 그래프 도구의 최대 페이지 크기는 500입니다. 호출자가 LLM
+에이전트라면 50 또는 100처럼 더 작은 페이지부터 시작하십시오. 이렇게 하면
+응답이 검토 가능해지고 컨텍스트 오염을 줄일 수 있습니다.
+
+사용 전에 범위를 좁혀야 하는 고용량 표면:
+
+- `find_dead_code`는 네임스페이스의 모든 미참조 노드를 반환할 수 있습니다.
+- `find_suspect_fallback_edges`는 모든 의심 fallback edge를 반환할 수 있습니다.
+- `find_large_functions`는 `limit`을 받지만 현재 구현은 모든 매칭 함수를 찾은 뒤 응답을 자릅니다.
+- architecture/onboarding 같은 MCP prompt는 넓은 프로젝트 상태를 요약하므로 네임스페이스로 그래프를 좁힌 뒤 사용하는 것이 좋습니다.
+
+공유 서비스에서는 광범위한 분석 요청보다 경로 필터, 네임스페이스 분리,
+페이지네이션 도구를 우선하십시오. 예상보다 큰 도구 응답은 네임스페이스가 너무
+넓거나 호출자가 더 좁은 첫 질문을 해야 한다는 운영 신호로 취급하십시오.
+
 ## 호출 해상도 오염 관리 (Call Resolution Hygiene)
 
 CCG는 호출 엣지를 다음처럼 구분해 저장합니다.

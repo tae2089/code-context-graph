@@ -61,6 +61,26 @@ ccg search --path internal/auth "login"  # Path-scoped
 
 For other tools, see `/ccg-analyze`, `/ccg-docs` skills.
 
+## Response Budget Rule
+
+For LLM-agent use, prefer bounded graph queries. Start with `limit=50` or
+`limit=100` and follow `has_more` / `next_offset` rather than asking for a bulk
+result first.
+
+Tools with explicit pagination:
+
+| Tool | Parameters |
+| ---- | ---------- |
+| `query_graph` | `limit`, `offset` |
+| `list_flows` | `limit`, `offset` |
+| `list_communities` | `limit`, `offset` |
+| `get_community` | `member_limit`, `member_offset` when `include_members=true` |
+| `get_architecture_overview` | `community_limit`, `community_offset`, `coupling_limit`, `coupling_offset` |
+
+High-volume analysis tools such as `find_dead_code`,
+`find_suspect_fallback_edges`, and broad architecture/onboarding prompts should
+be scoped by namespace, path, or a narrower first question before use.
+
 ## Trade-offs (verified)
 
 - **Search tasks** → ccg dominates (50–60% token reduction vs rg)

@@ -61,19 +61,39 @@ CCG는 아직 Prometheus `/metrics` 엔드포인트를 제공하지 않습니다
 |------|-------------|
 | `get_impact_radius` | BFS 영향 범위(blast-radius) 분석 |
 | `trace_flow` | 호출 체인 흐름 추적 |
-| `find_large_functions` | 라인 제한을 초과하는 함수 찾기 |
+| `find_large_functions` | 라인 제한을 초과하는 함수 찾기; `limit` 지원 |
 | `find_dead_code` | 사용되지 않는 코드 감지 |
 | `detect_changes` | Git diff 리스크 점수 계산 |
 | `get_affected_flows` | 변경 사항의 영향을 받는 흐름 확인 |
-| `list_flows` | 추적된 모든 흐름 목록 출력 |
+| `list_flows` | `limit` / `offset` 페이지네이션으로 추적된 흐름 목록 출력 |
 
 ### 커뮤니티 및 아키텍처 (Community & Architecture)
 
 | 도구 | 설명 |
 |------|-------------|
-| `list_communities` | 모듈 커뮤니티 목록 출력 |
-| `get_community` | 커뮤니티 상세 정보 및 커버리지 확인 |
-| `get_architecture_overview` | 결합도(coupling)를 포함한 아키텍처 요약 |
+| `list_communities` | `limit` / `offset` 페이지네이션으로 모듈 커뮤니티 목록 출력 |
+| `get_community` | 커뮤니티 상세 정보 및 커버리지 확인; 멤버 목록은 `member_limit` / `member_offset` 지원 |
+| `get_architecture_overview` | 커뮤니티와 결합도(coupling)를 각각 페이지네이션하는 아키텍처 요약 |
+
+### 페이지네이션 및 응답 예산
+
+네임스페이스에 흐름, 커뮤니티, 멤버, 결합도 쌍이 많을 수 있으면
+페이지네이션 가능한 그래프 도구를 사용하십시오. 페이지네이션 응답에는
+`has_more`가 포함되며, 값이 `true`이면 같은 도구를 `next_offset`으로 다시
+호출하십시오.
+
+| 도구 | 페이지네이션 파라미터 | 참고 |
+|------|-----------------------|-------|
+| `query_graph` | `limit`, `offset` | `limit` 최대값은 500 |
+| `list_flows` | `limit`, `offset` | 응답에 `pagination` 포함 |
+| `list_communities` | `limit`, `offset` | 응답에 `pagination` 포함 |
+| `get_community` | `member_limit`, `member_offset` | `include_members=true`일 때 적용되며 응답에 `members_pagination` 포함 |
+| `get_architecture_overview` | `community_limit`, `community_offset`, `coupling_limit`, `coupling_offset` | 커뮤니티와 결합도에 별도 페이지네이션 객체 포함 |
+
+일부 분석 도구는 아직 내부적으로 전체 결과를 조회합니다. 큰 네임스페이스에서는
+`find_dead_code`, `find_suspect_fallback_edges`, 또는 광범위한 MCP prompt를
+호출하기 전에 입력 범위를 좁히십시오. `find_large_functions`는 `limit`을
+받지만 현재는 라인 기준 쿼리를 수행한 뒤 응답을 자릅니다.
 
 ### 어노테이션 및 문서화 (Annotation & Documentation)
 
