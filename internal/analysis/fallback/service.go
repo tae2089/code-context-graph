@@ -1,3 +1,4 @@
+// @index Suspect fallback call-edge analysis based on overlapping annotation vocabulary between source and target nodes.
 package fallback
 
 import (
@@ -23,7 +24,7 @@ type SuspectEdge struct {
 	Suspect bool
 }
 
-// @intent bundle graph and annotation access needed to detect low-confidence fallback edges with weak semantic overlap.
+// @intent bundle graph DB and annotation-store access needed to detect low-confidence fallback edges.
 type Service struct {
 	db    *gorm.DB
 	store store.GraphStore
@@ -35,6 +36,11 @@ func New(db *gorm.DB, graphStore store.GraphStore) *Service {
 }
 
 // @intent report fallback call edges whose source and target annotations share no intent or domain-rule vocabulary.
+// @param ctx carries the namespace that ctxns.FromContext uses to scope analysis.
+// @param opts reserves room for future analysis options and is currently ignored.
+// @return returns suspect edges sorted by source qualified name and then target qualified name.
+// @domainRule exclude an edge from suspect results as soon as source and target share any intent/domainRule token.
+// @see mcp.handlers.findSuspectFallbackEdges
 func (s *Service) FindSuspects(ctx context.Context, opts Options) ([]SuspectEdge, error) {
 	_ = opts
 	ns := ctxns.FromContext(ctx)
@@ -80,7 +86,7 @@ func (s *Service) FindSuspects(ctx context.Context, opts Options) ([]SuspectEdge
 
 var tokenSplitter = regexp.MustCompile(`[^a-z0-9]+`)
 
-// @intent suppress suspect reports when source and target annotations already share meaningful intent/domain vocabulary.
+// @intent suppress suspect reports when source and target annotations already share meaningful intent or domain-rule vocabulary.
 func annotationsOverlap(source, target *model.Annotation) bool {
 	left := annotationTokens(source)
 	right := annotationTokens(target)
@@ -95,7 +101,9 @@ func annotationsOverlap(source, target *model.Annotation) bool {
 	return false
 }
 
-// @intent extract normalized intent/domainRule tokens so annotation overlap checks can ignore punctuation and casing.
+// @intent extract normalized intent/domainRule tokens so overlap checks can ignore punctuation and casing.
+// @domainRule compare only TagIntent and TagDomainRule categories.
+// @domainRule discard tokens shorter than three characters as noise.
 func annotationTokens(ann *model.Annotation) map[string]struct{} {
 	if ann == nil {
 		return nil
