@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"reflect"
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -86,7 +87,7 @@ func TestAnalyze_TwoCommunities(t *testing.T) {
 	seedNode(t, db, 2, "B1", "b/b.go")
 	seedCommunity(t, db, 1, "a", 1)
 	seedCommunity(t, db, 2, "b", 2)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		e := model.Edge{
 			FromNodeID:  1,
 			ToNodeID:    2,
@@ -135,10 +136,10 @@ func TestAnalyze_Strength(t *testing.T) {
 	seedCommunity(t, db, 1, "a", 1)
 	seedCommunity(t, db, 2, "b", 2)
 	seedCommunity(t, db, 3, "c", 3)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		db.Create(&model.Edge{FromNodeID: 1, ToNodeID: 2, Kind: model.EdgeKindCalls, Fingerprint: fmt.Sprintf("ab-%d", i)})
 	}
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		db.Create(&model.Edge{FromNodeID: 1, ToNodeID: 3, Kind: model.EdgeKindCalls, Fingerprint: fmt.Sprintf("ac-%d", i)})
 	}
 
@@ -166,10 +167,10 @@ func TestAnalyze_BidirectionalCounting(t *testing.T) {
 	seedNode(t, db, 2, "B1", "b/b.go")
 	seedCommunity(t, db, 1, "a", 1)
 	seedCommunity(t, db, 2, "b", 2)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		db.Create(&model.Edge{FromNodeID: 1, ToNodeID: 2, Kind: model.EdgeKindCalls, Fingerprint: fmt.Sprintf("ab-%d", i)})
 	}
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		db.Create(&model.Edge{FromNodeID: 2, ToNodeID: 1, Kind: model.EdgeKindCalls, Fingerprint: fmt.Sprintf("ba-%d", i)})
 	}
 
@@ -209,7 +210,7 @@ func TestAnalyze_NoCommunities(t *testing.T) {
 
 func seedCrossPair(t *testing.T, db *gorm.DB, fromNode, toNode uint, count int, tag string) {
 	t.Helper()
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if err := db.Create(&model.Edge{FromNodeID: fromNode, ToNodeID: toNode, Kind: model.EdgeKindCalls, Fingerprint: fmt.Sprintf("%s-%d", tag, i)}).Error; err != nil {
 			t.Fatalf("seed edge: %v", err)
 		}
@@ -252,6 +253,43 @@ func TestAnalyzePage_AppliesLimitOffsetAndHasMore(t *testing.T) {
 	}
 	if page2.Pagination.HasMore {
 		t.Fatalf("page2 has_more=true, want false")
+	}
+}
+
+func TestAnalyzePage_MatchesAnalyzeWindows(t *testing.T) {
+	db := setupDB(t)
+	for i := uint(1); i <= 5; i++ {
+		seedNode(t, db, i, fmt.Sprintf("N%d", i), fmt.Sprintf("c%d/c.go", i))
+		seedCommunity(t, db, i, fmt.Sprintf("c%d", i), i)
+	}
+	seedCrossPair(t, db, 1, 2, 9, "c1-c2")
+	seedCrossPair(t, db, 1, 3, 9, "c1-c3")
+	seedCrossPair(t, db, 2, 3, 6, "c2-c3")
+	seedCrossPair(t, db, 3, 4, 3, "c3-c4")
+	seedCrossPair(t, db, 4, 5, 3, "c4-c5")
+	seedCrossPair(t, db, 5, 1, 1, "c5-c1")
+
+	svc := New(db)
+	all, err := svc.Analyze(context.Background())
+	if err != nil {
+		t.Fatalf("analyze: %v", err)
+	}
+
+	windows := []paging.Request{
+		{Limit: 2, Offset: 0},
+		{Limit: 2, Offset: 2},
+		{Limit: 3, Offset: 3},
+	}
+	for _, window := range windows {
+		page, err := svc.AnalyzePage(context.Background(), window)
+		if err != nil {
+			t.Fatalf("AnalyzePage(%+v): %v", window, err)
+		}
+		end := min(window.Offset+window.Limit, len(all))
+		want := all[window.Offset:end]
+		if !reflect.DeepEqual(page.Items, want) {
+			t.Fatalf("AnalyzePage(%+v) items=%+v, want %+v", window, page.Items, want)
+		}
 	}
 }
 

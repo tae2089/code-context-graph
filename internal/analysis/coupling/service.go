@@ -118,34 +118,125 @@ func (s *Service) Analyze(ctx context.Context) ([]CouplingPair, error) {
 }
 
 // AnalyzePage returns one bounded page of coupling pairs.
-// @intent bound the response size for handlers while Analyze still aggregates the full coupling set before slicing.
-// @domainRule pagination limits returned items, but compute cost still scales with the full edge aggregation.
+// @intent bound handler response size and database aggregation work to one requested coupling window.
+// @domainRule strength uses the maximum cross-community edge count across all pairs, but returned pair rows are paged in SQL.
 // @domainRule pairs are sorted by descending strength, then descending edge count, then from/to community for stable pagination.
 func (s *Service) AnalyzePage(ctx context.Context, req paging.Request) (Result, error) {
 	normalized, err := paging.Normalize(req)
 	if err != nil {
 		return Result{}, err
 	}
-	all, err := s.Analyze(ctx)
+
+	maxCount, err := s.maxCrossCommunityEdgeCount(ctx)
 	if err != nil {
 		return Result{}, err
 	}
-	total := len(all)
-	if normalized.Offset >= total {
+	if maxCount == 0 {
 		return Result{Items: []CouplingPair{}, Pagination: paging.BuildPage(normalized, 0, false)}, nil
 	}
-	end := normalized.Offset + normalized.Limit + 1
-	if end > total {
-		end = total
+
+	rows, err := s.pageCrossCommunityRows(ctx, normalized)
+	if err != nil {
+		return Result{}, err
 	}
-	window := all[normalized.Offset:end]
-	hasMore := len(window) > normalized.Limit
+	hasMore := len(rows) > normalized.Limit
 	if hasMore {
-		window = window[:normalized.Limit]
+		rows = rows[:normalized.Limit]
 	}
-	out := make([]CouplingPair, len(window))
-	copy(out, window)
-	return Result{Items: out, Pagination: paging.BuildPage(normalized, len(out), hasMore)}, nil
+	items, err := s.couplingPairsFromRows(ctx, rows, maxCount)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Items: items, Pagination: paging.BuildPage(normalized, len(items), hasMore)}, nil
+}
+
+// maxCrossCommunityEdgeCount returns the normalization denominator for coupling strength.
+// @intent compute AnalyzePage strength without materializing every coupling pair.
+func (s *Service) maxCrossCommunityEdgeCount(ctx context.Context) (int64, error) {
+	ns := ctxns.FromContext(ctx)
+	var row struct {
+		EdgeCount int64
+	}
+	q := s.db.WithContext(ctx).
+		Model(&model.Edge{}).
+		Select("COUNT(*) as edge_count").
+		Joins("JOIN community_memberships cm1 ON cm1.node_id = edges.from_node_id").
+		Joins("JOIN community_memberships cm2 ON cm2.node_id = edges.to_node_id").
+		Joins("JOIN nodes n1 ON n1.id = edges.from_node_id").
+		Where("cm1.community_id != cm2.community_id").
+		Where("edges.namespace = ? AND n1.namespace = ?", ns, ns).
+		Group("cm1.community_id, cm2.community_id")
+	if err := s.db.WithContext(ctx).Table("(?) as pair_counts", q).
+		Select("COALESCE(MAX(edge_count), 0) as edge_count").
+		Scan(&row).Error; err != nil {
+		return 0, err
+	}
+	return row.EdgeCount, nil
+}
+
+// pageCrossCommunityRows returns one ordered page plus one sentinel row for has_more.
+// @intent push coupling pagination and deterministic ordering into SQL instead of slicing Analyze output.
+func (s *Service) pageCrossCommunityRows(ctx context.Context, req paging.Request) ([]pairRow, error) {
+	ns := ctxns.FromContext(ctx)
+	var rows []pairRow
+	err := s.db.WithContext(ctx).
+		Model(&model.Edge{}).
+		Select("cm1.community_id as from_comm_id, cm2.community_id as to_comm_id, COUNT(*) as edge_count").
+		Joins("JOIN community_memberships cm1 ON cm1.node_id = edges.from_node_id").
+		Joins("JOIN community_memberships cm2 ON cm2.node_id = edges.to_node_id").
+		Joins("JOIN nodes n1 ON n1.id = edges.from_node_id").
+		Joins("JOIN communities c1 ON c1.id = cm1.community_id").
+		Joins("JOIN communities c2 ON c2.id = cm2.community_id").
+		Where("cm1.community_id != cm2.community_id").
+		Where("edges.namespace = ? AND n1.namespace = ?", ns, ns).
+		Group("cm1.community_id, cm2.community_id, c1.key, c2.key").
+		Order("edge_count DESC").
+		Order("c1.key ASC").
+		Order("c2.key ASC").
+		Limit(req.Limit + 1).
+		Offset(req.Offset).
+		Scan(&rows).Error
+	return rows, err
+}
+
+// couplingPairsFromRows maps aggregated community IDs to response labels and normalized strengths.
+// @intent preserve Analyze response shape for SQL-paged coupling rows.
+func (s *Service) couplingPairsFromRows(ctx context.Context, rows []pairRow, maxCount int64) ([]CouplingPair, error) {
+	if len(rows) == 0 {
+		return []CouplingPair{}, nil
+	}
+	commIDs := make([]uint, 0, len(rows)*2)
+	seen := map[uint]struct{}{}
+	for _, r := range rows {
+		if _, ok := seen[r.FromCommID]; !ok {
+			commIDs = append(commIDs, r.FromCommID)
+			seen[r.FromCommID] = struct{}{}
+		}
+		if _, ok := seen[r.ToCommID]; !ok {
+			commIDs = append(commIDs, r.ToCommID)
+			seen[r.ToCommID] = struct{}{}
+		}
+	}
+
+	var communities []model.Community
+	if err := s.db.WithContext(ctx).Where("id IN ?", commIDs).Find(&communities).Error; err != nil {
+		return nil, err
+	}
+	commLabel := make(map[uint]string, len(communities))
+	for _, c := range communities {
+		commLabel[c.ID] = c.Key
+	}
+
+	items := make([]CouplingPair, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, CouplingPair{
+			FromCommunity: commLabel[r.FromCommID],
+			ToCommunity:   commLabel[r.ToCommID],
+			EdgeCount:     r.EdgeCount,
+			Strength:      float64(r.EdgeCount) / float64(maxCount),
+		})
+	}
+	return items, nil
 }
 
 // sortCouplingPairs orders pairs deterministically for stable pagination windows.
