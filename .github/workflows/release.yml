@@ -32,7 +32,7 @@ jobs:
           - os: windows-latest
             goos: windows
             goarch: amd64
-            artifact: ccg-windows-amd64.exe
+            artifact: ccg-windows-amd64
 
     runs-on: ${{ matrix.os }}
 
@@ -60,7 +60,13 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/}
           COMMIT=${GITHUB_SHA::7}
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          go build -tags "fts5" -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o ${{ matrix.artifact }} ./cmd/ccg/
+          BIN_EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            BIN_EXT=".exe"
+          fi
+          mkdir -p dist
+          go build -tags "fts5" -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o "dist/ccg${BIN_EXT}" ./cmd/ccg/
+          go build -tags "fts5" -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o "dist/ccg-server${BIN_EXT}" ./cmd/ccg-server/
 
       - name: Install UPX (Linux)
         if: runner.os == 'Linux'
@@ -77,17 +83,17 @@ jobs:
       - name: Compress binary with UPX
         continue-on-error: true
         shell: bash
-        run: upx --best --lzma ${{ matrix.artifact }}
+        run: upx --best --lzma dist/*
 
       - name: Compress (Unix)
         if: matrix.goos != 'windows'
         run: |
-          tar czf ${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
+          tar czf ${{ matrix.artifact }}.tar.gz -C dist ccg ccg-server
 
       - name: Compress (Windows)
         if: matrix.goos == 'windows'
         run: |
-          Compress-Archive -Path ${{ matrix.artifact }} -DestinationPath ccg-windows-amd64.zip
+          Compress-Archive -Path dist/* -DestinationPath ccg-windows-amd64.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

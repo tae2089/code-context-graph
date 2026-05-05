@@ -31,6 +31,9 @@ ccg docs --out docs  # Generate docs + default RAG index
 ccg serve            # Start MCP server (stdio)
 ```
 
+For remote or self-hosted MCP over Streamable HTTP, use `ccg-server` instead of
+`ccg serve`. Local `ccg serve` is stdio-only.
+
 For detailed flags, use `ccg <command> --help` or refer to MCP schema.
 
 ## ccg search Patterns

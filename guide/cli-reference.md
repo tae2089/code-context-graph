@@ -126,33 +126,42 @@ recovery.
 
 | Command | Description |
 |---------|-------------|
-| `ccg serve` | Start MCP server (stdio by default) |
-| `ccg serve --transport streamable-http` | Start MCP server over HTTP |
+| `ccg serve` | Start local MCP server over stdio |
 | `ccg serve --cache-ttl <dur>` | TTL for MCP serve session cache (default `5m`; use `0` or `--no-cache` to disable) |
 | `ccg serve --no-cache` | Disable the in-memory MCP serve session cache |
-| `ccg serve --http-addr 0.0.0.0:9090` | Custom HTTP listen address (default `127.0.0.1:8080`) |
-| `ccg serve --http-bearer-token <token>` | Require a bearer token for MCP HTTP requests on `/mcp` when set |
 | `ccg serve --otel-endpoint <url>` | Enable OTLP HTTP trace export to the given full endpoint URL (for example `http://collector:4318/v1/traces`); when unset, CCG still creates SDK spans locally but does not export them |
-| `ccg serve --insecure-http` | Allow non-loopback HTTP binding without a bearer token (testing only) |
-| `ccg serve --stateless` | Stateless session mode (multi-instance deployments) |
 | `ccg serve --namespace-root <dir>` | Root directory for file namespaces (default `workspaces`) |
 | `ccg serve --workspace-root <dir>` | Deprecated alias for `--namespace-root` |
-| `ccg serve --allow-repo <pat>` | Allowed repo patterns for webhook sync (e.g. `org/*`, `org/api:main,develop`) |
-| `ccg serve --webhook-secret <s>` | HMAC secret for webhook signature verification |
-| `ccg serve --insecure-webhook` | Allow unsigned webhook requests for local testing only |
-| `ccg serve --repo-clone-base-url <url>` | Canonical base URL used to reconstruct webhook clone targets (repeatable) |
-| `ccg serve --repo-root <dir>` | Root directory for cloned repositories |
-| `ccg serve --webhook-workers <n>` | Number of webhook sync workers (default `4`; SQLite webhook deployments default to `1` unless explicitly set) |
-| `ccg serve --webhook-max-tracked-repos <n>` | Maximum repositories tracked by the webhook sync queue (default `1024`) |
-| `ccg serve --webhook-attempt-timeout <dur>` | Timeout for one webhook sync attempt, covering clone/pull and graph update (default `15m`) |
-| `ccg serve --webhook-retry-attempts <n>` | Maximum webhook sync attempts per queued item (default `3`) |
-| `ccg serve --webhook-retry-base-delay <dur>` | Initial webhook retry delay (default `1s`) |
-| `ccg serve --webhook-retry-max-delay <dur>` | Maximum webhook retry delay (default `30s`) |
-| `ccg serve --webhook-fail-on-unreadable` | Fail webhook sync attempts when source files cannot be read instead of warning and skipping |
 | `ccg serve --max-file-bytes <bytes>` | Maximum bytes allowed per parsed source file (`0` disables the limit) |
 | `ccg serve --max-total-parsed-bytes <bytes>` | Maximum total bytes parsed across source files (`0` disables the limit) |
 
-Webhook-related serve flags can also be configured with matching environment
+HTTP MCP and webhook hosting now live in the dedicated `ccg-server` binary:
+
+| Command | Description |
+|---------|-------------|
+| `ccg-server --http-addr 0.0.0.0:9090` | Start the self-hosted HTTP server (default `127.0.0.1:8080`) |
+| `ccg-server --http-bearer-token <token>` | Require a bearer token for MCP HTTP requests on `/mcp` when set |
+| `ccg-server --otel-endpoint <url>` | Enable OTLP HTTP trace export |
+| `ccg-server --insecure-http` | Allow non-loopback HTTP binding without a bearer token (testing only) |
+| `ccg-server --stateless` | Stateless session mode (multi-instance deployments) |
+| `ccg-server --namespace-root <dir>` | Root directory for file namespaces (default `workspaces`) |
+| `ccg-server --workspace-root <dir>` | Deprecated alias for `--namespace-root` |
+| `ccg-server --allow-repo <pat>` | Allowed repo patterns for webhook sync (e.g. `org/*`, `org/api:main,develop`) |
+| `ccg-server --webhook-secret <s>` | HMAC secret for webhook signature verification |
+| `ccg-server --insecure-webhook` | Allow unsigned webhook requests for local testing only |
+| `ccg-server --repo-clone-base-url <url>` | Canonical base URL used to reconstruct webhook clone targets (repeatable) |
+| `ccg-server --repo-root <dir>` | Root directory for cloned repositories |
+| `ccg-server --webhook-workers <n>` | Number of webhook sync workers (default `4`; SQLite webhook deployments default to `1` unless explicitly set) |
+| `ccg-server --webhook-max-tracked-repos <n>` | Maximum repositories tracked by the webhook sync queue (default `1024`) |
+| `ccg-server --webhook-attempt-timeout <dur>` | Timeout for one webhook sync attempt, covering clone/pull and graph update (default `15m`) |
+| `ccg-server --webhook-retry-attempts <n>` | Maximum webhook sync attempts per queued item (default `3`) |
+| `ccg-server --webhook-retry-base-delay <dur>` | Initial webhook retry delay (default `1s`) |
+| `ccg-server --webhook-retry-max-delay <dur>` | Maximum webhook retry delay (default `30s`) |
+| `ccg-server --webhook-fail-on-unreadable` | Fail webhook sync attempts when source files cannot be read instead of warning and skipping |
+| `ccg-server --max-file-bytes <bytes>` | Maximum bytes allowed per parsed source file (`0` disables the limit) |
+| `ccg-server --max-total-parsed-bytes <bytes>` | Maximum total bytes parsed across source files (`0` disables the limit) |
+
+Webhook-related server flags can also be configured with matching environment
 variables where supported: `CCG_WEBHOOK_WORKERS`,
 `CCG_WEBHOOK_MAX_TRACKED_REPOS`, `CCG_WEBHOOK_ATTEMPT_TIMEOUT`,
 `CCG_WEBHOOK_RETRY_ATTEMPTS`, `CCG_WEBHOOK_RETRY_BASE_DELAY`,

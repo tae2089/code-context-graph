@@ -20,6 +20,8 @@ Codex or Claude Code can connect after configuring `.mcp.json`.
 
 ### Streamable HTTP (remote)
 
+Start the self-hosted server with `ccg-server`; clients connect to its `/mcp` endpoint.
+
 ```json
 {
   "mcpServers": {

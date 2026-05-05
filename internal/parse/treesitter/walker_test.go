@@ -330,8 +330,7 @@ func TestLanguageSemantics_DefaultsForUnimplementedLanguages(t *testing.T) {
 	tests := []struct {
 		name string
 		spec *LangSpec
-	}{
-	}
+	}{}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -844,10 +843,10 @@ var (
 	}
 }
 
-func TestParseGo_InterfaceAssertionsFromMainCommand(t *testing.T) {
-	src, err := os.ReadFile("../../../cmd/ccg/main.go")
+func TestParseGo_InterfaceAssertionsFromServerPackage(t *testing.T) {
+	src, err := os.ReadFile("../../../internal/server/assertions.go")
 	if err != nil {
-		t.Fatalf("read cmd main: %v", err)
+		t.Fatalf("read server assertions: %v", err)
 	}
 	ctx := WithImportPackages(context.Background(), map[string]string{
 		"github.com/tae2089/code-context-graph/internal/analysis/flows":  "flows",
@@ -856,15 +855,15 @@ func TestParseGo_InterfaceAssertionsFromMainCommand(t *testing.T) {
 		"github.com/tae2089/code-context-graph/internal/mcp":             "mcp",
 	})
 	w := NewWalker(GoSpec)
-	_, edges, err := w.ParseWithContext(ctx, "cmd/ccg/main.go", src)
+	_, edges, err := w.ParseWithContext(ctx, "internal/server/assertions.go", src)
 	if err != nil {
-		t.Fatalf("parse cmd main: %v", err)
+		t.Fatalf("parse server assertions: %v", err)
 	}
 	implEdges := filterEdgesByKind(edges, model.EdgeKindImplements)
 	wantFingerprints := []string{
-		"implements:cmd/ccg/main.go:impact.Analyzer:mcp.ImpactAnalyzer",
-		"implements:cmd/ccg/main.go:flows.Tracer:mcp.FlowTracer",
-		"implements:cmd/ccg/main.go:query.Service:mcp.QueryService",
+		"implements:internal/server/assertions.go:impact.Analyzer:mcp.ImpactAnalyzer",
+		"implements:internal/server/assertions.go:flows.Tracer:mcp.FlowTracer",
+		"implements:internal/server/assertions.go:query.Service:mcp.QueryService",
 	}
 	for _, want := range wantFingerprints {
 		found := false
@@ -875,7 +874,7 @@ func TestParseGo_InterfaceAssertionsFromMainCommand(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("expected fingerprint %q in cmd main assertion edges, got %#v", want, implEdges)
+			t.Errorf("expected fingerprint %q in server assertion edges, got %#v", want, implEdges)
 		}
 	}
 }

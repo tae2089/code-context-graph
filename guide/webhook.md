@@ -5,7 +5,7 @@ Receives push events from GitHub or Gitea and automatically performs clone/pull 
 ## Setup
 
 ```bash
-ccg serve --transport streamable-http \
+ccg-server \
   --allow-repo "org/api:main,develop" \
   --allow-repo "org/web:main" \
   --webhook-secret "your-secret" \
@@ -16,7 +16,7 @@ ccg serve --transport streamable-http \
 For local testing only, you can explicitly opt into insecure mode instead of HMAC verification and canonical clone URL reconstruction:
 
 ```bash
-ccg serve --transport streamable-http \
+ccg-server \
   --allow-repo "org/*" \
   --insecure-webhook \
   --repo-root /data/repos

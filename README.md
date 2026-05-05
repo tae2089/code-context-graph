@@ -29,16 +29,20 @@ npm install -g code-context-graph
 bun install -g code-context-graph
 ```
 
+The npm package installs both `ccg` and `ccg-server`.
+
 ### go install
 
 ```bash
 go install github.com/tae2089/code-context-graph/cmd/ccg@latest
+go install github.com/tae2089/code-context-graph/cmd/ccg-server@latest
 ```
 
 ### Build from source
 
 ```bash
 CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/
+CGO_ENABLED=1 go build -tags "fts5" -o ccg-server ./cmd/ccg-server/
 
 # Or use Makefile (injects version from git tag automatically)
 make build
@@ -177,7 +181,7 @@ trace_flow(qualified_name: "webhook.WebhookHandler.ServeHTTP")
 ```
 search(query: "authentication")
 → internal/webhook/handler.go  (HMAC signature validation)
-→ cmd/ccg/main.go              (--webhook-secret flag)
+→ cmd/ccg-server/main.go       (--webhook-secret flag)
 ```
 
 ## MCP Server
@@ -196,6 +200,8 @@ Add `.mcp.json` to your project:
 ```
 
 For remote HTTP mode:
+
+Run the self-hosted server with `ccg-server` and connect to `/mcp`:
 
 ```json
 {
@@ -220,14 +226,11 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
                                         ↓
                                    FTS Search
                                         ↓
-                              MCP Server (35 tools)
-                                    ↓         ↓
-                              stdio       Streamable HTTP
-                                ↓              ↓
-                         Coding Agents    Remote Clients
-                                               ↑
-                                GitHub / Gitea Webhook
-                                    push → clone → build → DB
+                         ccg serve          ccg-server
+                         stdio MCP       Streamable HTTP
+                            ↓             ↓          ↑
+                     Coding Agents   Remote Clients  GitHub / Gitea Webhook
+                                             push → clone → build → DB
 ```
 
 See [Architecture Details](guide/architecture.md) for component breakdown and DB schema.
@@ -246,6 +249,7 @@ See [Architecture Details](guide/architecture.md) for component breakdown and DB
 | [Docker](guide/docker.md) | Docker build, MCP server, PostgreSQL deployment |
 | [Operations](guide/operations.md) | Deployment profiles, database choice, readiness, webhook operations |
 | [Postprocess Failure Policy](guide/postprocess-failure-policy.md) | Status rules, failure causes, and automatic degraded/fail_closed policy for build and postprocess tools |
+| [Runtime Layout](guide/runtime-layout.md) | `ccg`, `ccg-server`, and shared `ccg-core` ownership boundaries |
 | [Development](guide/development.md) | Dev guide, integration test, project structure |
 | [Namespace Migration](guide/namespace-migration.md) | Default namespace change and migration guide |
 | [Architecture](guide/architecture.md) | Data flow, components, DB schema |

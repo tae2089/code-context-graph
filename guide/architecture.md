@@ -9,14 +9,11 @@ Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
                                         ↓
                                    FTS Search
                                         ↓
-                              MCP Server (35 tools)
-                                    ↓         ↓
-                              stdio       Streamable HTTP
-                                ↓              ↓
-                         Coding Agents    Remote Clients
-                                               ↑
-                                GitHub / Gitea Webhook
-                                    push → clone → build → DB
+                         ccg serve          ccg-server
+                         stdio MCP       Streamable HTTP
+                            ↓             ↓          ↑
+                     Coding Agents   Remote Clients  GitHub / Gitea Webhook
+                                             push → clone → build → DB
 ```
 
 ## Components
@@ -77,7 +74,22 @@ Golden corpus-based parser accuracy and search quality evaluation framework.
 
 ### MCP Server (`internal/mcp/`)
 
-Exposes 35 tools via MCP protocol. Supports two transport modes: stdio and Streamable HTTP.
+Exposes 35 tools via MCP protocol. The local `ccg serve` command exposes these
+tools over stdio. The self-hosted `ccg-server` binary exposes the same tool
+surface over Streamable HTTP and adds health/status/webhook endpoints.
+
+### Runtime Layout
+
+CCG has separate runtime entry points for local and self-hosted use:
+
+| Runtime | Code | Responsibility |
+|---------|------|----------------|
+| `ccg` | `cmd/ccg`, `internal/cli` | Local CLI commands and stdio MCP |
+| `ccg-server` | `cmd/ccg-server`, `internal/server` | Streamable HTTP MCP, health/status endpoints, webhook sync |
+| `ccg-core` | `internal/core` | Shared parser, DB, store, search, migration, and incremental-sync wiring |
+
+See [Runtime Layout](runtime-layout.md) for ownership boundaries and migration
+notes from `ccg serve --transport streamable-http` to `ccg-server`.
 
 ### Reliability
 

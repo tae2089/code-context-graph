@@ -1,7 +1,6 @@
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE     ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-PKG       = github.com/tae2089/code-context-graph/cmd/ccg
 BASE_LDFLAGS = -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 LDFLAGS      = -s -w $(BASE_LDFLAGS)
 
@@ -11,15 +10,17 @@ build: release
 
 release:
 	CGO_ENABLED=1 go build -tags "fts5" -ldflags '$(LDFLAGS)' -o ccg ./cmd/ccg/
+	CGO_ENABLED=1 go build -tags "fts5" -ldflags '$(LDFLAGS)' -o ccg-server ./cmd/ccg-server/
 
 build-debug:
 	CGO_ENABLED=1 go build -tags "fts5" -ldflags '$(BASE_LDFLAGS)' -o ccg ./cmd/ccg/
+	CGO_ENABLED=1 go build -tags "fts5" -ldflags '$(BASE_LDFLAGS)' -o ccg-server ./cmd/ccg-server/
 
 build-json:
 	CGO_ENABLED=1 go build -json -tags "fts5" ./... > build-results.json
 
 install:
-	CGO_ENABLED=1 go install -tags "fts5" -ldflags '$(LDFLAGS)' ./cmd/ccg/
+	CGO_ENABLED=1 go install -tags "fts5" -ldflags '$(LDFLAGS)' ./cmd/ccg/ ./cmd/ccg-server/
 
 vet:
 	go vet ./...
@@ -32,4 +33,4 @@ test-integration-helpers:
 	bash ./scripts/integration-test-helpers_test.sh
 
 clean:
-	rm -f ccg
+	rm -f ccg ccg-server

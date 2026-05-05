@@ -149,8 +149,8 @@ The Streamable HTTP MCP endpoint should be protected with
 `--http-bearer-token` or `CCG_HTTP_BEARER_TOKEN` whenever it is externally
 reachable.
 
-By default, `ccg serve --transport streamable-http` listens on
-`127.0.0.1:8080`. Binding to a non-loopback address requires either
+By default, `ccg-server` listens on `127.0.0.1:8080`. Binding to a
+non-loopback address requires either
 `--http-bearer-token` or the explicit testing escape hatch `--insecure-http`.
 Bearer token protection applies to `/mcp` only; `/health`, `/ready`, `/status`,
 and `/webhook` still need network-level exposure control.

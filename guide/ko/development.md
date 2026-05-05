@@ -6,14 +6,15 @@
 
 ```bash
 CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/
+CGO_ENABLED=1 go build -tags "fts5" -o ccg-server ./cmd/ccg-server/
 ```
 
 Makefile 단축 명령어:
 
 ```bash
-make build        # 기본 로컬 stripped 빌드 (make release와 동일)
+make build        # stripped ccg 및 ccg-server 바이너리 빌드 (make release와 동일)
 make release      # 버전/커밋/날짜 정보가 포함된 stripped 빌드
-make build-debug  # 버전/커밋/날짜 정보가 포함된 unstripped 빌드
+make build-debug  # 버전/커밋/날짜 정보가 포함된 unstripped ccg 및 ccg-server 바이너리 빌드
 ```
 
 ## 테스트 (Test)
@@ -98,12 +99,14 @@ docker compose -f docker-compose.integration.yml down -v
 ## 프로젝트 구조 (Project Structure)
 
 ```
-cmd/ccg/              — CLI 진입점 (cobra)
+cmd/ccg/              — 로컬 CLI 진입점 (cobra, stdio MCP)
+cmd/ccg-server/       — 셀프호스트 HTTP MCP/웹훅 서버 진입점
 internal/
   analysis/           — 분석 엔진 (impact, flows, deadcode, community 등)
   annotation/         — 어노테이션 파서
   benchmark/          — 토큰 감소 벤치마크 (일반 vs 그래프, 재현율 측정)
   cli/                — CLI 명령어 정의
+  core/               — parser, DB, store, search, sync 공용 런타임 wiring
   ctxns/              — 컨텍스트 네임스페이스
   docs/               — 문서 생성 로직
   eval/               — 파서/검색 품질 평가 (골든 코퍼스, P/R/F1, P@K, MRR, nDCG)
@@ -112,6 +115,7 @@ internal/
   parse/treesitter/   — Tree-sitter 파서 (Lua/Luau 포함 12개 언어)
   pathutil/           — 경로 유틸리티
   ragindex/           — RAG 인덱스
+  server/             — HTTP MCP 서버, health/status 엔드포인트, 웹훅 런타임
   service/            — 비즈니스 로직
   store/              — GORM 저장소
   webhook/            — 웹훅 핸들러, SyncQueue, RepoFilter

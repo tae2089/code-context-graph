@@ -18,8 +18,10 @@ The ccg MCP server registered in `.mcp.json` provides 35 tools:
 - `upload_file`, `upload_files`, `list_namespaces`, `list_files`, `delete_file`, `delete_namespace`
 - `list_workspaces`, `delete_workspace` (deprecated aliases)
 
-In HTTP mode (`--transport streamable-http`), it also provides `/health` and `/webhook` endpoints.
-Webhooks are enabled when allowed repositories are configured with the `--allow-repo` flag.
+`ccg serve` is the local stdio MCP entry point. Self-hosted HTTP mode is provided by
+the separate `ccg-server` binary, which serves `/mcp`, `/health`, `/ready`, `/status`,
+and `/webhook`.
+Webhooks are enabled in `ccg-server` when allowed repositories are configured with the `--allow-repo` flag.
 Per-repository branch filtering: `--allow-repo "org/api:main,develop"` (glob patterns; defaults to main/master when omitted).
 Compatible with GitHub (`X-Hub-Signature-256`) and Gitea (`X-Gitea-Signature`, `X-Gitea-Event`).
 Push event pipeline: receive push event -> automatic clone/pull -> graph build -> DB persistence.
@@ -41,6 +43,8 @@ can use them as slash-command style workflows.
 Main commands:
 
 - `ccg build [dir]` - build the code graph (supports `--exclude`, `--no-recursive`)
+- `ccg serve` - start the local MCP server over stdio
+- `ccg-server` - start the self-hosted HTTP MCP/webhook server
 - `ccg docs [--out dir]` - generate Markdown documentation and the default RAG index
 - `ccg rag-index [--out dir]` - build a RAG index from precomputed communities and generated docs
 - `ccg search <query>` - full-text search (includes annotations)
@@ -71,6 +75,7 @@ See the `guide/` directory for detailed documentation:
 - [Webhook](guide/webhook.md) - webhook sync, branch filtering, HMAC, graceful shutdown
 - [Docker](guide/docker.md) - Docker builds, MCP server, PostgreSQL deployment
 - [Development](guide/development.md) - development guide, integration tests, project structure
+- [Runtime Layout](guide/runtime-layout.md) - `ccg`, `ccg-server`, and shared `ccg-core` ownership boundaries
 - [Architecture](guide/architecture.md) - data flow, components, DB schema
 
 ## Development Rules

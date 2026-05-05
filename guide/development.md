@@ -4,14 +4,15 @@
 
 ```bash
 CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/
+CGO_ENABLED=1 go build -tags "fts5" -o ccg-server ./cmd/ccg-server/
 ```
 
 Makefile shortcuts:
 
 ```bash
-make build        # default local stripped build (same as make release)
+make build        # build stripped ccg and ccg-server binaries (same as make release)
 make release      # stripped build with embedded version/commit/date
-make build-debug  # unstripped build with embedded version/commit/date
+make build-debug  # unstripped ccg and ccg-server binaries with embedded version/commit/date
 ```
 
 ## Test
@@ -96,12 +97,14 @@ docker compose -f docker-compose.integration.yml down -v
 ## Project Structure
 
 ```
-cmd/ccg/              — CLI entry point (cobra)
+cmd/ccg/              — Local CLI entry point (cobra, stdio MCP)
+cmd/ccg-server/       — Self-hosted HTTP MCP/webhook server entry point
 internal/
   analysis/           — Analysis engine (impact, flows, deadcode, community, ...)
   annotation/         — Annotation parser
   benchmark/          — Token reduction benchmark (naive vs graph, recall measurement)
   cli/                — CLI command definitions
+  core/               — Shared runtime wiring for parsers, DB, store, search, sync
   ctxns/              — Context namespace
   docs/               — Documentation generation
   eval/               — Parser/search quality evaluation (golden corpus, P/R/F1, P@K, MRR, nDCG)
@@ -110,6 +113,7 @@ internal/
   parse/treesitter/   — Tree-sitter parser (12 languages, including Lua/Luau)
   pathutil/           — Path utilities
   ragindex/           — RAG index
+  server/             — HTTP MCP server, health/status endpoints, webhook runtime
   service/            — Business logic
   store/              — GORM store
   webhook/            — Webhook handler, SyncQueue, RepoFilter

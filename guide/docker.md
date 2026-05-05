@@ -18,7 +18,7 @@ export CCG_HTTP_BEARER_TOKEN=replace-with-a-long-random-token
 docker run -d -p 8080:8080 \
   -e CCG_HTTP_BEARER_TOKEN="$CCG_HTTP_BEARER_TOKEN" \
   -v $(pwd):/workspace --entrypoint sh ccg \
-  -c "ccg build /workspace && ccg serve --transport streamable-http --http-addr :8080"
+  -c "ccg build /workspace && ccg-server --http-addr :8080"
 ```
 
 The image's default HTTP command binds to `:8080`, so you must provide
@@ -50,8 +50,8 @@ docker run -d -p 8080:8080 \
   -e CCG_DB_DSN="$CCG_DB_DSN" \
   -e CCG_REPO_ROOT=/data/repos \
   -v ccg-repos:/data/repos \
-  --entrypoint ccg ccg \
-  serve --transport streamable-http --http-addr :8080 \
+  --entrypoint ccg-server ccg \
+  --http-addr :8080 \
     --allow-repo "acme/*" \
     --webhook-secret "$WEBHOOK_SECRET" \
     --repo-clone-base-url https://github.com
@@ -121,7 +121,7 @@ docker run -d -p 8080:8080 \
   -e CCG_DB_DRIVER=postgres \
   -e CCG_DB_DSN="host=db user=ccg password=ccg dbname=ccg sslmode=disable" \
   -v $(pwd):/workspace --entrypoint sh ccg \
-  -c "ccg build /workspace && ccg serve --transport streamable-http --http-addr :8080"
+  -c "ccg build /workspace && ccg-server --http-addr :8080"
 ```
 
 The one-shot migration command above should be run before build, serve, or

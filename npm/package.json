@@ -1,7 +1,7 @@
 {
   "name": "code-context-graph",
   "version": "0.0.0",
-  "description": "Local code analysis tool — parse codebases into knowledge graphs with 15 language support, annotation search, and Cypher queries",
+  "description": "Local and self-hosted code context graph with MCP, annotation search, and Tree-sitter parsing",
   "keywords": [
     "code-analysis",
     "knowledge-graph",
@@ -17,7 +17,8 @@
   },
   "license": "MIT",
   "bin": {
-    "ccg": "bin/ccg.js"
+    "ccg": "bin/ccg.js",
+    "ccg-server": "bin/ccg-server.js"
   },
   "scripts": {
     "postinstall": "node install.js"

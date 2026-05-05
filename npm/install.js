@@ -25,8 +25,8 @@ function getPlatformKey() {
   return `${platform}-${arch}`;
 }
 
-// @intent map the current platform key to the published ccg binary name and abort if unsupported.
-function getBinaryName() {
+// @intent map the current platform key to the published ccg release asset name and abort if unsupported.
+function getAssetName() {
   const key = getPlatformKey();
   const name = PLATFORMS[key];
   if (!name) {
@@ -37,11 +37,11 @@ function getBinaryName() {
   return name;
 }
 
-// @intent build the GitHub release download URL for the current ccg version and binary asset.
-function getDownloadUrl(binaryName) {
+// @intent build the GitHub release download URL for the current ccg version and platform archive.
+function getDownloadUrl(assetName) {
   const isWindows = process.platform === "win32";
   const ext = isWindows ? ".zip" : ".tar.gz";
-  return `https://github.com/${repo}/releases/download/v${version}/${binaryName}${ext}`;
+  return `https://github.com/${repo}/releases/download/v${version}/${assetName}${ext}`;
 }
 
 // @intent recursively follow HTTP redirects while downloading the release archive.
@@ -70,17 +70,36 @@ function download(url) {
   });
 }
 
-// @intent download and extract the platform-specific ccg binary into the npm package bin directory during install.
+// @intent move one extracted executable into the stable npm package bin path.
+function installExtractedBinary(binDir, candidates, targetPath) {
+  for (const candidate of candidates) {
+    const extracted = path.join(binDir, candidate);
+    if (fs.existsSync(extracted)) {
+      if (extracted !== targetPath) {
+        if (fs.existsSync(targetPath)) {
+          fs.unlinkSync(targetPath);
+        }
+        fs.renameSync(extracted, targetPath);
+      }
+      fs.chmodSync(targetPath, 0o755);
+      return;
+    }
+  }
+  throw new Error(`release archive did not contain any of: ${candidates.join(", ")}`);
+}
+
+// @intent download and extract platform-specific ccg and ccg-server binaries into the npm package bin directory during install.
 async function install() {
-  const binaryName = getBinaryName();
-  const url = getDownloadUrl(binaryName);
+  const assetName = getAssetName();
+  const url = getDownloadUrl(assetName);
   const binDir = path.join(__dirname, "bin");
   const isWindows = process.platform === "win32";
-  const binPath = path.join(binDir, isWindows ? "ccg-binary.exe" : "ccg-binary");
+  const ccgPath = path.join(binDir, isWindows ? "ccg-binary.exe" : "ccg-binary");
+  const serverPath = path.join(binDir, isWindows ? "ccg-server-binary.exe" : "ccg-server-binary");
 
-  // Skip if binary already exists
-  if (fs.existsSync(binPath)) {
-    console.log(`ccg binary already installed at ${binPath}`);
+  // Skip if both binaries already exist
+  if (fs.existsSync(ccgPath) && fs.existsSync(serverPath)) {
+    console.log(`ccg binaries already installed at ${binDir}`);
     return;
   }
 
@@ -100,11 +119,8 @@ async function install() {
       execSync(`powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${binDir}' -Force"`, { stdio: "ignore" });
       fs.unlinkSync(zipPath);
 
-      // In Windows, the file inside ccg-windows-amd64.zip is ccg-windows-amd64.exe
-      const extracted = path.join(binDir, `${binaryName}.exe`);
-      if (fs.existsSync(extracted) && extracted !== binPath) {
-        fs.renameSync(extracted, binPath);
-      }
+      installExtractedBinary(binDir, ["ccg.exe", `${assetName}.exe`], ccgPath);
+      installExtractedBinary(binDir, ["ccg-server.exe"], serverPath);
     } else {
       // Write tar.gz and extract
       const tarPath = path.join(binDir, "ccg.tar.gz");
@@ -112,18 +128,14 @@ async function install() {
       execSync(`tar xzf "${tarPath}" -C "${binDir}"`, { stdio: "ignore" });
       fs.unlinkSync(tarPath);
 
-      // Rename platform-specific binary to 'ccg-binary'
-      const extracted = path.join(binDir, binaryName);
-      if (fs.existsSync(extracted) && extracted !== binPath) {
-        fs.renameSync(extracted, binPath);
-      }
-      fs.chmodSync(binPath, 0o755);
+      installExtractedBinary(binDir, ["ccg", assetName], ccgPath);
+      installExtractedBinary(binDir, ["ccg-server"], serverPath);
     }
 
     console.log(`ccg v${version} installed successfully.`);
   } catch (err) {
     console.error(`Failed to install ccg: ${err.message}`);
-    console.error(`You can build manually: CGO_ENABLED=1 go build -tags "fts5" -o ccg ./cmd/ccg/`);
+    console.error(`You can build manually: make build`);
     process.exit(1);
   }
 }

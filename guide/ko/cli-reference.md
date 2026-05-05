@@ -114,33 +114,42 @@ ccg docs --out docs
 
 | 명령어 | 설명 |
 |---------|-------------|
-| `ccg serve` | MCP 서버 시작 (기본값 stdio) |
-| `ccg serve --transport streamable-http` | HTTP를 통해 MCP 서버 시작 |
+| `ccg serve` | 로컬 MCP 서버를 stdio로 시작 |
 | `ccg serve --cache-ttl <dur>` | MCP serve 세션 캐시 TTL (기본값 `5m`; 비활성화하려면 `0` 또는 `--no-cache` 사용) |
 | `ccg serve --no-cache` | 메모리 내 MCP serve 세션 캐시 비활성화 |
-| `ccg serve --http-addr 0.0.0.0:9090` | 커스텀 HTTP 리슨 주소 (기본값 `127.0.0.1:8080`) |
-| `ccg serve --http-bearer-token <token>` | 설정된 경우 `/mcp`에 대한 MCP HTTP 요청에 Bearer 토큰 요구 |
 | `ccg serve --otel-endpoint <url>` | 지정된 전체 OTLP HTTP 엔드포인트 URL(예: `http://collector:4318/v1/traces`)로 trace export를 활성화합니다. 설정하지 않으면 CCG는 SDK span을 로컬에서 계속 생성하지만 export는 하지 않습니다 |
-| `ccg serve --insecure-http` | Bearer 토큰 없이 루프백이 아닌 HTTP 바인딩 허용 (테스트 전용) |
-| `ccg serve --stateless` | 상태 비저장 세션 모드 (다중 인스턴스 배포용) |
 | `ccg serve --namespace-root <dir>` | 파일 네임스페이스의 루트 디렉토리 (기본값 `workspaces`) |
 | `ccg serve --workspace-root <dir>` | `--namespace-root`에 대한 사용 중단된 별칭 |
-| `ccg serve --allow-repo <pat>` | 웹훅 동기화가 허용된 저장소 패턴 (예: `org/*`, `org/api:main,develop`) |
-| `ccg serve --webhook-secret <s>` | 웹훅 서명 검증을 위한 HMAC 비밀키 |
-| `ccg serve --insecure-webhook` | 로컬 테스트 전용으로 서명되지 않은 웹훅 요청 허용 |
-| `ccg serve --repo-clone-base-url <url>` | 웹훅 복제 대상을 재구성하는 데 사용되는 정규 베이스 URL (반복 가능) |
-| `ccg serve --repo-root <dir>` | 복제된 저장소의 루트 디렉토리 |
-| `ccg serve --webhook-workers <n>` | 웹훅 동기화 워커 수 (기본값 `4`; SQLite 웹훅 배포는 명시적으로 설정하지 않으면 기본값 `1`) |
-| `ccg serve --webhook-max-tracked-repos <n>` | 웹훅 동기화 큐에서 추적하는 최대 저장소 수 (기본값 `1024`) |
-| `ccg serve --webhook-attempt-timeout <dur>` | 단일 웹훅 동기화 시도에 대한 타임아웃, 복제/pull 및 그래프 업데이트 포함 (기본값 `15m`) |
-| `ccg serve --webhook-retry-attempts <n>` | 대기열 항목당 최대 웹훅 동기화 재시도 횟수 (기본값 `3`) |
-| `ccg serve --webhook-retry-base-delay <dur>` | 초기 웹훅 재시도 지연 시간 (기본값 `1s`) |
-| `ccg serve --webhook-retry-max-delay <dur>` | 최대 웹훅 재시도 지연 시간 (기본값 `30s`) |
-| `ccg serve --webhook-fail-on-unreadable` | 소스 파일을 읽을 수 없을 때 경고하고 건너뛰는 대신 웹훅 동기화 시도를 실패 처리 |
 | `ccg serve --max-file-bytes <bytes>` | 파싱된 소스 파일당 허용되는 최대 바이트 수 (`0`은 제한 없음) |
 | `ccg serve --max-total-parsed-bytes <bytes>` | 소스 파일 전체에서 파싱된 최대 총 바이트 수 (`0`은 제한 없음) |
 
-웹훅 관련 serve 플래그는 지원되는 경우 일치하는 환경 변수로도 설정할 수 있습니다: `CCG_WEBHOOK_WORKERS`, `CCG_WEBHOOK_MAX_TRACKED_REPOS`, `CCG_WEBHOOK_ATTEMPT_TIMEOUT`, `CCG_WEBHOOK_RETRY_ATTEMPTS`, `CCG_WEBHOOK_RETRY_BASE_DELAY`, `CCG_WEBHOOK_RETRY_MAX_DELAY`, `CCG_REPO_ROOT`.
+HTTP MCP와 웹훅 호스팅은 전용 `ccg-server` 바이너리에서 제공합니다:
+
+| 명령어 | 설명 |
+|---------|-------------|
+| `ccg-server --http-addr 0.0.0.0:9090` | 자체 호스팅 HTTP 서버 시작 (기본값 `127.0.0.1:8080`) |
+| `ccg-server --http-bearer-token <token>` | 설정된 경우 `/mcp`에 대한 MCP HTTP 요청에 Bearer 토큰 요구 |
+| `ccg-server --otel-endpoint <url>` | OTLP HTTP trace export 활성화 |
+| `ccg-server --insecure-http` | Bearer 토큰 없이 루프백이 아닌 HTTP 바인딩 허용 (테스트 전용) |
+| `ccg-server --stateless` | 상태 비저장 세션 모드 (다중 인스턴스 배포용) |
+| `ccg-server --namespace-root <dir>` | 파일 네임스페이스의 루트 디렉토리 (기본값 `workspaces`) |
+| `ccg-server --workspace-root <dir>` | `--namespace-root`에 대한 사용 중단된 별칭 |
+| `ccg-server --allow-repo <pat>` | 웹훅 동기화가 허용된 저장소 패턴 (예: `org/*`, `org/api:main,develop`) |
+| `ccg-server --webhook-secret <s>` | 웹훅 서명 검증을 위한 HMAC 비밀키 |
+| `ccg-server --insecure-webhook` | 로컬 테스트 전용으로 서명되지 않은 웹훅 요청 허용 |
+| `ccg-server --repo-clone-base-url <url>` | 웹훅 복제 대상을 재구성하는 데 사용되는 정규 베이스 URL (반복 가능) |
+| `ccg-server --repo-root <dir>` | 복제된 저장소의 루트 디렉토리 |
+| `ccg-server --webhook-workers <n>` | 웹훅 동기화 워커 수 (기본값 `4`; SQLite 웹훅 배포는 명시적으로 설정하지 않으면 기본값 `1`) |
+| `ccg-server --webhook-max-tracked-repos <n>` | 웹훅 동기화 큐에서 추적하는 최대 저장소 수 (기본값 `1024`) |
+| `ccg-server --webhook-attempt-timeout <dur>` | 단일 웹훅 동기화 시도에 대한 타임아웃, 복제/pull 및 그래프 업데이트 포함 (기본값 `15m`) |
+| `ccg-server --webhook-retry-attempts <n>` | 대기열 항목당 최대 웹훅 동기화 재시도 횟수 (기본값 `3`) |
+| `ccg-server --webhook-retry-base-delay <dur>` | 초기 웹훅 재시도 지연 시간 (기본값 `1s`) |
+| `ccg-server --webhook-retry-max-delay <dur>` | 최대 웹훅 재시도 지연 시간 (기본값 `30s`) |
+| `ccg-server --webhook-fail-on-unreadable` | 소스 파일을 읽을 수 없을 때 경고하고 건너뛰는 대신 웹훅 동기화 시도를 실패 처리 |
+| `ccg-server --max-file-bytes <bytes>` | 파싱된 소스 파일당 허용되는 최대 바이트 수 (`0`은 제한 없음) |
+| `ccg-server --max-total-parsed-bytes <bytes>` | 소스 파일 전체에서 파싱된 최대 총 바이트 수 (`0`은 제한 없음) |
+
+웹훅 관련 server 플래그는 지원되는 경우 일치하는 환경 변수로도 설정할 수 있습니다: `CCG_WEBHOOK_WORKERS`, `CCG_WEBHOOK_MAX_TRACKED_REPOS`, `CCG_WEBHOOK_ATTEMPT_TIMEOUT`, `CCG_WEBHOOK_RETRY_ATTEMPTS`, `CCG_WEBHOOK_RETRY_BASE_DELAY`, `CCG_WEBHOOK_RETRY_MAX_DELAY`, `CCG_REPO_ROOT`.
 
 `CCG_HTTP_BEARER_TOKEN`은 `--http-bearer-token`에 대해서도 지원되며, `CCG_OTEL_ENDPOINT`는 `--otel-endpoint`에 대해서도 지원됩니다. 이 토큰은 `/mcp`의 MCP HTTP 엔드포인트를 보호하지만, `/health`, `/ready`, `/status`, `/webhook` 자체를 비공개로 만들지는 않습니다.
 

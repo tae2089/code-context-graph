@@ -129,7 +129,7 @@ CCG는 호출 엣지를 다음처럼 구분해 저장합니다.
 
 Streamable HTTP MCP 엔드포인트는 외부에서 접근 가능할 때마다 `--http-bearer-token` 또는 `CCG_HTTP_BEARER_TOKEN`으로 보호되어야 합니다.
 
-기본적으로 `ccg serve --transport streamable-http`는 `127.0.0.1:8080`에서 리슨합니다. 루프백이 아닌 주소에 바인딩하려면 `--http-bearer-token`을 설정하거나 명시적인 테스트용 옵션인 `--insecure-http`를 사용해야 합니다. Bearer 토큰 보호는 `/mcp`에만 적용됩니다. `/health`, `/ready`, `/status`, `/webhook`은 여전히 네트워크 레벨의 노출 제어가 필요합니다.
+기본적으로 `ccg-server`는 `127.0.0.1:8080`에서 리슨합니다. 루프백이 아닌 주소에 바인딩하려면 `--http-bearer-token`을 설정하거나 명시적인 테스트용 옵션인 `--insecure-http`를 사용해야 합니다. Bearer 토큰 보호는 `/mcp`에만 적용됩니다. `/health`, `/ready`, `/status`, `/webhook`은 여전히 네트워크 레벨의 노출 제어가 필요합니다.
 
 다음 엔드포인트는 내부용으로 유지하십시오:
 

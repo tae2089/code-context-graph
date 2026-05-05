@@ -121,3 +121,6 @@ candidate list rather than a synthesized documentation context.
 Requires `ccg build .` first. Schema error → `ccg migrate`. (See `/ccg` skill.)
 Requires non-empty communities for a useful tree; create or refresh them with
 `run_postprocess(communities=true, flows=false, fts=false)` before `build_rag_index`.
+
+Local MCP clients should start CCG with `ccg serve` over stdio. Remote or
+self-hosted MCP clients should connect to `ccg-server` over Streamable HTTP.

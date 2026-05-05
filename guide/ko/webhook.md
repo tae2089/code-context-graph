@@ -7,7 +7,7 @@ GitHub 또는 Gitea로부터 push 이벤트를 수신하여 자동으로 복제(
 ## 설정 (Setup)
 
 ```bash
-ccg serve --transport streamable-http \
+ccg-server \
   --allow-repo "org/api:main,develop" \
   --allow-repo "org/web:main" \
   --webhook-secret "your-secret" \
@@ -18,7 +18,7 @@ ccg serve --transport streamable-http \
 로컬 테스트용으로 HMAC 검증 및 정규 복제 URL 재구성을 생략하고 비보안 모드를 사용할 수 있습니다:
 
 ```bash
-ccg serve --transport streamable-http \
+ccg-server \
   --allow-repo "org/*" \
   --insecure-webhook \
   --repo-root /data/repos

@@ -33,7 +33,9 @@ For single-project local work, you usually do not need a named namespace. Use `c
     └── router.go
 ```
 
-Configured via `ccg serve --namespace-root <dir>` (default: `workspaces/`).
+Configured via `ccg serve --namespace-root <dir>` for local stdio MCP, or
+`ccg-server --namespace-root <dir>` for self-hosted HTTP MCP (default:
+`workspaces/`).
 
 ## Core Patterns
 

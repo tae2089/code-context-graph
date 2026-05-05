@@ -11,14 +11,11 @@
                                         ↓
                                    FTS 검색
                                         ↓
-                               MCP 서버 (35개 도구)
-                                     ↓         ↓
-                               stdio       Streamable HTTP
-                                 ↓              ↓
-                          코딩 에이전트    원격 클라이언트
-                                                ↑
-                                GitHub / Gitea 웹훅
-                                    push → 복제 → 빌드 → DB
+                          ccg serve          ccg-server
+                          stdio MCP       Streamable HTTP
+                             ↓             ↓          ↑
+                      코딩 에이전트    원격 클라이언트  GitHub / Gitea 웹훅
+                                              push → 복제 → 빌드 → DB
 ```
 
 ## 구성 요소 (Components)
@@ -74,7 +71,24 @@ GORM ORM 기반 저장소입니다. SQLite 및 PostgreSQL과 호환됩니다.
 
 ### MCP 서버 (MCP Server) (`internal/mcp/`)
 
-MCP 프로토콜을 통해 35개의 도구를 노출합니다. stdio 및 Streamable HTTP 두 가지 전송 모드를 지원합니다.
+MCP 프로토콜을 통해 35개의 도구를 노출합니다. 로컬 `ccg serve` 명령은 이
+도구들을 stdio로 노출합니다. 셀프호스트 `ccg-server` 바이너리는 같은 도구
+surface를 Streamable HTTP로 노출하고 health/status/webhook 엔드포인트를
+추가합니다.
+
+### 런타임 구조 (Runtime Layout)
+
+CCG는 로컬 사용과 셀프호스트 사용을 위한 런타임 진입점을 분리합니다.
+
+| Runtime | 코드 | 책임 |
+|---------|------|------|
+| `ccg` | `cmd/ccg`, `internal/cli` | 로컬 CLI 명령과 stdio MCP |
+| `ccg-server` | `cmd/ccg-server`, `internal/server` | Streamable HTTP MCP, health/status 엔드포인트, 웹훅 동기화 |
+| `ccg-core` | `internal/core` | 공용 parser, DB, store, search, migration, incremental sync wiring |
+
+`ccg serve --transport streamable-http`에서 `ccg-server`로 전환하는
+마이그레이션 메모와 소유권 경계는 [런타임 구조](runtime-layout.md)를
+참조하십시오.
 
 ### 안정성 (Reliability)
 

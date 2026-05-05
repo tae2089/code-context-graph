@@ -26,7 +26,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/impact"
 	"github.com/tae2089/code-context-graph/internal/analysis/largefunc"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
-	"github.com/tae2089/code-context-graph/internal/cli"
+	"github.com/tae2089/code-context-graph/internal/core"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/mcp"
 	ccgobs "github.com/tae2089/code-context-graph/internal/obs"
@@ -38,16 +38,16 @@ import (
 )
 
 // Run starts the MCP server with the configured transport.
-// @intent CLI에서 조립한 의존성과 설정을 실제 MCP 서버 런타임으로 연결한다.
-// @sideEffect telemetry, cache, stdio 또는 HTTP 서버를 초기화하고 종료 훅을 등록한다.
-func Run(deps *cli.Deps, cfg cli.ServeConfig, serviceVersion, ragIndexDir, ragProjectDesc string) error {
-	deps.Logger.Info("starting code-context-graph MCP server")
+// @intent connect shared core dependencies and server config to the MCP runtime.
+// @sideEffect initializes telemetry, cache, stdio or HTTP server resources, and shutdown hooks.
+func Run(rt *core.Runtime, cfg Config, serviceVersion, ragIndexDir, ragProjectDesc string) error {
+	rt.Logger.Info("starting code-context-graph MCP server")
 	tel, err := ccgobs.Setup(context.Background(), ccgobs.Config{
 		ServiceName:    "code-context-graph",
 		ServiceVersion: serviceVersion,
 		Mode:           "serve",
 		Endpoint:       cfg.OTELEndpoint,
-		Logger:         deps.Logger,
+		Logger:         rt.Logger,
 	})
 	if err != nil {
 		return trace.Wrap(err, "setup telemetry")
@@ -57,7 +57,7 @@ func Run(deps *cli.Deps, cfg cli.ServeConfig, serviceVersion, ragIndexDir, ragPr
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := tel.Shutdown(shutdownCtx); err != nil {
-			deps.Logger.Error("telemetry shutdown failed", "error", err)
+			rt.Logger.Error("telemetry shutdown failed", "error", err)
 		}
 		ccgobs.SetGlobal(nil)
 	}()
@@ -66,33 +66,33 @@ func Run(deps *cli.Deps, cfg cli.ServeConfig, serviceVersion, ragIndexDir, ragPr
 	if !cfg.NoCache && cfg.CacheTTL > 0 {
 		cache = mcp.NewCache(cfg.CacheTTL)
 		defer cache.Close()
-		deps.Logger.Info("MCP cache enabled", "ttl", cfg.CacheTTL)
+		rt.Logger.Info("MCP cache enabled", "ttl", cfg.CacheTTL)
 	}
 
-	mcpWalkers := make(map[string]mcp.Parser, len(deps.Walkers))
-	for ext, w := range deps.Walkers {
+	mcpWalkers := make(map[string]mcp.Parser, len(rt.Walkers))
+	for ext, w := range rt.Walkers {
 		mcpWalkers[ext] = w
 	}
 
 	mcpDeps := &mcp.Deps{
-		Store:               deps.Store,
-		DB:                  deps.DB,
-		Parser:              deps.Walkers[".go"],
+		Store:               rt.Store,
+		DB:                  rt.DB,
+		Parser:              rt.Walkers[".go"],
 		Walkers:             mcpWalkers,
-		SearchBackend:       deps.SearchBackend,
-		ImpactAnalyzer:      impact.New(deps.Store),
-		FlowTracer:          flows.New(deps.Store),
+		SearchBackend:       rt.SearchBackend,
+		ImpactAnalyzer:      impact.New(rt.Store),
+		FlowTracer:          flows.New(rt.Store),
 		ChangesGitClient:    changes.NewExecGitClient(),
-		QueryService:        query.New(deps.DB),
-		LargefuncAnalyzer:   largefunc.New(deps.DB),
-		DeadcodeAnalyzer:    deadcode.New(deps.DB),
-		CouplingAnalyzer:    coupling.New(deps.DB),
-		CoverageAnalyzer:    coverage.New(deps.DB),
-		CommunityBuilder:    community.New(deps.DB),
-		FlowBuilder:         flows.NewBuilder(deps.DB, deps.Store),
-		Incremental:         deps.Syncer,
-		PostprocessPolicy:   NewPostprocessPolicy(deps.DB),
-		Logger:              deps.Logger,
+		QueryService:        query.New(rt.DB),
+		LargefuncAnalyzer:   largefunc.New(rt.DB),
+		DeadcodeAnalyzer:    deadcode.New(rt.DB),
+		CouplingAnalyzer:    coupling.New(rt.DB),
+		CoverageAnalyzer:    coverage.New(rt.DB),
+		CommunityBuilder:    community.New(rt.DB),
+		FlowBuilder:         flows.NewBuilder(rt.DB, rt.Store),
+		Incremental:         rt.Syncer,
+		PostprocessPolicy:   NewPostprocessPolicy(rt.DB),
+		Logger:              rt.Logger,
 		Cache:               cache,
 		RagIndexDir:         ragIndexDir,
 		RagProjectDesc:      ragProjectDesc,
@@ -113,9 +113,9 @@ func Run(deps *cli.Deps, cfg cli.ServeConfig, serviceVersion, ragIndexDir, ragPr
 
 	switch cfg.Transport {
 	case "streamable-http":
-		return RunStreamableHTTP(deps, srv, cfg, cache, postprocessSummary)
+		return RunStreamableHTTP(rt, srv, cfg, cache, postprocessSummary)
 	default:
-		deps.Logger.Info("serving MCP over stdio")
+		rt.Logger.Info("serving MCP over stdio")
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
 		errCh := make(chan error, 1)
@@ -128,7 +128,7 @@ func Run(deps *cli.Deps, cfg cli.ServeConfig, serviceVersion, ragIndexDir, ragPr
 				return trace.Wrap(err, "MCP server")
 			}
 		case <-ctx.Done():
-			deps.Logger.Info("received signal, shutting down stdio MCP server")
+			rt.Logger.Info("received signal, shutting down stdio MCP server")
 		}
 		return nil
 	}
@@ -191,8 +191,8 @@ func (p *MCPPostprocessPolicy) Reset(ctx context.Context, tool string) error {
 // RunStreamableHTTP serves the MCP server over streamable HTTP.
 // @intent MCP, health, readiness, status, webhook 엔드포인트를 하나의 HTTP 런타임으로 노출한다.
 // @sideEffect HTTP 서버, 시그널 핸들러, 웹훅 동기화 큐를 생성하고 종료 시 drain한다.
-func RunStreamableHTTP(deps *cli.Deps, srv *mcpgo.MCPServer, cfg cli.ServeConfig, cache *mcp.Cache, postprocessSummary func(context.Context) (*postprocesspolicy.StatusSummary, error)) error {
-	deps.Logger.Info("serving MCP over streamable-http", "addr", cfg.HTTPAddr, "stateless", cfg.Stateless)
+func RunStreamableHTTP(rt *core.Runtime, srv *mcpgo.MCPServer, cfg Config, cache *mcp.Cache, postprocessSummary func(context.Context) (*postprocesspolicy.StatusSummary, error)) error {
+	rt.Logger.Info("serving MCP over streamable-http", "addr", cfg.HTTPAddr, "stateless", cfg.Stateless)
 
 	if err := ValidateHTTPExposure(cfg); err != nil {
 		return err
@@ -211,10 +211,10 @@ func RunStreamableHTTP(deps *cli.Deps, srv *mcpgo.MCPServer, cfg cli.ServeConfig
 	mux.Handle("/mcp", MCPAuthMiddleware(cfg.HTTPBearerToken, WithHTTPTraceContext(mcp.LimitHTTPBody(httpSrv))))
 	mux.HandleFunc("/health", HandleHealth)
 	dbReadyCheck := func(r *http.Request) error {
-		if deps.DB == nil {
+		if rt.DB == nil {
 			return fmt.Errorf("database not configured")
 		}
-		sqlDB, err := deps.DB.DB()
+		sqlDB, err := rt.DB.DB()
 		if err != nil {
 			return trace.Wrap(err, "get sql db")
 		}
@@ -228,7 +228,7 @@ func RunStreamableHTTP(deps *cli.Deps, srv *mcpgo.MCPServer, cfg cli.ServeConfig
 		syncCleanupOnce.Do(func() {
 			syncCancel()
 			if syncQueue != nil {
-				deps.Logger.Info("cancelling sync context and draining workers")
+				rt.Logger.Info("cancelling sync context and draining workers")
 				syncQueue.Shutdown()
 			}
 		})
@@ -254,7 +254,7 @@ func RunStreamableHTTP(deps *cli.Deps, srv *mcpgo.MCPServer, cfg cli.ServeConfig
 			rules = append(rules, webhook.ParseRepoRule(s))
 		}
 		if spansMultipleOwners, owners := webhook.AllowRulesSpanMultipleOwners(rules); spansMultipleOwners {
-			deps.Logger.Warn("webhook allow-repo spans multiple owners; repo-name namespace strategy can collide for equal repo names",
+			rt.Logger.Warn("webhook allow-repo spans multiple owners; repo-name namespace strategy can collide for equal repo names",
 				"owners", owners,
 				"namespace_strategy", "repo_name",
 			)
@@ -266,28 +266,28 @@ func RunStreamableHTTP(deps *cli.Deps, srv *mcpgo.MCPServer, cfg cli.ServeConfig
 			ctx, span := ccgobs.StartSpan(ctx, "webhook.sync", attribute.String("repo.full_name", repoFullName), attribute.String("git.branch", branch))
 			defer span.End()
 			ns := webhook.ExtractNamespace(repoFullName)
-			deps.Logger.InfoContext(ctx, "webhook sync started", append(ccgobs.TraceLogArgs(ctx), "repo", repoFullName, "namespace", ns, "branch", branch)...)
+			rt.Logger.InfoContext(ctx, "webhook sync started", append(ccgobs.TraceLogArgs(ctx), "repo", repoFullName, "namespace", ns, "branch", branch)...)
 
 			attemptCtx, attemptCancel := context.WithTimeout(ctx, cfg.WebhookAttemptTimeout)
 			defer attemptCancel()
 
 			if err := webhook.CloneOrPullBranchLocked(attemptCtx, repoLocker, cloneURL, cfg.RepoRoot, repoFullName, ns, branch, nil); err != nil {
-				deps.Logger.ErrorContext(attemptCtx, "webhook clone/pull failed", append(ccgobs.TraceLogArgs(attemptCtx), "repo", repoFullName, "namespace", ns, "branch", branch, "error", err)...)
+				rt.Logger.ErrorContext(attemptCtx, "webhook clone/pull failed", append(ccgobs.TraceLogArgs(attemptCtx), "repo", repoFullName, "namespace", ns, "branch", branch, "error", err)...)
 				return err
 			}
 
 			repoDir := webhook.RepoDir(cfg.RepoRoot, ns)
 			includePaths, err := pathutil.LoadIncludePathsFromConfig(repoDir)
 			if err != nil {
-				deps.Logger.ErrorContext(attemptCtx, "webhook include_paths config invalid", append(ccgobs.TraceLogArgs(attemptCtx), "repo", repoFullName, "namespace", ns, "branch", branch, "error", err)...)
+				rt.Logger.ErrorContext(attemptCtx, "webhook include_paths config invalid", append(ccgobs.TraceLogArgs(attemptCtx), "repo", repoFullName, "namespace", ns, "branch", branch, "error", err)...)
 				return webhook.NonRetryable(err)
 			}
 			graphSvc := &service.GraphService{
-				Store:         deps.Store,
-				DB:            deps.DB,
-				SearchBackend: deps.SearchBackend,
-				Walkers:       deps.Walkers,
-				Logger:        deps.Logger,
+				Store:         rt.Store,
+				DB:            rt.DB,
+				SearchBackend: rt.SearchBackend,
+				Walkers:       rt.Walkers,
+				Logger:        rt.Logger,
 			}
 			buildCtx := ctxns.WithNamespace(attemptCtx, ns)
 			stats, err := graphSvc.Update(buildCtx, service.UpdateOptions{
@@ -297,16 +297,16 @@ func RunStreamableHTTP(deps *cli.Deps, srv *mcpgo.MCPServer, cfg cli.ServeConfig
 					MaxFileBytes:        cfg.MaxFileBytes,
 					MaxTotalParsedBytes: cfg.MaxTotalParsedBytes,
 				},
-				Syncer:           deps.Syncer,
+				Syncer:           rt.Syncer,
 				Replace:          true,
 				FailOnUnreadable: cfg.WebhookFailOnUnreadable,
 			})
 			if err != nil {
-				deps.Logger.ErrorContext(attemptCtx, "webhook update failed", append(ccgobs.TraceLogArgs(attemptCtx), "repo", repoFullName, "namespace", ns, "branch", branch, "error", err)...)
+				rt.Logger.ErrorContext(attemptCtx, "webhook update failed", append(ccgobs.TraceLogArgs(attemptCtx), "repo", repoFullName, "namespace", ns, "branch", branch, "error", err)...)
 				return err
 			}
 			FlushMCPQueryCache(cache)
-			deps.Logger.InfoContext(attemptCtx, "webhook sync completed", append(ccgobs.TraceLogArgs(attemptCtx), "repo", repoFullName, "namespace", ns,
+			rt.Logger.InfoContext(attemptCtx, "webhook sync completed", append(ccgobs.TraceLogArgs(attemptCtx), "repo", repoFullName, "namespace", ns,
 				"added", stats.Added, "modified", stats.Modified, "skipped", stats.Skipped, "deleted", stats.Deleted)...)
 			return nil
 		}
@@ -324,9 +324,9 @@ func RunStreamableHTTP(deps *cli.Deps, srv *mcpgo.MCPServer, cfg cli.ServeConfig
 			Filter:        filter,
 			OnSync:        syncQueue.Add,
 			Insecure:      cfg.InsecureWebhook,
-			CloneBaseURLs: cfg.RepoCloneBaseURLs,
+			CloneBaseURLs: ConfiguredCloneBaseURLs(cfg),
 		}))
-		deps.Logger.Info("webhook endpoint registered", "path", "/webhook", "allowedRepos", cfg.AllowRepo)
+		rt.Logger.Info("webhook endpoint registered", "path", "/webhook", "allowedRepos", cfg.AllowRepo)
 	}
 
 	httpServer := &http.Server{
@@ -364,7 +364,7 @@ func RunStreamableHTTP(deps *cli.Deps, srv *mcpgo.MCPServer, cfg cli.ServeConfig
 		}
 		return nil
 	case <-ctx.Done():
-		deps.Logger.Info("shutting down HTTP server")
+		rt.Logger.Info("shutting down HTTP server")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.WebhookShutdownTimeout)
 		defer cancel()
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
@@ -378,7 +378,7 @@ func RunStreamableHTTP(deps *cli.Deps, srv *mcpgo.MCPServer, cfg cli.ServeConfig
 // ValidateHTTPExposure ensures non-loopback streamable-http requires authentication.
 // @intent 외부 바인딩된 HTTP MCP 서버가 인증 없이 노출되는 구성을 사전에 차단한다.
 // @domainRule loopback이 아닌 주소는 bearer token 또는 insecure override가 필요하다.
-func ValidateHTTPExposure(cfg cli.ServeConfig) error {
+func ValidateHTTPExposure(cfg Config) error {
 	if cfg.Transport != "streamable-http" {
 		return nil
 	}

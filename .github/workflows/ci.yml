@@ -24,8 +24,17 @@ jobs:
       - name: Run go vet
         run: make vet
 
+      - name: Build release binaries
+        run: make build
+
       - name: Capture go build JSON
         run: make build-json
+
+      - name: Check npm wrapper syntax
+        run: |
+          node --check npm/install.js
+          node --check npm/bin/ccg.js
+          node --check npm/bin/ccg-server.js
 
       - name: Upload go build JSON artifact
         if: always()
