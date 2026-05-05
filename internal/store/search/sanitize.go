@@ -10,6 +10,7 @@ import (
 
 // sanitizeTokens extracts lowercase identifier-like terms from raw search input.
 // @intent normalize user queries into backend-safe tokens before they are embedded into FTS syntax.
+// @domainRule only letter, digit, and underscore sequences survive tokenization.
 func sanitizeTokens(query string) []string {
 	fields := strings.FieldsFunc(query, func(r rune) bool {
 		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_')
@@ -26,6 +27,7 @@ func sanitizeTokens(query string) []string {
 
 // SanitizeFTS5 converts raw user input into a safe FTS5 prefix query.
 // @intent build SQLite FTS queries that preserve prefix matching without exposing parser-breaking characters.
+// @domainRule empty or fully stripped input returns an empty query string.
 func SanitizeFTS5(query string) string {
 	tokens := sanitizeTokens(query)
 	if len(tokens) == 0 {
@@ -40,6 +42,7 @@ func SanitizeFTS5(query string) string {
 
 // SanitizePostgresTSQuery converts raw user input into a safe prefix tsquery.
 // @intent translate free-form user input into a PostgreSQL tsquery that mirrors the SQLite prefix search behavior.
+// @domainRule empty or fully stripped input returns an empty query string.
 func SanitizePostgresTSQuery(query string) string {
 	tokens := sanitizeTokens(query)
 	if len(tokens) == 0 {
@@ -53,7 +56,8 @@ func SanitizePostgresTSQuery(query string) string {
 }
 
 // extractExactNameToken returns the single sanitized token eligible for exact-name promotion.
-// @intent 다중 토큰 질의에서는 exact-name 승격을 건너뛰고 단일 식별자 질의만 승격 후보로 본다.
+// @intent treat only single-identifier queries as eligible for exact-name promotion.
+// @domainRule multi-token queries never produce an exact-name promotion target.
 func extractExactNameToken(query string) string {
 	tokens := sanitizeTokens(query)
 	if len(tokens) != 1 {
@@ -63,7 +67,8 @@ func extractExactNameToken(query string) string {
 }
 
 // promoteExactNameMatch moves an exact node-name match to the front of result ordering when present.
-// @intent 전문 검색 결과 중 정확한 심볼명 일치를 앞세워 탐색 정확도를 높인다.
+// @intent move an exact symbol-name hit to the front of search results to improve precision.
+// @mutates nodes slice ordering in place when an exact-name match is promoted.
 func promoteExactNameMatch(nodes []model.Node, query string) []model.Node {
 	target := extractExactNameToken(query)
 	if target == "" || len(nodes) < 2 {

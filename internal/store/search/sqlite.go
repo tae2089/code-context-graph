@@ -1,3 +1,4 @@
+// @index SQLite FTS5 virtual table-based full-text search backend implementation (including migration, legacy upgrades, and incremental re-indexing).
 package search
 
 import (
@@ -23,22 +24,22 @@ const (
 	scopedRebuildChunkSize    = 400
 )
 
-// SQLiteBackend는 SQLite FTS5 기반 검색 백엔드다.
-// @intent SQLite 환경에서 전문 검색 색인 구축과 질의를 처리한다.
+// SQLiteBackend is a full-text search backend based on SQLite FTS5.
+// @intent Handles full-text search indexing and querying in a SQLite environment.
 type SQLiteBackend struct {
 	batchInserter func(ctx context.Context, tx *gorm.DB, tableName string, docs []model.SearchDocument) error
 }
 
-// NewSQLiteBackend는 SQLite 검색 백엔드를 생성한다.
-// @intent SQLite 전용 Backend 구현체를 제공한다.
+// NewSQLiteBackend creates a SQLite search backend.
+// @intent Provides a Backend implementation specifically for SQLite.
 func NewSQLiteBackend() *SQLiteBackend {
 	return &SQLiteBackend{batchInserter: insertSQLiteFTSBatch}
 }
 
-// Migrate는 SQLite FTS5 가상 테이블을 준비한다.
-// @intent SQLite 검색용 전문 색인 테이블을 생성한다.
-// @sideEffect search_fts 가상 테이블을 생성할 수 있다.
-// @ensures FTS5를 사용할 수 있으면 search_fts가 존재한다.
+// Migrate prepares the SQLite FTS5 virtual table.
+// @intent Creates a full-text search index table for SQLite.
+// @sideEffect May create the search_fts virtual table.
+// @ensures search_fts exists if FTS5 is available.
 func (s *SQLiteBackend) Migrate(db *gorm.DB) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		existed, err := sqliteTableExists(tx, sqliteFTSTable)
@@ -67,16 +68,16 @@ func (s *SQLiteBackend) Migrate(db *gorm.DB) error {
 	})
 }
 
-// Rebuild는 search_documents 내용을 FTS 색인으로 다시 적재한다.
-// @intent 저장된 검색 문서를 SQLite FTS 색인과 동기화한다.
-// @sideEffect search_fts 내용을 삭제하고 다시 삽입한다.
-// @domainRule 색인 내용은 search_documents의 현재 스냅샷과 일치해야 한다.
+// Rebuild reloads search_documents content into the FTS index.
+// @intent Synchronizes stored search documents with the SQLite FTS index.
+// @sideEffect Deletes and re-inserts search_fts content.
+// @domainRule Index content must match the current snapshot of search_documents.
 func (s *SQLiteBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 	return s.rebuildTable(ctx, db, sqliteFTSTable)
 }
 
-// RebuildNodes는 지정된 노드의 FTS 행만 search_documents와 동기화한다.
-// @intent incremental update 경로에서 전체 namespace FTS 재적재를 피한다.
+// RebuildNodes synchronizes only the FTS rows of specified nodes with search_documents.
+// @intent Avoids full namespace FTS reloading during incremental update paths.
 func (s *SQLiteBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs []uint) error {
 	if len(nodeIDs) == 0 {
 		return nil
@@ -84,8 +85,8 @@ func (s *SQLiteBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs [
 	return s.rebuildTableNodes(ctx, db, sqliteFTSTable, nodeIDs)
 }
 
-// PurgeNamespace는 특정 namespace의 FTS 물리 인덱스를 제거한다.
-// @intent workspace 삭제 등 rebuild 없는 경로에서도 stale FTS row를 정리한다.
+// PurgeNamespace removes the physical FTS index for a specific namespace.
+// @intent Cleans up stale FTS rows even in paths without a rebuild, such as workspace deletion.
 func (s *SQLiteBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error {
 	exists, err := sqliteTableExists(db, sqliteFTSTable)
 	if err != nil {
@@ -202,10 +203,10 @@ type ftsRow struct {
 	NodeID uint
 }
 
-// Query는 FTS5 MATCH 질의로 관련 노드를 검색한다.
-// @intent 사용자 검색어를 SQLite FTS prefix 질의로 변환해 노드를 찾는다.
-// @requires limit는 0보다 커야 의미 있는 결과를 얻는다.
-// @return FTS 순위 순서를 유지한 노드 목록을 반환한다.
+// Query searches for related nodes using FTS5 MATCH queries.
+// @intent Converts the user's search term into a SQLite FTS prefix query to find nodes.
+// @requires limit must be greater than 0 to get meaningful results.
+// @return Returns a list of nodes sorted by FTS rank.
 func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error) {
 	if limit <= 0 {
 		return nil, fmt.Errorf("limit must be > 0, got %d", limit)
