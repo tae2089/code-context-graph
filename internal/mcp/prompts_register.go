@@ -8,6 +8,8 @@ import (
 
 // registerPrompts exposes guided prompt entry points on top of the MCP tool surface.
 // @intent package common review, onboarding, and debugging flows into reusable server prompts.
+// @sideEffect registers prompt descriptors and handlers on the running MCP server.
+// @mutates srv
 func registerPrompts(srv *server.MCPServer, p *promptHandlers) {
 	srv.AddPrompts(
 		server.ServerPrompt{

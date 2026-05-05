@@ -5,6 +5,8 @@ import "github.com/mark3labs/mcp-go/server"
 
 // registerTools adds every MCP tool group to the running server.
 // @intent centralize tool registration order so new tool families plug into one startup path.
+// @sideEffect registers all tool groups on the running MCP server.
+// @mutates srv
 func registerTools(srv *server.MCPServer, h *handlers) {
 	var tools []server.ServerTool
 	tools = append(tools, parseTools(h)...)

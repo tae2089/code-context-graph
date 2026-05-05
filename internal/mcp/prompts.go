@@ -1,3 +1,4 @@
+// @index MCP prompt handlers that compose graph queries into review, debug, onboarding, and pre-merge workflows.
 package mcp
 
 import (
@@ -19,15 +20,15 @@ import (
 )
 
 // promptHandlers groups dependencies for MCP prompt generation.
-// @intent 프롬프트 핸들러가 공유 DB와 분석기를 재사용하도록 의존성을 묶는다.
+// @intent Groups dependencies so prompt handlers can reuse the shared database and analyzers.
 type promptHandlers struct {
 	deps *Deps
 }
 
 // promptResult wraps plain text in the MCP prompt result shape.
-// @intent 프롬프트 핸들러가 문자열만으로 일관된 사용자 메시지 응답을 생성하게 한다.
-// @param text 프롬프트 본문으로 반환할 사용자 메시지다.
-// @return 단일 user text message를 포함한 GetPromptResult를 반환한다.
+// @intent Enables prompt handlers to generate consistent user message responses from plain strings.
+// @param text The user message to be returned as the prompt body.
+// @return Returns a GetPromptResult containing a single user text message.
 func promptResult(text string) *mcp.GetPromptResult {
 	return &mcp.GetPromptResult{
 		Messages: []mcp.PromptMessage{
@@ -62,11 +63,11 @@ func promptNamespaceRoot(deps *Deps) string {
 }
 
 // reviewChanges builds a prompt summarizing change risk and coverage gaps.
-// @intent 변경 리뷰 전에 리스크 높은 함수와 테스트 빈틈을 한 번에 보여준다.
-// @param request repo_root와 base 인자로 Git 비교 범위를 정한다.
-// @requires ChangesGitClient가 구성되어 있어야 실제 변경 분석을 수행할 수 있다.
-// @ensures 성공 시 리스크 분석과 커버리지 요약이 포함된 프롬프트를 반환한다.
-// @sideEffect Git diff 조회와 DB 기반 커버리지 조회를 수행한다.
+// @intent Provides a single view of high-risk functions and test gaps before reviewing changes.
+// @param request Defines the Git comparison range using repo_root and base arguments.
+// @requires ChangesGitClient must be configured to perform actual change analysis.
+// @ensures Returns a prompt including risk analysis and coverage summary on success.
+// @sideEffect Performs Git diff lookups and database-based coverage queries.
 // @see mcp.promptHandlers.preMergeCheck
 func (p *promptHandlers) reviewChanges(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	args := request.Params.Arguments
@@ -132,9 +133,9 @@ func (p *promptHandlers) reviewChanges(ctx context.Context, request mcp.GetPromp
 }
 
 // architectureMap builds a prompt summarizing communities and coupling.
-// @intent 온전한 아키텍처 개요를 자연어 프롬프트로 제공해 모듈 구조 이해를 돕는다.
-// @ensures 성공 시 커뮤니티와 모듈 간 결합도 목록을 포함한 프롬프트를 반환한다.
-// @sideEffect DB에서 커뮤니티와 결합도 정보를 조회한다.
+// @intent Aids in understanding module structure by providing a full architectural overview via a natural language prompt.
+// @ensures Returns a prompt containing a list of communities and inter-module coupling on success.
+// @sideEffect Queries community and coupling information from the database.
 func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	ctx = ctxns.WithNamespace(ctx, resolvePromptNamespace(ctx, request.Params.Arguments))
 	ns := ctxns.FromContext(ctx)
@@ -187,11 +188,11 @@ func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPro
 }
 
 // debugIssue builds a prompt with related code search results and call graph hints.
-// @intent 이슈 설명과 관련된 코드 후보와 호출 관계를 모아 디버깅 출발점을 만든다.
-// @param request description은 검색에 사용할 이슈 서술이다.
-// @requires SearchBackend와 DB가 구성되어 있어야 한다.
-// @ensures 성공 시 관련 코드 목록과 호출 그래프 섹션이 포함된 프롬프트를 반환한다.
-// @sideEffect 검색 인덱스 조회와 그래프 질의를 수행한다.
+// @intent Creates a starting point for debugging by gathering code candidates and call relationships related to an issue description.
+// @param request description is the issue narrative used for searching.
+// @requires SearchBackend and DB must be configured.
+// @ensures Returns a prompt including a list of related code and a call graph section on success.
+// @sideEffect Performs search index lookups and graph queries.
 func (p *promptHandlers) debugIssue(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	args := request.Params.Arguments
 	ctx = ctxns.WithNamespace(ctx, resolvePromptNamespace(ctx, args))
@@ -260,9 +261,9 @@ func (p *promptHandlers) debugIssue(ctx context.Context, request mcp.GetPromptRe
 }
 
 // onboardDeveloper builds a prompt introducing project scale and structure.
-// @intent 신규 개발자가 그래프 규모, 언어 분포, 커뮤니티, 대형 함수를 빠르게 파악하게 한다.
-// @ensures 성공 시 온보딩용 통계와 구조 요약 프롬프트를 반환한다.
-// @sideEffect DB에서 통계, 커뮤니티, 대형 함수 정보를 조회한다.
+// @intent Quickly familiarizes new developers with graph scale, language distribution, communities, and large functions.
+// @ensures Returns an onboarding statistics and structure summary prompt on success.
+// @sideEffect Queries statistics, communities, and large functions from the database.
 func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	ctx = ctxns.WithNamespace(ctx, resolvePromptNamespace(ctx, request.Params.Arguments))
 	log := p.deps.Logger
@@ -284,7 +285,7 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 	}
 
 	// langStat stores grouped node counts by language.
-	// @intent 온보딩 프롬프트의 언어 분포 섹션을 만들기 위한 집계 결과를 담는다.
+	// @intent Holds aggregation results for building the language distribution section of the onboarding prompt.
 	type langStat struct {
 		Language string
 		Count    int64
@@ -343,11 +344,11 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 }
 
 // preMergeCheck builds a prompt covering merge-time risk, coverage, dead code, and large functions.
-// @intent 머지 직전 점검 항목을 한 프롬프트에 모아 릴리스 전 확인을 돕는다.
-// @param request repo_root와 base 인자로 변경 분석 범위를 지정한다.
-// @requires ChangesGitClient가 구성되어 있어야 변경 기반 체크가 가능하다.
-// @ensures 성공 시 리스크, 커버리지, 미사용 코드, 대형 함수 섹션을 포함한 프롬프트를 반환한다.
-// @sideEffect Git diff 조회와 다수의 DB 기반 분석 조회를 수행한다.
+// @intent Consolidates merge-time check items into a single prompt to assist with pre-release verification.
+// @param request Specifies the change analysis range using repo_root and base arguments.
+// @requires ChangesGitClient must be configured to enable change-based checks.
+// @ensures Returns a prompt including risk, coverage, dead code, and large function sections on success.
+// @sideEffect Performs Git diff lookups and multiple database-based analysis queries.
 // @see mcp.promptHandlers.reviewChanges
 func (p *promptHandlers) preMergeCheck(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	log := p.deps.Logger

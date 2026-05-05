@@ -1,4 +1,4 @@
-// @index MCP 서버. 다수의 도구와 5개 프롬프트 템플릿을 통해 코드 분석 기능을 AI에게 노출한다.
+// @index MCP server. Exposes code analysis capabilities to AI through multiple tools and 5 prompt templates.
 package mcp
 
 import (
@@ -8,10 +8,10 @@ import (
 )
 
 // NewServer creates and configures the MCP server with all tools and prompts.
-// @intent 코드 그래프 기능을 MCP 도구와 프롬프트로 노출하는 서버 인스턴스를 구성한다.
+// @intent Configures a server instance that exposes code graph features as MCP tools and prompts.
 // @requires deps != nil
-// @ensures 반환 서버에는 MCP 도구와 프롬프트가 등록된다.
-// @sideEffect 서버 메타데이터를 로거에 기록한다.
+// @ensures The returned server is registered with MCP tools and prompts.
+// @sideEffect Logs server metadata to the logger.
 // @see mcp.Deps
 func NewServer(deps *Deps) *server.MCPServer {
 	log := deps.Logger
