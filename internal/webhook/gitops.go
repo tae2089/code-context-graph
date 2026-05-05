@@ -46,6 +46,8 @@ type repoLockMetadata struct {
 
 // NewRepoLocker creates a per-repository lock coordinator with a bounded wait time.
 // @intent serialize concurrent webhook sync for the same repo so git operations do not corrupt the working tree.
+// @param timeout bounds how long callers wait before ErrRepoLockTimeout is returned.
+// @ensures non-positive timeout falls back to 30 seconds.
 func NewRepoLocker(timeout time.Duration) *RepoLocker {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
@@ -56,6 +58,9 @@ func NewRepoLocker(timeout time.Duration) *RepoLocker {
 // WithLock runs a sync operation while holding both in-process and filesystem repo locks.
 // @intent coordinate webhook workers across goroutines and processes before touching a repository checkout.
 // @sideEffect creates and removes filesystem lock files under the repo root.
+// @param lockRoot is the filesystem root under which lock files are created.
+// @param repoFullName is the repository key used for in-memory and filesystem lock scoping.
+// @ensures fn runs at most once concurrently per repository across cooperating workers/processes.
 func (l *RepoLocker) WithLock(ctx context.Context, lockRoot, repoFullName string, fn func(context.Context) error) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -183,12 +188,15 @@ func lockFileName(repoFullName string) string {
 
 // RepoDir maps a namespace to the checkout directory used for repository sync.
 // @intent keep workspace naming stable across clone, pull, and downstream build steps.
+// @return returns the repository checkout path rooted under repoRoot.
 func RepoDir(repoRoot, namespace string) string {
 	return filepath.Join(repoRoot, namespace)
 }
 
 // CloneOrPull syncs the repository namespace to the default remote branch.
 // @intent give webhook handlers a branch-agnostic entry point for standard repo refresh.
+// @param auth is the git transport auth method to use when the remote requires credentials.
+// @sideEffect may clone or hard-reset the target repository checkout on disk.
 func CloneOrPull(ctx context.Context, repoURL, repoRoot, namespace string, auth transport.AuthMethod) error {
 	return CloneOrPullBranch(ctx, repoURL, repoRoot, namespace, "", auth)
 }
@@ -196,6 +204,8 @@ func CloneOrPull(ctx context.Context, repoURL, repoRoot, namespace string, auth 
 // CloneOrPullBranch ensures the namespace checkout exists and matches the requested branch head.
 // @intent reuse the same repo sync path for first clone and subsequent updates.
 // @sideEffect creates or hard-resets the namespace checkout on disk.
+// @param branch is optional; when empty the repository's current HEAD branch is used during sync.
+// @ensures the checkout at RepoDir(repoRoot, namespace) matches the requested remote branch head on success.
 func CloneOrPullBranch(ctx context.Context, repoURL, repoRoot, namespace, branch string, auth transport.AuthMethod) error {
 	dest := RepoDir(repoRoot, namespace)
 
@@ -217,6 +227,7 @@ func CloneOrPullBranch(ctx context.Context, repoURL, repoRoot, namespace, branch
 
 // CloneOrPullBranchLocked wraps branch sync with repository locking.
 // @intent prevent overlapping webhook deliveries from cloning or resetting the same checkout simultaneously.
+// @ensures branch sync runs under repository locking even when caller passes a nil locker.
 func CloneOrPullBranchLocked(ctx context.Context, locker *RepoLocker, repoURL, repoRoot, repoFullName, namespace, branch string, auth transport.AuthMethod) error {
 	if locker == nil {
 		locker = NewRepoLocker(30 * time.Second)

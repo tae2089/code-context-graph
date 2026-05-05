@@ -34,6 +34,10 @@ type WebhookHandler struct {
 
 // NewWebhookHandler wires a webhook handler from the common secret/filter/sync callback inputs.
 // @intent keep the default construction path small while routing all configuration through the shared config builder.
+// @param secret is the shared webhook secret used for signature validation.
+// @param filter decides which repo and branch combinations are eligible for sync.
+// @param onSync dispatches the validated sync request.
+// @ensures returns a handler configured with the default secure validation path.
 func NewWebhookHandler(secret []byte, filter *RepoFilter, onSync SyncFunc) *WebhookHandler {
 	return NewWebhookHandlerWithConfig(WebhookHandlerConfig{Secret: secret, Filter: filter, OnSync: onSync})
 }
@@ -50,12 +54,16 @@ type WebhookHandlerConfig struct {
 
 // NewWebhookHandlerWithOptions builds a handler with the legacy option-style constructor.
 // @intent preserve older call sites while the config-based constructor owns the actual assembly logic.
+// @param insecure allows payload delivery without signature validation when true.
+// @ensures returns a handler configured equivalently to the legacy constructor inputs.
 func NewWebhookHandlerWithOptions(secret []byte, filter *RepoFilter, onSync SyncFunc, insecure bool) *WebhookHandler {
 	return NewWebhookHandlerWithConfig(WebhookHandlerConfig{Secret: secret, Filter: filter, OnSync: onSync, Insecure: insecure})
 }
 
 // NewWebhookHandlerWithConfig assembles webhook validation and clone URL policy into one handler.
 // @intent make webhook intake configurable without duplicating constructor logic across CLI and tests.
+// @param cfg carries webhook secret, filtering, sync callback, and clone URL policy.
+// @ensures returns a handler whose clone base URLs preserve config ordering with CloneBaseURL first when provided.
 func NewWebhookHandlerWithConfig(cfg WebhookHandlerConfig) *WebhookHandler {
 	cloneBaseURLs := append([]string(nil), cfg.CloneBaseURLs...)
 	if cfg.CloneBaseURL != "" {
@@ -82,6 +90,8 @@ const maxWebhookPayload = 10 << 20
 // ServeHTTP validates a webhook push event and dispatches repository sync when it passes policy checks.
 // @intent turn GitHub or Gitea push deliveries into safe, filtered sync requests for the build pipeline.
 // @sideEffect reads the request body and invokes the configured sync callback.
+// @domainRule only signed push events for allowed repository/branch pairs are dispatched.
+// @ensures writes an HTTP status describing acceptance, rejection, or sync backpressure for the delivery.
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, span := obs.ServerSpan(r.Context(), "webhook.push", r.Header,
 		attribute.String("ccg.component", "webhook"),
@@ -159,6 +169,8 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // NormalizeBranchRef extracts the branch name from a refs/heads/* git ref.
 // @intent ignore tag and non-branch webhook refs before repository policy evaluation.
+// @param ref is the raw git reference from the webhook payload.
+// @return returns the branch name and true only for refs/heads/* values.
 func NormalizeBranchRef(ref string) (string, bool) {
 	branch, ok := strings.CutPrefix(ref, "refs/heads/")
 	if !ok || branch == "" {
@@ -176,6 +188,10 @@ func isDeletedBranchPush(event pushEvent) bool {
 }
 
 // @intent authenticate webhook payloads before the sync pipeline trusts their repository metadata.
+// @param payload is the raw webhook request body.
+// @param signature is the GitHub or Gitea signature header value.
+// @domainRule insecure mode bypasses signature verification entirely.
+// @ensures returns true only when the payload matches the configured shared secret format for the sender.
 func (h *WebhookHandler) verifySignature(payload []byte, signature string) bool {
 	if h.insecure {
 		return true
@@ -198,6 +214,8 @@ func (h *WebhookHandler) verifySignature(payload []byte, signature string) bool 
 
 // ExtractNamespace derives a workspace-safe namespace from a repository full name.
 // @intent keep repo-backed namespaces predictable when organizations contain nested path segments.
+// @param repoFullName is the full repository name, typically org/repo.
+// @return returns the repository portion after the first slash, with any remaining slashes replaced by dashes.
 func ExtractNamespace(repoFullName string) string {
 	idx := strings.Index(repoFullName, "/")
 	if idx < 0 {

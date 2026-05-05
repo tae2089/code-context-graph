@@ -42,6 +42,8 @@ func NonRetryable(err error) error {
 
 // IsNonRetryable reports whether a sync error should bypass queue retries.
 // @intent let retry logic stop early when a failure is known to be permanent for the current payload.
+// @param err is the sync failure returned by the queue handler.
+// @return returns true when err unwraps to nonRetryableError.
 func IsNonRetryable(err error) bool {
 	var target nonRetryableError
 	return errors.As(err, &target)
@@ -144,12 +146,17 @@ type SyncQueueStats struct {
 
 // NewSyncQueue creates a queue with background workers and default lifecycle settings.
 // @intent provide the smallest constructor for production webhook dispatch.
+// @param workers is the number of background workers to start.
+// @param handler processes one deduplicated repository sync payload.
+// @sideEffect starts background worker goroutines immediately.
 func NewSyncQueue(workers int, handler SyncHandlerFunc) *SyncQueue {
 	return NewSyncQueueWithContext(context.Background(), workers, handler)
 }
 
 // NewSyncQueueWithContext binds queue workers to a parent lifecycle context.
 // @intent allow server shutdown to cancel retries and worker waits cleanly.
+// @param ctx controls worker lifetime and retry cancellation.
+// @sideEffect starts background worker goroutines immediately.
 func NewSyncQueueWithContext(ctx context.Context, workers int, handler SyncHandlerFunc) *SyncQueue {
 	return NewSyncQueueWithOptions(ctx, workers, handler, defaultRetryConfig())
 }
@@ -162,12 +169,17 @@ type QueueConfig struct {
 
 // NewSyncQueueWithOptions applies retry tuning while keeping default queue limits.
 // @intent expose backoff customization without forcing every caller to build a full queue config.
+// @param retry overrides exponential backoff behavior for sync retries.
+// @ensures queue memory bounds still use default MaxTrackedRepos when not specified.
 func NewSyncQueueWithOptions(ctx context.Context, workers int, handler SyncHandlerFunc, retry RetryConfig) *SyncQueue {
 	return NewSyncQueueWithConfig(ctx, workers, handler, QueueConfig{RetryConfig: retry, MaxTrackedRepos: 1024})
 }
 
 // NewSyncQueueWithConfig creates a deduplicating repo work queue and starts its workers.
 // @intent coalesce bursty webhook pushes per repository while still allowing different repos to sync concurrently.
+// @param cfg controls retry behavior and how many repositories may be tracked at once.
+// @sideEffect starts worker goroutines and allocates queue state maps.
+// @ensures non-positive MaxAttempts becomes 1 and non-positive MaxTrackedRepos becomes 1024.
 func NewSyncQueueWithConfig(ctx context.Context, workers int, handler SyncHandlerFunc, cfg QueueConfig) *SyncQueue {
 	if ctx == nil {
 		ctx = context.Background()
@@ -203,6 +215,9 @@ func NewSyncQueueWithConfig(ctx context.Context, workers int, handler SyncHandle
 // Add records the latest payload for a repository and enqueues it if needed.
 // @intent collapse repeated push events into one queued sync while preserving the newest branch and clone data.
 // @mutates SyncQueue.queue, SyncQueue.dirty, SyncQueue.payloads.
+// @param repoFullName identifies the deduplication key for queueing.
+// @return returns ErrSyncQueueFull when a new repository would exceed the bounded tracked-repo set.
+// @domainRule repeated events for the same repository replace payload data instead of enqueueing duplicate work.
 func (q *SyncQueue) Add(ctx context.Context, repoFullName, cloneURL, branch string) error {
 	if ctx != nil {
 		select {
@@ -244,6 +259,7 @@ func (q *SyncQueue) Add(ctx context.Context, repoFullName, cloneURL, branch stri
 
 // Shutdown stops accepting new work and waits for workers to finish or time out.
 // @intent give the server a bounded, graceful shutdown path for in-flight webhook sync.
+// @sideEffect flips queue shutdown state, wakes waiting workers, and may record a timeout failure.
 func (q *SyncQueue) Shutdown() {
 	q.mu.Lock()
 	q.shutdown = true
@@ -271,6 +287,7 @@ func (q *SyncQueue) Shutdown() {
 
 // Stats snapshots queue health and recent repository activity for operators.
 // @intent expose enough queue state to diagnose backlog, failures, and hot repositories.
+// @return returns a point-in-time snapshot without mutating queue execution state.
 func (q *SyncQueue) Stats() SyncQueueStats {
 	q.mu.Lock()
 	defer q.mu.Unlock()

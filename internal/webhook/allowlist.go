@@ -37,6 +37,8 @@ type RepoFilter struct {
 
 // NewRepoFilter expands simple string patterns into webhook repo rules.
 // @intent keep CLI-style allowlist configuration compatible with the richer rule matcher.
+// @param patterns is the ordered allow/deny rule list in compact string form.
+// @ensures returns a filter whose rule order matches the caller input order.
 func NewRepoFilter(patterns []string) *RepoFilter {
 	rules := make([]RepoRule, 0, len(patterns))
 	for _, p := range patterns {
@@ -47,6 +49,8 @@ func NewRepoFilter(patterns []string) *RepoFilter {
 
 // NewRepoFilterFromRules compiles repository and branch rules into a matcher.
 // @intent centralize Atlantis-style repo filtering so webhook dispatch can make one consistent allow decision.
+// @param rules is the ordered repo rule list whose later matches override earlier ones.
+// @ensures returns a filter that preserves the source rule order for evaluation.
 func NewRepoFilterFromRules(rules []RepoRule) *RepoFilter {
 	full := make([]repoFilterRule, 0, len(rules))
 	for _, r := range rules {
@@ -89,6 +93,7 @@ func (f *RepoFilter) IsAllowed(repoFullName string) bool {
 
 // IsAllowedRef resolves a git ref to a branch and applies branch allowlist rules.
 // @intent reject non-branch webhook refs before they can enter the sync pipeline.
+// @return returns false for non-branch refs and otherwise defers to branch policy evaluation.
 func (f *RepoFilter) IsAllowedRef(repoFullName, ref string) bool {
 	branch, ok := NormalizeBranchRef(ref)
 	if !ok {
@@ -137,6 +142,8 @@ func matchBranchPatterns(branch string, patterns []string) bool {
 
 // ParseRepoRule decodes a repo rule string with optional comma-separated branch patterns.
 // @intent preserve compact CLI config while still supporting per-repository branch restrictions.
+// @param s follows pattern or pattern:branch1,branch2 syntax.
+// @return returns a RepoRule with branch restrictions only when the colon form is present.
 func ParseRepoRule(s string) RepoRule {
 	pattern, branchStr, found := strings.Cut(s, ":")
 	if !found {

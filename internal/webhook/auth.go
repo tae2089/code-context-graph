@@ -31,6 +31,9 @@ type GitAuth struct {
 
 // Resolve picks the first configured git authentication strategy.
 // @intent allow webhook sync to switch between SSH and GitHub App token auth without branching at call sites.
+// @domainRule prefer SSHKeyPath first, then inline SSHKeyData, then InstallToken, and return nil auth if none are configured.
+// @sideEffect reads the SSH private key file when SSHKeyPath is used.
+// @ensures returns the first usable transport.AuthMethod for the configured credentials.
 func (a *GitAuth) Resolve() (transport.AuthMethod, error) {
 	switch {
 	case a.SSHKeyPath != "":
@@ -49,6 +52,9 @@ func (a *GitAuth) Resolve() (transport.AuthMethod, error) {
 
 // GenerateAppJWT signs a short-lived GitHub App JWT from the configured private key.
 // @intent mint the app identity token needed to exchange for installation-scoped repository access.
+// @requires privateKeyPEM must decode to an RSA PKCS#1 private key.
+// @ensures returns an RS256 JWT whose iss claim matches appID and whose exp claim is set to now+10 minutes.
+// @domainRule issued-at is backdated by 60 seconds to tolerate small clock skew.
 func GenerateAppJWT(appID int64, privateKeyPEM []byte) (string, error) {
 	block, _ := pem.Decode(privateKeyPEM)
 	if block == nil {
