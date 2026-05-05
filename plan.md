@@ -456,3 +456,91 @@
 - `internal/eval/schema.go` — `QueryDiagnostic.TopResults` 추가
 - `internal/eval/search.go` — `capResults()` helper와 `top_results` population 추가
 - `guide/eval.md` — `top_results` diagnostics 문서화
+
+---
+
+## Step 27: Fallback call query strictness toggle
+
+### 테스트
+
+- [x] `TestCalleesOfWithOptions_ExcludesFallbackCallsWhenDisabled` — `include_fallback_calls=false`면 fallback edge는 결과에서 제외
+- [x] `TestCalleesOfWithOptions_IncludesFallbackCallsByDefault` — 옵션 생략/기본값이면 fallback edge를 계속 포함
+- [x] `TestCallersOfWithOptions_ExcludesFallbackCallsWhenDisabled` — callers 조회도 strict 모드에서 fallback edge 제외
+
+### 구현
+
+- `internal/analysis/query/service.go` — query option struct와 fallback 포함 여부를 제어하는 callers/callees 변형 추가
+- `internal/analysis/query/service_test.go` — strict/default fallback 동작을 고정하는 테스트 추가
+
+---
+
+## Step 28: MCP query_graph fallback toggle and provenance
+
+### 테스트
+
+- [x] `TestQueryGraph_CalleesOf_RespectsIncludeFallbackCalls` — MCP `query_graph`가 `include_fallback_calls=false`를 QueryService로 전달
+- [x] `TestQueryGraph_CalleesOf_ReturnsFallbackProvenance` — callers/callees 응답에 fallback provenance가 포함
+
+### 구현
+
+- `internal/mcp/deps.go` — query option/provenance를 노출하는 QueryService contract 확장
+- `internal/mcp/handler_query.go` — `include_fallback_calls` 파라미터 처리 및 provenance 응답 구성
+- `internal/mcp/tools_query.go` — `query_graph` 도구 스키마에 `include_fallback_calls` 추가
+- `internal/mcp/testmocks_test.go` / `internal/mcp/handlers_test.go` — handler plumbing test 보강
+
+---
+
+## Step 29: Flow tracing fallback visibility and strictness
+
+### 테스트
+
+- [x] `TestTraceFlowBounded_ExcludesFallbackCallsWhenDisabled` — strict 모드에서 fallback edge를 따라가지 않음
+- [x] `TestTraceFlowBounded_ReportsFallbackMetadata` — fallback 포함 trace는 메타데이터에 개수/포함 여부를 기록
+
+### 구현
+
+- `internal/analysis/flows/flows.go` — trace option/result에 fallback 제어와 메타데이터 추가
+- `internal/analysis/flows/flows_test.go` — strict/default fallback trace 동작 테스트 추가
+
+---
+
+## Step 30: MCP trace_flow fallback metadata
+
+### 테스트
+
+- [x] `TestTraceFlow_ReturnsFallbackMetadata` — `trace_flow` 응답에 fallback count/flag가 포함
+- [x] `TestTraceFlow_RespectsIncludeFallbackCalls` — `include_fallback_calls=false`면 strict trace 결과 반환
+
+### 구현
+
+- `internal/mcp/deps.go` — bounded flow tracer contract 확장
+- `internal/mcp/handler_analysis.go` / `internal/mcp/tools_analysis.go` — trace flow fallback 옵션과 메타데이터 응답 wiring
+- `internal/mcp/handlers_test.go` — trace flow 응답 검증 추가
+
+---
+
+## Step 31: Status fallback ratio output
+
+### 테스트
+
+- [x] `TestStatusCommand_ShowsFallbackCallRatio` — `ccg status`가 calls, fallback_calls, fallback_ratio를 별도 출력
+- [x] `TestStatusCommand_WarnsOnElevatedFallbackRatio` — fallback ratio 임계값에 따라 경고 문구 출력
+
+### 구현
+
+- `internal/cli/status.go` — fallback call 섹션과 ratio/warning 계산 추가
+- `internal/cli/status_test.go` — 출력 회귀 테스트 추가
+
+---
+
+## Step 32: Suspect fallback edge report from annotations
+
+### 테스트
+
+- [x] `TestSuspectFallbackEdges_FlagsDisjointIntentAndDomainRule` — source/target annotation intent/domainRule이 겹치지 않으면 suspect로 분류
+- [x] `TestSuspectFallbackEdges_IgnoresOverlappingAnnotationContext` — annotation overlap가 있으면 suspect에서 제외
+
+### 구현
+
+- `internal/analysis/` 하위 새 report/service — fallback edge와 annotation tag overlap 기반 suspect 분석 추가
+- 관련 MCP/CLI surface — 운영자가 suspect fallback edge를 조회할 수 있는 진입점 추가
