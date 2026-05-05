@@ -1,3 +1,4 @@
+// @index MCP handlers for node lookup, search, predefined graph queries, and graph statistics.
 package mcp
 
 import (
@@ -23,10 +24,10 @@ const (
 )
 
 // getNode returns detailed metadata for a graph node by qualified name.
-// @intent 정규화 이름으로 노드를 조회해 위치와 종류 등 기본 식별 정보를 제공한다.
-// @param request qualified_name은 조회할 노드의 전체 이름이다.
-// @requires 대상 노드가 그래프 저장소에 존재해야 한다.
-// @ensures 성공 시 노드 메타데이터를 JSON으로 반환한다.
+// @intent look up a node by qualified name so callers can retrieve its core identity and location metadata.
+// @param request qualified_name is the fully qualified node name to resolve.
+// @requires the target node must exist in the graph store.
+// @ensures returns node metadata as JSON when lookup succeeds.
 // @see mcp.handlers.getAnnotation
 func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
@@ -70,10 +71,10 @@ func (h *handlers) getNode(ctx context.Context, request mcp.CallToolRequest) (*m
 }
 
 // search performs full-text search over indexed graph nodes.
-// @intent 키워드와 경로 접두사로 코드 그래프 노드를 효율적으로 탐색하게 한다.
-// @param request path가 주어지면 결과를 해당 파일 경로 접두사로 후처리 필터링한다.
-// @requires SearchBackend가 구성되어 있어야 한다.
-// @ensures 성공 시 최대 limit개의 노드 요약 목록을 반환한다.
+// @intent search graph nodes efficiently by keyword and optional path prefix filtering.
+// @param request path post-filters results by file path prefix when it is provided.
+// @requires SearchBackend must be configured.
+// @ensures returns up to limit summarized nodes when search succeeds.
 // @see mcp.handlers.getNode
 func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
@@ -149,10 +150,10 @@ func validateQueryGraphLimit(limit int) error {
 }
 
 // getAnnotation returns stored annotation metadata for a graph node.
-// @intent 노드에 연결된 요약과 태그를 조회해 비즈니스 문맥 검색 결과를 보강한다.
-// @param request qualified_name은 주석을 조회할 노드의 전체 이름이다.
-// @requires 대상 노드와 annotation 레코드가 존재해야 한다.
-// @ensures 성공 시 summary, context, tags를 포함한 응답을 반환한다.
+// @intent fetch stored annotation tags and summary data so semantic search results can show business context.
+// @param request qualified_name is the fully qualified node name whose annotations should be loaded.
+// @requires the target node and its annotation record must exist.
+// @ensures returns a response containing summary, context, and tags when lookup succeeds.
 // @see mcp.handlers.getNode
 func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
@@ -211,11 +212,11 @@ func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolReques
 }
 
 // queryGraph runs one of the predefined graph traversal patterns.
-// @intent 반복 사용되는 그래프 질의를 패턴 기반 단일 도구로 제공한다.
-// @param request pattern은 허용된 질의 종류여야 하고 target은 노드명 또는 파일 경로다.
-// @domainRule pattern은 미리 정의된 질의 집합 안에 있어야 한다.
-// @requires QueryService가 구성되어 있어야 한다.
-// @ensures 성공 시 pattern, target, results를 포함한 응답을 반환한다.
+// @intent expose repeated graph traversals through one pattern-driven tool entry point.
+// @param request pattern must be one of the allowlisted query kinds and target is a node name or file path.
+// @domainRule pattern must belong to the predefined query set.
+// @requires QueryService must be configured.
+// @ensures returns a response containing pattern, target, and results when the query succeeds.
 // @see mcp.QueryService
 func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
@@ -241,7 +242,7 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 
 	log.Info("query_graph called", "pattern", pattern, "target", target, "limit", limit, "offset", offset)
 
-	// 패턴 유효성 검사
+	// Validate pattern against the allowlisted query set.
 	validPatterns := map[string]bool{
 		"callers_of": true, "callees_of": true, "imports_of": true,
 		"importers_of": true, "children_of": true, "tests_for": true,
@@ -259,7 +260,7 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 		"include_fallback_calls": includeFallbackCalls,
 		"namespace":              requestNamespace(request),
 	}, func() (string, error) {
-		// file_summary는 노드 조회가 불필요
+		// file_summary does not require node lookup.
 		if pattern == "file_summary" {
 			if h.deps.QueryService == nil {
 				return "", newToolResultErr("QueryService not configured")
@@ -280,7 +281,7 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 			return result, nil
 		}
 
-		// 나머지 패턴은 노드를 먼저 조회
+		// The remaining patterns resolve the target node first.
 		node, err := h.deps.Store.GetNode(ctx, target)
 		if err != nil {
 			return "", trace.Wrap(err, "store error")
@@ -372,7 +373,7 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 					return "", trace.Wrap(err, "strict query error")
 				}
 			}
-			// 실제 응답 페이지 기준으로만 엣지 증거를 보강한다.
+			// Only augment edge evidence for nodes on the current response page.
 			neighborEdgeByNodeID, err = h.callQueryPatternEdges(ctx, node.ID, pattern, nodes)
 			if err != nil {
 				return "", trace.Wrap(err, "query evidence edges")
@@ -506,7 +507,7 @@ func (h *handlers) callQueryPatternEdges(ctx context.Context, anchorID uint, pat
 }
 
 // compactQueryTargetAmbiguity formats ambiguous query_graph matches into one compact error string.
-// @intent 짧은 심볼 이름이 여러 노드와 겹칠 때 사용자가 선택할 후보를 한 줄로 압축해 보여준다.
+// @intent compress ambiguous short-symbol matches into one line so callers can choose the intended node.
 func compactQueryTargetAmbiguity(target string, matches []querypkg.CandidateMatch) string {
 	parts := make([]string, 0, len(matches))
 	for _, match := range matches {
@@ -516,8 +517,8 @@ func compactQueryTargetAmbiguity(target string, matches []querypkg.CandidateMatc
 }
 
 // listGraphStats returns aggregate node and edge statistics for the graph.
-// @intent 현재 그래프 적재 상태를 종류·언어별 분포와 함께 요약한다.
-// @ensures 성공 시 총 노드/엣지 수와 kind/language별 집계를 반환한다.
+// @intent summarize the current graph load state with kind and language distributions.
+// @ensures returns total node and edge counts plus kind and language aggregates when the query succeeds.
 func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
@@ -537,7 +538,7 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 		}
 
 		// kindCount stores grouped count results from aggregate queries.
-		// @intent kind 또는 language별 집계 결과를 GORM 스캔 대상으로 사용한다.
+		// @intent use one scan target type for grouped kind and language aggregate rows.
 		type kindCount struct {
 			Kind  string
 			Count int64
@@ -598,11 +599,11 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 }
 
 // findLargeFunctions returns functions whose line counts exceed a threshold.
-// @intent 장문의 함수 후보를 찾아 리팩터링 또는 리뷰 우선순위를 정하게 한다.
-// @param request min_lines는 길이 기준이고 path는 파일 경로 접두사 필터다.
-// @requires LargefuncAnalyzer가 구성되어 있어야 한다.
-// @ensures 성공 시 길이 기준을 넘는 함수 목록과 개수를 반환한다.
-// @domainRule 함수 길이는 end_line-start_line+1로 계산한다.
+// @intent find oversized functions so maintainers can prioritize refactoring or review attention.
+// @param request min_lines is the length threshold and path is an optional file path prefix filter.
+// @requires LargefuncAnalyzer must be configured.
+// @ensures returns functions exceeding the threshold and their count when analysis succeeds.
+// @domainRule function length is calculated as end_line-start_line+1.
 func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()

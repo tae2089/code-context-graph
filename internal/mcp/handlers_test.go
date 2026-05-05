@@ -389,9 +389,9 @@ func TestHandler_GetAnnotation(t *testing.T) {
 	}
 }
 
-// P2-c 후속: DocTag.Type 필드가 MCP 응답에 포함되는지 검증.
-// 파서는 YARD/JSDoc에서 type을 추출해 저장하지만, MCP 직렬화에서 빠지면
-// 외부 사용자가 type 정보를 받을 수 없다.
+// P2-c follow-up: verify that the DocTag.Type field is included in the MCP response.
+// The parser extracts and stores type from YARD/JSDoc, but if MCP serialization drops it,
+// external consumers cannot receive the type information.
 func TestHandler_GetAnnotation_ExposesDocTagTypeField(t *testing.T) {
 	deps := setupTestDeps(t)
 	ctx := context.Background()
@@ -435,22 +435,22 @@ func TestHandler_GetAnnotation_ExposesDocTagTypeField(t *testing.T) {
 }
 
 // ============================================================
-// 11.0 구조적 변경 (Tidy First)
+// 11.0 Structural change (Tidy First)
 // ============================================================
 
 func TestDeps_NewInterfaces(t *testing.T) {
-	// 신규 인터페이스 필드가 nil이어도 기존 6개 도구가 정상 동작해야 함
+	// The existing six tools must still work even when the new interface fields are nil.
 	deps := setupTestDeps(t)
 	ctx := context.Background()
 
-	// 기존 도구들에 필요한 데이터 셋업
+	// Set up the data required by the existing tools.
 	deps.Store.UpsertNodes(ctx, []model.Node{
 		{QualifiedName: "pkg.Func1", Kind: model.NodeKindFunction, Name: "Func1", FilePath: "func1.go", StartLine: 1, EndLine: 5, Language: "go"},
 	})
 
-	// 신규 인터페이스 필드가 모두 nil인 상태에서 기존 도구 호출
+	// Call the existing tools while every new interface field is nil.
 	// QueryService, LargefuncAnalyzer, DeadcodeAnalyzer, CouplingAnalyzer,
-	// CoverageAnalyzer, CommunityBuilder, Incremental 이 모두 nil
+	// CoverageAnalyzer, CommunityBuilder, and Incremental are all nil.
 	if deps.QueryService != nil {
 		t.Error("expected QueryService to be nil")
 	}
@@ -476,7 +476,7 @@ func TestDeps_NewInterfaces(t *testing.T) {
 		t.Error("expected Incremental to be nil")
 	}
 
-	// 기존 6개 도구가 정상 동작하는지 확인
+	// Verify that the existing six tools still work.
 	result := callTool(t, deps, "get_node", map[string]any{"qualified_name": "pkg.Func1"})
 	if result.IsError {
 		t.Fatalf("get_node should work with nil new interfaces: %s", getTextContent(result))
@@ -484,12 +484,12 @@ func TestDeps_NewInterfaces(t *testing.T) {
 }
 
 func TestPrompts_UsesDepsInterfaces(t *testing.T) {
-	// prompts.go가 Deps 필드를 사용하도록 리팩터링 후 기존 5개 프롬프트 테스트 유지
-	// Deps에 QueryService, LargefuncAnalyzer 등을 설정하면 prompts.go가 이를 사용해야 함
+	// Keep the existing five prompt tests after refactoring prompts.go to use Deps fields.
+	// When QueryService, LargefuncAnalyzer, and others are set on Deps, prompts.go must use them.
 	deps := setupTestDeps(t)
 	ctx := context.Background()
 
-	// mock 구현으로 Deps 필드 설정
+	// Set Deps fields with mock implementations.
 	mockQuery := &mockQueryService{}
 	mockLF := &mockLargefuncAnalyzer{}
 	mockDC := &mockDeadcodeAnalyzer{}
@@ -502,12 +502,12 @@ func TestPrompts_UsesDepsInterfaces(t *testing.T) {
 	deps.CouplingAnalyzer = mockCoup
 	deps.CoverageAnalyzer = mockCov
 
-	// 데이터 셋업
+	// Set up test data.
 	deps.Store.UpsertNodes(ctx, []model.Node{
 		{QualifiedName: "pkg.TestFunc", Kind: model.NodeKindFunction, Name: "TestFunc", FilePath: "test.go", StartLine: 1, EndLine: 100, Language: "go"},
 	})
 
-	// onboard_developer 프롬프트 호출 — LargefuncAnalyzer가 Deps에 있으면 이를 사용해야 함
+	// Call the onboard_developer prompt; it must use LargefuncAnalyzer from Deps when present.
 	srv := NewServer(deps)
 	msg, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",
@@ -522,7 +522,7 @@ func TestPrompts_UsesDepsInterfaces(t *testing.T) {
 	}
 	_ = rpcResp
 
-	// mockLF.findCalled가 true인지 확인 — Deps.LargefuncAnalyzer를 사용했는지 검증
+	// Check that mockLF.findCalled is true to verify that Deps.LargefuncAnalyzer was used.
 	if !mockLF.findCalled {
 		t.Error("expected prompts.go to use Deps.LargefuncAnalyzer instead of inline creation")
 	}
@@ -769,7 +769,7 @@ func Hello() string {
 		t.Errorf("expected status=ok, got %v", resp["status"])
 	}
 
-	// 파싱된 노드가 존재해야 함
+	// The parsed node must exist.
 	node, err := deps.Store.GetNode(context.Background(), "hello.Hello")
 	if err != nil || node == nil {
 		t.Fatal("expected node hello.Hello to exist after full rebuild")
@@ -2400,7 +2400,7 @@ func TestQueryGraph_TargetNotFound(t *testing.T) {
 
 	result := callTool(t, deps, "query_graph", map[string]any{"pattern": "callers_of", "target": "nonexistent.Func"})
 	if result.IsError {
-		// target not found은 에러가 아니라 빈 결과를 반환
+		// target not found returns an empty result rather than an error.
 		text := getTextContent(result)
 		if !strings.Contains(text, "not found") {
 			t.Errorf("expected not found message, got: %s", text)
@@ -2749,7 +2749,7 @@ func TestGetAffectedFlows_ReturnsFlows(t *testing.T) {
 	})
 	nodeA, _ := deps.Store.GetNode(ctx, "pkg.FnA")
 
-	// Flow 생성
+	// Create a flow.
 	deps.DB.Create(&model.Flow{Name: "login-flow", Description: "Login flow"})
 	var flow model.Flow
 	deps.DB.First(&flow)

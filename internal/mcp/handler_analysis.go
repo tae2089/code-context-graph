@@ -1,3 +1,4 @@
+// @index MCP handlers for impact, flow, change-risk, dead-code, and suspect-edge analyses over the stored graph.
 package mcp
 
 import (
@@ -25,10 +26,10 @@ const (
 )
 
 // getImpactRadius returns nodes reachable within a bounded dependency radius.
-// @intent 특정 노드 변경의 파급 범위를 탐색해 리뷰 우선순위를 정하게 한다.
-// @param request qualified_name과 depth로 분석 시작점과 탐색 깊이를 지정한다.
-// @requires ImpactAnalyzer가 구성되어 있고 대상 노드가 존재해야 한다.
-// @ensures 성공 시 영향 범위 노드 목록을 반환한다.
+// @intent explore the blast radius of a node change so reviewers can prioritize follow-up checks.
+// @param request uses qualified_name and depth to define the starting node and traversal depth.
+// @requires ImpactAnalyzer must be configured and the target node must exist.
+// @ensures returns the impacted node set when analysis succeeds.
 // @see mcp.handlers.getNode
 func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
@@ -109,10 +110,10 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 }
 
 // traceFlow traces the stored call flow that starts from a node.
-// @intent 시작 노드가 속한 호출 흐름을 복원해 실행 맥락을 이해하게 한다.
-// @param request qualified_name으로 흐름 시작 노드를 지정한다.
-// @requires FlowTracer가 구성되어 있고 대상 노드가 존재해야 한다.
-// @ensures 성공 시 flow 이름과 멤버 순서를 반환한다.
+// @intent reconstruct the call flow containing the starting node so operators can understand execution context.
+// @param request uses qualified_name to identify the flow anchor node.
+// @requires FlowTracer must be configured and the target node must exist.
+// @ensures returns the flow name and ordered members when tracing succeeds.
 // @see mcp.handlers.listFlows
 func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
@@ -205,11 +206,11 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 }
 
 // detectChanges analyzes git diff hunks and returns node-level risk scores.
-// @intent 최근 변경 중 리뷰 리스크가 높은 함수와 파일을 빠르게 식별한다.
-// @param request repo_root는 Git 저장소 루트이고 base는 비교 기준 커밋이다.
-// @requires ChangesGitClient가 구성되어 있어야 한다.
-// @ensures 성공 시 변경 노드별 hunk 수와 risk score를 반환한다.
-// @sideEffect Git diff 조회를 수행한다.
+// @intent identify changed files and functions with elevated review risk from recent git diff hunks.
+// @param request uses repo_root as the Git repository root and base as the comparison commit.
+// @requires ChangesGitClient must be configured.
+// @ensures returns per-node hunk counts and risk scores when analysis succeeds.
+// @sideEffect reads git diff data from the configured repository root.
 // @see mcp.handlers.getAffectedFlows
 func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
@@ -263,11 +264,11 @@ func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolReques
 }
 
 // getAffectedFlows finds stored flows touched by recent code changes.
-// @intent 변경된 노드가 속한 흐름을 추적해 회귀 영향 범위를 흐름 단위로 보여준다.
-// @param request repo_root와 base로 변경 비교 범위를 지정한다.
-// @requires ChangesGitClient가 구성되어 있어야 한다.
-// @ensures 성공 시 영향받은 flow와 해당 changed node id 목록을 반환한다.
-// @sideEffect Git diff 조회를 수행한다.
+// @intent trace flows touched by changed nodes so regression review can happen at the flow level.
+// @param request uses repo_root and base to define the diff range.
+// @requires ChangesGitClient must be configured.
+// @ensures returns affected flows with their changed node IDs when analysis succeeds.
+// @sideEffect reads git diff data from the configured repository root.
 // @see mcp.handlers.detectChanges
 func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
@@ -360,11 +361,11 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 }
 
 // findDeadCode returns nodes that have no incoming usage edges.
-// @intent 정리 후보인 미사용 코드 노드를 찾아 유지보수 부담을 줄이게 한다.
-// @param request path와 kinds로 탐지 대상을 좁힐 수 있다.
-// @requires DeadcodeAnalyzer가 구성되어 있어야 한다.
-// @ensures 성공 시 dead_code 목록과 개수를 반환한다.
-// @domainRule incoming edge가 없는 노드만 미사용 코드 후보로 간주한다.
+// @intent find unused code candidates so maintainers can reduce long-term maintenance burden.
+// @param request path and kinds narrow the detection scope.
+// @requires DeadcodeAnalyzer must be configured.
+// @ensures returns dead_code entries and their count when analysis succeeds.
+// @domainRule only nodes without incoming edges qualify as dead code candidates.
 func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
@@ -411,9 +412,9 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 }
 
 // findSuspectFallbackEdges returns fallback call edges whose source/target annotations do not overlap on intent/domain rules.
-// @intent fallback edge explainability가 약한 저신뢰 호출 후보를 운영자가 직접 점검하게 한다.
-// @requires FallbackAnalyzer가 구성되어 있어야 한다.
-// @ensures 성공 시 suspect fallback edge 목록과 개수를 반환한다.
+// @intent surface low-confidence fallback call candidates so operators can manually review weakly explained edges.
+// @requires FallbackAnalyzer must be configured.
+// @ensures returns suspect fallback edge entries and their count when analysis succeeds.
 func (h *handlers) findSuspectFallbackEdges(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
