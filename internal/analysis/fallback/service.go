@@ -61,7 +61,7 @@ func (s *Service) FindSuspects(ctx context.Context, opts Options) ([]SuspectEdge
 
 // FindSuspectsPage reports suspect fallback call edges and returns one bounded page.
 // @intent bound fallback suspect analysis before annotation lookups so large graphs cannot expand unbounded responses.
-// @domainRule fetch limit+offset+1 fallback edges before suspect filtering; pagination applies to analyzed edge order, not global suspect total.
+// @domainRule fetch limit+offset+1 fallback edges before suspect filtering; paging bounds the scanned fallback-edge window, so returned suspect items may be fewer than limit while HasMore still reflects additional fallback edges beyond that window.
 func (s *Service) FindSuspectsPage(ctx context.Context, opts Options) (Result, error) {
 	req, err := paging.Normalize(opts.Page)
 	if err != nil {

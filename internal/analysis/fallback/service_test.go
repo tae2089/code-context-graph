@@ -132,3 +132,94 @@ func TestSuspectFallbackEdges_FindPageBoundsFallbackEdgeAnalysis(t *testing.T) {
 		t.Fatalf("unexpected pagination: %+v", got.Pagination)
 	}
 }
+
+func TestSuspectFallbackEdges_FindPageCanReturnFewerSuspectsThanLimitWhileHasMoreRemains(t *testing.T) {
+	db := setupFallbackDB(t)
+	ctx := context.Background()
+	store := gormstore.New(db)
+
+	// First fallback edge is suspect.
+	{
+		source := model.Node{QualifiedName: "pkg.SourceA", Kind: model.NodeKindFunction, Name: "SourceA", FilePath: "src.go", StartLine: 1, EndLine: 2, Language: "go"}
+		target := model.Node{QualifiedName: "pkg.TargetA", Kind: model.NodeKindFunction, Name: "TargetA", FilePath: "target.go", StartLine: 1, EndLine: 2, Language: "go"}
+		if err := store.UpsertNodes(ctx, []model.Node{source, target}); err != nil {
+			t.Fatal(err)
+		}
+		sourceNode, _ := store.GetNode(ctx, source.QualifiedName)
+		targetNode, _ := store.GetNode(ctx, target.QualifiedName)
+		if err := store.UpsertEdges(ctx, []model.Edge{{FromNodeID: sourceNode.ID, ToNodeID: targetNode.ID, Kind: model.EdgeKindFallbackCalls, Fingerprint: "fallback-a"}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.UpsertAnnotation(ctx, &model.Annotation{NodeID: sourceNode.ID, Tags: []model.DocTag{{Kind: model.TagIntent, Value: "source auth", Ordinal: 0}}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.UpsertAnnotation(ctx, &model.Annotation{NodeID: targetNode.ID, Tags: []model.DocTag{{Kind: model.TagIntent, Value: "invoice render", Ordinal: 0}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Second fallback edge is suppressed by overlapping annotation context.
+	{
+		source := model.Node{QualifiedName: "pkg.SourceB", Kind: model.NodeKindFunction, Name: "SourceB", FilePath: "src.go", StartLine: 1, EndLine: 2, Language: "go"}
+		target := model.Node{QualifiedName: "pkg.TargetB", Kind: model.NodeKindFunction, Name: "TargetB", FilePath: "target.go", StartLine: 1, EndLine: 2, Language: "go"}
+		if err := store.UpsertNodes(ctx, []model.Node{source, target}); err != nil {
+			t.Fatal(err)
+		}
+		sourceNode, _ := store.GetNode(ctx, source.QualifiedName)
+		targetNode, _ := store.GetNode(ctx, target.QualifiedName)
+		if err := store.UpsertEdges(ctx, []model.Edge{{FromNodeID: sourceNode.ID, ToNodeID: targetNode.ID, Kind: model.EdgeKindFallbackCalls, Fingerprint: "fallback-b"}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.UpsertAnnotation(ctx, &model.Annotation{NodeID: sourceNode.ID, Tags: []model.DocTag{{Kind: model.TagIntent, Value: "session token", Ordinal: 0}}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.UpsertAnnotation(ctx, &model.Annotation{NodeID: targetNode.ID, Tags: []model.DocTag{{Kind: model.TagIntent, Value: "session token refresh", Ordinal: 0}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Third fallback edge is suspect and keeps HasMore true even when the page returns only one item.
+	{
+		source := model.Node{QualifiedName: "pkg.SourceC", Kind: model.NodeKindFunction, Name: "SourceC", FilePath: "src.go", StartLine: 1, EndLine: 2, Language: "go"}
+		target := model.Node{QualifiedName: "pkg.TargetC", Kind: model.NodeKindFunction, Name: "TargetC", FilePath: "target.go", StartLine: 1, EndLine: 2, Language: "go"}
+		if err := store.UpsertNodes(ctx, []model.Node{source, target}); err != nil {
+			t.Fatal(err)
+		}
+		sourceNode, _ := store.GetNode(ctx, source.QualifiedName)
+		targetNode, _ := store.GetNode(ctx, target.QualifiedName)
+		if err := store.UpsertEdges(ctx, []model.Edge{{FromNodeID: sourceNode.ID, ToNodeID: targetNode.ID, Kind: model.EdgeKindFallbackCalls, Fingerprint: "fallback-c"}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.UpsertAnnotation(ctx, &model.Annotation{NodeID: sourceNode.ID, Tags: []model.DocTag{{Kind: model.TagIntent, Value: "source auth c", Ordinal: 0}}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.UpsertAnnotation(ctx, &model.Annotation{NodeID: targetNode.ID, Tags: []model.DocTag{{Kind: model.TagIntent, Value: "invoice render c", Ordinal: 0}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := New(db, store).FindSuspectsPage(ctx, Options{Page: paging.Request{Limit: 1, Offset: 0}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items) != 1 {
+		t.Fatalf("expected 1 suspect from the first scanned fallback edge, got %d", len(got.Items))
+	}
+	if got.Items[0].Edge.Fingerprint != "fallback-a" {
+		t.Fatalf("unexpected suspect edge: %s", got.Items[0].Edge.Fingerprint)
+	}
+	if got.Pagination.Limit != 1 || got.Pagination.Offset != 0 || got.Pagination.Returned != 1 || !got.Pagination.HasMore {
+		t.Fatalf("unexpected pagination: %+v", got.Pagination)
+	}
+
+	got, err = New(db, store).FindSuspectsPage(ctx, Options{Page: paging.Request{Limit: 1, Offset: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items) != 0 {
+		t.Fatalf("expected 0 suspects from a page containing only suppressed fallback edges, got %d", len(got.Items))
+	}
+	if got.Pagination.Limit != 1 || got.Pagination.Offset != 1 || got.Pagination.Returned != 0 || !got.Pagination.HasMore {
+		t.Fatalf("unexpected pagination for empty suspect page: %+v", got.Pagination)
+	}
+}
