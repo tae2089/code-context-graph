@@ -1,3 +1,4 @@
+// @index Database connection and search-backend selection helpers for SQLite and PostgreSQL.
 package db
 
 import (
@@ -13,7 +14,7 @@ import (
 )
 
 // SQLDBPool abstracts configurable SQL connection pool knobs.
-// @intent sql.DB와 테스트 대역 모두에 적용할 풀 설정 API를 추상화한다.
+// @intent abstract the pool configuration API so both real sql.DB handles and test doubles can share the same seam.
 type SQLDBPool interface {
 	SetMaxOpenConns(int)
 	SetMaxIdleConns(int)
@@ -22,8 +23,10 @@ type SQLDBPool interface {
 }
 
 // Open creates a configured GORM connection for sqlite or postgres.
-// @intent sqlite/postgres별 공통 초기화와 풀 설정을 한 진입점으로 묶는다.
-// @sideEffect sqlite 경로에서는 WAL과 busy timeout을 설정한다.
+// @intent centralize driver-specific GORM initialization and pool setup behind one entry point.
+// @requires driver must be sqlite or postgres and dsn must match the selected driver.
+// @ensures returns a configured GORM connection with pool settings applied for the selected driver.
+// @sideEffect enables SQLite WAL and busy_timeout pragmas when driver is sqlite.
 func Open(driver, dsn string) (*gorm.DB, error) {
 	cfg := &gorm.Config{
 		Logger:                 gormlogger.Discard,
@@ -65,8 +68,9 @@ func Open(driver, dsn string) (*gorm.DB, error) {
 }
 
 // ConfigurePool applies database-specific connection pool settings.
-// @intent 드라이버 특성에 맞는 connection pool 한도를 적용한다.
-// @domainRule sqlite는 단일 writer 특성을 고려해 MaxOpenConns=1로 고정한다.
+// @intent apply connection-pool limits that match each database driver's concurrency model.
+// @domainRule sqlite is pinned to MaxOpenConns=1 because it supports only one writer at a time.
+// @mutates sqlDB connection-pool settings.
 func ConfigurePool(sqlDB SQLDBPool, driver string) {
 	if driver == "sqlite" {
 		sqlDB.SetMaxOpenConns(1)
@@ -83,7 +87,8 @@ func ConfigurePool(sqlDB SQLDBPool, driver string) {
 }
 
 // NewSearchBackend selects the search backend for the database driver.
-// @intent 현재 DB 드라이버에 맞는 전문 검색 backend 구현체를 선택한다.
+// @intent select the full-text search backend implementation that matches the active database driver.
+// @domainRule postgres uses the PostgreSQL backend and every other driver falls back to the SQLite backend.
 func NewSearchBackend(driver string) search.Backend {
 	switch driver {
 	case "postgres":
