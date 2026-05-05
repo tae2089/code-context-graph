@@ -63,7 +63,9 @@ func newStatusCmd(deps *Deps) *cobra.Command {
 			}
 
 			var fileCount int64
-			nodeQuery.Distinct("file_path").Count(&fileCount)
+			if err := nodeQuery.Distinct("file_path").Count(&fileCount).Error; err != nil {
+				return trace.Wrap(err, "count files")
+			}
 
 			out := stdout(cmd)
 
@@ -75,7 +77,9 @@ func newStatusCmd(deps *Deps) *cobra.Command {
 				fmt.Fprintf(out, "Files: %d\n", fileCount)
 
 				var nodeKinds []kindCount
-				nodeQuery.Select("kind, count(*) as count").Group("kind").Scan(&nodeKinds)
+				if err := nodeQuery.Select("kind, count(*) as count").Group("kind").Scan(&nodeKinds).Error; err != nil {
+					return trace.Wrap(err, "group nodes by kind")
+				}
 				if len(nodeKinds) > 0 {
 					fmt.Fprintln(out, "\nNode kinds:")
 					for _, k := range nodeKinds {
@@ -84,7 +88,9 @@ func newStatusCmd(deps *Deps) *cobra.Command {
 				}
 
 				var edgeKinds []kindCount
-				edgeQuery.Select("kind, count(*) as count").Group("kind").Scan(&edgeKinds)
+				if err := edgeQuery.Select("kind, count(*) as count").Group("kind").Scan(&edgeKinds).Error; err != nil {
+					return trace.Wrap(err, "group edges by kind")
+				}
 				if len(edgeKinds) > 0 {
 					fmt.Fprintln(out, "\nEdge kinds:")
 					for _, k := range edgeKinds {

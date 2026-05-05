@@ -11,6 +11,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
@@ -33,8 +34,8 @@ type mockQueryService struct {
 	calleesOpts             query.QueryOptions
 	importsOfCalled         bool
 	importersOfCalled       bool
-	importsOfPageCalled      bool
-	importersOfPageCalled    bool
+	importsOfPageCalled     bool
+	importersOfPageCalled   bool
 	importsOfCalls          int
 	importersOfCalls        int
 	importsOfPageCalls      int
@@ -42,20 +43,20 @@ type mockQueryService struct {
 	importsOfPageOpts       query.QueryOptions
 	importersOfPageOpts     query.QueryOptions
 	childrenOfCalled        bool
-	childrenOfPageCalled     bool
-	childrenOfCalls          int
-	childrenOfPageCalls      int
-	childrenOfPageOpts       query.QueryOptions
+	childrenOfPageCalled    bool
+	childrenOfCalls         int
+	childrenOfPageCalls     int
+	childrenOfPageOpts      query.QueryOptions
 	testsForCalled          bool
-	testsForPageCalled       bool
-	testsForCalls            int
-	testsForPageCalls        int
-	testsForPageOpts         query.QueryOptions
+	testsForPageCalled      bool
+	testsForCalls           int
+	testsForPageCalls       int
+	testsForPageOpts        query.QueryOptions
 	inheritorsOfCalled      bool
-	inheritorsOfPageCalled   bool
-	inheritorsOfCalls        int
-	inheritorsOfPageCalls    int
-	inheritorsOfPageOpts     query.QueryOptions
+	inheritorsOfPageCalled  bool
+	inheritorsOfCalls       int
+	inheritorsOfPageCalls   int
+	inheritorsOfPageOpts    query.QueryOptions
 	fileSummaryCalled       bool
 	findMatchesCalled       bool
 	result                  []model.Node
@@ -248,6 +249,54 @@ type mockFlowBuilder struct {
 func (m *mockFlowBuilder) Rebuild(ctx context.Context, cfg flows.Config) ([]flows.Stats, error) {
 	m.rebuildCalled = true
 	return m.result, m.err
+}
+
+type mockFlowTracer struct {
+	calls        int
+	opts         []flows.TraceOptions
+	returnFlow   *model.Flow
+	traceErr     error
+	remainderErr error
+}
+
+func (m *mockFlowTracer) TraceFlow(ctx context.Context, startNodeID uint) (*model.Flow, error) {
+	m.calls++
+	flow := m.returnFlow
+	if flow == nil {
+		flow = &model.Flow{
+			Namespace: ctxns.FromContext(ctx),
+			Name:      "flow_from_mock",
+			Members: []model.FlowMembership{{
+				NodeID:    startNodeID,
+				Ordinal:   0,
+				Namespace: ctxns.FromContext(ctx),
+			}},
+		}
+	}
+	return flow, m.traceErr
+}
+
+func (m *mockFlowTracer) TraceFlowBounded(ctx context.Context, startNodeID uint, opts flows.TraceOptions) (*flows.TraceResult, error) {
+	m.calls++
+	m.opts = append(m.opts, opts)
+	flow := m.returnFlow
+	if flow == nil {
+		flow = &model.Flow{
+			Namespace: ctxns.FromContext(ctx),
+			Name:      "flow_from_mock",
+			Members: []model.FlowMembership{{
+				NodeID:    startNodeID,
+				Ordinal:   0,
+				Namespace: ctxns.FromContext(ctx),
+			}},
+		}
+	}
+	return &flows.TraceResult{
+		Flow:          flow,
+		Truncated:     false,
+		MaxNodes:      opts.MaxNodes,
+		ReturnedNodes: len(flow.Members),
+	}, m.remainderErr
 }
 
 type mockIncrementalSyncer struct {

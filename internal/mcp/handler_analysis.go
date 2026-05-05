@@ -131,7 +131,12 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 
 	maxNodes := request.GetInt("max_nodes", defaultTraceMaxNodes)
 	includeFallbackCalls := request.GetBool("include_fallback_calls", true)
-	return finalizeToolResult(h.cachedExecute(ctx, "trace_flow:", map[string]any{"qualified_name": qn, "max_nodes": maxNodes, "namespace": requestNamespace(request)}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "trace_flow:", map[string]any{
+		"qualified_name":         qn,
+		"max_nodes":              maxNodes,
+		"include_fallback_calls": includeFallbackCalls,
+		"namespace":              requestNamespace(request),
+	}, func() (string, error) {
 		node, err := h.deps.Store.GetNode(ctx, qn)
 		if err != nil {
 			log.ErrorContext(ctx, "store error", append(obs.TraceLogArgs(ctx), "tool", "trace_flow", trace.SlogError(err))...)
@@ -427,13 +432,13 @@ func (h *handlers) findSuspectFallbackEdges(ctx context.Context, request mcp.Cal
 		items := make([]map[string]any, len(results))
 		for i, result := range results {
 			items[i] = map[string]any{
-				"edge_kind":        result.Edge.Kind,
-				"fingerprint":      result.Edge.Fingerprint,
-				"source":           result.Source.QualifiedName,
-				"source_file":      result.Source.FilePath,
-				"target":           result.Target.QualifiedName,
-				"target_file":      result.Target.FilePath,
-				"suspect":          result.Suspect,
+				"edge_kind":   result.Edge.Kind,
+				"fingerprint": result.Edge.Fingerprint,
+				"source":      result.Source.QualifiedName,
+				"source_file": result.Source.FilePath,
+				"target":      result.Target.QualifiedName,
+				"target_file": result.Target.FilePath,
+				"suspect":     result.Suspect,
 			}
 		}
 

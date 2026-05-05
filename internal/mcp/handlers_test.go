@@ -675,6 +675,53 @@ func TestTraceFlow_RespectsIncludeFallbackCalls(t *testing.T) {
 	}
 }
 
+func TestTraceFlow_CacheKeyIncludesIncludeFallbackCalls(t *testing.T) {
+	deps := setupGraphOnlyTestDeps(t)
+	ctx := context.Background()
+	if err := deps.Store.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.CacheTarget", Kind: model.NodeKindFunction, Name: "CacheTarget", FilePath: "cache.go", StartLine: 1, EndLine: 5, Language: "go"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	tracer := &mockFlowTracer{}
+	deps.FlowTracer = tracer
+	deps.Cache = NewCache(5 * time.Minute)
+
+	result := callTool(t, deps, "trace_flow", map[string]any{
+		"qualified_name":         "pkg.CacheTarget",
+		"include_fallback_calls": false,
+	})
+	if result.IsError {
+		t.Fatalf("trace_flow returned error: %s", getTextContent(result))
+	}
+	if tracer.calls != 1 {
+		t.Fatalf("expected first trace_flow call to execute tracer once, got %d", tracer.calls)
+	}
+
+	result = callTool(t, deps, "trace_flow", map[string]any{
+		"qualified_name":         "pkg.CacheTarget",
+		"include_fallback_calls": false,
+	})
+	if result.IsError {
+		t.Fatalf("trace_flow returned error: %s", getTextContent(result))
+	}
+	if tracer.calls != 1 {
+		t.Fatalf("expected cache hit for identical include_fallback_calls, got calls=%d", tracer.calls)
+	}
+
+	result = callTool(t, deps, "trace_flow", map[string]any{
+		"qualified_name":         "pkg.CacheTarget",
+		"include_fallback_calls": true,
+	})
+	if result.IsError {
+		t.Fatalf("trace_flow returned error: %s", getTextContent(result))
+	}
+	if tracer.calls != 2 {
+		t.Fatalf("expected different include_fallback_calls to execute tracer again, got calls=%d", tracer.calls)
+	}
+}
+
 // ============================================================
 // 11.1 build_or_update_graph
 // ============================================================
@@ -2179,6 +2226,28 @@ func TestQueryGraph_CacheKeyIncludesFallbackFlag(t *testing.T) {
 
 	if mockQ.calleesPageCalls != 3 {
 		t.Fatalf("expected 3 callee page calls (false:1, true:2), got %d", mockQ.calleesPageCalls)
+	}
+}
+
+func TestQueryGraph_ErrorsWhenLimitExceedsMax(t *testing.T) {
+	deps := setupGraphOnlyTestDeps(t)
+	ctx := context.Background()
+
+	deps.Store.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.Source", Kind: model.NodeKindFunction, Name: "Source", FilePath: "source.go", StartLine: 1, EndLine: 5, Language: "go"},
+	})
+	deps.QueryService = query.New(deps.DB)
+
+	result := callTool(t, deps, "query_graph", map[string]any{
+		"pattern": "callees_of",
+		"target":  "pkg.Source",
+		"limit":   501,
+	})
+	if !result.IsError {
+		t.Fatalf("expected query_graph error for limit > 500, got: %s", getTextContent(result))
+	}
+	if !strings.Contains(getTextContent(result), "limit must be <= 500") {
+		t.Fatalf("unexpected error: %s", getTextContent(result))
 	}
 }
 

@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	RequiredSchemaVersion    = 3
+	RequiredSchemaVersion    = 4
 	SchemaVersionKey         = "schema"
 	LegacySchemaVersionTable = "ccg_schema_versions"
 )
@@ -573,6 +573,15 @@ func validateSQLiteSchemaParity(db *gorm.DB) error {
 			return fmt.Errorf("required column %q.%q is nullable", column.Table, column.Column)
 		}
 	}
+	for _, indexName := range []string{"idx_edges_ns_from_kind_to", "idx_edges_ns_to_kind_from"} {
+		exists, err := sqliteIndexExists(db, indexName)
+		if err != nil {
+			return trace.Wrap(err, "inspect sqlite edge index")
+		}
+		if !exists {
+			return fmt.Errorf("required index %q is missing", indexName)
+		}
+	}
 	return nil
 }
 
@@ -610,6 +619,15 @@ func validatePostgresSchemaParity(db *gorm.DB) error {
 			return fmt.Errorf("required column %q.%q type is %q, want %q", tc.Table, tc.Column, dataType, tc.DataType)
 		}
 	}
+	for _, indexName := range []string{"idx_edges_ns_from_kind_to", "idx_edges_ns_to_kind_from"} {
+		exists, err := postgresIndexExists(db, indexName)
+		if err != nil {
+			return trace.Wrap(err, "inspect postgres edge index")
+		}
+		if !exists {
+			return fmt.Errorf("required index %q is missing", indexName)
+		}
+	}
 	return nil
 }
 
@@ -638,6 +656,17 @@ func sqliteColumnNotNull(db *gorm.DB, tableName, columnName string) (bool, error
 type sqliteColumn struct {
 	exists  bool
 	notNull bool
+}
+
+// sqliteIndexExists reports whether a SQLite index is present by name.
+// @intent index presence can be verified during schema parity checks before query paths use them.
+func sqliteIndexExists(db *gorm.DB, indexName string) (bool, error) {
+	var count int64
+	err := db.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?", indexName).Scan(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // sqliteColumnInfo loads one SQLite column's metadata from PRAGMA table_info.

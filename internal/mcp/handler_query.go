@@ -17,7 +17,10 @@ import (
 
 var strictFalse = false
 
-const defaultQueryGraphLimit = 50
+const (
+	defaultQueryGraphLimit = 50
+	maxQueryGraphLimit     = 500
+)
 
 // getNode returns detailed metadata for a graph node by qualified name.
 // @intent 정규화 이름으로 노드를 조회해 위치와 종류 등 기본 식별 정보를 제공한다.
@@ -82,7 +85,7 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 	}
 	limit := request.GetInt("limit", 10)
 	pathPrefix := request.GetString("path", "")
-	if err := validatePositiveLimit(limit); err != nil {
+	if err := validateQueryGraphLimit(limit); err != nil {
 		return finalizeToolResult("", err)
 	}
 
@@ -131,6 +134,18 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 		}
 		return result, nil
 	}))
+}
+
+// validateQueryGraphLimit checks that the limit parameter for queryGraph is within acceptable bounds.
+// @intent enforce reasonable limits on queryGraph results to prevent excessive load and encourage pagination.
+func validateQueryGraphLimit(limit int) error {
+	if err := validatePositiveLimit(limit); err != nil {
+		return err
+	}
+	if limit > maxQueryGraphLimit {
+		return newToolResultErr(fmt.Sprintf("limit must be <= %d, got %d", maxQueryGraphLimit, limit))
+	}
+	return nil
 }
 
 // getAnnotation returns stored annotation metadata for a graph node.
@@ -216,7 +231,7 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 	}
 	limit := request.GetInt("limit", defaultQueryGraphLimit)
 	offset := request.GetInt("offset", 0)
-	if err := validatePositiveLimit(limit); err != nil {
+	if err := validateQueryGraphLimit(limit); err != nil {
 		return finalizeToolResult("", err)
 	}
 	if offset < 0 {
