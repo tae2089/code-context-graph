@@ -126,6 +126,30 @@ func validatePositiveLimit(limit int) error {
 	return nil
 }
 
+// validateOffset validates non-negative pagination offsets.
+// @intent reject negative offsets before handlers hit database queries.
+func validateOffset(offset int) error {
+	if offset < 0 {
+		return newToolResultErr(fmt.Sprintf("offset must be >= 0, got %d", offset))
+	}
+	return nil
+}
+
+// buildPaginationMetadata builds a compact pagination descriptor for tool consumers.
+// @intent provide a consistent structure for pagination metadata in tool responses.
+func buildPaginationMetadata(limit, offset, returned int, hasMore bool) map[string]any {
+	pagination := map[string]any{
+		"limit":    limit,
+		"offset":   offset,
+		"returned": returned,
+		"has_more": hasMore,
+	}
+	if hasMore {
+		pagination["next_offset"] = offset + limit
+	}
+	return pagination
+}
+
 // unwrapToolResultErr extracts an embedded MCP tool result from an error.
 // @intent 내부 에러 흐름에 실린 사용자용 MCP 결과를 공통 종료 지점에서 복원한다.
 // @return toolResultErr인 경우 포함된 MCP 결과와 true를 반환한다.

@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/trace"
@@ -30,6 +29,31 @@ type graphCommInfo struct {
 	Cohesion  float64 `json:"cohesion"`
 }
 
+// archCommCount is a helper struct for counting community nodes in architecture overview.
+// @intent support community node counting in getArchitectureOverview without polluting model.Community.
+type archCommCount struct {
+	ID        uint
+	Label     string
+	NodeCount int64
+}
+
+// communityRow is a helper struct for counting community nodes in listCommunities.
+// @intent support community node counting in listCommunities without polluting model.Community.
+type communityRow struct {
+	ID        uint
+	Label     string
+	NodeCount int64
+}
+
+// flowRow is a helper struct for counting flow nodes in listFlows.
+// @intent support flow node counting in listFlows without polluting model.Flow.
+type flowRow struct {
+	ID          uint
+	Name        string
+	Description string
+	NodeCount   int64
+}
+
 // listFlows lists stored flows with optional sorting and truncation.
 // @intent 저장된 호출 흐름을 요약 형태로 노출해 탐색과 우선순위 판단을 돕는다.
 // @param request sort_by와 limit로 정렬 방식과 최대 개수를 제어한다.
@@ -40,66 +64,64 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 	log := h.logger()
 
 	sortBy := request.GetString("sort_by", "name")
-	limit := request.GetInt("limit", 50)
-	if err := validatePositiveLimit(limit); err != nil {
+	limit := request.GetInt("limit", defaultQueryGraphLimit)
+	offset := request.GetInt("offset", 0)
+	if err := validateQueryGraphLimit(limit); err != nil {
+		return finalizeToolResult("", err)
+	}
+	if err := validateOffset(offset); err != nil {
 		return finalizeToolResult("", err)
 	}
 
-	log.Info("list_flows called", "sort_by", sortBy, "limit", limit)
+	log.Info("list_flows called", "sort_by", sortBy, "limit", limit, "offset", offset)
 
-	return finalizeToolResult(h.cachedExecute(ctx, "list_flows:", map[string]any{"sort_by": sortBy, "limit": limit, "namespace": requestNamespace(request)}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "list_flows:", map[string]any{"sort_by": sortBy, "limit": limit, "offset": offset, "namespace": requestNamespace(request)}, func() (string, error) {
 		ns := ctxns.FromContext(ctx)
-		var fcRows []flowCount
-		countQ := h.deps.DB.WithContext(ctx).
-			Model(&model.FlowMembership{}).
-			Where("namespace = ?", ns)
-		if err := countQ.
-			Select("flow_id, COUNT(*) as count").
-			Group("flow_id").
-			Scan(&fcRows).Error; err != nil {
-			return "", trace.Wrap(err, "group flow memberships")
+		var flowRows []flowRow
+		flowQ := h.deps.DB.WithContext(ctx).
+			Model(&model.Flow{}).
+			Select("flows.id AS id, flows.name AS name, flows.description AS description, COALESCE(COUNT(flow_memberships.id),0) AS node_count").
+			Joins("LEFT JOIN flow_memberships ON flow_memberships.flow_id = flows.id AND flow_memberships.namespace = flows.namespace").
+			Where("flows.namespace = ?", ns).
+			Group("flows.id, flows.name, flows.description")
+
+		switch sortBy {
+		case "node_count":
+			flowQ = flowQ.
+				Order("node_count DESC").
+				Order("flows.name ASC").
+				Order("flows.id ASC")
+		default:
+			flowQ = flowQ.
+				Order("flows.name ASC").
+				Order("flows.id ASC")
 		}
 
-		fcMap := make(map[uint]int, len(fcRows))
-		for _, r := range fcRows {
-			fcMap[r.FlowID] = r.Count
-		}
-
-		var flowList []model.Flow
-		flowQ := h.deps.DB.WithContext(ctx).Where("namespace = ?", ns)
-		if err := flowQ.Find(&flowList).Error; err != nil {
+		fetchLimit := limit + 1
+		if err := flowQ.Limit(fetchLimit).Offset(offset).Find(&flowRows).Error; err != nil {
 			return "", trace.Wrap(err, "find flows")
 		}
 
-		infos := make([]graphFlowInfo, len(flowList))
-		for i, f := range flowList {
+		hasMore := len(flowRows) > limit
+		if hasMore {
+			flowRows = flowRows[:limit]
+		}
+
+		infos := make([]graphFlowInfo, len(flowRows))
+		for i, f := range flowRows {
 			infos[i] = graphFlowInfo{
 				ID:          f.ID,
 				Name:        f.Name,
 				Description: f.Description,
-				NodeCount:   fcMap[f.ID],
+				NodeCount:   int(f.NodeCount),
 			}
 		}
 
-		switch sortBy {
-		case "node_count":
-			sort.Slice(infos, func(i, j int) bool {
-				return infos[i].NodeCount > infos[j].NodeCount
-			})
-		default:
-			sort.Slice(infos, func(i, j int) bool {
-				return infos[i].Name < infos[j].Name
-			})
-		}
-
-		if len(infos) > limit {
-			infos = infos[:limit]
-		}
-
-		result, err := marshalJSON(map[string]any{"flows": infos})
-		if err == nil {
-			result, err = marshalJSON(map[string]any{"flows": infos, "derived_state": derivedStateFlows()})
-		}
+		result, err := marshalJSON(map[string]any{
+			"flows":         infos,
+			"derived_state": derivedStateFlows(),
+			"pagination":    buildPaginationMetadata(limit, offset, len(infos), hasMore),
+		})
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}
@@ -118,59 +140,61 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 
 	sortBy := request.GetString("sort_by", "size")
 	minSize := request.GetInt("min_size", 0)
+	limit := request.GetInt("limit", defaultQueryGraphLimit)
+	offset := request.GetInt("offset", 0)
+	if err := validateQueryGraphLimit(limit); err != nil {
+		return finalizeToolResult("", err)
+	}
+	if err := validateOffset(offset); err != nil {
+		return finalizeToolResult("", err)
+	}
 
-	log.Info("list_communities called", "sort_by", sortBy, "min_size", minSize)
+	log.Info("list_communities called", "sort_by", sortBy, "min_size", minSize, "limit", limit, "offset", offset)
 
-	return finalizeToolResult(h.cachedExecute(ctx, "list_communities:", map[string]any{"sort_by": sortBy, "min_size": minSize, "namespace": requestNamespace(request)}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "list_communities:", map[string]any{"sort_by": sortBy, "min_size": minSize, "limit": limit, "offset": offset, "namespace": requestNamespace(request)}, func() (string, error) {
 		ns := ctxns.FromContext(ctx)
-		var ccRows []commCount
-		countQ := h.deps.DB.WithContext(ctx).
-			Model(&model.CommunityMembership{}).
-			Joins("JOIN communities ON communities.id = community_memberships.community_id").
-			Where("communities.namespace = ?", ns)
-		if err := countQ.
-			Select("community_id, COUNT(*) as count").
-			Group("community_id").
-			Scan(&ccRows).Error; err != nil {
-			return "", trace.Wrap(err, "group community memberships")
-		}
-
-		ccMap := make(map[uint]int, len(ccRows))
-		for _, r := range ccRows {
-			ccMap[r.CommunityID] = r.Count
-		}
-
-		var communities []model.Community
-		communityQ := h.deps.DB.WithContext(ctx).Where("namespace = ?", ns)
-		if err := communityQ.Find(&communities).Error; err != nil {
-			return "", trace.Wrap(err, "find communities")
-		}
-
-		infos := make([]graphCommInfo, 0, len(communities))
-		for _, c := range communities {
-			cnt := ccMap[c.ID]
-			if cnt < minSize {
-				continue
-			}
-			infos = append(infos, graphCommInfo{
-				ID:        c.ID,
-				Label:     c.Label,
-				NodeCount: cnt,
-			})
+		var communityRows []communityRow
+		communityQ := h.deps.DB.WithContext(ctx).
+			Model(&model.Community{}).
+			Select("communities.id AS id, communities.label AS label, COALESCE(COUNT(community_memberships.id),0) AS node_count").
+			Joins("LEFT JOIN community_memberships ON community_memberships.community_id = communities.id").
+			Where("communities.namespace = ?", ns).
+			Group("communities.id, communities.label")
+		if minSize > 0 {
+			communityQ = communityQ.Having("COUNT(community_memberships.id) >= ?", minSize)
 		}
 
 		switch sortBy {
 		case "name":
-			sort.Slice(infos, func(i, j int) bool {
-				return infos[i].Label < infos[j].Label
-			})
+			communityQ = communityQ.Order("communities.label ASC").Order("communities.id ASC")
 		default:
-			sort.Slice(infos, func(i, j int) bool {
-				return infos[i].NodeCount > infos[j].NodeCount
-			})
+			communityQ = communityQ.Order("node_count DESC").Order("communities.label ASC").Order("communities.id ASC")
 		}
 
-		result, err := marshalJSON(map[string]any{"communities": infos, "derived_state": derivedStateCommunities()})
+		fetchLimit := limit + 1
+		if err := communityQ.Limit(fetchLimit).Offset(offset).Find(&communityRows).Error; err != nil {
+			return "", trace.Wrap(err, "find communities")
+		}
+
+		hasMore := len(communityRows) > limit
+		if hasMore {
+			communityRows = communityRows[:limit]
+		}
+
+		infos := make([]graphCommInfo, len(communityRows))
+		for i, c := range communityRows {
+			infos[i] = graphCommInfo{
+				ID:        c.ID,
+				Label:     c.Label,
+				NodeCount: int(c.NodeCount),
+			}
+		}
+
+		result, err := marshalJSON(map[string]any{
+			"communities":   infos,
+			"derived_state": derivedStateCommunities(),
+			"pagination":    buildPaginationMetadata(limit, offset, len(infos), hasMore),
+		})
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}
@@ -193,8 +217,16 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 		return mcp.NewToolResultError("missing parameter: community_id"), nil
 	}
 	includeMembers := request.GetBool("include_members", false)
+	memberLimit := request.GetInt("member_limit", 100)
+	memberOffset := request.GetInt("member_offset", 0)
+	if err := validateQueryGraphLimit(memberLimit); err != nil {
+		return finalizeToolResult("", err)
+	}
+	if err := validateOffset(memberOffset); err != nil {
+		return finalizeToolResult("", err)
+	}
 
-	log.Info("get_community called", "community_id", communityID, "include_members", includeMembers)
+	log.Info("get_community called", "community_id", communityID, "include_members", includeMembers, "member_limit", memberLimit, "member_offset", memberOffset)
 
 	var comm model.Community
 	commQ := h.deps.DB.WithContext(ctx).Where("namespace = ?", ctxns.FromContext(ctx))
@@ -202,7 +234,7 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 		return mcp.NewToolResultError(fmt.Sprintf("community %d not found", communityID)), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "get_community:", map[string]any{"community_id": communityID, "include_members": includeMembers, "namespace": requestNamespace(request)}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "get_community:", map[string]any{"community_id": communityID, "include_members": includeMembers, "member_limit": memberLimit, "member_offset": memberOffset, "namespace": requestNamespace(request)}, func() (string, error) {
 		ns := ctxns.FromContext(ctx)
 		var memberCount int64
 		memberQ := h.deps.DB.WithContext(ctx).Model(&model.CommunityMembership{}).
@@ -228,26 +260,26 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 		}
 
 		if includeMembers {
-			var memberships []model.CommunityMembership
-			membershipQ := h.deps.DB.WithContext(ctx).
-				Joins("JOIN communities ON communities.id = community_memberships.community_id").
-				Where("community_id = ?", comm.ID).
-				Where("communities.namespace = ?", ns)
-			if err := membershipQ.Find(&memberships).Error; err != nil {
-				return "", trace.Wrap(err, "find community memberships")
-			}
-
-			nodeIDs := make([]uint, len(memberships))
-			for i, m := range memberships {
-				nodeIDs[i] = m.NodeID
-			}
-
 			var nodes []model.Node
-			if len(nodeIDs) > 0 {
-				nodesQ := h.deps.DB.WithContext(ctx).Where("id IN ?", nodeIDs).Where("namespace = ?", ns)
-				if err := nodesQ.Find(&nodes).Error; err != nil {
-					return "", trace.Wrap(err, "find community nodes")
-				}
+			membersQ := h.deps.DB.WithContext(ctx).Model(&model.Node{}).
+				Select("nodes.*").
+				Joins("JOIN community_memberships ON community_memberships.node_id = nodes.id").
+				Joins("JOIN communities ON communities.id = community_memberships.community_id").
+				Where("community_memberships.community_id = ?", comm.ID).
+				Where("communities.namespace = ?", ns).
+				Where("nodes.namespace = ?", ns).
+				Order("nodes.file_path ASC").
+				Order("nodes.start_line ASC").
+				Order("nodes.id ASC")
+
+			fetchLimit := memberLimit + 1
+			if err := membersQ.Limit(fetchLimit).Offset(memberOffset).Find(&nodes).Error; err != nil {
+				return "", trace.Wrap(err, "find community nodes")
+			}
+
+			hasMore := len(nodes) > memberLimit
+			if hasMore {
+				nodes = nodes[:memberLimit]
 			}
 
 			members := make([]map[string]any, len(nodes))
@@ -255,6 +287,7 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 				members[i] = nodeToBasicMap(n)
 			}
 			gcData["members"] = members
+			gcData["members_pagination"] = buildPaginationMetadata(memberLimit, memberOffset, len(members), hasMore)
 		}
 
 		result, err := marshalJSON(gcData)
@@ -273,63 +306,67 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = h.applyWorkspace(ctx, request)
 	log := h.logger()
-	log.Info("get_architecture_overview called")
+	communityLimit := request.GetInt("community_limit", defaultQueryGraphLimit)
+	communityOffset := request.GetInt("community_offset", 0)
+	couplingLimit := request.GetInt("coupling_limit", defaultQueryGraphLimit)
+	couplingOffset := request.GetInt("coupling_offset", 0)
+	if err := validateQueryGraphLimit(communityLimit); err != nil {
+		return finalizeToolResult("", err)
+	}
+	if err := validateOffset(communityOffset); err != nil {
+		return finalizeToolResult("", err)
+	}
+	if err := validateQueryGraphLimit(couplingLimit); err != nil {
+		return finalizeToolResult("", err)
+	}
+	if err := validateOffset(couplingOffset); err != nil {
+		return finalizeToolResult("", err)
+	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "get_architecture_overview:", map[string]any{"namespace": requestNamespace(request)}, func() (string, error) {
+	log.Info("get_architecture_overview called", "community_limit", communityLimit, "community_offset", communityOffset, "coupling_limit", couplingLimit, "coupling_offset", couplingOffset)
+
+	return finalizeToolResult(h.cachedExecute(ctx, "get_architecture_overview:", map[string]any{
+		"community_limit":  communityLimit,
+		"community_offset": communityOffset,
+		"coupling_limit":   couplingLimit,
+		"coupling_offset":  couplingOffset,
+		"namespace":        requestNamespace(request),
+	}, func() (string, error) {
 		ns := ctxns.FromContext(ctx)
-		var communities []model.Community
-		communityQ := h.deps.DB.WithContext(ctx).Where("namespace = ?", ns)
-		if err := communityQ.Find(&communities).Error; err != nil {
+
+		var archCCRows []archCommCount
+		archCountQ := h.deps.DB.WithContext(ctx).
+			Model(&model.Community{}).
+			Select("communities.id AS id, communities.label AS label, COALESCE(COUNT(community_memberships.id),0) AS node_count").
+			Joins("LEFT JOIN community_memberships ON community_memberships.community_id = communities.id").
+			Where("communities.namespace = ?", ns).
+			Group("communities.id, communities.label").
+			Order("node_count DESC, communities.label ASC, communities.id ASC")
+
+		archFetchLimit := communityLimit + 1
+		if err := archCountQ.Limit(archFetchLimit).Offset(communityOffset).Find(&archCCRows).Error; err != nil {
 			return "", trace.Wrap(err, "find communities for architecture overview")
 		}
 
-		if len(communities) == 0 {
-			result, err := marshalJSON(map[string]any{
-				"communities":   []any{},
-				"coupling":      []any{},
-				"warnings":      []string{"No communities found. Run community rebuild first."},
-				"derived_state": derivedStateSummary(),
-			})
-			if err != nil {
-				return "", trace.Wrap(err, "marshal result")
-			}
-			return result, nil
+		communityHasMore := len(archCCRows) > communityLimit
+		if communityHasMore {
+			archCCRows = archCCRows[:communityLimit]
 		}
 
-		// archCommCount stores aggregated membership counts for overview output.
-		// @intent 아키텍처 개요에서 community별 노드 수를 계산하기 위한 임시 구조체다.
-		type archCommCount struct {
-			CommunityID uint
-			Count       int
-		}
-		var archCCRows []archCommCount
-		archCountQ := h.deps.DB.WithContext(ctx).
-			Model(&model.CommunityMembership{}).
-			Joins("JOIN communities ON communities.id = community_memberships.community_id").
-			Where("communities.namespace = ?", ns)
-		if err := archCountQ.
-			Select("community_id, COUNT(*) as count").
-			Group("community_id").
-			Scan(&archCCRows).Error; err != nil {
-			return "", trace.Wrap(err, "group community memberships for architecture overview")
-		}
-
-		archCCMap := make(map[uint]int, len(archCCRows))
-		for _, r := range archCCRows {
-			archCCMap[r.CommunityID] = r.Count
-		}
-
-		commInfos := make([]map[string]any, len(communities))
-		for i, c := range communities {
+		commInfos := make([]map[string]any, len(archCCRows))
+		for i, c := range archCCRows {
 			commInfos[i] = map[string]any{
 				"id":         c.ID,
 				"label":      c.Label,
-				"node_count": archCCMap[c.ID],
+				"node_count": c.NodeCount,
 			}
 		}
 
 		couplingPairs := []map[string]any{}
 		warnings := []string{}
+		if len(archCCRows) == 0 {
+			warnings = []string{"No communities found. Run community rebuild first."}
+		}
 
 		if h.deps.CouplingAnalyzer != nil {
 			pairs, err := h.deps.CouplingAnalyzer.Analyze(ctx)
@@ -348,11 +385,27 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 			}
 		}
 
+		couplingTotal := len(couplingPairs)
+		couplingHasMore := false
+		if couplingOffset > couplingTotal {
+			couplingOffset = couplingTotal
+		}
+		couplingEnd := couplingOffset + couplingLimit
+		if couplingEnd > couplingTotal {
+			couplingEnd = couplingTotal
+		}
+		couplingPairs = couplingPairs[couplingOffset:couplingEnd]
+		if couplingTotal > couplingEnd {
+			couplingHasMore = true
+		}
+
 		result, err := marshalJSON(map[string]any{
-			"communities":   commInfos,
-			"coupling":      couplingPairs,
-			"warnings":      warnings,
-			"derived_state": derivedStateSummary(),
+			"communities":            commInfos,
+			"communities_pagination": buildPaginationMetadata(communityLimit, communityOffset, len(commInfos), communityHasMore),
+			"coupling":               couplingPairs,
+			"coupling_pagination":    buildPaginationMetadata(couplingLimit, couplingOffset, len(couplingPairs), couplingHasMore),
+			"warnings":               warnings,
+			"derived_state":          derivedStateSummary(),
 		})
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
