@@ -355,6 +355,20 @@ func TestHandler_Search_PathFilter_RespectsPathBoundary(t *testing.T) {
 	}
 }
 
+func TestHandler_Search_PathFilter_CapsInternalFetchLimit(t *testing.T) {
+	deps := setupTestDeps(t)
+	backend := &failSearchBackend{}
+	deps.SearchBackend = backend
+
+	result := callTool(t, deps, "search", map[string]any{"query": "handle", "path": "internal/api", "limit": 500})
+	if result.IsError {
+		t.Fatalf("search returned error: %s", getTextContent(result))
+	}
+	if backend.queryLimit != 500 {
+		t.Fatalf("Query limit = %d, want 500 cap", backend.queryLimit)
+	}
+}
+
 func TestHandler_GetAnnotation(t *testing.T) {
 	deps := setupTestDeps(t)
 	ctx := context.Background()
@@ -3632,6 +3646,7 @@ func Svc() {}
 type failSearchBackend struct {
 	err          error
 	rebuildCalls int
+	queryLimit   int
 }
 
 func (f *failSearchBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
@@ -3650,6 +3665,7 @@ func (f *failSearchBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) err
 func (f *failSearchBackend) Migrate(db *gorm.DB) error { return nil }
 
 func (f *failSearchBackend) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]model.Node, error) {
+	f.queryLimit = limit
 	return nil, nil
 }
 

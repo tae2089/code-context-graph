@@ -22,6 +22,9 @@ var strictFalse = false
 const (
 	defaultQueryGraphLimit = 50
 	maxQueryGraphLimit     = 500
+	searchPathFetchFactor  = 5
+	searchPathFetchFloor   = 50
+	searchPathFetchCap     = 500
 )
 
 // largeFunctionItem summarizes one oversized function candidate.
@@ -116,14 +119,14 @@ type fileSummaryResponse struct {
 // nodeResponse is the typed wire payload for getNode.
 // @intent preserve a stable response envelope for node metadata lookups.
 type nodeResponse struct {
-	ID            uint           `json:"id"`
-	QualifiedName string         `json:"qualified_name"`
-	Kind          model.NodeKind `json:"kind"`
-	Name          string         `json:"name"`
-	FilePath      string         `json:"file_path"`
-	StartLine     int            `json:"start_line"`
-	EndLine       int            `json:"end_line"`
-	Language      string         `json:"language"`
+	ID            uint                   `json:"id"`
+	QualifiedName string                 `json:"qualified_name"`
+	Kind          model.NodeKind         `json:"kind"`
+	Name          string                 `json:"name"`
+	FilePath      string                 `json:"file_path"`
+	StartLine     int                    `json:"start_line"`
+	EndLine       int                    `json:"end_line"`
+	Language      string                 `json:"language"`
 	Evidence      workspaceEvidenceBlock `json:"evidence"`
 }
 
@@ -205,7 +208,7 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 		// that after filtering we still have up to 'limit' results.
 		fetchLimit := limit
 		if pathPrefix != "" {
-			fetchLimit = max(limit*5, 50)
+			fetchLimit = min(max(limit*searchPathFetchFactor, searchPathFetchFloor), searchPathFetchCap)
 		}
 
 		nodes, err := h.deps.SearchBackend.Query(ctx, h.deps.DB, query, fetchLimit)
@@ -592,11 +595,11 @@ func compactQueryTargetAmbiguity(target string, matches []querypkg.CandidateMatc
 // listGraphStatsResponse is the serialized payload for graph statistics.
 // @intent preserve a stable typed JSON response for graph statistics without changing the wire format.
 type listGraphStatsResponse struct {
-	TotalNodes      int64            `json:"total_nodes"`
-	TotalEdges      int64            `json:"total_edges"`
-	NodesByKind     map[string]int64 `json:"nodes_by_kind"`
-	NodesByLanguage map[string]int64 `json:"nodes_by_language"`
-	EdgesByKind     map[string]int64 `json:"edges_by_kind"`
+	TotalNodes      int64                  `json:"total_nodes"`
+	TotalEdges      int64                  `json:"total_edges"`
+	NodesByKind     map[string]int64       `json:"nodes_by_kind"`
+	NodesByLanguage map[string]int64       `json:"nodes_by_language"`
+	EdgesByKind     map[string]int64       `json:"edges_by_kind"`
 	Evidence        workspaceEvidenceBlock `json:"evidence"`
 }
 
