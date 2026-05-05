@@ -1240,6 +1240,52 @@ func Run() {}
 	}
 }
 
+func TestBuildOrUpdateGraph_EmptyFailedStepsIsNullJSON(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	mockComm := &mockCommunityBuilder{}
+	deps.CommunityBuilder = mockComm
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "svc.go", `package svc
+
+func Run() {}
+`)
+
+	result := callTool(t, deps, "build_or_update_graph", map[string]any{
+		"path":         dir,
+		"full_rebuild": true,
+		"postprocess":  "none",
+	})
+	if result.IsError {
+		t.Fatalf("build_or_update_graph error: %s", getTextContent(result))
+	}
+
+	var resp struct {
+		FailedSteps  json.RawMessage `json:"failed_steps"`
+		SkippedSteps json.RawMessage `json:"skipped_steps"`
+		Status       string          `json:"status"`
+	}
+	text := getTextContent(result)
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatalf("expected JSON, got: %s", text)
+	}
+	if string(resp.FailedSteps) != "null" {
+		t.Fatalf("expected failed_steps=null, got %s", string(resp.FailedSteps))
+	}
+	if string(resp.SkippedSteps) == "null" || len(resp.SkippedSteps) == 0 {
+		t.Fatalf("expected skipped_steps array, got %s", string(resp.SkippedSteps))
+	}
+
+	var skipped []any
+	if err := json.Unmarshal(resp.SkippedSteps, &skipped); err != nil {
+		t.Fatalf("expected skipped_steps array, got %s", string(resp.SkippedSteps))
+	}
+	if !containsString(skipped, "communities") || !containsString(skipped, "flows") {
+		t.Fatalf("expected skipped_steps to contain communities and flows, got %v", skipped)
+	}
+}
+
 func TestBuildOrUpdateGraph_DegradedOnCommunityFailure(t *testing.T) {
 	deps := setupTestDeps(t)
 	deps.CommunityBuilder = &mockCommunityBuilder{err: errors.New("community rebuild boom")}
@@ -1717,6 +1763,45 @@ func TestRunPostprocess_NoneEnabled(t *testing.T) {
 	}
 	if resp["status"] != "ok" {
 		t.Errorf("expected status=ok, got %v", resp["status"])
+	}
+}
+
+func TestRunPostprocess_EmptyFailedStepsIsNullJSON(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	result := callTool(t, deps, "run_postprocess", map[string]any{
+		"flows":       false,
+		"communities": false,
+		"fts":         false,
+	})
+	if result.IsError {
+		t.Fatalf("run_postprocess error: %s", getTextContent(result))
+	}
+
+	var resp struct {
+		FailedSteps  json.RawMessage `json:"failed_steps"`
+		SkippedSteps json.RawMessage `json:"skipped_steps"`
+		Status       string          `json:"status"`
+	}
+	text := getTextContent(result)
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatalf("expected JSON, got: %s", text)
+	}
+	if string(resp.FailedSteps) != "null" {
+		t.Fatalf("expected failed_steps=null, got %s", string(resp.FailedSteps))
+	}
+	if string(resp.SkippedSteps) == "null" || len(resp.SkippedSteps) == 0 {
+		t.Fatalf("expected skipped_steps array, got %s", string(resp.SkippedSteps))
+	}
+
+	var skipped []any
+	if err := json.Unmarshal(resp.SkippedSteps, &skipped); err != nil {
+		t.Fatalf("expected skipped_steps array, got %s", string(resp.SkippedSteps))
+	}
+	for _, want := range []string{"flows", "communities", "search_documents", "fts"} {
+		if !containsString(skipped, want) {
+			t.Fatalf("expected skipped_steps to contain %s, got %v", want, skipped)
+		}
 	}
 }
 
@@ -3187,12 +3272,23 @@ func TestGetCommunity_Basic(t *testing.T) {
 
 	text := getTextContent(result)
 	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatal(err)
+	}
 	if resp["label"] != "core" {
 		t.Errorf("expected label=core, got %v", resp["label"])
 	}
 	if resp["node_count"].(float64) != 1 {
 		t.Errorf("expected node_count=1, got %v", resp["node_count"])
+	}
+	if _, ok := resp["members"]; ok {
+		t.Fatalf("expected members to be omitted, got %v", resp["members"])
+	}
+	if _, ok := resp["members_pagination"]; ok {
+		t.Fatalf("expected members_pagination to be omitted, got %v", resp["members_pagination"])
+	}
+	if _, ok := resp["coverage"]; ok {
+		t.Fatalf("expected coverage to be omitted, got %v", resp["coverage"])
 	}
 }
 
@@ -3219,10 +3315,18 @@ func TestGetCommunity_WithMembers(t *testing.T) {
 
 	text := getTextContent(result)
 	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
-	members := resp["members"].([]any)
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatal(err)
+	}
+	members, ok := resp["members"].([]any)
+	if !ok {
+		t.Fatalf("expected members array, got %T", resp["members"])
+	}
 	if len(members) != 1 {
 		t.Errorf("expected 1 member, got %d", len(members))
+	}
+	if _, ok := resp["members_pagination"]; !ok {
+		t.Fatal("expected members_pagination to be present")
 	}
 }
 
@@ -3252,8 +3356,14 @@ func TestGetCommunity_WithCoverage(t *testing.T) {
 
 	text := getTextContent(result)
 	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
-	if resp["coverage"].(float64) != 0.7 {
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatal(err)
+	}
+	coverage, ok := resp["coverage"].(float64)
+	if !ok {
+		t.Fatalf("expected coverage float, got %T", resp["coverage"])
+	}
+	if coverage != 0.7 {
 		t.Errorf("expected coverage=0.7, got %v", resp["coverage"])
 	}
 }

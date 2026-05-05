@@ -22,6 +22,31 @@ import (
 
 var refreshSearchDocuments = service.RefreshSearchDocuments
 
+// @intent serialize build_or_update_graph results with a fixed JSON schema without changing the wire format.
+type buildOrUpdateGraphResponse struct {
+	Status            string   `json:"status"`
+	FilesParsed       int      `json:"files_parsed"`
+	NodesCreated      int      `json:"nodes_created"`
+	EdgesCreated      int      `json:"edges_created"`
+	ElapsedMS         int64    `json:"elapsed_ms"`
+	PostprocessPolicy string   `json:"postprocess_policy"`
+	PolicySource      string   `json:"policy_source"`
+	FailedSteps       []string `json:"failed_steps"`
+	SkippedSteps      []string `json:"skipped_steps"`
+}
+
+// @intent serialize run_postprocess results with a fixed JSON schema without changing the wire format.
+type runPostprocessResponse struct {
+	Status            string   `json:"status"`
+	FlowsCount        int      `json:"flows_count"`
+	CommunitiesCount  int      `json:"communities_count"`
+	FTSIndexed        int      `json:"fts_indexed"`
+	PostprocessPolicy string   `json:"postprocess_policy"`
+	PolicySource      string   `json:"policy_source"`
+	FailedSteps       []string `json:"failed_steps"`
+	SkippedSteps      []string `json:"skipped_steps"`
+}
+
 // @intent apply per-request parse limits without mutating the shared handler dependency configuration.
 func (h *handlers) withParseLimitsFromRequest(request mcp.CallToolRequest) *handlers {
 	maxFileBytes := int64(request.GetInt("max_file_bytes", int(h.deps.MaxFileBytes)))
@@ -282,16 +307,16 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		status = "degraded"
 	}
 
-	result := map[string]any{
-		"status":             status,
-		"files_parsed":       fileCount,
-		"nodes_created":      nodeCount,
-		"edges_created":      edgeCount,
-		"elapsed_ms":         elapsed,
-		"postprocess_policy": postprocessPolicy,
-		"policy_source":      policySource,
-		"failed_steps":       failedSteps,
-		"skipped_steps":      skippedSteps,
+	result := buildOrUpdateGraphResponse{
+		Status:            status,
+		FilesParsed:       fileCount,
+		NodesCreated:      nodeCount,
+		EdgesCreated:      edgeCount,
+		ElapsedMS:         elapsed,
+		PostprocessPolicy: postprocessPolicy,
+		PolicySource:      string(policySource),
+		FailedSteps:       failedSteps,
+		SkippedSteps:      skippedSteps,
 	}
 	if h.deps.PostprocessPolicy != nil {
 		if err := h.deps.PostprocessPolicy.RecordRun(ctx, postprocesspolicy.RunRecord{
@@ -441,15 +466,15 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 		status = "degraded"
 	}
 
-	result := map[string]any{
-		"status":             status,
-		"flows_count":        flowsCount,
-		"communities_count":  communitiesCount,
-		"fts_indexed":        ftsIndexed,
-		"postprocess_policy": postprocessPolicy,
-		"policy_source":      policySource,
-		"failed_steps":       failedSteps,
-		"skipped_steps":      skippedSteps,
+	result := runPostprocessResponse{
+		Status:            status,
+		FlowsCount:        flowsCount,
+		CommunitiesCount:  communitiesCount,
+		FTSIndexed:        ftsIndexed,
+		PostprocessPolicy: postprocessPolicy,
+		PolicySource:      string(policySource),
+		FailedSteps:       failedSteps,
+		SkippedSteps:      skippedSteps,
 	}
 	if h.deps.PostprocessPolicy != nil {
 		if err := h.deps.PostprocessPolicy.RecordRun(ctx, postprocesspolicy.RunRecord{

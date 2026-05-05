@@ -9,6 +9,14 @@ import (
 	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 )
 
+// resetPostprocessPolicyResponse is the typed wire payload for resetPostprocessPolicy.
+// @intent preserve a stable confirmation envelope after resetting one postprocess policy tool.
+type resetPostprocessPolicyResponse struct {
+	Status string `json:"status"`
+	Tool   string `json:"tool"`
+	Reset  bool   `json:"reset"`
+}
+
 // getPostprocessPolicy returns the recorded postprocess policy summary for a namespace and tool.
 // @intent expose automatic fail-open versus fail-closed decisions so operators can diagnose degraded postprocess behavior.
 // @param request optional tool filter (build_or_update_graph or run_postprocess) and recent_limit for failure history depth.
@@ -30,8 +38,8 @@ func (h *handlers) getPostprocessPolicy(ctx context.Context, request mcp.CallToo
 		return finalizeToolResult("", err)
 	}
 	summary, err := h.deps.PostprocessPolicy.Status(ctx, postprocesspolicy.StatusOptions{
-		Namespace: requestNamespace(request),
-		Tool:      tool,
+		Namespace:   requestNamespace(request),
+		Tool:        tool,
 		RecentLimit: recentLimit,
 	})
 	if err != nil {
@@ -61,10 +69,6 @@ func (h *handlers) resetPostprocessPolicy(ctx context.Context, request mcp.CallT
 	if err := h.deps.PostprocessPolicy.Reset(ctx, tool); err != nil {
 		return nil, err
 	}
-	result, err := marshalJSON(map[string]any{
-		"status": "ok",
-		"tool":   tool,
-		"reset":  true,
-	})
+	result, err := marshalJSON(resetPostprocessPolicyResponse{Status: "ok", Tool: tool, Reset: true})
 	return finalizeToolResult(result, err)
 }

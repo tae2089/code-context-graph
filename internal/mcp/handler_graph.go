@@ -31,12 +31,72 @@ type graphCommInfo struct {
 	Cohesion  float64 `json:"cohesion"`
 }
 
+// listFlowsResponse holds the listFlows wire payload.
+// @intent preserve the legacy listFlows response shape with typed fields.
+type listFlowsResponse struct {
+	Flows        []graphFlowInfo `json:"flows"`
+	DerivedState map[string]any  `json:"derived_state"`
+	Pagination   map[string]any  `json:"pagination"`
+}
+
+// listCommunitiesResponse holds the listCommunities wire payload.
+// @intent preserve the legacy listCommunities response shape with typed fields.
+type listCommunitiesResponse struct {
+	Communities  []graphCommInfo `json:"communities"`
+	DerivedState map[string]any  `json:"derived_state"`
+	Pagination   map[string]any  `json:"pagination"`
+}
+
+// communityMemberSummary is a typed member entry for getCommunity.
+// @intent preserve the legacy community member shape with typed fields.
+type communityMemberSummary = nodeSummary
+
+// getCommunityResponse holds the getCommunity wire payload.
+// @intent preserve the legacy getCommunity response shape with typed fields.
+type getCommunityResponse struct {
+	ID                uint                     `json:"id"`
+	Label             string                   `json:"label"`
+	NodeCount         int64                    `json:"node_count"`
+	DerivedState      map[string]any           `json:"derived_state"`
+	Coverage          *float64                 `json:"coverage,omitempty"`
+	Members           []communityMemberSummary `json:"members,omitempty"`
+	MembersPagination map[string]any           `json:"members_pagination,omitempty"`
+}
+
 // archCommCount is a helper struct for counting community nodes in architecture overview.
 // @intent support community node counting in getArchitectureOverview without polluting model.Community.
 type archCommCount struct {
 	ID        uint
 	Label     string
 	NodeCount int64
+}
+
+// architectureOverviewCommunity is a typed community entry for architecture overview.
+// @intent preserve the legacy communities item shape with typed fields.
+type architectureOverviewCommunity struct {
+	ID        uint   `json:"id"`
+	Label     string `json:"label"`
+	NodeCount int64  `json:"node_count"`
+}
+
+// architectureOverviewCoupling is a typed coupling entry for architecture overview.
+// @intent preserve the legacy coupling item shape with typed fields.
+type architectureOverviewCoupling struct {
+	From      string  `json:"from"`
+	To        string  `json:"to"`
+	EdgeCount int64   `json:"edge_count"`
+	Strength  float64 `json:"strength"`
+}
+
+// architectureOverviewResponse holds the architecture overview wire payload.
+// @intent preserve the legacy architecture overview response shape with typed fields.
+type architectureOverviewResponse struct {
+	Communities           []architectureOverviewCommunity `json:"communities"`
+	CommunitiesPagination map[string]any                  `json:"communities_pagination"`
+	Coupling              []architectureOverviewCoupling  `json:"coupling"`
+	CouplingPagination    map[string]any                  `json:"coupling_pagination"`
+	Warnings              []string                        `json:"warnings"`
+	DerivedState          map[string]any                  `json:"derived_state"`
 }
 
 // communityRow is a helper struct for counting community nodes in listCommunities.
@@ -119,10 +179,10 @@ func (h *handlers) listFlows(ctx context.Context, request mcp.CallToolRequest) (
 			}
 		}
 
-		result, err := marshalJSON(map[string]any{
-			"flows":         infos,
-			"derived_state": derivedStateFlows(),
-			"pagination":    buildPaginationMetadata(limit, offset, len(infos), hasMore),
+		result, err := marshalJSON(listFlowsResponse{
+			Flows:        infos,
+			DerivedState: derivedStateFlows(),
+			Pagination:   buildPaginationMetadata(limit, offset, len(infos), hasMore),
 		})
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
@@ -192,10 +252,10 @@ func (h *handlers) listCommunities(ctx context.Context, request mcp.CallToolRequ
 			}
 		}
 
-		result, err := marshalJSON(map[string]any{
-			"communities":   infos,
-			"derived_state": derivedStateCommunities(),
-			"pagination":    buildPaginationMetadata(limit, offset, len(infos), hasMore),
+		result, err := marshalJSON(listCommunitiesResponse{
+			Communities:  infos,
+			DerivedState: derivedStateCommunities(),
+			Pagination:   buildPaginationMetadata(limit, offset, len(infos), hasMore),
 		})
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
@@ -247,17 +307,18 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 			return "", trace.Wrap(err, "count community members")
 		}
 
-		gcData := map[string]any{
-			"id":            comm.ID,
-			"label":         comm.Label,
-			"node_count":    memberCount,
-			"derived_state": derivedStateCommunities(),
+		gcData := getCommunityResponse{
+			ID:           comm.ID,
+			Label:        comm.Label,
+			NodeCount:    memberCount,
+			DerivedState: derivedStateCommunities(),
 		}
 
 		if h.deps.CoverageAnalyzer != nil {
 			cc, err := h.deps.CoverageAnalyzer.ByCommunity(ctx, comm.ID)
 			if err == nil && cc != nil {
-				gcData["coverage"] = cc.Ratio
+				coverage := cc.Ratio
+				gcData.Coverage = &coverage
 			}
 		}
 
@@ -284,12 +345,12 @@ func (h *handlers) getCommunity(ctx context.Context, request mcp.CallToolRequest
 				nodes = nodes[:memberLimit]
 			}
 
-			members := make([]map[string]any, len(nodes))
+			members := make([]communityMemberSummary, len(nodes))
 			for i, n := range nodes {
-				members[i] = nodeToBasicMap(n)
+				members[i] = nodeToSummary(n)
 			}
-			gcData["members"] = members
-			gcData["members_pagination"] = buildPaginationMetadata(memberLimit, memberOffset, len(members), hasMore)
+			gcData.Members = members
+			gcData.MembersPagination = buildPaginationMetadata(memberLimit, memberOffset, len(members), hasMore)
 		}
 
 		result, err := marshalJSON(gcData)
@@ -355,16 +416,12 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 			archCCRows = archCCRows[:communityLimit]
 		}
 
-		commInfos := make([]map[string]any, len(archCCRows))
+		commInfos := make([]architectureOverviewCommunity, len(archCCRows))
 		for i, c := range archCCRows {
-			commInfos[i] = map[string]any{
-				"id":         c.ID,
-				"label":      c.Label,
-				"node_count": c.NodeCount,
-			}
+			commInfos[i] = architectureOverviewCommunity{ID: c.ID, Label: c.Label, NodeCount: c.NodeCount}
 		}
 
-		couplingPairs := []map[string]any{}
+		couplingPairs := []architectureOverviewCoupling{}
 		warnings := []string{}
 		if len(archCCRows) == 0 {
 			warnings = []string{"No communities found. Run community rebuild first."}
@@ -375,12 +432,7 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 			page, err := h.deps.CouplingAnalyzer.AnalyzePage(ctx, paging.Request{Limit: couplingLimit, Offset: couplingOffset})
 			if err == nil {
 				for _, cp := range page.Items {
-					couplingPairs = append(couplingPairs, map[string]any{
-						"from":       cp.FromCommunity,
-						"to":         cp.ToCommunity,
-						"edge_count": cp.EdgeCount,
-						"strength":   cp.Strength,
-					})
+					couplingPairs = append(couplingPairs, architectureOverviewCoupling{From: cp.FromCommunity, To: cp.ToCommunity, EdgeCount: cp.EdgeCount, Strength: cp.Strength})
 					if cp.Strength > 0.8 {
 						warnings = append(warnings, fmt.Sprintf("High coupling between %s and %s (strength: %.2f)", cp.FromCommunity, cp.ToCommunity, cp.Strength))
 					}
@@ -389,13 +441,13 @@ func (h *handlers) getArchitectureOverview(ctx context.Context, request mcp.Call
 			}
 		}
 
-		result, err := marshalJSON(map[string]any{
-			"communities":            commInfos,
-			"communities_pagination": buildPaginationMetadata(communityLimit, communityOffset, len(commInfos), communityHasMore),
-			"coupling":               couplingPairs,
-			"coupling_pagination":    buildPaginationMetadata(couplingLimit, couplingOffset, len(couplingPairs), couplingHasMore),
-			"warnings":               warnings,
-			"derived_state":          derivedStateSummary(),
+		result, err := marshalJSON(architectureOverviewResponse{
+			Communities:           commInfos,
+			CommunitiesPagination: buildPaginationMetadata(communityLimit, communityOffset, len(commInfos), communityHasMore),
+			Coupling:              couplingPairs,
+			CouplingPagination:    buildPaginationMetadata(couplingLimit, couplingOffset, len(couplingPairs), couplingHasMore),
+			Warnings:              warnings,
+			DerivedState:          derivedStateSummary(),
 		})
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
