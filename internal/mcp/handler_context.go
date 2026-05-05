@@ -55,6 +55,21 @@ type minimalContextFlowInfo struct {
 	NodeCount int    `json:"node_count"`
 }
 
+// minimalContextResponse is the typed minimal-context payload sent over MCP.
+// @intent keep the minimal-context wire shape explicit without changing serialized output.
+type minimalContextResponse struct {
+	Summary        string                   `json:"summary"`
+	Risk           string                   `json:"risk"`
+	RiskScore      float64                  `json:"risk_score"`
+	KeyEntities    []string                 `json:"key_entities"`
+	TestGaps       int                      `json:"test_gaps"`
+	TopCommunities []minimalContextCommInfo `json:"top_communities"`
+	TopFlows       []minimalContextFlowInfo `json:"top_flows"`
+	DerivedState   map[string]any           `json:"derived_state"`
+	SuggestedTools []string                 `json:"suggested_tools"`
+	Evidence       map[string]any           `json:"evidence"`
+}
+
 // getMinimalContext returns a compact project snapshot with risk hints and suggested tools.
 // @intent give agents a cheap first read of namespace state before they spend tokens on deeper graph queries.
 func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -218,17 +233,17 @@ func (h *handlers) getMinimalContext(ctx context.Context, request mcp.CallToolRe
 
 		suggestedTools := suggestTools(task)
 
-		resp := map[string]any{
-			"summary":         summary,
-			"risk":            risk,
-			"risk_score":      riskScore,
-			"key_entities":    keyEntities,
-			"test_gaps":       testGaps,
-			"top_communities": commInfos,
-			"top_flows":       flowInfos,
-			"derived_state":   derivedStateSummary(),
-			"suggested_tools": suggestedTools,
-			"evidence":        h.workspaceEvidenceFromContext(ctx),
+		resp := minimalContextResponse{
+			Summary:        summary,
+			Risk:           risk,
+			RiskScore:      riskScore,
+			KeyEntities:    keyEntities,
+			TestGaps:       testGaps,
+			TopCommunities: commInfos,
+			TopFlows:       flowInfos,
+			DerivedState:   derivedStateSummary(),
+			SuggestedTools: suggestedTools,
+			Evidence:       h.workspaceEvidenceFromContext(ctx),
 		}
 
 		result, err := marshalJSON(resp)

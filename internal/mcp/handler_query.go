@@ -24,12 +24,16 @@ const (
 	maxQueryGraphLimit     = 500
 )
 
+// largeFunctionItem summarizes one oversized function candidate.
+// @intent preserve a stable per-item DTO for findLargeFunctions responses.
 type largeFunctionItem struct {
 	Name  string `json:"name"`
 	File  string `json:"file"`
 	Lines int    `json:"lines"`
 }
 
+// annotationTagItem serializes one stored annotation tag.
+// @intent expose annotation tags with typed fields for getAnnotation callers.
 type annotationTagItem struct {
 	Kind    model.TagKind `json:"kind"`
 	Type    string        `json:"type"`
@@ -38,18 +42,24 @@ type annotationTagItem struct {
 	Ordinal int           `json:"ordinal"`
 }
 
+// annotationResponse is the typed wire payload for getAnnotation.
+// @intent preserve a stable response envelope for annotation summary, context, and tags.
 type annotationResponse struct {
 	Summary string              `json:"summary"`
 	Context string              `json:"context"`
 	Tags    []annotationTagItem `json:"tags"`
 }
 
+// queryGraphEvidence records edge evidence backing one queryGraph result item.
+// @intent expose edge location details that justify caller/callee confidence labels.
 type queryGraphEvidence struct {
 	FilePath    string `json:"file_path"`
 	Line        int    `json:"line"`
 	Fingerprint string `json:"fingerprint"`
 }
 
+// queryGraphResultItem summarizes one node returned by queryGraph.
+// @intent preserve a stable DTO for paged graph traversal results.
 type queryGraphResultItem struct {
 	ID            uint                `json:"id"`
 	QualifiedName string              `json:"qualified_name"`
@@ -61,6 +71,8 @@ type queryGraphResultItem struct {
 	Evidence      *queryGraphEvidence `json:"evidence,omitempty"`
 }
 
+// queryGraphMetadata records pagination and fallback-call accounting for queryGraph.
+// @intent explain result counts, truncation, and strict-versus-tentative composition in queryGraph responses.
 type queryGraphMetadata struct {
 	Limit                int   `json:"limit"`
 	Offset               int   `json:"offset"`
@@ -73,14 +85,18 @@ type queryGraphMetadata struct {
 	IncludeFallbackCalls *bool `json:"include_fallback_calls,omitempty"`
 }
 
+// queryGraphResponse is the typed wire payload for queryGraph.
+// @intent preserve a stable response envelope for predefined graph traversals and their evidence.
 type queryGraphResponse struct {
-	Pattern  string               `json:"pattern"`
-	Target   string               `json:"target"`
+	Pattern  string                 `json:"pattern"`
+	Target   string                 `json:"target"`
 	Results  []queryGraphResultItem `json:"results"`
-	Metadata queryGraphMetadata   `json:"metadata"`
-	Evidence map[string]any       `json:"evidence"`
+	Metadata queryGraphMetadata     `json:"metadata"`
+	Evidence map[string]any         `json:"evidence"`
 }
 
+// searchResultItem summarizes one node hit returned by full-text search.
+// @intent preserve a stable per-item DTO for search responses.
 type searchResultItem struct {
 	ID            uint           `json:"id"`
 	QualifiedName string         `json:"qualified_name"`
@@ -89,6 +105,16 @@ type searchResultItem struct {
 	FilePath      string         `json:"file_path"`
 }
 
+// fileSummaryResponse is the typed wire payload for file_summary queryGraph requests.
+// @intent preserve a stable response envelope for file-summary graph queries.
+type fileSummaryResponse struct {
+	Pattern string                `json:"pattern"`
+	Target  string                `json:"target"`
+	Results *querypkg.FileSummary `json:"results"`
+}
+
+// nodeResponse is the typed wire payload for getNode.
+// @intent preserve a stable response envelope for node metadata lookups.
 type nodeResponse struct {
 	ID            uint           `json:"id"`
 	QualifiedName string         `json:"qualified_name"`
@@ -337,12 +363,7 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 			if err != nil {
 				return "", newToolResultErr(fmt.Sprintf("file summary error: %v", err))
 			}
-			fsData := map[string]any{
-				"pattern": pattern,
-				"target":  target,
-				"results": summary,
-			}
-			result, err := marshalJSON(fsData)
+			result, err := marshalJSON(fileSummaryResponse{Pattern: pattern, Target: target, Results: summary})
 			if err != nil {
 				return "", trace.Wrap(err, "marshal result")
 			}
@@ -568,6 +589,17 @@ func compactQueryTargetAmbiguity(target string, matches []querypkg.CandidateMatc
 	return fmt.Sprintf("query_graph target %q is ambiguous: %s", target, strings.Join(parts, "; "))
 }
 
+// listGraphStatsResponse is the serialized payload for graph statistics.
+// @intent preserve a stable typed JSON response for graph statistics without changing the wire format.
+type listGraphStatsResponse struct {
+	TotalNodes      int64            `json:"total_nodes"`
+	TotalEdges      int64            `json:"total_edges"`
+	NodesByKind     map[string]int64 `json:"nodes_by_kind"`
+	NodesByLanguage map[string]int64 `json:"nodes_by_language"`
+	EdgesByKind     map[string]int64 `json:"edges_by_kind"`
+	Evidence        map[string]any   `json:"evidence"`
+}
+
 // listGraphStats returns aggregate node and edge statistics for the graph.
 // @intent summarize the current graph load state with kind and language distributions.
 // @ensures returns total node and edge counts plus kind and language aggregates when the query succeeds.
@@ -634,13 +666,13 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 			ebk[k.Kind] = k.Count
 		}
 
-		statsData := map[string]any{
-			"total_nodes":       nodeCount,
-			"total_edges":       edgeCount,
-			"nodes_by_kind":     nbk,
-			"nodes_by_language": nbl,
-			"edges_by_kind":     ebk,
-			"evidence":          h.workspaceEvidenceFromContext(ctx),
+		statsData := listGraphStatsResponse{
+			TotalNodes:      nodeCount,
+			TotalEdges:      edgeCount,
+			NodesByKind:     nbk,
+			NodesByLanguage: nbl,
+			EdgesByKind:     ebk,
+			Evidence:        h.workspaceEvidenceFromContext(ctx),
 		}
 		result, err := marshalJSON(statsData)
 		if err != nil {

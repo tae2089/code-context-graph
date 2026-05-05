@@ -27,6 +27,8 @@ const (
 	defaultTraceMaxNodes  = 200
 )
 
+// impactRadiusMetadata records bounded traversal settings and truncation state.
+// @intent explain how getImpactRadius constrained the blast-radius traversal for the returned payload.
 type impactRadiusMetadata struct {
 	Truncated     bool `json:"truncated"`
 	MaxDepth      int  `json:"max_depth"`
@@ -34,16 +36,22 @@ type impactRadiusMetadata struct {
 	ReturnedNodes int  `json:"returned_nodes"`
 }
 
+// impactRadiusResponse is the typed wire payload for getImpactRadius.
+// @intent preserve a stable typed response envelope for impact-radius queries.
 type impactRadiusResponse struct {
-	Nodes    []map[string]any     `json:"nodes"`
+	Nodes    []nodeSummary        `json:"nodes"`
 	Metadata impactRadiusMetadata `json:"metadata"`
 }
 
+// traceFlowMember captures one ordered member inside a traced flow.
+// @intent serialize flow member references without exposing the full node record.
 type traceFlowMember struct {
 	NodeID  uint `json:"node_id"`
 	Ordinal int  `json:"ordinal"`
 }
 
+// traceFlowMetadata records bounded trace settings and fallback-edge summary data.
+// @intent explain whether traceFlow truncated members and whether fallback edges contributed to the result.
 type traceFlowMetadata struct {
 	Truncated             bool `json:"truncated"`
 	MaxNodes              int  `json:"max_nodes"`
@@ -52,6 +60,8 @@ type traceFlowMetadata struct {
 	FallbackEdgesCount    int  `json:"fallback_edges_count"`
 }
 
+// traceFlowResponse is the typed wire payload for traceFlow.
+// @intent preserve a stable response envelope for traced flow results and their evidence.
 type traceFlowResponse struct {
 	Name     string            `json:"name"`
 	Members  []traceFlowMember `json:"members"`
@@ -59,6 +69,8 @@ type traceFlowResponse struct {
 	Evidence map[string]any    `json:"evidence"`
 }
 
+// detectChangesEntry summarizes one changed node plus its diff-derived risk score.
+// @intent preserve a stable per-item DTO for detectChanges pagination results.
 type detectChangesEntry struct {
 	Name      string  `json:"name"`
 	File      string  `json:"file"`
@@ -66,6 +78,8 @@ type detectChangesEntry struct {
 	RiskScore float64 `json:"risk_score"`
 }
 
+// detectChangesResponse is the typed wire payload for detectChanges.
+// @intent expose diff-risk results with both legacy entries and shared pagination fields.
 type detectChangesResponse struct {
 	Base       string               `json:"base"`
 	Entries    []detectChangesEntry `json:"entries"`
@@ -73,12 +87,16 @@ type detectChangesResponse struct {
 	Pagination paging.Page          `json:"pagination"`
 }
 
+// affectedFlowEntry summarizes one stored flow touched by changed nodes.
+// @intent preserve a stable DTO for getAffectedFlows items while retaining changed node identifiers.
 type affectedFlowEntry struct {
 	ID            uint   `json:"id"`
 	Name          string `json:"name"`
 	AffectedNodes []uint `json:"affected_nodes"`
 }
 
+// affectedFlowsResponse is the typed wire payload for getAffectedFlows.
+// @intent expose affected stored flows with backward-compatible aliases and pagination metadata.
 type affectedFlowsResponse struct {
 	Base          string              `json:"base"`
 	AffectedFlows []affectedFlowEntry `json:"affected_flows"`
@@ -87,6 +105,8 @@ type affectedFlowsResponse struct {
 	Pagination    paging.Page         `json:"pagination"`
 }
 
+// deadCodeItem summarizes one node reported as dead code.
+// @intent preserve a stable per-item DTO for findDeadCode responses.
 type deadCodeItem struct {
 	Name      string         `json:"name"`
 	Kind      model.NodeKind `json:"kind"`
@@ -94,6 +114,8 @@ type deadCodeItem struct {
 	StartLine int            `json:"start_line"`
 }
 
+// suspectFallbackEdgeItem summarizes one fallback edge inspected for suspicion.
+// @intent preserve a stable per-item DTO for findSuspectFallbackEdges responses.
 type suspectFallbackEdgeItem struct {
 	EdgeKind    model.EdgeKind `json:"edge_kind"`
 	Fingerprint string         `json:"fingerprint"`
@@ -168,9 +190,9 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 
 		log.InfoContext(ctx, "get_impact_radius completed", append(obs.TraceLogArgs(ctx), "qualified_name", qn, "result_count", len(nodes))...)
 
-		impactResult := make([]map[string]any, len(nodes))
+		impactResult := make([]nodeSummary, len(nodes))
 		for i, n := range nodes {
-			impactResult[i] = nodeToBasicMap(n)
+			impactResult[i] = nodeToSummary(n)
 		}
 		result, err := marshalJSON(impactRadiusResponse{
 			Nodes: impactResult,

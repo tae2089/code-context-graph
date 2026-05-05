@@ -227,10 +227,34 @@ func (h *handlers) cachedExecute(ctx context.Context, prefix string, params map[
 	return result, nil
 }
 
-// nodeToBasicMap converts a graph node into a compact response payload.
-// @intent reuse one compact node representation across multiple tool responses.
+// nodeSummary is a compact node response payload shared by graph handlers.
+// @intent reuse one typed node representation across multiple tool responses.
+type nodeSummary struct {
+	ID            uint           `json:"id"`
+	QualifiedName string         `json:"qualified_name"`
+	Kind          model.NodeKind `json:"kind"`
+	Name          string         `json:"name"`
+	FilePath      string         `json:"file_path"`
+}
+
+// nodeToSummary converts a graph node into a compact typed response payload.
+// @intent reuse one typed node representation across multiple tool responses.
 // @param n is the graph node to include in an MCP response.
-// @return returns a map containing identifier, name, kind, and file path fields.
+// @return returns a typed node summary containing identifier, name, kind, and file path fields.
+func nodeToSummary(n model.Node) nodeSummary {
+	return nodeSummary{
+		ID:            n.ID,
+		QualifiedName: n.QualifiedName,
+		Kind:          n.Kind,
+		Name:          n.Name,
+		FilePath:      n.FilePath,
+	}
+}
+
+// nodeToBasicMap converts a graph node into a compact response payload.
+// @intent preserve the legacy map-based node shape for existing MCP callers.
+// @param n is the graph node to include in an MCP response.
+// @return returns a map with identifier, name, kind, and file path fields.
 func nodeToBasicMap(n model.Node) map[string]any {
 	return map[string]any{
 		"id":             n.ID,

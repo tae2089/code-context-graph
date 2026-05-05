@@ -100,6 +100,8 @@ func normalizeListPaging(limit, offset int) (paging.Request, error) {
 	return pageReq, nil
 }
 
+// pagedListResponse preserves the shared {legacyKey, items, count, pagination} list envelope.
+// @intent let analysis handlers reuse one typed pagination DTO while keeping historical alias fields.
 type pagedListResponse[T any] struct {
 	LegacyKey  string
 	Items      []T         `json:"items"`
@@ -107,9 +109,12 @@ type pagedListResponse[T any] struct {
 	Pagination paging.Page `json:"pagination"`
 }
 
+// MarshalJSON emits both the legacy alias key and the shared paging fields.
+// @intent preserve backward-compatible response keys while allowing handlers to work with typed slices.
+// @return returns a JSON object containing the legacy alias, items, count, and pagination fields.
 func (r pagedListResponse[T]) MarshalJSON() ([]byte, error) {
 	resp := map[string]any{
-		r.LegacyKey: r.Items,
+		r.LegacyKey:  r.Items,
 		"items":      r.Items,
 		"count":      r.Count,
 		"pagination": r.Pagination,
