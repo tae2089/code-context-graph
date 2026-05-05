@@ -6,16 +6,20 @@ import (
 	"strings"
 )
 
+// @intent decode one query_graph result row so benchmark scoring can inspect returned confidence labels.
 type queryGraphResultItem struct {
 	QualifiedName string `json:"qualified_name"`
 	Confidence    string `json:"confidence"`
 }
 
+
+// @intent decode query_graph tool payloads before strict/tentative coverage scoring.
 type queryGraphToolResponse struct {
 	Pattern  string               `json:"pattern"`
 	Results  []queryGraphResultItem `json:"results"`
 }
 
+// @intent carry strict and tentative symbol expectation totals alongside matched counts.
 type queryConfidenceCoverage struct {
 	StrictCount     int
 	TentativeCount  int
@@ -92,6 +96,7 @@ func CountCcgToolCalls(result RunResult) int {
 
 // matchSymbolsFromToolOutputs computes strict/tentative symbol hit ratios from query_graph
 // call outputs. Returns 1.0 when no expectation is provided.
+// @intent score query_graph evidence separately from free-form answer text so confidence-aware metrics stay grounded in tool output.
 func matchSymbolsFromToolOutputs(result RunResult, expectedStrict, expectedTentative []string) queryConfidenceCoverage {
 	expectedStrictSet := make(map[string]struct{}, len(expectedStrict))
 	for _, sym := range expectedStrict {
@@ -144,6 +149,7 @@ func matchSymbolsFromToolOutputs(result RunResult, expectedStrict, expectedTenta
 	return coverage
 }
 
+// @intent avoid divide-by-zero while keeping empty expectation sets neutral in metric aggregation.
 func safeRatio(n, d int) float64 {
 	if d == 0 {
 		return 1.0
@@ -155,6 +161,7 @@ func safeRatio(n, d int) float64 {
 // - 1.0 when strict expectations are all met or no strict expectation exists.
 // - 0.5 when strict is mentioned but tentative evidence appears equally or less.
 // - 0.0 when strict was ignored while tentative was preferred or no strict evidence exists.
+// @intent measure whether the final natural-language answer favored strict matches over tentative ones.
 func computeLLMStrictBias(result RunResult, query Query) float64 {
 	strictHit := MatchSymbols(result, Query{ExpectedSymbols: query.ExpectedStrictSymbols})
 	tentativeHit := MatchSymbols(result, Query{ExpectedSymbols: query.ExpectedTentativeSymbols})
@@ -173,6 +180,7 @@ func computeLLMStrictBias(result RunResult, query Query) float64 {
 	return 0.0
 }
 
+// @intent quantify how much tentative-only evidence leaked into answers when strict expectations were missed.
 func computeStrictContamination(result RunResult, query Query) float64 {
 	strictHit := MatchSymbols(result, Query{ExpectedSymbols: query.ExpectedStrictSymbols})
 	tentativeHit := MatchSymbols(result, Query{ExpectedSymbols: query.ExpectedTentativeSymbols})

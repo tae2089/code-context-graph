@@ -198,6 +198,7 @@ func ExtractFilesRead(seg QuerySegment) []string {
 	return files
 }
 
+// @intent map tool_use ids to their first text payload so later benchmark analysis can inspect tool outputs by invocation.
 func extractToolOutputs(messages []SessionMessage) map[string]string {
 	outputs := make(map[string]string)
 	for _, m := range messages {
@@ -209,6 +210,7 @@ func extractToolOutputs(messages []SessionMessage) map[string]string {
 	return outputs
 }
 
+// @intent normalize heterogeneous tool result payloads into one comparable trimmed text string.
 func parseFirstText(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
