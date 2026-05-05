@@ -25,6 +25,7 @@ func analysisTools(h *handlers) []server.ServerTool {
 				mcp.WithDescription("Trace call-chain flow starting from a node"),
 				mcp.WithString("qualified_name", mcp.Description("Fully qualified node name"), mcp.Required()),
 				mcp.WithNumber("max_nodes", mcp.Description("Maximum flow members returned"), mcp.DefaultNumber(defaultTraceMaxNodes)),
+				mcp.WithBoolean("include_fallback_calls", mcp.Description("When false, trace_flow excludes fallback_calls edges; defaults to true")),
 			)...),
 			Handler: h.traceFlow,
 		},
@@ -50,6 +51,12 @@ func analysisTools(h *handlers) []server.ServerTool {
 				mcp.WithString("path", mcp.Description("Filter results to file paths starting with this prefix")),
 			)...),
 			Handler: h.findDeadCode,
+		},
+		{
+			Tool: mcp.NewTool("find_suspect_fallback_edges", withNamespaceParam(
+				mcp.WithDescription("Find fallback call edges whose source/target annotations have no overlapping intent/domainRule context"),
+			)...),
+			Handler: h.findSuspectFallbackEdges,
 		},
 	}
 }

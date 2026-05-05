@@ -23,6 +23,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/community"
 	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
 	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
+	fallbackanalysis "github.com/tae2089/code-context-graph/internal/analysis/fallback"
 	"github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
@@ -588,6 +589,89 @@ func TestHandler_TraceFlow_BoundsMembers(t *testing.T) {
 	metadata := flow["metadata"].(map[string]any)
 	if metadata["truncated"] != true || metadata["max_nodes"].(float64) != 1 {
 		t.Fatalf("unexpected metadata: %v", metadata)
+	}
+}
+
+func TestTraceFlow_ReturnsFallbackMetadata(t *testing.T) {
+	deps := setupGraphOnlyTestDeps(t)
+	ctx := context.Background()
+	if err := deps.Store.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.StartFallback", Kind: model.NodeKindFunction, Name: "StartFallback", FilePath: "s.go", StartLine: 1, EndLine: 5, Language: "go"},
+		{QualifiedName: "pkg.StrictNext", Kind: model.NodeKindFunction, Name: "StrictNext", FilePath: "n.go", StartLine: 1, EndLine: 5, Language: "go"},
+		{QualifiedName: "pkg.FallbackNext", Kind: model.NodeKindFunction, Name: "FallbackNext", FilePath: "f.go", StartLine: 1, EndLine: 5, Language: "go"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	start, _ := deps.Store.GetNode(ctx, "pkg.StartFallback")
+	strict, _ := deps.Store.GetNode(ctx, "pkg.StrictNext")
+	fallback, _ := deps.Store.GetNode(ctx, "pkg.FallbackNext")
+	if err := deps.Store.UpsertEdges(ctx, []model.Edge{
+		{FromNodeID: start.ID, ToNodeID: strict.ID, Kind: model.EdgeKindCalls, Fingerprint: "strict-edge"},
+		{FromNodeID: start.ID, ToNodeID: fallback.ID, Kind: model.EdgeKindFallbackCalls, Fingerprint: "fallback-edge"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := callTool(t, deps, "trace_flow", map[string]any{"qualified_name": "pkg.StartFallback"})
+	if result.IsError {
+		t.Fatalf("trace_flow returned error: %s", getTextContent(result))
+	}
+
+	var flow map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &flow); err != nil {
+		t.Fatalf("expected JSON response, got: %s", getTextContent(result))
+	}
+	metadata := flow["metadata"].(map[string]any)
+	if metadata["contains_fallback_calls"] != true {
+		t.Fatalf("expected contains_fallback_calls=true, got: %v", metadata)
+	}
+	if metadata["fallback_edges_count"].(float64) != 1 {
+		t.Fatalf("expected fallback_edges_count=1, got: %v", metadata)
+	}
+}
+
+func TestTraceFlow_RespectsIncludeFallbackCalls(t *testing.T) {
+	deps := setupGraphOnlyTestDeps(t)
+	ctx := context.Background()
+	if err := deps.Store.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.StrictStart", Kind: model.NodeKindFunction, Name: "StrictStart", FilePath: "s.go", StartLine: 1, EndLine: 5, Language: "go"},
+		{QualifiedName: "pkg.StrictOnly", Kind: model.NodeKindFunction, Name: "StrictOnly", FilePath: "n.go", StartLine: 1, EndLine: 5, Language: "go"},
+		{QualifiedName: "pkg.FallbackOnly", Kind: model.NodeKindFunction, Name: "FallbackOnly", FilePath: "f.go", StartLine: 1, EndLine: 5, Language: "go"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	start, _ := deps.Store.GetNode(ctx, "pkg.StrictStart")
+	strict, _ := deps.Store.GetNode(ctx, "pkg.StrictOnly")
+	fallback, _ := deps.Store.GetNode(ctx, "pkg.FallbackOnly")
+	if err := deps.Store.UpsertEdges(ctx, []model.Edge{
+		{FromNodeID: start.ID, ToNodeID: strict.ID, Kind: model.EdgeKindCalls, Fingerprint: "strict-edge"},
+		{FromNodeID: start.ID, ToNodeID: fallback.ID, Kind: model.EdgeKindFallbackCalls, Fingerprint: "fallback-edge"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := callTool(t, deps, "trace_flow", map[string]any{
+		"qualified_name":          "pkg.StrictStart",
+		"include_fallback_calls": false,
+	})
+	if result.IsError {
+		t.Fatalf("trace_flow returned error: %s", getTextContent(result))
+	}
+
+	var flow map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &flow); err != nil {
+		t.Fatalf("expected JSON response, got: %s", getTextContent(result))
+	}
+	members := flow["members"].([]any)
+	if len(members) != 2 {
+		t.Fatalf("expected strict trace to keep 2 members, got %d", len(members))
+	}
+	metadata := flow["metadata"].(map[string]any)
+	if metadata["contains_fallback_calls"] != false {
+		t.Fatalf("expected contains_fallback_calls=false, got: %v", metadata)
+	}
+	if metadata["fallback_edges_count"].(float64) != 0 {
+		t.Fatalf("expected fallback_edges_count=0, got: %v", metadata)
 	}
 }
 
@@ -1879,6 +1963,94 @@ func TestQueryGraph_CalleesOf(t *testing.T) {
 	}
 }
 
+func TestQueryGraph_CalleesOf_RespectsIncludeFallbackCalls(t *testing.T) {
+	deps := setupGraphOnlyTestDeps(t)
+	ctx := context.Background()
+
+	mockQ := &mockQueryService{result: []model.Node{}}
+	deps.QueryService = mockQ
+
+	deps.Store.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.Func", Kind: model.NodeKindFunction, Name: "Func", FilePath: "func.go", StartLine: 1, EndLine: 5, Language: "go"},
+	})
+
+	result := callTool(t, deps, "query_graph", map[string]any{
+		"pattern":                "callees_of",
+		"target":                 "pkg.Func",
+		"include_fallback_calls": false,
+	})
+	if result.IsError {
+		t.Fatalf("query_graph error: %s", getTextContent(result))
+	}
+	if !mockQ.calleesOfCalled {
+		t.Fatal("expected CalleesOf query to be called")
+	}
+	if !mockQ.calleesWithOptions {
+		t.Fatal("expected CalleesOfWithOptions to be called for query_graph")
+	}
+	if mockQ.calleesOpts.IncludeFallbackCalls == nil {
+		t.Fatal("expected include_fallback_calls option to be set")
+	}
+	if *mockQ.calleesOpts.IncludeFallbackCalls {
+		t.Fatal("expected include_fallback_calls=false to be forwarded to QueryService")
+	}
+}
+
+func TestQueryGraph_CalleesOf_ReturnsFallbackProvenance(t *testing.T) {
+	deps := setupGraphOnlyTestDeps(t)
+	ctx := context.Background()
+
+	if err := deps.Store.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.Source", Kind: model.NodeKindFunction, Name: "Source", FilePath: "source.go", StartLine: 1, EndLine: 5, Language: "go"},
+		{QualifiedName: "pkg.Strict", Kind: model.NodeKindFunction, Name: "Strict", FilePath: "strict.go", StartLine: 1, EndLine: 5, Language: "go"},
+		{QualifiedName: "pkg.Fallback", Kind: model.NodeKindFunction, Name: "Fallback", FilePath: "fallback.go", StartLine: 1, EndLine: 5, Language: "go"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	source, _ := deps.Store.GetNode(ctx, "pkg.Source")
+	strict, _ := deps.Store.GetNode(ctx, "pkg.Strict")
+	fallback, _ := deps.Store.GetNode(ctx, "pkg.Fallback")
+	if err := deps.Store.UpsertEdges(ctx, []model.Edge{
+		{FromNodeID: source.ID, ToNodeID: strict.ID, Kind: model.EdgeKindCalls, Fingerprint: "source-strict"},
+		{FromNodeID: source.ID, ToNodeID: fallback.ID, Kind: model.EdgeKindFallbackCalls, Fingerprint: "source-fallback"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	deps.QueryService = query.New(deps.DB)
+
+	result := callTool(t, deps, "query_graph", map[string]any{"pattern": "callees_of", "target": "pkg.Source"})
+	if result.IsError {
+		t.Fatalf("query_graph error: %s", getTextContent(result))
+	}
+
+	var resp struct {
+		Results []map[string]any `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+		t.Fatalf("expected JSON response, got: %s", getTextContent(result))
+	}
+	if len(resp.Results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(resp.Results))
+	}
+
+	byName := map[string]map[string]any{}
+	for _, item := range resp.Results {
+		byName[item["qualified_name"].(string)] = item
+	}
+	if byName["pkg.Strict"]["confidence"] != "strict" {
+		t.Fatalf("expected pkg.Strict confidence=strict, got %v", byName["pkg.Strict"]["confidence"])
+	}
+	if byName["pkg.Strict"]["edge_kind"] != string(model.EdgeKindCalls) {
+		t.Fatalf("expected pkg.Strict edge_kind=calls, got %v", byName["pkg.Strict"]["edge_kind"])
+	}
+	if byName["pkg.Fallback"]["confidence"] != "fallback" {
+		t.Fatalf("expected pkg.Fallback confidence=fallback, got %v", byName["pkg.Fallback"]["confidence"])
+	}
+	if byName["pkg.Fallback"]["edge_kind"] != string(model.EdgeKindFallbackCalls) {
+		t.Fatalf("expected pkg.Fallback edge_kind=fallback_calls, got %v", byName["pkg.Fallback"]["edge_kind"])
+	}
+}
+
 func TestQueryGraph_ImportsOf(t *testing.T) {
 	deps := setupTestDeps(t)
 	ctx := context.Background()
@@ -3071,6 +3243,31 @@ func TestFindDeadCode_NoDeadCode(t *testing.T) {
 	json.Unmarshal([]byte(text), &resp)
 	if resp["count"].(float64) != 0 {
 		t.Errorf("expected 0 dead code, got %v", resp["count"])
+	}
+}
+
+func TestFindSuspectFallbackEdges_ReturnsSuspects(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.FallbackAnalyzer = &mockFallbackAnalyzer{
+		result: []fallbackanalysis.SuspectEdge{{
+			Edge:    model.Edge{Kind: model.EdgeKindFallbackCalls, Fingerprint: "auth-invoice-fallback"},
+			Source:  model.Node{QualifiedName: "pkg.Authenticate", FilePath: "auth.go"},
+			Target:  model.Node{QualifiedName: "pkg.RenderInvoice", FilePath: "invoice.go"},
+			Suspect: true,
+		}},
+	}
+
+	result := callTool(t, deps, "find_suspect_fallback_edges", map[string]any{})
+	if result.IsError {
+		t.Fatalf("find_suspect_fallback_edges error: %s", getTextContent(result))
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
+		t.Fatalf("expected JSON response, got: %s", getTextContent(result))
+	}
+	if resp["count"].(float64) != 1 {
+		t.Fatalf("expected 1 suspect fallback edge, got %v", resp["count"])
 	}
 }
 

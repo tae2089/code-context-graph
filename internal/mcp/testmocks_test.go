@@ -7,6 +7,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
 	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
 	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
+	fallbackanalysis "github.com/tae2089/code-context-graph/internal/analysis/fallback"
 	"github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
@@ -16,6 +17,10 @@ import (
 type mockQueryService struct {
 	callersOfCalled    bool
 	calleesOfCalled    bool
+	callersWithOptions bool
+	calleesWithOptions bool
+	callersOpts        query.QueryOptions
+	calleesOpts        query.QueryOptions
 	importsOfCalled    bool
 	importersOfCalled  bool
 	childrenOfCalled   bool
@@ -33,8 +38,20 @@ func (m *mockQueryService) CallersOf(ctx context.Context, nodeID uint) ([]model.
 	m.callersOfCalled = true
 	return m.result, m.err
 }
+func (m *mockQueryService) CallersOfWithOptions(ctx context.Context, nodeID uint, opts query.QueryOptions) ([]model.Node, error) {
+	m.callersOfCalled = true
+	m.callersWithOptions = true
+	m.callersOpts = opts
+	return m.result, m.err
+}
 func (m *mockQueryService) CalleesOf(ctx context.Context, nodeID uint) ([]model.Node, error) {
 	m.calleesOfCalled = true
+	return m.result, m.err
+}
+func (m *mockQueryService) CalleesOfWithOptions(ctx context.Context, nodeID uint, opts query.QueryOptions) ([]model.Node, error) {
+	m.calleesOfCalled = true
+	m.calleesWithOptions = true
+	m.calleesOpts = opts
 	return m.result, m.err
 }
 func (m *mockQueryService) ImportsOf(ctx context.Context, nodeID uint) ([]model.Node, error) {
@@ -85,6 +102,17 @@ type mockDeadcodeAnalyzer struct {
 }
 
 func (m *mockDeadcodeAnalyzer) Find(ctx context.Context, opts deadcode.Options) ([]model.Node, error) {
+	m.findCalled = true
+	return m.result, m.err
+}
+
+type mockFallbackAnalyzer struct {
+	findCalled bool
+	result     []fallbackanalysis.SuspectEdge
+	err        error
+}
+
+func (m *mockFallbackAnalyzer) FindSuspects(ctx context.Context, opts fallbackanalysis.Options) ([]fallbackanalysis.SuspectEdge, error) {
 	m.findCalled = true
 	return m.result, m.err
 }

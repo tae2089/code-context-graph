@@ -10,6 +10,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
 	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
+	fallbackanalysis "github.com/tae2089/code-context-graph/internal/analysis/fallback"
 	flowspkg "github.com/tae2089/code-context-graph/internal/analysis/flows"
 	impactpkg "github.com/tae2089/code-context-graph/internal/analysis/impact"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
@@ -129,6 +130,7 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 	}
 
 	maxNodes := request.GetInt("max_nodes", defaultTraceMaxNodes)
+	includeFallbackCalls := request.GetBool("include_fallback_calls", true)
 	return finalizeToolResult(h.cachedExecute(ctx, "trace_flow:", map[string]any{"qualified_name": qn, "max_nodes": maxNodes, "namespace": requestNamespace(request)}, func() (string, error) {
 		node, err := h.deps.Store.GetNode(ctx, qn)
 		if err != nil {
@@ -145,7 +147,7 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 		containsFallbackCalls := false
 		fallbackEdgesCount := 0
 		if bounded, ok := h.deps.FlowTracer.(BoundedFlowTracer); ok {
-			res, err := bounded.TraceFlowBounded(ctx, node.ID, flowspkg.TraceOptions{MaxNodes: maxNodes})
+			res, err := bounded.TraceFlowBounded(ctx, node.ID, flowspkg.TraceOptions{MaxNodes: maxNodes, IncludeFallbackCalls: &includeFallbackCalls})
 			if err != nil {
 				log.ErrorContext(ctx, "trace error", append(obs.TraceLogArgs(ctx), "node_id", node.ID, trace.SlogError(err))...)
 				return "", trace.Wrap(err, "trace error")
@@ -185,7 +187,7 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 				"max_nodes":               maxNodes,
 				"returned_nodes":          len(members),
 				"contains_fallback_calls": containsFallbackCalls,
-				"fallback_edges":          fallbackEdgesCount,
+				"fallback_edges_count":    fallbackEdgesCount,
 			},
 			"evidence": h.workspaceEvidenceFromContext(ctx),
 		}
@@ -400,6 +402,50 @@ func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest
 			return "", trace.Wrap(err, "marshal result")
 		}
 		return result, nil
+	}))
+}
+
+// findSuspectFallbackEdges returns fallback call edges whose source/target annotations do not overlap on intent/domain rules.
+// @intent fallback edge explainability가 약한 저신뢰 호출 후보를 운영자가 직접 점검하게 한다.
+// @requires FallbackAnalyzer가 구성되어 있어야 한다.
+// @ensures 성공 시 suspect fallback edge 목록과 개수를 반환한다.
+func (h *handlers) findSuspectFallbackEdges(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = h.applyWorkspace(ctx, request)
+	log := h.logger()
+	log.Info("find_suspect_fallback_edges called")
+
+	if h.deps.FallbackAnalyzer == nil {
+		return mcp.NewToolResultError("FallbackAnalyzer not configured"), nil
+	}
+
+	return finalizeToolResult(h.cachedExecute(ctx, "find_suspect_fallback_edges:", map[string]any{"namespace": requestNamespace(request)}, func() (string, error) {
+		results, err := h.deps.FallbackAnalyzer.FindSuspects(ctx, fallbackanalysis.Options{})
+		if err != nil {
+			return "", trace.Wrap(err, "fallback suspect analysis error")
+		}
+
+		items := make([]map[string]any, len(results))
+		for i, result := range results {
+			items[i] = map[string]any{
+				"edge_kind":        result.Edge.Kind,
+				"fingerprint":      result.Edge.Fingerprint,
+				"source":           result.Source.QualifiedName,
+				"source_file":      result.Source.FilePath,
+				"target":           result.Target.QualifiedName,
+				"target_file":      result.Target.FilePath,
+				"suspect":          result.Suspect,
+			}
+		}
+
+		resp := map[string]any{
+			"suspect_fallback_edges": items,
+			"count":                  len(items),
+		}
+		payload, err := marshalJSON(resp)
+		if err != nil {
+			return "", trace.Wrap(err, "marshal result")
+		}
+		return payload, nil
 	}))
 }
 
