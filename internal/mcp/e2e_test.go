@@ -579,7 +579,7 @@ func TestE2E_UploadBuildSearch(t *testing.T) {
 	wsRoot := t.TempDir()
 	deps.WorkspaceRoot = wsRoot
 
-	// Step 1: upload_file로 Go 소스를 workspace에 업로드
+	// Step 1: Upload Go source into the workspace with upload_file.
 	goSrc := `package payment
 
 func ProcessPayment(amount int) error {
@@ -601,7 +601,7 @@ func RefundPayment(txID string) error {
 		t.Fatalf("upload_file error: %s", getTextContent(uploadResult))
 	}
 
-	// Step 2: build_or_update_graph로 workspace 경로를 빌드
+	// Step 2: Build the workspace path with build_or_update_graph.
 	wsPath := filepath.Join(wsRoot, "payment-svc")
 	buildResult := callTool(t, deps, "build_or_update_graph", map[string]any{
 		"path":         wsPath,
@@ -612,7 +612,7 @@ func RefundPayment(txID string) error {
 		t.Fatalf("build_or_update_graph error: %s", getTextContent(buildResult))
 	}
 
-	// Step 3: 검색 색인 생성
+	// Step 3: Build the search index.
 	ctx := context.Background()
 	nodesInFile, err := deps.Store.GetNodesByFile(ctx, "payment.go")
 	if err != nil {
@@ -632,7 +632,7 @@ func RefundPayment(txID string) error {
 	}
 	deps.SearchBackend.Rebuild(ctx, deps.DB)
 
-	// Step 4: search로 검증
+	// Step 4: Verify with search.
 	searchResult := callTool(t, deps, "search", map[string]any{"query": "ProcessPayment", "limit": 10})
 	if searchResult.IsError {
 		t.Fatalf("search error: %s", getTextContent(searchResult))
@@ -656,7 +656,7 @@ func RefundPayment(txID string) error {
 		t.Error("expected ProcessPayment in search results")
 	}
 
-	// Step 5: Refund도 검색 가능한지 확인
+	// Step 5: Confirm Refund is searchable too.
 	refundResult := callTool(t, deps, "search", map[string]any{"query": "RefundPayment", "limit": 10})
 	if refundResult.IsError {
 		t.Fatalf("search error: %s", getTextContent(refundResult))
