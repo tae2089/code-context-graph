@@ -14,15 +14,19 @@ import (
 )
 
 type mockGit struct {
-	files []string
-	hunks []Hunk
+	files            []string
+	hunks            []Hunk
+	changedFilesCall int
+	diffHunksCall    int
 }
 
 func (m *mockGit) ChangedFiles(_ context.Context, _, _ string) ([]string, error) {
+	m.changedFilesCall++
 	return m.files, nil
 }
 
 func (m *mockGit) DiffHunks(_ context.Context, _, _ string, _ []string) ([]Hunk, error) {
+	m.diffHunksCall++
 	return m.hunks, nil
 }
 
@@ -261,6 +265,129 @@ func TestAnalyzePage_AppliesLimitOffsetAndHasMore(t *testing.T) {
 	}
 	if page3.Pagination.HasMore {
 		t.Fatalf("page3 has_more = true, want false")
+	}
+}
+
+func TestAnalyzePage_PreservesAnalyzeOrderingForPagedConsumers(t *testing.T) {
+	db := setupDB(t)
+	for i := 1; i <= 4; i++ {
+		seedNode(t, db, uint(i), fmt.Sprintf("Fn%d", i), fmt.Sprintf("f%d.go", i), 1, 50)
+	}
+	for i := 1; i <= 4; i++ {
+		for j := 0; j < i; j++ {
+			seedEdge(t, db, uint(i), uint(100+j))
+		}
+	}
+
+	files := []string{"f1.go", "f2.go", "f3.go", "f4.go"}
+	hunks := []Hunk{
+		{FilePath: "f1.go", StartLine: 10, EndLine: 20},
+		{FilePath: "f2.go", StartLine: 10, EndLine: 20},
+		{FilePath: "f3.go", StartLine: 10, EndLine: 20},
+		{FilePath: "f4.go", StartLine: 10, EndLine: 20},
+	}
+	svc := New(db, &mockGit{files: files, hunks: hunks})
+
+	legacy, err := svc.Analyze(context.Background(), ".", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := svc.AnalyzePage(context.Background(), ".", "main", paging.Request{Limit: 2, Offset: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(page.Items) != 2 {
+		t.Fatalf("items = %d, want 2", len(page.Items))
+	}
+	for i, item := range page.Items {
+		want := legacy[i+1]
+		if item.Node.ID != want.Node.ID || item.RiskScore != want.RiskScore || item.HunkCount != want.HunkCount {
+			t.Fatalf("page item %d = %+v, want legacy slice item %+v", i, item, want)
+		}
+	}
+}
+
+func TestAnalyzePage_MatchesAnalyzeAcrossRepresentativeWindows(t *testing.T) {
+	db := setupDB(t)
+	for i := 1; i <= 8; i++ {
+		seedNode(t, db, uint(i), fmt.Sprintf("Fn%d", i), fmt.Sprintf("f%d.go", i), 1, 50)
+	}
+	for i := 1; i <= 8; i++ {
+		for j := 0; j < i; j++ {
+			seedEdge(t, db, uint(i), uint(100+j))
+		}
+	}
+
+	files := make([]string, 0, 8)
+	hunks := make([]Hunk, 0, 8)
+	for i := 1; i <= 8; i++ {
+		file := fmt.Sprintf("f%d.go", i)
+		files = append(files, file)
+		hunks = append(hunks, Hunk{FilePath: file, StartLine: 10, EndLine: 20})
+	}
+	svc := New(db, &mockGit{files: files, hunks: hunks})
+
+	legacy, err := svc.Analyze(context.Background(), ".", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, req := range []paging.Request{{Limit: 1, Offset: 0}, {Limit: 3, Offset: 0}, {Limit: 3, Offset: 2}, {Limit: 2, Offset: 5}} {
+		page, err := svc.AnalyzePage(context.Background(), ".", "main", req)
+		if err != nil {
+			t.Fatalf("AnalyzePage(%+v): %v", req, err)
+		}
+		end := req.Offset + req.Limit
+		if end > len(legacy) {
+			end = len(legacy)
+		}
+		want := legacy[req.Offset:end]
+		if len(page.Items) != len(want) {
+			t.Fatalf("AnalyzePage(%+v) items=%d, want %d", req, len(page.Items), len(want))
+		}
+		for i := range want {
+			if page.Items[i].Node.ID != want[i].Node.ID || page.Items[i].RiskScore != want[i].RiskScore || page.Items[i].HunkCount != want[i].HunkCount {
+				t.Fatalf("AnalyzePage(%+v) item %d = %+v, want %+v", req, i, page.Items[i], want[i])
+			}
+		}
+		wantHasMore := len(legacy) > req.Offset+req.Limit
+		if page.Pagination.HasMore != wantHasMore {
+			t.Fatalf("AnalyzePage(%+v) has_more=%v, want %v", req, page.Pagination.HasMore, wantHasMore)
+		}
+	}
+}
+
+func TestChangedNodeIDs_ReturnsUniqueChangedNodesWithoutRiskScoring(t *testing.T) {
+	db := setupDB(t)
+	seedNode(t, db, 1, "Foo", "a.go", 10, 30)
+	seedNode(t, db, 2, "Bar", "a.go", 40, 60)
+	seedNode(t, db, 3, "Baz", "b.go", 10, 30)
+	seedEdge(t, db, 1, 100)
+	seedEdge(t, db, 1, 101)
+
+	git := &mockGit{
+		files: []string{"a.go", "b.go"},
+		hunks: []Hunk{
+			{FilePath: "a.go", StartLine: 12, EndLine: 15},
+			{FilePath: "a.go", StartLine: 20, EndLine: 25},
+			{FilePath: "b.go", StartLine: 12, EndLine: 15},
+		},
+	}
+	svc := New(db, git)
+
+	ids, err := svc.ChangedNodeIDs(context.Background(), ".", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("ids = %v, want two changed nodes", ids)
+	}
+	if ids[0] != 1 || ids[1] != 3 {
+		t.Fatalf("ids = %v, want [1 3] in deterministic source order", ids)
+	}
+	if git.changedFilesCall != 1 || git.diffHunksCall != 1 {
+		t.Fatalf("git calls = changed:%d hunks:%d, want one diff scan", git.changedFilesCall, git.diffHunksCall)
 	}
 }
 

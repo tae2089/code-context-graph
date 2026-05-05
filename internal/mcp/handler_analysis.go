@@ -375,6 +375,7 @@ func (h *handlers) detectChanges(ctx context.Context, request mcp.CallToolReques
 // @param request uses repo_root and base to define the diff range, plus optional limit/offset for pagination.
 // @requires ChangesGitClient must be configured.
 // @ensures returns affected flows with their changed node IDs plus pagination metadata when analysis succeeds.
+// @domainRule changed node collection runs once and does not page through detectChanges risk entries.
 // @sideEffect reads git diff data from the configured repository root.
 // @see mcp.handlers.detectChanges
 func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -414,25 +415,9 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 
 	return finalizeToolResult(h.cachedExecute(ctx, "get_affected_flows:", map[string]any{"repo_root": repoRoot, "base": base, "limit": pageReq.Limit, "offset": pageReq.Offset, "namespace": requestNamespace(request)}, func() (string, error) {
 		chSvc := changes.New(h.deps.DB, h.deps.ChangesGitClient)
-		changedNodeIDs := make([]uint, 0)
-		seenNodeIDs := map[uint]struct{}{}
-		scanReq := paging.Request{Limit: paging.MaxLimit, Offset: 0}
-		for {
-			page, err := chSvc.AnalyzePage(ctx, repoRoot, base, scanReq)
-			if err != nil {
-				return "", trace.Wrap(err, "changes analyze error")
-			}
-			for _, r := range page.Items {
-				if _, ok := seenNodeIDs[r.Node.ID]; ok {
-					continue
-				}
-				seenNodeIDs[r.Node.ID] = struct{}{}
-				changedNodeIDs = append(changedNodeIDs, r.Node.ID)
-			}
-			if !page.Pagination.HasMore || page.Pagination.NextOffset == nil {
-				break
-			}
-			scanReq.Offset = *page.Pagination.NextOffset
+		changedNodeIDs, err := chSvc.ChangedNodeIDs(ctx, repoRoot, base)
+		if err != nil {
+			return "", trace.Wrap(err, "changes analyze error")
 		}
 
 		emptyResp := func() (string, error) {
