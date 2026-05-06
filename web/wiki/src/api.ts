@@ -5,11 +5,12 @@ export type TreeNode = {
   kind?: string;
   summary: string;
   doc_path?: string;
+  has_children?: boolean;
   details?: NodeDetails;
   children?: TreeNode[] | null;
 };
 
-// @intent expose structured symbol metadata stored in wiki-index.json.
+// @intent expose structured symbol metadata returned by DB-backed or snapshot-backed Wiki trees.
 export type NodeDetails = {
   qualified_name: string;
   file_path: string;
@@ -187,9 +188,18 @@ export function listNamespaces(token: string) {
   return request<{ namespaces: string[] }>("/namespaces", token);
 }
 
-// @intent load the RAG tree for the active namespace.
-export function getTree(namespace: string, token: string) {
-  return request<TreeResponse>(`/tree?namespace=${encodeURIComponent(namespace)}`, token);
+// @intent describe a bounded Wiki tree request used for lazy folder expansion.
+export type TreeRequest = {
+  nodeID?: string;
+  depth?: number;
+};
+
+// @intent load the RAG tree or a bounded subtree for the active namespace.
+export function getTree(namespace: string, token: string, options: TreeRequest = {}) {
+  const qs = new URLSearchParams({ namespace });
+  if (options.nodeID) qs.set("node_id", options.nodeID);
+  if (options.depth !== undefined) qs.set("depth", String(options.depth));
+  return request<TreeResponse>(`/tree?${qs.toString()}`, token);
 }
 
 // @intent load generated Markdown for the selected tree item.

@@ -1102,7 +1102,7 @@ func TestRetrieveDocs_DBFallbackResponseShapeStableByDefault(t *testing.T) {
 	}
 }
 
-func TestRetrieveDocs_JSONIndexTakesPrecedenceOverDBFallback(t *testing.T) {
+func TestRetrieveDocs_DBPrimaryTakesPrecedenceOverDocIndex(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()
 	docsDir := filepath.Join(tmpDir, "docs")
@@ -1137,18 +1137,18 @@ func TestRetrieveDocs_JSONIndexTakesPrecedenceOverDBFallback(t *testing.T) {
 
 	result := callTool(t, deps, "retrieve_docs", map[string]any{"query": "precedence", "limit": float64(5), "content_limit": float64(2000)})
 	if result.IsError {
-		t.Fatalf("retrieve_docs JSON precedence error: %v", getTextContent(result))
+		t.Fatalf("retrieve_docs DB precedence error: %v", getTextContent(result))
 	}
 
 	response := decodeRetrieveDocsResponse(t, result)
 	if len(response.Results) != 1 {
 		t.Fatalf("results = %d, want 1: %#v", len(response.Results), response.Results)
 	}
-	if !strings.Contains(response.Results[0].Content, "JSON index content wins") {
-		t.Fatalf("expected JSON index result, got %#v", response.Results[0])
+	if !strings.Contains(response.Results[0].Content, "DB fallback content") || !strings.Contains(response.Results[0].DocPath, "internal/db/only.go") {
+		t.Fatalf("expected DB primary result, got %#v", response.Results[0])
 	}
-	if strings.Contains(response.Results[0].Content, "DB fallback content") || strings.Contains(response.Results[0].DocPath, "internal/db/only.go") {
-		t.Fatalf("DB fallback result should not be used when doc-index.json exists: %#v", response.Results[0])
+	if strings.Contains(response.Results[0].Content, "JSON index content wins") {
+		t.Fatalf("doc-index result should not be used when DB retrieval succeeds: %#v", response.Results[0])
 	}
 }
 

@@ -192,13 +192,13 @@ func TestAPI_NamespacesMergesDatabaseAndIndex(t *testing.T) {
 func TestAPI_SearchAndDoc(t *testing.T) {
 	srv := newTestServer(t)
 
-	searchReq := httptest.NewRequest(http.MethodGet, "/wiki/api/search?q=auth&namespace=default", nil)
+	searchReq := httptest.NewRequest(http.MethodGet, "/wiki/api/search?q=Run&namespace=default", nil)
 	searchRec := httptest.NewRecorder()
 	srv.APIHandler().ServeHTTP(searchRec, searchReq)
 	if searchRec.Code != http.StatusOK {
 		t.Fatalf("search status = %d body=%s", searchRec.Code, searchRec.Body.String())
 	}
-	if !strings.Contains(searchRec.Body.String(), "core.md") {
+	if !strings.Contains(searchRec.Body.String(), "main.go") {
 		t.Fatalf("expected search result, got %s", searchRec.Body.String())
 	}
 
@@ -213,18 +213,18 @@ func TestAPI_SearchAndDoc(t *testing.T) {
 	}
 }
 
-func TestAPI_RetrieveUsesDocIndex(t *testing.T) {
+func TestAPI_RetrieveUsesDBWhenAvailable(t *testing.T) {
 	srv := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/wiki/api/retrieve?q=auth&namespace=default&limit=5", nil)
+	req := httptest.NewRequest(http.MethodGet, "/wiki/api/retrieve?q=Run&namespace=default&limit=5", nil)
 	rec := httptest.NewRecorder()
 	srv.APIHandler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("retrieve status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "core.md") || !strings.Contains(rec.Body.String(), "matched_terms") {
-		t.Fatalf("expected retrieve result with evidence, got %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "main.go") || !strings.Contains(rec.Body.String(), "matched_terms") {
+		t.Fatalf("expected DB retrieve result with evidence, got %s", rec.Body.String())
 	}
 }
 
@@ -379,7 +379,44 @@ func TestAPI_TreeFallsBackToDBWhenWikiIndexMissing(t *testing.T) {
 	}
 }
 
-func TestAPI_TreePrefersJSONIndexWhenPresent(t *testing.T) {
+func TestAPI_TreeFallbackSupportsLazyNodeExpansion(t *testing.T) {
+	srv := newDBFallbackTestServer(t)
+	seedWikiRetrieveNode(t, srv.db, ctxns.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", model.TagIntent, "payment settlement workflow")
+
+	req := httptest.NewRequest(http.MethodGet, "/wiki/api/tree?namespace=default&depth=1", nil)
+	rec := httptest.NewRecorder()
+	srv.APIHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tree lazy root status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Root *ragindex.TreeNode `json:"root"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode lazy root: %v", err)
+	}
+	internal := findTreeNode(got.Root, "folder:internal")
+	if internal == nil || !internal.HasChildren || len(internal.Children) != 0 {
+		t.Fatalf("lazy root internal = %#v", internal)
+	}
+	if strings.Contains(rec.Body.String(), "symbol:billing.Processor") {
+		t.Fatalf("lazy root should not include deep symbol: %s", rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/wiki/api/tree?namespace=default&node_id=file:internal/billing/processor.go&depth=1", nil)
+	rec = httptest.NewRecorder()
+	srv.APIHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tree lazy file status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "symbol:billing.Processor") {
+		t.Fatalf("lazy file expansion should include symbol: %s", rec.Body.String())
+	}
+}
+
+func TestAPI_TreePrefersDBWhenWikiIndexPresent(t *testing.T) {
 	srv := newTestServer(t)
 	seedWikiRetrieveNode(t, srv.db, ctxns.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", model.TagIntent, "payment settlement workflow")
 
@@ -390,11 +427,11 @@ func TestAPI_TreePrefersJSONIndexWhenPresent(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("tree status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if strings.Contains(rec.Body.String(), "billing.Processor") {
-		t.Fatalf("tree used DB despite JSON index precedence: %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "billing.Processor") {
+		t.Fatalf("tree should prefer DB over wiki-index snapshot: %s", rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "core.md") {
-		t.Fatalf("expected JSON index content, got %s", rec.Body.String())
+	if strings.Contains(rec.Body.String(), "core.md") {
+		t.Fatalf("tree used wiki-index despite DB availability: %s", rec.Body.String())
 	}
 }
 
@@ -514,7 +551,7 @@ func TestAPI_TreeFallbackIsNamespaceScoped(t *testing.T) {
 	}
 }
 
-func TestAPI_CorruptWikiIndexDoesNotFallBackToDB(t *testing.T) {
+func TestAPI_CorruptWikiIndexDoesNotBlockDBTree(t *testing.T) {
 	srv := newDBFallbackTestServer(t)
 	seedWikiRetrieveNode(t, srv.db, ctxns.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", model.TagIntent, "payment settlement workflow")
 	if err := os.WriteFile(filepath.Join(srv.ragIndexDir, "wiki-index.json"), []byte("{"), 0o644); err != nil {
@@ -525,16 +562,17 @@ func TestAPI_CorruptWikiIndexDoesNotFallBackToDB(t *testing.T) {
 	rec := httptest.NewRecorder()
 	srv.APIHandler().ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if strings.Contains(rec.Body.String(), "billing.Processor") {
-		t.Fatalf("corrupt index fell back to DB: %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "billing.Processor") {
+		t.Fatalf("corrupt wiki-index should not block DB tree: %s", rec.Body.String())
 	}
 }
 
 func TestAPI_ContextReturnsPerItemMarkdown(t *testing.T) {
 	srv := newTestServer(t)
+	srv.db = nil
 	req := httptest.NewRequest(http.MethodPost, "/wiki/api/context", strings.NewReader(`{"namespace":"default","paths":["docs/core.md","docs/missing.md"]}`))
 	rec := httptest.NewRecorder()
 
@@ -651,6 +689,7 @@ func TestAPI_DocAllowsAbsolutePathUnderRoot(t *testing.T) {
 
 func TestAPI_DocFallsBackToTreeSummaryWhenFileMissing(t *testing.T) {
 	srv := newTestServer(t)
+	srv.db = nil
 	req := httptest.NewRequest(http.MethodGet, "/wiki/api/doc?namespace=default&path=docs/missing.md", nil)
 	rec := httptest.NewRecorder()
 

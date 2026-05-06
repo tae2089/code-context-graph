@@ -183,6 +183,44 @@ func TestBuilder_BuildTreeScopesAnnotationsAndOrdersTags(t *testing.T) {
 	}
 }
 
+func TestBuilder_BuildSubtreeReturnsBoundedLazyChildren(t *testing.T) {
+	db := setupDB(t)
+	pkg := createNode(t, db, model.Node{QualifiedName: "github.com/example/project/internal/core", Kind: model.NodeKindPackage, Name: "core", FilePath: "internal/core", StartLine: 1, EndLine: 1, Language: "go"})
+	file := createNode(t, db, model.Node{QualifiedName: "internal/core/runtime.go", Kind: model.NodeKindFile, Name: "internal/core/runtime.go", FilePath: "internal/core/runtime.go", StartLine: 1, EndLine: 40, Language: "go"})
+	fn := createNode(t, db, model.Node{QualifiedName: "core.NewRuntime", Kind: model.NodeKindFunction, Name: "NewRuntime", FilePath: "internal/core/runtime.go", StartLine: 10, EndLine: 20, Language: "go"})
+	createTag(t, db, pkg.ID, model.TagIndex, "Core runtime package")
+	createTag(t, db, file.ID, model.TagIndex, "Runtime wiring")
+	createTag(t, db, fn.ID, model.TagIntent, "construct runtime")
+
+	builder := &wikiindex.Builder{DB: db, OutDir: "docs"}
+	root, err := builder.BuildSubtree(context.Background(), "", 1)
+	if err != nil {
+		t.Fatalf("BuildSubtree root: %v", err)
+	}
+	internal := ragindex.FindNode(root, "folder:internal")
+	if internal == nil || !internal.HasChildren || len(internal.Children) != 0 {
+		t.Fatalf("root lazy internal = %#v", internal)
+	}
+
+	folder, err := builder.BuildSubtree(context.Background(), "folder:internal", 1)
+	if err != nil {
+		t.Fatalf("BuildSubtree folder: %v", err)
+	}
+	core := ragindex.FindNode(folder, "package:internal/core")
+	if core == nil || core.Summary != "Core runtime package" || !core.HasChildren || len(core.Children) != 0 {
+		t.Fatalf("folder lazy package = %#v", core)
+	}
+
+	fileNode, err := builder.BuildSubtree(context.Background(), "file:internal/core/runtime.go", 1)
+	if err != nil {
+		t.Fatalf("BuildSubtree file: %v", err)
+	}
+	sym := ragindex.FindNode(fileNode, "symbol:core.NewRuntime")
+	if sym == nil || sym.Details == nil || sym.Details.Annotation == nil {
+		t.Fatalf("file lazy symbol = %#v", sym)
+	}
+}
+
 func TestBuilder_RespectsExclude(t *testing.T) {
 	db := setupDB(t)
 	tmpDir := t.TempDir()

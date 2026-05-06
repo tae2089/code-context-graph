@@ -80,8 +80,8 @@ ccg docs --out docs
 ccg serve
 ```
 
-`ccg docs` writes `.ccg/wiki-index.json` for `/wiki` navigation and, unless
-`--rag=false` is set, `.ccg/doc-index.json` for MCP retrieval.
+`ccg docs` writes `.ccg/wiki-index.json` as a `/wiki` compatibility snapshot
+and, unless `--rag=false` is set, `.ccg/doc-index.json` for retrieval.
 
 Browser Wiki:
 
@@ -93,11 +93,13 @@ ccg-server \
   --wiki-dir web/wiki/dist
 ```
 
-The Wiki tree and search read `wiki-index.json`. Retrieve mode reads
-`doc-index.json`. The Graph tab reads graph nodes and edges directly from the
-configured database through `/wiki/api/graph`, so it follows the latest
-`ccg build` or webhook sync state. Context Tray copy uses `/wiki/api/context`
-for generated docs and keeps doc-less symbol details in the browser payload.
+The Wiki tree, search, and retrieve mode prefer the configured database.
+`wiki-index.json` and `doc-index.json` are compatibility snapshots used only
+when the corresponding DB-backed path is unavailable.
+The Graph tab reads graph nodes and edges directly from the configured database
+through `/wiki/api/graph`, so it follows the latest `ccg build` or webhook sync
+state. Context Tray copy uses `/wiki/api/context` for generated docs and keeps
+doc-less symbol details in the browser payload.
 
 Self-hosted HTTP MCP:
 

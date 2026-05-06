@@ -387,27 +387,27 @@ type retrieveDocsResult = retrieval.Result
 
 var _ = (*handlers).retrieveDocsFromDB
 
-// @intent build a retrieve_docs response from persisted graph nodes and annotation tags when doc-index.json is unavailable.
+// @intent build a retrieve_docs response from persisted graph nodes and annotation tags before consulting compatibility doc-index snapshots.
 // @requires SearchBackend and DB must be configured, and ctx must carry the desired namespace.
 // @ensures returned results are grouped one-per-file in first-seen FTS order and keep retrieve_docs' stable JSON shape.
 // @sideEffect queries the search backend and may read generated Markdown files for bounded content.
-func (h *handlers) retrieveDocsFromDB(ctx context.Context, namespace, query string, limit, contentLimit int) (retrieveDocsResponse, error) {
+func (h *handlers) retrieveDocsFromDB(ctx context.Context, namespace, query string, limit, contentLimit int, explain bool) (retrieveDocsResponse, error) {
 	service := retrieval.Service{DB: h.deps.DB, SearchBackend: h.deps.SearchBackend}
-	retrieved, err := service.FromDB(ctx, namespace, query, limit, contentLimit, func(_ context.Context, namespace, docPath string, limit int) (string, bool, error) {
+	retrieved, err := service.FromDBWithOptions(ctx, namespace, query, limit, contentLimit, func(_ context.Context, namespace, docPath string, limit int) (string, bool, error) {
 		return h.readIndexedDocContent(namespace, docPath, limit)
-	})
+	}, retrieval.Options{Explain: explain})
 	if err != nil {
 		return retrieveDocsResponse{Results: []retrieveDocsResult{}}, err
 	}
 	return retrieved, nil
 }
 
-// retrieveDocs retrieves generated Markdown docs using tree-aware multi-term matching.
-// @intent provide PageIndex-style document retrieval over the generated RAG tree without replacing quick keyword search.
+// retrieveDocs retrieves generated Markdown docs using DB-backed graph evidence first and doc-index snapshots as fallback.
+// @intent provide DB-primary document retrieval without replacing quick keyword search or removing doc-index compatibility.
 // @param request query is the natural-language retrieval prompt, limit bounds document count, and content_limit bounds each Markdown payload.
-// @requires doc-index.json and generated docs must exist.
+// @requires either a configured DB or doc-index.json and generated docs must exist.
 // @ensures returns file-level matches with tree evidence and bounded document content.
-// @sideEffect reads doc-index.json and generated Markdown files.
+// @sideEffect queries the graph DB and may read doc-index.json and generated Markdown files.
 func (h *handlers) retrieveDocs(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	query, err := request.RequireString("query")
 	if err != nil {
@@ -439,12 +439,8 @@ func (h *handlers) retrieveDocs(ctx context.Context, request mcp.CallToolRequest
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	stat, statErr := os.Stat(indexPath)
-	if statErr != nil && !os.IsNotExist(statErr) {
-		return mcp.NewToolResultError(fmt.Sprintf("stat doc-index: %v", statErr)), nil
-	}
-
-	if statErr != nil && os.IsNotExist(statErr) {
+	var dbErr error
+	if h.deps.DB != nil {
 		cacheKey := map[string]any{
 			"query":         query,
 			"limit":         pageReq.Limit,
@@ -452,17 +448,31 @@ func (h *handlers) retrieveDocs(ctx context.Context, request mcp.CallToolRequest
 			"namespace":     namespace,
 			"explain":       explain,
 		}
-		return finalizeToolResult(h.cachedExecute(ctx, "retrieve_docs:db:", cacheKey, func() (string, error) {
-			response, err := h.retrieveDocsFromDB(ctx, namespace, query, pageReq.Limit, contentLimit)
+		result, err := h.cachedExecute(ctx, "retrieve_docs:db:", cacheKey, func() (string, error) {
+			response, err := h.retrieveDocsFromDB(ctx, namespace, query, pageReq.Limit, contentLimit, explain)
 			if err != nil {
 				return "", newToolResultErr(err.Error())
 			}
 
 			b, _ := json.Marshal(response)
 			return string(b), nil
-		}))
+		})
+		if err == nil {
+			return finalizeToolResult(result, nil)
+		}
+		dbErr = err
 	}
 
+	stat, statErr := os.Stat(indexPath)
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return mcp.NewToolResultError(fmt.Sprintf("stat doc-index: %v", statErr)), nil
+	}
+	if statErr != nil && os.IsNotExist(statErr) {
+		if dbErr != nil {
+			return finalizeToolResult("", dbErr)
+		}
+		return finalizeToolResult("", newToolResultErr(fmt.Sprintf("load doc-index: %v", statErr)))
+	}
 	indexMtime := stat.ModTime().UnixNano()
 
 	cacheKey := map[string]any{
@@ -474,29 +484,35 @@ func (h *handlers) retrieveDocs(ctx context.Context, request mcp.CallToolRequest
 		"explain":       explain,
 	}
 	return finalizeToolResult(h.cachedExecute(ctx, "retrieve_docs:", cacheKey, func() (string, error) {
-		idx, err := ragindex.LoadIndex(indexPath)
-		if err != nil {
-			return "", newToolResultErr(fmt.Sprintf("load doc-index: %v", err))
-		}
-
-		candidates := ragindex.RetrieveWithOptions(idx.Root, query, pageReq.Limit, ragindex.RetrieveOptions{Explain: explain})
-		response := retrieveDocsResponse{Results: make([]retrieveDocsResult, 0, len(candidates))}
-		for _, candidate := range candidates {
-			result := retrieveDocsResult{RetrieveResult: candidate}
-			if contentLimit > 0 {
-				content, truncated, err := h.readIndexedDocContent(namespace, candidate.DocPath, contentLimit)
-				if err != nil {
-					return "", newToolResultErr(err.Error())
-				}
-				result.Content = content
-				result.ContentTruncated = truncated
-			}
-			response.Results = append(response.Results, result)
-		}
-
-		b, _ := json.Marshal(response)
-		return string(b), nil
+		return h.retrieveDocsFromIndex(namespace, query, pageReq.Limit, contentLimit, explain, indexPath)
 	}))
+}
+
+// @intent run compatibility retrieve_docs against a generated doc-index.json snapshot when DB retrieval is unavailable.
+// @sideEffect reads doc-index.json and optionally generated Markdown content.
+func (h *handlers) retrieveDocsFromIndex(namespace, query string, limit, contentLimit int, explain bool, indexPath string) (string, error) {
+	idx, err := ragindex.LoadIndex(indexPath)
+	if err != nil {
+		return "", newToolResultErr(fmt.Sprintf("load doc-index: %v", err))
+	}
+
+	candidates := ragindex.RetrieveWithOptions(idx.Root, query, limit, ragindex.RetrieveOptions{Explain: explain})
+	response := retrieveDocsResponse{Results: make([]retrieveDocsResult, 0, len(candidates))}
+	for _, candidate := range candidates {
+		result := retrieveDocsResult{RetrieveResult: candidate}
+		if contentLimit > 0 {
+			content, truncated, err := h.readIndexedDocContent(namespace, candidate.DocPath, contentLimit)
+			if err != nil {
+				return "", newToolResultErr(err.Error())
+			}
+			result.Content = content
+			result.ContentTruncated = truncated
+		}
+		response.Results = append(response.Results, result)
+	}
+
+	b, _ := json.Marshal(response)
+	return string(b), nil
 }
 
 // readIndexedDocContent reads a doc_path stored in doc-index.json under the docs/index root.

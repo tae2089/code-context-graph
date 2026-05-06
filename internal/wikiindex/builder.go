@@ -22,7 +22,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/ragindex"
 )
 
-// Builder writes wiki-index.json for ccg-server's browser UI.
+// Builder writes the wiki-index.json compatibility snapshot for ccg-server's browser UI.
 // @intent derive a package/file/symbol presentation tree directly from graph nodes.
 type Builder struct {
 	DB          *gorm.DB
@@ -33,7 +33,7 @@ type Builder struct {
 	Exclude     []string
 }
 
-// Build creates wiki-index.json and returns package and file counts.
+// Build creates the wiki-index.json compatibility snapshot and returns package and file counts.
 // @intent generate a UI-oriented tree independent of community detection and PageIndex retrieval.
 // @sideEffect reads graph tables and writes wiki-index.json.
 func (b *Builder) Build(ctx context.Context) (int, int, error) {
@@ -105,6 +105,437 @@ func (b *Builder) BuildTree(ctx context.Context) (*ragindex.TreeNode, int, int, 
 
 	sortTree(root)
 	return root, len(state.packages), len(state.files), nil
+}
+
+// BuildSubtree creates one Wiki tree node plus a bounded set of descendants directly from DB rows.
+// @intent support GitHub-style lazy Wiki navigation without synthesizing the full tree for every folder expansion.
+// @ensures depth > 0 limits descendants relative to the selected node; depth <= 0 preserves full-tree compatibility.
+func (b *Builder) BuildSubtree(ctx context.Context, nodeID string, depth int) (*ragindex.TreeNode, error) {
+	ctx = ctxns.WithNamespace(ctx, b.namespace(ctx))
+	if depth <= 0 {
+		root, _, _, err := b.BuildTree(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if nodeID == "" {
+			return root, nil
+		}
+		node := ragindex.FindNode(root, nodeID)
+		if node == nil {
+			return nil, fmt.Errorf("%w: node_id %q", os.ErrNotExist, nodeID)
+		}
+		return node, nil
+	}
+	node, err := b.lazyBaseNode(ctx, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	if err := b.populateLazyChildren(ctx, node, 0, depth); err != nil {
+		return nil, err
+	}
+	return node, nil
+}
+
+// @intent build the selected lazy tree root without loading unrelated descendants.
+func (b *Builder) lazyBaseNode(ctx context.Context, nodeID string) (*ragindex.TreeNode, error) {
+	switch {
+	case nodeID == "":
+		return &ragindex.TreeNode{ID: "root", Label: "Root", Kind: "root", Summary: b.ProjectDesc, HasChildren: true, Children: []*ragindex.TreeNode{}}, nil
+	case strings.HasPrefix(nodeID, "folder:"):
+		folderPath := strings.Trim(strings.TrimPrefix(nodeID, "folder:"), "/")
+		if !b.hasPathDescendant(ctx, folderPath) {
+			return nil, fmt.Errorf("%w: node_id %q", os.ErrNotExist, nodeID)
+		}
+		return &ragindex.TreeNode{ID: nodeID, Label: path.Base(folderPath), Kind: "folder", HasChildren: true, Children: []*ragindex.TreeNode{}}, nil
+	case strings.HasPrefix(nodeID, "package:"):
+		return b.lazyStoredNode(ctx, nodeID, model.NodeKindPackage, strings.TrimPrefix(nodeID, "package:"))
+	case strings.HasPrefix(nodeID, "file:"):
+		return b.lazyStoredNode(ctx, nodeID, model.NodeKindFile, strings.TrimPrefix(nodeID, "file:"))
+	case strings.HasPrefix(nodeID, "symbol:"):
+		return b.lazySymbolNode(ctx, strings.TrimPrefix(nodeID, "symbol:"))
+	default:
+		return nil, fmt.Errorf("%w: node_id %q", os.ErrNotExist, nodeID)
+	}
+}
+
+// @intent load a stored package or file tree node with annotation summary and expandable state.
+func (b *Builder) lazyStoredNode(ctx context.Context, nodeID string, kind model.NodeKind, filePath string) (*ragindex.TreeNode, error) {
+	ns := ctxns.FromContext(ctx)
+	var node model.Node
+	if err := b.DB.WithContext(ctx).
+		Where("namespace = ? AND kind = ? AND file_path = ?", ns, kind, filePath).
+		First(&node).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			if kind == model.NodeKindFile && b.hasSymbol(ctx, filePath) {
+				return &ragindex.TreeNode{
+					ID:          "file:" + strings.Trim(path.Clean(filePath), "/"),
+					Label:       path.Base(filePath),
+					Kind:        string(model.NodeKindFile),
+					DocPath:     b.docPath(filePath),
+					HasChildren: true,
+					Children:    []*ragindex.TreeNode{},
+				}, nil
+			}
+			return nil, fmt.Errorf("%w: node_id %q", os.ErrNotExist, nodeID)
+		}
+		return nil, trace.Wrap(err, "load wiki lazy node")
+	}
+	annByID, err := b.loadAnnotations(ctx, []uint{node.ID})
+	if err != nil {
+		return nil, err
+	}
+	return b.treeNodeForModel(ctx, node, annByID[node.ID]), nil
+}
+
+// @intent load a stored symbol tree node by qualified name for direct lazy navigation.
+func (b *Builder) lazySymbolNode(ctx context.Context, qualifiedName string) (*ragindex.TreeNode, error) {
+	ns := ctxns.FromContext(ctx)
+	var node model.Node
+	if err := b.DB.WithContext(ctx).
+		Where("namespace = ? AND qualified_name = ? AND kind IN ?", ns, qualifiedName, symbolKindStrings()).
+		Order("file_path ASC, start_line ASC, id ASC").
+		First(&node).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("%w: node_id %q", os.ErrNotExist, "symbol:"+qualifiedName)
+		}
+		return nil, trace.Wrap(err, "load wiki lazy symbol")
+	}
+	annByID, err := b.loadAnnotations(ctx, []uint{node.ID})
+	if err != nil {
+		return nil, err
+	}
+	return b.treeNodeForModel(ctx, node, annByID[node.ID]), nil
+}
+
+// @intent populate a lazy tree node to the requested relative depth.
+func (b *Builder) populateLazyChildren(ctx context.Context, node *ragindex.TreeNode, currentDepth, maxDepth int) error {
+	if currentDepth >= maxDepth {
+		node.Children = []*ragindex.TreeNode{}
+		return nil
+	}
+	children, err := b.lazyChildren(ctx, node)
+	if err != nil {
+		return err
+	}
+	node.Children = children
+	node.HasChildren = len(children) > 0 || node.HasChildren
+	for _, child := range node.Children {
+		if err := b.populateLazyChildren(ctx, child, currentDepth+1, maxDepth); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// @intent resolve immediate children for one lazy Wiki tree node.
+func (b *Builder) lazyChildren(ctx context.Context, node *ragindex.TreeNode) ([]*ragindex.TreeNode, error) {
+	switch {
+	case node.ID == "root":
+		return b.folderChildren(ctx, "")
+	case strings.HasPrefix(node.ID, "folder:"):
+		return b.folderChildren(ctx, strings.TrimPrefix(node.ID, "folder:"))
+	case strings.HasPrefix(node.ID, "package:"):
+		return b.packageChildren(ctx, strings.TrimPrefix(node.ID, "package:"))
+	case strings.HasPrefix(node.ID, "file:"):
+		return b.fileChildren(ctx, strings.TrimPrefix(node.ID, "file:"))
+	default:
+		return []*ragindex.TreeNode{}, nil
+	}
+}
+
+// @intent list immediate folder children while allowing package nodes to replace same-path synthetic folders.
+func (b *Builder) folderChildren(ctx context.Context, folderPath string) ([]*ragindex.TreeNode, error) {
+	nodes, err := b.loadPathNodes(ctx, folderPath, lazyPathNodeKinds())
+	if err != nil {
+		return nil, err
+	}
+	entries := map[string]lazyEntry{}
+	for _, node := range nodes {
+		childPath, immediate, ok := immediateChildPath(folderPath, node.FilePath)
+		if !ok {
+			continue
+		}
+		if node.Kind == model.NodeKindPackage && immediate {
+			n := node
+			entries[childPath] = lazyEntry{kind: string(model.NodeKindPackage), path: childPath, node: &n}
+			continue
+		}
+		if node.Kind == model.NodeKindFile && immediate {
+			if existing := entries[childPath]; existing.kind == string(model.NodeKindPackage) {
+				continue
+			}
+			n := node
+			entries[childPath] = lazyEntry{kind: string(model.NodeKindFile), path: childPath, node: &n}
+			continue
+		}
+		if isSymbolKind(node.Kind) && immediate {
+			if _, ok := entries[childPath]; !ok {
+				entries[childPath] = lazyEntry{kind: string(model.NodeKindFile), path: childPath}
+			}
+			continue
+		}
+		if existing := entries[childPath]; existing.kind != string(model.NodeKindPackage) {
+			entries[childPath] = lazyEntry{kind: "folder", path: childPath}
+		}
+	}
+	return b.materializeLazyEntries(ctx, entries)
+}
+
+// @intent list direct files inside one package node.
+func (b *Builder) packageChildren(ctx context.Context, packagePath string) ([]*ragindex.TreeNode, error) {
+	nodes, err := b.loadPathNodes(ctx, packagePath, append([]string{string(model.NodeKindFile)}, symbolKindStrings()...))
+	if err != nil {
+		return nil, err
+	}
+	entries := map[string]lazyEntry{}
+	for _, node := range nodes {
+		childPath, immediate, ok := immediateChildPath(packagePath, node.FilePath)
+		if !ok || !immediate {
+			continue
+		}
+		if node.Kind == model.NodeKindFile {
+			n := node
+			entries[childPath] = lazyEntry{kind: string(model.NodeKindFile), path: childPath, node: &n}
+			continue
+		}
+		if _, ok := entries[childPath]; !ok {
+			entries[childPath] = lazyEntry{kind: string(model.NodeKindFile), path: childPath}
+		}
+	}
+	return b.materializeLazyEntries(ctx, entries)
+}
+
+// @intent list symbols declared inside one file node.
+func (b *Builder) fileChildren(ctx context.Context, filePath string) ([]*ragindex.TreeNode, error) {
+	ns := ctxns.FromContext(ctx)
+	var nodes []model.Node
+	if err := b.DB.WithContext(ctx).
+		Where("namespace = ? AND file_path = ? AND kind IN ?", ns, filePath, symbolKindStrings()).
+		Order("start_line ASC, qualified_name ASC").
+		Find(&nodes).Error; err != nil {
+		return nil, trace.Wrap(err, "load wiki file children")
+	}
+	ids := nodeIDs(nodes)
+	annByID, err := b.loadAnnotations(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	children := make([]*ragindex.TreeNode, 0, len(nodes))
+	for _, node := range nodes {
+		children = append(children, b.treeNodeForModel(ctx, node, annByID[node.ID]))
+	}
+	sortTree(&ragindex.TreeNode{Children: children})
+	return children, nil
+}
+
+// @intent query package/file path candidates under a folder prefix without loading annotations.
+func (b *Builder) loadPathNodes(ctx context.Context, folderPath string, kinds []string) ([]model.Node, error) {
+	ns := ctxns.FromContext(ctx)
+	var nodes []model.Node
+	q := b.DB.WithContext(ctx).
+		Where("namespace = ? AND kind IN ?", ns, kinds).
+		Order("file_path ASC, start_line ASC, qualified_name ASC")
+	folderPath = strings.Trim(path.Clean(folderPath), "/")
+	if folderPath != "." && folderPath != "" {
+		q = q.Where("file_path LIKE ?", folderPath+"/%")
+	}
+	if err := q.Find(&nodes).Error; err != nil {
+		return nil, trace.Wrap(err, "load wiki path nodes")
+	}
+	if len(b.Exclude) == 0 {
+		return nodes, nil
+	}
+	filtered := nodes[:0]
+	for _, node := range nodes {
+		if !pathutil.MatchExcludes(b.Exclude, node.FilePath) {
+			filtered = append(filtered, node)
+		}
+	}
+	return filtered, nil
+}
+
+// @intent convert collected lazy child entries into annotated TreeNode DTOs.
+func (b *Builder) materializeLazyEntries(ctx context.Context, entries map[string]lazyEntry) ([]*ragindex.TreeNode, error) {
+	ids := make([]uint, 0, len(entries))
+	for _, entry := range entries {
+		if entry.node != nil {
+			ids = append(ids, entry.node.ID)
+		}
+	}
+	annByID, err := b.loadAnnotations(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	children := make([]*ragindex.TreeNode, 0, len(entries))
+	for _, entry := range entries {
+		if entry.node != nil {
+			children = append(children, b.treeNodeForModel(ctx, *entry.node, annByID[entry.node.ID]))
+			continue
+		}
+		if entry.kind == string(model.NodeKindFile) {
+			children = append(children, &ragindex.TreeNode{
+				ID:          "file:" + entry.path,
+				Label:       path.Base(entry.path),
+				Kind:        string(model.NodeKindFile),
+				DocPath:     b.docPath(entry.path),
+				HasChildren: b.hasSymbol(ctx, entry.path),
+				Children:    []*ragindex.TreeNode{},
+			})
+			continue
+		}
+		children = append(children, &ragindex.TreeNode{
+			ID:          "folder:" + entry.path,
+			Label:       path.Base(entry.path),
+			Kind:        "folder",
+			HasChildren: true,
+			Children:    []*ragindex.TreeNode{},
+		})
+	}
+	sortTree(&ragindex.TreeNode{Children: children})
+	return children, nil
+}
+
+// @intent convert one graph node into the Wiki tree node shape used by full and lazy builders.
+func (b *Builder) treeNodeForModel(ctx context.Context, node model.Node, annotation *model.Annotation) *ragindex.TreeNode {
+	treeNode := &ragindex.TreeNode{
+		Summary:    summaryForNode(annotation),
+		SearchText: ragindex.SearchTextForAnnotation(annotation),
+		Children:   []*ragindex.TreeNode{},
+	}
+	switch node.Kind {
+	case model.NodeKindPackage:
+		treeNode.ID = "package:" + strings.Trim(path.Clean(node.FilePath), "/")
+		treeNode.Label = path.Base(node.FilePath)
+		treeNode.Kind = string(model.NodeKindPackage)
+		treeNode.HasChildren = b.hasDirectFile(ctx, node.FilePath)
+	case model.NodeKindFile:
+		treeNode.ID = "file:" + strings.Trim(path.Clean(node.FilePath), "/")
+		treeNode.Label = path.Base(node.FilePath)
+		treeNode.Kind = string(model.NodeKindFile)
+		treeNode.DocPath = b.docPath(node.FilePath)
+		treeNode.HasChildren = b.hasSymbol(ctx, node.FilePath)
+	default:
+		treeNode.ID = "symbol:" + node.QualifiedName
+		treeNode.Label = node.Name
+		treeNode.Kind = string(node.Kind)
+		treeNode.Details = detailsForNode(node, annotation)
+	}
+	return treeNode
+}
+
+// @intent batch-load annotations for lazy tree nodes while preserving tag order.
+func (b *Builder) loadAnnotations(ctx context.Context, ids []uint) (map[uint]*model.Annotation, error) {
+	annByID := map[uint]*model.Annotation{}
+	if len(ids) == 0 {
+		return annByID, nil
+	}
+	ns := ctxns.FromContext(ctx)
+	var annotations []model.Annotation
+	if err := b.DB.WithContext(ctx).
+		Joins("JOIN nodes ON nodes.id = annotations.node_id").
+		Where("annotations.node_id IN ? AND nodes.namespace = ?", ids, ns).
+		Preload("Tags", func(db *gorm.DB) *gorm.DB {
+			return db.Order("ordinal ASC, id ASC")
+		}).
+		Find(&annotations).Error; err != nil {
+		return nil, trace.Wrap(err, "load wiki annotations")
+	}
+	for i := range annotations {
+		annByID[annotations[i].NodeID] = &annotations[i]
+	}
+	return annByID, nil
+}
+
+// @intent test whether a folder or root path has any descendant package or file node.
+func (b *Builder) hasPathDescendant(ctx context.Context, folderPath string) bool {
+	nodes, err := b.loadPathNodes(ctx, folderPath, []string{string(model.NodeKindPackage), string(model.NodeKindFile)})
+	return err == nil && len(nodes) > 0
+}
+
+// @intent test whether a package node has direct file children.
+func (b *Builder) hasDirectFile(ctx context.Context, packagePath string) bool {
+	nodes, err := b.loadPathNodes(ctx, packagePath, []string{string(model.NodeKindFile)})
+	if err != nil {
+		return false
+	}
+	for _, node := range nodes {
+		_, immediate, ok := immediateChildPath(packagePath, node.FilePath)
+		if ok && immediate {
+			return true
+		}
+	}
+	return false
+}
+
+// @intent test whether a file node has symbol children.
+func (b *Builder) hasSymbol(ctx context.Context, filePath string) bool {
+	ns := ctxns.FromContext(ctx)
+	var count int64
+	err := b.DB.WithContext(ctx).
+		Model(&model.Node{}).
+		Where("namespace = ? AND file_path = ? AND kind IN ?", ns, filePath, symbolKindStrings()).
+		Limit(1).
+		Count(&count).Error
+	return err == nil && count > 0
+}
+
+// @intent compute the immediate child path under a folder prefix.
+func immediateChildPath(parentPath, filePath string) (string, bool, bool) {
+	parentPath = strings.Trim(path.Clean(parentPath), "/")
+	if parentPath == "." {
+		parentPath = ""
+	}
+	filePath = strings.Trim(path.Clean(filePath), "/")
+	rel := filePath
+	if parentPath != "" {
+		prefix := parentPath + "/"
+		if !strings.HasPrefix(filePath, prefix) {
+			return "", false, false
+		}
+		rel = strings.TrimPrefix(filePath, prefix)
+	}
+	parts := strings.Split(rel, "/")
+	if len(parts) == 0 || parts[0] == "" {
+		return "", false, false
+	}
+	childPath := parts[0]
+	if parentPath != "" {
+		childPath = parentPath + "/" + parts[0]
+	}
+	return childPath, len(parts) == 1, true
+}
+
+// @intent collect graph node IDs for batch annotation lookup.
+func nodeIDs(nodes []model.Node) []uint {
+	ids := make([]uint, 0, len(nodes))
+	for _, node := range nodes {
+		ids = append(ids, node.ID)
+	}
+	return ids
+}
+
+// @intent expose symbol node kinds as strings for GORM IN clauses.
+func symbolKindStrings() []string {
+	return []string{string(model.NodeKindFunction), string(model.NodeKindClass), string(model.NodeKindType), string(model.NodeKindTest)}
+}
+
+// @intent expose path-bearing node kinds that can imply folder and file tree entries.
+func lazyPathNodeKinds() []string {
+	return []string{
+		string(model.NodeKindPackage),
+		string(model.NodeKindFile),
+		string(model.NodeKindFunction),
+		string(model.NodeKindClass),
+		string(model.NodeKindType),
+		string(model.NodeKindTest),
+	}
+}
+
+// @intent hold one immediate child candidate while lazy tree nodes are materialized.
+type lazyEntry struct {
+	kind string
+	path string
+	node *model.Node
 }
 
 // @intent resolve the namespace used for both DB reads and wiki-index output paths.

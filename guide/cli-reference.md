@@ -46,8 +46,8 @@ ccg update ./backend --namespace backend
 | `ccg status --recent <n>` | Number of recent postprocess failures to inspect (default `5`) |
 | `ccg search <query>` | Full-text search |
 | `ccg search --path <prefix> <query>` | Scoped search by path prefix |
-| `ccg docs [--out dir]` | Generate Markdown documentation, `wiki-index.json`, and the default RAG index (prunes stale generator-managed docs by default) |
-| `ccg docs --rag=false` | Generate Markdown and `wiki-index.json` only, without rebuilding communities or the RAG index |
+| `ccg docs [--out dir]` | Generate Markdown documentation, the `wiki-index.json` compatibility snapshot, and the default RAG index (prunes stale generator-managed docs by default) |
+| `ccg docs --rag=false` | Generate Markdown and the `wiki-index.json` snapshot only, without rebuilding communities or the RAG index |
 | `ccg docs --rag-refresh=false` | Rebuild the RAG index from existing community rows instead of refreshing communities |
 | `ccg docs --rag-index-dir <dir>` | Override the `doc-index.json` and `wiki-index.json` output directory (default `.ccg` or `rag.index_dir`) |
 | `ccg docs --prune=false` | Regenerate docs without deleting older generator-managed files |
@@ -84,9 +84,11 @@ ccg build .
 ccg docs --out docs
 ```
 
-`ccg docs` always writes `.ccg/wiki-index.json` for the ccg-server Wiki UI.
-That Wiki index is a presentation tree built directly from folders, packages,
-files, and symbols; it does not depend on community postprocessing. Symbol
+`ccg docs` always writes `.ccg/wiki-index.json` as a ccg-server Wiki
+compatibility snapshot. The Wiki API prefers the graph database for tree
+navigation and search, then falls back to that snapshot when DB-backed
+navigation is unavailable. The snapshot is built directly from folders,
+packages, files, and symbols; it does not depend on community postprocessing. Symbol
 nodes carry structured annotation details so the browser Wiki can show params,
 returns, rules, side effects, and other tags even when the symbol itself has no
 generated Markdown file. Both Wiki and RAG indexes also store hidden annotation
@@ -96,7 +98,8 @@ The browser Wiki also provides a Graph tab backed by `/wiki/api/graph`; it reads
 the namespace's graph nodes and edges directly from the configured database and
 opens clicked file/symbol nodes through the same document viewer.
 Unless `--rag=false` is set, `ccg docs` also refreshes community structure and
-writes the default `.ccg/doc-index.json` RAG index for MCP/PageIndex retrieval.
+writes the default `.ccg/doc-index.json` compatibility snapshot for MCP
+retrieval fallback.
 Use `--rag-refresh=false` only when you intentionally want to reuse existing
 community rows. The standalone `ccg rag-index` command remains available for
 manual rebuilds from generated docs and already-computed communities.

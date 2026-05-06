@@ -184,12 +184,12 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	root, builtAt, _, err := s.loadWikiTree(r.Context(), ns)
+	nodeID := strings.TrimSpace(r.URL.Query().Get("node_id"))
+	root, builtAt, _, err := s.loadWikiTreeRange(r.Context(), ns, nodeID, depth)
 	if err != nil {
 		writeError(w, statusForReadErr(err), "load wiki-index", err)
 		return
 	}
-	root = ragindex.PruneTree(root, depth)
 	writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "built_at": builtAt, "root": root})
 }
 
@@ -224,7 +224,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "results": results})
 }
 
-// @intent run PageIndex-style retrieval against doc-index.json for LLM context discovery in the Wiki UI.
+// @intent run DB-primary retrieval for LLM context discovery in the Wiki UI, with doc-index.json as a compatibility fallback.
 func (s *Server) handleRetrieve(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodGet) {
 		return
@@ -248,20 +248,26 @@ func (s *Server) handleRetrieve(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
+	var dbErr error
+	if s.db != nil {
+		response, err := s.retrieveFromDB(r.Context(), ns, query, limit, contentLimit)
+		if err == nil {
+			writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "results": response.Results})
+			return
+		}
+		dbErr = err
+	}
+
 	idx, err := s.loadRAGIndex(ns)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) && s.db != nil {
-			response, fallbackErr := s.retrieveFromDB(r.Context(), ns, query, limit, contentLimit)
-			if fallbackErr != nil {
-				writeError(w, http.StatusInternalServerError, "retrieve from DB", fallbackErr)
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "results": response.Results})
+		if dbErr != nil && errors.Is(err, fs.ErrNotExist) {
+			writeError(w, http.StatusInternalServerError, "retrieve from DB", dbErr)
 			return
 		}
 		writeError(w, statusForReadErr(err), "load doc-index", err)
 		return
 	}
+
 	candidates := ragindex.Retrieve(idx.Root, query, limit)
 	results := make([]retrieveResult, 0, len(candidates))
 	for _, candidate := range candidates {
@@ -284,8 +290,8 @@ func (s *Server) handleRetrieve(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "results": results})
 }
 
-// @intent provide Wiki retrieve results from graph DB data when doc-index.json has not been generated yet.
-// @domainRule JSON doc-index remains preferred; this fallback only runs for missing index files.
+// @intent provide Wiki retrieve results from graph DB data before consulting compatibility doc-index snapshots.
+// @domainRule DB results are authoritative when the database is configured and queryable; doc-index.json is only a fallback for unavailable DB paths.
 // @sideEffect queries the graph DB and may read generated Markdown docs.
 func (s *Server) retrieveFromDB(ctx context.Context, namespace, query string, limit, contentLimit int) (retrieval.Response, error) {
 	service := retrieval.Service{DB: s.db, SearchBackend: s.searchBackend}
@@ -562,7 +568,7 @@ type contextResponse struct {
 	Items    []contextItem `json:"items"`
 }
 
-// @intent return PageIndex retrieval metadata and optional bounded Markdown content to the Wiki UI.
+// @intent return retrieval metadata and optional bounded Markdown content to the Wiki UI.
 type retrieveResult struct {
 	ragindex.RetrieveResult
 	Content          string `json:"content,omitempty"`
@@ -678,24 +684,60 @@ func (s *Server) loadIndex(namespace string) (*ragindex.Index, error) {
 	return ragindex.LoadIndex(s.indexPath(namespace))
 }
 
-// @intent load a Wiki tree from JSON or DB fallback while preserving built_at response metadata.
-// @domainRule generated wiki-index.json remains authoritative; DB fallback only runs when the file is absent and DB is configured.
+// @intent load a Wiki tree from DB or wiki-index fallback while preserving built_at response metadata.
+// @domainRule DB rows are authoritative for browser navigation; wiki-index.json is a compatibility fallback when DB tree synthesis is unavailable.
 func (s *Server) loadWikiTree(ctx context.Context, namespace string) (*ragindex.TreeNode, time.Time, bool, error) {
-	idx, err := s.loadIndex(namespace)
-	if err == nil {
-		return idx.Root, idx.BuiltAt, false, nil
-	}
-	if !errors.Is(err, fs.ErrNotExist) || s.db == nil {
-		return nil, time.Time{}, false, err
-	}
-	root, _, _, buildErr := (&wikiindex.Builder{DB: s.db, OutDir: "docs", Namespace: namespace}).BuildTree(ctx)
-	if buildErr != nil {
-		return nil, time.Time{}, false, buildErr
-	}
-	return root, time.Now().UTC(), true, nil
+	return s.loadWikiTreeRange(ctx, namespace, "", 0)
 }
 
-// @intent load the namespace-specific doc-index used by PageIndex retrieval.
+// @intent load either the full Wiki tree or one bounded subtree for lazy browser navigation.
+// @domainRule DB rows remain authoritative; generated wiki-index.json is only a snapshot fallback for DB-less or DB-failed deployments.
+func (s *Server) loadWikiTreeRange(ctx context.Context, namespace, nodeID string, depth int) (*ragindex.TreeNode, time.Time, bool, error) {
+	var dbErr error
+	if s.db != nil {
+		builder := &wikiindex.Builder{DB: s.db, OutDir: "docs", Namespace: namespace}
+		root, err := builder.BuildSubtree(ctx, nodeID, depth)
+		if err == nil {
+			if nodeID == "" && len(root.Children) == 0 {
+				if indexRoot, builtAt, indexErr := s.loadWikiTreeFromIndex(namespace, nodeID, depth); indexErr == nil {
+					return indexRoot, builtAt, false, nil
+				}
+			}
+			return root, time.Now().UTC(), true, nil
+		}
+		dbErr = err
+	}
+
+	root, builtAt, err := s.loadWikiTreeFromIndex(namespace, nodeID, depth)
+	if err == nil {
+		return root, builtAt, false, nil
+	}
+	if dbErr != nil {
+		return nil, time.Time{}, false, dbErr
+	}
+	return nil, time.Time{}, false, err
+}
+
+// @intent load one Wiki tree range from the generated snapshot when DB-backed navigation is unavailable.
+func (s *Server) loadWikiTreeFromIndex(namespace, nodeID string, depth int) (*ragindex.TreeNode, time.Time, error) {
+	idx, err := s.loadIndex(namespace)
+	if err == nil {
+		root := idx.Root
+		if nodeID != "" {
+			root = ragindex.FindNode(idx.Root, nodeID)
+			if root == nil {
+				return nil, time.Time{}, fmt.Errorf("%w: node_id %q", fs.ErrNotExist, nodeID)
+			}
+		}
+		if depth <= 0 {
+			return root, idx.BuiltAt, nil
+		}
+		return ragindex.PruneTree(root, depth), idx.BuiltAt, nil
+	}
+	return nil, time.Time{}, err
+}
+
+// @intent load the namespace-specific doc-index used as retrieve compatibility fallback.
 func (s *Server) loadRAGIndex(namespace string) (*ragindex.Index, error) {
 	if ctxns.Normalize(namespace) == ctxns.DefaultNamespace {
 		return ragindex.LoadIndex(filepath.Join(s.ragIndexDir, "doc-index.json"))

@@ -7,10 +7,12 @@ docs and the RAG index. Use graph/search tools after the relevant module,
 document, or symbol candidate is identified.
 
 The browser Wiki is served by `ccg-server` when `--wiki-dir` points at built
-React assets. It uses `wiki-index.json` for presentation, `doc-index.json` for
-retrieval, and `/wiki/api/graph` for the visual graph tab. Use it when a human
-developer needs to browse docs, inspect annotation-rich symbol cards, collect
-Context Tray Markdown, or visually explore graph edges.
+React assets. It prefers the graph database for presentation, uses
+`wiki-index.json` and `doc-index.json` as compatibility snapshots, and uses
+`/wiki/api/graph` for the visual graph tab. Runtime retrieve mode prefers the
+database when it is configured and queryable. Use it when a human developer
+needs to browse docs, inspect annotation-rich symbol cards, collect Context Tray
+Markdown, or visually explore graph edges.
 
 | Document | Description |
 |----------|-------------|

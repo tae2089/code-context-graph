@@ -83,9 +83,9 @@ ccg docs --out docs
 ccg serve
 ```
 
-`ccg docs`는 `/wiki` 탐색용 `.ccg/wiki-index.json`을 기록하고,
-`--rag=false`가 설정되지 않은 경우 MCP retrieval용 `.ccg/doc-index.json`도
-함께 기록합니다.
+`ccg docs`는 `/wiki` 호환 snapshot인 `.ccg/wiki-index.json`을 기록하고,
+`--rag=false`가 설정되지 않은 경우 retrieval용 `.ccg/doc-index.json`도 함께
+기록합니다.
 
 브라우저 Wiki:
 
@@ -97,12 +97,13 @@ ccg-server \
   --wiki-dir web/wiki/dist
 ```
 
-Wiki tree와 search는 `wiki-index.json`을 읽습니다. Retrieve 모드는
-`doc-index.json`을 읽습니다. Graph 탭은 `/wiki/api/graph`를 통해 설정된
-데이터베이스의 graph node와 edge를 직접 읽으므로 최신 `ccg build` 또는
-webhook sync 상태를 반영합니다. Context Tray copy는 생성 문서에 대해
-`/wiki/api/context`를 사용하고, doc-less symbol detail은 브라우저 payload에
-유지합니다.
+Wiki tree, search, retrieve 모드는 설정된 데이터베이스를 우선 사용합니다.
+`wiki-index.json`과 `doc-index.json`은 해당 DB-backed 경로를 사용할 수 없을
+때만 쓰는 호환 snapshot입니다.
+Graph 탭은 `/wiki/api/graph`를 통해 설정된 데이터베이스의 graph node와
+edge를 직접 읽으므로 최신 `ccg build` 또는 webhook sync 상태를 반영합니다.
+Context Tray copy는 생성 문서에 대해 `/wiki/api/context`를 사용하고,
+doc-less symbol detail은 브라우저 payload에 유지합니다.
 
 셀프호스트 HTTP MCP:
 

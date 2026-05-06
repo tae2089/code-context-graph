@@ -106,12 +106,13 @@ CCG는 아직 Prometheus `/metrics` 엔드포인트를 제공하지 않습니다
 | `get_rag_tree` | node ID 기반 RAG 문서 트리 탐색 (네임스페이스 지원) |
 | `get_doc_content` | 문서 파일 내용 확인 (네임스페이스 지원) |
 | `search_docs` | 키워드로 RAG 문서 트리 검색 (네임스페이스 지원) |
-| `retrieve_docs` | RAG tree에서 관련 문서를 찾아 evidence와 제한된 Markdown 본문 반환 |
+| `retrieve_docs` | DB-backed graph evidence에서 관련 문서를 찾고, doc-index fallback, evidence, 제한된 Markdown 본문 반환 |
 
 자연어 기반 코드 이해에는 문서/RAG 도구를 먼저 사용하십시오.
-`retrieve_docs`는 file subtree를 점수화하므로 여러 키워드가 관련 심볼에
-나뉘어 있어도 같은 문서를 후보로 찾고, tree evidence와 제한된 Markdown
-본문을 반환합니다. `get_rag_tree`는 주변 모듈 구조를 펼칩니다. 먼저
+`retrieve_docs`는 file-level graph evidence를 점수화하므로 여러 키워드가
+관련 심볼에 나뉘어 있어도 같은 문서를 후보로 찾고, 제한된 Markdown 본문과
+evidence를 반환합니다. DB retrieval을 사용할 수 없으면 생성된
+`doc-index.json` snapshot으로 fallback합니다. `get_rag_tree`는 주변 모듈 구조를 펼칩니다. 먼저
 인자 없이 호출해 tree를 받고, 반환된 `node_id`를 넘겨 `community`,
 `package`, `file`, `symbol` 노드로 내려갑니다. 기존 `community_id`
 파라미터는 `node_id`의 호환 alias로 유지됩니다. `get_doc_content`는
@@ -124,23 +125,22 @@ CCG는 아직 Prometheus `/metrics` 엔드포인트를 제공하지 않습니다
 
 `retrieve_docs`의 score는 같은 query 결과 안에서 순위를 정하기 위한
 신호이며, 절대적인 품질 점수가 아닙니다. 서로 다른 query의 score를 직접
-비교하는 용도로는 사용하지 마십시오. 현재 점수는 정확한 심볼/파일 이름을
-우선합니다. label이 term과 정확히 같으면 8점, label에 포함되면 5점, node
-ID에 포함되면 3점, summary에 포함되면 2점, 숨겨진 annotation search text에
-포함되면 1점이 더해지고, 매칭된 고유 query term마다 10점이 추가됩니다.
-숨겨진 search text는 annotation summary, context, tag kind, tag name/type,
-tag value로 구성되며 matching을 위해 index에 저장되지만 MCP payload를 작게
-유지하기 위해 tree/search 응답에서는 제외됩니다. 점수는 file node와 그 하위
-symbol 노드들에서 누적되며, `matched_terms`와 `matches`가 어떤 term과 tree
-node가 근거로 사용됐는지 보여줍니다.
+비교하는 용도로는 사용하지 마십시오. 현재 DB-backed 점수는 정확한 심볼/파일
+이름과 high-signal annotation bucket을 우선합니다. exact label, label
+contains, `qualified_name`, `@intent`, `@index`, `@domainRule`, `@requires`,
+`@ensures`, `@sideEffect`, `@mutates`, `@see`, generic annotation text가
+가중치에 반영되고, 매칭된 고유 query term마다 ranking bonus가 추가됩니다.
+`matched_fields`, `matched_terms`, `matches`가 어떤 field, term, graph node가
+근거로 사용됐는지 보여줍니다.
 
 RAG 인덱스 품질은 생성 문서와 비어 있지 않은 community postprocess 결과에
 의존합니다. CLI `ccg docs` 명령은 community를 갱신하고 기본
-`doc-index.json` RAG 인덱스를 자동으로 기록합니다. 또한 브라우저 Wiki를 위한
-별도 `wiki-index.json`도 기록하며, MCP retrieval 도구는 이 표시용 인덱스에
-의존하지 않습니다. MCP만 사용하는 워크플로우에서 community가 없을 수 있으면
-`build_rag_index` 전에 `run_postprocess`를 `communities=true`, `flows=false`,
-`fts=false`로 호출하십시오.
+`doc-index.json` 호환 snapshot을 자동으로 기록합니다. 또한 브라우저 Wiki를
+위한 별도 `wiki-index.json` 호환 snapshot도 기록하며, MCP retrieval 도구는
+DB를 우선 사용하고 snapshot은 fallback surface로만 사용합니다. MCP만 사용하는
+워크플로우에서 community가 없을 수 있으면 `build_rag_index` 전에
+`run_postprocess`를 `communities=true`, `flows=false`, `fts=false`로
+호출하십시오.
 
 ### 네임스페이스 파일 관리 (Namespace File Management)
 

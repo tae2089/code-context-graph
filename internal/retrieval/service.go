@@ -16,6 +16,21 @@ import (
 // @ensures results are grouped one-per-file, annotation-enriched, and optionally populated with bounded content.
 // @sideEffect queries the configured database and may invoke an injected content reader.
 func (s *Service) FromDB(ctx context.Context, namespace, query string, limit, contentLimit int, read ContentReader) (Response, error) {
+	return s.FromDBWithOptions(ctx, namespace, query, limit, contentLimit, read, Options{})
+}
+
+// Options controls optional DB-backed retrieval diagnostics.
+// @intent let DB-backed retrieve_docs expose the same opt-in explain diagnostics as doc-index retrieval.
+type Options struct {
+	Explain bool
+}
+
+// FromDBWithOptions builds a retrieve_docs response from DB data and optional diagnostics.
+// @intent support DB-primary retrieve_docs while preserving doc-index-compatible explain response fields.
+// @requires Service.DB must be configured and limit must be positive for meaningful results.
+// @ensures results are grouped one-per-file, annotation-enriched, and optionally populated with bounded content.
+// @sideEffect queries the configured database and may invoke an injected content reader.
+func (s *Service) FromDBWithOptions(ctx context.Context, namespace, query string, limit, contentLimit int, read ContentReader, opts Options) (Response, error) {
 	response := Response{Results: []Result{}}
 	if s.DB == nil {
 		return response, fmt.Errorf("DB not configured")
@@ -48,7 +63,7 @@ func (s *Service) FromDB(ctx context.Context, namespace, query string, limit, co
 	terms := MatchedTerms(query)
 	response.Results = make([]Result, 0, len(groups))
 	for idx, group := range groups {
-		result := Result{RetrieveResult: BuildDBResult(group, annotations, terms, idx)}
+		result := Result{RetrieveResult: BuildDBResultWithOptions(group, annotations, terms, idx, opts)}
 		result.Matches = DBMatches(group.Nodes, annotations)
 		if read != nil && contentLimit > 0 {
 			content, truncated, err := read(ctx, contentNamespace(namespace), result.DocPath, contentLimit)

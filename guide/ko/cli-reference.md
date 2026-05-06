@@ -48,8 +48,8 @@ ccg update ./backend --namespace backend
 | `ccg status --recent <n>` | 확인할 최근 사후 처리 실패 개수 (기본값 `5`) |
 | `ccg search <query>` | 전체 텍스트 검색 |
 | `ccg search --path <prefix> <query>` | 경로 접두사로 검색 범위 제한 |
-| `ccg docs [--out dir]` | 마크다운 문서, `wiki-index.json`, 기본 RAG 인덱스 생성 (기본적으로 그래프에 없는 generator-managed 문서를 prune) |
-| `ccg docs --rag=false` | community/RAG 인덱스 재생성 없이 Markdown과 `wiki-index.json`만 생성 |
+| `ccg docs [--out dir]` | 마크다운 문서, `wiki-index.json` 호환 snapshot, 기본 RAG 인덱스 생성 (기본적으로 그래프에 없는 generator-managed 문서를 prune) |
+| `ccg docs --rag=false` | community/RAG 인덱스 재생성 없이 Markdown과 `wiki-index.json` snapshot만 생성 |
 | `ccg docs --rag-refresh=false` | community를 재계산하지 않고 기존 community row로 RAG 인덱스 재생성 |
 | `ccg docs --rag-index-dir <dir>` | `doc-index.json` 및 `wiki-index.json` 출력 디렉터리 지정 (기본 `.ccg` 또는 `rag.index_dir`) |
 | `ccg docs --prune=false` | 기존 generator-managed 문서를 삭제하지 않고 문서만 다시 생성 |
@@ -86,8 +86,10 @@ ccg build .
 ccg docs --out docs
 ```
 
-`ccg docs`는 ccg-server Wiki UI를 위한 `.ccg/wiki-index.json`을 항상
-기록합니다. 이 Wiki index는 folder, package, file, symbol에서 직접 만든
+`ccg docs`는 ccg-server Wiki UI 호환 snapshot인 `.ccg/wiki-index.json`을
+항상 기록합니다. Wiki API는 tree navigation과 search에 graph database를
+우선 사용하고, DB-backed navigation이 불가능할 때 이 snapshot으로
+fallback합니다. 이 snapshot은 folder, package, file, symbol에서 직접 만든
 표시용 tree이며 community postprocess에 의존하지 않습니다. Symbol node는
 구조화된 annotation detail을 함께 담기 때문에 symbol 자체에 생성 Markdown
 파일이 없어도 브라우저 Wiki에서 params, returns, rules, side effects 등
@@ -98,7 +100,7 @@ tag를 보여줄 수 있습니다. Wiki와 RAG index는 숨겨진 annotation sea
 데이터베이스에서 해당 네임스페이스의 graph node와 edge를 직접 읽고, 클릭한
 file/symbol node를 같은 문서 viewer로 엽니다.
 `--rag=false`가 설정되지 않은 경우에는 community 구조도 갱신하고
-MCP/PageIndex retrieval용 기본 `.ccg/doc-index.json` RAG 인덱스를 함께
+MCP retrieval fallback용 기본 `.ccg/doc-index.json` 호환 snapshot을 함께
 기록합니다. 기존 community row를 의도적으로 재사용하려면
 `--rag-refresh=false`를 사용하십시오. 독립 `ccg rag-index` 명령은 생성 문서와
 이미 계산된 community를 사용한 수동 재생성 용도로 남아 있습니다.

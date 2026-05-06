@@ -4,6 +4,7 @@ package retrieval
 import (
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -128,63 +129,181 @@ func GroupCandidatesByFile(nodes []model.Node, limit int) ([]DBFileGroup, []uint
 // BuildDBResult는 그룹화된 DB 검색 히트와 구조화된 어노테이션으로부터 파일 수준 retrieve_docs 후보를 도출한다.
 // @intent 그룹화된 DB 검색 히트와 구조화된 어노테이션으로부터 파일 수준 retrieve_docs 후보를 도출한다.
 func BuildDBResult(group DBFileGroup, annotations map[uint]*model.Annotation, terms []string, index int) ragindex.RetrieveResult {
-	fields := MatchedFields(group.Nodes, annotations, terms)
+	return BuildDBResultWithOptions(group, annotations, terms, index, Options{})
+}
+
+// BuildDBResultWithOptions derives one file-level retrieve_docs candidate and optional diagnostics.
+// @intent score DB-backed retrieve_docs candidates from structured annotation buckets while keeping FTS order as a deterministic tie-breaker.
+func BuildDBResultWithOptions(group DBFileGroup, annotations map[uint]*model.Annotation, terms []string, index int, opts Options) ragindex.RetrieveResult {
+	score, fieldScores, matchedTerms := ScoreDBFields(group.Nodes, annotations, terms)
+	fields := sortedFieldNames(fieldScores)
 	if len(fields) == 0 {
 		fields = []string{"search"}
 	}
+	if len(matchedTerms) == 0 {
+		matchedTerms = terms
+	}
 	summary := DBSummary(group.Nodes, annotations)
-	return ragindex.RetrieveResult{
+	result := ragindex.RetrieveResult{
 		ID:            "file:" + group.FilePath,
 		Label:         filepath.Base(group.FilePath),
 		Kind:          "file",
 		Summary:       summary,
 		DocPath:       filepath.ToSlash(filepath.Join("docs", filepath.FromSlash(group.FilePath)+".md")),
 		Path:          DBPath(group.FilePath),
-		Score:         1000 - index,
-		MatchedTerms:  terms,
+		Score:         score*1000 + orderScore(index),
+		MatchedTerms:  matchedTerms,
 		MatchedFields: fields,
 	}
+	if opts.Explain {
+		result.FieldScores = fieldScores
+		result.LiteralScore = score
+	}
+	return result
 }
 
 // MatchedFields는 DB 폴백 파일 히트를 설명하는 노드 메타데이터 또는 어노테이션 버킷을 보고한다.
 // @intent DB 폴백 매칭 필드 진단을 위해 어떤 노드 메타데이터 또는 어노테이션 버킷이 파일 히트를 설명하는지 보고한다.
 func MatchedFields(nodes []model.Node, annotations map[uint]*model.Annotation, terms []string) []string {
+	return sortedFieldNames(ScoreDBFieldBreakdown(nodes, annotations, terms))
+}
+
+// ScoreDBFieldBreakdown reports weighted retrieval buckets without the distinct-term bonus.
+// @intent expose DB retrieval bucket scores for tests and explain-mode diagnostics.
+func ScoreDBFieldBreakdown(nodes []model.Node, annotations map[uint]*model.Annotation, terms []string) map[string]int {
+	_, fields, _ := scoreDBFields(nodes, annotations, terms)
+	return fields
+}
+
+// ScoreDBFields scores DB-backed retrieval evidence using PageIndex-style structured bucket weights.
+// @intent rank high-signal annotation buckets above generic text fallback for DB-backed retrieve_docs.
+func ScoreDBFields(nodes []model.Node, annotations map[uint]*model.Annotation, terms []string) (int, map[string]int, []string) {
+	return scoreDBFields(nodes, annotations, terms)
+}
+
+// @intent accumulate DB retrieval bucket scores and matched query terms across one file group.
+func scoreDBFields(nodes []model.Node, annotations map[uint]*model.Annotation, terms []string) (int, map[string]int, []string) {
 	seen := map[string]struct{}{}
-	fields := make([]string, 0)
-	add := func(field string) {
-		if field == "" {
+	matchedTerms := map[string]struct{}{}
+	fieldScores := map[string]int{}
+	add := func(field string, points int, term string) {
+		if field == "" || points <= 0 {
 			return
 		}
-		if _, ok := seen[field]; ok {
+		fieldScores[field] += points
+		if term != "" {
+			matchedTerms[term] = struct{}{}
+		}
+	}
+	addOnce := func(field string, points int, term string) {
+		key := field + "\x00" + term
+		if _, ok := seen[key]; ok {
 			return
 		}
-		seen[field] = struct{}{}
-		fields = append(fields, field)
+		seen[key] = struct{}{}
+		add(field, points, term)
 	}
 	for _, node := range nodes {
-		if TextContainsAnyTerm(node.Name, terms) {
-			add("label")
-		}
-		if TextContainsAnyTerm(node.QualifiedName, terms) {
-			add("qualified_name")
-		}
-		if TextContainsAnyTerm(node.FilePath, terms) {
-			add("path")
-		}
+		lowerName := strings.ToLower(node.Name)
+		lowerQN := strings.ToLower(node.QualifiedName)
+		lowerPath := strings.ToLower(node.FilePath)
 		ann := annotations[node.ID]
 		if ann == nil {
-			continue
+			ann = node.Annotation
 		}
-		if TextContainsAnyTerm(ann.Summary, terms) || TextContainsAnyTerm(ann.Context, terms) || TextContainsAnyTerm(ann.RawText, terms) {
-			add("annotation")
-		}
-		for _, tag := range ann.Tags {
-			if TextContainsAnyTerm(tag.Value, terms) || TextContainsAnyTerm(tag.Name, terms) {
-				add(string(tag.Kind))
+		for _, term := range terms {
+			if term == "" {
+				continue
+			}
+			if lowerName == term {
+				addOnce("label", 12, term)
+			} else if strings.Contains(lowerName, term) {
+				addOnce("label_contains", 7, term)
+			}
+			if strings.Contains(lowerQN, term) {
+				addOnce("qualified_name", 4, term)
+			}
+			if strings.Contains(lowerPath, term) {
+				addOnce("path", 2, term)
+			}
+			if ann == nil {
+				continue
+			}
+			if strings.Contains(strings.ToLower(ann.Summary), term) || strings.Contains(strings.ToLower(ann.Context), term) {
+				addOnce("annotation_text", 2, term)
+			}
+			if strings.Contains(strings.ToLower(ann.RawText), term) {
+				addOnce("generic", 1, term)
+			}
+			for _, tag := range ann.Tags {
+				if !strings.Contains(strings.ToLower(tag.Value), term) && !strings.Contains(strings.ToLower(tag.Name), term) {
+					continue
+				}
+				addOnce(dbFieldName(tag.Kind), dbFieldWeight(tag.Kind), term)
 			}
 		}
 	}
+	score := 0
+	for _, points := range fieldScores {
+		score += points
+	}
+	score += len(matchedTerms) * 10
+	return score, fieldScores, sortedTerms(matchedTerms)
+}
+
+// @intent map persisted annotation tag kinds to retrieve_docs matched_fields names.
+func dbFieldName(kind model.TagKind) string {
+	if kind == model.TagIndex {
+		return "index_summary"
+	}
+	return string(kind)
+}
+
+// @intent assign DB retrieval weights so high-signal annotation buckets outrank generic annotation text.
+func dbFieldWeight(kind model.TagKind) int {
+	switch kind {
+	case model.TagIntent:
+		return 7
+	case model.TagIndex:
+		return 6
+	case model.TagDomainRule, model.TagRequires, model.TagEnsures:
+		return 5
+	case model.TagSideEffect, model.TagMutates:
+		return 4
+	case model.TagSee:
+		return 3
+	default:
+		return 2
+	}
+}
+
+// @intent produce stable matched_fields ordering from DB retrieval score buckets.
+func sortedFieldNames(fieldScores map[string]int) []string {
+	fields := make([]string, 0, len(fieldScores))
+	for field := range fieldScores {
+		fields = append(fields, field)
+	}
+	sort.Strings(fields)
 	return fields
+}
+
+// @intent produce stable matched_terms ordering for DB-backed retrieve_docs responses.
+func sortedTerms(terms map[string]struct{}) []string {
+	out := make([]string, 0, len(terms))
+	for term := range terms {
+		out = append(out, term)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// @intent keep DB backend candidate order as a small deterministic tie-breaker after structured scoring.
+func orderScore(index int) int {
+	score := dbCandidateCap - index
+	if score < 0 {
+		return 0
+	}
+	return score
 }
 
 // DBSummary는 그룹화된 DB 폴백 노드에서 첫 번째 사용 가능한 어노테이션 요약/태그 값을 선택한다.

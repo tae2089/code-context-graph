@@ -16,7 +16,7 @@ make build        # stripped ccg 및 ccg-server 바이너리 빌드 (make releas
 make release      # 버전/커밋/날짜 정보가 포함된 stripped 빌드
 make build-debug  # 버전/커밋/날짜 정보가 포함된 unstripped ccg 및 ccg-server 바이너리 빌드
 make wiki-db      # 로컬 Wiki DB 마이그레이션 및 WIKI_REPO 그래프 빌드
-make wiki-run     # Wiki UI 빌드, 그래프 빌드, DB-backed fallback으로 ccg-server 실행
+make wiki-run     # Wiki UI 빌드, 그래프 빌드, DB-backed Wiki API로 ccg-server 실행
 make wiki-run-indexed # Wiki UI 빌드, 그래프/문서/index 생성 후 ccg-server 실행
 ```
 

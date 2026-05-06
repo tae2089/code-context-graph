@@ -70,7 +70,7 @@ func TestServiceFromDB_searchBackendSuccessUsesBackendAndContent(t *testing.T) {
 	if result.Summary != "auth summary" {
 		t.Fatalf("expected annotation summary, got %q", result.Summary)
 	}
-	if !containsString(result.MatchedFields, "annotation") || !containsString(result.MatchedFields, "intent") {
+	if !containsString(result.MatchedFields, "annotation_text") || !containsString(result.MatchedFields, "intent") {
 		t.Fatalf("expected annotation fields, got %v", result.MatchedFields)
 	}
 }

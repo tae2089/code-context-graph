@@ -14,7 +14,7 @@ make build        # build stripped ccg and ccg-server binaries (same as make rel
 make release      # stripped build with embedded version/commit/date
 make build-debug  # unstripped ccg and ccg-server binaries with embedded version/commit/date
 make wiki-db      # migrate the local Wiki DB and build the graph from WIKI_REPO
-make wiki-run     # build Wiki UI, build graph, run ccg-server with DB-backed Wiki fallback
+make wiki-run     # build Wiki UI, build graph, run ccg-server with DB-backed Wiki APIs
 make wiki-run-indexed # build Wiki UI, build graph, generate docs/indexes, then run ccg-server
 ```
 

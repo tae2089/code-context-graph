@@ -25,12 +25,13 @@ import (
 // TreeNode는 doc-index.json의 단일 노드이다.
 // @intent RAG 탐색 트리에서 커뮤니티, 파일, 심볼 노드를 동일 구조로 표현한다.
 type TreeNode struct {
-	ID         string `json:"id"`
-	Label      string `json:"label"`
-	Kind       string `json:"kind"`
-	Summary    string `json:"summary"`
-	DocPath    string `json:"doc_path,omitempty"` // file 노드만 설정
-	SearchText string `json:"search_text,omitempty"`
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Kind        string `json:"kind"`
+	Summary     string `json:"summary"`
+	DocPath     string `json:"doc_path,omitempty"` // file 노드만 설정
+	SearchText  string `json:"search_text,omitempty"`
+	HasChildren bool   `json:"has_children,omitempty"`
 	// @intent expose annotation-derived text bucketed by retrieval field so Retrieve scoring weights @intent/@domainRule/etc. independently of flat SearchText recall.
 	FieldTexts map[string]string `json:"field_texts,omitempty"`
 	Details    *NodeDetails      `json:"details,omitempty"`
@@ -1570,12 +1571,15 @@ func PruneTree(root *TreeNode, maxDepth int) *TreeNode {
 // @return 자식이 제한된 새로운 TreeNode 복사본을 반환한다.
 func pruneNode(n *TreeNode, currentDepth, maxDepth int) *TreeNode {
 	copied := &TreeNode{
-		ID:      n.ID,
-		Label:   n.Label,
-		Kind:    n.Kind,
-		Summary: n.Summary,
-		DocPath: n.DocPath,
-		Details: n.Details,
+		ID:          n.ID,
+		Label:       n.Label,
+		Kind:        n.Kind,
+		Summary:     n.Summary,
+		DocPath:     n.DocPath,
+		SearchText:  n.SearchText,
+		HasChildren: len(n.Children) > 0 || n.HasChildren,
+		FieldTexts:  n.FieldTexts,
+		Details:     n.Details,
 	}
 	if maxDepth <= 0 || currentDepth < maxDepth {
 		copied.Children = make([]*TreeNode, 0, len(n.Children))

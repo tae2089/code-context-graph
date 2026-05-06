@@ -113,12 +113,13 @@ truncating the response.
 | `get_rag_tree` | Navigate RAG document tree by node ID (supports namespace) |
 | `get_doc_content` | Get documentation file content (supports namespace) |
 | `search_docs` | Search RAG document tree by keyword (supports namespace) |
-| `retrieve_docs` | Retrieve relevant docs from the RAG tree with matched evidence and bounded Markdown content |
+| `retrieve_docs` | Retrieve relevant docs from DB-backed graph evidence, with doc-index fallback, matched evidence, and bounded Markdown content |
 
 Use the documentation/RAG tools as the first stop for natural-language code
-understanding. `retrieve_docs` scores file subtrees so multi-keyword queries can
-match across related symbols and returns bounded Markdown content with tree
-evidence. `get_rag_tree` expands the surrounding module structure; call it
+understanding. `retrieve_docs` scores file-level graph evidence so multi-keyword
+queries can match across related symbols and returns bounded Markdown content
+with evidence. When DB retrieval is unavailable, it falls back to the generated
+`doc-index.json` snapshot. `get_rag_tree` expands the surrounding module structure; call it
 without arguments first, then pass `node_id` from the returned tree to drill
 into `community`, `package`, `file`, or `symbol` nodes. The older
 `community_id` parameter remains a compatibility alias for `node_id`.
@@ -131,23 +132,21 @@ this work?" questions.
 
 `retrieve_docs` score is a per-query ranking signal, not an absolute quality
 metric. It should be compared only between results returned for the same query.
-The current scoring favors exact symbol/file names first: exact label match
-adds 8, label contains adds 5, node ID contains adds 3, summary contains adds 2,
-hidden annotation search text contains adds 1, and each distinct matched query
-term adds another 10. Hidden search text is built from annotation summary,
-context, tag kind, tag name/type, and tag value; it is stored in the index for
-matching but omitted from tree/search responses to keep MCP payloads compact.
-Scores are accumulated across the file node and its symbol descendants, while
-`matched_terms` and `matches` explain which terms and tree nodes contributed
-evidence.
+The current DB-backed scoring favors exact symbol/file names and high-signal
+annotation buckets: exact label match, label contains, `qualified_name`,
+`@intent`, `@index`, `@domainRule`, `@requires`, `@ensures`, `@sideEffect`,
+`@mutates`, `@see`, and generic annotation text. Each distinct matched query
+term adds another ranking bonus. `matched_fields`, `matched_terms`, and
+`matches` explain which fields, terms, and graph nodes contributed evidence.
 
 RAG index quality depends on generated docs and non-empty community
 postprocessing. The CLI `ccg docs` command refreshes communities and writes the
-default `doc-index.json` RAG index automatically. It also writes a separate
-`wiki-index.json` for the browser Wiki; MCP retrieval tools do not depend on
-that presentation index. In MCP-only workflows, run `run_postprocess` with
-`communities=true`, `flows=false`, and `fts=false` before `build_rag_index`
-when communities may be missing.
+default `doc-index.json` compatibility snapshot automatically. It also writes a
+separate `wiki-index.json` compatibility snapshot for the browser Wiki; MCP
+retrieval tools prefer the database and use snapshots only as fallback surfaces.
+In MCP-only workflows, run `run_postprocess` with `communities=true`,
+`flows=false`, and `fts=false` before `build_rag_index` when communities may be
+missing.
 
 ### Namespace File Management
 

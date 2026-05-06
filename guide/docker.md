@@ -106,12 +106,12 @@ ccg-server \
 The static `/wiki` app shell is served without request headers so browsers can
 open it directly. `/wiki/api/*` uses the same bearer token as `/mcp`; the UI
 prompts for that token when the API returns `401`.
-Run `ccg docs --out docs` for each served namespace before opening the Wiki so
-`.ccg/wiki-index.json` exists. The Wiki API reads `wiki-index.json`; MCP
-retrieval continues to use the separate community-based `doc-index.json`. The
-Wiki Graph tab reads graph nodes and edges directly from the configured
-database via `/wiki/api/graph`, so it reflects the latest `ccg build` or
-webhook sync state.
+Run `ccg build` for each served namespace before opening the Wiki so DB-backed
+tree navigation, search, and retrieve have graph rows to read. `ccg docs --out
+docs` remains useful for generated Markdown, the `doc-index.json` retrieval
+fallback, and the `wiki-index.json` compatibility snapshot. The Wiki Graph tab
+reads graph nodes and edges directly from the configured database via
+`/wiki/api/graph`, so it reflects the latest `ccg build` or webhook sync state.
 
 ## Choosing SQLite vs PostgreSQL
 

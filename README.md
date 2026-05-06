@@ -69,7 +69,7 @@ ccg search "payment"    # finds functions with @intent/@domainRule about payment
 # Build docs and the default vectorless RAG index for agent-oriented exploration
 ccg docs --out docs
 
-# Serve the browser Wiki UI from built assets; builds the graph and uses DB-backed fallback
+# Serve the browser Wiki UI from built assets; builds the graph for DB-backed APIs
 make wiki-run
 
 # Graph statistics
@@ -89,12 +89,16 @@ ccg eval --suite parser
 ccg eval --suite parser --update
 ```
 
-`ccg docs` writes generated Markdown plus `.ccg/wiki-index.json` for the browser
-Wiki. By default it also refreshes community structure and writes
-`.ccg/doc-index.json` for vectorless RAG retrieval. Use `--rag=false` when you
-only want Markdown and the Wiki index, or `--rag-refresh=false` when you want to
-rebuild the RAG index from existing community rows without recalculating
-communities.
+`ccg docs` writes generated Markdown plus `.ccg/wiki-index.json` as a browser
+Wiki compatibility snapshot. The Wiki prefers the graph database for tree
+navigation and search, then falls back to `wiki-index.json` when DB-backed
+navigation is unavailable. By default `ccg docs` also refreshes community structure and writes
+`.ccg/doc-index.json` as a compatibility retrieval snapshot. Runtime
+`retrieve_docs` paths prefer the graph database when it is configured and
+queryable, then fall back to `doc-index.json` when DB-backed retrieval is
+unavailable. Use `--rag=false` when you only want Markdown and the Wiki
+snapshot, or `--rag-refresh=false` when you want to rebuild the RAG index from
+existing community rows without recalculating communities.
 
 For LLM agents, treat generated docs and the RAG index as the primary entrypoint
 for natural-language questions such as "how does webhook sync work?" or "where
@@ -119,8 +123,8 @@ size stays small.
 The Wiki is meant for developers and agents inspecting a generated codebase:
 
 - Tree navigation over folders, packages, files, and annotated symbols
-- Keyword search and PageIndex-style `retrieve_docs` over generated indexes,
-  with DB-backed fallback when index files have not been generated
+- Keyword search and DB-primary `retrieve_docs`, with generated indexes kept as
+  compatibility fallbacks
 - Rich symbol detail cards from CCG annotations even when a symbol has no
   generated Markdown file
 - Context Tray for collecting files and doc-less symbols into one Markdown
@@ -135,7 +139,8 @@ make wiki-run
 ```
 
 Use `make wiki-run-indexed` when you also want generated Markdown,
-`wiki-index.json`, and `doc-index.json` before starting the server.
+`wiki-index.json` snapshot, and the compatibility `doc-index.json` before
+starting the server.
 
 For self-hosted deployments, run `ccg-server --wiki-dir <dist-dir>` and protect
 `/wiki/api/*` with the same bearer token policy used for `/mcp`. See

@@ -136,7 +136,7 @@ export default function App() {
     setLoading(true);
     setError("");
     try {
-      const res = await getTree(ns, token);
+      const res = await getTree(ns, token, { depth: 1 });
       setTree(res.root);
       setNeedsToken(false);
     } catch (err) {
@@ -144,6 +144,18 @@ export default function App() {
       handleError(err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  // @intent load one expanded tree node on demand so the sidebar avoids fetching the full namespace tree.
+  async function loadTreeChildren(nodeID: string) {
+    try {
+      const res = await getTree(namespace, token, { nodeID, depth: 1 });
+      setNeedsToken(false);
+      return res.root.children || [];
+    } catch (err) {
+      handleError(err);
+      return [];
     }
   }
 
@@ -385,7 +397,7 @@ export default function App() {
           {searchResults.length > 0 ? (
             <SearchList mode={searchMode} results={searchResults} onOpen={openDoc} onAdd={addSelected} />
           ) : tree ? (
-            <TreeView node={tree} onOpen={openDoc} onAdd={addSelected} />
+            <TreeView node={tree} onOpen={openDoc} onAdd={addSelected} onLoadChildren={loadTreeChildren} />
           ) : (
             <EmptyState label="No RAG tree loaded" />
           )}
@@ -459,28 +471,55 @@ export default function App() {
 }
 
 // @intent render top-level RAG tree children for the active namespace.
-function TreeView({ node, onOpen, onAdd }: { node: TreeNode; onOpen: (item: SelectedDoc) => void; onAdd: (item: SelectedDoc) => void }) {
+function TreeView({ node, onOpen, onAdd, onLoadChildren }: { node: TreeNode; onOpen: (item: SelectedDoc) => void; onAdd: (item: SelectedDoc) => void; onLoadChildren: (nodeID: string) => Promise<TreeNode[]> }) {
   return (
     <div className="space-y-1">
       {(node.children || []).map((child) => (
-        <TreeItem key={child.id} node={child} depth={0} onOpen={onOpen} onAdd={onAdd} />
+        <TreeItem key={child.id} node={child} depth={0} onOpen={onOpen} onAdd={onAdd} onLoadChildren={onLoadChildren} />
       ))}
     </div>
   );
 }
 
 // @intent render one expandable RAG tree node with open and add-to-context actions.
-function TreeItem({ node, depth, onOpen, onAdd }: { node: TreeNode; depth: number; onOpen: (item: SelectedDoc) => void; onAdd: (item: SelectedDoc) => void }) {
-  const [open, setOpen] = useState(depth < 1);
-  const children = node.children || [];
+function TreeItem({ node, depth, onOpen, onAdd, onLoadChildren }: { node: TreeNode; depth: number; onOpen: (item: SelectedDoc) => void; onAdd: (item: SelectedDoc) => void; onLoadChildren: (nodeID: string) => Promise<TreeNode[]> }) {
+  const initialChildren = node.children || [];
+  const [open, setOpen] = useState(initialChildren.length > 0 && depth < 1);
+  const [children, setChildren] = useState<TreeNode[]>(initialChildren);
+  const [loaded, setLoaded] = useState(initialChildren.length > 0 || !node.has_children);
+  const [loadingChildren, setLoadingChildren] = useState(false);
   const kind = normalizeKind(node.kind, node.id, node.doc_path);
   const item = { path: node.doc_path || "", label: node.label, kind, summary: node.summary || "", details: node.details };
+  const hasChildren = node.has_children || children.length > 0;
+
+  useEffect(() => {
+    const nextChildren = node.children || [];
+    setChildren(nextChildren);
+    setLoaded(nextChildren.length > 0 || !node.has_children);
+    setOpen(nextChildren.length > 0 && depth < 1);
+  }, [depth, node]);
+
+  // @intent expand one tree row by fetching children only when the user opens that node.
+  async function toggleOpen() {
+    if (!hasChildren || loadingChildren) return;
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setOpen(true);
+    if (loaded) return;
+    setLoadingChildren(true);
+    const nextChildren = await onLoadChildren(node.id);
+    setChildren(nextChildren);
+    setLoaded(true);
+    setLoadingChildren(false);
+  }
 
   return (
     <div>
       <div className="tree-row" style={{ paddingLeft: `${depth * 14 + 4}px` }}>
-        <button className="h-5 w-5" onClick={() => setOpen(!open)}>
-          {children.length > 0 ? (open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />) : null}
+        <button className="h-5 w-5" onClick={() => void toggleOpen()}>
+          {loadingChildren ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : hasChildren ? (open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />) : null}
         </button>
         <NodeIcon kind={kind} className="h-4 w-4 shrink-0 text-neutral-500" />
         <button className="min-w-0 flex-1 truncate text-left" onClick={() => void onOpen(item)}>{node.label}</button>
@@ -489,7 +528,7 @@ function TreeItem({ node, depth, onOpen, onAdd }: { node: TreeNode; depth: numbe
       </div>
       {node.summary && <div className="truncate pb-1 pr-2 text-xs text-neutral-500" style={{ paddingLeft: `${depth * 14 + 34}px` }}>{node.summary}</div>}
       {open && children.map((child) => (
-        <TreeItem key={child.id} node={child} depth={depth + 1} onOpen={onOpen} onAdd={onAdd} />
+        <TreeItem key={child.id} node={child} depth={depth + 1} onOpen={onOpen} onAdd={onAdd} onLoadChildren={onLoadChildren} />
       ))}
     </div>
   );
