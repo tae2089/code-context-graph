@@ -2,6 +2,7 @@
 package wikiserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -21,6 +23,9 @@ import (
 	"github.com/tae2089/code-context-graph/internal/model"
 	nsfs "github.com/tae2089/code-context-graph/internal/namespacefs"
 	"github.com/tae2089/code-context-graph/internal/ragindex"
+	"github.com/tae2089/code-context-graph/internal/retrieval"
+	storesearch "github.com/tae2089/code-context-graph/internal/store/search"
+	"github.com/tae2089/code-context-graph/internal/wikiindex"
 	"github.com/tae2089/trace"
 )
 
@@ -33,6 +38,7 @@ type Config struct {
 	RagIndexDir   string
 	NamespaceRoot string
 	DB            *gorm.DB
+	SearchBackend storesearch.Backend
 	Logger        *slog.Logger
 }
 
@@ -43,6 +49,7 @@ type Server struct {
 	ragIndexDir   string
 	namespaceRoot string
 	db            *gorm.DB
+	searchBackend storesearch.Backend
 	logger        *slog.Logger
 }
 
@@ -76,6 +83,7 @@ func New(cfg Config) (*Server, error) {
 		ragIndexDir:   ragDir,
 		namespaceRoot: nsRoot,
 		db:            cfg.DB,
+		searchBackend: cfg.SearchBackend,
 		logger:        logger,
 	}, nil
 }
@@ -176,13 +184,13 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	idx, err := s.loadIndex(ns)
+	root, builtAt, _, err := s.loadWikiTree(r.Context(), ns)
 	if err != nil {
 		writeError(w, statusForReadErr(err), "load wiki-index", err)
 		return
 	}
-	root := ragindex.PruneTree(idx.Root, depth)
-	writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "built_at": idx.BuiltAt, "root": root})
+	root = ragindex.PruneTree(root, depth)
+	writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "built_at": builtAt, "root": root})
 }
 
 // @intent search Wiki tree labels and summaries for the active namespace.
@@ -204,12 +212,12 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	idx, err := s.loadIndex(ns)
+	root, _, _, err := s.loadWikiTree(r.Context(), ns)
 	if err != nil {
 		writeError(w, statusForReadErr(err), "load wiki-index", err)
 		return
 	}
-	results := ragindex.Search(idx.Root, query, limit)
+	results := ragindex.Search(root, query, limit)
 	if results == nil {
 		results = []ragindex.SearchResult{}
 	}
@@ -242,6 +250,15 @@ func (s *Server) handleRetrieve(w http.ResponseWriter, r *http.Request) {
 	}
 	idx, err := s.loadRAGIndex(ns)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) && s.db != nil {
+			response, fallbackErr := s.retrieveFromDB(r.Context(), ns, query, limit, contentLimit)
+			if fallbackErr != nil {
+				writeError(w, http.StatusInternalServerError, "retrieve from DB", fallbackErr)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "results": response.Results})
+			return
+		}
 		writeError(w, statusForReadErr(err), "load doc-index", err)
 		return
 	}
@@ -265,6 +282,33 @@ func (s *Server) handleRetrieve(w http.ResponseWriter, r *http.Request) {
 		results = append(results, item)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "results": results})
+}
+
+// @intent provide Wiki retrieve results from graph DB data when doc-index.json has not been generated yet.
+// @domainRule JSON doc-index remains preferred; this fallback only runs for missing index files.
+// @sideEffect queries the graph DB and may read generated Markdown docs.
+func (s *Server) retrieveFromDB(ctx context.Context, namespace, query string, limit, contentLimit int) (retrieval.Response, error) {
+	service := retrieval.Service{DB: s.db, SearchBackend: s.searchBackend}
+	return service.FromDB(ctx, namespace, query, limit, contentLimit, func(_ context.Context, ns, docPath string, limit int) (string, bool, error) {
+		content, _, err := s.readDBFallbackDoc(ns, docPath)
+		if err != nil {
+			return "", false, err
+		}
+		if len(content) <= limit {
+			return content, false, nil
+		}
+		return content[:limit], true, nil
+	})
+}
+
+// @intent read DB fallback document content without crossing from a named namespace into shared/global docs roots.
+// @domainRule named namespace retrieve fallback must omit content rather than read another namespace's generated Markdown.
+// @sideEffect reads a generated Markdown file from disk when it exists under the namespace root.
+func (s *Server) readDBFallbackDoc(namespace, docPath string) (string, string, error) {
+	if ctxns.Normalize(namespace) == ctxns.DefaultNamespace {
+		return s.readDoc(namespace, docPath)
+	}
+	return s.readDocUnderRoot(filepath.Join(s.namespaceRoot, namespace), docPath)
 }
 
 // @intent return a bounded namespace graph for the browser force-directed graph viewer.
@@ -369,10 +413,15 @@ func (s *Server) handleDoc(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "path must not be empty", nil)
 		return
 	}
-	content, resolved, err := s.readDoc(ns, docPath)
+	_, indexErr := s.loadIndex(ns)
+	readDoc := s.readDoc
+	if errors.Is(indexErr, fs.ErrNotExist) && s.db != nil {
+		readDoc = s.readDBFallbackDoc
+	}
+	content, resolved, err := readDoc(ns, docPath)
 	if err != nil {
-		if idx, indexErr := s.loadIndex(ns); indexErr == nil {
-			if node := findDocPath(idx.Root, docPath); node != nil {
+		if root, _, _, indexErr := s.loadWikiTree(r.Context(), ns); indexErr == nil {
+			if node := findDocPath(root, docPath); node != nil {
 				writeJSON(w, http.StatusOK, map[string]any{
 					"namespace": ns,
 					"path":      docPath,
@@ -414,10 +463,10 @@ func (s *Server) handleRef(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	idx, indexErr := s.loadIndex(ref.Namespace)
+	root, _, _, indexErr := s.loadWikiTree(r.Context(), ref.Namespace)
 	var treeNode *ragindex.TreeNode
 	if indexErr == nil {
-		treeNode = findRefTreeNode(idx.Root, ref)
+		treeNode = findRefTreeNode(root, ref)
 	}
 	graphNode, graphErr := s.findRefGraphNode(r, ref)
 	if treeNode == nil && graphNode == nil {
@@ -458,10 +507,14 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "paths must contain <= 20 items", nil)
 		return
 	}
-	idx, err := s.loadIndex(ns)
+	root, _, fromDB, err := s.loadWikiTree(r.Context(), ns)
 	if err != nil {
 		writeError(w, statusForReadErr(err), "load wiki-index", err)
 		return
+	}
+	readDoc := s.readDoc
+	if fromDB {
+		readDoc = s.readDBFallbackDoc
 	}
 	sections := make([]string, 0, len(req.Paths))
 	items := make([]contextItem, 0, len(req.Paths))
@@ -471,14 +524,14 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		item := contextItem{Path: docPath}
-		if content, _, err := s.readDoc(ns, docPath); err == nil {
+		if content, _, err := readDoc(ns, docPath); err == nil {
 			item.Found = true
 			item.Markdown = fmt.Sprintf("## %s\n\n%s", docPath, strings.TrimSpace(content))
 			sections = append(sections, item.Markdown)
-		} else if node := findDocPath(idx.Root, docPath); node != nil {
+		} else if node := findDocPath(root, docPath); node != nil {
 			item.Found = true
 			item.Label = node.Label
-			item.Markdown = fmt.Sprintf("## %s\n\n%s", node.Label, strings.TrimSpace(node.Summary))
+			item.Markdown = fmt.Sprintf("## %s\n\n%s", node.Label, strings.TrimSpace(nodeMarkdown(node)))
 			sections = append(sections, item.Markdown)
 		} else {
 			item.Error = "not found"
@@ -625,6 +678,23 @@ func (s *Server) loadIndex(namespace string) (*ragindex.Index, error) {
 	return ragindex.LoadIndex(s.indexPath(namespace))
 }
 
+// @intent load a Wiki tree from JSON or DB fallback while preserving built_at response metadata.
+// @domainRule generated wiki-index.json remains authoritative; DB fallback only runs when the file is absent and DB is configured.
+func (s *Server) loadWikiTree(ctx context.Context, namespace string) (*ragindex.TreeNode, time.Time, bool, error) {
+	idx, err := s.loadIndex(namespace)
+	if err == nil {
+		return idx.Root, idx.BuiltAt, false, nil
+	}
+	if !errors.Is(err, fs.ErrNotExist) || s.db == nil {
+		return nil, time.Time{}, false, err
+	}
+	root, _, _, buildErr := (&wikiindex.Builder{DB: s.db, OutDir: "docs", Namespace: namespace}).BuildTree(ctx)
+	if buildErr != nil {
+		return nil, time.Time{}, false, buildErr
+	}
+	return root, time.Now().UTC(), true, nil
+}
+
 // @intent load the namespace-specific doc-index used by PageIndex retrieval.
 func (s *Server) loadRAGIndex(namespace string) (*ragindex.Index, error) {
 	if ctxns.Normalize(namespace) == ctxns.DefaultNamespace {
@@ -672,6 +742,24 @@ func (s *Server) readDoc(namespace, docPath string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
+	return readDocFile(resolved)
+}
+
+// @intent read a generated doc path from one explicit root with the standard Wiki size limit.
+func (s *Server) readDocUnderRoot(root, docPath string) (string, string, error) {
+	clean := filepath.Clean(docPath)
+	if clean == "." || clean == ".." || filepath.IsAbs(clean) || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return "", "", fmt.Errorf("invalid path: path traversal not allowed")
+	}
+	resolved, err := safePath(root, clean)
+	if err != nil {
+		return "", "", err
+	}
+	return readDocFile(resolved)
+}
+
+// @intent enforce generated doc size limits and read the resolved Markdown file.
+func readDocFile(resolved string) (string, string, error) {
 	info, err := os.Stat(resolved)
 	if err != nil {
 		return "", "", err
@@ -850,6 +938,9 @@ func refTargetFromMatches(treeNode *ragindex.TreeNode, graphNode *graphNode) ref
 		}
 		target.GraphNodeID = graphNode.ID
 	}
+	if target.DocPath == "" && target.Details != nil && strings.TrimSpace(target.Details.FilePath) != "" {
+		target.DocPath = docPathForSource(target.Details.FilePath)
+	}
 	return target
 }
 
@@ -894,7 +985,11 @@ func nodeMarkdown(node *ragindex.TreeNode) string {
 	if len(node.Children) > 0 {
 		var children []string
 		for _, child := range node.Children {
-			children = append(children, "- "+child.Label)
+			line := "- " + child.Label
+			if strings.TrimSpace(child.Summary) != "" {
+				line += ": " + strings.TrimSpace(child.Summary)
+			}
+			children = append(children, line)
 		}
 		parts = append(parts, strings.Join(children, "\n"))
 	}
@@ -938,7 +1033,7 @@ func graphEdgeKindsParam(r *http.Request) ([]model.EdgeKind, error) {
 	}
 	var out []model.EdgeKind
 	seen := map[model.EdgeKind]struct{}{}
-	for _, item := range strings.Split(raw, ",") {
+	for item := range strings.SplitSeq(raw, ",") {
 		kind := model.EdgeKind(strings.TrimSpace(item))
 		if kind == "" {
 			continue

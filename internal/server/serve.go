@@ -122,6 +122,7 @@ func RunStreamableHTTP(rt *core.Runtime, srv *mcpgo.MCPServer, cfg Config, cache
 			RagIndexDir:   cfg.RagIndexDir,
 			NamespaceRoot: cfg.NamespaceRoot,
 			DB:            rt.DB,
+			SearchBackend: rt.SearchBackend,
 			Logger:        rt.Logger,
 		})
 		if err != nil {
