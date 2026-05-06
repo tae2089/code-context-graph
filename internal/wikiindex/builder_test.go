@@ -2,7 +2,10 @@ package wikiindex_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -104,6 +107,79 @@ func TestBuilder_BuildsPackageFileSymbolTree(t *testing.T) {
 	}
 	if symNode.Details.Annotation.Tags[2].Ref == nil || symNode.Details.Annotation.Tags[2].Ref.Namespace != "auth-svc" {
 		t.Fatalf("expected parsed CCG ref on @see tag, got %#v", symNode.Details.Annotation.Tags[2])
+	}
+}
+
+func TestBuilder_BuildTreeReturnsWikiTreeWithoutWritingIndex(t *testing.T) {
+	db := setupDB(t)
+	tmpDir := t.TempDir()
+
+	pkg := createNode(t, db, model.Node{QualifiedName: "github.com/example/project/internal/core", Kind: model.NodeKindPackage, Name: "core", FilePath: "internal/core", StartLine: 1, EndLine: 1, Language: "go"})
+	file := createNode(t, db, model.Node{QualifiedName: "internal/core/runtime.go", Kind: model.NodeKindFile, Name: "internal/core/runtime.go", FilePath: "internal/core/runtime.go", StartLine: 1, EndLine: 40, Language: "go"})
+	fn := createNode(t, db, model.Node{QualifiedName: "core.NewRuntime", Kind: model.NodeKindFunction, Name: "NewRuntime", FilePath: "internal/core/runtime.go", StartLine: 10, EndLine: 20, Language: "go"})
+	createTag(t, db, pkg.ID, model.TagIndex, "Core runtime package")
+	createTag(t, db, file.ID, model.TagIndex, "Runtime wiring")
+	createTag(t, db, fn.ID, model.TagIntent, "construct runtime")
+
+	builder := &wikiindex.Builder{DB: db, OutDir: "docs", IndexDir: filepath.Join(tmpDir, ".ccg")}
+	root, packages, files, err := builder.BuildTree(context.Background())
+	if err != nil {
+		t.Fatalf("BuildTree: %v", err)
+	}
+	if packages != 1 || files != 1 {
+		t.Fatalf("counts = packages:%d files:%d, want 1/1", packages, files)
+	}
+	if _, err := os.Stat(filepath.Join(tmpDir, ".ccg", "wiki-index.json")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("BuildTree wrote wiki-index.json or stat failed: %v", err)
+	}
+	pkgNode := ragindex.FindNode(root, "package:internal/core")
+	if pkgNode == nil || pkgNode.Summary != "Core runtime package" {
+		t.Fatalf("package node = %#v", pkgNode)
+	}
+	fileNode := ragindex.FindNode(root, "file:internal/core/runtime.go")
+	if fileNode == nil || fileNode.DocPath != filepath.Join("docs", "internal/core/runtime.go.md") {
+		t.Fatalf("file node = %#v", fileNode)
+	}
+	symNode := ragindex.FindNode(root, "symbol:core.NewRuntime")
+	if symNode == nil || symNode.Details == nil || symNode.Details.QualifiedName != "core.NewRuntime" {
+		t.Fatalf("symbol node = %#v", symNode)
+	}
+}
+
+func TestBuilder_BuildTreeScopesAnnotationsAndOrdersTags(t *testing.T) {
+	db := setupDB(t)
+	alphaNode := createNode(t, db, model.Node{Namespace: "alpha", QualifiedName: "alpha.Build", Kind: model.NodeKindFunction, Name: "Build", FilePath: "internal/alpha/build.go", StartLine: 1, EndLine: 10, Language: "go"})
+	betaNode := createNode(t, db, model.Node{Namespace: "beta", QualifiedName: "beta.Build", Kind: model.NodeKindFunction, Name: "Build", FilePath: "internal/beta/build.go", StartLine: 1, EndLine: 10, Language: "go"})
+	createAnnotation(t, db, alphaNode.ID,
+		model.DocTag{Kind: model.TagSee, Value: "ccg://alpha/internal/alpha/build.go#Build", Ordinal: 2},
+		model.DocTag{Kind: model.TagIntent, Value: "alpha build intent", Ordinal: 0},
+		model.DocTag{Kind: model.TagDomainRule, Value: "alpha domain rule", Ordinal: 1},
+	)
+	createTag(t, db, betaNode.ID, model.TagIntent, "beta build intent")
+
+	root, _, _, err := (&wikiindex.Builder{DB: db, OutDir: "docs", Namespace: "alpha"}).BuildTree(context.Background())
+	if err != nil {
+		t.Fatalf("BuildTree: %v", err)
+	}
+	if ragindex.FindNode(root, "symbol:beta.Build") != nil {
+		t.Fatalf("beta namespace node leaked into alpha tree: %#v", root)
+	}
+	symNode := ragindex.FindNode(root, "symbol:alpha.Build")
+	if symNode == nil || symNode.Details == nil || symNode.Details.Annotation == nil {
+		t.Fatalf("missing alpha symbol annotation details: %#v", symNode)
+	}
+	gotKinds := []model.TagKind{}
+	for _, tag := range symNode.Details.Annotation.Tags {
+		gotKinds = append(gotKinds, tag.Kind)
+	}
+	wantKinds := []model.TagKind{model.TagIntent, model.TagDomainRule, model.TagSee}
+	if len(gotKinds) != len(wantKinds) {
+		t.Fatalf("tag kinds = %#v, want %#v", gotKinds, wantKinds)
+	}
+	for i := range wantKinds {
+		if gotKinds[i] != wantKinds[i] {
+			t.Fatalf("tag kinds = %#v, want %#v", gotKinds, wantKinds)
+		}
 	}
 }
 

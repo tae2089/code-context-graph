@@ -37,6 +37,23 @@ type Builder struct {
 // @intent generate a UI-oriented tree independent of community detection and PageIndex retrieval.
 // @sideEffect reads graph tables and writes wiki-index.json.
 func (b *Builder) Build(ctx context.Context) (int, int, error) {
+	ns := b.namespace(ctx)
+	ctx = ctxns.WithNamespace(ctx, ns)
+	root, packages, files, err := b.BuildTree(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	idx := &ragindex.Index{Version: 1, BuiltAt: time.Now().UTC(), Root: root}
+	if err := b.writeIndex(ns, idx); err != nil {
+		return 0, 0, err
+	}
+	return packages, files, nil
+}
+
+// BuildTree creates the browser-facing package/file/symbol Wiki tree without writing wiki-index.json.
+// @intent let runtime callers synthesize the same Wiki tree directly from DB rows when the JSON index has not been generated.
+// @ensures successful calls return deterministic folder/package/file/symbol ordering matching Build output.
+func (b *Builder) BuildTree(ctx context.Context) (*ragindex.TreeNode, int, int, error) {
 	ns := b.Namespace
 	if ns == "" {
 		ns = ctxns.FromContext(ctx)
@@ -45,10 +62,13 @@ func (b *Builder) Build(ctx context.Context) (int, int, error) {
 		ns = ctxns.DefaultNamespace
 	}
 	ctx = ctxns.WithNamespace(ctx, ns)
+	if b.DB == nil {
+		return nil, 0, 0, trace.New("DB not configured")
+	}
 
 	nodes, annByID, err := b.loadNodes(ctx)
 	if err != nil {
-		return 0, 0, err
+		return nil, 0, 0, err
 	}
 	root := &ragindex.TreeNode{ID: "root", Label: "Root", Kind: "root", Summary: b.ProjectDesc, Children: []*ragindex.TreeNode{}}
 	state := &treeState{
@@ -84,11 +104,19 @@ func (b *Builder) Build(ctx context.Context) (int, int, error) {
 	}
 
 	sortTree(root)
-	idx := &ragindex.Index{Version: 1, BuiltAt: time.Now().UTC(), Root: root}
-	if err := b.writeIndex(ns, idx); err != nil {
-		return 0, 0, err
+	return root, len(state.packages), len(state.files), nil
+}
+
+// @intent resolve the namespace used for both DB reads and wiki-index output paths.
+func (b *Builder) namespace(ctx context.Context) string {
+	ns := b.Namespace
+	if ns == "" {
+		ns = ctxns.FromContext(ctx)
 	}
-	return len(state.packages), len(state.files), nil
+	if ns == "" {
+		ns = ctxns.DefaultNamespace
+	}
+	return ns
 }
 
 // @intent load the graph node set needed for Wiki navigation and summaries.
@@ -126,7 +154,13 @@ func (b *Builder) loadNodes(ctx context.Context) ([]model.Node, map[uint]*model.
 	annByID := map[uint]*model.Annotation{}
 	if len(ids) > 0 {
 		var annotations []model.Annotation
-		if err := b.DB.WithContext(ctx).Where("node_id IN ?", ids).Preload("Tags").Find(&annotations).Error; err != nil {
+		if err := b.DB.WithContext(ctx).
+			Joins("JOIN nodes ON nodes.id = annotations.node_id").
+			Where("annotations.node_id IN ? AND nodes.namespace = ?", ids, ns).
+			Preload("Tags", func(db *gorm.DB) *gorm.DB {
+				return db.Order("ordinal ASC, id ASC")
+			}).
+			Find(&annotations).Error; err != nil {
 			return nil, nil, trace.Wrap(err, "load wiki annotations")
 		}
 		for i := range annotations {
