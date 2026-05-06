@@ -251,6 +251,9 @@ func (b *Builder) folderChildren(ctx context.Context, folderPath string) ([]*rag
 	}
 	entries := map[string]lazyEntry{}
 	for _, node := range nodes {
+		if node.Kind == model.NodeKindPackage && isRootPackagePath(node.FilePath) {
+			continue
+		}
 		childPath, immediate, ok := immediateChildPath(folderPath, node.FilePath)
 		if !ok {
 			continue
@@ -503,6 +506,13 @@ func immediateChildPath(parentPath, filePath string) (string, bool, bool) {
 		childPath = parentPath + "/" + parts[0]
 	}
 	return childPath, len(parts) == 1, true
+}
+
+// @intent identify package nodes that represent the repository root rather than a sidebar child.
+// @domainRule the root package is folded into the Wiki root so top-level files are not duplicated under a synthetic "." package.
+func isRootPackagePath(filePath string) bool {
+	filePath = strings.Trim(path.Clean(filePath), "/")
+	return filePath == "." || filePath == ""
 }
 
 // @intent collect graph node IDs for batch annotation lookup.

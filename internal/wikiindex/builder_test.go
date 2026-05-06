@@ -221,6 +221,29 @@ func TestBuilder_BuildSubtreeReturnsBoundedLazyChildren(t *testing.T) {
 	}
 }
 
+func TestBuilder_BuildSubtreeDoesNotDuplicateTopLevelFilesUnderRootPackage(t *testing.T) {
+	db := setupDB(t)
+	createNode(t, db, model.Node{QualifiedName: "github.com/example/project", Kind: model.NodeKindPackage, Name: "project", FilePath: ".", StartLine: 1, EndLine: 1, Language: "go"})
+	createNode(t, db, model.Node{QualifiedName: "context.go", Kind: model.NodeKindFile, Name: "context.go", FilePath: "context.go", StartLine: 1, EndLine: 40, Language: "go"})
+	createNode(t, db, model.Node{QualifiedName: "trace.Context", Kind: model.NodeKindFunction, Name: "Context", FilePath: "context.go", StartLine: 10, EndLine: 20, Language: "go"})
+
+	builder := &wikiindex.Builder{DB: db, OutDir: "docs"}
+	root, err := builder.BuildSubtree(context.Background(), "", 1)
+	if err != nil {
+		t.Fatalf("BuildSubtree root: %v", err)
+	}
+	if pkg := ragindex.FindNode(root, "package:."); pkg != nil {
+		t.Fatalf("root package should be folded into root, got %#v", pkg)
+	}
+	fileNode := ragindex.FindNode(root, "file:context.go")
+	if fileNode == nil {
+		t.Fatalf("expected top-level file under root: %#v", root.Children)
+	}
+	if !fileNode.HasChildren || len(fileNode.Children) != 0 {
+		t.Fatalf("top-level file lazy state = %#v", fileNode)
+	}
+}
+
 func TestBuilder_RespectsExclude(t *testing.T) {
 	db := setupDB(t)
 	tmpDir := t.TempDir()
