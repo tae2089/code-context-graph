@@ -11,8 +11,10 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/paging"
 	"github.com/tae2089/code-context-graph/internal/ragindex"
+	"github.com/tae2089/code-context-graph/internal/retrieval"
 )
 
 // @intent resolve the base directory that stores generated doc-index artifacts for MCP documentation tools.
@@ -78,6 +80,9 @@ func safePathUnderRoot(root, relPath, field string, createRoot bool, allowMissin
 
 // @intent derive the safe doc-index.json path for either the shared docs root or one namespace-specific subtree.
 func (h *handlers) resolvedRagIndexPath(namespace string) (string, error) {
+	if ctxns.Normalize(namespace) == ctxns.DefaultNamespace {
+		return safePathUnderRoot(h.ragIndexRoot(), "doc-index.json", "file_path", false, true)
+	}
 	if namespace != "" {
 		if err := validateNamespacePath(namespace, ""); err != nil {
 			return "", err
@@ -143,10 +148,9 @@ func (h *handlers) buildRagIndex(ctx context.Context, request mcp.CallToolReques
 }
 
 // getRagTree returns the documentation tree or a pruned node subtree.
-// @intent Exposes the documentation RAG index in a tree format to enable exploratory lookups.
+// @intent Exposes the documentation RAG index in a tree format to enable exploratory lookups, falling back to DB synthesis when doc-index.json is absent.
 // @param request node_id is the starting point for a subtree, community_id is a deprecated alias, and depth limits the return depth.
-// @requires doc-index.json must have been generated.
-// @ensures Returns the TreeNode JSON for the requested range on success.
+// @ensures Returns the TreeNode JSON for the requested range on success and prefers doc-index.json when present.
 // @see mcp.handlers.buildRagIndex
 func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	nodeID := request.GetString("node_id", "")
@@ -154,31 +158,57 @@ func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) 
 		nodeID = request.GetString("community_id", "")
 	}
 	depth := int(request.GetFloat("depth", 0))
-	namespace := requestNamespace(request)
-	indexPath, err := h.resolvedRagIndexPath(namespace)
+	namespace := resolveNamespace(ctx, requestNamespace(request))
+	ctx = ctxns.WithNamespace(ctx, namespace)
+	indexNamespace := namespace
+	if namespace == ctxns.DefaultNamespace {
+		indexNamespace = ""
+	}
+	indexPath, err := h.resolvedRagIndexPath(indexNamespace)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	var indexMtime int64
-	if stat, statErr := os.Stat(indexPath); statErr == nil {
-		indexMtime = stat.ModTime().UnixNano()
+	stat, statErr := os.Stat(indexPath)
+	if statErr != nil {
+		if !os.IsNotExist(statErr) {
+			return mcp.NewToolResultError(fmt.Sprintf("stat doc-index: %v", statErr)), nil
+		}
+		return finalizeToolResult(h.cachedExecute(ctx, "get_rag_tree:db:", map[string]any{"node_id": nodeID, "depth": depth, "namespace": namespace}, func() (string, error) {
+			if h.deps.DB == nil {
+				return "", newToolResultErr("DB not configured")
+			}
+			builder := &ragindex.Builder{
+				DB:          h.deps.DB,
+				OutDir:      "docs",
+				ProjectDesc: h.deps.RagProjectDesc,
+			}
+			root, _, _, err := builder.BuildTree(ctx)
+			if err != nil {
+				return "", newToolResultErr(fmt.Sprintf("build rag tree from DB: %v", err))
+			}
+			node, err := selectRagTreeNode(root, nodeID)
+			if err != nil {
+				return "", err
+			}
+			node = ragindex.PruneTree(node, depth)
+
+			// TreeNode fields are JSON-safe DTO fields; json.Marshal cannot fail for this payload.
+			encoded, _ := json.Marshal(node)
+			return string(encoded), nil
+		}))
 	}
 
+	indexMtime := stat.ModTime().UnixNano()
 	return finalizeToolResult(h.cachedExecute(ctx, "get_rag_tree:", map[string]any{"node_id": nodeID, "depth": depth, "namespace": namespace, "mtime": indexMtime}, func() (string, error) {
 		idx, err := ragindex.LoadIndex(indexPath)
 		if err != nil {
 			return "", newToolResultErr(fmt.Sprintf("load doc-index: %v", err))
 		}
 
-		var node *ragindex.TreeNode
-		if nodeID == "" {
-			node = idx.Root
-		} else {
-			node = ragindex.FindNode(idx.Root, nodeID)
-			if node == nil {
-				return "", newToolResultErr(fmt.Sprintf("node_id %q not found", nodeID))
-			}
+		node, err := selectRagTreeNode(idx.Root, nodeID)
+		if err != nil {
+			return "", err
 		}
 
 		node = ragindex.PruneTree(node, depth)
@@ -187,6 +217,18 @@ func (h *handlers) getRagTree(ctx context.Context, request mcp.CallToolRequest) 
 		b, _ := json.Marshal(node)
 		return string(b), nil
 	}))
+}
+
+// @intent select the requested RAG tree node with shared not-found semantics for JSON indexes and DB fallback trees.
+func selectRagTreeNode(root *ragindex.TreeNode, nodeID string) (*ragindex.TreeNode, error) {
+	if nodeID == "" {
+		return root, nil
+	}
+	node := ragindex.FindNode(root, nodeID)
+	if node == nil {
+		return nil, newToolResultErr(fmt.Sprintf("node_id %q not found", nodeID))
+	}
+	return node, nil
 }
 
 // getDocContent reads a generated documentation file by relative path.
@@ -262,15 +304,27 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 		return finalizeToolResult("", newToolResultErr(err.Error()))
 	}
 	namespace := requestNamespace(request)
+	ctx = h.applyNamespace(ctx, request)
 	indexPath, err := h.resolvedRagIndexPath(namespace)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	var indexMtime int64
-	if stat, statErr := os.Stat(indexPath); statErr == nil {
-		indexMtime = stat.ModTime().UnixNano()
+	stat, statErr := os.Stat(indexPath)
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return mcp.NewToolResultError(fmt.Sprintf("stat doc-index: %v", statErr)), nil
 	}
+	if statErr != nil && os.IsNotExist(statErr) {
+		return finalizeToolResult(h.cachedExecute(ctx, "search_docs:db:", map[string]any{"query": query, "limit": pageReq.Limit, "namespace": namespace}, func() (string, error) {
+			results, err := h.searchDocsFromDB(ctx, namespace, query, pageReq.Limit)
+			if err != nil {
+				return "", newToolResultErr(err.Error())
+			}
+			b, _ := json.Marshal(results)
+			return string(b), nil
+		}))
+	}
+	indexMtime := stat.ModTime().UnixNano()
 
 	return finalizeToolResult(h.cachedExecute(ctx, "search_docs:", map[string]any{"query": query, "limit": pageReq.Limit, "namespace": namespace, "mtime": indexMtime}, func() (string, error) {
 		idx, err := ragindex.LoadIndex(indexPath)
@@ -289,18 +343,63 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 	}))
 }
 
-// retrieveDocsResponse is the JSON envelope returned by retrieve_docs.
-// @intent keep retrieve_docs responses extensible while preserving a stable top-level results array.
-type retrieveDocsResponse struct {
-	Results []retrieveDocsResult `json:"results"`
+// @intent search persisted graph nodes when search_docs has no generated doc-index.json to load.
+// @requires ctx must carry the selected namespace for SearchBackend.Query.
+// @ensures returns SearchResult-compatible JSON items without requiring generated index files.
+// @sideEffect queries the search backend and may scan graph annotations as a fallback.
+func (h *handlers) searchDocsFromDB(ctx context.Context, namespace, query string, limit int) ([]ragindex.SearchResult, error) {
+	if h.deps.DB == nil {
+		return nil, fmt.Errorf("DB not configured")
+	}
+	if limit <= 0 {
+		return []ragindex.SearchResult{}, nil
+	}
+	service := retrieval.Service{DB: h.deps.DB, SearchBackend: h.deps.SearchBackend}
+	retrieved, err := service.FromDB(ctx, namespace, query, limit, 0, nil)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]ragindex.SearchResult, 0, min(limit, len(retrieved.Results)))
+	for _, result := range retrieved.Results {
+		if len(results) >= limit {
+			break
+		}
+		results = append(results, ragindex.SearchResult{
+			ID:      result.ID,
+			Label:   result.Label,
+			Kind:    result.Kind,
+			Summary: result.Summary,
+			DocPath: result.DocPath,
+			Path:    result.Path,
+		})
+	}
+	if results == nil {
+		results = []ragindex.SearchResult{}
+	}
+	return results, nil
 }
 
-// retrieveDocsResult combines tree retrieval metadata with optional Markdown content.
-// @intent return both why a document matched and the bounded document body needed for agent reasoning.
-type retrieveDocsResult struct {
-	ragindex.RetrieveResult
-	Content          string `json:"content,omitempty"`
-	ContentTruncated bool   `json:"content_truncated,omitempty"`
+// @intent keep MCP retrieve_docs response decoding compatible while sharing the canonical retrieval DTO.
+type retrieveDocsResponse = retrieval.Response
+
+// @intent keep MCP retrieve_docs result decoding compatible while sharing the canonical retrieval DTO.
+type retrieveDocsResult = retrieval.Result
+
+var _ = (*handlers).retrieveDocsFromDB
+
+// @intent build a retrieve_docs response from persisted graph nodes and annotation tags when doc-index.json is unavailable.
+// @requires SearchBackend and DB must be configured, and ctx must carry the desired namespace.
+// @ensures returned results are grouped one-per-file in first-seen FTS order and keep retrieve_docs' stable JSON shape.
+// @sideEffect queries the search backend and may read generated Markdown files for bounded content.
+func (h *handlers) retrieveDocsFromDB(ctx context.Context, namespace, query string, limit, contentLimit int) (retrieveDocsResponse, error) {
+	service := retrieval.Service{DB: h.deps.DB, SearchBackend: h.deps.SearchBackend}
+	retrieved, err := service.FromDB(ctx, namespace, query, limit, contentLimit, func(_ context.Context, namespace, docPath string, limit int) (string, bool, error) {
+		return h.readIndexedDocContent(namespace, docPath, limit)
+	})
+	if err != nil {
+		return retrieveDocsResponse{Results: []retrieveDocsResult{}}, err
+	}
+	return retrieved, nil
 }
 
 // retrieveDocs retrieves generated Markdown docs using tree-aware multi-term matching.
@@ -334,15 +433,37 @@ func (h *handlers) retrieveDocs(ctx context.Context, request mcp.CallToolRequest
 	explain := request.GetBool("explain", false)
 
 	namespace := requestNamespace(request)
+	ctx = h.applyNamespace(ctx, request)
 	indexPath, err := h.resolvedRagIndexPath(namespace)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	var indexMtime int64
-	if stat, statErr := os.Stat(indexPath); statErr == nil {
-		indexMtime = stat.ModTime().UnixNano()
+	stat, statErr := os.Stat(indexPath)
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return mcp.NewToolResultError(fmt.Sprintf("stat doc-index: %v", statErr)), nil
 	}
+
+	if statErr != nil && os.IsNotExist(statErr) {
+		cacheKey := map[string]any{
+			"query":         query,
+			"limit":         pageReq.Limit,
+			"content_limit": contentLimit,
+			"namespace":     namespace,
+			"explain":       explain,
+		}
+		return finalizeToolResult(h.cachedExecute(ctx, "retrieve_docs:db:", cacheKey, func() (string, error) {
+			response, err := h.retrieveDocsFromDB(ctx, namespace, query, pageReq.Limit, contentLimit)
+			if err != nil {
+				return "", newToolResultErr(err.Error())
+			}
+
+			b, _ := json.Marshal(response)
+			return string(b), nil
+		}))
+	}
+
+	indexMtime := stat.ModTime().UnixNano()
 
 	cacheKey := map[string]any{
 		"query":         query,

@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/ragindex"
 )
@@ -41,6 +44,232 @@ func TestGetRagTree_AfterBuild(t *testing.T) {
 	content := getTextContent(result)
 	if content == "" {
 		t.Error("expected non-empty tree result")
+	}
+}
+
+func TestGetRagTree_DBFallbackRootSuccess(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.RagIndexDir = filepath.Join(t.TempDir(), ".ccg")
+	seedRagTreeDBFallbackCommunity(t, deps, ctxns.DefaultNamespace, "billing", "Billing", "billing docs", "billing.Processor", "Processor", "internal/billing/processor.go")
+
+	result := callTool(t, deps, "get_rag_tree", map[string]any{})
+	if result.IsError {
+		t.Fatalf("get_rag_tree DB fallback error: %v", getTextContent(result))
+	}
+
+	root := decodeRagTreeNode(t, result)
+	if root.ID != "root" || root.Kind != "root" {
+		t.Fatalf("unexpected root shape: %#v", root)
+	}
+	if ragindex.FindNode(root, "community:billing") == nil {
+		t.Fatalf("expected DB community node in fallback tree: %#v", root)
+	}
+	if ragindex.FindNode(root, "file:internal/billing/processor.go") == nil {
+		t.Fatalf("expected DB file node in fallback tree: %#v", root)
+	}
+}
+
+func TestGetRagTree_DBFallbackNodeIDLookup(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.RagIndexDir = filepath.Join(t.TempDir(), ".ccg")
+	seedRagTreeDBFallbackCommunity(t, deps, ctxns.DefaultNamespace, "billing", "Billing", "billing docs", "billing.Processor", "Processor", "internal/billing/processor.go")
+
+	result := callTool(t, deps, "get_rag_tree", map[string]any{"node_id": "file:internal/billing/processor.go"})
+	if result.IsError {
+		t.Fatalf("get_rag_tree DB fallback node lookup error: %v", getTextContent(result))
+	}
+
+	node := decodeRagTreeNode(t, result)
+	if node.ID != "file:internal/billing/processor.go" || node.Kind != "file" || node.DocPath != "docs/internal/billing/processor.go.md" {
+		t.Fatalf("unexpected file node: %#v", node)
+	}
+}
+
+func TestGetRagTree_DBFallbackDepthPruning(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.RagIndexDir = filepath.Join(t.TempDir(), ".ccg")
+	seedRagTreeDBFallbackCommunity(t, deps, ctxns.DefaultNamespace, "billing", "Billing", "billing docs", "billing.Processor", "Processor", "internal/billing/processor.go")
+
+	result := callTool(t, deps, "get_rag_tree", map[string]any{"depth": float64(1)})
+	if result.IsError {
+		t.Fatalf("get_rag_tree DB fallback depth error: %v", getTextContent(result))
+	}
+
+	root := decodeRagTreeNode(t, result)
+	if len(root.Children) != 1 {
+		t.Fatalf("root children = %d, want 1: %#v", len(root.Children), root)
+	}
+	if len(root.Children[0].Children) != 0 {
+		t.Fatalf("expected community children pruned at depth=1, got %d", len(root.Children[0].Children))
+	}
+}
+
+func TestGetRagTree_DBFallbackInvalidNodeID(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.RagIndexDir = filepath.Join(t.TempDir(), ".ccg")
+	seedRagTreeDBFallbackCommunity(t, deps, ctxns.DefaultNamespace, "billing", "Billing", "billing docs", "billing.Processor", "Processor", "internal/billing/processor.go")
+
+	result := callTool(t, deps, "get_rag_tree", map[string]any{"node_id": "file:missing.go"})
+	if !result.IsError {
+		t.Fatal("expected DB fallback error for nonexistent node_id")
+	}
+}
+
+func TestGetRagTree_DBFallbackNamespaceIsolation(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.NamespaceRoot = filepath.Join(tmpDir, "namespaces")
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	seedRagTreeDBFallbackCommunity(t, deps, "alpha-service", "alpha", "Alpha", "alpha docs", "alpha.Checkout", "Checkout", "checkout.go")
+	seedRagTreeDBFallbackCommunity(t, deps, "beta-service", "beta", "Beta", "beta docs", "beta.Checkout", "Checkout", "checkout.go")
+
+	result := callTool(t, deps, "get_rag_tree", map[string]any{"namespace": "alpha-service"})
+	if result.IsError {
+		t.Fatalf("get_rag_tree DB fallback namespace error: %v", getTextContent(result))
+	}
+
+	root := decodeRagTreeNode(t, result)
+	if ragindex.FindNode(root, "community:alpha") == nil {
+		t.Fatalf("expected alpha community: %#v", root)
+	}
+	if ragindex.FindNode(root, "community:beta") != nil {
+		t.Fatalf("beta community leaked into alpha namespace: %#v", root)
+	}
+}
+
+func TestGetRagTree_DBFallbackCommunityIDAlias(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.RagIndexDir = filepath.Join(t.TempDir(), ".ccg")
+	seedRagTreeDBFallbackCommunity(t, deps, ctxns.DefaultNamespace, "billing", "Billing", "billing docs", "billing.Processor", "Processor", "internal/billing/processor.go")
+
+	result := callTool(t, deps, "get_rag_tree", map[string]any{"community_id": "community:billing"})
+	if result.IsError {
+		t.Fatalf("get_rag_tree DB fallback community_id alias error: %v", getTextContent(result))
+	}
+
+	node := decodeRagTreeNode(t, result)
+	if node.ID != "community:billing" || node.Kind != "community" {
+		t.Fatalf("unexpected community alias node: %#v", node)
+	}
+}
+
+func TestGetRagTree_JSONIndexTakesPrecedenceOverDBFallback(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	seedRagTreeDBFallbackCommunity(t, deps, ctxns.DefaultNamespace, "db", "DB", "db docs", "db.Only", "Only", "internal/db/only.go")
+
+	idx := &ragindex.Index{Root: &ragindex.TreeNode{ID: "root", Label: "Root", Kind: "root", Children: []*ragindex.TreeNode{{ID: "community:json", Label: "JSON Wins", Kind: "community", Summary: "json index", Children: []*ragindex.TreeNode{}}}}}
+	if err := os.MkdirAll(deps.RagIndexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	idxBytes, err := json.Marshal(idx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deps.RagIndexDir, "doc-index.json"), idxBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := callTool(t, deps, "get_rag_tree", map[string]any{})
+	if result.IsError {
+		t.Fatalf("get_rag_tree JSON precedence error: %v", getTextContent(result))
+	}
+
+	root := decodeRagTreeNode(t, result)
+	if ragindex.FindNode(root, "community:json") == nil {
+		t.Fatalf("expected JSON index community: %#v", root)
+	}
+	if ragindex.FindNode(root, "community:db") != nil {
+		t.Fatalf("DB fallback should not be used when doc-index.json exists: %#v", root)
+	}
+}
+
+func TestGetRagTree_DefaultNamespaceUsesSharedJSONIndex(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	seedRagTreeDBFallbackCommunity(t, deps, ctxns.DefaultNamespace, "db", "DB", "db docs", "db.Only", "Only", "internal/db/only.go")
+
+	idx := &ragindex.Index{Root: &ragindex.TreeNode{ID: "root", Label: "Root", Kind: "root", Children: []*ragindex.TreeNode{{ID: "community:json-default", Label: "JSON Default", Kind: "community", Children: []*ragindex.TreeNode{}}}}}
+	if err := os.MkdirAll(deps.RagIndexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	idxBytes, err := json.Marshal(idx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deps.RagIndexDir, "doc-index.json"), idxBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := callTool(t, deps, "get_rag_tree", map[string]any{"namespace": ctxns.DefaultNamespace})
+	if result.IsError {
+		t.Fatalf("get_rag_tree default namespace JSON precedence error: %v", getTextContent(result))
+	}
+
+	root := decodeRagTreeNode(t, result)
+	if ragindex.FindNode(root, "community:json-default") == nil {
+		t.Fatalf("expected shared JSON index for explicit default namespace: %#v", root)
+	}
+	if ragindex.FindNode(root, "community:db") != nil {
+		t.Fatalf("DB fallback should not be used for explicit default namespace when shared doc-index.json exists: %#v", root)
+	}
+}
+
+func TestGetRagTree_DBFallbackReturnsErrorWhenDBMissing(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.RagIndexDir = filepath.Join(t.TempDir(), ".ccg")
+	deps.DB = nil
+
+	result := callTool(t, deps, "get_rag_tree", map[string]any{})
+	if !result.IsError {
+		t.Fatal("expected DB fallback error when DB is not configured")
+	}
+	if !strings.Contains(getTextContent(result), "DB not configured") {
+		t.Fatalf("expected DB not configured error, got %q", getTextContent(result))
+	}
+}
+
+func TestGetRagTree_DBFallbackOrdersCommunitiesAndFilesDeterministically(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.RagIndexDir = filepath.Join(t.TempDir(), ".ccg")
+	seedRagTreeDBFallbackCommunity(t, deps, ctxns.DefaultNamespace, "zeta", "Zeta", "zeta docs", "zeta.Second", "Second", "internal/zeta/z.go")
+	seedRagTreeDBFallbackCommunity(t, deps, ctxns.DefaultNamespace, "alpha", "Alpha", "alpha docs", "alpha.Second", "Second", "internal/alpha/z.go")
+	seedRagTreeDBFallbackCommunity(t, deps, ctxns.DefaultNamespace, "alpha-extra", "Alpha Extra", "alpha extra docs", "alpha.First", "First", "internal/alpha/a.go")
+	filesComm := model.Community{Namespace: ctxns.DefaultNamespace, Key: "files", Label: "Files", Strategy: "test", Description: "file order docs"}
+	if err := deps.DB.Create(&filesComm).Error; err != nil {
+		t.Fatalf("create files community: %v", err)
+	}
+	fileZ := seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "files.Z", "Z", "internal/files/z.go", model.TagIntent, "file z docs", "file z docs")
+	fileA := seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "files.A", "A", "internal/files/a.go", model.TagIntent, "file a docs", "file a docs")
+	for _, node := range []model.Node{fileZ, fileA} {
+		if err := deps.DB.Create(&model.CommunityMembership{CommunityID: filesComm.ID, NodeID: node.ID}).Error; err != nil {
+			t.Fatalf("create files membership: %v", err)
+		}
+	}
+
+	result := callTool(t, deps, "get_rag_tree", map[string]any{})
+	if result.IsError {
+		t.Fatalf("get_rag_tree deterministic order error: %v", getTextContent(result))
+	}
+
+	root := decodeRagTreeNode(t, result)
+	if len(root.Children) < 4 {
+		t.Fatalf("expected at least 3 communities, got %#v", root.Children)
+	}
+	got := []string{root.Children[0].ID, root.Children[1].ID, root.Children[2].ID, root.Children[3].ID}
+	want := []string{"community:alpha", "community:alpha-extra", "community:files", "community:zeta"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("community order = %#v, want %#v", got, want)
+	}
+	filesNode := root.Children[2]
+	if len(filesNode.Children) != 2 {
+		t.Fatalf("files children = %d, want 2: %#v", len(filesNode.Children), filesNode.Children)
+	}
+	fileOrder := []string{filesNode.Children[0].ID, filesNode.Children[1].ID}
+	if wantFiles := []string{"file:internal/files/a.go", "file:internal/files/z.go"}; !slices.Equal(fileOrder, wantFiles) {
+		t.Fatalf("file order = %#v, want %#v", fileOrder, wantFiles)
 	}
 }
 
@@ -295,8 +524,170 @@ func TestSearchDocs_NoIndex(t *testing.T) {
 	deps := setupTestDeps(t)
 	deps.RagIndexDir = t.TempDir()
 	result := callTool(t, deps, "search_docs", map[string]any{"query": "something"})
-	if !result.IsError {
-		t.Fatal("expected error when index file missing")
+	if result.IsError {
+		t.Fatalf("search_docs should return DB fallback empty results when index file is missing: %v", getTextContent(result))
+	}
+	var results []ragindex.SearchResult
+	if err := json.Unmarshal([]byte(getTextContent(result)), &results); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("results = %d, want 0: %#v", len(results), results)
+	}
+}
+
+func TestSearchDocs_DBFallbackSucceedsWithoutDocIndex(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", model.TagIntent, "payment settlement workflow", "payment settlement workflow")
+	rebuildRetrieveDocsSearchBackend(t, deps, ctxns.DefaultNamespace)
+
+	result := callTool(t, deps, "search_docs", map[string]any{"query": "payment settlement", "limit": float64(5)})
+	if result.IsError {
+		t.Fatalf("search_docs DB fallback error: %v", getTextContent(result))
+	}
+
+	var results []ragindex.SearchResult
+	if err := json.Unmarshal([]byte(getTextContent(result)), &results); err != nil {
+		t.Fatalf("unmarshal search_docs response: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want 1: %#v", len(results), results)
+	}
+	if results[0].ID == "" || results[0].Label == "" || results[0].Kind == "" || results[0].Summary == "" || len(results[0].Path) == 0 {
+		t.Fatalf("unstable DB fallback response shape: %#v", results[0])
+	}
+}
+
+func TestSearchDocs_DBFallbackIsNamespaceIsolated(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.NamespaceRoot = filepath.Join(tmpDir, "namespaces")
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	alpha := "alpha-service"
+	beta := "beta-service"
+	seedRetrieveDocsDBFallbackNode(t, deps, alpha, "alpha.Checkout", "Checkout", "checkout.go", model.TagIntent, "sharedtenant alpha checkout", "sharedtenant alpha checkout")
+	seedRetrieveDocsDBFallbackNode(t, deps, beta, "beta.Checkout", "Checkout", "checkout.go", model.TagIntent, "sharedtenant beta checkout", "sharedtenant beta checkout")
+	rebuildRetrieveDocsSearchBackend(t, deps, alpha)
+	rebuildRetrieveDocsSearchBackend(t, deps, beta)
+
+	result := callTool(t, deps, "search_docs", map[string]any{"namespace": alpha, "query": "sharedtenant checkout", "limit": float64(5)})
+	if result.IsError {
+		t.Fatalf("search_docs namespace DB fallback error: %v", getTextContent(result))
+	}
+
+	results := decodeSearchDocsResults(t, result)
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want 1: %#v", len(results), results)
+	}
+}
+
+func TestSearchDocs_DBFallbackAnnotationOnlyMatch(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "policy.Guard", "Guard", "internal/policy/guard.go", model.TagDomainRule, "breakglass approval required", "policy guard searchable")
+	rebuildRetrieveDocsSearchBackend(t, deps, ctxns.DefaultNamespace)
+
+	result := callTool(t, deps, "search_docs", map[string]any{"query": "breakglass", "limit": float64(5)})
+	if result.IsError {
+		t.Fatalf("search_docs annotation-only DB fallback error: %v", getTextContent(result))
+	}
+
+	results := decodeSearchDocsResults(t, result)
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want 1: %#v", len(results), results)
+	}
+}
+
+func TestSearchDocs_DBFallbackHonorsLimit(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "alpha.First", "First", "internal/alpha/file.go", model.TagIntent, "groupterm first", "groupterm first")
+	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "alpha.Second", "Second", "internal/alpha/file.go", model.TagIntent, "groupterm second", "groupterm second")
+	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "beta.Only", "Only", "internal/beta/file.go", model.TagIntent, "groupterm beta", "groupterm beta")
+	rebuildRetrieveDocsSearchBackend(t, deps, ctxns.DefaultNamespace)
+
+	result := callTool(t, deps, "search_docs", map[string]any{"query": "groupterm", "limit": float64(1)})
+	if result.IsError {
+		t.Fatalf("search_docs DB fallback limit error: %v", getTextContent(result))
+	}
+
+	results := decodeSearchDocsResults(t, result)
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want exactly 1 result: %#v", len(results), results)
+	}
+}
+
+func TestSearchDocs_DBFallbackResponseShapeStable(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "stable.Shape", "Shape", "internal/stable/shape.go", model.TagIntent, "stable shape", "stable shape")
+	rebuildRetrieveDocsSearchBackend(t, deps, ctxns.DefaultNamespace)
+
+	result := callTool(t, deps, "search_docs", map[string]any{"query": "stable", "limit": float64(5)})
+	if result.IsError {
+		t.Fatalf("search_docs DB fallback shape error: %v", getTextContent(result))
+	}
+
+	results := decodeSearchDocsResults(t, result)
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want 1: %#v", len(results), results)
+	}
+	got := results[0]
+	if got.ID == "" || got.Label == "" || got.Kind == "" || got.Summary == "" || len(got.Path) == 0 {
+		t.Fatalf("unstable DB fallback response shape: %#v", got)
+	}
+}
+
+func TestSearchDocs_JSONIndexTakesPrecedenceOverDBFallback(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	docsDir := filepath.Join(tmpDir, "docs")
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "db.Only", "Only", "internal/db/only.go", model.TagIntent, "precedence db", "precedence db")
+	rebuildRetrieveDocsSearchBackend(t, deps, ctxns.DefaultNamespace)
+
+	comm := model.Community{Key: "json", Label: "JSON"}
+	if err := deps.DB.Create(&comm).Error; err != nil {
+		t.Fatalf("create json community: %v", err)
+	}
+	jsonNode := model.Node{QualifiedName: "json.Wins", Kind: model.NodeKindFunction, Name: "Wins", FilePath: "internal/json/wins.go", StartLine: 1, EndLine: 10, Language: "go"}
+	if err := deps.DB.Create(&jsonNode).Error; err != nil {
+		t.Fatalf("create json node: %v", err)
+	}
+	if err := deps.DB.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: jsonNode.ID}).Error; err != nil {
+		t.Fatalf("create json membership: %v", err)
+	}
+	jsonAnn := model.Annotation{NodeID: jsonNode.ID}
+	if err := deps.DB.Create(&jsonAnn).Error; err != nil {
+		t.Fatalf("create json annotation: %v", err)
+	}
+	if err := deps.DB.Create(&model.DocTag{AnnotationID: jsonAnn.ID, Kind: model.TagIntent, Value: "precedence json", Ordinal: 0}).Error; err != nil {
+		t.Fatalf("create json doc tag: %v", err)
+	}
+	writeRetrieveDocsMarkdown(t, docsDir, "internal/json/wins.go", "# json wins\n\nJSON index content wins.\n")
+	b := &ragindex.Builder{DB: deps.DB, IndexDir: deps.RagIndexDir, OutDir: docsDir}
+	if _, _, err := b.Build(context.Background()); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	result := callTool(t, deps, "search_docs", map[string]any{"query": "precedence", "limit": float64(5)})
+	if result.IsError {
+		t.Fatalf("search_docs JSON precedence error: %v", getTextContent(result))
+	}
+
+	results := decodeSearchDocsResults(t, result)
+	if len(results) == 0 {
+		t.Fatalf("expected JSON index results, got none")
+	}
+	for _, got := range results {
+		if strings.Contains(strings.ToLower(got.Label), "db") || strings.Contains(got.ID, "db.Only") {
+			t.Fatalf("DB fallback result should not be used when doc-index.json exists: %#v", got)
+		}
 	}
 }
 
@@ -541,6 +932,223 @@ func TestRetrieveDocs_ContentLimitZeroOmitsContent(t *testing.T) {
 	}
 	if strings.Contains(getTextContent(result), "# login") {
 		t.Fatalf("content should be omitted when content_limit=0: %s", getTextContent(result))
+	}
+}
+
+func TestRetrieveDocs_DBFallbackSucceedsWithoutDocIndex(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	docsDir := filepath.Join(tmpDir, "docs")
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", model.TagIntent, "payment settlement workflow", "payment settlement workflow")
+	writeRetrieveDocsMarkdown(t, docsDir, "internal/billing/processor.go", "# processor.go\n\npayment settlement workflow docs\n")
+	rebuildRetrieveDocsSearchBackend(t, deps, ctxns.DefaultNamespace)
+
+	result := callTool(t, deps, "retrieve_docs", map[string]any{
+		"query":         "payment settlement",
+		"limit":         float64(5),
+		"content_limit": float64(2000),
+	})
+	if result.IsError {
+		t.Fatalf("retrieve_docs DB fallback error: %v", getTextContent(result))
+	}
+
+	response := decodeRetrieveDocsResponse(t, result)
+	if len(response.Results) != 1 {
+		t.Fatalf("results = %d, want 1: %#v", len(response.Results), response.Results)
+	}
+	got := response.Results[0]
+	if got.DocPath != "docs/internal/billing/processor.go.md" {
+		t.Fatalf("doc_path = %q, want docs/internal/billing/processor.go.md", got.DocPath)
+	}
+	if !strings.Contains(got.Content, "payment settlement workflow docs") {
+		t.Fatalf("content = %q", got.Content)
+	}
+}
+
+func TestRetrieveDocs_DBFallbackIsNamespaceIsolated(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.NamespaceRoot = filepath.Join(tmpDir, "namespaces")
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	alpha := "alpha-service"
+	beta := "beta-service"
+	seedRetrieveDocsDBFallbackNode(t, deps, alpha, "alpha.Checkout", "Checkout", "checkout.go", model.TagIntent, "sharedtenant alpha checkout", "sharedtenant alpha checkout")
+	seedRetrieveDocsDBFallbackNode(t, deps, beta, "beta.Checkout", "Checkout", "checkout.go", model.TagIntent, "sharedtenant beta checkout", "sharedtenant beta checkout")
+	writeRetrieveDocsMarkdown(t, filepath.Join(deps.NamespaceRoot, alpha, "docs"), "checkout.go", "# checkout\n\nalpha checkout docs\n")
+	writeRetrieveDocsMarkdown(t, filepath.Join(deps.NamespaceRoot, beta, "docs"), "checkout.go", "# checkout\n\nbeta checkout docs\n")
+	rebuildRetrieveDocsSearchBackend(t, deps, alpha)
+	rebuildRetrieveDocsSearchBackend(t, deps, beta)
+
+	result := callTool(t, deps, "retrieve_docs", map[string]any{
+		"namespace":     alpha,
+		"query":         "sharedtenant checkout",
+		"limit":         float64(5),
+		"content_limit": float64(2000),
+	})
+	if result.IsError {
+		t.Fatalf("retrieve_docs namespace DB fallback error: %v", getTextContent(result))
+	}
+
+	response := decodeRetrieveDocsResponse(t, result)
+	if len(response.Results) != 1 {
+		t.Fatalf("results = %d, want 1: %#v", len(response.Results), response.Results)
+	}
+	if !strings.Contains(response.Results[0].Content, "alpha checkout docs") {
+		t.Fatalf("expected alpha docs, got %q", response.Results[0].Content)
+	}
+	if strings.Contains(response.Results[0].Content, "beta checkout docs") || strings.Contains(response.Results[0].Summary, "beta") {
+		t.Fatalf("namespace leaked beta result: %#v", response.Results[0])
+	}
+}
+
+func TestRetrieveDocs_DBFallbackMissingMarkdownDoesNotFail(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "docs.Missing", "Missing", "internal/docs/missing.go", model.TagIntent, "missing markdown fallback", "missing markdown fallback")
+	rebuildRetrieveDocsSearchBackend(t, deps, ctxns.DefaultNamespace)
+
+	result := callTool(t, deps, "retrieve_docs", map[string]any{
+		"query":         "missing markdown",
+		"limit":         float64(5),
+		"content_limit": float64(2000),
+	})
+	if result.IsError {
+		t.Fatalf("retrieve_docs should not fail when DB fallback markdown is missing: %v", getTextContent(result))
+	}
+
+	response := decodeRetrieveDocsResponse(t, result)
+	if len(response.Results) != 1 {
+		t.Fatalf("results = %d, want 1: %#v", len(response.Results), response.Results)
+	}
+	if response.Results[0].Content != "" {
+		t.Fatalf("missing markdown content = %q, want empty", response.Results[0].Content)
+	}
+	if response.Results[0].DocPath != "docs/internal/docs/missing.go.md" {
+		t.Fatalf("doc_path = %q, want docs/internal/docs/missing.go.md", response.Results[0].DocPath)
+	}
+}
+
+func TestRetrieveDocs_DBFallbackAnnotationOnlyMatchIncludesAnnotationBucket(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "policy.Guard", "Guard", "internal/policy/guard.go", model.TagDomainRule, "breakglass approval required", "policy guard searchable")
+	rebuildRetrieveDocsSearchBackend(t, deps, ctxns.DefaultNamespace)
+
+	result := callTool(t, deps, "retrieve_docs", map[string]any{"query": "breakglass", "limit": float64(5), "content_limit": float64(0)})
+	if result.IsError {
+		t.Fatalf("retrieve_docs annotation-only DB fallback error: %v", getTextContent(result))
+	}
+
+	response := decodeRetrieveDocsResponse(t, result)
+	if len(response.Results) != 1 {
+		t.Fatalf("results = %d, want 1: %#v", len(response.Results), response.Results)
+	}
+	if !retrieveDocsHasField(response.Results[0].MatchedFields, string(model.TagDomainRule)) {
+		t.Fatalf("matched_fields missing domainRule annotation bucket: %#v", response.Results[0].MatchedFields)
+	}
+}
+
+func TestRetrieveDocs_DBFallbackHonorsLimitAfterFileGrouping(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "alpha.First", "First", "internal/alpha/file.go", model.TagIntent, "groupterm first", "groupterm first")
+	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "alpha.Second", "Second", "internal/alpha/file.go", model.TagIntent, "groupterm second", "groupterm second")
+	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "beta.Only", "Only", "internal/beta/file.go", model.TagIntent, "groupterm beta", "groupterm beta")
+	rebuildRetrieveDocsSearchBackend(t, deps, ctxns.DefaultNamespace)
+
+	result := callTool(t, deps, "retrieve_docs", map[string]any{"query": "groupterm", "limit": float64(1), "content_limit": float64(0)})
+	if result.IsError {
+		t.Fatalf("retrieve_docs DB fallback limit error: %v", getTextContent(result))
+	}
+
+	response := decodeRetrieveDocsResponse(t, result)
+	if len(response.Results) != 1 {
+		t.Fatalf("results = %d, want exactly 1 file group: %#v", len(response.Results), response.Results)
+	}
+	if len(response.Results[0].Matches) != 2 {
+		t.Fatalf("first file group should keep both node matches, got %#v", response.Results[0].Matches)
+	}
+}
+
+func TestRetrieveDocs_DBFallbackResponseShapeStableByDefault(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "stable.Shape", "Shape", "internal/stable/shape.go", model.TagIntent, "stable shape", "stable shape")
+	rebuildRetrieveDocsSearchBackend(t, deps, ctxns.DefaultNamespace)
+
+	result := callTool(t, deps, "retrieve_docs", map[string]any{"query": "stable", "limit": float64(5), "content_limit": float64(0)})
+	if result.IsError {
+		t.Fatalf("retrieve_docs DB fallback shape error: %v", getTextContent(result))
+	}
+	jsonText := getTextContent(result)
+	for _, key := range []string{"expanded_terms", "field_scores", "literal_score", "expansion_score"} {
+		if strings.Contains(jsonText, key) {
+			t.Fatalf("default response must omit %q diagnostic key, got %s", key, jsonText)
+		}
+	}
+
+	response := decodeRetrieveDocsResponse(t, result)
+	if len(response.Results) != 1 {
+		t.Fatalf("results = %d, want 1: %#v", len(response.Results), response.Results)
+	}
+	got := response.Results[0]
+	if got.ID == "" || got.Label == "" || got.Kind != "file" || got.DocPath == "" || len(got.Path) == 0 || len(got.MatchedTerms) == 0 || len(got.MatchedFields) == 0 {
+		t.Fatalf("unstable DB fallback response shape: %#v", got)
+	}
+}
+
+func TestRetrieveDocs_JSONIndexTakesPrecedenceOverDBFallback(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	docsDir := filepath.Join(tmpDir, "docs")
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "db.Only", "Only", "internal/db/only.go", model.TagIntent, "precedence db", "precedence db")
+	writeRetrieveDocsMarkdown(t, docsDir, "internal/db/only.go", "# db only\n\nDB fallback content must not be used.\n")
+	rebuildRetrieveDocsSearchBackend(t, deps, ctxns.DefaultNamespace)
+
+	comm := model.Community{Key: "json", Label: "JSON"}
+	if err := deps.DB.Create(&comm).Error; err != nil {
+		t.Fatalf("create json community: %v", err)
+	}
+	jsonNode := model.Node{QualifiedName: "json.Wins", Kind: model.NodeKindFunction, Name: "Wins", FilePath: "internal/json/wins.go", StartLine: 1, EndLine: 10, Language: "go"}
+	if err := deps.DB.Create(&jsonNode).Error; err != nil {
+		t.Fatalf("create json node: %v", err)
+	}
+	if err := deps.DB.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: jsonNode.ID}).Error; err != nil {
+		t.Fatalf("create json membership: %v", err)
+	}
+	jsonAnn := model.Annotation{NodeID: jsonNode.ID}
+	if err := deps.DB.Create(&jsonAnn).Error; err != nil {
+		t.Fatalf("create json annotation: %v", err)
+	}
+	if err := deps.DB.Create(&model.DocTag{AnnotationID: jsonAnn.ID, Kind: model.TagIntent, Value: "precedence json", Ordinal: 0}).Error; err != nil {
+		t.Fatalf("create json doc tag: %v", err)
+	}
+	writeRetrieveDocsMarkdown(t, docsDir, "internal/json/wins.go", "# json wins\n\nJSON index content wins.\n")
+	b := &ragindex.Builder{DB: deps.DB, IndexDir: deps.RagIndexDir, OutDir: docsDir}
+	if _, _, err := b.Build(context.Background()); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	result := callTool(t, deps, "retrieve_docs", map[string]any{"query": "precedence", "limit": float64(5), "content_limit": float64(2000)})
+	if result.IsError {
+		t.Fatalf("retrieve_docs JSON precedence error: %v", getTextContent(result))
+	}
+
+	response := decodeRetrieveDocsResponse(t, result)
+	if len(response.Results) != 1 {
+		t.Fatalf("results = %d, want 1: %#v", len(response.Results), response.Results)
+	}
+	if !strings.Contains(response.Results[0].Content, "JSON index content wins") {
+		t.Fatalf("expected JSON index result, got %#v", response.Results[0])
+	}
+	if strings.Contains(response.Results[0].Content, "DB fallback content") || strings.Contains(response.Results[0].DocPath, "internal/db/only.go") {
+		t.Fatalf("DB fallback result should not be used when doc-index.json exists: %#v", response.Results[0])
 	}
 }
 
@@ -826,4 +1434,95 @@ func TestGetRagTree_WithNamespace(t *testing.T) {
 	if !strings.Contains(got, "payments") {
 		t.Errorf("expected result containing 'payments', got %q", got)
 	}
+}
+
+func seedRetrieveDocsDBFallbackNode(t *testing.T, deps *Deps, namespace, qualifiedName, name, filePath string, tagKind model.TagKind, tagValue, searchContent string) model.Node {
+	t.Helper()
+	node := model.Node{
+		Namespace:     namespace,
+		QualifiedName: qualifiedName,
+		Kind:          model.NodeKindFunction,
+		Name:          name,
+		FilePath:      filePath,
+		StartLine:     1,
+		EndLine:       10,
+		Language:      "go",
+	}
+	if err := deps.DB.Create(&node).Error; err != nil {
+		t.Fatalf("create node %s: %v", qualifiedName, err)
+	}
+	ann := model.Annotation{NodeID: node.ID, Summary: tagValue}
+	if err := deps.DB.Create(&ann).Error; err != nil {
+		t.Fatalf("create annotation %s: %v", qualifiedName, err)
+	}
+	if err := deps.DB.Create(&model.DocTag{AnnotationID: ann.ID, Kind: tagKind, Value: tagValue, Ordinal: 0}).Error; err != nil {
+		t.Fatalf("create doc tag %s: %v", qualifiedName, err)
+	}
+	if err := deps.DB.Create(&model.SearchDocument{Namespace: namespace, NodeID: node.ID, Content: searchContent, Language: "go"}).Error; err != nil {
+		t.Fatalf("create search document %s: %v", qualifiedName, err)
+	}
+	return node
+}
+
+func seedRagTreeDBFallbackCommunity(t *testing.T, deps *Deps, namespace, communityKey, communityLabel, communityDescription, qualifiedName, name, filePath string) model.Node {
+	t.Helper()
+	comm := model.Community{Namespace: namespace, Key: communityKey, Label: communityLabel, Strategy: "test", Description: communityDescription}
+	if err := deps.DB.Create(&comm).Error; err != nil {
+		t.Fatalf("create community %s: %v", communityKey, err)
+	}
+	node := seedRetrieveDocsDBFallbackNode(t, deps, namespace, qualifiedName, name, filePath, model.TagIntent, communityDescription, communityDescription)
+	if err := deps.DB.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: node.ID}).Error; err != nil {
+		t.Fatalf("create membership %s: %v", qualifiedName, err)
+	}
+	return node
+}
+
+func decodeRagTreeNode(t *testing.T, result *mcp.CallToolResult) *ragindex.TreeNode {
+	t.Helper()
+	var node ragindex.TreeNode
+	if err := json.Unmarshal([]byte(getTextContent(result)), &node); err != nil {
+		t.Fatalf("unmarshal get_rag_tree response: %v", err)
+	}
+	return &node
+}
+
+func rebuildRetrieveDocsSearchBackend(t *testing.T, deps *Deps, namespace string) {
+	t.Helper()
+	ctx := ctxns.WithNamespace(context.Background(), namespace)
+	if err := deps.SearchBackend.Rebuild(ctx, deps.DB); err != nil {
+		t.Fatalf("rebuild search backend for %s: %v", namespace, err)
+	}
+}
+
+func writeRetrieveDocsMarkdown(t *testing.T, docsDir, filePath, content string) {
+	t.Helper()
+	docPath := filepath.Join(docsDir, filepath.FromSlash(filePath)+".md")
+	if err := os.MkdirAll(filepath.Dir(docPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(docPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func decodeRetrieveDocsResponse(t *testing.T, result *mcp.CallToolResult) retrieveDocsResponse {
+	t.Helper()
+	var response retrieveDocsResponse
+	if err := json.Unmarshal([]byte(getTextContent(result)), &response); err != nil {
+		t.Fatalf("unmarshal retrieve response: %v", err)
+	}
+	return response
+}
+
+func decodeSearchDocsResults(t *testing.T, result *mcp.CallToolResult) []ragindex.SearchResult {
+	t.Helper()
+	var results []ragindex.SearchResult
+	if err := json.Unmarshal([]byte(getTextContent(result)), &results); err != nil {
+		t.Fatalf("unmarshal search_docs response: %v", err)
+	}
+	return results
+}
+
+func retrieveDocsHasField(fields []string, want string) bool {
+	return slices.Contains(fields, want)
 }
