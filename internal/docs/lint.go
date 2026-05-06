@@ -1,6 +1,7 @@
 package docs
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/tae2089/code-context-graph/internal/ccgref"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/pathutil"
 )
@@ -52,35 +54,9 @@ func (g *Generator) Lint() (*LintReport, error) {
 	report := &LintReport{}
 
 	// 1. Collect all .md doc files from the output directory.
-	docFiles := map[string]os.FileInfo{} // source path → FileInfo of .md
-	if _, err := os.Stat(g.OutDir); err == nil {
-		err := filepath.Walk(g.OutDir, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
-				return err
-			}
-			if !strings.HasSuffix(path, ".md") {
-				return nil
-			}
-
-			rel, _ := filepath.Rel(g.OutDir, path)
-			rel = filepath.ToSlash(rel)
-
-			// Skip index.md — it's not a per-file doc.
-			if rel == "index.md" {
-				return nil
-			}
-
-			// Strip .md suffix to get the source path.
-			srcPath := strings.TrimSuffix(rel, ".md")
-			if len(g.Exclude) > 0 && pathutil.MatchExcludes(g.Exclude, srcPath) {
-				return nil
-			}
-			docFiles[srcPath] = info
-			return nil
-		})
-		if err != nil {
-			return nil, fmt.Errorf("walk docs dir: %w", err)
-		}
+	docFiles, err := g.lintDocFiles()
+	if err != nil {
+		return nil, err
 	}
 
 	// 2. Collect all source file paths from the graph (distinct file_path
@@ -299,6 +275,90 @@ func (g *Generator) Lint() (*LintReport, error) {
 	sort.Strings(report.Unannotated)
 
 	return report, nil
+}
+
+// @intent collect only the Markdown files that belong to the active docs namespace.
+// @domainRule named namespaces trust their scoped manifest; without one, foreign docs in the shared output dir are ignored.
+func (g *Generator) lintDocFiles() (map[string]os.FileInfo, error) {
+	docFiles := map[string]os.FileInfo{} // source path -> FileInfo of .md
+	if m, ok, err := g.loadLintManifest(); err != nil {
+		return nil, err
+	} else if ok {
+		for _, rel := range m.Files {
+			rel = filepath.ToSlash(rel)
+			if rel == "index.md" || !strings.HasSuffix(rel, ".md") {
+				continue
+			}
+			srcPath := strings.TrimSuffix(rel, ".md")
+			if len(g.Exclude) > 0 && pathutil.MatchExcludes(g.Exclude, srcPath) {
+				continue
+			}
+			full, err := safeDocOutputPath(g.OutDir, rel)
+			if err != nil {
+				return nil, err
+			}
+			info, err := os.Stat(full)
+			if err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return nil, err
+			}
+			if !info.IsDir() {
+				docFiles[srcPath] = info
+			}
+		}
+		return docFiles, nil
+	}
+	if g.Namespace != "" && ctxns.Normalize(g.Namespace) != ctxns.DefaultNamespace {
+		return docFiles, nil
+	}
+	if _, err := os.Stat(g.OutDir); err == nil {
+		err := filepath.Walk(g.OutDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return err
+			}
+			if !strings.HasSuffix(path, ".md") {
+				return nil
+			}
+
+			rel, _ := filepath.Rel(g.OutDir, path)
+			rel = filepath.ToSlash(rel)
+
+			// Skip index.md — it's not a per-file doc.
+			if rel == "index.md" {
+				return nil
+			}
+
+			// Strip .md suffix to get the source path.
+			srcPath := strings.TrimSuffix(rel, ".md")
+			if len(g.Exclude) > 0 && pathutil.MatchExcludes(g.Exclude, srcPath) {
+				return nil
+			}
+			docFiles[srcPath] = info
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("walk docs dir: %w", err)
+		}
+	}
+	return docFiles, nil
+}
+
+// @intent load the active namespace manifest for lint without hiding whether it exists.
+func (g *Generator) loadLintManifest() (*manifest, bool, error) {
+	data, err := os.ReadFile(g.manifestPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	m := &manifest{}
+	if err := json.Unmarshal(data, m); err != nil {
+		return nil, false, err
+	}
+	return m, true, nil
 }
 
 // ccgRefExists checks whether a parsed ccg:// @see ref resolves to graph data.

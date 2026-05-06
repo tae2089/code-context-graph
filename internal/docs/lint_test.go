@@ -662,3 +662,51 @@ func TestLint_RespectsNamespace(t *testing.T) {
 		t.Fatalf("missing = %v, want only alpha file", report.Missing)
 	}
 }
+
+func TestLint_NamedNamespaceIgnoresForeignDocsWithoutManifest(t *testing.T) {
+	db := newLintTestDB(t)
+	outDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outDir, "internal"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outDir, "internal", "foreign.go.md"), []byte("# internal/foreign.go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db.Create(&model.Node{Namespace: "trace", QualifiedName: "trace.Context", Kind: model.NodeKindFunction, Name: "Context", FilePath: "context.go", StartLine: 1, EndLine: 10, Hash: "h1", Language: "go"})
+
+	gen := &Generator{DB: db, OutDir: outDir, Namespace: "trace"}
+	report, err := gen.Lint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Orphans) != 0 {
+		t.Fatalf("orphans = %v, want none from foreign docs", report.Orphans)
+	}
+	if len(report.Missing) != 1 || report.Missing[0] != "context.go" {
+		t.Fatalf("missing = %v, want only trace source", report.Missing)
+	}
+}
+
+func TestLint_NamedNamespaceUsesScopedManifest(t *testing.T) {
+	db := newLintTestDB(t)
+	outDir := t.TempDir()
+	db.Create(&model.Node{Namespace: "trace", QualifiedName: "trace.Context", Kind: model.NodeKindFunction, Name: "Context", FilePath: "context.go", StartLine: 1, EndLine: 10, Hash: "h1", Language: "go"})
+	if err := os.WriteFile(filepath.Join(outDir, "context.go.md"), []byte("# context.go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outDir, "foreign.go.md"), []byte("# foreign.go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	gen := &Generator{DB: db, OutDir: outDir, Namespace: "trace"}
+	if err := gen.saveManifest([]string{"context.go.md", "index.md"}); err != nil {
+		t.Fatal(err)
+	}
+	report, err := gen.Lint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Orphans) != 0 || len(report.Missing) != 0 {
+		t.Fatalf("report = orphans:%v missing:%v, want clean manifest-scoped docs", report.Orphans, report.Missing)
+	}
+}
