@@ -12,9 +12,11 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/benchmark"
+	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 	storesearch "github.com/tae2089/code-context-graph/internal/store/search"
 )
@@ -279,7 +281,8 @@ func newBenchmarkTokenBenchCmd(deps *Deps) *cobra.Command {
 				return trace.Wrap(err, "load corpus")
 			}
 			backend := storesearch.NewSQLiteBackend()
-			results, err := benchmark.RunTokenBenchWithOptions(cmd.Context(), deps.DB, backend, gormstore.New(deps.DB), corpus, repoRoot, exts, limit, benchmark.RunTokenBenchOptions{
+			ctx := ctxns.WithNamespace(cmd.Context(), viper.GetString("namespace"))
+			results, err := benchmark.RunTokenBenchWithOptions(ctx, deps.DB, backend, gormstore.New(deps.DB), corpus, repoRoot, exts, limit, benchmark.RunTokenBenchOptions{
 				Naive: benchmark.NaiveTokensOptions{Excludes: resolveExcludes(excludePatterns)},
 			})
 			if err != nil {

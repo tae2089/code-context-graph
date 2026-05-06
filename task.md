@@ -287,3 +287,53 @@ Red fixture + 통합 테스트 작성: `testdata/binding_gap/{typescript,kotlin,
   - `lsp_diagnostics` clean
   - `CGO_ENABLED=1 go test -tags "fts5" ./... -count=1`
   - `CGO_ENABLED=1 go test -tags "fts5" ./internal/cli ./internal/mcp -count=1`
+
+---
+
+## 2026-05-06 — 세션 복구 후 최종 검증
+
+- [x] Verify: `CGO_ENABLED=1 go test -tags "fts5" ./... -count=1` 전체 통과
+  - 모든 패키지 green (45개 패키지, 0 실패)
+  - 경고: lua parser null character (tree-sitter 라이브러리 수준, 무시 가능)
+
+- [x] Verify: `lsp_diagnostics` clean on changed files
+  - internal/ 디렉토리 50개 파일 스캔 → 0 에러
+
+### 결론
+
+**모든 재코드리뷰 후속 수정 완료 및 검증 통과**
+
+- P0 (주석-심볼 바인딩 견고성): 완료
+  - Python decorated_definition + docstring 수집/바인딩
+  - Rust normalizer `///` 처리
+  - Kotlin multiline_comment 수집
+  - TypeScript export_statement wrapper
+  - PHP normalizer 추가
+  - Go directive 오염 제거
+
+- P1 (언어별 실측): 완료
+  - 12개 언어 cross-language 계약 테스트 (11 PASS + 1 Red 계약)
+
+- P2 (JSDoc/YARD 호환): 완료
+  - @returns alias
+  - @throws / @typedef 지원
+  - YARD/JSDoc 타입 prefix 파싱
+
+- P3 (테스트 정비): 완료
+  - Kotlin golden.json 배포 확인
+  - Cross-language @intent 바인딩 계약 테스트
+
+- P4 (코드리뷰 후속): 완료
+  - indexer 필드 전파 누락 수정
+  - nameIndex dedup 동명 메서드 오병합 수정
+
+- 코드리뷰 후속 3건 (2026-04-21): 완료
+  - DeleteGraph() unresolved edge 정리
+  - Build() preflight 실패 경계 재정의
+  - MCP incremental + include_paths replace semantics 통일
+
+### 다음 단계
+
+1. 기존 계획 문서 정리 (task.md / implementation.md / workthrough.md)
+2. 새로운 기능 개발 또는 사용자 요청 대기
+

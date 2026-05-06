@@ -26,3 +26,4 @@ pyproject.toml
 *.db-wal
 /web/wiki/dist/
 /web/wiki/node_modules/
+search-retrieval.md
