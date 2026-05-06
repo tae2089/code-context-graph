@@ -445,6 +445,67 @@ func TestRetrieveDocs_ExposesStructuredMatchedFields(t *testing.T) {
 	}
 }
 
+func TestRetrieveDocs_ExplainFlagControlsDiagnostics(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	docsDir := filepath.Join(tmpDir, "docs")
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+
+	comm := model.Community{Key: "billing", Label: "Billing", Description: "billing pipeline"}
+	if err := deps.DB.Create(&comm).Error; err != nil {
+		t.Fatalf("create community: %v", err)
+	}
+	node := model.Node{QualifiedName: "billing.PaymentProcessor", Kind: model.NodeKindFunction, Name: "PaymentProcessor", FilePath: "internal/billing/processor.go", StartLine: 1, EndLine: 30, Language: "go"}
+	if err := deps.DB.Create(&node).Error; err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := deps.DB.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: node.ID}).Error; err != nil {
+		t.Fatalf("create membership: %v", err)
+	}
+	ann := model.Annotation{NodeID: node.ID, Summary: "payment processor entrypoint"}
+	if err := deps.DB.Create(&ann).Error; err != nil {
+		t.Fatalf("create annotation: %v", err)
+	}
+	if err := deps.DB.Create(&model.DocTag{AnnotationID: ann.ID, Kind: model.TagIntent, Value: "payment settlement entrypoint", Ordinal: 0}).Error; err != nil {
+		t.Fatalf("create intent tag: %v", err)
+	}
+
+	docPath := filepath.Join(docsDir, "internal/billing/processor.go.md")
+	if err := os.MkdirAll(filepath.Dir(docPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(docPath, []byte("# processor.go\n\npayment processor docs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	b := &ragindex.Builder{DB: deps.DB, IndexDir: deps.RagIndexDir, OutDir: docsDir}
+	if _, _, err := b.Build(context.Background()); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	defaultRes := callTool(t, deps, "retrieve_docs", map[string]any{"query": "payment", "limit": float64(3), "content_limit": float64(0)})
+	if defaultRes.IsError {
+		t.Fatalf("retrieve_docs default error: %v", getTextContent(defaultRes))
+	}
+	defaultJSON := getTextContent(defaultRes)
+	for _, key := range []string{"expanded_terms", "field_scores", "literal_score", "expansion_score"} {
+		if strings.Contains(defaultJSON, key) {
+			t.Fatalf("default response must omit %q diagnostic key, got %s", key, defaultJSON)
+		}
+	}
+
+	explainRes := callTool(t, deps, "retrieve_docs", map[string]any{"query": "payment", "limit": float64(3), "content_limit": float64(0), "explain": true})
+	if explainRes.IsError {
+		t.Fatalf("retrieve_docs explain error: %v", getTextContent(explainRes))
+	}
+	explainJSON := getTextContent(explainRes)
+	for _, key := range []string{"field_scores", "literal_score"} {
+		if !strings.Contains(explainJSON, key) {
+			t.Fatalf("explain response must include %q, got %s", key, explainJSON)
+		}
+	}
+}
+
 func TestRetrieveDocs_ContentLimitZeroOmitsContent(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()

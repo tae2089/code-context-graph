@@ -331,6 +331,7 @@ func (h *handlers) retrieveDocs(ctx context.Context, request mcp.CallToolRequest
 	if contentLimit > 20000 {
 		return mcp.NewToolResultError("content_limit must be <= 20000"), nil
 	}
+	explain := request.GetBool("explain", false)
 
 	namespace := requestNamespace(request)
 	indexPath, err := h.resolvedRagIndexPath(namespace)
@@ -349,6 +350,7 @@ func (h *handlers) retrieveDocs(ctx context.Context, request mcp.CallToolRequest
 		"content_limit": contentLimit,
 		"namespace":     namespace,
 		"mtime":         indexMtime,
+		"explain":       explain,
 	}
 	return finalizeToolResult(h.cachedExecute(ctx, "retrieve_docs:", cacheKey, func() (string, error) {
 		idx, err := ragindex.LoadIndex(indexPath)
@@ -356,7 +358,7 @@ func (h *handlers) retrieveDocs(ctx context.Context, request mcp.CallToolRequest
 			return "", newToolResultErr(fmt.Sprintf("load doc-index: %v", err))
 		}
 
-		candidates := ragindex.Retrieve(idx.Root, query, pageReq.Limit)
+		candidates := ragindex.RetrieveWithOptions(idx.Root, query, pageReq.Limit, ragindex.RetrieveOptions{Explain: explain})
 		response := retrieveDocsResponse{Results: make([]retrieveDocsResult, 0, len(candidates))}
 		for _, candidate := range candidates {
 			result := retrieveDocsResult{RetrieveResult: candidate}

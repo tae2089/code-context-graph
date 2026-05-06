@@ -53,6 +53,7 @@ func docsTools(h *handlers) []server.ServerTool {
 				mcp.WithNumber("limit", mcp.Description("Maximum number of document results (default: 5, max: 50)")),
 				mcp.WithNumber("content_limit", mcp.Description("Maximum bytes of Markdown content per result (default: 4000, max: 20000; use 0 to omit content)")),
 				mcp.WithString("namespace", mcp.Description("Namespace. When set, retrieves from the namespace-specific doc-index.json.")),
+				mcp.WithBoolean("explain", mcp.Description("When true, include per-result expanded_terms, field_scores, literal_score, and expansion_score diagnostics (default: false).")),
 			),
 			Handler: h.retrieveDocs,
 		},
