@@ -13,11 +13,13 @@ Makefile shortcuts:
 make build        # build stripped ccg and ccg-server binaries (same as make release)
 make release      # stripped build with embedded version/commit/date
 make build-debug  # unstripped ccg and ccg-server binaries with embedded version/commit/date
-make wiki-run     # build Wiki UI, migrate local SQLite DB, run ccg-server with /wiki
+make wiki-db      # migrate the local Wiki DB and build the graph from WIKI_REPO
+make wiki-run     # build Wiki UI, build graph, run ccg-server with DB-backed Wiki fallback
+make wiki-run-indexed # build Wiki UI, build graph, generate docs/indexes, then run ccg-server
 ```
 
 `make wiki-run` defaults to `127.0.0.1:8080` and `ccg.db`. Override values with
-`WIKI_ADDR`, `WIKI_DB`, and optionally `WIKI_TOKEN`:
+`WIKI_ADDR`, `WIKI_DB`, `WIKI_REPO`, and optionally `WIKI_TOKEN`:
 
 ```bash
 WIKI_ADDR=127.0.0.1:18080 WIKI_TOKEN=dev-token make wiki-run

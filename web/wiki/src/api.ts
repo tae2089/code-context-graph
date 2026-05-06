@@ -118,6 +118,7 @@ export type DocResponse = {
   path: string;
   resolved: string;
   content: string;
+  generated?: boolean;
 };
 
 // @intent describe the Wiki and graph destination resolved from one ccg:// ref.

@@ -5,9 +5,10 @@ BASE_LDFLAGS = -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=
 LDFLAGS      = -s -w $(BASE_LDFLAGS)
 WIKI_ADDR   ?= 127.0.0.1:8080
 WIKI_DB     ?= ccg.db
+WIKI_REPO   ?= .
 WIKI_TOKEN  ?=
 
-.PHONY: build release build-debug build-json install vet test test-integration-helpers wiki-build wiki-run clean
+.PHONY: build release build-debug build-json install vet test test-integration-helpers wiki-build wiki-db wiki-docs wiki-run wiki-run-indexed clean
 
 build: release
 
@@ -38,8 +39,17 @@ test-integration-helpers:
 wiki-build:
 	cd web/wiki && npm ci && npm run build
 
-wiki-run: wiki-build
+wiki-db:
 	CGO_ENABLED=1 go run -tags "fts5" ./cmd/ccg --db-driver sqlite --db-dsn '$(WIKI_DB)' migrate
+	CGO_ENABLED=1 go run -tags "fts5" ./cmd/ccg --db-driver sqlite --db-dsn '$(WIKI_DB)' build '$(WIKI_REPO)'
+
+wiki-docs: wiki-db
+	CGO_ENABLED=1 go run -tags "fts5" ./cmd/ccg --db-driver sqlite --db-dsn '$(WIKI_DB)' docs --out docs
+
+wiki-run: wiki-build wiki-db
+	CGO_ENABLED=1 go run -tags "fts5" ./cmd/ccg-server --db-driver sqlite --db-dsn '$(WIKI_DB)' --http-addr '$(WIKI_ADDR)' --http-bearer-token '$(WIKI_TOKEN)' --wiki-dir web/wiki/dist
+
+wiki-run-indexed: wiki-build wiki-docs
 	CGO_ENABLED=1 go run -tags "fts5" ./cmd/ccg-server --db-driver sqlite --db-dsn '$(WIKI_DB)' --http-addr '$(WIKI_ADDR)' --http-bearer-token '$(WIKI_TOKEN)' --wiki-dir web/wiki/dist
 
 clean:

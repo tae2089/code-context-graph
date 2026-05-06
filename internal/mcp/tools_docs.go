@@ -21,10 +21,10 @@ func docsTools(h *handlers) []server.ServerTool {
 		},
 		{
 			Tool: mcp.NewTool("get_rag_tree",
-				mcp.WithDescription("Get the RAG document tree for navigation. Call without arguments first, then pass node_id to drill into a community, package, file, or symbol node."),
-				mcp.WithString("node_id", mcp.Description("Tree node ID as shown in the tree (e.g. 'community:internal/analysis', 'package:internal/core', or 'file:internal/core/runtime.go'). Omit to get the full tree.")),
+				mcp.WithDescription("Navigate the RAG document tree after retrieve_docs/search_docs has identified a useful area. Prefer depth=1 for overview or pass node_id with a small depth to expand nearby context; avoid unbounded full-tree calls on large namespaces."),
+				mcp.WithString("node_id", mcp.Description("Tree node ID as shown in search/retrieve/tree results (e.g. 'community:internal/analysis', 'package:internal/core', or 'file:internal/core/runtime.go'). Omit only for a bounded overview with depth set.")),
 				mcp.WithString("community_id", mcp.Description("Deprecated alias for node_id; accepts any tree node ID for compatibility.")),
-				mcp.WithNumber("depth", mcp.Description("Maximum tree depth to return (1=top-level communities/packages, 2=plus child packages/files). Default: 0 (unlimited).")),
+				mcp.WithNumber("depth", mcp.Description("Maximum tree depth to return (1=top-level communities/packages, 2=plus child packages/files). Recommended when node_id is omitted. Default: 0 (unlimited, only for small namespaces).")),
 				mcp.WithString("namespace", mcp.Description("Namespace. When set, reads doc-index.json from the namespace-specific index directory.")),
 			),
 			Handler: h.getRagTree,

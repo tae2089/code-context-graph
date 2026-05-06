@@ -15,11 +15,13 @@ Makefile 단축 명령어:
 make build        # stripped ccg 및 ccg-server 바이너리 빌드 (make release와 동일)
 make release      # 버전/커밋/날짜 정보가 포함된 stripped 빌드
 make build-debug  # 버전/커밋/날짜 정보가 포함된 unstripped ccg 및 ccg-server 바이너리 빌드
-make wiki-run     # Wiki UI 빌드, 로컬 SQLite DB 마이그레이션, /wiki 포함 ccg-server 실행
+make wiki-db      # 로컬 Wiki DB 마이그레이션 및 WIKI_REPO 그래프 빌드
+make wiki-run     # Wiki UI 빌드, 그래프 빌드, DB-backed fallback으로 ccg-server 실행
+make wiki-run-indexed # Wiki UI 빌드, 그래프/문서/index 생성 후 ccg-server 실행
 ```
 
 `make wiki-run`은 기본값으로 `127.0.0.1:8080`과 `ccg.db`를 사용합니다.
-`WIKI_ADDR`, `WIKI_DB`, 필요 시 `WIKI_TOKEN`으로 값을 바꿀 수 있습니다:
+`WIKI_ADDR`, `WIKI_DB`, `WIKI_REPO`, 필요 시 `WIKI_TOKEN`으로 값을 바꿀 수 있습니다:
 
 ```bash
 WIKI_ADDR=127.0.0.1:18080 WIKI_TOKEN=dev-token make wiki-run

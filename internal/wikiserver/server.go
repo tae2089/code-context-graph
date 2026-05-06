@@ -976,24 +976,213 @@ func symbolMatches(name, qualifiedName, want string) bool {
 		strings.HasSuffix(qualifiedName, "::"+want)
 }
 
-// @intent render a Wiki tree node as fallback Markdown when no generated file exists.
+// @intent render a Wiki tree node as generated-doc-shaped fallback Markdown when no generated file exists.
 func nodeMarkdown(node *ragindex.TreeNode) string {
-	parts := []string{fmt.Sprintf("# %s", node.Label)}
-	if strings.TrimSpace(node.Summary) != "" {
-		parts = append(parts, strings.TrimSpace(node.Summary))
+	parts := []string{
+		"<!-- generated-by: code-context-graph docs -->",
+		fmt.Sprintf("# %s", node.Label),
+	}
+	if summary := cleanMarkdownText(node.Summary); summary != "" {
+		parts = append(parts, "> "+summary)
 	}
 	if len(node.Children) > 0 {
-		var children []string
-		for _, child := range node.Children {
-			line := "- " + child.Label
-			if strings.TrimSpace(child.Summary) != "" {
-				line += ": " + strings.TrimSpace(child.Summary)
+		sections := nodeMarkdownSections(node.Children)
+		for _, section := range []string{"Files", "Packages", "Functions", "Classes", "Types", "Tests", "Symbols", "Children"} {
+			children := sections[section]
+			if len(children) == 0 {
+				continue
 			}
-			children = append(children, line)
+			lines := []string{"## " + section}
+			for _, child := range children {
+				lines = append(lines, nodeMarkdownChild(child)...)
+			}
+			parts = append(parts, strings.Join(lines, "\n"))
 		}
-		parts = append(parts, strings.Join(children, "\n"))
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+// @intent group fallback child nodes into stable sections that the Wiki visual renderer can cardify.
+func nodeMarkdownSections(children []*ragindex.TreeNode) map[string][]*ragindex.TreeNode {
+	sections := map[string][]*ragindex.TreeNode{}
+	for _, child := range children {
+		section := nodeMarkdownSection(child)
+		sections[section] = append(sections[section], child)
+	}
+	return sections
+}
+
+// @intent map graph node kinds to generated docs section names for DB-backed Wiki fallback.
+func nodeMarkdownSection(node *ragindex.TreeNode) string {
+	switch node.Kind {
+	case "file":
+		return "Files"
+	case "package":
+		return "Packages"
+	case string(model.NodeKindFunction):
+		return "Functions"
+	case string(model.NodeKindClass):
+		return "Classes"
+	case string(model.NodeKindType):
+		return "Types"
+	case string(model.NodeKindTest):
+		return "Tests"
+	case "symbol":
+		return "Symbols"
+	default:
+		return "Children"
+	}
+}
+
+// @intent render one fallback tree child in the same symbol-card Markdown shape as generated docs.
+func nodeMarkdownChild(child *ragindex.TreeNode) []string {
+	lines := []string{"", "### " + child.Label, ""}
+	description := cleanMarkdownText(child.Summary)
+	if child.Details != nil && child.Details.Annotation != nil {
+		if summary := cleanMarkdownText(child.Details.Annotation.Summary); summary != "" {
+			description = summary
+		}
+	}
+	if description != "" {
+		lines = append(lines, description, "")
+	}
+	if child.Details != nil {
+		if lineRange := markdownLineRange(child.Details.StartLine, child.Details.EndLine); lineRange != "" {
+			lines = append(lines, "- **Lines:** "+lineRange)
+		}
+		if filePath := cleanMarkdownText(child.Details.FilePath); filePath != "" {
+			lines = append(lines, "- **File:** "+filePath)
+		}
+		if language := cleanMarkdownText(child.Details.Language); language != "" {
+			lines = append(lines, "- **Language:** "+language)
+		}
+		if child.Details.Annotation != nil {
+			lines = append(lines, annotationMarkdownBlocks(child.Details.Annotation)...)
+		}
+		return lines
+	}
+	if child.Kind != "" {
+		lines = append(lines, "- **Kind:** "+child.Kind)
+	}
+	if child.DocPath != "" {
+		lines = append(lines, "- **Path:** "+child.DocPath)
+	}
+	return lines
+}
+
+// @intent format annotation tags into labels already understood by the Wiki generated-doc renderer.
+func annotationMarkdownBlocks(annotation *ragindex.AnnotationDetail) []string {
+	blocks := []annotationMarkdownBlock{}
+	index := map[string]int{}
+	add := func(label, value string) {
+		value = cleanMarkdownText(value)
+		if value == "" {
+			return
+		}
+		pos, ok := index[label]
+		if !ok {
+			pos = len(blocks)
+			index[label] = pos
+			blocks = append(blocks, annotationMarkdownBlock{label: label})
+		}
+		blocks[pos].items = append(blocks[pos].items, value)
+	}
+	for _, tag := range annotation.Tags {
+		value := annotationTagMarkdownValue(tag)
+		switch tag.Kind {
+		case model.TagIntent:
+			add("Intent", value)
+		case model.TagDomainRule:
+			add("Domain Rules", value)
+		case model.TagSideEffect:
+			add("Side Effects", value)
+		case model.TagMutates:
+			add("Mutates", value)
+		case model.TagRequires:
+			add("Requires", value)
+		case model.TagEnsures:
+			add("Ensures", value)
+		case model.TagParam:
+			add("Params", formatParamMarkdownTag(tag))
+		case model.TagReturn:
+			add("Returns", value)
+		case model.TagSee:
+			add("See", value)
+		case model.TagThrows:
+			add("Throws", value)
+		default:
+			add(string(tag.Kind), value)
+		}
+	}
+	if context := cleanMarkdownText(annotation.Context); context != "" {
+		add("Context", context)
+	}
+
+	var lines []string
+	for _, block := range blocks {
+		if len(block.items) == 1 && (block.label == "Intent" || block.label == "Returns" || block.label == "See") {
+			lines = append(lines, fmt.Sprintf("- **%s:** %s", block.label, block.items[0]))
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("- **%s:**", block.label))
+		for _, item := range block.items {
+			lines = append(lines, "  - "+item)
+		}
+	}
+	return lines
+}
+
+// annotationMarkdownBlock groups same-label annotation fallback lines before Markdown rendering.
+// @intent keep annotation Markdown output stable while preserving original tag ordering by first label occurrence.
+type annotationMarkdownBlock struct {
+	label string
+	items []string
+}
+
+// @intent preserve annotation tag name/type context in fallback Markdown without exposing raw JSON.
+func annotationTagMarkdownValue(tag ragindex.DocTagDetail) string {
+	parts := []string{}
+	if strings.TrimSpace(tag.Name) != "" {
+		parts = append(parts, tag.Name)
+	}
+	if strings.TrimSpace(tag.Value) != "" {
+		parts = append(parts, tag.Value)
+	}
+	return strings.Join(parts, " — ")
+}
+
+// @intent format @param tags consistently with browser-side generated doc fallback.
+func formatParamMarkdownTag(tag ragindex.DocTagDetail) string {
+	name := strings.TrimSpace(tag.Name)
+	if name == "" {
+		name = "param"
+	}
+	if typ := strings.TrimSpace(tag.Type); typ != "" {
+		name = fmt.Sprintf("%s [%s]", name, typ)
+	}
+	if value := cleanMarkdownText(tag.Value); value != "" {
+		return name + " — " + value
+	}
+	return name
+}
+
+// @intent keep fallback Markdown attributes single-line so the visual parser can read them predictably.
+func cleanMarkdownText(value string) string {
+	return strings.Join(strings.Fields(value), " ")
+}
+
+// @intent format graph node source ranges for generated-doc-compatible fallback Markdown.
+func markdownLineRange(start, end int) string {
+	if start > 0 && end > 0 {
+		return fmt.Sprintf("%d-%d", start, end)
+	}
+	if start > 0 {
+		return strconv.Itoa(start)
+	}
+	if end > 0 {
+		return strconv.Itoa(end)
+	}
+	return ""
 }
 
 // @intent normalize and validate the namespace query parameter shared by Wiki API endpoints.

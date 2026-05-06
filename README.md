@@ -69,7 +69,7 @@ ccg search "payment"    # finds functions with @intent/@domainRule about payment
 # Build docs and the default vectorless RAG index for agent-oriented exploration
 ccg docs --out docs
 
-# Serve the browser Wiki UI from built assets
+# Serve the browser Wiki UI from built assets; builds the graph and uses DB-backed fallback
 make wiki-run
 
 # Graph statistics
@@ -119,7 +119,8 @@ size stays small.
 The Wiki is meant for developers and agents inspecting a generated codebase:
 
 - Tree navigation over folders, packages, files, and annotated symbols
-- Keyword search and PageIndex-style `retrieve_docs` over `doc-index.json`
+- Keyword search and PageIndex-style `retrieve_docs` over generated indexes,
+  with DB-backed fallback when index files have not been generated
 - Rich symbol detail cards from CCG annotations even when a symbol has no
   generated Markdown file
 - Context Tray for collecting files and doc-less symbols into one Markdown
@@ -130,10 +131,11 @@ The Wiki is meant for developers and agents inspecting a generated codebase:
 Local development shortcut:
 
 ```bash
-ccg build .
-ccg docs --out docs
 make wiki-run
 ```
+
+Use `make wiki-run-indexed` when you also want generated Markdown,
+`wiki-index.json`, and `doc-index.json` before starting the server.
 
 For self-hosted deployments, run `ccg-server --wiki-dir <dist-dir>` and protect
 `/wiki/api/*` with the same bearer token policy used for `/mcp`. See

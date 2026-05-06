@@ -163,6 +163,9 @@ export default function App() {
     }
     try {
       const res = await getDoc(ns, item.path, token);
+      if (res.generated === false) {
+        setDocPath(fallbackDocDisplayPath(item, res.path));
+      }
       setDocContent(res.content);
       setNeedsToken(false);
     } catch (err) {
@@ -570,6 +573,21 @@ function docDisplayPath(item: SelectedDoc) {
     return `${item.details.file_path}#${item.details.qualified_name || item.label}`;
   }
   return item.label || "";
+}
+
+// @intent show DB-backed synthetic docs as source locations instead of missing generated docs paths.
+function fallbackDocDisplayPath(item: SelectedDoc, path: string) {
+  if (item.details?.file_path) {
+    return `${item.details.file_path}#${item.details.qualified_name || item.label}`;
+  }
+  const sourcePath = sourcePathFromDocPath(path || item.path);
+  return sourcePath || item.label || docDisplayPath(item);
+}
+
+// @intent recover the original source file path from ccg generated docs paths used by tree nodes.
+function sourcePathFromDocPath(path: string) {
+  if (!path.startsWith("docs/") || !path.endsWith(".md")) return "";
+  return path.slice("docs/".length, -".md".length);
 }
 
 // @intent build a local fallback Markdown context when server-side docs are unavailable.

@@ -448,7 +448,10 @@ func TestAPI_DocFallsBackToDBTreeSummaryWhenWikiIndexMissing(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("doc fallback status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "payment settlement workflow") || !strings.Contains(rec.Body.String(), `"generated":false`) {
+	if !strings.Contains(rec.Body.String(), "payment settlement workflow") ||
+		!strings.Contains(rec.Body.String(), `"generated":false`) ||
+		!strings.Contains(rec.Body.String(), "generated-by: code-context-graph docs") ||
+		!strings.Contains(rec.Body.String(), "## Functions") {
 		t.Fatalf("expected DB summary fallback, got %s", rec.Body.String())
 	}
 }
