@@ -269,8 +269,8 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 	if err != nil {
 		return finalizeToolResult("", newToolResultErr(err.Error()))
 	}
-	namespace := requestNamespace(request)
-	ctx = h.applyNamespace(ctx, request)
+	namespace := resolveNamespace(ctx, requestNamespace(request))
+	ctx = ctxns.WithNamespace(ctx, namespace)
 	if h.deps.DB == nil {
 		return mcp.NewToolResultError("DB is not configured"), nil
 	}
@@ -373,8 +373,8 @@ func (h *handlers) retrieveDocs(ctx context.Context, request mcp.CallToolRequest
 	}
 	explain := request.GetBool("explain", false)
 
-	namespace := requestNamespace(request)
-	ctx = h.applyNamespace(ctx, request)
+	namespace := resolveNamespace(ctx, requestNamespace(request))
+	ctx = ctxns.WithNamespace(ctx, namespace)
 	if h.deps.DB == nil {
 		return mcp.NewToolResultError("DB is not configured"), nil
 	}

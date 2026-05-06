@@ -587,6 +587,29 @@ func TestSearchDocs_DBFallbackIsNamespaceIsolated(t *testing.T) {
 	}
 }
 
+func TestSearchDocs_DBFallbackDomainRuleUsesContextNamespace(t *testing.T) {
+	deps := setupTestDeps(t)
+	tmpDir := t.TempDir()
+	deps.NamespaceRoot = filepath.Join(tmpDir, "namespaces")
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	alpha := "alpha-service"
+	beta := "beta-service"
+	seedRetrieveDocsDBFallbackNode(t, deps, alpha, "alpha.Guard", "Guard", "guard.go", model.TagDomainRule, "breakglass alpha approval", "breakglass alpha approval")
+	seedRetrieveDocsDBFallbackNode(t, deps, beta, "beta.Guard", "Guard", "guard.go", model.TagDomainRule, "breakglass beta approval", "breakglass beta approval")
+	rebuildRetrieveDocsSearchBackend(t, deps, alpha)
+	rebuildRetrieveDocsSearchBackend(t, deps, beta)
+
+	result := callToolWithNamespace(t, deps, alpha, "search_docs", map[string]any{"query": "breakglass", "limit": float64(5)})
+	if result.IsError {
+		t.Fatalf("search_docs context namespace DB fallback error: %v", getTextContent(result))
+	}
+
+	results := decodeSearchDocsResults(t, result)
+	if len(results) != 1 || results[0].Summary != "breakglass alpha approval" {
+		t.Fatalf("expected only alpha domainRule result, got %#v", results)
+	}
+}
+
 func TestSearchDocs_DBFallbackAnnotationOnlyMatch(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()

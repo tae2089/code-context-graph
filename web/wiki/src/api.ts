@@ -1,5 +1,4 @@
 // @index Browser Wiki API client for docs retrieval, ccg:// reference resolution, and bounded graph loading.
-
 // @intent describe one node in the Wiki RAG tree returned by ccg-server.
 export type TreeNode = {
   id: string;
@@ -144,7 +143,13 @@ export type RefResponse = {
 // @intent return a server-assembled Markdown bundle for selected docs.
 export type ContextResponse = {
   markdown: string;
-  items: Array<{ path: string; label?: string; found: boolean; markdown?: string; error?: string }>;
+  items: Array<{
+    path: string;
+    label?: string;
+    found: boolean;
+    markdown?: string;
+    error?: string;
+  }>;
 };
 
 const apiBase = "/wiki/api";
@@ -161,7 +166,11 @@ export class APIError extends Error {
 }
 
 // @intent apply bearer auth and consistent JSON error handling to Wiki API calls.
-async function request<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
+async function request<T>(
+  path: string,
+  token: string,
+  init: RequestInit = {},
+): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   if (init.body && !headers.has("Content-Type")) {
@@ -197,7 +206,11 @@ export type TreeRequest = {
 };
 
 // @intent load the RAG tree or a bounded subtree for the active namespace.
-export function getTree(namespace: string, token: string, options: TreeRequest = {}) {
+export function getTree(
+  namespace: string,
+  token: string,
+  options: TreeRequest = {},
+) {
   const qs = new URLSearchParams({ namespace });
   if (options.nodeID) qs.set("node_id", options.nodeID);
   if (options.depth !== undefined) qs.set("depth", String(options.depth));
@@ -219,13 +232,24 @@ export function resolveRef(ref: string, token: string) {
 // @intent search the active namespace's RAG tree by label and summary.
 export function searchDocs(namespace: string, query: string, token: string) {
   const qs = new URLSearchParams({ namespace, q: query, limit: "25" });
-  return request<{ namespace: string; results: SearchResult[] }>(`/search?${qs.toString()}`, token);
+  return request<{ namespace: string; results: SearchResult[] }>(
+    `/search?${qs.toString()}`,
+    token,
+  );
 }
 
 // @intent retrieve ranked generated docs using DB-backed graph and annotation evidence.
 export function retrieveDocs(namespace: string, query: string, token: string) {
-  const qs = new URLSearchParams({ namespace, q: query, limit: "10", content_limit: "0" });
-  return request<{ namespace: string; results: RetrieveResult[] }>(`/retrieve?${qs.toString()}`, token);
+  const qs = new URLSearchParams({
+    namespace,
+    q: query,
+    limit: "10",
+    content_limit: "0",
+  });
+  return request<{ namespace: string; results: RetrieveResult[] }>(
+    `/retrieve?${qs.toString()}`,
+    token,
+  );
 }
 
 // @intent load a bounded namespace graph for the visual graph tab.
@@ -235,9 +259,13 @@ export function getGraph(namespace: string, token: string) {
 }
 
 // @intent ask ccg-server to assemble selected docs into one LLM-ready Markdown block.
-export function buildContext(namespace: string, paths: string[], token: string) {
+export function buildContext(
+  namespace: string,
+  paths: string[],
+  token: string,
+) {
   return request<ContextResponse>("/context", token, {
     method: "POST",
-    body: JSON.stringify({ namespace, paths })
+    body: JSON.stringify({ namespace, paths }),
   });
 }

@@ -1,10 +1,19 @@
+// @index Browser graph viewer for namespace graph navigation, ccg:// reference focus, node opening, and zoomable force layout.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { forceCollide } from "d3-force";
-import ForceGraph2D, { ForceGraphMethods, LinkObject, NodeObject } from "react-force-graph-2d";
-import { AlertCircle, Maximize2, RefreshCw, Search, Share2 } from "lucide-react";
+import ForceGraph2D, {
+  ForceGraphMethods,
+  LinkObject,
+  NodeObject,
+} from "react-force-graph-2d";
+import {
+  AlertCircle,
+  Maximize2,
+  RefreshCw,
+  Search,
+  Share2,
+} from "lucide-react";
 import { APIError, GraphEdge, GraphNode, getGraph } from "./api";
-
-// @index Browser graph viewer for namespace graph navigation, ccg:// reference focus, node opening, and zoomable force layout.
 
 // @intent configure the namespace graph viewer, focused ccg ref node navigation, and node-open callback.
 type GraphViewProps = {
@@ -35,10 +44,21 @@ const importEdgeKinds = new Set(["imports_from"]);
 const typeEdgeKinds = new Set(["inherits", "implements", "tested_by"]);
 
 // @intent render an Obsidian-style force-directed graph viewer for one CCG namespace with focused node navigation.
-export function GraphView({ namespace, token, focusNodeID, onError, onOpenNode }: GraphViewProps) {
-  const graphRef = useRef<ForceGraphMethods<CanvasNode, CanvasLink> | undefined>(undefined);
+export function GraphView({
+  namespace,
+  token,
+  focusNodeID,
+  onError,
+  onOpenNode,
+}: GraphViewProps) {
+  const graphRef = useRef<
+    ForceGraphMethods<CanvasNode, CanvasLink> | undefined
+  >(undefined);
   const frameRef = useRef<HTMLDivElement | null>(null);
-  const [graph, setGraph] = useState<{ nodes: CanvasNode[]; links: CanvasLink[] }>({ nodes: [], links: [] });
+  const [graph, setGraph] = useState<{
+    nodes: CanvasNode[];
+    links: CanvasLink[];
+  }>({ nodes: [], links: [] });
   const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState("");
@@ -55,7 +75,10 @@ export function GraphView({ namespace, token, focusNodeID, onError, onOpenNode }
     // @intent keep the canvas dimensions synchronized with the available center panel space.
     const resize = () => {
       const rect = el.getBoundingClientRect();
-      setSize({ width: Math.max(320, Math.floor(rect.width)), height: Math.max(420, Math.floor(rect.height)) });
+      setSize({
+        width: Math.max(320, Math.floor(rect.width)),
+        height: Math.max(420, Math.floor(rect.height)),
+      });
     };
     resize();
     const observer = new ResizeObserver(resize);
@@ -77,7 +100,7 @@ export function GraphView({ namespace, token, focusNodeID, onError, onOpenNode }
         node.kind,
         node.qualified_name,
         node.file_path,
-        node.language || ""
+        node.language || "",
       ].some((value) => value.toLowerCase().includes(q));
     });
     const visibleIDs = new Set(nodes.map((node) => node.id));
@@ -88,11 +111,27 @@ export function GraphView({ namespace, token, focusNodeID, onError, onOpenNode }
       return visibleIDs.has(sourceID) && visibleIDs.has(targetID);
     });
     return { nodes, links };
-  }, [filter, graph, showSymbols, showStructure, showCalls, showImports, showTypes]);
+  }, [
+    filter,
+    graph,
+    showSymbols,
+    showStructure,
+    showCalls,
+    showImports,
+    showTypes,
+  ]);
 
   useEffect(() => {
     configureForces();
-  }, [visibleGraph.nodes.length, visibleGraph.links.length, showSymbols, showStructure, showCalls, showImports, showTypes]);
+  }, [
+    visibleGraph.nodes.length,
+    visibleGraph.links.length,
+    showSymbols,
+    showStructure,
+    showCalls,
+    showImports,
+    showTypes,
+  ]);
 
   useEffect(() => {
     if (!focusNodeID || graph.nodes.length === 0) return;
@@ -111,8 +150,11 @@ export function GraphView({ namespace, token, focusNodeID, onError, onOpenNode }
     try {
       const res = await getGraph(namespace, token);
       setGraph({
-        nodes: res.nodes.map((node) => ({ ...node, val: nodeValue(node.kind) })),
-        links: res.edges.map((edge) => ({ ...edge }))
+        nodes: res.nodes.map((node) => ({
+          ...node,
+          val: nodeValue(node.kind),
+        })),
+        links: res.edges.map((edge) => ({ ...edge })),
       });
       setTruncated(res.truncated);
       window.setTimeout(() => {
@@ -144,15 +186,32 @@ export function GraphView({ namespace, token, focusNodeID, onError, onOpenNode }
   function configureForces() {
     const graph = graphRef.current;
     if (!graph) return;
-    const linkForce = graph.d3Force("link") as { distance?: (value: number | ((link: CanvasLink) => number)) => unknown; strength?: (value: number) => unknown } | undefined;
+    const linkForce = graph.d3Force("link") as
+      | {
+          distance?: (
+            value: number | ((link: CanvasLink) => number),
+          ) => unknown;
+          strength?: (value: number) => unknown;
+        }
+      | undefined;
     linkForce?.distance?.((link: CanvasLink) => linkDistance(link.kind));
     linkForce?.strength?.(0.42);
 
-    const chargeForce = graph.d3Force("charge") as { strength?: (value: number) => unknown; distanceMax?: (value: number) => unknown } | undefined;
+    const chargeForce = graph.d3Force("charge") as
+      | {
+          strength?: (value: number) => unknown;
+          distanceMax?: (value: number) => unknown;
+        }
+      | undefined;
     chargeForce?.strength?.(-115);
     chargeForce?.distanceMax?.(520);
 
-    graph.d3Force("collide", forceCollide<NodeObject<CanvasNode>>((node) => collisionRadius(node.kind)).strength(0.74).iterations(2));
+    graph.d3Force(
+      "collide",
+      forceCollide<NodeObject<CanvasNode>>((node) => collisionRadius(node.kind))
+        .strength(0.74)
+        .iterations(2),
+    );
     graph.d3ReheatSimulation();
   }
 
@@ -180,15 +239,43 @@ export function GraphView({ namespace, token, focusNodeID, onError, onOpenNode }
             placeholder="Filter nodes"
           />
         </div>
-        <GraphToggle label="Symbols" active={showSymbols} onClick={() => setShowSymbols(!showSymbols)} />
-        <GraphToggle label="Structure" active={showStructure} onClick={() => setShowStructure(!showStructure)} />
-        <GraphToggle label="Calls" active={showCalls} onClick={() => setShowCalls(!showCalls)} />
-        <GraphToggle label="Imports" active={showImports} onClick={() => setShowImports(!showImports)} />
-        <GraphToggle label="Types" active={showTypes} onClick={() => setShowTypes(!showTypes)} />
-        <button className="graph-icon-button" onClick={() => graphRef.current?.zoomToFit(500, 70)} title="Fit graph">
+        <GraphToggle
+          label="Symbols"
+          active={showSymbols}
+          onClick={() => setShowSymbols(!showSymbols)}
+        />
+        <GraphToggle
+          label="Structure"
+          active={showStructure}
+          onClick={() => setShowStructure(!showStructure)}
+        />
+        <GraphToggle
+          label="Calls"
+          active={showCalls}
+          onClick={() => setShowCalls(!showCalls)}
+        />
+        <GraphToggle
+          label="Imports"
+          active={showImports}
+          onClick={() => setShowImports(!showImports)}
+        />
+        <GraphToggle
+          label="Types"
+          active={showTypes}
+          onClick={() => setShowTypes(!showTypes)}
+        />
+        <button
+          className="graph-icon-button"
+          onClick={() => graphRef.current?.zoomToFit(500, 70)}
+          title="Fit graph"
+        >
           <Maximize2 className="h-4 w-4" />
         </button>
-        <button className="graph-icon-button" onClick={() => void load()} title="Reload graph">
+        <button
+          className="graph-icon-button"
+          onClick={() => void load()}
+          title="Reload graph"
+        >
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
         </button>
       </div>
@@ -196,13 +283,16 @@ export function GraphView({ namespace, token, focusNodeID, onError, onOpenNode }
       {truncated && (
         <div className="flex items-center gap-2 border-b border-amber-700/50 bg-amber-950/50 px-4 py-2 text-xs text-amber-100">
           <AlertCircle className="h-4 w-4 text-amber-300" />
-          Graph is truncated by the API limit. Use filters to inspect a smaller region.
+          Graph is truncated by the API limit. Use filters to inspect a smaller
+          region.
         </div>
       )}
 
       <div ref={frameRef} className="relative min-h-0 flex-1">
         {visibleGraph.nodes.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-sm text-neutral-500">No graph nodes match the current filters.</div>
+          <div className="flex h-full items-center justify-center text-sm text-neutral-500">
+            No graph nodes match the current filters.
+          </div>
         ) : (
           <ForceGraph2D<CanvasNode, CanvasLink>
             ref={graphRef}
@@ -215,14 +305,20 @@ export function GraphView({ namespace, token, focusNodeID, onError, onOpenNode }
             nodeLabel={(node) => nodeTitle(node)}
             nodeColor={(node) => nodeColor(node.kind)}
             nodeCanvasObjectMode={() => "replace"}
-            nodeCanvasObject={(node, ctx, scale) => paintNode(node, ctx, scale, node.id === focusNodeID)}
+            nodeCanvasObject={(node, ctx, scale) =>
+              paintNode(node, ctx, scale, node.id === focusNodeID)
+            }
             linkColor={(link) => edgeColor(link.kind)}
             linkWidth={(link) => edgeWidth(link.kind)}
             linkDirectionalArrowLength={3}
             linkDirectionalArrowRelPos={0.92}
-            linkDirectionalParticles={(link) => callEdgeKinds.has(link.kind) ? 1 : 0}
+            linkDirectionalParticles={(link) =>
+              callEdgeKinds.has(link.kind) ? 1 : 0
+            }
             linkDirectionalParticleWidth={1.4}
-            linkLabel={(link) => `${link.kind}${link.file_path ? ` · ${link.file_path}` : ""}`}
+            linkLabel={(link) =>
+              `${link.kind}${link.file_path ? ` · ${link.file_path}` : ""}`
+            }
             cooldownTicks={90}
             d3VelocityDecay={0.32}
             onNodeClick={(node) => onOpenNode(node)}
@@ -240,9 +336,20 @@ export function GraphView({ namespace, token, focusNodeID, onError, onOpenNode }
 }
 
 // @intent render one compact graph filter toggle.
-function GraphToggle({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function GraphToggle({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
-    <button className={active ? "graph-toggle active" : "graph-toggle"} onClick={onClick}>
+    <button
+      className={active ? "graph-toggle active" : "graph-toggle"}
+      onClick={onClick}
+    >
       {label}
     </button>
   );
@@ -252,18 +359,33 @@ function GraphToggle({ label, active, onClick }: { label: string; active: boolea
 function LegendDot({ label, color }: { label: string; color: string }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+      <span
+        className="h-2.5 w-2.5 rounded-full"
+        style={{ backgroundColor: color }}
+      />
       <span>{label}</span>
     </div>
   );
 }
 
 // @intent paint graph nodes with readable labels at normal zoom levels.
-function paintNode(node: NodeObject<CanvasNode>, ctx: CanvasRenderingContext2D, globalScale: number, focused = false) {
+function paintNode(
+  node: NodeObject<CanvasNode>,
+  ctx: CanvasRenderingContext2D,
+  globalScale: number,
+  focused = false,
+) {
   const radius = screenRadiusForKind(node.kind) / globalScale;
   if (focused) {
     ctx.beginPath();
-    ctx.arc(node.x || 0, node.y || 0, radius + 6 / globalScale, 0, 2 * Math.PI, false);
+    ctx.arc(
+      node.x || 0,
+      node.y || 0,
+      radius + 6 / globalScale,
+      0,
+      2 * Math.PI,
+      false,
+    );
     ctx.fillStyle = "rgba(16, 185, 129, 0.2)";
     ctx.fill();
     ctx.lineWidth = 2 / globalScale;
@@ -282,7 +404,9 @@ function paintNode(node: NodeObject<CanvasNode>, ctx: CanvasRenderingContext2D, 
   ctx.stroke();
 
   if (globalScale < 0.55 && !["file", "package"].includes(node.kind)) return;
-  const label = compactLabel(node.label || node.qualified_name || node.file_path);
+  const label = compactLabel(
+    node.label || node.qualified_name || node.file_path,
+  );
   const fontSize = 11 / globalScale;
   ctx.font = `${fontSize}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
   ctx.textAlign = "center";
@@ -292,10 +416,14 @@ function paintNode(node: NodeObject<CanvasNode>, ctx: CanvasRenderingContext2D, 
 }
 
 function nodeTitle(node: NodeObject<CanvasNode>) {
-  return [node.qualified_name || node.label, node.kind, node.file_path].filter(Boolean).join(" · ");
+  return [node.qualified_name || node.label, node.kind, node.file_path]
+    .filter(Boolean)
+    .join(" · ");
 }
 
-function nodeID(node: string | CanvasNode | NodeObject<CanvasNode> | undefined) {
+function nodeID(
+  node: string | CanvasNode | NodeObject<CanvasNode> | undefined,
+) {
   if (!node) return "";
   if (typeof node === "string") return node;
   return String(node.id || "");

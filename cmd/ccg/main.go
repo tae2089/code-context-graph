@@ -61,11 +61,19 @@ func main() {
 	}
 
 	deps.ServeFunc = func(cfg cli.ServeConfig) error {
+		repoRoot := os.Getenv("CCG_REPO_ROOT")
+		if repoRoot == "" {
+			// @domainRule local stdio MCP uses the launch working directory as the analysis boundary when no repo root is configured.
+			if wd, err := os.Getwd(); err == nil {
+				repoRoot = wd
+			}
+		}
 		return mcpruntime.RunStdio(rt, mcpruntime.Options{
 			CacheTTL:            cfg.CacheTTL,
 			NoCache:             cfg.NoCache,
 			OTELEndpoint:        cfg.OTELEndpoint,
 			NamespaceRoot:       cfg.NamespaceRoot,
+			RepoRoot:            repoRoot,
 			MaxFileBytes:        cfg.MaxFileBytes,
 			MaxTotalParsedBytes: cfg.MaxTotalParsedBytes,
 			ServiceVersion:      version,
