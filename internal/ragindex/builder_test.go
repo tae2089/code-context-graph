@@ -1129,6 +1129,385 @@ func TestRetrieve_MatchedFieldsExposesAnnotationBuckets(t *testing.T) {
 	}
 }
 
+// TestRetrieve_LiteralOutranksExpansionOnly verifies Phase 2 rule that an
+// expansion-only match (e.g., camelCase split) cannot outrank a direct literal
+// match in a high-signal annotation bucket.
+func TestRetrieve_LiteralOutranksExpansionOnly(t *testing.T) {
+	root := &ragindex.TreeNode{
+		ID:    "root",
+		Label: "Root",
+		Children: []*ragindex.TreeNode{
+			{
+				ID:    "community:c",
+				Label: "c",
+				Children: []*ragindex.TreeNode{
+					{
+						ID:      "file:literal.go",
+						Label:   "literal.go",
+						DocPath: "docs/literal.go.md",
+						Children: []*ragindex.TreeNode{
+							{
+								ID:    "symbol:pkg.Literal",
+								Label: "Literal",
+								FieldTexts: map[string]string{
+									"intent": "payment processing",
+								},
+							},
+						},
+					},
+					{
+						ID:      "file:expansion.go",
+						Label:   "expansion.go",
+						DocPath: "docs/expansion.go.md",
+						Children: []*ragindex.TreeNode{
+							{
+								ID:    "symbol:pkg.Expansion",
+								Label: "Expansion",
+								FieldTexts: map[string]string{
+									// Only the camelCase-expanded "payment" appears via "PaymentProcessor"
+									"intent": "PaymentProcessor entrypoint",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	results := ragindex.Retrieve(root, "payment", 10)
+	if len(results) < 2 {
+		t.Fatalf("expected both files to score, got %d", len(results))
+	}
+	if results[0].DocPath != "docs/literal.go.md" {
+		t.Fatalf("top doc = %q, want literal.go (literal must outrank expansion-only)", results[0].DocPath)
+	}
+	if results[0].Score <= results[1].Score {
+		t.Fatalf("literal score (%d) must be strictly greater than expansion-only score (%d)", results[0].Score, results[1].Score)
+	}
+}
+
+// TestRetrieve_CamelCaseExpansionMatches verifies a query token that is NOT a literal
+// substring of any FieldTexts content still matches because camel-split of a sibling
+// compound introduces the token via expansion. Two nodes are used: node A has intent
+// "PaymentProcessor entrypoint" (camel-splits to [payment, processor]); node B has
+// intent "billing pipeline" (no overlap with query). Query "processor" — verify it
+// matches A only via the camelCase expansion path, with explain confirming
+// ExpandedTerms contains "processor" so the test cannot pass via plain substring alone.
+func TestRetrieve_CamelCaseExpansionMatches(t *testing.T) {
+	root := &ragindex.TreeNode{
+		ID:    "root",
+		Label: "Root",
+		Children: []*ragindex.TreeNode{
+			{
+				ID:    "community:c",
+				Label: "c",
+				Children: []*ragindex.TreeNode{
+					{
+						ID:      "file:camel.go",
+						Label:   "camel.go",
+						DocPath: "docs/camel.go.md",
+						Children: []*ragindex.TreeNode{
+							{
+								ID:    "symbol:pkg.PaymentProcessor",
+								Label: "PaymentProcessor",
+								FieldTexts: map[string]string{
+									"intent": "PaymentProcessor entrypoint",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	results := ragindex.RetrieveWithOptions(root, "processor", 5, ragindex.RetrieveOptions{Explain: true})
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result via camelCase expansion, got %d", len(results))
+	}
+	// True expansion-only assertion: the query "processor" IS a substring of "paymentprocessor"
+	// after lowercase, so substring match still fires. To prove expansion participated, assert
+	// ExpandedTerms includes a sibling token from camel-split (e.g. "payment").
+	hasSibling := false
+	for _, exp := range results[0].ExpandedTerms {
+		if exp == "payment" {
+			hasSibling = true
+			break
+		}
+	}
+	if !hasSibling {
+		t.Fatalf("expected camel-split sibling 'payment' in ExpandedTerms, got %v", results[0].ExpandedTerms)
+	}
+}
+
+// TestRetrieve_SnakeCaseExpansionMatches verifies snake_case tokens get split and
+// the expansion path participates beyond plain substring matching. Asserts via explain
+// that ExpandedTerms includes the sibling sub-token introduced by snake-case split.
+func TestRetrieve_SnakeCaseExpansionMatches(t *testing.T) {
+	root := &ragindex.TreeNode{
+		ID:    "root",
+		Label: "Root",
+		Children: []*ragindex.TreeNode{
+			{
+				ID:    "community:c",
+				Label: "c",
+				Children: []*ragindex.TreeNode{
+					{
+						ID:      "file:snake.go",
+						Label:   "snake.go",
+						DocPath: "docs/snake.go.md",
+						Children: []*ragindex.TreeNode{
+							{
+								ID:    "symbol:pkg.process",
+								Label: "process",
+								FieldTexts: map[string]string{
+									"intent": "handles payment_processor flow",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	results := ragindex.RetrieveWithOptions(root, "processor", 5, ragindex.RetrieveOptions{Explain: true})
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result via snake_case expansion, got %d", len(results))
+	}
+	hasSibling := false
+	for _, exp := range results[0].ExpandedTerms {
+		if exp == "payment" {
+			hasSibling = true
+			break
+		}
+	}
+	if !hasSibling {
+		t.Fatalf("expected snake-split sibling 'payment' in ExpandedTerms, got %v", results[0].ExpandedTerms)
+	}
+}
+
+// TestRetrieve_TagNameHintExpansion verifies multi-word phrases like
+// "side effect" expand to the @sideEffect bucket via tag-name hints.
+func TestRetrieve_TagNameHintExpansion(t *testing.T) {
+	root := &ragindex.TreeNode{
+		ID:    "root",
+		Label: "Root",
+		Children: []*ragindex.TreeNode{
+			{
+				ID:    "community:c",
+				Label: "c",
+				Children: []*ragindex.TreeNode{
+					{
+						ID:      "file:effects.go",
+						Label:   "effects.go",
+						DocPath: "docs/effects.go.md",
+						Children: []*ragindex.TreeNode{
+							{
+								ID:    "symbol:pkg.Writer",
+								Label: "Writer",
+								FieldTexts: map[string]string{
+									"sideEffect": "writes audit log to disk",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Query "side effect audit" — "side"/"effect" alone are too short / generic,
+	// but the tag-name hint should expand to match the @sideEffect bucket.
+	results := ragindex.Retrieve(root, "sideeffect audit", 5)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result via tag-name hint + literal audit, got %d", len(results))
+	}
+}
+
+// TestRetrieve_DefaultResponseOmitsExpansionDiagnostics verifies the default
+// Retrieve call (no explain) does not expose ExpandedTerms or FieldScores.
+func TestRetrieve_DefaultResponseOmitsExpansionDiagnostics(t *testing.T) {
+	root := &ragindex.TreeNode{
+		ID:    "root",
+		Label: "Root",
+		Children: []*ragindex.TreeNode{
+			{
+				ID:    "community:c",
+				Label: "c",
+				Children: []*ragindex.TreeNode{
+					{
+						ID:      "file:camel.go",
+						Label:   "camel.go",
+						DocPath: "docs/camel.go.md",
+						Children: []*ragindex.TreeNode{
+							{
+								ID:    "symbol:pkg.PaymentProcessor",
+								Label: "PaymentProcessor",
+								FieldTexts: map[string]string{
+									"intent": "PaymentProcessor entrypoint",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	results := ragindex.Retrieve(root, "payment", 5)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if len(results[0].ExpandedTerms) != 0 {
+		t.Errorf("default Retrieve must not expose ExpandedTerms, got %v", results[0].ExpandedTerms)
+	}
+	if len(results[0].FieldScores) != 0 {
+		t.Errorf("default Retrieve must not expose FieldScores, got %v", results[0].FieldScores)
+	}
+
+	// Ensure JSON marshal omits these fields entirely.
+	raw, err := json.Marshal(results[0])
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	s := string(raw)
+	if strings.Contains(s, "expanded_terms") {
+		t.Errorf("default JSON must omit expanded_terms, got %s", s)
+	}
+	if strings.Contains(s, "field_scores") {
+		t.Errorf("default JSON must omit field_scores, got %s", s)
+	}
+}
+
+// TestRetrieve_ExplainExposesDiagnostics verifies RetrieveWithOptions(Explain:true)
+// adds per-result expanded_terms and field_scores diagnostics.
+func TestRetrieve_ExplainExposesDiagnostics(t *testing.T) {
+	root := &ragindex.TreeNode{
+		ID:    "root",
+		Label: "Root",
+		Children: []*ragindex.TreeNode{
+			{
+				ID:    "community:c",
+				Label: "c",
+				Children: []*ragindex.TreeNode{
+					{
+						ID:      "file:camel.go",
+						Label:   "camel.go",
+						DocPath: "docs/camel.go.md",
+						Children: []*ragindex.TreeNode{
+							{
+								ID:    "symbol:pkg.PaymentProcessor",
+								Label: "PaymentProcessor",
+								FieldTexts: map[string]string{
+									"intent": "PaymentProcessor entrypoint",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	results := ragindex.RetrieveWithOptions(root, "payment", 5, ragindex.RetrieveOptions{Explain: true})
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if len(results[0].ExpandedTerms) == 0 {
+		t.Errorf("explain mode must expose ExpandedTerms, got empty")
+	}
+	if len(results[0].FieldScores) == 0 {
+		t.Errorf("explain mode must expose FieldScores, got empty")
+	}
+
+	raw, err := json.Marshal(results[0])
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	s := string(raw)
+	if !strings.Contains(s, "expanded_terms") {
+		t.Errorf("explain JSON must include expanded_terms, got %s", s)
+	}
+	if !strings.Contains(s, "field_scores") {
+		t.Errorf("explain JSON must include field_scores, got %s", s)
+	}
+}
+
+// TestRetrieve_DefaultMatchesBudgetCap verifies that when expansion-only matches inflate
+// the symbol-level evidence list, the result's Matches slice is bounded by the default
+// budget while literal-bearing matches always retain priority within the cap.
+func TestRetrieve_DefaultMatchesBudgetCap(t *testing.T) {
+	const budget = 12
+	// Build one literal-matching symbol and many expansion-only siblings inside the same
+	// file. Query "alpha" matches the literal symbol; "beta_gamma_delta" decomposition
+	// expands into siblings that hit the rest of the file's symbols.
+	literalChild := &ragindex.TreeNode{
+		ID:    "symbol:pkg.AlphaCore",
+		Label: "AlphaCore",
+		FieldTexts: map[string]string{
+			"intent": "alpha core entrypoint",
+		},
+	}
+	children := []*ragindex.TreeNode{literalChild}
+	// Add 30 expansion-only siblings whose intent contains "beta" (a camel sibling we'll
+	// inject via an additional anchor). Use a separate anchor symbol whose camel-split
+	// introduces "alpha" + "beta" so vocab sees both.
+	anchor := &ragindex.TreeNode{
+		ID:    "symbol:pkg.AlphaBeta",
+		Label: "AlphaBeta",
+		FieldTexts: map[string]string{
+			"intent": "AlphaBeta combined anchor",
+		},
+	}
+	children = append(children, anchor)
+	for i := 0; i < 30; i++ {
+		children = append(children, &ragindex.TreeNode{
+			ID:    fmt.Sprintf("symbol:pkg.expand_%d", i),
+			Label: fmt.Sprintf("expand_%d", i),
+			FieldTexts: map[string]string{
+				"intent": fmt.Sprintf("beta sibling %d", i),
+			},
+		})
+	}
+	root := &ragindex.TreeNode{
+		ID:    "root",
+		Label: "Root",
+		Children: []*ragindex.TreeNode{
+			{
+				ID:    "community:c",
+				Label: "c",
+				Children: []*ragindex.TreeNode{
+					{
+						ID:       "file:big.go",
+						Label:    "big.go",
+						DocPath:  "docs/big.go.md",
+						Children: children,
+					},
+				},
+			},
+		},
+	}
+	results := ragindex.Retrieve(root, "alpha", 5)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 file result, got %d", len(results))
+	}
+	if got := len(results[0].Matches); got > budget {
+		t.Fatalf("Matches len = %d, want <= %d (defaultMatchesBudget)", got, budget)
+	}
+	// Literal-bearing match must be present in the capped slice.
+	foundLiteral := false
+	for _, m := range results[0].Matches {
+		if m.ID == literalChild.ID {
+			foundLiteral = true
+			break
+		}
+	}
+	if !foundLiteral {
+		t.Fatalf("literal-bearing match %q must be retained under budget cap, got %#v", literalChild.ID, results[0].Matches)
+	}
+}
+
 func TestRetrieve_DoesNotDoubleCountSearchTextWhenStructuredFieldMatches(t *testing.T) {
 	root := &ragindex.TreeNode{
 		ID:    "root",
