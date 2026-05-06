@@ -86,26 +86,26 @@ ccg docs --out docs
 
 `ccg docs` always writes `.ccg/wiki-index.json` as a ccg-server Wiki
 compatibility snapshot. The Wiki API prefers the graph database for tree
-navigation and search, then falls back to that snapshot when DB-backed
-navigation is unavailable. The snapshot is built directly from folders,
-packages, files, and symbols; it does not depend on community postprocessing. Symbol
+navigation and search, then uses that snapshot only when DB-backed navigation
+is unavailable. The snapshot is built directly from folders, packages, files,
+and symbols; it does not depend on community postprocessing. Symbol
 nodes carry structured annotation details so the browser Wiki can show params,
 returns, rules, side effects, and other tags even when the symbol itself has no
-generated Markdown file. Both Wiki and RAG indexes also store hidden annotation
-search text so `search_docs`, `retrieve_docs`, and Wiki search can match
-non-intent tags without returning that hidden text in normal tree payloads.
+generated Markdown file. Wiki indexes also store hidden annotation search text
+so Wiki search can match non-intent tags without returning that hidden text in
+normal tree payloads.
 The browser Wiki also provides a Graph tab backed by `/wiki/api/graph`; it reads
 the namespace's graph nodes and edges directly from the configured database and
 opens clicked file/symbol nodes through the same document viewer.
 Unless `--rag=false` is set, `ccg docs` also refreshes community structure and
-writes the default `.ccg/doc-index.json` compatibility snapshot for MCP
-retrieval fallback.
+writes the default `.ccg/doc-index.json` compatibility snapshot for manual RAG
+index workflows.
 Use `--rag-refresh=false` only when you intentionally want to reuse existing
 community rows. The standalone `ccg rag-index` command remains available for
 manual rebuilds from generated docs and already-computed communities.
 
-Then use MCP `retrieve_docs` to retrieve document candidates and bounded
-Markdown content with tree evidence. Use `get_rag_tree` to expand the
+Then use MCP `retrieve_docs` to retrieve file-level candidates and bounded
+Markdown content with matched fields and graph evidence. Use `get_rag_tree` to expand the
 module/community context and `get_doc_content` to read a specific generated doc
 directly. `search_docs` and `ccg search` remain useful for quick keyword or
 annotation matches, but they should not be treated as the primary answering

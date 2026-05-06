@@ -88,24 +88,24 @@ ccg docs --out docs
 
 `ccg docs`는 ccg-server Wiki UI 호환 snapshot인 `.ccg/wiki-index.json`을
 항상 기록합니다. Wiki API는 tree navigation과 search에 graph database를
-우선 사용하고, DB-backed navigation이 불가능할 때 이 snapshot으로
-fallback합니다. 이 snapshot은 folder, package, file, symbol에서 직접 만든
+우선 사용하고, DB-backed navigation이 불가능할 때만 이 snapshot을
+사용합니다. 이 snapshot은 folder, package, file, symbol에서 직접 만든
 표시용 tree이며 community postprocess에 의존하지 않습니다. Symbol node는
 구조화된 annotation detail을 함께 담기 때문에 symbol 자체에 생성 Markdown
 파일이 없어도 브라우저 Wiki에서 params, returns, rules, side effects 등
-tag를 보여줄 수 있습니다. Wiki와 RAG index는 숨겨진 annotation search text도
-저장하므로 `search_docs`, `retrieve_docs`, Wiki search가 non-intent tag까지
-매칭할 수 있지만, 일반 tree payload에는 이 숨겨진 text를 반환하지 않습니다.
+tag를 보여줄 수 있습니다. Wiki index는 숨겨진 annotation search text도
+저장하므로 Wiki search가 non-intent tag까지 매칭할 수 있지만, 일반 tree
+payload에는 이 숨겨진 text를 반환하지 않습니다.
 브라우저 Wiki는 `/wiki/api/graph` 기반 Graph 탭도 제공합니다. 이 탭은 설정된
 데이터베이스에서 해당 네임스페이스의 graph node와 edge를 직접 읽고, 클릭한
 file/symbol node를 같은 문서 viewer로 엽니다.
 `--rag=false`가 설정되지 않은 경우에는 community 구조도 갱신하고
-MCP retrieval fallback용 기본 `.ccg/doc-index.json` 호환 snapshot을 함께
+수동 RAG index workflow용 기본 `.ccg/doc-index.json` 호환 snapshot을 함께
 기록합니다. 기존 community row를 의도적으로 재사용하려면
 `--rag-refresh=false`를 사용하십시오. 독립 `ccg rag-index` 명령은 생성 문서와
 이미 계산된 community를 사용한 수동 재생성 용도로 남아 있습니다.
 
-그 다음 MCP `retrieve_docs`로 문서 후보와 제한된 Markdown 본문을 tree evidence와 함께 가져옵니다. `get_rag_tree`로 모듈/커뮤니티 맥락을 펼치고, `get_doc_content`로 특정 생성 문서를 직접 읽은 뒤 정확한 graph 도구로 내려갑니다. `search_docs`와 `ccg search`는 빠른 키워드 또는 어노테이션 매칭에는 유용하지만, 넓은 자연어 질문의 기본 응답 표면으로 보기는 어렵습니다.
+그 다음 MCP `retrieve_docs`로 파일 단위 후보와 제한된 Markdown 본문을 matched fields 및 graph evidence와 함께 가져옵니다. `get_rag_tree`로 모듈/커뮤니티 맥락을 펼치고, `get_doc_content`로 특정 생성 문서를 직접 읽은 뒤 정확한 graph 도구로 내려갑니다. `search_docs`와 `ccg search`는 빠른 키워드 또는 어노테이션 매칭에는 유용하지만, 넓은 자연어 질문의 기본 응답 표면으로 보기는 어렵습니다.
 
 ### 데이터베이스 선택 (Database Choice)
 

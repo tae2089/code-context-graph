@@ -81,7 +81,8 @@ ccg serve
 ```
 
 `ccg docs` writes `.ccg/wiki-index.json` as a `/wiki` compatibility snapshot
-and, unless `--rag=false` is set, `.ccg/doc-index.json` for retrieval.
+and, unless `--rag=false` is set, `.ccg/doc-index.json` for manual RAG-index
+workflows.
 
 Browser Wiki:
 
@@ -94,8 +95,9 @@ ccg-server \
 ```
 
 The Wiki tree, search, and retrieve mode prefer the configured database.
-`wiki-index.json` and `doc-index.json` are compatibility snapshots used only
-when the corresponding DB-backed path is unavailable.
+`wiki-index.json` is a compatibility tree snapshot used only when the
+corresponding DB-backed path is unavailable; `doc-index.json` is kept for manual
+RAG-index compatibility rather than runtime retrieve.
 The Graph tab reads graph nodes and edges directly from the configured database
 through `/wiki/api/graph`, so it follows the latest `ccg build` or webhook sync
 state. Context Tray copy uses `/wiki/api/context` for generated docs and keeps

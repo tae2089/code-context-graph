@@ -2,24 +2,25 @@
 
 Documentation index for code-context-graph.
 
-For LLM-agent workflows, start natural-language code exploration from generated
-docs and the RAG index. Use graph/search tools after the relevant module,
-document, or symbol candidate is identified.
+For LLM-agent workflows, start natural-language code exploration from
+DB-backed `retrieve_docs`. It is an evidence-driven narrowing layer, not a Top1
+search engine: use its small file-level candidates, matched fields, and evidence
+nodes to choose the shortest route into docs or graph tools.
 
 The browser Wiki is served by `ccg-server` when `--wiki-dir` points at built
 React assets. It prefers the graph database for presentation, uses
-`wiki-index.json` and `doc-index.json` as compatibility snapshots, and uses
-`/wiki/api/graph` for the visual graph tab. Runtime retrieve mode prefers the
-database when it is configured and queryable. Use it when a human developer
-needs to browse docs, inspect annotation-rich symbol cards, collect Context Tray
-Markdown, or visually explore graph edges.
+`wiki-index.json` as a compatibility tree snapshot, and uses `/wiki/api/graph`
+for the visual graph tab. Runtime retrieve mode uses DB-backed graph and
+annotation evidence. Use it when a human developer needs to browse docs,
+inspect annotation-rich symbol cards, collect Context Tray Markdown, or visually
+explore graph edges.
 
 | Document | Description |
 |----------|-------------|
 | [CLI Reference](cli-reference.md) | Full CLI commands, options, and configuration file (`.ccg.yaml`) |
 | [Eval](eval.md) | Parser/search quality evaluation, golden corpus, and metrics |
 | [Lint](lint.md) | Detailed `ccg lint` category reference, interpretation guide, and CI usage |
-| [MCP Tools](mcp-tools.md) | 33 MCP tools, agent skills, RAG-first routing, AI-driven annotation |
+| [MCP Tools](mcp-tools.md) | 33 MCP tools, agent skills, evidence-first routing, AI-driven annotation |
 | [Annotations](annotations.md) | Custom annotation system — tags, examples, search/RAG quality |
 | [Webhook](webhook.md) | GitHub / Gitea webhook sync, branch filtering, graceful shutdown |
 | [Docker](docker.md) | Docker image build, MCP server setup, Wiki UI deployment, PostgreSQL integration |

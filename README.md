@@ -12,8 +12,8 @@ Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) 
 
 - **12 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua/Luau
 - **33 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, postprocess operations, namespace file management, and more
-- **RAG-first code exploration**: generated docs + community structure let LLM agents answer natural-language questions before drilling into exact graph nodes
-- **Browser Wiki UI**: `ccg-server` can serve generated docs, tree search, PageIndex-style retrieval, Context Tray copying, and an Obsidian-style graph viewer
+- **Evidence-driven code exploration**: DB-backed retrieval returns small file-level candidates with matched fields, evidence nodes, and optional docs before agents drill into exact graph nodes
+- **Browser Wiki UI**: `ccg-server` can serve generated docs, tree search, DB-backed retrieval, Context Tray copying, and an Obsidian-style graph viewer
 - **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context ([details](guide/annotations.md))
 - **Webhook sync**: GitHub / Gitea push events → auto clone + build with per-repo branch filtering and `.ccg.yaml` `include_paths` auto-loading ([details](guide/webhook.md))
 - **Eval**: Golden corpus-based parser accuracy (P/R/F1) and search quality (P@K, MRR, nDCG) evaluation ([details](guide/eval.md))
@@ -91,19 +91,21 @@ ccg eval --suite parser --update
 
 `ccg docs` writes generated Markdown plus `.ccg/wiki-index.json` as a browser
 Wiki compatibility snapshot. The Wiki prefers the graph database for tree
-navigation and search, then falls back to `wiki-index.json` when DB-backed
-navigation is unavailable. By default `ccg docs` also refreshes community structure and writes
-`.ccg/doc-index.json` as a compatibility retrieval snapshot. Runtime
-`retrieve_docs` paths prefer the graph database when it is configured and
-queryable, then fall back to `doc-index.json` when DB-backed retrieval is
-unavailable. Use `--rag=false` when you only want Markdown and the Wiki
+navigation and search, then uses `wiki-index.json` only when DB-backed
+navigation is unavailable. By default `ccg docs` also refreshes community
+structure and writes `.ccg/doc-index.json` as a compatibility snapshot for
+manual RAG-index workflows; runtime `retrieve_docs` uses DB-backed graph and
+annotation evidence. Use `--rag=false` when you only want Markdown and the Wiki
 snapshot, or `--rag-refresh=false` when you want to rebuild the RAG index from
 existing community rows without recalculating communities.
 
-For LLM agents, treat generated docs and the RAG index as the primary entrypoint
-for natural-language questions such as "how does webhook sync work?" or "where
-are the operational risks?". Use graph tools for exact symbols, call relations,
-impact radius, and pagination-safe result sets. Use `ccg search` as a focused
+For LLM agents, use DB-backed `retrieve_docs` as the first stop for broad
+natural-language questions such as "how does webhook sync work?" or "where are
+the operational risks?". It is not a Top1 search engine; it is an
+evidence-driven narrowing layer that should return a small set of relevant
+files with `matched_fields`, `matched_terms`, and evidence nodes. Use
+`get_doc_content`, `get_node`, `query_graph`, `trace_flow`, and impact tools
+only after the route is narrowed. Use `ccg search` as a focused
 annotation/keyword candidate search rather than the first tool for broad code
 understanding.
 
@@ -123,8 +125,8 @@ size stays small.
 The Wiki is meant for developers and agents inspecting a generated codebase:
 
 - Tree navigation over folders, packages, files, and annotated symbols
-- Keyword search and DB-primary `retrieve_docs`, with generated indexes kept as
-  compatibility fallbacks
+- Keyword search and DB-backed `retrieve_docs` with matched evidence and small
+  file-level result sets
 - Rich symbol detail cards from CCG annotations even when a symbol has no
   generated Markdown file
 - Context Tray for collecting files and doc-less symbols into one Markdown

@@ -84,8 +84,8 @@ ccg serve
 ```
 
 `ccg docs`는 `/wiki` 호환 snapshot인 `.ccg/wiki-index.json`을 기록하고,
-`--rag=false`가 설정되지 않은 경우 retrieval용 `.ccg/doc-index.json`도 함께
-기록합니다.
+`--rag=false`가 설정되지 않은 경우 수동 RAG-index workflow용
+`.ccg/doc-index.json`도 함께 기록합니다.
 
 브라우저 Wiki:
 
@@ -98,8 +98,9 @@ ccg-server \
 ```
 
 Wiki tree, search, retrieve 모드는 설정된 데이터베이스를 우선 사용합니다.
-`wiki-index.json`과 `doc-index.json`은 해당 DB-backed 경로를 사용할 수 없을
-때만 쓰는 호환 snapshot입니다.
+`wiki-index.json`은 해당 DB-backed tree 경로를 사용할 수 없을 때만 쓰는
+호환 snapshot이며, `doc-index.json`은 runtime retrieve가 아니라 수동 RAG-index
+호환성을 위해 유지됩니다.
 Graph 탭은 `/wiki/api/graph`를 통해 설정된 데이터베이스의 graph node와
 edge를 직접 읽으므로 최신 `ccg build` 또는 webhook sync 상태를 반영합니다.
 Context Tray copy는 생성 문서에 대해 `/wiki/api/context`를 사용하고,

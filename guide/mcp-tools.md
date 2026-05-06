@@ -113,13 +113,13 @@ truncating the response.
 | `get_rag_tree` | Navigate RAG document tree by node ID (supports namespace) |
 | `get_doc_content` | Get documentation file content (supports namespace) |
 | `search_docs` | Search RAG document tree by keyword (supports namespace) |
-| `retrieve_docs` | Retrieve relevant docs from DB-backed graph evidence, with doc-index fallback, matched evidence, and bounded Markdown content |
+| `retrieve_docs` | Retrieve relevant docs from DB-backed graph evidence, with matched fields, evidence nodes, and bounded Markdown content |
 
-Use the documentation/RAG tools as the first stop for natural-language code
-understanding. `retrieve_docs` scores file-level graph evidence so multi-keyword
-queries can match across related symbols and returns bounded Markdown content
-with evidence. When DB retrieval is unavailable, it falls back to the generated
-`doc-index.json` snapshot. `get_rag_tree` expands the surrounding module structure; call it
+Use `retrieve_docs` as the first stop for natural-language code understanding.
+It scores file-level graph and annotation evidence so multi-keyword queries can
+match across related symbols and returns bounded Markdown content with evidence.
+It is designed for high Top10 recall and low token use, not guaranteed Top1
+ranking. `get_rag_tree` expands the surrounding module structure; call it
 without arguments first, then pass `node_id` from the returned tree to drill
 into `community`, `package`, `file`, or `symbol` nodes. The older
 `community_id` parameter remains a compatibility alias for `node_id`.
@@ -141,12 +141,12 @@ term adds another ranking bonus. `matched_fields`, `matched_terms`, and
 
 RAG index quality depends on generated docs and non-empty community
 postprocessing. The CLI `ccg docs` command refreshes communities and writes the
-default `doc-index.json` compatibility snapshot automatically. It also writes a
-separate `wiki-index.json` compatibility snapshot for the browser Wiki; MCP
-retrieval tools prefer the database and use snapshots only as fallback surfaces.
-In MCP-only workflows, run `run_postprocess` with `communities=true`,
-`flows=false`, and `fts=false` before `build_rag_index` when communities may be
-missing.
+default `doc-index.json` compatibility snapshot for manual RAG-index workflows.
+It also writes a separate `wiki-index.json` compatibility snapshot for the
+browser Wiki tree. Runtime `retrieve_docs` and Wiki Retrieve use the database
+when it is configured. In MCP-only workflows, run `run_postprocess` with
+`communities=true`, `flows=false`, and `fts=false` before `build_rag_index` when
+communities may be missing.
 
 ### Namespace File Management
 

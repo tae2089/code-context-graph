@@ -106,13 +106,13 @@ CCG는 아직 Prometheus `/metrics` 엔드포인트를 제공하지 않습니다
 | `get_rag_tree` | node ID 기반 RAG 문서 트리 탐색 (네임스페이스 지원) |
 | `get_doc_content` | 문서 파일 내용 확인 (네임스페이스 지원) |
 | `search_docs` | 키워드로 RAG 문서 트리 검색 (네임스페이스 지원) |
-| `retrieve_docs` | DB-backed graph evidence에서 관련 문서를 찾고, doc-index fallback, evidence, 제한된 Markdown 본문 반환 |
+| `retrieve_docs` | DB-backed graph evidence에서 관련 문서를 찾고, matched fields, evidence node, 제한된 Markdown 본문 반환 |
 
-자연어 기반 코드 이해에는 문서/RAG 도구를 먼저 사용하십시오.
-`retrieve_docs`는 file-level graph evidence를 점수화하므로 여러 키워드가
-관련 심볼에 나뉘어 있어도 같은 문서를 후보로 찾고, 제한된 Markdown 본문과
-evidence를 반환합니다. DB retrieval을 사용할 수 없으면 생성된
-`doc-index.json` snapshot으로 fallback합니다. `get_rag_tree`는 주변 모듈 구조를 펼칩니다. 먼저
+자연어 기반 코드 이해에는 `retrieve_docs`를 먼저 사용하십시오.
+`retrieve_docs`는 file-level graph/annotation evidence를 점수화하므로 여러
+키워드가 관련 심볼에 나뉘어 있어도 같은 문서를 후보로 찾고, 제한된 Markdown
+본문과 evidence를 반환합니다. Top1 정답을 보장하기보다 Top10 후보를 작게
+좁히는 evidence-driven retrieval layer입니다. `get_rag_tree`는 주변 모듈 구조를 펼칩니다. 먼저
 인자 없이 호출해 tree를 받고, 반환된 `node_id`를 넘겨 `community`,
 `package`, `file`, `symbol` 노드로 내려갑니다. 기존 `community_id`
 파라미터는 `node_id`의 호환 alias로 유지됩니다. `get_doc_content`는
@@ -135,10 +135,10 @@ contains, `qualified_name`, `@intent`, `@index`, `@domainRule`, `@requires`,
 
 RAG 인덱스 품질은 생성 문서와 비어 있지 않은 community postprocess 결과에
 의존합니다. CLI `ccg docs` 명령은 community를 갱신하고 기본
-`doc-index.json` 호환 snapshot을 자동으로 기록합니다. 또한 브라우저 Wiki를
-위한 별도 `wiki-index.json` 호환 snapshot도 기록하며, MCP retrieval 도구는
-DB를 우선 사용하고 snapshot은 fallback surface로만 사용합니다. MCP만 사용하는
-워크플로우에서 community가 없을 수 있으면 `build_rag_index` 전에
+`doc-index.json` 호환 snapshot을 수동 RAG-index workflow용으로 자동
+기록합니다. 또한 브라우저 Wiki를 위한 별도 `wiki-index.json` 호환 snapshot도
+기록합니다. Runtime `retrieve_docs`와 Wiki Retrieve는 DB가 설정된 경우 DB를
+사용합니다. MCP만 사용하는 워크플로우에서 community가 없을 수 있으면 `build_rag_index` 전에
 `run_postprocess`를 `communities=true`, `flows=false`, `fts=false`로
 호출하십시오.
 
