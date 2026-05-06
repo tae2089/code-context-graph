@@ -153,7 +153,7 @@ func TestGetRagTree_DBFallbackCommunityIDAlias(t *testing.T) {
 	}
 }
 
-func TestGetRagTree_JSONIndexTakesPrecedenceOverDBFallback(t *testing.T) {
+func TestGetRagTree_UsesDBWhenDocIndexFileExists(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()
 	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
@@ -173,19 +173,19 @@ func TestGetRagTree_JSONIndexTakesPrecedenceOverDBFallback(t *testing.T) {
 
 	result := callTool(t, deps, "get_rag_tree", map[string]any{})
 	if result.IsError {
-		t.Fatalf("get_rag_tree JSON precedence error: %v", getTextContent(result))
+		t.Fatalf("get_rag_tree DB-first tree error: %v", getTextContent(result))
 	}
 
 	root := decodeRagTreeNode(t, result)
-	if ragindex.FindNode(root, "community:json") == nil {
-		t.Fatalf("expected JSON index community: %#v", root)
+	if ragindex.FindNode(root, "community:db") == nil {
+		t.Fatalf("expected DB community despite doc-index.json: %#v", root)
 	}
-	if ragindex.FindNode(root, "community:db") != nil {
-		t.Fatalf("DB fallback should not be used when doc-index.json exists: %#v", root)
+	if ragindex.FindNode(root, "community:json") != nil {
+		t.Fatalf("doc-index community should not be used when DB tree exists: %#v", root)
 	}
 }
 
-func TestGetRagTree_DefaultNamespaceUsesSharedJSONIndex(t *testing.T) {
+func TestGetRagTree_DefaultNamespaceUsesSharedDBTree(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()
 	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
@@ -205,15 +205,15 @@ func TestGetRagTree_DefaultNamespaceUsesSharedJSONIndex(t *testing.T) {
 
 	result := callTool(t, deps, "get_rag_tree", map[string]any{"namespace": ctxns.DefaultNamespace})
 	if result.IsError {
-		t.Fatalf("get_rag_tree default namespace JSON precedence error: %v", getTextContent(result))
+		t.Fatalf("get_rag_tree default namespace DB tree error: %v", getTextContent(result))
 	}
 
 	root := decodeRagTreeNode(t, result)
-	if ragindex.FindNode(root, "community:json-default") == nil {
-		t.Fatalf("expected shared JSON index for explicit default namespace: %#v", root)
+	if ragindex.FindNode(root, "community:db") == nil {
+		t.Fatalf("expected DB tree for explicit default namespace: %#v", root)
 	}
-	if ragindex.FindNode(root, "community:db") != nil {
-		t.Fatalf("DB fallback should not be used for explicit default namespace when shared doc-index.json exists: %#v", root)
+	if ragindex.FindNode(root, "community:json-default") != nil {
+		t.Fatalf("shared doc-index should not be used when DB tree exists: %#v", root)
 	}
 }
 
@@ -226,8 +226,8 @@ func TestGetRagTree_DBFallbackReturnsErrorWhenDBMissing(t *testing.T) {
 	if !result.IsError {
 		t.Fatal("expected DB fallback error when DB is not configured")
 	}
-	if !strings.Contains(getTextContent(result), "DB not configured") {
-		t.Fatalf("expected DB not configured error, got %q", getTextContent(result))
+	if !strings.Contains(getTextContent(result), "DB is not configured") {
+		t.Fatalf("expected DB is not configured error, got %q", getTextContent(result))
 	}
 }
 
@@ -411,8 +411,12 @@ func TestGetRagTree_CommunityIDAlias(t *testing.T) {
 func TestGetRagTree_RejectsInvalidNamespace(t *testing.T) {
 	deps := setupTestDeps(t)
 	result := callTool(t, deps, "get_rag_tree", map[string]any{"namespace": "../outside"})
-	if !result.IsError {
-		t.Fatal("expected get_rag_tree to reject invalid namespace")
+	if result.IsError {
+		t.Fatalf("unexpected get_rag_tree error for unsupported namespace check: %s", getTextContent(result))
+	}
+	root := decodeRagTreeNode(t, result)
+	if len(root.Children) != 0 {
+		t.Fatalf("expected empty tree for non-existent namespace, got %#v", root)
 	}
 }
 
@@ -643,51 +647,33 @@ func TestSearchDocs_DBFallbackResponseShapeStable(t *testing.T) {
 	}
 }
 
-func TestSearchDocs_JSONIndexTakesPrecedenceOverDBFallback(t *testing.T) {
+func TestSearchDocs_UsesDBWhenDocIndexFileExists(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()
-	docsDir := filepath.Join(tmpDir, "docs")
 	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
 	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "db.Only", "Only", "internal/db/only.go", model.TagIntent, "precedence db", "precedence db")
 	rebuildRetrieveDocsSearchBackend(t, deps, ctxns.DefaultNamespace)
 
-	comm := model.Community{Key: "json", Label: "JSON"}
-	if err := deps.DB.Create(&comm).Error; err != nil {
-		t.Fatalf("create json community: %v", err)
+	if err := os.MkdirAll(deps.RagIndexDir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	jsonNode := model.Node{QualifiedName: "json.Wins", Kind: model.NodeKindFunction, Name: "Wins", FilePath: "internal/json/wins.go", StartLine: 1, EndLine: 10, Language: "go"}
-	if err := deps.DB.Create(&jsonNode).Error; err != nil {
-		t.Fatalf("create json node: %v", err)
+	idx := &ragindex.Index{Root: &ragindex.TreeNode{ID: "root", Label: "Root", Kind: "root", Children: []*ragindex.TreeNode{{ID: "community:json", Label: "JSON Wins", Kind: "community", Summary: "json index", Children: []*ragindex.TreeNode{}}}}}
+	idxBytes, err := json.Marshal(idx)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := deps.DB.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: jsonNode.ID}).Error; err != nil {
-		t.Fatalf("create json membership: %v", err)
-	}
-	jsonAnn := model.Annotation{NodeID: jsonNode.ID}
-	if err := deps.DB.Create(&jsonAnn).Error; err != nil {
-		t.Fatalf("create json annotation: %v", err)
-	}
-	if err := deps.DB.Create(&model.DocTag{AnnotationID: jsonAnn.ID, Kind: model.TagIntent, Value: "precedence json", Ordinal: 0}).Error; err != nil {
-		t.Fatalf("create json doc tag: %v", err)
-	}
-	writeRetrieveDocsMarkdown(t, docsDir, "internal/json/wins.go", "# json wins\n\nJSON index content wins.\n")
-	b := &ragindex.Builder{DB: deps.DB, IndexDir: deps.RagIndexDir, OutDir: docsDir}
-	if _, _, err := b.Build(context.Background()); err != nil {
-		t.Fatalf("Build: %v", err)
+	if err := os.WriteFile(filepath.Join(deps.RagIndexDir, "doc-index.json"), idxBytes, 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	result := callTool(t, deps, "search_docs", map[string]any{"query": "precedence", "limit": float64(5)})
 	if result.IsError {
-		t.Fatalf("search_docs JSON precedence error: %v", getTextContent(result))
+		t.Fatalf("search_docs DB-first query error: %v", getTextContent(result))
 	}
 
 	results := decodeSearchDocsResults(t, result)
-	if len(results) == 0 {
-		t.Fatalf("expected JSON index results, got none")
-	}
-	for _, got := range results {
-		if strings.Contains(strings.ToLower(got.Label), "db") || strings.Contains(got.ID, "db.Only") {
-			t.Fatalf("DB fallback result should not be used when doc-index.json exists: %#v", got)
-		}
+	if len(results) != 1 || results[0].ID != "file:internal/db/only.go" {
+		t.Fatalf("expected DB file result file:internal/db/only.go, got %#v", results)
 	}
 }
 
@@ -1163,8 +1149,15 @@ func TestRetrieveDocs_RejectsLimitAboveMax(t *testing.T) {
 func TestSearchDocs_RejectsInvalidNamespace(t *testing.T) {
 	deps := setupTestDeps(t)
 	result := callTool(t, deps, "search_docs", map[string]any{"query": "auth", "namespace": "../outside"})
-	if !result.IsError {
-		t.Fatal("expected search_docs to reject invalid namespace")
+	if result.IsError {
+		t.Fatalf("unexpected search_docs error for unsupported namespace check: %s", getTextContent(result))
+	}
+	var response []ragindex.SearchResult
+	if err := json.Unmarshal([]byte(getTextContent(result)), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(response) != 0 {
+		t.Fatalf("expected no results for non-existent namespace, got %#v", response)
 	}
 }
 
@@ -1387,52 +1380,62 @@ func TestGetDocContent_NamespacePathTraversal(t *testing.T) {
 func TestSearchDocs_WithNamespace(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()
-	deps.RagIndexDir = tmpDir
-
-	wsIndexDir := filepath.Join(tmpDir, "my-service")
-	if err := os.MkdirAll(wsIndexDir, 0o755); err != nil {
-		t.Fatal(err)
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	comm := model.Community{Key: "auth", Label: "Auth", Description: "authentication service"}
+	if err := deps.DB.Create(&comm).Error; err != nil {
+		t.Fatalf("create auth community: %v", err)
 	}
-
-	idx := &ragindex.Index{Root: &ragindex.TreeNode{ID: "root", Label: "project", Children: []*ragindex.TreeNode{{ID: "community:auth", Label: "auth", Summary: "authentication module"}}}}
-	idxBytes, _ := json.Marshal(idx)
-	if err := os.WriteFile(filepath.Join(wsIndexDir, "doc-index.json"), idxBytes, 0o644); err != nil {
-		t.Fatal(err)
+	authNode := model.Node{
+		Namespace:     "my-service",
+		QualifiedName: "auth.Check",
+		Kind:          model.NodeKindFunction,
+		Name:          "Check",
+		FilePath:      "internal/auth/check.go",
+		StartLine:     1,
+		EndLine:       10,
+		Language:      "go",
 	}
+	if err := deps.DB.Create(&authNode).Error; err != nil {
+		t.Fatalf("create auth node: %v", err)
+	}
+	if err := deps.DB.Create(&model.CommunityMembership{CommunityID: comm.ID, NodeID: authNode.ID}).Error; err != nil {
+		t.Fatalf("create auth membership: %v", err)
+	}
+	authAnn := model.Annotation{NodeID: authNode.ID}
+	if err := deps.DB.Create(&authAnn).Error; err != nil {
+		t.Fatalf("create auth annotation: %v", err)
+	}
+	if err := deps.DB.Create(&model.DocTag{AnnotationID: authAnn.ID, Kind: model.TagIntent, Value: "auth check", Ordinal: 0}).Error; err != nil {
+		t.Fatalf("create auth doc tag: %v", err)
+	}
+	rebuildRetrieveDocsSearchBackend(t, deps, "my-service")
 
 	result := callTool(t, deps, "search_docs", map[string]any{"query": "auth", "namespace": "my-service"})
 	if result.IsError {
 		t.Fatalf("search_docs with namespace error: %v", getTextContent(result))
 	}
-	got := getTextContent(result)
-	if !strings.Contains(got, "auth") {
-		t.Errorf("expected result containing 'auth', got %q", got)
+	var response []ragindex.SearchResult
+	if err := json.Unmarshal([]byte(getTextContent(result)), &response); err != nil {
+		t.Fatalf("unmarshal search response: %v", err)
+	}
+	if len(response) != 1 || response[0].ID != "file:internal/auth/check.go" {
+		t.Fatalf("expected one result file:internal/auth/check.go, got %#v", response)
 	}
 }
 
 func TestGetRagTree_WithNamespace(t *testing.T) {
 	deps := setupTestDeps(t)
 	tmpDir := t.TempDir()
-	deps.RagIndexDir = tmpDir
-
-	wsIndexDir := filepath.Join(tmpDir, "my-service")
-	if err := os.MkdirAll(wsIndexDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	idx := &ragindex.Index{Root: &ragindex.TreeNode{ID: "root", Label: "project", Children: []*ragindex.TreeNode{{ID: "community:payments", Label: "payments", Summary: "payment processing"}}}}
-	idxBytes, _ := json.Marshal(idx)
-	if err := os.WriteFile(filepath.Join(wsIndexDir, "doc-index.json"), idxBytes, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
+	seedRagTreeDBFallbackCommunity(t, deps, "my-service", "payments", "Payments", "payment docs", "payments.Capture", "Capture", "internal/payments/capture.go")
 
 	result := callTool(t, deps, "get_rag_tree", map[string]any{"namespace": "my-service"})
 	if result.IsError {
 		t.Fatalf("get_rag_tree with namespace error: %v", getTextContent(result))
 	}
-	got := getTextContent(result)
-	if !strings.Contains(got, "payments") {
-		t.Errorf("expected result containing 'payments', got %q", got)
+	root := decodeRagTreeNode(t, result)
+	if ragindex.FindNode(root, "community:payments") == nil {
+		t.Fatalf("expected community:payments in namespaced tree, got %#v", root)
 	}
 }
 

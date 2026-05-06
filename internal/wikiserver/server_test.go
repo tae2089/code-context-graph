@@ -570,7 +570,7 @@ func TestAPI_CorruptWikiIndexDoesNotBlockDBTree(t *testing.T) {
 	}
 }
 
-func TestAPI_ContextReturnsPerItemMarkdown(t *testing.T) {
+func TestAPI_ContextReturnsUnavailableWithoutDB(t *testing.T) {
 	srv := newTestServer(t)
 	srv.db = nil
 	req := httptest.NewRequest(http.MethodPost, "/wiki/api/context", strings.NewReader(`{"namespace":"default","paths":["docs/core.md","docs/missing.md"]}`))
@@ -578,24 +578,11 @@ func TestAPI_ContextReturnsPerItemMarkdown(t *testing.T) {
 
 	srv.APIHandler().ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("context status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	var got contextResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("decode context: %v", err)
-	}
-	if len(got.Items) != 2 {
-		t.Fatalf("items = %d, want 2", len(got.Items))
-	}
-	if !strings.Contains(got.Items[0].Markdown, "Authentication docs") {
-		t.Fatalf("first item markdown = %q", got.Items[0].Markdown)
-	}
-	if !strings.Contains(got.Items[1].Markdown, "Summary only") {
-		t.Fatalf("second item markdown = %q", got.Items[1].Markdown)
-	}
-	if !strings.Contains(got.Markdown, "docs/core.md") || !strings.Contains(got.Markdown, "missing.md") {
-		t.Fatalf("combined markdown = %q", got.Markdown)
+	if !strings.Contains(rec.Body.String(), "graph database is not configured") {
+		t.Fatalf("context body = %s", rec.Body.String())
 	}
 }
 
@@ -687,7 +674,7 @@ func TestAPI_DocAllowsAbsolutePathUnderRoot(t *testing.T) {
 	}
 }
 
-func TestAPI_DocFallsBackToTreeSummaryWhenFileMissing(t *testing.T) {
+func TestAPI_DocReturnsNotFoundWithoutDBFallback(t *testing.T) {
 	srv := newTestServer(t)
 	srv.db = nil
 	req := httptest.NewRequest(http.MethodGet, "/wiki/api/doc?namespace=default&path=docs/missing.md", nil)
@@ -695,11 +682,11 @@ func TestAPI_DocFallsBackToTreeSummaryWhenFileMissing(t *testing.T) {
 
 	srv.APIHandler().ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "Summary only") {
-		t.Fatalf("expected summary fallback, got %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "file does not exist") {
+		t.Fatalf("expected file missing, got %s", rec.Body.String())
 	}
 }
 

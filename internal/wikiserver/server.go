@@ -143,24 +143,23 @@ func (s *Server) safeStaticPath(rel string) (string, bool) {
 	return cleanTarget, true
 }
 
-// @intent return namespaces discovered from graph data and existing wiki-index files.
+// @intent return namespaces discovered from graph data.
 func (s *Server) handleNamespaces(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	namespaces := map[string]struct{}{ctxns.DefaultNamespace: {}}
-	if s.db != nil {
-		var rows []string
-		if err := s.db.WithContext(r.Context()).Model(&model.Node{}).Distinct("namespace").Order("namespace ASC").Pluck("namespace", &rows).Error; err != nil {
-			writeError(w, http.StatusInternalServerError, "list namespaces", err)
-			return
-		}
-		for _, ns := range rows {
-			namespaces[ctxns.Normalize(ns)] = struct{}{}
-		}
+	if s.db == nil {
+		writeError(w, http.StatusServiceUnavailable, "graph database is not configured", nil)
+		return
 	}
-	for _, ns := range s.indexNamespaces() {
-		namespaces[ns] = struct{}{}
+	var rows []string
+	if err := s.db.WithContext(r.Context()).Model(&model.Node{}).Distinct("namespace").Order("namespace ASC").Pluck("namespace", &rows).Error; err != nil {
+		writeError(w, http.StatusInternalServerError, "list namespaces", err)
+		return
+	}
+	for _, ns := range rows {
+		namespaces[ctxns.Normalize(ns)] = struct{}{}
 	}
 	items := make([]string, 0, len(namespaces))
 	for ns := range namespaces {
@@ -179,6 +178,10 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if s.db == nil {
+		writeError(w, http.StatusServiceUnavailable, "graph database is not configured", nil)
+		return
+	}
 	depth, err := boundedIntParam(r, "depth", 0, 0, 20)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error(), nil)
@@ -187,7 +190,7 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 	nodeID := strings.TrimSpace(r.URL.Query().Get("node_id"))
 	root, builtAt, _, err := s.loadWikiTreeRange(r.Context(), ns, nodeID, depth)
 	if err != nil {
-		writeError(w, statusForReadErr(err), "load wiki-index", err)
+		writeError(w, statusForReadErr(err), "load wiki tree", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "built_at": builtAt, "root": root})
@@ -202,6 +205,10 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if s.db == nil {
+		writeError(w, http.StatusServiceUnavailable, "graph database is not configured", nil)
+		return
+	}
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	if query == "" {
 		writeError(w, http.StatusBadRequest, "q must not be empty", nil)
@@ -214,7 +221,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	root, _, _, err := s.loadWikiTree(r.Context(), ns)
 	if err != nil {
-		writeError(w, statusForReadErr(err), "load wiki-index", err)
+		writeError(w, statusForReadErr(err), "load wiki tree", err)
 		return
 	}
 	results := ragindex.Search(root, query, limit)
@@ -224,7 +231,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "results": results})
 }
 
-// @intent run DB-primary retrieval for LLM context discovery in the Wiki UI, with doc-index.json as a compatibility fallback.
+// @intent run DB-primary retrieval for LLM context discovery in the Wiki UI.
 func (s *Server) handleRetrieve(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodGet) {
 		return
@@ -248,51 +255,21 @@ func (s *Server) handleRetrieve(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	var dbErr error
-	if s.db != nil {
-		response, err := s.retrieveFromDB(r.Context(), ns, query, limit, contentLimit)
-		if err == nil {
-			writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "results": response.Results})
-			return
-		}
-		dbErr = err
-	}
-
-	idx, err := s.loadRAGIndex(ns)
-	if err != nil {
-		if dbErr != nil && errors.Is(err, fs.ErrNotExist) {
-			writeError(w, http.StatusInternalServerError, "retrieve from DB", dbErr)
-			return
-		}
-		writeError(w, statusForReadErr(err), "load doc-index", err)
+	if s.db == nil {
+		writeError(w, http.StatusServiceUnavailable, "graph database is not configured", nil)
 		return
 	}
-
-	candidates := ragindex.Retrieve(idx.Root, query, limit)
-	results := make([]retrieveResult, 0, len(candidates))
-	for _, candidate := range candidates {
-		item := retrieveResult{RetrieveResult: candidate}
-		if contentLimit > 0 && candidate.DocPath != "" {
-			content, _, err := s.readDoc(ns, candidate.DocPath)
-			if err != nil {
-				writeError(w, statusForReadErr(err), "read retrieved doc", err)
-				return
-			}
-			if len(content) > contentLimit {
-				item.Content = content[:contentLimit]
-				item.ContentTruncated = true
-			} else {
-				item.Content = content
-			}
-		}
-		results = append(results, item)
+	response, err := s.retrieveFromDB(r.Context(), ns, query, limit, contentLimit)
+	if err != nil {
+		writeError(w, statusForReadErr(err), "retrieve from DB", err)
+		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "results": results})
+	writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "results": response.Results})
 }
 
-// @intent provide Wiki retrieve results from graph DB data before consulting compatibility doc-index snapshots.
-// @domainRule DB results are authoritative when the database is configured and queryable; doc-index.json is only a fallback for unavailable DB paths.
-// @sideEffect queries the graph DB and may read generated Markdown docs.
+// @intent provide Wiki retrieve results from graph DB data.
+// @domainRule DB results are authoritative when the database is configured and queryable.
+// @sideEffect queries the graph DB and may read generated Markdown docs for response snippets.
 func (s *Server) retrieveFromDB(ctx context.Context, namespace, query string, limit, contentLimit int) (retrieval.Response, error) {
 	service := retrieval.Service{DB: s.db, SearchBackend: s.searchBackend}
 	return service.FromDB(ctx, namespace, query, limit, contentLimit, func(_ context.Context, ns, docPath string, limit int) (string, bool, error) {
@@ -419,9 +396,8 @@ func (s *Server) handleDoc(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "path must not be empty", nil)
 		return
 	}
-	_, indexErr := s.loadIndex(ns)
 	readDoc := s.readDoc
-	if errors.Is(indexErr, fs.ErrNotExist) && s.db != nil {
+	if s.db != nil {
 		readDoc = s.readDBFallbackDoc
 	}
 	content, resolved, err := readDoc(ns, docPath)
@@ -455,6 +431,10 @@ func (s *Server) handleRef(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
+	if s.db == nil {
+		writeError(w, http.StatusServiceUnavailable, "graph database is not configured", nil)
+		return
+	}
 	rawRef := strings.TrimSpace(r.URL.Query().Get("ref"))
 	if rawRef == "" {
 		writeError(w, http.StatusBadRequest, "ref must not be empty", nil)
@@ -477,7 +457,7 @@ func (s *Server) handleRef(w http.ResponseWriter, r *http.Request) {
 	graphNode, graphErr := s.findRefGraphNode(r, ref)
 	if treeNode == nil && graphNode == nil {
 		if indexErr != nil {
-			writeError(w, statusForReadErr(indexErr), "load wiki-index", indexErr)
+			writeError(w, statusForReadErr(indexErr), "load wiki tree", indexErr)
 			return
 		}
 		if graphErr != nil && !errors.Is(graphErr, gorm.ErrRecordNotFound) {
@@ -499,6 +479,10 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
+	if s.db == nil {
+		writeError(w, http.StatusServiceUnavailable, "graph database is not configured", nil)
+		return
+	}
 	var req contextRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "decode context request", err)
@@ -515,7 +499,7 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 	}
 	root, _, fromDB, err := s.loadWikiTree(r.Context(), ns)
 	if err != nil {
-		writeError(w, statusForReadErr(err), "load wiki-index", err)
+		writeError(w, statusForReadErr(err), "load wiki tree", err)
 		return
 	}
 	readDoc := s.readDoc
@@ -679,103 +663,22 @@ func docPathForSource(filePath string) string {
 	return filepath.Join("docs", rel+".md")
 }
 
-// @intent load the namespace-specific wiki-index from disk.
-func (s *Server) loadIndex(namespace string) (*ragindex.Index, error) {
-	return ragindex.LoadIndex(s.indexPath(namespace))
-}
-
-// @intent load a Wiki tree from DB or wiki-index fallback while preserving built_at response metadata.
-// @domainRule DB rows are authoritative for browser navigation; wiki-index.json is a compatibility fallback when DB tree synthesis is unavailable.
+// @intent load a Wiki tree from DB rows for browser navigation and return built_at metadata.
 func (s *Server) loadWikiTree(ctx context.Context, namespace string) (*ragindex.TreeNode, time.Time, bool, error) {
 	return s.loadWikiTreeRange(ctx, namespace, "", 0)
 }
 
-// @intent load either the full Wiki tree or one bounded subtree for lazy browser navigation.
-// @domainRule DB rows remain authoritative; generated wiki-index.json is only a snapshot fallback for DB-less or DB-failed deployments.
+// @intent build one bounded Wiki tree range from DB rows for lazy browser navigation.
 func (s *Server) loadWikiTreeRange(ctx context.Context, namespace, nodeID string, depth int) (*ragindex.TreeNode, time.Time, bool, error) {
-	var dbErr error
-	if s.db != nil {
-		builder := &wikiindex.Builder{DB: s.db, OutDir: "docs", Namespace: namespace}
-		root, err := builder.BuildSubtree(ctx, nodeID, depth)
-		if err == nil {
-			if nodeID == "" && len(root.Children) == 0 {
-				if indexRoot, builtAt, indexErr := s.loadWikiTreeFromIndex(namespace, nodeID, depth); indexErr == nil {
-					return indexRoot, builtAt, false, nil
-				}
-			}
-			return root, time.Now().UTC(), true, nil
-		}
-		dbErr = err
+	if s.db == nil {
+		return nil, time.Time{}, false, fmt.Errorf("graph database is not configured")
 	}
-
-	root, builtAt, err := s.loadWikiTreeFromIndex(namespace, nodeID, depth)
-	if err == nil {
-		return root, builtAt, false, nil
-	}
-	if dbErr != nil {
-		return nil, time.Time{}, false, dbErr
-	}
-	return nil, time.Time{}, false, err
-}
-
-// @intent load one Wiki tree range from the generated snapshot when DB-backed navigation is unavailable.
-func (s *Server) loadWikiTreeFromIndex(namespace, nodeID string, depth int) (*ragindex.TreeNode, time.Time, error) {
-	idx, err := s.loadIndex(namespace)
-	if err == nil {
-		root := idx.Root
-		if nodeID != "" {
-			root = ragindex.FindNode(idx.Root, nodeID)
-			if root == nil {
-				return nil, time.Time{}, fmt.Errorf("%w: node_id %q", fs.ErrNotExist, nodeID)
-			}
-		}
-		if depth <= 0 {
-			return root, idx.BuiltAt, nil
-		}
-		return ragindex.PruneTree(root, depth), idx.BuiltAt, nil
-	}
-	return nil, time.Time{}, err
-}
-
-// @intent load the namespace-specific doc-index used as retrieve compatibility fallback.
-func (s *Server) loadRAGIndex(namespace string) (*ragindex.Index, error) {
-	if ctxns.Normalize(namespace) == ctxns.DefaultNamespace {
-		return ragindex.LoadIndex(filepath.Join(s.ragIndexDir, "doc-index.json"))
-	}
-	return ragindex.LoadIndex(filepath.Join(s.ragIndexDir, namespace, "doc-index.json"))
-}
-
-// @intent map default and named namespaces to their wiki-index.json locations.
-func (s *Server) indexPath(namespace string) string {
-	if ctxns.Normalize(namespace) == ctxns.DefaultNamespace {
-		return filepath.Join(s.ragIndexDir, "wiki-index.json")
-	}
-	return filepath.Join(s.ragIndexDir, namespace, "wiki-index.json")
-}
-
-// @intent discover namespaces that have generated wiki-index files even before graph rows exist.
-func (s *Server) indexNamespaces() []string {
-	var out []string
-	if _, err := os.Stat(filepath.Join(s.ragIndexDir, "wiki-index.json")); err == nil {
-		out = append(out, ctxns.DefaultNamespace)
-	}
-	entries, err := os.ReadDir(s.ragIndexDir)
+	builder := &wikiindex.Builder{DB: s.db, OutDir: "docs", Namespace: namespace}
+	root, err := builder.BuildSubtree(ctx, nodeID, depth)
 	if err != nil {
-		return out
+		return nil, time.Time{}, false, err
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		ns := entry.Name()
-		if err := validateNamespace(ns); err != nil {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(s.ragIndexDir, ns, "wiki-index.json")); err == nil {
-			out = append(out, ns)
-		}
-	}
-	return out
+	return root, time.Now().UTC(), true, nil
 }
 
 // @intent enforce doc size limits before returning generated Markdown content.
