@@ -120,21 +120,23 @@ type nodeInfo struct {
 	Kind          model.NodeKind
 }
 
-// Build는 DB에서 커뮤니티와 멤버 노드를 읽어 doc-index.json을 생성한다.
-// 반환값: (커뮤니티 수, 파일 수, 에러)
-// @intent 커뮤니티 구조와 문서 요약을 트리 형태 인덱스로 합성한다.
-// @sideEffect 데이터베이스를 읽고 doc-index.json 파일을 기록한다.
-// @ensures 성공 시 반환된 파일 수는 인덱스에 포함된 고유 파일 수와 같다.
-func (b *Builder) Build(ctx context.Context) (int, int, error) {
-	slog.Debug("ragindex.Builder.Build 시작", "outDir", b.OutDir, "indexDir", b.IndexDir)
+// BuildTree는 DB에서 커뮤니티와 멤버 노드를 읽어 파일 쓰기 없이 RAG 탐색 트리를 합성한다.
+// 반환값: (루트 노드, 커뮤니티 수, 파일 수, 에러)
+// @intent 커뮤니티 구조와 문서 요약을 TreeNode JSON shape으로 합성해 파일 인덱스와 DB fallback이 같은 트리 의미를 공유한다.
+// @ensures 성공 시 반환된 파일 수는 트리에 포함된 고유 파일 수와 같다.
+func (b *Builder) BuildTree(ctx context.Context) (*TreeNode, int, int, error) {
+	slog.Debug("ragindex.Builder.BuildTree 시작", "outDir", b.OutDir, "indexDir", b.IndexDir)
+	if b.DB == nil {
+		return nil, 0, 0, trace.New("DB not configured")
+	}
 
 	ns := ctxns.FromContext(ctx)
 
 	// 1. 모든 커뮤니티와 멤버 로드
 	var communities []model.Community
-	q := b.DB.WithContext(ctx).Preload("Members").Where("namespace = ?", ns)
+	q := b.DB.WithContext(ctx).Preload("Members").Where("namespace = ?", ns).Order("key ASC, id ASC")
 	if err := q.Find(&communities).Error; err != nil {
-		return 0, 0, trace.Wrap(err, "load communities")
+		return nil, 0, 0, trace.Wrap(err, "load communities")
 	}
 	slog.Debug("커뮤니티 로드 완료", "count", len(communities))
 
@@ -152,7 +154,7 @@ func (b *Builder) Build(ctx context.Context) (int, int, error) {
 		var nodes []model.Node
 		nq := b.DB.WithContext(ctx).Where("id IN ?", allNodeIDs).Where("namespace = ?", ns)
 		if err := nq.Find(&nodes).Error; err != nil {
-			return 0, 0, trace.Wrap(err, "load all nodes")
+			return nil, 0, 0, trace.Wrap(err, "load all nodes")
 		}
 		for _, n := range nodes {
 			nodeInfoMap[n.ID] = nodeInfo{
@@ -176,21 +178,22 @@ func (b *Builder) Build(ctx context.Context) (int, int, error) {
 	for fp := range filePathSet {
 		allFilePaths = append(allFilePaths, fp)
 	}
+	sort.Strings(allFilePaths)
 
 	// 3. 배치 fileSummary 조회
 	summaries, err := b.batchFileSummaries(ctx, allFilePaths)
 	if err != nil {
-		return 0, 0, trace.Wrap(err, "batchFileSummaries")
+		return nil, 0, 0, trace.Wrap(err, "batchFileSummaries")
 	}
 	fileSearchTexts, fileFieldTexts, err := b.batchFileSearchTexts(ctx, allFilePaths)
 	if err != nil {
-		return 0, 0, trace.Wrap(err, "batchFileSearchTexts")
+		return nil, 0, 0, trace.Wrap(err, "batchFileSearchTexts")
 	}
 
 	// 4. annotation text를 가진 symbol 노드 배치 조회
 	symbolsByFile, err := b.batchSymbolNodes(ctx, allNodeIDs)
 	if err != nil {
-		return 0, 0, trace.Wrap(err, "batchSymbolNodes")
+		return nil, 0, 0, trace.Wrap(err, "batchSymbolNodes")
 	}
 
 	root := &TreeNode{
@@ -229,7 +232,13 @@ func (b *Builder) Build(ctx context.Context) (int, int, error) {
 			slog.Debug("파일 경로 그룹 완료", "community", comm.Key, "files", len(commFilePathSet))
 
 			// 각 파일 경로별 TreeNode 생성
+			commFilePaths := make([]string, 0, len(commFilePathSet))
 			for filePath := range commFilePathSet {
+				commFilePaths = append(commFilePaths, filePath)
+			}
+			sort.Strings(commFilePaths)
+
+			for _, filePath := range commFilePaths {
 				summary := summaries[filePath]
 				fileNode := &TreeNode{
 					ID:         fmt.Sprintf("file:%s", filePath),
@@ -249,20 +258,37 @@ func (b *Builder) Build(ctx context.Context) (int, int, error) {
 		root.Children = append(root.Children, commNode)
 	}
 
-	// 6. Index 구조체 구성
+	slog.Debug("ragindex.Builder.BuildTree 완료", "communities", len(communities), "files", len(uniqueFiles))
+	return root, len(communities), len(uniqueFiles), nil
+}
+
+// Build는 DB에서 커뮤니티와 멤버 노드를 읽어 doc-index.json을 생성한다.
+// 반환값: (커뮤니티 수, 파일 수, 에러)
+// @intent 커뮤니티 구조와 문서 요약을 트리 형태 인덱스로 합성한다.
+// @sideEffect 데이터베이스를 읽고 doc-index.json 파일을 기록한다.
+// @ensures 성공 시 반환된 파일 수는 인덱스에 포함된 고유 파일 수와 같다.
+func (b *Builder) Build(ctx context.Context) (int, int, error) {
+	slog.Debug("ragindex.Builder.Build 시작", "outDir", b.OutDir, "indexDir", b.IndexDir)
+
+	root, communities, files, err := b.BuildTree(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	// Index 구조체 구성
 	idx := &Index{
 		Version: 1,
 		BuiltAt: time.Now().UTC(),
 		Root:    root,
 	}
 
-	// 7. doc-index.json 파일 기록 (원자적 쓰기)
+	// doc-index.json 파일 기록 (원자적 쓰기)
 	if err := b.writeIndex(idx); err != nil {
 		return 0, 0, trace.Wrap(err, "writeIndex")
 	}
 
-	slog.Debug("ragindex.Builder.Build 완료", "communities", len(communities), "files", len(uniqueFiles))
-	return len(communities), len(uniqueFiles), nil
+	slog.Debug("ragindex.Builder.Build 완료", "communities", communities, "files", files)
+	return communities, files, nil
 }
 
 // batchFileSummaries는 주어진 파일 경로 목록에 대해 filePath → summary 맵을 한 번에 반환한다.
