@@ -208,6 +208,37 @@ func Y() {}
 	}
 }
 
+func TestUpdateCommand_HonorsExcludePatterns(t *testing.T) {
+	deps, stdout, stderr, db := setupUpdateGraphOnlyTest(t)
+
+	dir := t.TempDir()
+	writeGoFile(t, dir, "a.go", `package a
+func A() {}
+`)
+
+	if err := executeCmd(deps, stdout, stderr, "build", dir); err != nil {
+		t.Fatalf("initial build: %v", err)
+	}
+
+	writeGoFile(t, dir, "ignored.gen.go", `package a
+func Ignored() {}
+`)
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := executeCmd(deps, stdout, stderr, "update", "--exclude", ".*\\.gen\\.go$", dir); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	var ignoredCount int64
+	if err := db.Model(&model.Node{}).Where("file_path = ?", "ignored.gen.go").Count(&ignoredCount).Error; err != nil {
+		t.Fatalf("count ignored nodes: %v", err)
+	}
+	if ignoredCount != 0 {
+		t.Fatalf("expected excluded file to remain out of graph, got %d nodes", ignoredCount)
+	}
+}
+
 func TestUpdateCommand_RefreshesSearchIndex(t *testing.T) {
 	deps, stdout, stderr, _ := setupUpdateTest(t)
 

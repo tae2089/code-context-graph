@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS edges (
     kind varchar(32),
     file_path varchar(1024),
     line bigint,
-    fingerprint varchar(128),
+    fingerprint text,
     created_at timestamptz
 );
 

@@ -1,0 +1,1 @@
+-- SQLite already stores edge fingerprints as text.

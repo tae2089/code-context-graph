@@ -3202,8 +3202,9 @@ func TestUpdate_SearchRefreshIsScopedToAffectedNodes(t *testing.T) {
 		t.Fatalf("expected one scoped search rebuild, got %d", backend.rebuildNodesCalls)
 	}
 
+	changedHash := sha256.Sum256([]byte("new"))
 	var newChanged model.Node
-	if err := db.Where("file_path = ? AND hash = ?", "changed.stub", "new").First(&newChanged).Error; err != nil {
+	if err := db.Where("file_path = ? AND hash = ?", "changed.stub", hex.EncodeToString(changedHash[:])).First(&newChanged).Error; err != nil {
 		t.Fatalf("load new changed node: %v", err)
 	}
 	if slices.Contains(backend.nodeIDs, untouched.ID) {

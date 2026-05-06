@@ -233,6 +233,7 @@ func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files ma
 		if err != nil {
 			return nil, err
 		}
+		setNodeHashes(parsed.nodes, info.Hash)
 		parsedFiles = append(parsedFiles, parsed)
 	}
 
@@ -291,6 +292,15 @@ func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files ma
 	)
 
 	return stats, nil
+}
+
+// setNodeHashes records the file content hash on every node parsed from that file.
+// @intent keep incremental hash comparisons aligned with the stored graph rows.
+// @mutates nodes
+func setNodeHashes(nodes []model.Node, hash string) {
+	for i := range nodes {
+		nodes[i].Hash = hash
+	}
 }
 
 // sortedFilePaths returns the file map keys in deterministic order.

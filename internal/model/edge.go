@@ -45,7 +45,7 @@ type Edge struct {
 	Kind        EdgeKind `gorm:"size:32;not null;index"`
 	FilePath    string   `gorm:"size:1024;index"`
 	Line        int
-	Fingerprint string `gorm:"size:128;not null;uniqueIndex:idx_edges_namespace_fingerprint"`
+	Fingerprint string `gorm:"type:text;not null;uniqueIndex:idx_edges_namespace_fingerprint"`
 	CreatedAt   time.Time
 
 	FromNode Node `gorm:"foreignKey:FromNodeID;constraint:-"`

@@ -399,6 +399,11 @@ func (s *GraphService) prepareBuildSpool(ctx context.Context, absDir string, opt
 		if err != nil {
 			return trace.Wrap(err, "parse build file "+relPath)
 		}
+		hash := sha256.Sum256(content)
+		hashString := hex.EncodeToString(hash[:])
+		for i := range nodes {
+			nodes[i].Hash = hashString
+		}
 
 		nodeBatch := newParsedBuildNodeBatch(relPath, content, nodes, meta.Package, meta.Interfaces, tsComments, language)
 		record := spooledBuildRecord{
@@ -2063,7 +2068,7 @@ func existingGraphFileState(ctx context.Context, db *gorm.DB) ([]string, map[str
 	if err := db.WithContext(ctx).
 		Model(&model.Node{}).
 		Select("id", "file_path", "hash").
-		Where("namespace = ?", ns).
+		Where("namespace = ? AND kind <> ?", ns, model.NodeKindPackage).
 		Find(&nodes).Error; err != nil {
 		return nil, nil, err
 	}
