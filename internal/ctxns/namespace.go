@@ -1,4 +1,4 @@
-// @index context.Context에 namespace를 전파하는 유틸리티 패키지.
+// @index context.Context에 namespace를 전파하고 namespace-scoped DB/search/query 호출의 기본값을 정규화하는 유틸리티 패키지.
 package ctxns
 
 import "context"
@@ -10,7 +10,7 @@ type ctxKey struct{}
 const DefaultNamespace = "default"
 
 // Normalize replaces an empty namespace with DefaultNamespace, leaving other values unchanged.
-// @intent guarantee callers always observe a non-empty namespace string for store and query layers.
+// @intent normalize namespace query parameter values so store, retrieve_docs, and DB search layers always observe a non-empty namespace string.
 func Normalize(ns string) string {
 	if ns == "" {
 		return DefaultNamespace

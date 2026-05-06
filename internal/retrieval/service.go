@@ -5,13 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
 // FromDB builds a retrieve_docs response from persisted graph nodes and annotations.
-// @intent orchestrate DB-backed retrieve_docs lookup through search backend first and namespace-scoped scan fallback second.
+// @intent orchestrate DB-backed retrieve_docs lookup through search backend first and namespace-scoped scan supplementation second.
 // @requires Service.DB must be configured and limit must be positive for meaningful results.
 // @ensures results are grouped one-per-file, annotation-enriched, and optionally populated with bounded content.
 // @sideEffect queries the configured database and may invoke an injected content reader.
@@ -20,7 +22,7 @@ func (s *Service) FromDB(ctx context.Context, namespace, query string, limit, co
 }
 
 // Options controls optional DB-backed retrieval diagnostics.
-// @intent let DB-backed retrieve_docs expose the same opt-in explain diagnostics as doc-index retrieval.
+// @intent let DB-backed retrieve_docs expose opt-in scoring diagnostics without changing the default response shape.
 type Options struct {
 	Explain bool
 }
@@ -42,15 +44,16 @@ func (s *Service) FromDBWithOptions(ctx context.Context, namespace, query string
 	effectiveNamespace := ctxns.Normalize(namespace)
 	ctx = ctxns.WithNamespace(ctx, effectiveNamespace)
 
+	candidateGroupLimit := DBCandidateLimit(limit)
 	candidates := s.searchCandidates(ctx, query, limit)
-	groups, nodeIDs := GroupCandidatesByFile(candidates, limit)
-	if len(groups) == 0 {
-		var err error
-		candidates, err = s.scanDBCandidates(ctx, effectiveNamespace, query)
+	groups, nodeIDs := GroupCandidatesByFile(candidates, candidateGroupLimit)
+	if len(groups) < candidateGroupLimit {
+		scanned, err := s.scanDBCandidates(ctx, effectiveNamespace, query)
 		if err != nil {
 			return response, err
 		}
-		groups, nodeIDs = GroupCandidatesByFile(candidates, limit)
+		candidates = mergeCandidates(candidates, scanned)
+		groups, nodeIDs = GroupCandidatesByFile(candidates, candidateGroupLimit)
 	}
 	if len(groups) == 0 {
 		return response, nil
@@ -65,21 +68,28 @@ func (s *Service) FromDBWithOptions(ctx context.Context, namespace, query string
 	for idx, group := range groups {
 		result := Result{RetrieveResult: BuildDBResultWithOptions(group, annotations, terms, idx, opts)}
 		result.Matches = DBMatches(group.Nodes, annotations)
-		if read != nil && contentLimit > 0 {
-			content, truncated, err := read(ctx, contentNamespace(namespace), result.DocPath, contentLimit)
+		response.Results = append(response.Results, result)
+	}
+	sortRetrieveResults(response.Results)
+	if len(response.Results) > limit {
+		response.Results = response.Results[:limit]
+	}
+	if read != nil && contentLimit > 0 {
+		for i := range response.Results {
+			content, truncated, err := read(ctx, contentNamespace(namespace), response.Results[i].DocPath, contentLimit)
 			if err == nil {
-				result.Content = content
-				result.ContentTruncated = truncated
+				response.Results[i].Content = content
+				response.Results[i].ContentTruncated = truncated
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return response, err
 			}
 		}
-		response.Results = append(response.Results, result)
 	}
 	return response, nil
 }
 
-// @intent ask the configured FTS backend for a bounded candidate set while letting callers fall back when search is unavailable.
+// @intent ask the configured FTS search backend for a bounded candidate set while letting callers supplement from DB scan when search is unavailable.
+// @domainRule FTS query errors are non-fatal for retrieve_docs because DB scan can still produce namespace-scoped file candidates.
 func (s *Service) searchCandidates(ctx context.Context, query string, limit int) []model.Node {
 	if s.SearchBackend == nil {
 		return nil
@@ -91,8 +101,8 @@ func (s *Service) searchCandidates(ctx context.Context, query string, limit int)
 	return candidates
 }
 
-// scanDBCandidates collects fallback candidates by scanning namespace-scoped nodes and annotations.
-// @intent preserve retrieve_docs availability when backend FTS is missing, failing, or returns no grouped files.
+// scanDBCandidates collects supplemental candidates by scanning namespace-scoped nodes and annotations.
+// @intent supplement retrieve_docs candidates when backend FTS is missing, failing, or too narrow.
 func (s *Service) scanDBCandidates(ctx context.Context, namespace, query string) ([]model.Node, error) {
 	terms := MatchedTerms(query)
 	if len(terms) == 0 {
@@ -119,6 +129,47 @@ func (s *Service) scanDBCandidates(ctx context.Context, namespace, query string)
 		}
 	}
 	return filtered, nil
+}
+
+// @intent merge FTS and DB-scan candidates without duplicating node evidence already returned by the backend.
+func mergeCandidates(primary, supplemental []model.Node) []model.Node {
+	if len(primary) == 0 {
+		return supplemental
+	}
+	if len(supplemental) == 0 {
+		return primary
+	}
+	seen := make(map[uint]struct{}, len(primary)+len(supplemental))
+	merged := make([]model.Node, 0, len(primary)+len(supplemental))
+	for _, node := range primary {
+		if node.ID != 0 {
+			seen[node.ID] = struct{}{}
+		}
+		merged = append(merged, node)
+	}
+	for _, node := range supplemental {
+		if node.ID != 0 {
+			if _, ok := seen[node.ID]; ok {
+				continue
+			}
+			seen[node.ID] = struct{}{}
+		}
+		merged = append(merged, node)
+	}
+	return merged
+}
+
+// @intent keep DB retrieve ordering score-first after all candidates have been structurally scored.
+func sortRetrieveResults(results []Result) {
+	sort.SliceStable(results, func(i, j int) bool {
+		if results[i].Score != results[j].Score {
+			return results[i].Score > results[j].Score
+		}
+		if len(results[i].MatchedTerms) != len(results[j].MatchedTerms) {
+			return len(results[i].MatchedTerms) > len(results[j].MatchedTerms)
+		}
+		return strings.Join(results[i].Path, "/") < strings.Join(results[j].Path, "/")
+	})
 }
 
 // @intent load structured annotations for candidate nodes in one namespace-scoped query so reranking evidence stays bounded.

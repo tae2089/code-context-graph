@@ -25,7 +25,7 @@ func IsRetrievableNodeKind(kind model.NodeKind) bool {
 }
 
 // DBFileGroup은 파일 경로별로 묶인 DB 후보 노드 그룹이다.
-// @intent retrieve_docs DB 폴백이 파일 단위 결과 세분성을 유지하도록 후보를 그룹화한다.
+// @intent retrieve_docs DB-backed 결과가 파일 단위 세분성을 유지하도록 후보를 그룹화한다.
 type DBFileGroup struct {
 	FilePath string
 	Nodes    []model.Node
@@ -39,37 +39,100 @@ func DBCandidateLimit(limit int) int {
 }
 
 // MatchedTerms는 쿼리 문자열을 소문자 토큰으로 분리하고 중복을 제거한다.
-// @intent DB 폴백 응답 증거를 위해 검색 쿼리를 결정론적 소문자 용어로 토큰화한다.
+// @intent DB-backed 응답 증거를 위해 검색 쿼리를 결정론적 소문자 용어로 토큰화하고 코드 식별자 alias를 보강한다.
 func MatchedTerms(query string) []string {
 	seen := map[string]struct{}{}
 	terms := make([]string, 0)
-	for term := range strings.FieldsSeq(strings.ToLower(query)) {
-		term = strings.Trim(term, `"'()[]{}.,:;!?`)
+	addTerm := func(term string) {
+		term = strings.TrimSpace(term)
 		if term == "" {
-			continue
+			return
 		}
 		if _, ok := seen[term]; ok {
-			continue
+			return
 		}
 		seen[term] = struct{}{}
 		terms = append(terms, term)
 	}
+	for term := range strings.FieldsSeq(strings.ToLower(query)) {
+		term = strings.Trim(term, `"'()[]{}.,:;!?`)
+		addTerm(term)
+	}
+	baseLen := len(terms)
+	for i := 0; i+1 < baseLen; i++ {
+		left, right := terms[i], terms[i+1]
+		if left == "" || right == "" || strings.Contains(left, "_") || strings.Contains(right, "_") {
+			continue
+		}
+		for _, alias := range []string{left + "_" + right, left + right} {
+			addTerm(alias)
+		}
+	}
+	for _, term := range terms[:baseLen] {
+		for _, alias := range retrievalTermAliases(term) {
+			addTerm(alias)
+		}
+	}
 	return terms
 }
 
+// @intent expand common natural-language retrieval terms into code identifier variants without calling an LLM reranker.
+func retrievalTermAliases(term string) []string {
+	switch term {
+	case "reference":
+		return []string{"ref", "refs"}
+	case "references":
+		return []string{"reference", "ref", "refs"}
+	case "ref":
+		return []string{"reference", "refs"}
+	default:
+		return nil
+	}
+}
+
 // TextContainsAnyTerm은 텍스트가 주어진 용어 중 하나라도 포함하는지 대소문자 무시로 확인한다.
-// @intent DB 폴백 매칭 필드 진단을 위한 단순 대소문자 무시 용어 포함 검사를 수행한다.
+// @intent DB-backed 매칭 필드 진단을 위한 단순 대소문자 무시 용어 포함 검사를 수행한다.
 func TextContainsAnyTerm(text string, terms []string) bool {
 	if text == "" || len(terms) == 0 {
 		return false
 	}
 	lower := strings.ToLower(text)
 	for _, term := range terms {
-		if term != "" && strings.Contains(lower, term) {
+		if containsRetrievalTerm(lower, term) {
 			return true
 		}
 	}
 	return false
+}
+
+// @intent match natural-language terms against code identifiers and hyphenated prose using the same collapsed form.
+func containsRetrievalTerm(lowerText, term string) bool {
+	if term == "" {
+		return false
+	}
+	if strings.Contains(lowerText, term) {
+		return true
+	}
+	if !strings.ContainsAny(lowerText, "_-/.:#") {
+		return false
+	}
+	collapsedTerm := collapseRetrievalText(term)
+	if collapsedTerm == term || len(collapsedTerm) < 3 {
+		return false
+	}
+	return strings.Contains(collapseRetrievalText(lowerText), collapsedTerm)
+}
+
+// @intent collapse separators so cross_namespace, cross-namespace, and cross namespace can match the same evidence.
+func collapseRetrievalText(text string) string {
+	var b strings.Builder
+	b.Grow(len(text))
+	for _, r := range text {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // NodeMatchesTerms는 노드 또는 어노테이션 텍스트가 검색 용어 중 하나라도 일치하는지 확인한다.
@@ -133,7 +196,7 @@ func BuildDBResult(group DBFileGroup, annotations map[uint]*model.Annotation, te
 }
 
 // BuildDBResultWithOptions derives one file-level retrieve_docs candidate and optional diagnostics.
-// @intent score DB-backed retrieve_docs candidates from structured annotation buckets while keeping FTS order as a deterministic tie-breaker.
+// @intent score DB-backed retrieve_docs candidates from structured annotation buckets while preserving backend rank in response order.
 func BuildDBResultWithOptions(group DBFileGroup, annotations map[uint]*model.Annotation, terms []string, index int, opts Options) ragindex.RetrieveResult {
 	score, fieldScores, matchedTerms := ScoreDBFields(group.Nodes, annotations, terms)
 	fields := sortedFieldNames(fieldScores)
@@ -151,7 +214,7 @@ func BuildDBResultWithOptions(group DBFileGroup, annotations map[uint]*model.Ann
 		Summary:       summary,
 		DocPath:       filepath.ToSlash(filepath.Join("docs", filepath.FromSlash(group.FilePath)+".md")),
 		Path:          DBPath(group.FilePath),
-		Score:         score*1000 + orderScore(index),
+		Score:         score,
 		MatchedTerms:  matchedTerms,
 		MatchedFields: fields,
 	}
@@ -162,8 +225,8 @@ func BuildDBResultWithOptions(group DBFileGroup, annotations map[uint]*model.Ann
 	return result
 }
 
-// MatchedFields는 DB 폴백 파일 히트를 설명하는 노드 메타데이터 또는 어노테이션 버킷을 보고한다.
-// @intent DB 폴백 매칭 필드 진단을 위해 어떤 노드 메타데이터 또는 어노테이션 버킷이 파일 히트를 설명하는지 보고한다.
+// MatchedFields는 DB-backed 파일 히트를 설명하는 노드 메타데이터 또는 어노테이션 버킷을 보고한다.
+// @intent DB-backed 매칭 필드 진단을 위해 어떤 노드 메타데이터 또는 어노테이션 버킷이 파일 히트를 설명하는지 보고한다.
 func MatchedFields(nodes []model.Node, annotations map[uint]*model.Annotation, terms []string) []string {
 	return sortedFieldNames(ScoreDBFieldBreakdown(nodes, annotations, terms))
 }
@@ -217,26 +280,26 @@ func scoreDBFields(nodes []model.Node, annotations map[uint]*model.Annotation, t
 			}
 			if lowerName == term {
 				addOnce("label", 12, term)
-			} else if strings.Contains(lowerName, term) {
+			} else if containsRetrievalTerm(lowerName, term) {
 				addOnce("label_contains", 7, term)
 			}
-			if strings.Contains(lowerQN, term) {
+			if containsRetrievalTerm(lowerQN, term) {
 				addOnce("qualified_name", 4, term)
 			}
-			if strings.Contains(lowerPath, term) {
+			if containsRetrievalTerm(lowerPath, term) {
 				addOnce("path", 2, term)
 			}
 			if ann == nil {
 				continue
 			}
-			if strings.Contains(strings.ToLower(ann.Summary), term) || strings.Contains(strings.ToLower(ann.Context), term) {
+			if containsRetrievalTerm(strings.ToLower(ann.Summary), term) || containsRetrievalTerm(strings.ToLower(ann.Context), term) {
 				addOnce("annotation_text", 2, term)
 			}
-			if strings.Contains(strings.ToLower(ann.RawText), term) {
+			if containsRetrievalTerm(strings.ToLower(ann.RawText), term) {
 				addOnce("generic", 1, term)
 			}
 			for _, tag := range ann.Tags {
-				if !strings.Contains(strings.ToLower(tag.Value), term) && !strings.Contains(strings.ToLower(tag.Name), term) {
+				if !containsRetrievalTerm(strings.ToLower(tag.Value), term) && !containsRetrievalTerm(strings.ToLower(tag.Name), term) {
 					continue
 				}
 				addOnce(dbFieldName(tag.Kind), dbFieldWeight(tag.Kind), term)
@@ -297,17 +360,8 @@ func sortedTerms(terms map[string]struct{}) []string {
 	return out
 }
 
-// @intent keep DB backend candidate order as a small deterministic tie-breaker after structured scoring.
-func orderScore(index int) int {
-	score := dbCandidateCap - index
-	if score < 0 {
-		return 0
-	}
-	return score
-}
-
-// DBSummary는 그룹화된 DB 폴백 노드에서 첫 번째 사용 가능한 어노테이션 요약/태그 값을 선택한다.
-// @intent 첫 번째 사용 가능한 어노테이션 요약 또는 태그 값을 간결한 파일 수준 DB 폴백 요약으로 선택한다.
+// DBSummary는 그룹화된 DB-backed 노드에서 첫 번째 사용 가능한 어노테이션 요약/태그 값을 선택한다.
+// @intent 첫 번째 사용 가능한 어노테이션 요약 또는 태그 값을 간결한 파일 수준 DB-backed 요약으로 선택한다.
 func DBSummary(nodes []model.Node, annotations map[uint]*model.Annotation) string {
 	for _, node := range nodes {
 		ann := annotations[node.ID]
@@ -326,8 +380,8 @@ func DBSummary(nodes []model.Node, annotations map[uint]*model.Annotation) strin
 	return ""
 }
 
-// DBPath는 정규화된 파일 경로 세그먼트로부터 DB 폴백 결과의 비어있지 않은 경로 조각을 생성한다.
-// @intent 정규화된 파일 경로 세그먼트로부터 DB 폴백 결과의 비어있지 않은 경로 조각을 생성한다.
+// DBPath는 정규화된 파일 경로 세그먼트로부터 DB-backed 결과의 비어있지 않은 경로 조각을 생성한다.
+// @intent 정규화된 파일 경로 세그먼트로부터 DB-backed 결과의 비어있지 않은 경로 조각을 생성한다.
 func DBPath(filePath string) []string {
 	parts := strings.Split(filepath.ToSlash(filePath), "/")
 	path := make([]string, 0, len(parts)+1)
@@ -340,8 +394,8 @@ func DBPath(filePath string) []string {
 	return path
 }
 
-// DBMatches는 그룹화된 DB 폴백 노드에 대한 간결한 검색 스타일 증거 항목을 생성한다.
-// @intent 그룹화된 DB 폴백 노드에 대한 간결한 검색 스타일 증거 항목을 생성한다.
+// DBMatches는 그룹화된 DB-backed 노드에 대한 간결한 검색 스타일 증거 항목을 생성한다.
+// @intent 그룹화된 DB-backed 노드에 대한 간결한 검색 스타일 증거 항목을 생성한다.
 func DBMatches(nodes []model.Node, annotations map[uint]*model.Annotation) []ragindex.SearchResult {
 	if len(nodes) == 0 {
 		return nil

@@ -178,6 +178,27 @@ func TestServiceFromDB_emptySearchGroupsFallsBackToDBScan(t *testing.T) {
 	}
 }
 
+func TestServiceFromDB_supplementsPartialSearchResultsWithDBScan(t *testing.T) {
+	db := newRetrievalDB(t)
+	ftsNode := createNode(t, db, model.Node{Namespace: "default", QualifiedName: "pkg.Auth", Kind: model.NodeKindFunction, Name: "Auth", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"})
+	createAnnotation(t, db, ftsNode.ID, "auth backend")
+	scanNode := createNode(t, db, model.Node{Namespace: "default", QualifiedName: "pkg.Upload", Kind: model.NodeKindFunction, Name: "Upload", FilePath: "b.go", StartLine: 1, EndLine: 2, Language: "go"})
+	createAnnotation(t, db, scanNode.ID, "supplemental docs", model.DocTag{Kind: model.TagIntent, Value: "auth upload workflow"})
+	service := retrieval.Service{DB: db, SearchBackend: &stubSearchBackend{nodes: []model.Node{ftsNode}}}
+
+	response, err := service.FromDB(context.Background(), "default", "auth upload", 2, 0, nil)
+	if err != nil {
+		t.Fatalf("FromDB returned error: %v", err)
+	}
+	if len(response.Results) != 2 {
+		t.Fatalf("expected DB scan to fill second file result, got %d: %+v", len(response.Results), response.Results)
+	}
+	gotIDs := []string{response.Results[0].ID, response.Results[1].ID}
+	if !slices.Contains(gotIDs, "file:a.go") || !slices.Contains(gotIDs, "file:b.go") {
+		t.Fatalf("expected backend and supplemental scan files, got %v", gotIDs)
+	}
+}
+
 func TestServiceFromDB_limitAppliesToFileGroups(t *testing.T) {
 	db := newRetrievalDB(t)
 	nodeA := createNode(t, db, model.Node{Namespace: "default", QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "NeedleA", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"})
@@ -194,6 +215,54 @@ func TestServiceFromDB_limitAppliesToFileGroups(t *testing.T) {
 	}
 	if response.Results[0].ID != "file:a.go" || response.Results[1].ID != "file:b.go" {
 		t.Fatalf("unexpected result order: %+v", response.Results)
+	}
+}
+
+func TestServiceFromDB_scoresBeforeApplyingResultLimit(t *testing.T) {
+	db := newRetrievalDB(t)
+	weak := createNode(t, db, model.Node{Namespace: "default", QualifiedName: "pkg.Weak", Kind: model.NodeKindFunction, Name: "Weak", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"})
+	createAnnotation(t, db, weak.ID, "needle")
+	strong := createNode(t, db, model.Node{Namespace: "default", QualifiedName: "pkg.Needle", Kind: model.NodeKindFunction, Name: "Needle", FilePath: "z.go", StartLine: 1, EndLine: 2, Language: "go"})
+	createAnnotation(t, db, strong.ID, "needle", model.DocTag{Kind: model.TagIntent, Value: "needle"})
+	service := retrieval.Service{DB: db}
+
+	response, err := service.FromDB(context.Background(), "default", "needle", 1, 0, nil)
+	if err != nil {
+		t.Fatalf("FromDB returned error: %v", err)
+	}
+	if len(response.Results) != 1 {
+		t.Fatalf("expected one limited result, got %d", len(response.Results))
+	}
+	if response.Results[0].ID != "file:z.go" {
+		t.Fatalf("expected stronger late-path candidate to win before limit, got %+v", response.Results[0])
+	}
+}
+
+func TestServiceFromDB_scoreOutranksBroadLowSignalTermCoverage(t *testing.T) {
+	db := newRetrievalDB(t)
+	broad := createNode(t, db, model.Node{Namespace: "default", QualifiedName: "pkg.Broad", Kind: model.NodeKindFunction, Name: "Broad", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"})
+	createAnnotation(t, db, broad.ID, "alpha beta gamma delta")
+	strong := createNode(t, db, model.Node{Namespace: "default", QualifiedName: "pkg.Needle", Kind: model.NodeKindFunction, Name: "Needle", FilePath: "needle.go", StartLine: 1, EndLine: 2, Language: "go"})
+	createAnnotation(t, db, strong.ID, "needle",
+		model.DocTag{Kind: model.TagIntent, Value: "needle"},
+		model.DocTag{Kind: model.TagDomainRule, Value: "needle"},
+		model.DocTag{Kind: model.TagRequires, Value: "needle"},
+		model.DocTag{Kind: model.TagEnsures, Value: "needle"},
+		model.DocTag{Kind: model.TagSideEffect, Value: "needle"},
+		model.DocTag{Kind: model.TagMutates, Value: "needle"},
+		model.DocTag{Kind: model.TagSee, Value: "needle"},
+	)
+	service := retrieval.Service{DB: db}
+
+	response, err := service.FromDB(context.Background(), "default", "needle alpha beta gamma delta", 1, 0, nil)
+	if err != nil {
+		t.Fatalf("FromDB returned error: %v", err)
+	}
+	if len(response.Results) != 1 {
+		t.Fatalf("expected one limited result, got %d", len(response.Results))
+	}
+	if response.Results[0].ID != "file:needle.go" {
+		t.Fatalf("expected strongest structured result to win before broad term coverage, got %+v", response.Results[0])
 	}
 }
 

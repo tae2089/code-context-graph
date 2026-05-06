@@ -1,6 +1,8 @@
 package retrieval_test
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -9,8 +11,8 @@ import (
 
 func TestMatchedTerms_basic(t *testing.T) {
 	terms := retrieval.MatchedTerms("Hello World")
-	if len(terms) != 2 {
-		t.Fatalf("expected 2 terms, got %d: %v", len(terms), terms)
+	if len(terms) != 4 {
+		t.Fatalf("expected 4 terms including identifier aliases, got %d: %v", len(terms), terms)
 	}
 	if terms[0] != "hello" || terms[1] != "world" {
 		t.Errorf("unexpected terms: %v", terms)
@@ -19,19 +21,52 @@ func TestMatchedTerms_basic(t *testing.T) {
 
 func TestMatchedTerms_deduplication(t *testing.T) {
 	terms := retrieval.MatchedTerms("foo foo bar")
-	if len(terms) != 2 {
-		t.Fatalf("expected 2 unique terms, got %d: %v", len(terms), terms)
+	if len(terms) != 4 {
+		t.Fatalf("expected 4 unique terms including identifier aliases, got %d: %v", len(terms), terms)
 	}
 }
 
 func TestMatchedTerms_punctuationStripped(t *testing.T) {
 	terms := retrieval.MatchedTerms(`"hello", (world)!`)
 	for _, term := range terms {
+		if strings.Contains(term, "_") {
+			continue
+		}
 		for _, ch := range `"'()[]{}.,:;!?` {
 			if len(term) > 0 && (rune(term[0]) == ch || rune(term[len(term)-1]) == ch) {
 				t.Errorf("term %q still has punctuation", term)
 			}
 		}
+	}
+}
+
+func TestMatchedTerms_identifierAliases(t *testing.T) {
+	terms := retrieval.MatchedTerms("retrieve docs matched fields")
+	for _, want := range []string{"retrieve_docs", "retrievedocs", "matched_fields", "matchedfields"} {
+		if !slices.Contains(terms, want) {
+			t.Fatalf("terms missing %q: %v", want, terms)
+		}
+	}
+}
+
+func TestMatchedTerms_referenceAliases(t *testing.T) {
+	terms := retrieval.MatchedTerms("see annotation cross namespace reference resolve")
+	for _, want := range []string{"cross_namespace", "crossnamespace", "ref", "refs"} {
+		if !slices.Contains(terms, want) {
+			t.Fatalf("terms missing %q: %v", want, terms)
+		}
+	}
+	for _, notWant := range []string{"annotations", "namespaces", "resolved", "resolver", "resolution"} {
+		if slices.Contains(terms, notWant) {
+			t.Fatalf("terms should not include broad morphology alias %q: %v", notWant, terms)
+		}
+	}
+}
+
+func TestTextContainsAnyTerm_collapsesIdentifierSeparators(t *testing.T) {
+	terms := retrieval.MatchedTerms("cross namespace")
+	if !retrieval.TextContainsAnyTerm("cross-namespace annotation links", terms) {
+		t.Fatalf("expected cross namespace query to match hyphenated evidence; terms=%v", terms)
 	}
 }
 
@@ -198,19 +233,18 @@ func TestBuildDBResult_fieldsDefault(t *testing.T) {
 	}
 }
 
-func TestBuildDBResult_score(t *testing.T) {
+func TestBuildDBResult_scoreUsesStructuredEvidence(t *testing.T) {
 	group := retrieval.DBFileGroup{
 		FilePath: "a.go",
-		Nodes:    []model.Node{{ID: 1, Kind: model.NodeKindFunction, Name: "A", FilePath: "a.go"}, {ID: 2, Kind: model.NodeKindFunction, Name: "B", FilePath: "a.go"}},
+		Nodes:    []model.Node{{ID: 1, Kind: model.NodeKindFunction, Name: "Auth", FilePath: "a.go", QualifiedName: "pkg.Auth"}},
 	}
-	result0 := retrieval.BuildDBResult(group, nil, nil, 0)
-	result1 := retrieval.BuildDBResult(group, nil, nil, 1)
-	if result0.Score <= result1.Score {
-		t.Errorf("index 0 should have higher score than index 1: %d vs %d", result0.Score, result1.Score)
+	result := retrieval.BuildDBResult(group, nil, []string{"auth"}, 0)
+	if result.Score != 26 {
+		t.Errorf("score = %d, want 26 (12 label + 4 qualified_name + 10 distinct term bonus)", result.Score)
 	}
 }
 
-func TestBuildDBResult_scoreFollowsResponseOrder(t *testing.T) {
+func TestBuildDBResult_scoreDoesNotExposeResponseOrderTieBreaker(t *testing.T) {
 	first := retrieval.DBFileGroup{
 		FilePath: "a.go",
 		Nodes:    []model.Node{{ID: 1, Kind: model.NodeKindFunction, Name: "A", FilePath: "a.go"}},
@@ -224,8 +258,8 @@ func TestBuildDBResult_scoreFollowsResponseOrder(t *testing.T) {
 	}
 	firstResult := retrieval.BuildDBResult(first, nil, nil, 0)
 	secondResult := retrieval.BuildDBResult(second, nil, nil, 1)
-	if firstResult.Score <= secondResult.Score {
-		t.Fatalf("score should match response order, got first=%d second=%d", firstResult.Score, secondResult.Score)
+	if firstResult.Score != secondResult.Score {
+		t.Fatalf("score should expose relevance only, got first=%d second=%d", firstResult.Score, secondResult.Score)
 	}
 }
 

@@ -29,6 +29,28 @@ Add structured business metadata to code. **This is what makes search and RAG ac
 | `@index`      | One-line file/package summary       | `User authentication service`            |
 | `@see`        | Related function or CCG ref         | `SessionManager.Create`, `ccg://auth-svc/internal/auth/token.go#ValidateToken` |
 
+## Retrieval-Aware Tag Selection
+
+Annotations are retrieval features, but they must stay truthful. Use the
+specific tag that matches the code's role instead of stuffing keywords into
+`@intent`.
+
+| When you see this | Add this |
+| ----------------- | -------- |
+| File/package/module should be found as one unit | `@index` |
+| Public function, handler, CLI command, service method, or UI workflow has a clear purpose | `@intent` |
+| Policy, constraint, operational rule, or false-positive/false-negative criterion matters | `@domainRule` |
+| DB/file/network/cache/log/process side effect exists | `@sideEffect` |
+| Receiver or input state changes | `@mutates` |
+| Caller-facing input/output contract matters | `@requires`, `@ensures` |
+| Related implementation must be followed, especially across namespaces | `@see` |
+
+Good retrieval annotations include the words a developer or LLM would naturally
+use to ask for the code, while matching the implementation. For example, if a
+graph component focuses a resolved `ccg://` node, say `graph viewer`, `ccg ref`,
+and `node focus` in the appropriate `@index`/`@intent`. Do not add unrelated
+terms just to raise score; broad terms make the wrong files rank higher.
+
 ## AI Workflow (`/ccg-annotate annotate <path>`)
 
 This is an agent skill workflow, not a `ccg` CLI subcommand. The CLI provides
@@ -46,10 +68,12 @@ and edits code directly.
 Read the code and determine:
 
 - What it does → first summary line
-- **Why it exists → `@intent`** (most important)
-- Business rules → `@domainRule` (must be specific)
+- File/package discoverability → `@index` when the file itself is a useful search target
+- **Why it exists → `@intent`** for meaningful public/workflow entry points
+- Business or operational rules → `@domainRule` (must be specific)
 - Real side effects → `@sideEffect`
 - State changes → `@mutates`
+- Caller-facing contracts → `@requires`, `@ensures` when they matter
 
 For cross-namespace behavior, explain the reason in the semantic tag and put the target in `@see`:
 
@@ -62,7 +86,9 @@ For cross-namespace behavior, explain the reason in the semantic tag and put the
 
 - Add as comments directly above the declaration using language syntax (`//`, `#`)
 - **Do NOT overwrite existing annotations**
-- **Skip trivial functions** (getters/setters)
+- **Skip trivial functions** (getters/setters, obvious one-line wrappers)
+- Do not add tags that do not match real behavior
+- Do not repeat the same keyword across tags unless each tag adds distinct evidence
 - Match the language of existing comments (Korean for Korean codebases, English for English)
 
 ### Step 4: Rebuild
@@ -105,6 +131,20 @@ Don't annotate everything. Prioritize:
 4. **Skip**: getters/setters, simple wrappers, generated code
 
 Use `ccg lint` `unannotated` category and pick top-priority functions from there.
+
+## Retrieval Quality Checks
+
+After adding annotations for a feature area, run a few natural-language
+retrieve/search probes that match how an LLM or engineer would ask:
+
+```bash
+ccg build .
+ccg search "graph viewer ccg ref node focus"
+```
+
+For MCP/Web UI retrieval, use `retrieve_docs` or the Wiki Retrieve mode. If the
+expected file is missing, prefer improving the precise `@index`, `@intent`,
+`@domainRule`, or `@see` evidence on that file over changing global scoring.
 
 ## Search Integration
 

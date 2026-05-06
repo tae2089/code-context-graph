@@ -63,6 +63,40 @@ Use `ccg://{namespace}/{path}#{symbol}` in `@see` when a behavior depends on cod
 
 The path and symbol are optional, so `ccg://auth-svc/internal/auth` can point at a package/path scope and `ccg://auth-svc/` can point at a whole namespace.
 
+## Retrieval Quality
+
+Annotations are retrieval features. `retrieve_docs` and generated docs rank
+file-level evidence from structured buckets such as `@index`, `@intent`,
+`@domainRule`, `@sideEffect`, `@requires`, `@ensures`, and `@see`. Better
+annotations make natural-language retrieval more precise, but only when the
+tags describe real behavior.
+
+Use tags by need:
+
+| Situation | Preferred tags |
+|-----------|----------------|
+| File/package should be discoverable as a unit | `@index` |
+| Public function, handler, CLI command, service method, or UI workflow has a clear purpose | `@intent` |
+| Policy, constraint, false-positive/false-negative criterion, or operational rule matters | `@domainRule` |
+| Code writes DB/files, calls network, changes cache, logs important events, or starts processes | `@sideEffect` |
+| Receiver or input state is changed | `@mutates` |
+| Input contract or output guarantee matters to callers | `@requires`, `@ensures` |
+| Understanding requires jumping to another implementation or namespace | `@see` |
+
+Good retrieval annotations use the words an engineer or LLM would naturally ask
+for, while staying faithful to the code. For example, if a UI graph component
+focuses a resolved `ccg://` node, the annotation should say so. Do not add
+unrelated keywords just to increase score; broad or false terms make unrelated
+files outrank the real implementation.
+
+Avoid over-annotation:
+
+- Skip trivial getters, setters, tiny wrappers, and obvious one-line helpers.
+- Do not repeat the same keyword across many tags unless each tag adds distinct
+  evidence.
+- Prefer one accurate `@domainRule` over several vague `@intent` lines.
+- Keep `@see` for real navigation edges, especially cross-namespace references.
+
 ## AI-Driven Annotation
 
 Coding agents with the `/ccg-annotate` skill can analyze your codebase and

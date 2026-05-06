@@ -1,3 +1,5 @@
+// @index Browser Wiki API client for docs retrieval, ccg:// reference resolution, and bounded graph loading.
+
 // @intent describe one node in the Wiki RAG tree returned by ccg-server.
 export type TreeNode = {
   id: string;
@@ -64,7 +66,7 @@ export type SearchResult = {
   path: string[];
 };
 
-// @intent represent one PageIndex retrieval result with evidence from doc-index.json.
+// @intent represent one DB-backed retrieval result with structured graph and annotation evidence.
 export type RetrieveResult = {
   id: string;
   label: string;
@@ -220,7 +222,7 @@ export function searchDocs(namespace: string, query: string, token: string) {
   return request<{ namespace: string; results: SearchResult[] }>(`/search?${qs.toString()}`, token);
 }
 
-// @intent retrieve ranked generated docs using the PageIndex doc-index tree.
+// @intent retrieve ranked generated docs using DB-backed graph and annotation evidence.
 export function retrieveDocs(namespace: string, query: string, token: string) {
   const qs = new URLSearchParams({ namespace, q: query, limit: "10", content_limit: "0" });
   return request<{ namespace: string; results: RetrieveResult[] }>(`/retrieve?${qs.toString()}`, token);

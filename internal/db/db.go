@@ -1,4 +1,4 @@
-// @index Database connection and search-backend selection helpers for SQLite and PostgreSQL.
+// @index Database connection, SQLite WAL/busy_timeout, connection pool, and search-backend selection helpers for SQLite and PostgreSQL.
 package db
 
 import (
@@ -69,7 +69,7 @@ func Open(driver, dsn string) (*gorm.DB, error) {
 
 // ConfigurePool applies database-specific connection pool settings.
 // @intent apply connection-pool limits that match each database driver's concurrency model.
-// @domainRule sqlite is pinned to MaxOpenConns=1 because it supports only one writer at a time.
+// @domainRule sqlite is pinned to MaxOpenConns=1 because it supports only one writer at a time and FTS query workloads share the same DB file.
 // @mutates sqlDB connection-pool settings.
 func ConfigurePool(sqlDB SQLDBPool, driver string) {
 	if driver == "sqlite" {

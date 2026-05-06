@@ -4,7 +4,9 @@ import ForceGraph2D, { ForceGraphMethods, LinkObject, NodeObject } from "react-f
 import { AlertCircle, Maximize2, RefreshCw, Search, Share2 } from "lucide-react";
 import { APIError, GraphEdge, GraphNode, getGraph } from "./api";
 
-// @intent configure the namespace graph viewer and its node-open callback.
+// @index Browser graph viewer for namespace graph navigation, ccg:// reference focus, node opening, and zoomable force layout.
+
+// @intent configure the namespace graph viewer, focused ccg ref node navigation, and node-open callback.
 type GraphViewProps = {
   namespace: string;
   token: string;
@@ -32,7 +34,7 @@ const callEdgeKinds = new Set(["calls", "fallback_calls"]);
 const importEdgeKinds = new Set(["imports_from"]);
 const typeEdgeKinds = new Set(["inherits", "implements", "tested_by"]);
 
-// @intent render an Obsidian-style force-directed graph for one CCG namespace.
+// @intent render an Obsidian-style force-directed graph viewer for one CCG namespace with focused node navigation.
 export function GraphView({ namespace, token, focusNodeID, onError, onOpenNode }: GraphViewProps) {
   const graphRef = useRef<ForceGraphMethods<CanvasNode, CanvasLink> | undefined>(undefined);
   const frameRef = useRef<HTMLDivElement | null>(null);

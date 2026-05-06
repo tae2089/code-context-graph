@@ -36,6 +36,8 @@ import {
   searchDocs
 } from "./api";
 
+// @index Browser Wiki workbench that connects docs search, retrieve results, ccg:// ref navigation, the visual graph tab, and context tray copying.
+
 const GraphView = lazy(() => import("./GraphView").then((module) => ({ default: module.GraphView })));
 
 // @intent keep the minimal tree/search item data needed by the document viewer and context tray.
@@ -62,13 +64,13 @@ type RetrieveEvidence = {
 
 const tokenStorageKey = "ccg-wiki-token";
 
-// @intent constrain the Wiki search control to keyword tree search or PageIndex retrieval.
+// @intent constrain the Wiki search control to keyword tree search or DB-backed retrieval.
 type SearchMode = "search" | "retrieve";
 
 // @intent switch the center work area between generated docs and the visual edge graph.
 type ViewMode = "docs" | "graph";
 
-// @intent render the ccg-server Wiki workbench for tree navigation, Markdown viewing, and context copying.
+// @intent render the ccg-server Wiki workbench for tree navigation, Markdown viewing, graph viewer node focus, and context copying.
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem(tokenStorageKey) || "");
   const [pendingToken, setPendingToken] = useState(token);
@@ -205,7 +207,7 @@ export default function App() {
   }
 
   // @intent follow a ccg:// ref into the graph viewer and focus the resolved graph node when available.
-  async function openRefGraph(rawRef: string) {
+ async function openRefGraph(rawRef: string) {
     try {
       const res = await resolveRef(rawRef, token);
       setNamespace(res.namespace);
@@ -350,7 +352,7 @@ export default function App() {
             className="h-9 w-full rounded border border-neutral-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-emerald-600"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder={searchMode === "retrieve" ? "Retrieve docs with PageIndex" : "Search labels and summaries"}
+            placeholder={searchMode === "retrieve" ? "Retrieve docs from graph evidence" : "Search labels and summaries"}
           />
         </div>
         <div className="segmented-control">
@@ -794,7 +796,7 @@ function markdownLine(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
-// @intent compress PageIndex retrieval metadata into a scan-friendly result summary.
+// @intent compress DB-backed retrieval metadata into a scan-friendly result summary.
 function retrieveSummary(summary: string, terms: string[], score: number, evidenceCount: number) {
   const parts = [];
   if (summary) parts.push(summary);

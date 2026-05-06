@@ -59,6 +59,39 @@ func AuthenticateUser(username, password string) (string, error) {
 
 path와 symbol은 선택 사항입니다. `ccg://auth-svc/internal/auth`는 패키지/경로 범위, `ccg://auth-svc/`는 네임스페이스 전체를 가리킬 수 있습니다.
 
+## Retrieval 품질 (Retrieval Quality)
+
+어노테이션은 retrieval feature입니다. `retrieve_docs`와 생성 문서는
+`@index`, `@intent`, `@domainRule`, `@sideEffect`, `@requires`, `@ensures`,
+`@see` 같은 구조화된 bucket을 파일 단위 근거로 점수화합니다. 자연어 검색
+품질은 좋은 어노테이션으로 올라가지만, 태그가 실제 동작을 설명할 때만
+효과가 있습니다.
+
+필요에 맞게 태그를 선택하십시오:
+
+| 상황 | 권장 태그 |
+|------|-----------|
+| 파일/패키지가 하나의 검색 단위로 발견되어야 함 | `@index` |
+| public 함수, handler, CLI command, service method, UI workflow의 목적이 중요함 | `@intent` |
+| 정책, 제약, false-positive/false-negative 기준, 운영 규칙이 중요함 | `@domainRule` |
+| DB/파일 write, 네트워크 호출, 캐시 변경, 중요한 로그, 프로세스 실행이 있음 | `@sideEffect` |
+| receiver 또는 입력 상태를 변경함 | `@mutates` |
+| 입력 계약이나 결과 보장이 호출자에게 중요함 | `@requires`, `@ensures` |
+| 다른 구현이나 namespace로 이동해야 이해됨 | `@see` |
+
+좋은 retrieval 어노테이션은 엔지니어나 LLM이 자연스럽게 물어볼 표현을
+사용하되, 코드의 실제 역할을 벗어나지 않습니다. 예를 들어 UI graph
+component가 resolved `ccg://` node를 focus한다면 어노테이션에도 그 사실이
+드러나야 합니다. 점수를 올리기 위해 관련 없는 키워드를 넣지 마십시오.
+넓거나 거짓인 표현은 실제 구현이 아닌 파일을 위로 올립니다.
+
+과한 어노테이션은 피하십시오:
+
+- 단순 getter/setter, 작은 wrapper, 자명한 한 줄 helper는 건너뜁니다.
+- 각 태그가 별도 근거를 추가하지 않는다면 같은 키워드를 반복하지 않습니다.
+- 모호한 `@intent` 여러 줄보다 정확한 `@domainRule` 하나가 낫습니다.
+- `@see`는 실제 이동 가치가 있는 연결, 특히 cross-namespace ref에 사용합니다.
+
 ## AI 기반 어노테이션 (AI-Driven Annotation)
 
 `/ccg-annotate` 스킬을 사용할 수 있는 코딩 에이전트는 코드베이스를 분석하여
