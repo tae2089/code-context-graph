@@ -4,6 +4,7 @@ package search
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"gorm.io/gorm"
 
@@ -12,6 +13,11 @@ import (
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
+
+// fuzzyWordSimilarityThreshold is the minimum pg_trgm word_similarity for a symbol name to be
+// accepted as a typo-tolerant fuzzy match. Tuned to admit single-character typos while rejecting
+// unrelated names.
+const fuzzyWordSimilarityThreshold = 0.4
 
 // PostgresBackend is a full-text search backend based on PostgreSQL tsvector.
 // @intent Handles full-text search indexing and querying in a PostgreSQL environment.
@@ -72,6 +78,20 @@ func (p *PostgresBackend) Migrate(db *gorm.DB) error {
 		ON search_documents USING gin(tsv)
 	`).Error; err != nil {
 		return trace.Wrap(err, "create gin index")
+	}
+
+	// pg_trgm powers typo-tolerant fuzzy symbol matching. The extension may need
+	// elevated privileges, so treat its absence as a graceful downgrade to exact FTS
+	// rather than a fatal migration error.
+	if err := db.Exec(`CREATE EXTENSION IF NOT EXISTS pg_trgm`).Error; err != nil {
+		slog.Warn("pg_trgm unavailable; fuzzy symbol search disabled", trace.SlogError(err))
+		return nil
+	}
+	if err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_nodes_name_trgm ON nodes USING gin (name gin_trgm_ops)`).Error; err != nil {
+		return trace.Wrap(err, "create name trgm index")
+	}
+	if err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_nodes_qualified_name_trgm ON nodes USING gin (qualified_name gin_trgm_ops)`).Error; err != nil {
+		return trace.Wrap(err, "create qualified_name trgm index")
 	}
 
 	return nil
@@ -154,8 +174,10 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 		return nil, trace.Wrap(err, "ts_query")
 	}
 
+	// A zero-hit tsquery is not terminal: a misspelled query legitimately matches nothing
+	// exactly, and the pg_trgm fuzzy supplement below can still surface candidates.
 	if len(rows) == 0 {
-		return nil, nil
+		return p.appendFuzzyMatches(ctx, db, query, ns, nil, limit), nil
 	}
 
 	nodeIDs := make([]uint, len(rows))
@@ -187,8 +209,76 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 		}
 	}
 
+	// When exact FTS underfills the requested limit, supplement with typo-tolerant
+	// trigram matches on symbol names so misspelled queries still return candidates.
+	if len(result) < limit {
+		result = p.appendFuzzyMatches(ctx, db, query, ns, result, limit)
+	}
+
 	result = promoteExactNameMatch(result, query)
 	return result, nil
+}
+
+// appendFuzzyMatches supplements exact-FTS results with pg_trgm similarity matches on
+// symbol names, ordered by similarity. It is best-effort: when pg_trgm is unavailable the
+// query errors and the exact results are returned unchanged.
+// @intent add typo tolerance to Postgres search without letting a missing extension break exact search.
+func (p *PostgresBackend) appendFuzzyMatches(ctx context.Context, db *gorm.DB, query, ns string, existing []model.Node, limit int) []model.Node {
+	remaining := limit - len(existing)
+	if remaining <= 0 {
+		return existing
+	}
+	seen := make(map[uint]struct{}, len(existing))
+	for _, n := range existing {
+		seen[n.ID] = struct{}{}
+	}
+
+	// word_similarity (not similarity) is used so a short query matches the best-fitting
+	// extent of a longer symbol name; plain similarity penalizes length differences and
+	// misses typos like "authentcate" inside "AuthenticateUser".
+	var rows []resultRow
+	fuzzySQL := `
+		SELECT id AS node_id
+		FROM nodes
+		WHERE namespace = ?
+		AND (word_similarity(?, name) >= ? OR word_similarity(?, qualified_name) >= ?)
+		ORDER BY GREATEST(word_similarity(?, name), word_similarity(?, qualified_name)) DESC
+		LIMIT ?`
+	if err := db.WithContext(ctx).Raw(fuzzySQL, ns, query, fuzzyWordSimilarityThreshold, query, fuzzyWordSimilarityThreshold, query, query, remaining+len(existing)).Scan(&rows).Error; err != nil {
+		slog.Debug("pg_trgm fuzzy supplement skipped", trace.SlogError(err))
+		return existing
+	}
+
+	fuzzyIDs := make([]uint, 0, len(rows))
+	for _, r := range rows {
+		if _, ok := seen[r.NodeID]; ok {
+			continue
+		}
+		seen[r.NodeID] = struct{}{}
+		fuzzyIDs = append(fuzzyIDs, r.NodeID)
+	}
+	if len(fuzzyIDs) == 0 {
+		return existing
+	}
+
+	var nodes []model.Node
+	if err := db.WithContext(ctx).Where("id IN ?", fuzzyIDs).Where("namespace = ?", ns).Find(&nodes).Error; err != nil {
+		slog.Debug("pg_trgm fuzzy node load skipped", trace.SlogError(err))
+		return existing
+	}
+	byID := make(map[uint]model.Node, len(nodes))
+	for _, n := range nodes {
+		byID[n.ID] = n
+	}
+	for _, id := range fuzzyIDs {
+		if n, ok := byID[id]; ok && n.ID != 0 {
+			existing = append(existing, n)
+			if len(existing) >= limit {
+				break
+			}
+		}
+	}
+	return existing
 }
 
 var _ Backend = (*PostgresBackend)(nil)

@@ -275,6 +275,35 @@ func TestPostgresFTS_Query(t *testing.T) {
 	}
 }
 
+func TestPostgresFTS_Query_FuzzyTypoFallsBackToTrigram(t *testing.T) {
+	db := setupPostgresDB(t)
+	seedPostgresNodes(t, db)
+
+	backend := NewPostgresBackend()
+	if err := backend.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.Rebuild(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+
+	// "authentcate" is a typo (missing 'i') that exact tsquery cannot match;
+	// the pg_trgm supplement should still surface AuthenticateUser by symbol-name similarity.
+	nodes, err := backend.Query(context.Background(), db, "authentcate", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, n := range nodes {
+		if n.QualifiedName == "pkg.AuthenticateUser" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected fuzzy trigram match to surface pkg.AuthenticateUser for typo query, got %+v", nodes)
+	}
+}
+
 func TestPostgresFTS_Query_NamespaceIsolation(t *testing.T) {
 	db := setupPostgresDB(t)
 	backend := NewPostgresBackend()
