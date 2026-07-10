@@ -9,10 +9,10 @@
 //   - 언어별 tree-sitter 문법이 메타 표식을 심볼 노드에 포함하는지 확인
 //
 // 검증 대상 4개 분류:
-//   1. 심볼 StartLine이 메타 표식 줄을 포함하는가 (Java/C처럼 wrapper가 흡수)
-//   2. @intent 태그가 정상 파싱되는가 (normalizer 이슈 없는가)
-//   3. gap이 maxGap(=2) 이내인가
-//   4. 최종적으로 Binder가 @intent를 바인딩하는가
+//  1. 심볼 StartLine이 메타 표식 줄을 포함하는가 (Java/C처럼 wrapper가 흡수)
+//  2. @intent 태그가 정상 파싱되는가 (normalizer 이슈 없는가)
+//  3. gap이 maxGap(=2) 이내인가
+//  4. 최종적으로 Binder가 @intent를 바인딩하는가
 package treesitter
 
 import (
@@ -215,11 +215,11 @@ func TestWalkerBinder_P1_AllLanguages_Summary(t *testing.T) {
 	}
 
 	type row struct {
-		label        string
-		startLine    int
-		intentBound  bool
-		minGap       int
-		found        bool
+		label       string
+		startLine   int
+		intentBound bool
+		minGap      int
+		found       bool
 	}
 	var rows []row
 
@@ -252,9 +252,9 @@ func TestWalkerBinder_P1_AllLanguages_Summary(t *testing.T) {
 				}
 			}
 
-		// 바인딩 체크
-		b := parse.NewBinder()
-		bindings := b.Bind(binderFromWalkerComments(walkerComments), nodes, tc.lang, strings.Split(string(content), "\n"))
+			// 바인딩 체크
+			b := parse.NewBinder()
+			bindings := b.Bind(binderFromWalkerComments(walkerComments), nodes, tc.lang, strings.Split(string(content), "\n"))
 			for _, binding := range bindings {
 				if binding.Node.Name != tc.symName || binding.Node.Kind != tc.symKind {
 					continue

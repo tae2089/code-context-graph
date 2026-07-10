@@ -73,7 +73,7 @@ func TestLoadIncludePathsFromConfig_InvalidYAMLReturnsError(t *testing.T) {
 func TestMatchIncludePaths(t *testing.T) {
 	tests := []struct {
 		name         string
-		relPath       string
+		relPath      string
 		includePaths []string
 		want         bool
 	}{

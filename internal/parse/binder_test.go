@@ -111,10 +111,11 @@ func TestBinder_MultipleDeclarations(t *testing.T) {
 // 바인딩이 성공함을 검증합니다.
 //
 // fixture 기준:
-//   Line 1-4: docstring ("""...""")
-//   Line 5:   @app.route('/api/user')
-//   Line 6:   @login_required
-//   Line 7:   def get_user():   ← tree-sitter StartLine 예상
+//
+//	Line 1-4: docstring ("""...""")
+//	Line 5:   @app.route('/api/user')
+//	Line 6:   @login_required
+//	Line 7:   def get_user():   ← tree-sitter StartLine 예상
 //
 // gap = 7 - 4 = 3 ≤ maxGap(3) → 바인딩 성공
 func TestBinder_PythonDecoratorGap_BindsWithinMaxGap(t *testing.T) {
@@ -188,11 +189,12 @@ func TestBinder_JavaAnnotationGap_PassthroughBinds(t *testing.T) {
 // 바인딩이 성공함을 검증합니다.
 //
 // fixture (attribute_gap.rs) 기준:
-//   Line 1: /// @intent 비동기 main 진입점
-//   Line 2: /// @sideEffect 런타임 초기화
-//   Line 3: #[tokio::main]
-//   Line 4: #[allow(dead_code)]
-//   Line 5: async fn main() {   ← tree-sitter StartLine
+//
+//	Line 1: /// @intent 비동기 main 진입점
+//	Line 2: /// @sideEffect 런타임 초기화
+//	Line 3: #[tokio::main]
+//	Line 4: #[allow(dead_code)]
+//	Line 5: async fn main() {   ← tree-sitter StartLine
 //
 // gap = 5 - 2 = 3 ≤ maxGap(3) → 바인딩 성공
 func TestBinder_RustAttributeGap_BindsWithinMaxGap(t *testing.T) {
@@ -226,10 +228,11 @@ func TestBinder_RustAttributeGap_BindsWithinMaxGap(t *testing.T) {
 // 바인딩이 성공함을 검증합니다.
 //
 // fixture (attribute_gap.c) 기준:
-//   Line 1-3: /** ... */ Doxygen
-//   Line 4:   __attribute__((always_inline))
-//   Line 5:   __attribute__((nonnull))
-//   Line 6:   static inline int add(int a, int b) {   ← tree-sitter StartLine 예상
+//
+//	Line 1-3: /** ... */ Doxygen
+//	Line 4:   __attribute__((always_inline))
+//	Line 5:   __attribute__((nonnull))
+//	Line 6:   static inline int add(int a, int b) {   ← tree-sitter StartLine 예상
 //
 // gap = 6 - 3 = 3 ≤ maxGap(3) → 바인딩 성공
 func TestBinder_CAttributeGap_BindsWithinMaxGap(t *testing.T) {
@@ -292,7 +295,6 @@ func TestBinder_GapWithCodeBetween_NoBinding(t *testing.T) {
 	}
 }
 
-
 // =============================================================================
 // Look-Between 동적 바인딩 테스트
 // =============================================================================
@@ -320,10 +322,10 @@ func TestBinder_LookBetween_BlankLinesOnly_Binds(t *testing.T) {
 	}
 	sourceLines := []string{
 		"// @intent 빈 줄 사이 바인딩", // line 1
-		"",                           // line 2
-		"",                           // line 3
-		"",                           // line 4
-		"func MyFunc() {",            // line 5
+		"",                      // line 2
+		"",                      // line 3
+		"",                      // line 4
+		"func MyFunc() {",       // line 5
 	}
 
 	bindings := b.Bind(comments, nodes, "go", sourceLines)
@@ -357,8 +359,8 @@ func TestBinder_LookBetween_CodeBetween_NoBinding(t *testing.T) {
 	}
 	sourceLines := []string{
 		"// @intent 이 주석은 바인딩 안 됨", // line 1
-		"var x = 42",                    // line 2 - 코드!
-		"func MyFunc() {",               // line 3
+		"var x = 42",      // line 2 - 코드!
+		"func MyFunc() {", // line 3
 	}
 
 	bindings := b.Bind(comments, nodes, "go", sourceLines)
@@ -395,8 +397,8 @@ func TestBinder_LookBetween_Adjacent_Gap1_Binds(t *testing.T) {
 	}
 	sourceLines := []string{
 		"// @intent 인접 바인딩", // line 1
-		"// (continued)",      // line 2
-		"func MyFunc() {",     // line 3
+		"// (continued)",    // line 2
+		"func MyFunc() {",   // line 3
 	}
 
 	bindings := b.Bind(comments, nodes, "go", sourceLines)
@@ -439,9 +441,9 @@ func TestBinder_LookBetween_WhitespaceOnlyLines_Binds(t *testing.T) {
 	}
 	sourceLines := []string{
 		"// @intent 공백문자만 있는 줄", // line 1
-		"   ",                       // line 2 - spaces only
-		"\t\t",                      // line 3 - tabs only
-		"func MyFunc() {",           // line 4
+		"   ",                   // line 2 - spaces only
+		"\t\t",                  // line 3 - tabs only
+		"func MyFunc() {",       // line 4
 	}
 
 	bindings := b.Bind(comments, nodes, "go", sourceLines)
@@ -477,9 +479,9 @@ func TestBinder_Passthrough_PythonDecorators_Binds(t *testing.T) {
 	}
 	sourceLines := []string{
 		"# @intent 사용자 조회 엔드포인트",  // line 1
-		"@app.route('/api/user')",        // line 2 - decorator
-		"@login_required",                // line 3 - decorator
-		"def get_user():",                // line 4
+		"@app.route('/api/user')", // line 2 - decorator
+		"@login_required",         // line 3 - decorator
+		"def get_user():",         // line 4
 	}
 
 	bindings := b.Bind(comments, nodes, "python", sourceLines)
@@ -511,13 +513,13 @@ func TestBinder_Passthrough_JavaAnnotations_Binds(t *testing.T) {
 		{Name: "UserService", Kind: model.NodeKindClass, StartLine: 7, EndLine: 20},
 	}
 	sourceLines := []string{
-		"/**",                             // line 1
-		" * @intent 사용자 서비스",             // line 2
-		" */",                             // line 3
-		"@Service",                        // line 4 - annotation
-		"@Transactional",                  // line 5 - annotation
-		"@RequiredArgsConstructor",        // line 6 - annotation
-		"public class UserService {",      // line 7
+		"/**",                        // line 1
+		" * @intent 사용자 서비스",         // line 2
+		" */",                        // line 3
+		"@Service",                   // line 4 - annotation
+		"@Transactional",             // line 5 - annotation
+		"@RequiredArgsConstructor",   // line 6 - annotation
+		"public class UserService {", // line 7
 	}
 
 	bindings := b.Bind(comments, nodes, "java", sourceLines)
@@ -549,11 +551,11 @@ func TestBinder_Passthrough_RustAttributes_Binds(t *testing.T) {
 		{Name: "main", Kind: model.NodeKindFunction, StartLine: 5, EndLine: 10},
 	}
 	sourceLines := []string{
-		"/// @intent 비동기 main 진입점",      // line 1
-		"/// @sideEffect 런타임 초기화",       // line 2
-		"#[tokio::main]",                   // line 3 - Rust attribute
-		"#[allow(dead_code)]",              // line 4 - Rust attribute
-		"async fn main() {",               // line 5
+		"/// @intent 비동기 main 진입점", // line 1
+		"/// @sideEffect 런타임 초기화",  // line 2
+		"#[tokio::main]",           // line 3 - Rust attribute
+		"#[allow(dead_code)]",      // line 4 - Rust attribute
+		"async fn main() {",        // line 5
 	}
 
 	bindings := b.Bind(comments, nodes, "rust", sourceLines)
@@ -584,12 +586,12 @@ func TestBinder_Passthrough_CAttributes_Binds(t *testing.T) {
 		{Name: "add", Kind: model.NodeKindFunction, StartLine: 6, EndLine: 10},
 	}
 	sourceLines := []string{
-		"/**",                                        // line 1
-		" * @intent 항상 인라인되는 덧셈",                  // line 2
-		" */",                                        // line 3
-		"__attribute__((always_inline))",             // line 4 - C attribute
-		"[[nodiscard]]",                              // line 5 - C++17 attribute
-		"static inline int add(int a, int b) {",     // line 6
+		"/**", // line 1
+		" * @intent 항상 인라인되는 덧셈", // line 2
+		" */",                                   // line 3
+		"__attribute__((always_inline))",        // line 4 - C attribute
+		"[[nodiscard]]",                         // line 5 - C++17 attribute
+		"static inline int add(int a, int b) {", // line 6
 	}
 
 	bindings := b.Bind(comments, nodes, "c", sourceLines)
@@ -620,10 +622,10 @@ func TestBinder_Passthrough_OtherComments_Binds(t *testing.T) {
 		{Name: "MyFunc", Kind: model.NodeKindFunction, StartLine: 4, EndLine: 10},
 	}
 	sourceLines := []string{
-		"// @intent 주석 사이 바인딩",            // line 1
-		"// TODO: 나중에 리팩토링",              // line 2 - comment
+		"// @intent 주석 사이 바인딩",         // line 1
+		"// TODO: 나중에 리팩토링",            // line 2 - comment
 		"// NOTE: 이 함수는 deprecated 예정", // line 3 - comment
-		"func MyFunc() {",                  // line 4
+		"func MyFunc() {",              // line 4
 	}
 
 	bindings := b.Bind(comments, nodes, "go", sourceLines)
@@ -657,11 +659,11 @@ func TestBinder_Passthrough_Mixed_Binds(t *testing.T) {
 	}
 	sourceLines := []string{
 		"# @intent 혼합 passthrough 테스트", // line 1
-		"# type: ignore",                // line 2 - comment
-		"",                              // line 3 - blank
-		"@app.route('/test')",           // line 4 - decorator
-		"@requires_auth",                // line 5 - decorator
-		"def handler():",                // line 6
+		"# type: ignore",               // line 2 - comment
+		"",                             // line 3 - blank
+		"@app.route('/test')",          // line 4 - decorator
+		"@requires_auth",               // line 5 - decorator
+		"def handler():",               // line 6
 	}
 
 	bindings := b.Bind(comments, nodes, "python", sourceLines)
@@ -693,9 +695,9 @@ func TestBinder_Passthrough_DecoratorPlusCode_NoBinding(t *testing.T) {
 	}
 	sourceLines := []string{
 		"# @intent 이건 바인딩 안 됨", // line 1
-		"@decorator",            // line 2 - decorator (passthrough)
-		"x = 42",                // line 3 - actual code!
-		"def handler():",        // line 4
+		"@decorator",           // line 2 - decorator (passthrough)
+		"x = 42",               // line 3 - actual code!
+		"def handler():",       // line 4
 	}
 
 	bindings := b.Bind(comments, nodes, "python", sourceLines)

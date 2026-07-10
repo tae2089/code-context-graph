@@ -656,22 +656,46 @@ func (w *Walker) inferEnclosingReceiver(defNode *sitter.Node, content []byte) st
 
 // mapDefTypeToNodeKind maps query definition labels to internal node kinds.
 // @intent keep language query captures aligned with graph node categorization
-// @domainRule declarations matching the configured test prefix become test nodes
+// @domainRule only function/method declarations whose name is a test name become test nodes;
+// types, classes, and interfaces are never tests even when their name starts with the prefix
 func (w *Walker) mapDefTypeToNodeKind(defType string, name string) model.NodeKind {
-	if w.spec.TestPrefix != "" && strings.HasPrefix(name, w.spec.TestPrefix) {
-		return model.NodeKindTest
-	}
-
 	switch defType {
 	case "class":
 		return model.NodeKindClass
 	case "interface", "type":
 		return model.NodeKindType
-	case "function", "method":
-		return model.NodeKindFunction
 	default:
+		if isTestName(name, w.spec.TestPrefix) {
+			return model.NodeKindTest
+		}
 		return model.NodeKindFunction
 	}
+}
+
+// isTestName reports whether name denotes a test given the language's test prefix.
+// @intent avoid misclassifying production symbols like testimonialCard or TestConfig as tests.
+// @domainRule a separator-terminated prefix (e.g. "test_") is a boundary on its own; a bare-word
+// prefix (e.g. "Test", "test", "TEST") must be followed by end-of-name or a non-lowercase character
+// so it does not swallow a longer lowercase word.
+func isTestName(name, prefix string) bool {
+	if prefix == "" || !strings.HasPrefix(name, prefix) {
+		return false
+	}
+	last := prefix[len(prefix)-1]
+	if !isASCIILetterOrDigit(last) {
+		return true
+	}
+	rest := name[len(prefix):]
+	if rest == "" {
+		return true
+	}
+	c := rest[0]
+	return c < 'a' || c > 'z'
+}
+
+// @intent classify ASCII identifier characters for test-prefix boundary detection.
+func isASCIILetterOrDigit(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 }
 
 // buildQualifiedName joins package, receiver, and declaration name into a stable identifier.

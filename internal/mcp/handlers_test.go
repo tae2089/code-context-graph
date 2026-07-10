@@ -973,14 +973,12 @@ func TestBuildOrUpdateGraph_IncrementalIncludePaths_DefaultsToReplace(t *testing
 	mockSync := &mockIncrementalSyncer{result: &incremental.SyncStats{}}
 	deps.Incremental = mockSync
 
+	// Only handler.go is on disk; the out-of-scope other.go is missing. Under default replace
+	// semantics the delete pass must consider all namespace files, so other.go is deletable.
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "src", "api"), 0o755)
-	os.MkdirAll(filepath.Join(dir, "src", "other"), 0o755)
 	writeGoFile(t, filepath.Join(dir, "src", "api"), "handler.go", `package api
 func Handler() {}
-`)
-	writeGoFile(t, filepath.Join(dir, "src", "other"), "other.go", `package other
-func Other() {}
 `)
 
 	callTool(t, deps, "build_or_update_graph", map[string]any{
@@ -994,16 +992,24 @@ func Other() {}
 	if !mockSync.syncWithExisting {
 		t.Fatal("expected Incremental.SyncWithExisting to be called")
 	}
-	if len(mockSync.existingCalls) == 0 {
-		t.Fatal("expected at least one SyncWithExisting call")
+	deleteExisting := deletePassExistingFiles(mockSync)
+	if deleteExisting == nil {
+		t.Fatalf("expected a delete pass for the missing out-of-scope file, calls=%v", mockSync.existingCalls)
 	}
-	firstExisting := mockSync.existingCalls[0]
-	if len(firstExisting) != 2 {
-		t.Fatalf("expected default replace semantics to pass all namespace files, got %v", firstExisting)
+	if !containsStringInSlice(deleteExisting, filepath.Join("src", "other", "other.go")) {
+		t.Fatalf("default replace must consider the out-of-scope file for deletion, got %v", deleteExisting)
 	}
-	if !containsStringInSlice(firstExisting, filepath.Join("src", "other", "other.go")) {
-		t.Fatalf("expected existingFiles to include out-of-scope file under default replace semantics, got %v", firstExisting)
+}
+
+// deletePassExistingFiles returns the existingFiles of the delete pass (the SyncWithExisting
+// call that received no files), or nil when no delete pass ran.
+func deletePassExistingFiles(m *mockIncrementalSyncer) []string {
+	for i := range m.filesCalls {
+		if len(m.filesCalls[i]) == 0 && len(m.existingCalls[i]) > 0 {
+			return m.existingCalls[i]
+		}
 	}
+	return nil
 }
 
 func TestBuildOrUpdateGraph_IncrementalIncludePaths_ReplaceFalsePreservesOutOfScopeFiles(t *testing.T) {
@@ -1020,14 +1026,13 @@ func TestBuildOrUpdateGraph_IncrementalIncludePaths_ReplaceFalsePreservesOutOfSc
 	mockSync := &mockIncrementalSyncer{result: &incremental.SyncStats{}}
 	deps.Incremental = mockSync
 
+	// The seeded handler.go and other.go are both missing from disk; a new in-scope file is
+	// added. With replace=false + include_paths, only the in-scope handler.go may be deleted,
+	// and the out-of-scope other.go must be scoped out of the existing-file set entirely.
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "src", "api"), 0o755)
-	os.MkdirAll(filepath.Join(dir, "src", "other"), 0o755)
-	writeGoFile(t, filepath.Join(dir, "src", "api"), "handler.go", `package api
-func Handler() {}
-`)
-	writeGoFile(t, filepath.Join(dir, "src", "other"), "other.go", `package other
-func Other() {}
+	writeGoFile(t, filepath.Join(dir, "src", "api"), "new.go", `package api
+func New() {}
 `)
 
 	callTool(t, deps, "build_or_update_graph", map[string]any{
@@ -1042,15 +1047,15 @@ func Other() {}
 	if !mockSync.syncWithExisting {
 		t.Fatal("expected Incremental.SyncWithExisting to be called")
 	}
-	if len(mockSync.existingCalls) == 0 {
-		t.Fatal("expected at least one SyncWithExisting call")
+	deleteExisting := deletePassExistingFiles(mockSync)
+	if deleteExisting == nil {
+		t.Fatalf("expected a delete pass for the missing in-scope file, calls=%v", mockSync.existingCalls)
 	}
-	firstExisting := mockSync.existingCalls[0]
-	if containsStringInSlice(firstExisting, filepath.Join("src", "other", "other.go")) {
-		t.Fatalf("expected replace=false to exclude out-of-scope file from existingFiles, got %v", firstExisting)
+	if containsStringInSlice(deleteExisting, filepath.Join("src", "other", "other.go")) {
+		t.Fatalf("replace=false must exclude the out-of-scope file from deletions, got %v", deleteExisting)
 	}
-	if !containsStringInSlice(firstExisting, filepath.Join("src", "api", "handler.go")) {
-		t.Fatalf("expected replace=false to keep in-scope file, got %v", firstExisting)
+	if !containsStringInSlice(deleteExisting, filepath.Join("src", "api", "handler.go")) {
+		t.Fatalf("replace=false must still delete the missing in-scope file, got %v", deleteExisting)
 	}
 }
 

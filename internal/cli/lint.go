@@ -17,13 +17,6 @@ import (
 	"github.com/tae2089/code-context-graph/internal/pathutil"
 )
 
-// countNonIgnored counts lint issues not covered by an ignore rule in .ccg.yaml.
-// @intent strict 모드에서 실제 실패로 간주할 lint 항목만 다시 집계한다.
-// @domainRule action: ignore로 선언된 규칙은 strict 실패 수에서 제외한다.
-func countNonIgnored(report *docs.LintReport) int {
-	return countNonIgnoredWithRules(report, configuredLintRules())
-}
-
 // normalizeLintCategory maps legacy or variant category names to canonical forms.
 // @intent ensure rule matching uses consistent category keys regardless of input spelling
 // @domainRule "deadref" and "drifted" are accepted aliases for "dead-ref" and "drift"
@@ -259,12 +252,6 @@ func lintRuleFromMapLookup(lookup func(string) (any, bool)) (lintRule, bool) {
 		rule.Created, _ = v.(string)
 	}
 	return rule, rule.Pattern != "" || rule.Category != "" || rule.Action != ""
-}
-
-// lintRuleDoc is the top-level YAML structure for a standalone rules file.
-// @intent represent the on-disk format used when rules are stored outside .ccg.yaml
-type lintRuleDoc struct {
-	Rules []lintRule `yaml:"rules"`
 }
 
 // lintRule is a single suppression or warn rule entry in .ccg.yaml or auto-rules.yaml.

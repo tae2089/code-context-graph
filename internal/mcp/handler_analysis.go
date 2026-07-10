@@ -4,7 +4,6 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"slices"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -19,6 +18,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/obs"
 	"github.com/tae2089/code-context-graph/internal/paging"
+	"github.com/tae2089/code-context-graph/internal/safepath"
 )
 
 const (
@@ -614,7 +614,7 @@ func validateRepoRootWithin(repoRoot, configuredRepoRoot, namespaceRoot string) 
 	if len(allowedRoots) == 0 {
 		return "", fmt.Errorf("analysis repo root is not configured")
 	}
-	repo, err := canonicalPath(repoRoot)
+	repo, err := safepath.Canonical(repoRoot, false)
 	if err != nil {
 		return "", fmt.Errorf("invalid repo_root: %w", err)
 	}
@@ -653,11 +653,11 @@ func sliceContainsString(values []string, target string) bool {
 // @requires allowedRoots must be non-empty and each entry must be a valid filesystem path.
 func validatePathWithinAllowedRoots(target string, allowedRoots []string) (bool, error) {
 	for _, root := range allowedRoots {
-		base, err := canonicalPath(root)
+		base, err := safepath.Canonical(root, false)
 		if err != nil {
 			return false, err
 		}
-		within, err := isWithinRoot(base, target)
+		within, err := safepath.IsWithinRoot(base, target)
 		if err != nil {
 			return false, err
 		}
@@ -666,40 +666,4 @@ func validatePathWithinAllowedRoots(target string, allowedRoots []string) (bool,
 		}
 	}
 	return false, nil
-}
-
-// isWithinRoot reports whether target is the same as root or a descendant of it.
-// @intent detect path traversal by checking the relative path does not escape upward.
-func isWithinRoot(root, target string) (bool, error) {
-	rel, err := filepath.Rel(root, target)
-	if err != nil {
-		return false, err
-	}
-	if rel == "." {
-		return true, nil
-	}
-	if rel == ".." {
-		return false, nil
-	}
-	if len(rel) >= 3 && rel[:3] == ".."+string(filepath.Separator) {
-		return false, nil
-	}
-	if filepath.IsAbs(rel) {
-		return false, nil
-	}
-	return true, nil
-}
-
-// canonicalPath resolves path to an absolute, symlink-free, cleaned filesystem path.
-// @intent normalize user-supplied paths before comparison to prevent symlink-based boundary escapes.
-func canonicalPath(path string) (string, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	real, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Clean(real), nil
 }

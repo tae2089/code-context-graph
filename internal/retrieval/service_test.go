@@ -199,6 +199,59 @@ func TestServiceFromDB_supplementsPartialSearchResultsWithDBScan(t *testing.T) {
 	}
 }
 
+func TestServiceFromDB_skipsScanWhenSearchFillsLimit(t *testing.T) {
+	db := newRetrievalDB(t)
+	// FTS returns only a weak annotation-text match for a.go.
+	ftsNode := createNode(t, db, model.Node{Namespace: "default", QualifiedName: "pkg.Handler", Kind: model.NodeKindFunction, Name: "Handler", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"})
+	createAnnotation(t, db, ftsNode.ID, "auth backend")
+	// scanOnly would score HIGHER (exact label match) but is only reachable via a DB scan;
+	// if the scan wrongly fires when FTS already fills the limit, this node would win and surface.
+	scanOnly := createNode(t, db, model.Node{Namespace: "default", QualifiedName: "pkg.Auth", Kind: model.NodeKindFunction, Name: "auth", FilePath: "b.go", StartLine: 1, EndLine: 2, Language: "go"})
+	createAnnotation(t, db, scanOnly.ID, "auth service")
+	service := retrieval.Service{DB: db, SearchBackend: &stubSearchBackend{nodes: []model.Node{ftsNode}}}
+
+	response, err := service.FromDB(context.Background(), "default", "auth", 1, 0, nil)
+	if err != nil {
+		t.Fatalf("FromDB returned error: %v", err)
+	}
+	if len(response.Results) != 1 {
+		t.Fatalf("expected one result, got %d: %+v", len(response.Results), response.Results)
+	}
+	if response.Results[0].ID != "file:a.go" {
+		t.Fatalf("expected FTS result only, got %q", response.Results[0].ID)
+	}
+	for _, r := range response.Results {
+		if r.ID == "file:b.go" {
+			t.Fatalf("scan-only node must not appear when FTS already fills the limit")
+		}
+	}
+}
+
+func TestServiceFromDB_ftsHitOutranksHigherScoredScanSupplement(t *testing.T) {
+	db := newRetrievalDB(t)
+	// FTS returns a.go with only a weak annotation-text match.
+	weakFTS := createNode(t, db, model.Node{Namespace: "default", QualifiedName: "pkg.Handler", Kind: model.NodeKindFunction, Name: "Handler", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"})
+	createAnnotation(t, db, weakFTS.ID, "auth request")
+	// b.go is reachable only via the scan supplement and scores much higher (exact label + high-weight tags).
+	strongScan := createNode(t, db, model.Node{Namespace: "default", QualifiedName: "pkg.Auth", Kind: model.NodeKindFunction, Name: "auth", FilePath: "b.go", StartLine: 1, EndLine: 2, Language: "go"})
+	createAnnotation(t, db, strongScan.ID, "auth", model.DocTag{Kind: model.TagIntent, Value: "auth"}, model.DocTag{Kind: model.TagDomainRule, Value: "auth"})
+	service := retrieval.Service{DB: db, SearchBackend: &stubSearchBackend{nodes: []model.Node{weakFTS}}}
+
+	response, err := service.FromDB(context.Background(), "default", "auth", 2, 0, nil)
+	if err != nil {
+		t.Fatalf("FromDB returned error: %v", err)
+	}
+	if len(response.Results) != 2 {
+		t.Fatalf("expected FTS hit plus scan supplement, got %d: %+v", len(response.Results), response.Results)
+	}
+	if response.Results[0].ID != "file:a.go" {
+		t.Fatalf("search-engine hit must rank above a higher-scored scan supplement, got %q first", response.Results[0].ID)
+	}
+	if response.Results[1].ID != "file:b.go" {
+		t.Fatalf("expected scan supplement second, got %q", response.Results[1].ID)
+	}
+}
+
 func TestServiceFromDB_limitAppliesToFileGroups(t *testing.T) {
 	db := newRetrievalDB(t)
 	nodeA := createNode(t, db, model.Node{Namespace: "default", QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "NeedleA", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"})

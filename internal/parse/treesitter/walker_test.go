@@ -1681,6 +1681,58 @@ func TestAdd(t *testing.T) {}
 	}
 }
 
+func TestParseGo_TestPrefixDoesNotMisclassifyProductionDecls(t *testing.T) {
+	src := `package main
+
+type TestConfig struct{}
+
+func Testimony() {}
+
+func TestAdd(t *testing.T) {}
+`
+	w := NewWalker(GoSpec)
+	nodes, _, err := w.Parse("main_test.go", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	testNodes := filterByKind(nodes, model.NodeKindTest)
+	if len(testNodes) != 1 || testNodes[0].Name != "TestAdd" {
+		t.Fatalf("expected only TestAdd as a test node, got %+v", testNodes)
+	}
+	// TestConfig (a type) and Testimony (Test + lowercase 'i') must not be tests.
+	byName := map[string]model.NodeKind{}
+	for _, n := range nodes {
+		byName[n.Name] = n.Kind
+	}
+	if byName["TestConfig"] == model.NodeKindTest {
+		t.Errorf("TestConfig type must not be a test node")
+	}
+	if byName["Testimony"] == model.NodeKindTest {
+		t.Errorf("Testimony (lowercase continuation) must not be a test node")
+	}
+}
+
+func TestParseTypeScript_TestPrefixRequiresWordBoundary(t *testing.T) {
+	src := `function testimonialCard() {}
+function testLogin() {}
+`
+	w := NewWalker(TypeScriptSpec)
+	nodes, _, err := w.Parse("app.ts", []byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	kinds := map[string]model.NodeKind{}
+	for _, n := range nodes {
+		kinds[n.Name] = n.Kind
+	}
+	if kinds["testimonialCard"] == model.NodeKindTest {
+		t.Errorf("testimonialCard must not be classified as a test")
+	}
+	if kinds["testLogin"] != model.NodeKindTest {
+		t.Errorf("testLogin should be classified as a test, got %v", kinds["testLogin"])
+	}
+}
+
 func TestParsePython_TestFunction(t *testing.T) {
 	src := `def test_add():
     assert 1 + 1 == 2

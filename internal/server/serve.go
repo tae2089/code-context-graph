@@ -112,9 +112,11 @@ func RunStreamableHTTP(rt *core.Runtime, srv *mcpgo.MCPServer, cfg Config, cache
 		}
 		return nil
 	}))
-	mux.Handle("/status", StatusHandler(dbReadyCheck, cfg.WebhookAttemptTimeout, func() *webhook.SyncQueue {
+	// /status exposes repo names, branches, and raw error strings from the sync queue,
+	// so it requires the same bearer auth as /mcp; /health and /ready stay open for probes.
+	mux.Handle("/status", MCPAuthMiddleware(cfg.HTTPBearerToken, StatusHandler(dbReadyCheck, cfg.WebhookAttemptTimeout, func() *webhook.SyncQueue {
 		return syncQueue
-	}, postprocessSummary))
+	}, postprocessSummary)))
 
 	if cfg.WikiDir != "" {
 		wiki, err := wikiserver.New(wikiserver.Config{

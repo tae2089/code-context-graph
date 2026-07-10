@@ -30,6 +30,9 @@ jobs:
       - name: Run go vet
         run: make vet
 
+      - name: Run go test
+        run: CGO_ENABLED=1 go test -tags "fts5" ./... -count=1
+
       - name: Build release binaries
         run: make build
 

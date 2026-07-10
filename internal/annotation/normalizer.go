@@ -84,7 +84,7 @@ func stripBlockDelimiters(text string, language string) string {
 }
 
 // stripPythonDocstringDelimiters removes triple-quote wrappers from a Python docstring body.
-// @intent expose the raw docstring text by trying both """ and ''' triple-quote forms.
+// @intent expose the raw docstring text by trying both """ and ”' triple-quote forms.
 func stripPythonDocstringDelimiters(text string) (string, bool) {
 	for _, quote := range []string{"\"\"\"", "'''"} {
 		if stripped, ok := stripPythonQuotedString(text, quote); ok {

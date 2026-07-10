@@ -216,8 +216,10 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 		return mcp.NewToolResultError("invalid file_path: path traversal not allowed"), nil
 	}
 
+	// The default namespace maps to the shared docs root, mirroring resolvedRagIndexPath
+	// and retrieve_docs; only named namespaces resolve under namespaces/<ns>/.
 	var resolvedPath string
-	if namespace != "" {
+	if namespace != "" && ctxns.Normalize(namespace) != ctxns.DefaultNamespace {
 		if err := validateNamespacePath(namespace, filePath); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -325,8 +327,6 @@ type retrieveDocsResponse = retrieval.Response
 
 // @intent keep MCP retrieve_docs result decoding compatible while sharing the canonical retrieval DTO.
 type retrieveDocsResult = retrieval.Result
-
-var _ = (*handlers).retrieveDocsFromDB
 
 // @intent build a retrieve_docs response from persisted graph nodes and annotation tags.
 // @requires SearchBackend and DB must be configured, and ctx must carry the desired namespace.

@@ -552,13 +552,6 @@ type contextResponse struct {
 	Items    []contextItem `json:"items"`
 }
 
-// @intent return retrieval metadata and optional bounded Markdown content to the Wiki UI.
-type retrieveResult struct {
-	ragindex.RetrieveResult
-	Content          string `json:"content,omitempty"`
-	ContentTruncated bool   `json:"content_truncated,omitempty"`
-}
-
 // @intent return the resolved Wiki navigation target for one ccg:// ref.
 type refResponse struct {
 	Namespace string      `json:"namespace"`
@@ -723,6 +716,8 @@ func readDocFile(resolved string) (string, string, error) {
 }
 
 // @intent resolve a generated doc path under approved docs, RAG, or namespace roots.
+// @domainRule the working directory is only searched through its docs/ subtree; arbitrary
+// repository files (config, source, secrets) must never be readable through the doc API.
 func (s *Server) resolveDocPath(namespace, docPath string) (string, error) {
 	clean := filepath.Clean(docPath)
 	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
@@ -732,7 +727,9 @@ func (s *Server) resolveDocPath(namespace, docPath string) (string, error) {
 	if namespace != ctxns.DefaultNamespace {
 		roots = append(roots, filepath.Join(s.namespaceRoot, namespace))
 	}
-	roots = append(roots, ".", s.ragIndexDir, s.namespaceRoot)
+	// Generated shared docs live under ./docs (doc_path values carry the docs/ prefix),
+	// so the local root is the docs directory itself, not the bare working directory.
+	roots = append(roots, "docs", s.ragIndexDir, s.namespaceRoot)
 	if filepath.IsAbs(clean) {
 		for _, root := range roots {
 			target, err := safeAbsolutePath(root, clean)
@@ -746,7 +743,17 @@ func (s *Server) resolveDocPath(namespace, docPath string) (string, error) {
 		return "", fs.ErrNotExist
 	}
 	for _, root := range roots {
-		target, err := safePath(root, clean)
+		rel := clean
+		if root == "docs" {
+			// doc_path values are docs-prefixed ("docs/pkg/file.md"); resolve the remainder
+			// inside the docs root so containment is enforced against docs/, not the CWD.
+			after, ok := strings.CutPrefix(clean, "docs"+string(os.PathSeparator))
+			if !ok {
+				continue
+			}
+			rel = after
+		}
+		target, err := safePath(root, rel)
 		if err != nil {
 			continue
 		}

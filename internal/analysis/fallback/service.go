@@ -86,12 +86,16 @@ func (s *Service) FindSuspectsPage(ctx context.Context, opts Options) (Result, e
 	results := make([]SuspectEdge, 0, len(edges))
 	for _, edge := range edges {
 		source, err := s.store.GetNodeByID(ctx, edge.FromNodeID)
-		if err != nil || source == nil {
+		if err != nil {
 			return Result{}, err
 		}
 		target, err := s.store.GetNodeByID(ctx, edge.ToNodeID)
-		if err != nil || target == nil {
+		if err != nil {
 			return Result{}, err
+		}
+		// A dangling edge (endpoint node missing) must not silently drop the whole page.
+		if source == nil || target == nil {
+			continue
 		}
 		sourceAnn, err := s.store.GetAnnotation(ctx, source.ID)
 		if err != nil {

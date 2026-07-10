@@ -1,6 +1,6 @@
 // Python docstring 2차 실측 테스트.
 //
-// 목적: tree-sitter-python이 다양한 docstring 변형(함수/클래스/모듈, """/''', 한 줄, prefix)을
+// 목적: tree-sitter-python이 다양한 docstring 변형(함수/클래스/모듈, """/”', 한 줄, prefix)을
 // 어떤 AST 노드 구조로 파싱하는지 정확히 측정하고,
 // 현재 collectComments 로직이 이들을 CommentBlock으로 수집하는지 검증한다.
 //
@@ -145,13 +145,13 @@ func parseRawTree(t *testing.T, content []byte) *sitter.Node {
 
 // stringNodeDetail은 string 노드의 상세 정보를 분석한다.
 type stringNodeDetail struct {
-	nodeType        string // "string", "string_content", 기타
-	startLine       int
-	endLine         int
-	isOneLiner      bool
-	prefixToken     string // "r", "f", "b", "rb" 등 (없으면 "")
-	quoteStyle      string // `"""` or `'''` or `"` or `'`
-	rawContent      string // 노드 Content의 첫 80자
+	nodeType    string // "string", "string_content", 기타
+	startLine   int
+	endLine     int
+	isOneLiner  bool
+	prefixToken string // "r", "f", "b", "rb" 등 (없으면 "")
+	quoteStyle  string // `"""` or `'''` or `"` or `'`
+	rawContent  string // 노드 Content의 첫 80자
 }
 
 func analyzeStringNode(node *sitter.Node, content []byte) stringNodeDetail {
@@ -224,17 +224,17 @@ func analyzeStringNode(node *sitter.Node, content []byte) stringNodeDetail {
 // ─────────────────────────────────────────────────────────────
 
 type docstringMeasurement struct {
-	fixture           string
-	nodeType          string   // string 노드 타입
-	parentChain       []string // 부모 체인 (루트 방향)
-	startLine         int
-	endLine           int
-	prefixToken       string
-	quoteStyle        string
-	isOneLiner        bool
-	inCommentBlock    bool   // 현재 CommentBlock에 포함되는가
-	intentBound       bool   // @intent 바인딩 성공 여부
-	bindingNote       string // 추가 메모
+	fixture        string
+	nodeType       string   // string 노드 타입
+	parentChain    []string // 부모 체인 (루트 방향)
+	startLine      int
+	endLine        int
+	prefixToken    string
+	quoteStyle     string
+	isOneLiner     bool
+	inCommentBlock bool   // 현재 CommentBlock에 포함되는가
+	intentBound    bool   // @intent 바인딩 성공 여부
+	bindingNote    string // 추가 메모
 }
 
 func (m docstringMeasurement) parentChainStr() string {
@@ -253,7 +253,7 @@ func (m docstringMeasurement) parentChainStr() string {
 func measureDocstringFixture(
 	t *testing.T,
 	filename string,
-	targetSymName string,    // 바인딩 대상 심볼 이름 ("" 이면 file 노드)
+	targetSymName string, // 바인딩 대상 심볼 이름 ("" 이면 file 노드)
 	targetSymKind model.NodeKind,
 ) docstringMeasurement {
 	t.Helper()
@@ -408,10 +408,10 @@ func TestPythonDocstring_FuncDouble(t *testing.T) {
 	}
 }
 
-// TestPythonDocstring_FuncSingle 은 함수 본문 내 '''...''' docstring을 실측한다.
+// TestPythonDocstring_FuncSingle 은 함수 본문 내 ”'...”' docstring을 실측한다.
 //
 // 검증 포인트:
-//   - """와 '''가 동일한 tree-sitter 노드 타입("string")으로 처리되는가
+//   - """와 ”'가 동일한 tree-sitter 노드 타입("string")으로 처리되는가
 func TestPythonDocstring_FuncSingle(t *testing.T) {
 	m := measureDocstringFixture(t, "docstring_func_single.py", "get_user", model.NodeKindFunction)
 
@@ -596,10 +596,10 @@ func TestPythonDocstring_Prefix(t *testing.T) {
 // 이 테스트 자체는 항상 Pass (진단 전용).
 func TestPythonDocstring_AllVariants_Summary(t *testing.T) {
 	type fixtureCase struct {
-		filename   string
-		symName    string
-		symKind    model.NodeKind
-		label      string
+		filename string
+		symName  string
+		symKind  model.NodeKind
+		label    string
 	}
 
 	cases := []fixtureCase{
@@ -611,14 +611,14 @@ func TestPythonDocstring_AllVariants_Summary(t *testing.T) {
 	}
 
 	type row struct {
-		label         string
-		nodeType      string
-		parentChain   string
-		lines         string
-		prefix        string
-		quoteStyle    string
-		inComment     bool
-		intentBound   bool
+		label       string
+		nodeType    string
+		parentChain string
+		lines       string
+		prefix      string
+		quoteStyle  string
+		inComment   bool
+		intentBound bool
 	}
 	var rows []row
 
@@ -658,10 +658,10 @@ func TestPythonDocstring_AllVariants_Summary(t *testing.T) {
 				r.lines = "-"
 			}
 
-		// 바인딩 확인
-		b := parse.NewBinder()
-		binderComments := binderFromWalkerComments(walkerComments)
-		bindings := b.Bind(binderComments, nodes, "python", strings.Split(string(content), "\n"))
+			// 바인딩 확인
+			b := parse.NewBinder()
+			binderComments := binderFromWalkerComments(walkerComments)
+			bindings := b.Bind(binderComments, nodes, "python", strings.Split(string(content), "\n"))
 			for _, binding := range bindings {
 				var match bool
 				if tc.symName == "" {
@@ -732,10 +732,10 @@ func TestPythonDocstring_AllVariants_Summary(t *testing.T) {
 // (구현 수정 없이, 단순히 gap 계산 로직을 이해하기 위한 측정)
 func TestPythonDocstring_GapAnalysis(t *testing.T) {
 	type gapCase struct {
-		name            string
-		filename        string
-		symName         string
-		symKind         model.NodeKind
+		name     string
+		filename string
+		symName  string
+		symKind  model.NodeKind
 		// docstring이 CommentBlock으로 주입될 때 예상 StartLine, EndLine
 		fakeCommentStart int
 		fakeCommentEnd   int
