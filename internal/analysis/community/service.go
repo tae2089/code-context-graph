@@ -11,6 +11,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// communityInsertBatchSize bounds the row count per bulk insert during community rebuild so a
+// large namespace does not issue one INSERT per community or per membership.
+const communityInsertBatchSize = 500
+
 // Config controls directory-based community grouping.
 // @intent define how file paths are collapsed into module community keys
 type Config struct {
@@ -105,10 +109,11 @@ func deleteCommunities(tx *gorm.DB, ns string) error {
 
 // groupNodesByDirectory loads namespace nodes and buckets them by directory key.
 // @intent produce the directory-keyed node groups that drive community creation
+// @domainRule only id and file_path are needed for grouping and membership, so avoid loading full node rows.
 func groupNodesByDirectory(tx *gorm.DB, ctx context.Context, depth int) (map[string][]model.Node, error) {
 	var nodes []model.Node
 	ns := ctxns.FromContext(ctx)
-	if err := tx.Where("namespace = ?", ns).Find(&nodes).Error; err != nil {
+	if err := tx.Model(&model.Node{}).Select("id", "file_path").Where("namespace = ?", ns).Find(&nodes).Error; err != nil {
 		return nil, err
 	}
 
@@ -126,31 +131,40 @@ func groupNodesByDirectory(tx *gorm.DB, ctx context.Context, depth int) (map[str
 // @sideEffect inserts into communities and community_memberships tables
 // @return community lookup by key plus per-node directory key map
 func createCommunitiesAndMemberships(tx *gorm.DB, groups map[string][]model.Node, ns string) (map[string]*model.Community, map[uint]string, error) {
-	communityMap := map[string]*model.Community{}
+	communities := make([]model.Community, 0, len(groups))
 	for key := range groups {
-		c := model.Community{
+		communities = append(communities, model.Community{
 			Namespace: ns,
 			Key:       key,
 			Label:     key,
 			Strategy:  "directory",
-		}
-		if err := tx.Create(&c).Error; err != nil {
+		})
+	}
+	if len(communities) > 0 {
+		if err := tx.CreateInBatches(communities, communityInsertBatchSize).Error; err != nil {
 			return nil, nil, err
 		}
-		communityMap[key] = &c
+	}
+	communityMap := make(map[string]*model.Community, len(communities))
+	for i := range communities {
+		communityMap[communities[i].Key] = &communities[i]
 	}
 
 	nodeComm := map[uint]string{}
-	for key, ns := range groups {
-		for _, n := range ns {
-			m := model.CommunityMembership{
-				CommunityID: communityMap[key].ID,
+	memberships := make([]model.CommunityMembership, 0, len(groups))
+	for key, nodes := range groups {
+		communityID := communityMap[key].ID
+		for _, n := range nodes {
+			memberships = append(memberships, model.CommunityMembership{
+				CommunityID: communityID,
 				NodeID:      n.ID,
-			}
-			if err := tx.Create(&m).Error; err != nil {
-				return nil, nil, err
-			}
+			})
 			nodeComm[n.ID] = key
+		}
+	}
+	if len(memberships) > 0 {
+		if err := tx.CreateInBatches(memberships, communityInsertBatchSize).Error; err != nil {
+			return nil, nil, err
 		}
 	}
 

@@ -3,7 +3,9 @@ package community
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -60,6 +62,42 @@ func seedEdge(t *testing.T, db *gorm.DB, from, to uint) {
 	}
 	if err := db.Create(&e).Error; err != nil {
 		t.Fatalf("seed edge: %v", err)
+	}
+}
+
+type insertCountLogger struct {
+	gormlogger.Interface
+	membershipInserts int
+}
+
+func (l *insertCountLogger) LogMode(gormlogger.LogLevel) gormlogger.Interface { return l }
+func (l *insertCountLogger) Trace(_ context.Context, _ time.Time, fc func() (string, int64), _ error) {
+	sql, _ := fc()
+	if strings.Contains(sql, "INSERT INTO") && strings.Contains(sql, "community_memberships") {
+		l.membershipInserts++
+	}
+}
+
+func TestRebuild_BatchesMembershipInserts(t *testing.T) {
+	counter := &insertCountLogger{Interface: gormlogger.Discard}
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: counter})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := gormstore.New(db).AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	// 40 nodes in one directory => 40 memberships that must not be 40 separate INSERTs.
+	for i := uint(1); i <= 40; i++ {
+		seedNode(t, db, i, fmt.Sprintf("N%d", i), fmt.Sprintf("pkg/f%d.go", i))
+	}
+
+	counter.membershipInserts = 0
+	if _, err := New(db).Rebuild(context.Background(), Config{Depth: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if counter.membershipInserts != 1 {
+		t.Fatalf("expected memberships to insert in a single batch, got %d INSERT statements", counter.membershipInserts)
 	}
 }
 
