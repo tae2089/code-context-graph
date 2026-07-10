@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/tae2089/code-context-graph/internal/safepath"
 )
 
 // Default upload size limits applied when callers do not provide their own Limits.
@@ -133,29 +135,7 @@ func ValidatePath(namespace, filePath string) error {
 // @intent prevent symlink traversal from escaping the namespace root before any filesystem mutation.
 // @param allowMissingLeaf when true, returns the joined path even when the leaf does not yet exist.
 func EnsureNoSymlinkInPath(root, relPath string, allowMissingLeaf bool) (string, error) {
-	cleanRel := filepath.Clean(relPath)
-	if cleanRel == "." {
-		return root, nil
-	}
-	current := root
-	segments := strings.Split(cleanRel, string(filepath.Separator))
-	for i, segment := range segments {
-		current = filepath.Join(current, segment)
-		info, err := os.Lstat(current)
-		if err != nil {
-			if allowMissingLeaf && errors.Is(err, fs.ErrNotExist) && i == len(segments)-1 {
-				return current, nil
-			}
-			if allowMissingLeaf && errors.Is(err, fs.ErrNotExist) {
-				continue
-			}
-			return "", err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return "", fmt.Errorf("symlink paths are not allowed")
-		}
-	}
-	return current, nil
+	return safepath.EnsureNoSymlinkInPath(root, relPath, allowMissingLeaf)
 }
 
 // SafeWrite atomically writes data to path using a temp file and rename, refusing to follow symlinks.

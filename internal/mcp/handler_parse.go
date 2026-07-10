@@ -3,10 +3,7 @@ package mcp
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
 	"time"
 
@@ -17,6 +14,7 @@ import (
 	flowspkg "github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/obs"
 	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
+	"github.com/tae2089/code-context-graph/internal/safepath"
 	"github.com/tae2089/code-context-graph/internal/service"
 )
 
@@ -522,7 +520,7 @@ func (h *handlers) validateAnalysisPath(path string) (string, error) {
 	if len(allowedRoots) == 0 {
 		return "", fmt.Errorf("analysis root is not configured")
 	}
-	target, err := canonicalExistingPath(path)
+	target, err := safepath.Canonical(path, true)
 	if err != nil {
 		return "", fmt.Errorf("invalid path: %w", err)
 	}
@@ -534,29 +532,4 @@ func (h *handlers) validateAnalysisPath(path string) (string, error) {
 		return "", fmt.Errorf("path %q is outside configured analysis root", path)
 	}
 	return target, nil
-}
-
-// @intent resolve a path to its absolute, symlink-evaluated form for analysis-root containment checks.
-// @domainRule symlink evaluation must happen before containment checks against analysis roots.
-// @ensures returned path is cleaned and absolute; existing paths are fully symlink-resolved.
-func canonicalExistingPath(path string) (string, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	clean := filepath.Clean(abs)
-	real, err := filepath.EvalSymlinks(clean)
-	if err == nil {
-		return filepath.Clean(real), nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return "", err
-	}
-	parent := filepath.Dir(clean)
-	base := filepath.Base(clean)
-	parentReal, parentErr := filepath.EvalSymlinks(parent)
-	if parentErr != nil {
-		return "", err
-	}
-	return filepath.Join(parentReal, base), nil
 }
