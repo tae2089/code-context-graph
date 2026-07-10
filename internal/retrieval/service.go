@@ -47,7 +47,11 @@ func (s *Service) FromDBWithOptions(ctx context.Context, namespace, query string
 	candidateGroupLimit := DBCandidateLimit(limit)
 	candidates := s.searchCandidates(ctx, query, limit)
 	groups, nodeIDs := GroupCandidatesByFile(candidates, candidateGroupLimit)
-	if len(groups) < candidateGroupLimit {
+	// @intent supplement with a DB scan only when FTS underfills the caller's requested
+	// result count, not whenever it returns fewer than the wide candidate ceiling.
+	// @domainRule scanning the whole namespace on every query makes retrieval O(namespace);
+	// gating on limit keeps the scan a genuine fallback for sparse-FTS queries.
+	if len(groups) < limit {
 		scanned, err := s.scanDBCandidates(ctx, effectiveNamespace, query)
 		if err != nil {
 			return response, err
@@ -115,6 +119,7 @@ func (s *Service) scanDBCandidates(ctx context.Context, namespace, query string)
 		Where("kind IN ?", retrievableNodeKinds).
 		Preload("Annotation.Tags").
 		Order("file_path ASC, qualified_name ASC, id ASC").
+		Limit(scanRowCap).
 		Find(&nodes).Error; err != nil {
 		return nil, fmt.Errorf("retrieve docs DB candidates: %w", err)
 	}

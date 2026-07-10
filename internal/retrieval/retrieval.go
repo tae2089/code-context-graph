@@ -36,6 +36,10 @@ type Result struct {
 const (
 	dbCandidateFloor = 50
 	dbCandidateCap   = 500
+	// scanRowCap bounds the fallback namespace scan so a sparse-FTS query cannot load an
+	// unbounded number of nodes+annotations. Namespaces with fewer retrievable nodes than
+	// this behave identically to an uncapped scan; larger ones are truncated in stable order.
+	scanRowCap = 5000
 )
 
 var (
