@@ -4,9 +4,9 @@
 // 여러 줄 붙어 있으면 @intent docstring/주석이 심볼 노드에 바인딩되지 않는다.
 //
 // 이 파일의 테스트는 각 언어별로:
-//   1. 실제 tree-sitter로 fixture를 파싱
-//   2. 심볼 노드의 실제 StartLine을 t.Logf로 출력
-//   3. Binder.Bind 결과를 검증하여 현재 실패 동작을 명시적으로 기록
+//  1. 실제 tree-sitter로 fixture를 파싱
+//  2. 심볼 노드의 실제 StartLine을 t.Logf로 출력
+//  3. Binder.Bind 결과를 검증하여 현재 실패 동작을 명시적으로 기록
 //
 // 테스트 이름에 _CurrentlyFailsBinding 접미사를 붙여 현재 상태를 명시합니다.
 package treesitter
@@ -421,15 +421,17 @@ func TestWalkerBinder_CAttribute_CurrentlyFailsBinding(t *testing.T) {
 // # 라인 주석 + 데코레이터 2개 시나리오로 바인딩 실패를 검증합니다.
 //
 // fixture (decorator_gap_comment.py) 기준:
-//   Line 1: # @intent 사용자 조회 엔드포인트
-//   Line 2: # @domainRule 인증 필요
-//   Line 3: @app.route('/api/user')
-//   Line 4: @login_required
-//   Line 5: def get_user():   ← tree-sitter StartLine
+//
+//	Line 1: # @intent 사용자 조회 엔드포인트
+//	Line 2: # @domainRule 인증 필요
+//	Line 3: @app.route('/api/user')
+//	Line 4: @login_required
+//	Line 5: def get_user():   ← tree-sitter StartLine
 //
 // 주석EndLine=2, get_user StartLine=5, gap=3 > maxGap(2) → 바인딩 실패 예상
 // (단, Python이 decorated_definition으로 StartLine을 데코레이터 첫 줄=3으로 잡으면
-//  gap=3-2=1이 되어 바인딩 성공 가능성도 있음)
+//
+//	gap=3-2=1이 되어 바인딩 성공 가능성도 있음)
 func TestWalkerBinder_PythonDecoratorHashComment_CurrentlyFailsBinding(t *testing.T) {
 	content := readFixture(t, "python", "decorator_gap_comment.py")
 	t.Logf("fixture 내용:\n%s", string(content))
@@ -517,11 +519,11 @@ func TestWalkerBinder_PythonDecoratorHashComment_CurrentlyFailsBinding(t *testin
 // 이 테스트는 항상 통과하며, 진단 데이터만 수집합니다.
 func TestWalkerBinder_GapDiagnosis_AllLanguages(t *testing.T) {
 	type langCase struct {
-		spec      *LangSpec
-		lang      string
-		filename  string
-		symName   string
-		symKind   model.NodeKind
+		spec       *LangSpec
+		lang       string
+		filename   string
+		symName    string
+		symKind    model.NodeKind
 		fixtureExt string
 	}
 

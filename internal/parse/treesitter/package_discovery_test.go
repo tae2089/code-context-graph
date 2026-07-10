@@ -756,8 +756,7 @@ func TestPackageDiscoveryOrDefault_DefaultsForUnimplementedLanguages(t *testing.
 	tests := []struct {
 		name string
 		spec *LangSpec
-	}{
-	}
+	}{}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

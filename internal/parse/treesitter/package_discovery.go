@@ -81,7 +81,7 @@ func (PythonPackageDiscovery) DiscoverPackages(ctx context.Context, opts Package
 // @intent create package nodes for package.json paths and tsconfig alias paths that imports can target.
 func (TypeScriptPackageDiscovery) DiscoverPackages(ctx context.Context, opts PackageDiscoveryOptions) (map[string]PackageInfo, error) {
 	return discoverNodePackages(ctx, opts, nodePackageDiscoveryConfig{
-		language:     "typescript",
+		language:      "typescript",
 		extensions:    []string{".ts", ".tsx"},
 		packageJSON:   true,
 		tsconfigAlias: true,
@@ -92,7 +92,7 @@ func (TypeScriptPackageDiscovery) DiscoverPackages(ctx context.Context, opts Pac
 // @intent create package nodes for JavaScript directories using package.json-derived import paths.
 func (JavaScriptPackageDiscovery) DiscoverPackages(ctx context.Context, opts PackageDiscoveryOptions) (map[string]PackageInfo, error) {
 	return discoverNodePackages(ctx, opts, nodePackageDiscoveryConfig{
-		language:   "javascript",
+		language:    "javascript",
 		extensions:  []string{".js", ".jsx", ".mjs", ".cjs"},
 		packageJSON: true,
 	})
@@ -349,7 +349,7 @@ func pathBaseName(value, sep string) string {
 // nodePackageDiscoveryConfig describes one Node.js-family package discovery mode.
 // @intent share package.json and tsconfig-based directory discovery across TypeScript and JavaScript.
 type nodePackageDiscoveryConfig struct {
-	language     string
+	language      string
 	extensions    []string
 	packageJSON   bool
 	tsconfigAlias bool
@@ -358,7 +358,7 @@ type nodePackageDiscoveryConfig struct {
 // nodePackageJSON is the subset of package.json used for import-path discovery.
 // @intent keep package metadata parsing minimal while deriving package-node qualified names.
 type nodePackageJSON struct {
-	Name      string          `json:"name"`
+	Name       string          `json:"name"`
 	Workspaces json.RawMessage `json:"workspaces"`
 }
 

@@ -143,7 +143,7 @@ func (t *Tracer) TraceFlowBounded(ctx context.Context, startNodeID uint, opts Tr
 		Truncated:             truncated,
 		MaxNodes:              opts.MaxNodes,
 		ReturnedNodes:         len(members),
-		ContainsFallbackCalls:  containsFallbackCalls,
+		ContainsFallbackCalls: containsFallbackCalls,
 		FallbackEdgesCount:    fallbackEdges,
 	}, nil
 }

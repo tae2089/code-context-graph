@@ -9,8 +9,8 @@
 // 테스트 정책:
 //   - expectBound=true  → Green 계약. 정상 바인딩되어야 하며, 실패 시 회귀(normalizer/walker/binder).
 //   - expectBound=false → Red 계약. 현재 tree-sitter grammar 특성으로 바인딩이 누락됨을
-//                         "명시적으로" 고정. 구현이 개선되어 우연히 바인딩되면 테스트가 실패하므로
-//                         그때 Green으로 승격하고 skipReason과 walker 보정을 함께 정리한다.
+//     "명시적으로" 고정. 구현이 개선되어 우연히 바인딩되면 테스트가 실패하므로
+//     그때 Green으로 승격하고 skipReason과 walker 보정을 함께 정리한다.
 //
 // Helper 함수:
 //   - binderFromWalkerComments, logNodeInfo, logCommentInfo 는
@@ -338,10 +338,10 @@ data class User(val name: String)
 			}
 
 			// Phase 2: 바인딩 시도.
-		binder := parse.NewBinder()
-		bindings := binder.Bind(
-			binderFromWalkerComments(walkerComments), nodes, tc.spec.Name, strings.Split(tc.source, "\n"),
-		)
+			binder := parse.NewBinder()
+			bindings := binder.Bind(
+				binderFromWalkerComments(walkerComments), nodes, tc.spec.Name, strings.Split(tc.source, "\n"),
+			)
 
 			var target *parse.Binding
 			for i := range bindings {

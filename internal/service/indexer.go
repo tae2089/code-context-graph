@@ -135,12 +135,6 @@ func newParsedBuildNodeBatch(relPath string, content []byte, nodes []model.Node,
 	return out
 }
 
-// newParsedBuildEdgeBatch wraps parsed edges so they can be persisted after their owning nodes.
-// @intent defer edge upserts until referenced nodes exist in the graph store.
-func newParsedBuildEdgeBatch(relPath string, edges []model.Edge) parsedBuildEdgeBatch {
-	return parsedBuildEdgeBatch{relPath: relPath, edges: edges}
-}
-
 // bindAndReleaseNodeBatch upserts a parsed file's nodes and binds its comment annotations within a transaction-scoped store.
 // @intent persist nodes and their annotation bindings atomically per file before releasing comment buffers.
 // @sideEffect writes graph nodes and annotation rows via the transaction-scoped store.
@@ -1290,18 +1284,6 @@ func affectedUpdateFiles(currentHashes map[string]string, existingNodesByFile ma
 	return files
 }
 
-// existingFilesMissingFrom returns paths that were previously stored but are no longer present on disk.
-// @intent identify deletions so the incremental syncer can remove their nodes and edges.
-func existingFilesMissingFrom(files map[string]incremental.FileInfo, existingFiles []string) []string {
-	deleted := make([]string, 0)
-	for _, fp := range existingFiles {
-		if _, ok := files[fp]; !ok {
-			deleted = append(deleted, fp)
-		}
-	}
-	return deleted
-}
-
 // @intent detect deleted paths from the spool snapshot without rebuilding a full in-memory FileInfo map.
 func existingFilesMissingFromSet(currentFiles map[string]struct{}, existingFiles []string) []string {
 	deleted := make([]string, 0)
@@ -1439,14 +1421,6 @@ func (s *GraphService) parserForExt(ext string) (Parser, bool) {
 	}
 	parser, ok := s.Walkers[ext]
 	return parser, ok
-}
-
-// @intent rebuild the namespace-scoped search index after graph mutations when a search backend is configured.
-func (s *GraphService) rebuildSearch(ctx context.Context) error {
-	if s.SearchBackend == nil || s.DB == nil {
-		return nil
-	}
-	return s.rebuildSearchWithDB(ctx, s.DB)
 }
 
 // rebuildSearchNodes refreshes search documents for the given node IDs when a search backend is configured.
@@ -1652,21 +1626,6 @@ func mergeLanguagePackages(dst map[string]languagePackageInfo, ambiguous map[str
 		slices.Sort(pkg.Files)
 		dst[importPath] = pkg
 	}
-}
-
-// importPackageNames extracts a mapping of import paths to package names.
-// @intent allow the edge resolver to look up package names by their source import paths.
-func importPackageNames(packages map[string]languagePackageInfo) map[string]string {
-	if len(packages) == 0 {
-		return nil
-	}
-	names := make(map[string]string, len(packages))
-	for importPath, pkg := range packages {
-		if importPath != "" && pkg.Name != "" {
-			names[importPath] = pkg.Name
-		}
-	}
-	return names
 }
 
 // @intent normalize discovered package imports into the canonical names used when resolving cross-file imports during parsing.
