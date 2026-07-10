@@ -37,7 +37,10 @@ func NewExecGitClient() *ExecGitClient {
 // @requires repoDir points to a valid git working tree
 // @ensures returned file paths are trimmed and exclude blank lines
 func (g *ExecGitClient) ChangedFiles(ctx context.Context, repoDir, baseRef string) ([]string, error) {
-	out, err := runGitLimited(ctx, repoDir, []string{"diff", "--name-only", baseRef})
+	if err := validateBaseRef(baseRef); err != nil {
+		return nil, err
+	}
+	out, err := runGitLimited(ctx, repoDir, []string{"-c", "core.quotePath=false", "diff", "--name-only", baseRef, "--"})
 	if err != nil {
 		return nil, trace.Wrap(err, "git diff --name-only")
 	}
@@ -66,7 +69,10 @@ func (g *ExecGitClient) ChangedFiles(ctx context.Context, repoDir, baseRef strin
 // @requires repoDir points to a valid git working tree
 // @ensures each returned hunk has a file path and inclusive start/end lines
 func (g *ExecGitClient) DiffHunks(ctx context.Context, repoDir, baseRef string, paths []string) ([]Hunk, error) {
-	args := []string{"diff", "-U0", baseRef, "--"}
+	if err := validateBaseRef(baseRef); err != nil {
+		return nil, err
+	}
+	args := []string{"-c", "core.quotePath=false", "diff", "-U0", baseRef, "--"}
 	args = append(args, paths...)
 	out, err := runGitLimited(ctx, repoDir, args)
 	if err != nil {
@@ -96,6 +102,19 @@ func (g *ExecGitClient) DiffHunks(ctx context.Context, repoDir, baseRef string, 
 		return nil, trace.Wrap(err, "scan git diff output")
 	}
 	return hunks, nil
+}
+
+// validateBaseRef rejects base revisions that git would parse as command options.
+// @intent block git argument injection through the caller-supplied base ref, which sits
+// before the "--" separator and would otherwise be interpreted as a diff flag.
+func validateBaseRef(baseRef string) error {
+	if baseRef == "" {
+		return fmt.Errorf("base ref must not be empty")
+	}
+	if strings.HasPrefix(baseRef, "-") {
+		return fmt.Errorf("invalid base ref %q: must not start with '-'", baseRef)
+	}
+	return nil
 }
 
 // runGitLimited runs a git subcommand with the default output size cap.

@@ -29,6 +29,46 @@ func TestGitClient_ChangedFiles(t *testing.T) {
 	}
 }
 
+func TestGitClient_RejectsOptionLikeBaseRef(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, dir, "hello.go", "package main\n")
+	gitCommit(t, dir, "initial")
+
+	git := NewExecGitClient()
+	for _, base := range []string{"--output=/tmp/pwned", "-U9999", "--no-index"} {
+		if _, err := git.ChangedFiles(context.Background(), dir, base); err == nil {
+			t.Errorf("ChangedFiles accepted option-like base %q", base)
+		}
+		if _, err := git.DiffHunks(context.Background(), dir, base, []string{"hello.go"}); err == nil {
+			t.Errorf("DiffHunks accepted option-like base %q", base)
+		}
+	}
+}
+
+func TestGitClient_ChangedFiles_NonASCIIPath(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, dir, "한글.go", "package main\n")
+	gitCommit(t, dir, "initial")
+	writeFile(t, dir, "한글.go", "package main\n\nfunc Hello() {}\n")
+
+	git := NewExecGitClient()
+	files, err := git.ChangedFiles(context.Background(), dir, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0] != "한글.go" {
+		t.Fatalf("expected unquoted 한글.go, got %v", files)
+	}
+
+	hunks, err := git.DiffHunks(context.Background(), dir, "HEAD", []string{"한글.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hunks) == 0 || hunks[0].FilePath != "한글.go" {
+		t.Fatalf("expected hunk for unquoted 한글.go, got %+v", hunks)
+	}
+}
+
 func TestGitClient_DiffHunks(t *testing.T) {
 	dir := initTestRepo(t)
 	writeFile(t, dir, "hello.go", "package main\n\nfunc Old() {}\n")
