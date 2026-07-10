@@ -14,35 +14,44 @@ import (
 )
 
 func TestSyncQueue_DeduplicatesRapidPushes(t *testing.T) {
-	var callCount atomic.Int32
-	done := make(chan struct{})
+	var svcCalls atomic.Int32
+	gate := make(chan struct{})
+	svcDone := make(chan struct{})
 
 	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
-		callCount.Add(1)
-		time.Sleep(50 * time.Millisecond)
-		if callCount.Load() == 1 {
-			close(done)
+		switch repoFullName {
+		case "org/blocker":
+			<-gate
+		case "org/svc":
+			if svcCalls.Add(1) == 1 {
+				close(svcDone)
+			}
 		}
 		return nil
 	}
 
-	q := NewSyncQueue(2, handler)
+	// A single worker held by the gated blocker guarantees all three pushes arrive while
+	// org/svc is queued (never processing), so dedup must collapse them into one run.
+	// Racing the pushes against a free worker made this test flaky under parallel load.
+	q := NewSyncQueue(1, handler)
 	defer q.Shutdown()
 
+	q.Add(context.Background(), "org/blocker", "https://github.com/org/blocker.git", "main")
 	q.Add(context.Background(), "org/svc", "https://github.com/org/svc.git", "main")
 	q.Add(context.Background(), "org/svc", "https://github.com/org/svc.git", "main")
 	q.Add(context.Background(), "org/svc", "https://github.com/org/svc.git", "main")
+	close(gate)
 
 	select {
-	case <-done:
+	case <-svcDone:
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for handler")
 	}
 
+	// Grace window so an erroneous duplicate run would surface before the assertion.
 	time.Sleep(100 * time.Millisecond)
 
-	got := callCount.Load()
-	if got != 1 {
+	if got := svcCalls.Load(); got != 1 {
 		t.Errorf("handler called %d times, want 1 (dedup failed)", got)
 	}
 }

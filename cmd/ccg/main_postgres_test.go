@@ -157,7 +157,7 @@ func TestRunMigrations_PostgresDownRestoresNullableColumns(t *testing.T) {
 		t.Fatalf("run down migration: %v", err)
 	}
 
-	var version migrateSchemaVersion
+	var version migration.MigrationSchemaVersion
 	if err := db.Table("schema_migrations").First(&version).Error; err != nil {
 		t.Fatalf("load schema version: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestRunMigrations_PostgresDownFromVersionThreeDropsPolicyTables(t *testing.
 		t.Fatalf("run down migration: %v", err)
 	}
 
-	var version migrateSchemaVersion
+	var version migration.MigrationSchemaVersion
 	if err := db.Table("schema_migrations").First(&version).Error; err != nil {
 		t.Fatalf("load schema version: %v", err)
 	}

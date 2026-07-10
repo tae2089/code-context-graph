@@ -133,6 +133,15 @@ func TestPostgresFTS_Rebuild(t *testing.T) {
 	}
 }
 
+// disableTSVTrigger turns off the tsv BEFORE INSERT/UPDATE trigger so tests can stage
+// stale tsv values by hand. Tables are dropped per test, so re-enabling is unnecessary.
+func disableTSVTrigger(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	if err := db.Exec("ALTER TABLE search_documents DISABLE TRIGGER trg_search_documents_tsv").Error; err != nil {
+		t.Fatalf("disable tsv trigger: %v", err)
+	}
+}
+
 func TestPostgresFTS_RebuildNodes_RefreshesOnlyScopedRows(t *testing.T) {
 	db := setupPostgresDB(t)
 	backend := NewPostgresBackend()
@@ -157,6 +166,10 @@ func TestPostgresFTS_RebuildNodes_RefreshesOnlyScopedRows(t *testing.T) {
 	if err := db.Create(&model.SearchDocument{Namespace: "ns-b", NodeID: foreign.ID, Content: "fresh foreign", Language: "go"}).Error; err != nil {
 		t.Fatal(err)
 	}
+	// The tsv BEFORE UPDATE trigger would recompute tsv from content and overwrite the
+	// manual stale marker; disable it so the stale state actually exists and RebuildNodes'
+	// own UPDATE statement is what gets verified.
+	disableTSVTrigger(t, db)
 	if err := db.Exec("UPDATE search_documents SET tsv = to_tsvector('simple', 'stale')").Error; err != nil {
 		t.Fatal(err)
 	}
@@ -193,6 +206,9 @@ func TestPostgresFTS_RebuildNodes_EmptyScopeIsNoOp(t *testing.T) {
 	if err := db.Create(&model.SearchDocument{Namespace: ctxns.DefaultNamespace, NodeID: node.ID, Content: "fresh keep", Language: "go"}).Error; err != nil {
 		t.Fatal(err)
 	}
+	// See TestPostgresFTS_RebuildNodes_RefreshesOnlyScopedRows: the trigger must be off
+	// for the stale marker to persist.
+	disableTSVTrigger(t, db)
 	if err := db.Exec("UPDATE search_documents SET tsv = to_tsvector('simple', 'stale')").Error; err != nil {
 		t.Fatal(err)
 	}
