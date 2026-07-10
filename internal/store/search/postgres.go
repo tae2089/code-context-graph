@@ -12,6 +12,7 @@ import (
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/db/migration"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
@@ -30,72 +31,14 @@ func NewPostgresBackend() *PostgresBackend {
 	return &PostgresBackend{}
 }
 
-// Migrate prepares the PostgreSQL full-text search schema.
-// @intent Sets up the tsvector-based search infrastructure on the search_documents table.
-// @sideEffect Creates or replaces columns, indexes, trigger functions, and triggers.
-// @ensures The tsv column is automatically updated when search_documents is modified.
+// Migrate ensures the PostgreSQL search schema exists by running the versioned migrations,
+// which are the single source of truth for the tsvector column, trigger, GIN index, and the
+// pg_trgm fuzzy indexes. It no longer hand-writes DDL, so the schema cannot drift from the
+// migration files.
+// @intent give tests and callers a one-call schema setup that reuses the production migrations.
+// @sideEffect applies any pending schema migrations to the connected database.
 func (p *PostgresBackend) Migrate(db *gorm.DB) error {
-	if err := db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(`
-			ALTER TABLE search_documents
-			ADD COLUMN IF NOT EXISTS tsv tsvector,
-			ADD COLUMN IF NOT EXISTS namespace varchar(256) NOT NULL DEFAULT ''
-		`).Error; err != nil {
-			return trace.Wrap(err, "add tsv column")
-		}
-
-		if err := tx.Exec(`
-			CREATE OR REPLACE FUNCTION search_documents_tsv_trigger() RETURNS trigger AS $$
-			BEGIN
-				NEW.tsv := to_tsvector('simple', COALESCE(NEW.content, ''));
-				RETURN NEW;
-			END
-			$$ LANGUAGE plpgsql
-		`).Error; err != nil {
-			return trace.Wrap(err, "create trigger function")
-		}
-
-		if err := tx.Exec(`
-			DROP TRIGGER IF EXISTS trg_search_documents_tsv ON search_documents
-		`).Error; err != nil {
-			return trace.Wrap(err, "drop old trigger")
-		}
-
-		if err := tx.Exec(`
-			CREATE TRIGGER trg_search_documents_tsv
-			BEFORE INSERT OR UPDATE ON search_documents
-			FOR EACH ROW EXECUTE FUNCTION search_documents_tsv_trigger()
-		`).Error; err != nil {
-			return trace.Wrap(err, "create trigger")
-		}
-
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	if err := db.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_search_documents_tsv
-		ON search_documents USING gin(tsv)
-	`).Error; err != nil {
-		return trace.Wrap(err, "create gin index")
-	}
-
-	// pg_trgm powers typo-tolerant fuzzy symbol matching. The extension may need
-	// elevated privileges, so treat its absence as a graceful downgrade to exact FTS
-	// rather than a fatal migration error.
-	if err := db.Exec(`CREATE EXTENSION IF NOT EXISTS pg_trgm`).Error; err != nil {
-		slog.Warn("pg_trgm unavailable; fuzzy symbol search disabled", trace.SlogError(err))
-		return nil
-	}
-	if err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_nodes_name_trgm ON nodes USING gin (name gin_trgm_ops)`).Error; err != nil {
-		return trace.Wrap(err, "create name trgm index")
-	}
-	if err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_nodes_qualified_name_trgm ON nodes USING gin (qualified_name gin_trgm_ops)`).Error; err != nil {
-		return trace.Wrap(err, "create qualified_name trgm index")
-	}
-
-	return nil
+	return migration.RunMigrations(db, "postgres", "")
 }
 
 // Rebuild recalculates the tsvector for all search documents.
