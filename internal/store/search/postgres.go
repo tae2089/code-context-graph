@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 
 	"gorm.io/gorm"
 
@@ -175,9 +176,11 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 	}
 
 	// A zero-hit tsquery is not terminal: a misspelled query legitimately matches nothing
-	// exactly, and the pg_trgm fuzzy supplement below can still surface candidates.
+	// exactly, and the pg_trgm fuzzy supplement can still surface candidates. Fuzzy fires
+	// only on a total exact miss so it never dilutes the precision of queries that did match.
 	if len(rows) == 0 {
-		return p.appendFuzzyMatches(ctx, db, query, ns, nil, limit), nil
+		fuzzy := p.appendFuzzyMatches(ctx, db, query, ns, limit)
+		return promoteExactNameMatch(fuzzy, query), nil
 	}
 
 	nodeIDs := make([]uint, len(rows))
@@ -209,76 +212,74 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 		}
 	}
 
-	// When exact FTS underfills the requested limit, supplement with typo-tolerant
-	// trigram matches on symbol names so misspelled queries still return candidates.
-	if len(result) < limit {
-		result = p.appendFuzzyMatches(ctx, db, query, ns, result, limit)
-	}
-
 	result = promoteExactNameMatch(result, query)
 	return result, nil
 }
 
-// appendFuzzyMatches supplements exact-FTS results with pg_trgm similarity matches on
-// symbol names, ordered by similarity. It is best-effort: when pg_trgm is unavailable the
-// query errors and the exact results are returned unchanged.
+// appendFuzzyMatches returns up to limit pg_trgm fuzzy matches on symbol names for queries
+// that produced no exact FTS hit (typo tolerance). It is best-effort: if pg_trgm is
+// unavailable the query errors and an empty result is returned so exact search still works.
 // @intent add typo tolerance to Postgres search without letting a missing extension break exact search.
-func (p *PostgresBackend) appendFuzzyMatches(ctx context.Context, db *gorm.DB, query, ns string, existing []model.Node, limit int) []model.Node {
-	remaining := limit - len(existing)
-	if remaining <= 0 {
-		return existing
-	}
-	seen := make(map[uint]struct{}, len(existing))
-	for _, n := range existing {
-		seen[n.ID] = struct{}{}
+// @domainRule only nodes that also have a search_documents row are eligible, so fuzzy stays
+// within the same corpus and kind mix as the exact FTS path.
+func (p *PostgresBackend) appendFuzzyMatches(ctx context.Context, db *gorm.DB, query, ns string, limit int) []model.Node {
+	if limit <= 0 {
+		return nil
 	}
 
-	// word_similarity (not similarity) is used so a short query matches the best-fitting
-	// extent of a longer symbol name; plain similarity penalizes length differences and
-	// misses typos like "authentcate" inside "AuthenticateUser".
+	// The `<%` operator is index-accelerated by the gin_trgm_ops indexes on name/qualified_name
+	// (a functional `word_similarity(...) >= const` filter cannot use them); its cutoff is the
+	// session-local word_similarity_threshold, set here so the operator and our tuned threshold
+	// agree. Ordering uses the functional form over the already-filtered small set.
 	var rows []resultRow
 	fuzzySQL := `
-		SELECT id AS node_id
-		FROM nodes
-		WHERE namespace = ?
-		AND (word_similarity(?, name) >= ? OR word_similarity(?, qualified_name) >= ?)
-		ORDER BY GREATEST(word_similarity(?, name), word_similarity(?, qualified_name)) DESC
+		SELECT n.id AS node_id
+		FROM nodes n
+		JOIN search_documents sd ON sd.node_id = n.id AND sd.namespace = n.namespace
+		WHERE n.namespace = ?
+		AND (? <% n.name OR ? <% n.qualified_name)
+		ORDER BY GREATEST(word_similarity(?, n.name), word_similarity(?, n.qualified_name)) DESC
 		LIMIT ?`
-	if err := db.WithContext(ctx).Raw(fuzzySQL, ns, query, fuzzyWordSimilarityThreshold, query, fuzzyWordSimilarityThreshold, query, query, remaining+len(existing)).Scan(&rows).Error; err != nil {
-		slog.Debug("pg_trgm fuzzy supplement skipped", trace.SlogError(err))
-		return existing
-	}
-
-	fuzzyIDs := make([]uint, 0, len(rows))
-	for _, r := range rows {
-		if _, ok := seen[r.NodeID]; ok {
-			continue
+	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if e := tx.Exec(`SELECT set_config('pg_trgm.word_similarity_threshold', ?, true)`,
+			strconv.FormatFloat(fuzzyWordSimilarityThreshold, 'f', -1, 64)).Error; e != nil {
+			return e
 		}
-		seen[r.NodeID] = struct{}{}
-		fuzzyIDs = append(fuzzyIDs, r.NodeID)
+		return tx.Raw(fuzzySQL, ns, query, query, query, query, limit).Scan(&rows).Error
+	})
+	if err != nil {
+		// Context cancellation is the caller's concern, not a fuzzy fault; only surface real errors.
+		if ctx.Err() == nil {
+			slog.Warn("pg_trgm fuzzy supplement failed", trace.SlogError(err))
+		}
+		return nil
 	}
-	if len(fuzzyIDs) == 0 {
-		return existing
+	if len(rows) == 0 {
+		return nil
 	}
 
+	nodeIDs := make([]uint, len(rows))
+	for i, r := range rows {
+		nodeIDs[i] = r.NodeID
+	}
 	var nodes []model.Node
-	if err := db.WithContext(ctx).Where("id IN ?", fuzzyIDs).Where("namespace = ?", ns).Find(&nodes).Error; err != nil {
-		slog.Debug("pg_trgm fuzzy node load skipped", trace.SlogError(err))
-		return existing
+	if err := db.WithContext(ctx).Where("id IN ?", nodeIDs).Where("namespace = ?", ns).Find(&nodes).Error; err != nil {
+		if ctx.Err() == nil {
+			slog.Warn("pg_trgm fuzzy node load failed", trace.SlogError(err))
+		}
+		return nil
 	}
 	byID := make(map[uint]model.Node, len(nodes))
 	for _, n := range nodes {
 		byID[n.ID] = n
 	}
-	for _, id := range fuzzyIDs {
+	ordered := make([]model.Node, 0, len(nodeIDs))
+	for _, id := range nodeIDs {
 		if n, ok := byID[id]; ok && n.ID != 0 {
-			existing = append(existing, n)
-			if len(existing) >= limit {
-				break
-			}
+			ordered = append(ordered, n)
 		}
 	}
-	return existing
+	return ordered
 }
 
 var _ Backend = (*PostgresBackend)(nil)
