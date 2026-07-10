@@ -690,6 +690,32 @@ func TestAPI_DocReturnsNotFoundWithoutDBFallback(t *testing.T) {
 	}
 }
 
+func TestAPI_DocRejectsNonDocsFilesUnderCwd(t *testing.T) {
+	srv := newTestServer(t)
+	// A sensitive non-docs file in the working directory must not be readable as a "doc".
+	if err := os.WriteFile("secret.env", []byte("TOKEN=hunter2"), 0o644); err != nil {
+		t.Fatalf("write secret: %v", err)
+	}
+	for _, p := range []string{"secret.env", "./secret.env"} {
+		req := httptest.NewRequest(http.MethodGet, "/wiki/api/doc?namespace=default&path="+p, nil)
+		rec := httptest.NewRecorder()
+		srv.APIHandler().ServeHTTP(rec, req)
+		if rec.Code == http.StatusOK {
+			t.Fatalf("path %q: non-docs CWD file served as doc: %s", p, rec.Body.String())
+		}
+	}
+	abs, err := filepath.Abs("secret.env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/wiki/api/doc?namespace=default&path="+abs, nil)
+	rec := httptest.NewRecorder()
+	srv.APIHandler().ServeHTTP(rec, req)
+	if rec.Code == http.StatusOK {
+		t.Fatalf("absolute path: non-docs CWD file served as doc: %s", rec.Body.String())
+	}
+}
+
 func TestAPI_DocRejectsTraversal(t *testing.T) {
 	srv := newTestServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/wiki/api/doc?namespace=default&path=../secret.md", nil)
