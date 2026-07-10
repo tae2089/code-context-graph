@@ -1204,8 +1204,10 @@ func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, 
 	}
 
 	stats := &incremental.SyncStats{}
-	normalExistingFiles := existingFilesExcluding(existingFiles, forceFiles)
-	passedExistingFiles := false
+	// Normal batches must never carry existingFiles: SyncWithExisting deletes existing files
+	// absent from the batch, so a multi-record spool would delete files belonging to later
+	// batches (then re-add them, churning node IDs and stats). Deletions are handled once,
+	// explicitly, below — mirroring the transactional path (applyUpdateSpoolInTx).
 	for _, path := range spool.records {
 		record, err := spool.readRecord(path)
 		if err != nil {
@@ -1215,19 +1217,14 @@ func (s *GraphService) updateGraphWithoutTx(ctx context.Context, absDir string, 
 		if len(normalFiles) == 0 {
 			continue
 		}
-		batchExistingFiles := []string(nil)
-		if !passedExistingFiles {
-			batchExistingFiles = normalExistingFiles
-			passedExistingFiles = true
-		}
-		batchStats, err := opts.Syncer.SyncWithExisting(ctx, normalFiles, batchExistingFiles)
+		batchStats, err := opts.Syncer.SyncWithExisting(ctx, normalFiles, nil)
 		if err != nil {
 			return nil, trace.Wrap(err, "incremental sync")
 		}
 		addSyncStats(stats, batchStats)
 	}
 	deletedFiles := existingFilesMissingFromSet(spool.currentFiles, existingFiles)
-	if len(deletedFiles) > 0 && passedExistingFiles {
+	if len(deletedFiles) > 0 {
 		batchStats, err := opts.Syncer.SyncWithExisting(ctx, nil, deletedFiles)
 		if err != nil {
 			return nil, trace.Wrap(err, "incremental delete sync")
@@ -1293,25 +1290,6 @@ func existingFilesMissingFromSet(currentFiles map[string]struct{}, existingFiles
 		}
 	}
 	return deleted
-}
-
-// existingFilesExcluding filters out paths excluded from the current sync pass.
-// @intent keep incremental sync from revisiting files the caller already ruled out.
-func existingFilesExcluding(existingFiles []string, exclude map[string]struct{}) []string {
-	if len(existingFiles) == 0 {
-		return nil
-	}
-	if len(exclude) == 0 {
-		return append([]string(nil), existingFiles...)
-	}
-	filtered := make([]string, 0, len(existingFiles))
-	for _, fp := range existingFiles {
-		if _, ok := exclude[fp]; ok {
-			continue
-		}
-		filtered = append(filtered, fp)
-	}
-	return filtered
 }
 
 // affectedNodeIDsForUpdate collects node IDs whose search documents must be refreshed for a given change set.

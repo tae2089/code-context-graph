@@ -2701,6 +2701,40 @@ func TestUpdate_MaxTotalParsedBytesRejectsBeforeSync(t *testing.T) {
 	}
 }
 
+func TestUpdateGraphWithoutTx_DeletesEvenWithNoNormalBatches(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.Node{}); err != nil {
+		t.Fatalf("migrate nodes: %v", err)
+	}
+	if err := db.Create(&model.Node{Namespace: ctxns.DefaultNamespace, FilePath: "gone.go"}).Error; err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+
+	svc := &GraphService{
+		DB:      db,
+		Walkers: map[string]*treesitter.Walker{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:  slog.Default(),
+	}
+
+	// Empty working dir: nothing to parse, so there are no normal batches. The previously
+	// stored gone.go must still be deleted (regression: the delete pass was gated on a normal
+	// batch having run).
+	tmpDir := t.TempDir()
+	syncer := &recordingIncrementalSyncer{result: &incremental.SyncStats{}}
+	if _, err := svc.Update(context.Background(), UpdateOptions{BuildOptions: BuildOptions{Dir: tmpDir, SkipSearchRebuild: true}, Syncer: syncer}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if len(syncer.calls) != 1 {
+		t.Fatalf("expected a single delete pass, got %d calls: %v", len(syncer.calls), syncer.calls)
+	}
+	if got, want := syncer.calls[0].existingFiles, []string{"gone.go"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("delete pass existingFiles = %v, want %v", got, want)
+	}
+}
+
 func TestUpdate_IncludePaths_FiltersExistingFilesWhenReplaceFalse(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {
@@ -2709,6 +2743,8 @@ func TestUpdate_IncludePaths_FiltersExistingFilesWhenReplaceFalse(t *testing.T) 
 	if err := db.AutoMigrate(&model.Node{}); err != nil {
 		t.Fatalf("migrate nodes: %v", err)
 	}
+	// Both seeded files are missing from disk. handler.go is inside the include path and must be
+	// deleted; helper.go is outside it and must be scoped out of the existing-file set entirely.
 	if err := db.Create(&model.Node{Namespace: ctxns.DefaultNamespace, FilePath: filepath.Join("src", "api", "handler.go")}).Error; err != nil {
 		t.Fatalf("seed api node: %v", err)
 	}
@@ -2727,8 +2763,10 @@ func TestUpdate_IncludePaths_FiltersExistingFilesWhenReplaceFalse(t *testing.T) 
 	if err := os.MkdirAll(apiDir, 0o755); err != nil {
 		t.Fatalf("mkdir api: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(apiDir, "handler.go"), []byte("package api\n\nfunc Handler() {}\n"), 0o644); err != nil {
-		t.Fatalf("write handler: %v", err)
+	// A new file under the include path so the update has something to parse; the seeded
+	// handler.go is absent from disk and should be detected as a deletion.
+	if err := os.WriteFile(filepath.Join(apiDir, "new.go"), []byte("package api\n\nfunc New() {}\n"), 0o644); err != nil {
+		t.Fatalf("write new: %v", err)
 	}
 
 	syncer := &recordingIncrementalSyncer{result: &incremental.SyncStats{}}
@@ -2736,8 +2774,18 @@ func TestUpdate_IncludePaths_FiltersExistingFilesWhenReplaceFalse(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	if got, want := syncer.existingFiles, []string{filepath.Join("src", "api", "handler.go")}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("existingFiles mismatch: got=%v want=%v", got, want)
+
+	var deleteCall *recordingSyncCall
+	for i := range syncer.calls {
+		if len(syncer.calls[i].files) == 0 && len(syncer.calls[i].existingFiles) > 0 {
+			deleteCall = &syncer.calls[i]
+		}
+	}
+	if deleteCall == nil {
+		t.Fatalf("expected a delete pass for the missing include-path file, calls=%v", syncer.calls)
+	}
+	if got, want := deleteCall.existingFiles, []string{filepath.Join("src", "api", "handler.go")}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("delete pass existingFiles mismatch: got=%v want=%v (helper.go outside include path must be scoped out)", got, want)
 	}
 }
 
@@ -3045,11 +3093,10 @@ func TestUpdateGraphWithoutTx_DoesNotDeleteForcedFilesDuringNormalSync(t *testin
 	if _, ok := first.files["target.go"]; !ok {
 		t.Fatalf("expected changed target.go in normal sync files, got %v", sortedIncrementalFileKeys(first.files))
 	}
-	if slices.Contains(first.existingFiles, "source.go") {
-		t.Fatalf("expected forced source.go to be excluded from normal sync existingFiles, got %v", first.existingFiles)
-	}
-	if !slices.Contains(first.existingFiles, "deleted.go") {
-		t.Fatalf("expected deleted.go to remain in normal sync existingFiles, got %v", first.existingFiles)
+	// Normal sync passes no existingFiles: deletions are handled by the separate delete pass,
+	// so a normal batch can never delete files that belong to other batches (mirrors the tx path).
+	if len(first.existingFiles) != 0 {
+		t.Fatalf("expected normal sync to pass no existingFiles, got %v", first.existingFiles)
 	}
 	second := syncer.calls[1]
 	if len(second.files) != 0 {
