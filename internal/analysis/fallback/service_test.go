@@ -63,6 +63,44 @@ func TestSuspectFallbackEdges_FlagsDisjointIntentAndDomainRule(t *testing.T) {
 	}
 }
 
+func TestSuspectFallbackEdges_SkipsEdgeWithMissingEndpointInsteadOfDroppingPage(t *testing.T) {
+	db := setupFallbackDB(t)
+	ctx := context.Background()
+	store := gormstore.New(db)
+
+	source := model.Node{QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "A", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"}
+	target := model.Node{QualifiedName: "pkg.B", Kind: model.NodeKindFunction, Name: "B", FilePath: "b.go", StartLine: 1, EndLine: 2, Language: "go"}
+	if err := store.UpsertNodes(ctx, []model.Node{source, target}); err != nil {
+		t.Fatal(err)
+	}
+	sourceNode, _ := store.GetNode(ctx, "pkg.A")
+	targetNode, _ := store.GetNode(ctx, "pkg.B")
+	if err := store.UpsertEdges(ctx, []model.Edge{
+		// dangling edge: endpoint node id does not exist
+		{FromNodeID: 99999, ToNodeID: targetNode.ID, Kind: model.EdgeKindFallbackCalls, Fingerprint: "a-dangling"},
+		{FromNodeID: sourceNode.ID, ToNodeID: targetNode.ID, Kind: model.EdgeKindFallbackCalls, Fingerprint: "b-valid"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertAnnotation(ctx, &model.Annotation{NodeID: sourceNode.ID, Summary: "auth", Tags: []model.DocTag{{Kind: model.TagIntent, Value: "verify credentials", Ordinal: 0}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertAnnotation(ctx, &model.Annotation{NodeID: targetNode.ID, Summary: "billing", Tags: []model.DocTag{{Kind: model.TagIntent, Value: "render invoice", Ordinal: 0}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := New(db, store).FindSuspects(ctx, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("dangling edge must be skipped, not drop the whole page: got %d results", len(results))
+	}
+	if results[0].Source.QualifiedName != "pkg.A" {
+		t.Fatalf("expected surviving valid edge, got %+v", results[0])
+	}
+}
+
 func TestSuspectFallbackEdges_IgnoresOverlappingAnnotationContext(t *testing.T) {
 	db := setupFallbackDB(t)
 	ctx := context.Background()
