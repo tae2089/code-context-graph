@@ -46,6 +46,9 @@ func (s *Service) FromDBWithOptions(ctx context.Context, namespace, query string
 
 	candidateGroupLimit := DBCandidateLimit(limit)
 	candidates := s.searchCandidates(ctx, query, limit)
+	// Capture the search engine's per-file rank order before the scan supplement is merged in,
+	// so engine hits keep their relevance ordering and outrank scan-only supplements.
+	ftsRanks := ftsFileRanks(candidates)
 	groups, nodeIDs := GroupCandidatesByFile(candidates, candidateGroupLimit)
 	// @intent supplement with a DB scan only when FTS underfills the caller's requested
 	// result count, not whenever it returns fewer than the wide candidate ceiling.
@@ -74,7 +77,7 @@ func (s *Service) FromDBWithOptions(ctx context.Context, namespace, query string
 		result.Matches = DBMatches(group.Nodes, annotations)
 		response.Results = append(response.Results, result)
 	}
-	sortRetrieveResults(response.Results)
+	sortRetrieveResults(response.Results, ftsRanks)
 	if len(response.Results) > limit {
 		response.Results = response.Results[:limit]
 	}
@@ -164,9 +167,42 @@ func mergeCandidates(primary, supplemental []model.Node) []model.Node {
 	return merged
 }
 
-// @intent keep DB retrieve ordering score-first after all candidates have been structurally scored.
-func sortRetrieveResults(results []Result) {
+// ftsFileRanks records each file's best (earliest) position in the search engine's
+// rank-ordered candidate list, keyed by file path.
+// @intent preserve the search backend's relevance ordering as an authoritative ranking signal.
+func ftsFileRanks(candidates []model.Node) map[string]int {
+	ranks := make(map[string]int, len(candidates))
+	for pos, node := range candidates {
+		if !IsRetrievableNodeKind(node.Kind) {
+			continue
+		}
+		filePath := strings.TrimSpace(node.FilePath)
+		if filePath == "" {
+			continue
+		}
+		if _, seen := ranks[filePath]; !seen {
+			ranks[filePath] = pos
+		}
+	}
+	return ranks
+}
+
+// @intent order DB retrieve results engine-first: search-backend hits keep their relevance rank
+// and outrank scan-only supplements, with the structured annotation score as the refining signal.
+func sortRetrieveResults(results []Result, ftsRanks map[string]int) {
+	rankOf := func(r Result) (int, bool) {
+		pos, ok := ftsRanks[strings.TrimPrefix(r.ID, "file:")]
+		return pos, ok
+	}
 	sort.SliceStable(results, func(i, j int) bool {
+		ri, iHit := rankOf(results[i])
+		rj, jHit := rankOf(results[j])
+		if iHit != jHit {
+			return iHit // engine hits before scan-only supplements
+		}
+		if iHit && ri != rj {
+			return ri < rj // earlier engine rank wins
+		}
 		if results[i].Score != results[j].Score {
 			return results[i].Score > results[j].Score
 		}
