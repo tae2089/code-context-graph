@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"sort"
 	"strings"
@@ -125,6 +126,11 @@ func (s *Service) scanDBCandidates(ctx context.Context, namespace, query string)
 		Limit(scanRowCap).
 		Find(&nodes).Error; err != nil {
 		return nil, fmt.Errorf("retrieve docs DB candidates: %w", err)
+	}
+	if len(nodes) == scanRowCap {
+		// The scan hit its ceiling: matching nodes sorting after the cap are not considered.
+		slog.WarnContext(ctx, "retrieve_docs fallback scan truncated at cap; some matches may be omitted",
+			"namespace", namespace, "cap", scanRowCap)
 	}
 	if len(nodes) == 0 {
 		return nil, nil

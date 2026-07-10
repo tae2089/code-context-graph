@@ -41,8 +41,3 @@ const (
 	// this behave identically to an uncapped scan; larger ones are truncated in stable order.
 	scanRowCap = 5000
 )
-
-var (
-	_ = dbCandidateFloor
-	_ = dbCandidateCap
-)
