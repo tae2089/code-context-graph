@@ -295,6 +295,33 @@ func TestGetDocContent_PathTraversal(t *testing.T) {
 	}
 }
 
+func TestGetDocContent_DefaultNamespaceReadsSharedDocs(t *testing.T) {
+	deps := setupTestDeps(t)
+	deps.RagIndexDir = t.TempDir()
+
+	content := "# Shared Doc\nfrom shared docs root"
+	docPath := filepath.Join(deps.RagIndexDir, "docs", "shared-doc.md")
+	if err := os.MkdirAll(filepath.Dir(docPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(docPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// "default" must resolve to the shared docs root, matching resolvedRagIndexPath
+	// and retrieve_docs (contentNamespace maps default to shared), not namespaces/default/.
+	result := callTool(t, deps, "get_doc_content", map[string]any{
+		"namespace": "default",
+		"file_path": "docs/shared-doc.md",
+	})
+	if result.IsError {
+		t.Fatalf("default namespace should read shared docs, got error: %v", getTextContent(result))
+	}
+	if got := getTextContent(result); got != content {
+		t.Errorf("want %q, got %q", content, got)
+	}
+}
+
 func TestGetDocContent_NotFound(t *testing.T) {
 	deps := setupTestDeps(t)
 	result := callTool(t, deps, "get_doc_content", map[string]any{
