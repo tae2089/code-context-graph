@@ -327,11 +327,3 @@ func Cancelled() {}
 		t.Fatalf("expected context canceled, got %v", err)
 	}
 }
-
-func writeGoFileForUpdate(t *testing.T, dir, name, content string) {
-	t.Helper()
-	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-}

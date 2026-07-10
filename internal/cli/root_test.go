@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
@@ -223,15 +222,6 @@ func TestRoot_HooksInstallSkipsInitFuncViaParentAnnotation(t *testing.T) {
 	if called != 0 {
 		t.Fatalf("InitFunc called %d times, want 0", called)
 	}
-}
-
-func findSubCmd(root *cobra.Command, name string) *cobra.Command {
-	for _, c := range root.Commands() {
-		if c.Name() == name {
-			return c
-		}
-	}
-	return nil
 }
 
 func TestRoot_MissingConfigFileIsIgnored(t *testing.T) {

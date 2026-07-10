@@ -27,3 +27,4 @@ pyproject.toml
 /web/wiki/dist/
 /web/wiki/node_modules/
 search-retrieval.md
+_workspace/
