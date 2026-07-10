@@ -9,7 +9,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
-    gormschema "gorm.io/gorm/schema"
+	gormschema "gorm.io/gorm/schema"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -623,6 +623,31 @@ func TestUpsertAnnotation_Insert(t *testing.T) {
 	}
 	if got.Summary != "does something" {
 		t.Errorf("Summary = %q, want %q", got.Summary, "does something")
+	}
+}
+
+func TestUpsertAnnotation_RejectsNodeOutsideNamespace(t *testing.T) {
+	s := setupTestDB(t)
+	ctx := context.Background()
+
+	s.UpsertNodes(ctx, []model.Node{
+		{QualifiedName: "pkg.F", Kind: model.NodeKindFunction, Name: "F", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"},
+	})
+	node, _ := s.GetNode(ctx, "pkg.F")
+
+	// Writing from another namespace must not create an annotation on a foreign node.
+	foreignCtx := ctxns.WithNamespace(context.Background(), "other-team")
+	err := s.UpsertAnnotation(foreignCtx, &model.Annotation{NodeID: node.ID, Summary: "cross-namespace write"})
+	if err == nil {
+		t.Fatal("expected cross-namespace annotation create to be rejected")
+	}
+	if got, _ := s.GetAnnotation(ctx, node.ID); got != nil {
+		t.Fatalf("annotation must not exist after rejected write, got %+v", got)
+	}
+
+	// Nonexistent node id must also be rejected instead of creating an orphan row.
+	if err := s.UpsertAnnotation(ctx, &model.Annotation{NodeID: 99999, Summary: "orphan"}); err == nil {
+		t.Fatal("expected annotation create for missing node to be rejected")
 	}
 }
 

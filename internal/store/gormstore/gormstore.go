@@ -4,6 +4,7 @@ package gormstore
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path"
 	"strings"
 
@@ -516,6 +517,17 @@ func (s *Store) UpsertAnnotation(ctx context.Context, ann *model.Annotation) err
 
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			// The read path is namespace-scoped; the create path must be too, or a caller
+			// could attach an annotation to another namespace's node (or a missing node).
+			var owned int64
+			if err := tx.Model(&model.Node{}).
+				Where("id = ? AND namespace = ?", ann.NodeID, ns).
+				Count(&owned).Error; err != nil {
+				return trace.Wrap(err, "verify annotation node namespace")
+			}
+			if owned == 0 {
+				return fmt.Errorf("annotation node %d not found in namespace %q", ann.NodeID, ns)
+			}
 			return tx.Create(ann).Error
 		})
 	}
