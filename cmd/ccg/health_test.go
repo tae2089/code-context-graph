@@ -373,8 +373,11 @@ func TestStatusHandler_ReportsPerRepoRecentRepos(t *testing.T) {
 		t.Fatal("timed out waiting for handler")
 	}
 
+	// The repo appears in RecentRepos as soon as it is tracked, before the handler
+	// returns and the success time is recorded. Wait for the recorded success.
 	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
-		if len(q.Stats().RecentRepos) > 0 {
+		rr := q.Stats().RecentRepos
+		if len(rr) > 0 && !rr[0].LastSuccessTime.IsZero() {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -434,8 +437,11 @@ func TestStatusHandler_RecentRepos_FailureHasErrorFields(t *testing.T) {
 		t.Fatal("timed out waiting for handler")
 	}
 
+	// The repo appears in RecentRepos as soon as it is tracked, before the handler
+	// returns and the failure (last_error) is recorded. Wait for the recorded error.
 	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
-		if len(q.Stats().RecentRepos) > 0 {
+		rr := q.Stats().RecentRepos
+		if len(rr) > 0 && rr[0].LastError != "" {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
