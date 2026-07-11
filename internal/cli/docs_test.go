@@ -16,6 +16,25 @@ import (
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 )
 
+func TestDocsCmd_HelpDescribesCurrentOutputs(t *testing.T) {
+	deps, _, _ := newTestDeps()
+	root := NewRootCmd(deps)
+	out := &bytes.Buffer{}
+	root.SetOut(out)
+	root.SetArgs([]string{"docs", "--help"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("docs help: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "Wiki index") {
+		t.Fatalf("docs help should describe the Wiki index output, got:\n%s", got)
+	}
+	if strings.Contains(got, "default RAG index") {
+		t.Fatalf("docs help should not advertise the removed RAG index, got:\n%s", got)
+	}
+}
+
 func setupDocsTest(t *testing.T) (*Deps, *bytes.Buffer, *bytes.Buffer, *gorm.DB) {
 	t.Helper()
 	deps, stdout, stderr := newTestDeps()

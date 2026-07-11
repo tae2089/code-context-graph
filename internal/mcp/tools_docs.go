@@ -1,4 +1,4 @@
-// @index MCP tool registration for documentation and RAG index operations.
+// @index MCP tool registration for DB-backed documentation search and generated document reads.
 package mcp
 
 import (
@@ -6,7 +6,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// docsTools registers tools that build and query the documentation index.
+// docsTools registers tools that search documentation candidates and read generated documents.
 // @intent keep documentation retrieval flows discoverable as one MCP tool family.
 func docsTools(h *handlers) []server.ServerTool {
 	return []server.ServerTool{

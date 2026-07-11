@@ -1,85 +1,43 @@
 ---
 name: ccg-namespace
-description: code-context-graph — namespace file management for MSA / multi-project isolation.
+description: code-context-graph — namespace isolation for graph build, search, documentation discovery, and multi-repository workflows.
 ---
 
-# ccg-namespace — Namespace File Management
+# ccg-namespace — Graph Namespace Isolation
 
-Manage uploaded source or documentation files in isolated **namespaces**. Use this for MSA environments or workflows spanning multiple repositories.
+Use namespaces to isolate graph rows for different services or repositories. CCG no longer manages uploaded namespace files; callers provide a filesystem path to `build_or_update_graph` or use CLI build/update commands with `--namespace`.
 
-## Terminology
+## Core Pattern
 
-| Term | Status | Meaning |
-| ---- | ------ | ------- |
-| `namespace` | Canonical | Isolation key for graph data, uploaded files, RAG indexes, and postprocess policy |
-| `--namespace-root` | Canonical | Root directory that stores namespace file trees |
-
-For single-project local work, you usually do not need a named namespace. Use `ccg build .` and the default namespace.
-
-## Folder Structure
-
-```
-{namespace-root}/
-├── payment-svc/
-│   ├── handler.go
-│   └── service.go
-├── user-svc/
-│   └── auth.go
-└── gateway/
-    └── router.go
+```bash
+ccg build ./services/payment --namespace payment
+ccg build ./services/users --namespace users
+ccg search --namespace payment "checkout"
+ccg status --namespace users
 ```
 
-Configured via `ccg serve --namespace-root <dir>` for local stdio MCP, or
-`ccg-server --namespace-root <dir>` for self-hosted HTTP MCP (default:
-`namespaces/`).
+Through MCP:
 
-## Core Patterns
-
-### Upload, Then Build And Search
-
+```text
+build_or_update_graph(path: "/repos/payment", namespace: "payment")
+list_namespaces()
+search(namespace: "payment", query: "checkout")
+search_docs(namespace: "payment", query: "payment flow")
 ```
-upload_file(namespace: "payment-svc", file_path: "handler.go", content: "<base64>")
-→ build_or_update_graph(namespace: "payment-svc", path: "{namespace-root}/payment-svc")
-→ search(namespace: "payment-svc", query: "payment")
-```
-
-### Wiki And RAG Per Namespace
-
-```
-upload_file(namespace: "my-service", file_path: "docs/handler.go.md", content: "<base64>")
-→ build_rag_index(namespace: "my-service")
-→ search_docs(namespace: "my-service", query: "handler")
-→ get_doc_content(namespace: "my-service", file_path: "docs/handler.go.md")
-```
-
-### Bulk Upload
-
-```
-upload_files(files: '[{"namespace":"payment-svc","file_path":"a.go","content":"<base64>"},...]')
-```
-
-`files` is a JSON string containing an array. Prefer bulk upload over many single-file calls.
 
 ## MCP Tools
 
 | Tool | Use |
 | ---- | --- |
-| `upload_file` | Upload one file to a namespace (base64) |
-| `upload_files` | Upload many files to namespaces (JSON array) |
-| `list_namespaces` | List all namespaces |
-| `list_files` | List files in a namespace |
-| `delete_file` | Delete one file from a namespace |
-| `delete_namespace` | Delete a namespace and its files |
+| `list_namespaces` | List namespaces containing graph data and their node counts |
+| `build_or_update_graph` | Build or incrementally update one namespace from a filesystem path |
+| `search` | Search code nodes inside a namespace |
+| `search_docs` | Find documentation candidates inside a namespace |
+| `get_doc_content` | Read a selected generated document, optionally namespace-scoped |
 
-## Security
+## Operational Guidance
 
-- Path traversal (`../`) is blocked
-- Namespace names must be single safe path segments
-- Symlink traversal is rejected before file writes
-- File size and bulk request size are capped
-
-## Operational Tips
-
-- Use one namespace per service or repository when graph/search state should stay isolated.
-- Keep reference-only services in separate namespaces and rebuild them rarely.
-- Delete retired service state with `delete_namespace` to remove graph, RAG, and search noise.
+- Use one namespace per service or repository when graph state must remain isolated.
+- Use the default namespace for ordinary single-repository local work.
+- Pass the same namespace consistently to build, search, docs, and analysis tools.
+- Namespace deletion and file upload are not MCP capabilities; manage source directories outside CCG and rebuild graph state as needed.

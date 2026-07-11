@@ -50,7 +50,7 @@ func TestGetDocContent_DefaultNamespaceReadsSharedDocs(t *testing.T) {
 	}
 
 	// "default" must resolve to the shared docs root, matching resolvedRagIndexPath
-	// and retrieve_docs (contentNamespace maps default to shared), not namespaces/default/.
+	// and DB-backed documentation search (contentNamespace maps default to shared), not namespaces/default/.
 	result := callTool(t, deps, "get_doc_content", map[string]any{
 		"namespace": "default",
 		"file_path": "docs/shared-doc.md",

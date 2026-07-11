@@ -15,9 +15,9 @@ import (
 )
 
 // newDocsCmd creates the documentation generation command.
-// @intent 그래프 데이터를 파일별 Markdown 문서와 에이전트용 RAG 인덱스로 변환하는 명령을 노출한다.
+// @intent 그래프 데이터를 파일별 Markdown 문서와 브라우저 Wiki 인덱스로 변환하는 명령을 노출한다.
 // @requires deps.DB가 초기화되어 있어야 한다.
-// @sideEffect docs.Generator와 ragindex.Builder를 통해 문서 및 doc-index.json 파일을 기록한다.
+// @sideEffect 생성 Markdown과 wiki-index.json 호환 snapshot을 기록한다.
 func newDocsCmd(deps *Deps) *cobra.Command {
 	var outDir string
 	var ragIndexDir string
@@ -27,7 +27,7 @@ func newDocsCmd(deps *Deps) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "docs",
-		Short: "Generate markdown documentation and the default RAG index from the code graph",
+		Short: "Generate markdown documentation and the Wiki index from the code graph",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if deps.DB == nil {
@@ -75,7 +75,7 @@ func newDocsCmd(deps *Deps) *cobra.Command {
 	return cmd
 }
 
-// @intent keep ccg docs Wiki-index settings separate from community-based RAG options.
+// @intent keep ccg docs Wiki-index settings explicit and separate from Markdown generation options.
 type docsWikiOptions struct {
 	OutDir      string
 	IndexDir    string
@@ -85,7 +85,7 @@ type docsWikiOptions struct {
 }
 
 // buildDocsWikiIndex creates the browser-facing Wiki tree after docs generation.
-// @intent keep ccg-server Wiki navigation independent from community-based RAG retrieval.
+// @intent build the compatibility snapshot used when DB-backed Wiki navigation is unavailable.
 // @sideEffect writes wiki-index.json.
 func buildDocsWikiIndex(ctx context.Context, deps *Deps, opts docsWikiOptions) (int, int, error) {
 	ns := opts.Namespace
@@ -105,7 +105,7 @@ func buildDocsWikiIndex(ctx context.Context, deps *Deps, opts docsWikiOptions) (
 }
 
 // resolveRagIndexDir honors rag.index_dir when the CLI flag is left at its default.
-// @intent keep docs and rag-index commands aligned with config-based RAG output paths.
+// @intent keep docs-generated Wiki output aligned with the configured index directory.
 func resolveRagIndexDir(flagValue string) string {
 	if flagValue != ".ccg" {
 		return flagValue
@@ -117,7 +117,7 @@ func resolveRagIndexDir(flagValue string) string {
 }
 
 // resolveRagDescription honors rag.description when the CLI flag is omitted.
-// @intent keep docs-generated RAG root summaries consistent with standalone rag-index.
+// @intent keep the docs-generated Wiki root summary aligned with configuration.
 func resolveRagDescription(flagValue string) string {
 	if flagValue != "" {
 		return flagValue

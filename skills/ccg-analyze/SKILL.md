@@ -1,11 +1,11 @@
 ---
 name: ccg-analyze
-description: code-context-graph — impact analysis, flow tracing, dead code, architecture. Use when answering "what's affected", "how does X flow", "what's unused", "module structure".
+description: code-context-graph — impact analysis, flow tracing, changed-function risk, and affected-flow inspection.
 ---
 
 # ccg-analyze — Code Analysis
 
-Graph-based analysis for **change impact, call flow, dead code, module structure** — anything about "relationships."
+Graph-based analysis for **change impact, call flow, and recent-change risk**.
 
 ## Intent → Tool Mapping
 
@@ -15,11 +15,7 @@ Graph-based analysis for **change impact, call flow, dead code, module structure
 | "Trace call flow from this function" | `trace_flow`                                     | If broken at interfaces, see workaround below |
 | "Who calls this function?"           | `query_graph` (callers_of)                       |                                               |
 | "What does this function call?"      | `query_graph` (callees_of)                       |                                               |
-| "Unused code"                        | `find_dead_code`                                 | Scope by path/kind on large namespaces        |
-| "Large functions"                    | `find_large_functions`                           | Use `limit`; DB still scans matches first     |
 | "Risk of this change"                | `detect_changes` + `get_affected_flows`          | git diff-based                                |
-| "Module structure"                   | `list_communities` + `get_architecture_overview` | Use pagination on large namespaces            |
-| "Test coverage gaps"                 | `get_community` (with coverage)                  | Page members if `include_members=true`        |
 
 ## trace_flow Limitations & Workaround
 
@@ -53,21 +49,10 @@ Use explicit budgets for graph browsing tools when the namespace may be large:
 | ---- | ---------- | ---------------------- |
 | `query_graph` | `limit`, `offset` | `limit=50`, `offset=0` |
 | `list_flows` | `limit`, `offset` | `limit=50`, `offset=0` |
-| `list_communities` | `limit`, `offset` | `limit=50`, `offset=0` |
-| `get_community` | `member_limit`, `member_offset` | Use only when `include_members=true` |
-| `get_architecture_overview` | `community_limit`, `community_offset`, `coupling_limit`, `coupling_offset` | Start with 50 each |
 
 Paginated responses include `has_more`. If true, call again with `next_offset`.
 Do not request the max page size first for LLM analysis; use 50 or 100 unless
 the user specifically needs a bulk export.
-
-## High-Volume Tool Caution
-
-These tools are useful, but can produce large responses in real services:
-
-- `find_dead_code`: scope with `path` and `kinds` before broad scans.
-- `find_large_functions`: pass `limit`, and prefer `path` when reviewing one module.
-- Architecture/onboarding prompts: use after `list_communities` or `get_architecture_overview` has confirmed the namespace size.
 
 ## Accuracy Limits (use with awareness)
 
@@ -83,14 +68,9 @@ These tools are useful, but can produce large responses in real services:
 | --------------------------- | ---------------------------- |
 | `get_impact_radius`         | BFS blast radius             |
 | `trace_flow`                | Call chain trace             |
-| `find_large_functions`      | Above line threshold         |
-| `find_dead_code`            | No callers                   |
 | `detect_changes`            | Git diff risk score          |
 | `get_affected_flows`        | Flows affected by change     |
 | `list_flows`                | Stored flow list, paginated  |
-| `list_communities`          | Louvain module clusters, paginated |
-| `get_community`             | Community details + coverage, paginated members |
-| `get_architecture_overview` | Coupling summary, paginated  |
 
 For detailed parameters, see MCP schema.
 

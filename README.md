@@ -1,6 +1,6 @@
 # code-context-graph
 
-Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 12 languages, 33 MCP tools, and custom annotation search.
+Local code analysis tool that parses codebases via Tree-sitter into a knowledge graph. Supports 12 languages, 17 MCP tools, and custom annotation search.
 
 CCG is built primarily for GPT, Claude, Codex, and other LLM-based coding agents. It acts as local or self-hosted context infrastructure: agents can search code by intent, inspect call graphs, trace impact, retrieve docs, and keep responses bounded instead of reading entire repositories into context.
 
@@ -11,12 +11,11 @@ Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) 
 ## Features
 
 - **12 languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua/Luau
-- **33 MCP tools**: parse, search, impact analysis, flow tracing, dead code detection, postprocess operations, namespace file management, and more
+- **17 MCP tools**: parse, search, graph queries, impact analysis, flow tracing, change detection, documentation discovery, and more
 - **Evidence-driven code exploration**: DB-backed retrieval returns small file-level candidates with matched fields, evidence nodes, and optional docs before agents drill into exact graph nodes
 - **Browser Wiki UI**: `ccg-server` can serve generated docs, tree search, DB-backed retrieval, Context Tray copying, and an Obsidian-style graph viewer
 - **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context ([details](guide/annotations.md))
 - **Webhook sync**: GitHub / Gitea push events → auto clone + build with per-repo branch filtering and `.ccg.yaml` `include_paths` auto-loading ([details](guide/webhook.md))
-- **Eval**: Golden corpus-based parser accuracy (P/R/F1) and search quality (P@K, MRR, nDCG) evaluation ([details](guide/eval.md))
 - **Multi-DB**: SQLite (local), PostgreSQL
 - **Full-text search**: FTS5 (SQLite), tsvector+GIN (PostgreSQL)
 
@@ -66,7 +65,7 @@ ccg search "authentication"
 # Search by business context
 ccg search "payment"    # finds functions with @intent/@domainRule about payments
 
-# Build docs and the default vectorless RAG index for agent-oriented exploration
+# Build generated docs and the browser Wiki compatibility index
 ccg docs --out docs
 
 # Serve the browser Wiki UI from built assets; builds the graph for DB-backed APIs
@@ -82,22 +81,13 @@ ccg version
 ccg build ./backend --namespace backend
 ccg search --namespace backend "auth"
 
-# Evaluate parser accuracy (12 languages)
-ccg eval --suite parser
-
-# Update golden corpus
-ccg eval --suite parser --update
 ```
 
 `ccg docs` writes generated Markdown plus `.ccg/wiki-index.json` as a browser
 Wiki compatibility snapshot. The Wiki prefers the graph database for tree
 navigation and search, then uses `wiki-index.json` only when DB-backed
-navigation is unavailable. By default `ccg docs` also refreshes community
-structure and writes `.ccg/doc-index.json` as a compatibility snapshot for
-manual RAG-index workflows; runtime `search_docs` uses DB-backed graph and
-annotation evidence. Use `--rag=false` when you only want Markdown and the Wiki
-snapshot, or `--rag-refresh=false` when you want to rebuild the RAG index from
-existing community rows without recalculating communities.
+navigation is unavailable. Runtime `search_docs` uses DB-backed graph and
+annotation evidence; it does not depend on a separately generated retrieval index.
 
 For LLM agents, use DB-backed `search_docs` as the first stop for broad
 natural-language questions such as "how does webhook sync work?" or "where are
@@ -140,9 +130,8 @@ Local development shortcut:
 make wiki-run
 ```
 
-Use `make wiki-run-indexed` when you also want generated Markdown,
-`wiki-index.json` snapshot, and the compatibility `doc-index.json` before
-starting the server.
+Use `make wiki-run-indexed` when you also want generated Markdown and the
+`wiki-index.json` compatibility snapshot before starting the server.
 
 For self-hosted deployments, run `ccg-server --wiki-dir <dist-dir>` and protect
 `/wiki/api/*` with the same bearer token policy used for `/mcp`. See
@@ -262,7 +251,7 @@ server can also expose `/wiki` when `--wiki-dir` is configured:
 ```
 
 MCP-capable clients such as Codex or Claude Code can connect and get access to
-33 MCP tools. See [MCP Tools Reference](guide/mcp-tools.md) for the full list.
+17 MCP tools. See [MCP Tools Reference](guide/mcp-tools.md) for the full list.
 
 ## Architecture
 
@@ -288,14 +277,12 @@ See [Architecture Details](guide/architecture.md) for component breakdown and DB
 |-------|-------------|
 | [Korean Guide](guide/ko/README.md) | 한국어 문서 인덱스 (Korean Documentation Index) |
 | [CLI Reference](guide/cli-reference.md) | All commands, flags, and config file (`.ccg.yaml`) |
-| [Eval](guide/eval.md) | Parser/search quality evaluation, golden corpus, and metrics |
 | [Lint](guide/lint.md) | Detailed `ccg lint` category reference, interpretation guide, and CI usage |
-| [MCP Tools](guide/mcp-tools.md) | 33 MCP tools, agent skills, AI-Driven Annotation |
+| [MCP Tools](guide/mcp-tools.md) | 17 MCP tools, agent skills, AI-Driven Annotation |
 | [Annotations](guide/annotations.md) | Annotation system — tags, examples, search |
 | [Webhook](guide/webhook.md) | Webhook sync, branch filtering, HMAC, graceful shutdown |
 | [Docker](guide/docker.md) | Docker build, MCP server, Wiki UI, PostgreSQL deployment |
 | [Operations](guide/operations.md) | Deployment profiles, database choice, readiness, webhook operations |
-| [Postprocess Failure Policy](guide/postprocess-failure-policy.md) | Status rules, failure causes, and automatic degraded/fail_closed policy for build and postprocess tools |
 | [Runtime Layout](guide/runtime-layout.md) | `ccg`, `ccg-server`, Wiki serving, and shared `ccg-core` ownership boundaries |
 | [Development](guide/development.md) | Dev guide, integration test, project structure |
 | [Namespace Migration](guide/namespace-migration.md) | Default namespace change and migration guide |

@@ -58,9 +58,6 @@
 |------|-------------------|
 | `query_graph` | `limit`, `offset` |
 | `list_flows` | `limit`, `offset` |
-| `list_communities` | `limit`, `offset` |
-| `get_community` with `include_members=true` | `member_limit`, `member_offset` |
-| `get_architecture_overview` | `community_limit`, `community_offset`, `coupling_limit`, `coupling_offset` |
 
 페이지네이션 가능한 그래프 도구의 최대 페이지 크기는 500입니다. 호출자가 LLM
 에이전트라면 50 또는 100처럼 더 작은 페이지부터 시작하십시오. 이렇게 하면
@@ -96,7 +93,7 @@ CCG는 호출 엣지를 다음처럼 구분해 저장합니다.
      해상도 품질이 일시적으로 떨어지는 경우입니다.
 
 3. **엄격 검사는 분리**
-   - `--strict` lint/eval 게이트에서 fallback을 켜지 않습니다.
+   - `--strict` lint 및 검증 게이트에서 fallback을 켜지 않습니다.
    - 호출 기반 쿼리 기능에서 fallback를 사용할지 여부를 워크플로우별로 분리해 사용합니다.
 
 4. **오버핏 비율 게이팅**
@@ -237,7 +234,7 @@ Streamable HTTP 서버는 MCP 스트림이 장시간 유지될 수 있으므로 
 
 기타 HTTP 서버 타임아웃은 현재 바이너리에 고정되어 있습니다: `ReadHeaderTimeout`은 10초, `ReadTimeout`은 30초, `IdleTimeout`은 120초입니다.
 
-CCG는 현재 Prometheus 형식의 `/metrics` 엔드포인트를 제공하지 않습니다. 운영 프로브에는 `/health`, `/ready`, `/status`를 사용하고, eval이나 벤치마크 메트릭은 라이브 서비스 메트릭이 아닌 오프라인 분석 결과로 취급하십시오.
+CCG는 현재 Prometheus 형식의 `/metrics` 엔드포인트를 제공하지 않습니다. 운영 프로브에는 `/health`, `/ready`, `/status`를 사용하고, 임시 성능 측정치는 라이브 서비스 메트릭이 아닌 오프라인 분석 결과로 취급하십시오.
 
 ## 마이그레이션 (Migrations)
 

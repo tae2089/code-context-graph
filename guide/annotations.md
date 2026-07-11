@@ -1,13 +1,12 @@
 # Custom Annotations
 
-Add structured metadata to your code so that AI, generated docs, RAG, and
-focused search can leverage business context. Annotations are indexed for
-`ccg search` and are also rendered into generated Markdown that feeds the RAG
-index.
+Add structured metadata to your code so that AI, generated docs, and focused
+search can leverage business context. Annotations are indexed for `ccg search`
+and are also rendered into generated Markdown.
 
-For LLM-agent natural-language exploration, prefer the docs/RAG path first:
+For LLM-agent natural-language exploration, prefer the generated-docs path first:
 `ccg docs`, then use MCP `search_docs` to find relevant docs and `get_doc_content`
-to read one (with `get_rag_tree` for module context). Use `ccg search` when you
+to read one. Use `ccg search` when you
 need a focused list of annotation/keyword-matched symbol candidates.
 
 Annotation quality is validated by `ccg lint`. For category meanings such as `unannotated`, `incomplete`, `dead-ref`, `contradiction`, and `drifted`, see [Lint Guide](lint.md).

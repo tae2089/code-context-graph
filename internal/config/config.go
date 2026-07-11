@@ -14,14 +14,14 @@ func MigrationsDir() string {
 	return strings.TrimSpace(viper.GetString("migrations.dir"))
 }
 
-// RagIndexDir returns the configured RAG index directory.
-// @intent 문서/RAG 인덱스 출력 경로를 config helper로 재사용한다.
+// RagIndexDir returns the legacy-named Wiki index directory setting.
+// @intent Wiki 호환 snapshot 출력 경로를 config helper로 재사용한다.
 func RagIndexDir() string {
 	return viper.GetString("rag.index_dir")
 }
 
-// RagDescription returns the configured RAG project description.
-// @intent RAG 인덱스에 포함할 프로젝트 설명 문자열을 config helper로 노출한다.
+// RagDescription returns the legacy-named Wiki root description setting.
+// @intent Wiki root summary에 포함할 프로젝트 설명 문자열을 config helper로 노출한다.
 func RagDescription() string {
 	return viper.GetString("rag.description")
 }

@@ -1,4 +1,4 @@
-// @index MCP handlers for documentation RAG index build and retrieval over generated docs.
+// @index MCP handlers for DB-backed documentation search and safe generated-document reads.
 package mcp
 
 import (
@@ -17,7 +17,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/retrieval"
 )
 
-// @intent resolve the base directory that stores generated doc-index artifacts for MCP documentation tools.
+// @intent resolve the base directory that stores generated documentation and Wiki index artifacts.
 func (h *handlers) ragIndexRoot() string {
 	dir := h.deps.RagIndexDir
 	if dir == "" {
@@ -134,12 +134,11 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 	}))
 }
 
-// searchDocs searches the documentation tree by keyword.
-// @intent Searches documentation node labels and summaries by keyword to quickly find relevant documents.
+// searchDocs searches DB-backed documentation candidates by keyword.
+// @intent Narrows broad documentation questions to relevant generated files using graph and annotation evidence.
 // @param request query is the required search term, and limit is the maximum number of results.
 // @requires query must not consist only of whitespace.
 // @ensures Returns an array of search results including breadcrumbs on success.
-// @see mcp.handlers.getRagTree
 func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	query, err := request.RequireString("query")
 	if err != nil {

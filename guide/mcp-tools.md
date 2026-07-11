@@ -1,162 +1,58 @@
 # MCP Tools
 
-code-context-graph provides 33 MCP tools. MCP-capable coding agents such as
-Codex or Claude Code can connect after configuring `.mcp.json`.
+code-context-graph exposes 17 MCP tools through both local `ccg serve` and the self-hosted `ccg-server` runtime.
 
-## Setup
+## Parse and Build
 
-### stdio (local)
+| Tool | Purpose |
+| ---- | ------- |
+| `parse_project` | Parse source files and store graph nodes and edges |
+| `build_or_update_graph` | Build or incrementally update a graph namespace from a filesystem path |
+| `run_postprocess` | Rebuild stored flows and/or full-text search indexing |
 
-```json
-{
-  "mcpServers": {
-    "ccg": {
-      "command": "ccg",
-      "args": ["serve", "--db-driver", "sqlite", "--db-dsn", "ccg.db"]
-    }
-  }
-}
-```
+## Query
 
-### Streamable HTTP (remote)
+| Tool | Purpose |
+| ---- | ------- |
+| `get_node` | Read one node by qualified name |
+| `search` | Full-text search across code nodes, optionally scoped by path |
+| `get_annotation` | Read annotations and documentation tags for one node |
+| `query_graph` | Run callers, callees, imports, children, tests, inheritors, or file-summary queries |
+| `list_graph_stats` | Report node and edge counts by kind and language |
+| `list_namespaces` | List namespaces that contain graph data and their node counts |
 
-Start the self-hosted server with `ccg-server`; clients connect to its `/mcp` endpoint.
+## Analysis
 
-```json
-{
-  "mcpServers": {
-    "ccg": {
-      "type": "streamable-http",
-      "url": "http://your-server:8080/mcp"
-    }
-  }
-}
-```
+| Tool | Purpose |
+| ---- | ------- |
+| `get_impact_radius` | Compute a bounded BFS blast radius around a node |
+| `trace_flow` | Trace a bounded call chain from a node |
+| `detect_changes` | Detect changed functions from git diff and calculate risk scores |
+| `get_affected_flows` | List stored flows affected by recent changes |
+| `list_flows` | List stored flows with bounded pagination |
 
-## Tools (33)
+## Documentation and Context
 
-### Core
+| Tool | Purpose |
+| ---- | ------- |
+| `search_docs` | Search DB-backed documentation candidates and graph evidence |
+| `get_doc_content` | Safely read a selected generated Markdown file |
+| `get_minimal_context` | Return a compact project/change summary and suggested next tools |
 
-| Tool | Description |
-|------|-------------|
-| `parse_project` | Parse source files |
-| `build_or_update_graph` | Full/incremental build with postprocessing |
-| `run_postprocess` | Rebuild stored flows and/or full-text search derived state |
-| `get_node` | Get node by qualified name |
-| `search` | Full-text search |
-| `query_graph` | Predefined graph queries (callers, callees, imports, etc.) |
-| `list_graph_stats` | Node/edge/file counts |
-| `get_minimal_context` | Lightweight summary (~100 tokens) for AI agent entry point — graph stats, risk, top flows, tool suggestions |
+## Recommended Routing
 
-`build_or_update_graph` and `run_postprocess` run derived-state steps (stored
-flows, full-text search) after the graph write. When a step fails, the tool
-still returns a structured result with `status: "degraded"` and the failing
-steps listed in `failed_steps`; the failure is also logged. Inspect that
-response (or the HTTP `/status` summary) to detect degraded postprocessing.
+1. Call `get_minimal_context` for an unfamiliar task.
+2. Use `search_docs` to narrow broad module questions, then read a selected file with `get_doc_content`.
+3. Use `search` for focused annotation or symbol candidates.
+4. Use `get_node` and `query_graph` for exact symbols and relationships.
+5. Use `get_impact_radius`, `trace_flow`, `detect_changes`, and `get_affected_flows` for change analysis.
 
-### Analysis
+`search_docs` is DB-backed and does not require a generated retrieval index. Only the tools registered in the tables above are part of the current MCP contract.
 
-| Tool | Description |
-|------|-------------|
-| `get_impact_radius` | BFS blast-radius analysis |
-| `trace_flow` | Call-chain flow tracing |
-| `detect_changes` | Git diff risk scoring |
-| `get_affected_flows` | Flows affected by changes |
-| `list_flows` | List traced flows with `limit` / `offset` pagination |
+Use explicit `limit` and `offset` values for `query_graph` and `list_flows`. Start with 50 or 100 results and follow pagination metadata instead of requesting an unbounded result.
 
-### Community & Architecture
+## Runtime
 
-| Tool | Description |
-|------|-------------|
-| `list_communities` | List module communities with `limit` / `offset` pagination |
-| `get_community` | Community details + coverage; member listing supports `member_limit` / `member_offset` |
-| `get_architecture_overview` | Architecture summary with community and coupling pagination |
+Local MCP clients start `ccg serve` over stdio. Remote clients connect to the `/mcp` Streamable HTTP endpoint served by `ccg-server`. Both runtimes register the same 17 tools.
 
-### Pagination and Response Budgets
-
-Use paginated graph tools when a namespace may contain many flows,
-communities, members, or coupling pairs. Paginated responses include
-`has_more`; when it is true, call the same tool again with `next_offset`.
-
-| Tool | Pagination Parameters | Notes |
-|------|-----------------------|-------|
-| `query_graph` | `limit`, `offset` | Max `limit` is 500 |
-| `list_flows` | `limit`, `offset` | Response includes `pagination` |
-| `list_communities` | `limit`, `offset` | Response includes `pagination` |
-| `get_community` | `member_limit`, `member_offset` | Applies when `include_members=true`; response includes `members_pagination` |
-| `get_architecture_overview` | `community_limit`, `community_offset`, `coupling_limit`, `coupling_offset` | Response includes separate community and coupling pagination objects |
-
-Some analysis tools still return full result sets internally. On large
-namespaces, prefer scoped inputs before calling broad MCP prompts.
-
-### Annotation & Documentation
-
-| Tool | Description |
-|------|-------------|
-| `get_annotation` | Get annotation and doc tags |
-| `build_rag_index` | Build RAG index from docs and communities (supports namespace) |
-| `get_rag_tree` | Navigate RAG document tree by node ID (supports namespace) |
-| `get_doc_content` | Get documentation file content (supports namespace) |
-| `search_docs` | Search RAG document tree by keyword (supports namespace) |
-
-For natural-language code understanding, use `search_docs` to find relevant
-docs, then `get_doc_content` to read one. `search_docs` matches the RAG document
-tree by keyword and returns candidate docs, and `get_doc_content` reads one
-generated Markdown file directly. `get_rag_tree` expands the surrounding module
-structure; call it without arguments first, then pass `node_id` from the
-returned tree to drill into `community`, `package`, `file`, or `symbol` nodes.
-The older `community_id` parameter remains a compatibility alias for `node_id`.
-After that, use graph tools such as `get_node`, `query_graph`, `trace_flow`, or
-`get_impact_radius` when the task needs exact symbols, edges, flows, or impact
-sets. Use MCP `search` for focused keyword/annotation candidate search over
-symbols.
-
-RAG index quality depends on generated docs and non-empty community
-postprocessing. The CLI `ccg docs` command refreshes communities and writes the
-default `doc-index.json` compatibility snapshot for manual RAG-index workflows.
-It also writes a separate `wiki-index.json` compatibility snapshot for the
-browser Wiki tree. Wiki Retrieve uses the database when it is configured. In MCP-only workflows, run `run_postprocess` with
-`communities=true`, `flows=false`, and `fts=false` before `build_rag_index` when
-communities may be missing.
-
-### Namespace Discovery
-
-`namespace` is the isolation term for per-service graph data and namespace-specific
-RAG indexes.
-
-| Tool | Description |
-|------|-------------|
-| `list_namespaces` | List namespaces that hold graph data, with per-namespace node counts |
-
-Canonical example:
-
-```
-list_namespaces()  // -> [{namespace: "payment-svc", node_count: 128}, ...]
-```
-
-## Agent Skills (4)
-
-| Skill | Description |
-|-------|-------------|
-| `/ccg` | Core build & search — parse, build graph, query, search |
-| `/ccg-analyze` | Code analysis — impact radius, flow tracing, dead code, architecture |
-| `/ccg-annotate` | Annotation system — AI-driven annotation workflow, tag reference |
-| `/ccg-docs` | Documentation — generate docs, RAG indexing, lint |
-
-These skill files live in `skills/` and are written for slash-command style
-agent workflows. They route common coding-agent tasks to the right CLI and MCP
-surfaces.
-
-### Usage
-
-```
-/ccg build .                     — Build code graph
-/ccg status                      — Graph statistics and postprocess error summary
-/ccg-docs docs                   — Generate documentation and the default RAG index
-/ccg-docs rag-index              — Rebuild RAG index from existing docs/communities
-/ccg-docs lint                   — Check docs health + annotation coverage
-/ccg search "query"              — Focused annotation/keyword candidate search
-/ccg languages                   — List supported languages
-/ccg-annotate annotate internal/ — AI-generate annotations
-/ccg-namespace                   — Manage namespace files and directories
-```
+For tool parameters and response schemas, inspect the MCP schema exposed by the running server; source registration lives under `internal/mcp/tools_*.go`.

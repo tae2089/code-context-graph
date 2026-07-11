@@ -70,9 +70,6 @@ Use these parameters as the default operating surface for agent-facing queries:
 |------|-------------------|
 | `query_graph` | `limit`, `offset` |
 | `list_flows` | `limit`, `offset` |
-| `list_communities` | `limit`, `offset` |
-| `get_community` with `include_members=true` | `member_limit`, `member_offset` |
-| `get_architecture_overview` | `community_limit`, `community_offset`, `coupling_limit`, `coupling_offset` |
 
 The maximum accepted page size for the paginated graph tools is 500. Start with
 smaller pages, such as 50 or 100, when the caller is an LLM agent. This keeps
@@ -312,8 +309,8 @@ Other HTTP server timeouts are fixed in the current binary: `ReadHeaderTimeout`
 is 10 seconds, `ReadTimeout` is 30 seconds, and `IdleTimeout` is 120 seconds.
 
 CCG does not currently expose a Prometheus-style `/metrics` endpoint. Use
-`/health`, `/ready`, and `/status` for operational probes, and treat eval or
-benchmark metrics as offline analysis outputs rather than live service metrics.
+`/health`, `/ready`, and `/status` for operational probes. Treat any ad hoc
+performance measurements as offline analysis outputs rather than live service metrics.
 
 ## Migrations
 

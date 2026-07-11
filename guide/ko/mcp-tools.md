@@ -1,157 +1,54 @@
-# MCP 도구 (MCP Tools)
+# MCP 도구
 
-[English](../mcp-tools.md)
+code-context-graph는 로컬 `ccg serve`와 셀프호스트 `ccg-server` 런타임 모두에서 17개의 MCP 도구를 제공합니다.
 
-code-context-graph는 33개의 MCP 도구를 제공합니다. `.mcp.json`을 설정하면
-Codex 또는 Claude Code 같은 MCP 지원 코딩 에이전트가 연결할 수 있습니다.
+## 파싱 및 빌드
 
-## 설정 (Setup)
+| 도구 | 용도 |
+| ---- | ---- |
+| `parse_project` | 소스 파일을 파싱해 graph node와 edge 저장 |
+| `build_or_update_graph` | 파일시스템 경로에서 graph namespace 전체 또는 증분 빌드 |
+| `run_postprocess` | 저장 flow 및 full-text search index 재생성 |
 
-### stdio (로컬)
+## 조회
 
-```json
-{
-  "mcpServers": {
-    "ccg": {
-      "command": "ccg",
-      "args": ["serve", "--db-driver", "sqlite", "--db-dsn", "ccg.db"]
-    }
-  }
-}
-```
+| 도구 | 용도 |
+| ---- | ---- |
+| `get_node` | qualified name으로 node 하나 조회 |
+| `search` | path scope를 선택적으로 적용하는 code node full-text search |
+| `get_annotation` | node의 annotation과 문서 tag 조회 |
+| `query_graph` | callers, callees, imports, children, tests, inheritors, file summary 조회 |
+| `list_graph_stats` | node와 edge를 kind 및 language별로 집계 |
+| `list_namespaces` | graph data가 있는 namespace와 node count 목록 조회 |
 
-### Streamable HTTP (원격)
+## 분석
 
-```json
-{
-  "mcpServers": {
-    "ccg": {
-      "type": "streamable-http",
-      "url": "http://your-server:8080/mcp"
-    }
-  }
-}
-```
+| 도구 | 용도 |
+| ---- | ---- |
+| `get_impact_radius` | node 주변의 제한된 BFS 영향 반경 계산 |
+| `trace_flow` | node에서 시작하는 제한된 call chain 추적 |
+| `detect_changes` | git diff 기반 변경 함수 탐지 및 risk score 계산 |
+| `get_affected_flows` | 최근 변경의 영향을 받는 저장 flow 조회 |
+| `list_flows` | 저장 flow를 페이지네이션해 조회 |
 
-## 도구 (33개)
+## 문서 및 컨텍스트
 
-### 핵심 (Core)
+| 도구 | 용도 |
+| ---- | ---- |
+| `search_docs` | DB-backed 문서 후보와 graph evidence 검색 |
+| `get_doc_content` | 선택한 생성 Markdown 파일을 안전하게 읽기 |
+| `get_minimal_context` | 작은 프로젝트/변경 요약과 다음 도구 제안 반환 |
 
-| 도구 | 설명 |
-|------|-------------|
-| `parse_project` | 소스 파일 파싱 |
-| `build_or_update_graph` | 사후 처리를 포함한 전체/증분 빌드 |
-| `run_postprocess` | 저장된 흐름(flow) 및 전체 텍스트 검색 파생 상태 재생성 |
-| `get_node` | 정규화된 이름으로 노드 조회 |
-| `search` | 전체 텍스트 검색 |
-| `query_graph` | 정의된 그래프 쿼리(callers, callees, imports 등) |
-| `list_graph_stats` | 노드/엣지/파일 수 확인 |
-| `get_minimal_context` | AI 에이전트 진입점을 위한 경량 요약(~100 토큰) — 그래프 통계, 리스크, 주요 흐름, 도구 추천 포함 |
+## 권장 라우팅
 
-`build_or_update_graph`와 `run_postprocess`는 그래프 기록 후 파생 상태 단계(저장된 흐름, 전체 텍스트 검색)를 실행합니다. 단계가 실패하면 도구는 여전히 `status: "degraded"`와 실패한 단계를 담은 `failed_steps`가 포함된 구조화된 결과를 반환하며, 실패는 로그에도 남습니다. 이 응답(또는 HTTP `/status` 요약)으로 성능 저하된 사후 처리를 감지하십시오.
+1. 익숙하지 않은 작업은 `get_minimal_context`로 시작합니다.
+2. 넓은 모듈 질문은 `search_docs`로 좁힌 뒤 `get_doc_content`로 선택한 문서를 읽습니다.
+3. annotation 또는 symbol 후보는 `search`로 찾습니다.
+4. 정확한 symbol과 관계는 `get_node`, `query_graph`로 확인합니다.
+5. 변경 분석에는 `get_impact_radius`, `trace_flow`, `detect_changes`, `get_affected_flows`를 사용합니다.
 
-### 분석 (Analysis)
+`search_docs`는 DB-backed이며 생성 retrieval index를 필요로 하지 않습니다. 위 표에 등록된 도구만 현재 MCP 계약에 포함됩니다.
 
-| 도구 | 설명 |
-|------|-------------|
-| `get_impact_radius` | BFS 영향 범위(blast-radius) 분석 |
-| `trace_flow` | 호출 체인 흐름 추적 |
-| `detect_changes` | Git diff 리스크 점수 계산 |
-| `get_affected_flows` | 변경 사항의 영향을 받는 흐름 확인 |
-| `list_flows` | `limit` / `offset` 페이지네이션으로 추적된 흐름 목록 출력 |
+`query_graph`와 `list_flows`에는 명시적인 `limit`, `offset`을 사용하십시오. 50 또는 100개로 시작하고 페이지네이션 metadata를 따라 확장합니다.
 
-### 커뮤니티 및 아키텍처 (Community & Architecture)
-
-| 도구 | 설명 |
-|------|-------------|
-| `list_communities` | `limit` / `offset` 페이지네이션으로 모듈 커뮤니티 목록 출력 |
-| `get_community` | 커뮤니티 상세 정보 및 커버리지 확인; 멤버 목록은 `member_limit` / `member_offset` 지원 |
-| `get_architecture_overview` | 커뮤니티와 결합도(coupling)를 각각 페이지네이션하는 아키텍처 요약 |
-
-### 페이지네이션 및 응답 예산
-
-네임스페이스에 흐름, 커뮤니티, 멤버, 결합도 쌍이 많을 수 있으면
-페이지네이션 가능한 그래프 도구를 사용하십시오. 페이지네이션 응답에는
-`has_more`가 포함되며, 값이 `true`이면 같은 도구를 `next_offset`으로 다시
-호출하십시오.
-
-| 도구 | 페이지네이션 파라미터 | 참고 |
-|------|-----------------------|-------|
-| `query_graph` | `limit`, `offset` | `limit` 최대값은 500 |
-| `list_flows` | `limit`, `offset` | 응답에 `pagination` 포함 |
-| `list_communities` | `limit`, `offset` | 응답에 `pagination` 포함 |
-| `get_community` | `member_limit`, `member_offset` | `include_members=true`일 때 적용되며 응답에 `members_pagination` 포함 |
-| `get_architecture_overview` | `community_limit`, `community_offset`, `coupling_limit`, `coupling_offset` | 커뮤니티와 결합도에 별도 페이지네이션 객체 포함 |
-
-일부 분석 도구는 아직 내부적으로 전체 결과를 조회합니다. 큰 네임스페이스에서는
-광범위한 MCP prompt를 호출하기 전에 입력 범위를 좁히십시오.
-
-### 어노테이션 및 문서화 (Annotation & Documentation)
-
-| 도구 | 설명 |
-|------|-------------|
-| `get_annotation` | 어노테이션 및 문서 태그 확인 |
-| `build_rag_index` | 문서 및 커뮤니티로부터 RAG 인덱스 빌드 (네임스페이스 지원) |
-| `get_rag_tree` | node ID 기반 RAG 문서 트리 탐색 (네임스페이스 지원) |
-| `get_doc_content` | 문서 파일 내용 확인 (네임스페이스 지원) |
-| `search_docs` | 키워드로 RAG 문서 트리 검색 (네임스페이스 지원) |
-
-자연어 기반 코드 이해에는 `search_docs`로 관련 문서를 찾은 뒤
-`get_doc_content`로 하나를 읽으십시오. `search_docs`는 키워드로 RAG 문서
-트리를 검색해 후보 문서를 반환하고, `get_doc_content`는 특정 생성 Markdown
-파일을 직접 읽습니다. `get_rag_tree`는 주변 모듈 구조를 펼칩니다. 먼저
-인자 없이 호출해 tree를 받고, 반환된 `node_id`를 넘겨 `community`,
-`package`, `file`, `symbol` 노드로 내려갑니다. 기존 `community_id`
-파라미터는 `node_id`의 호환 alias로 유지됩니다. 이후 정확한
-심볼, edge, flow, 영향 범위가 필요할 때 `get_node`, `query_graph`,
-`trace_flow`, `get_impact_radius` 같은 graph 도구로 내려가십시오.
-MCP `search`는 심볼 대상 어노테이션/키워드 기반 후보 검색에 사용하십시오.
-
-RAG 인덱스 품질은 생성 문서와 비어 있지 않은 community postprocess 결과에
-의존합니다. CLI `ccg docs` 명령은 community를 갱신하고 기본
-`doc-index.json` 호환 snapshot을 수동 RAG-index workflow용으로 자동
-기록합니다. 또한 브라우저 Wiki를 위한 별도 `wiki-index.json` 호환 snapshot도
-기록합니다. Wiki Retrieve는 DB가 설정된 경우 DB를 사용합니다. MCP만 사용하는 워크플로우에서 community가 없을 수 있으면 `build_rag_index` 전에
-`run_postprocess`를 `communities=true`, `flows=false`, `fts=false`로
-호출하십시오.
-
-### 네임스페이스 탐색 (Namespace Discovery)
-
-서비스별 그래프 데이터와 네임스페이스별 RAG 인덱스의 격리 단위는 `namespace`입니다.
-
-| 도구 | 설명 |
-|------|-------------|
-| `list_namespaces` | 그래프 데이터를 가진 네임스페이스를 네임스페이스별 노드 수와 함께 출력 |
-
-정식 예시:
-
-```
-list_namespaces()  // -> [{namespace: "payment-svc", node_count: 128}, ...]
-```
-
-## Agent Skills (4개)
-
-| 스킬 | 설명 |
-|-------|-------------|
-| `/ccg` | 핵심 빌드 및 검색 — 파싱, 그래프 빌드, 쿼리, 검색 |
-| `/ccg-analyze` | 코드 분석 — 영향 범위, 흐름 추적, 데드 코드, 아키텍처 |
-| `/ccg-annotate` | 어노테이션 시스템 — AI 기반 어노테이션 워크플로우, 태그 레퍼런스 |
-| `/ccg-docs` | 문서화 — 문서 생성, RAG 인덱싱, 린트 |
-
-이 스킬 파일들은 `skills/`에 있으며 slash-command 스타일의 에이전트
-워크플로우를 위해 작성되었습니다. 일반적인 코딩 에이전트 작업을 적절한
-CLI 및 MCP 표면으로 라우팅합니다.
-
-### 사용법
-
-```
-/ccg build .                     — 코드 그래프 빌드
-/ccg status                      — 그래프 통계 및 사후 처리 오류 요약 확인
-/ccg-docs docs                   — 문서와 기본 RAG 인덱스 생성
-/ccg-docs rag-index              — 기존 문서/community 기반 RAG 인덱스 재생성
-/ccg-docs lint                   — 문서 상태 및 어노테이션 커버리지 체크
-/ccg search "query"              — 어노테이션/키워드 기반 후보 검색
-/ccg languages                   — 지원 언어 목록 출력
-/ccg-annotate annotate internal/ — AI 기반 어노테이션 생성
-/ccg-namespace                   — 네임스페이스 파일 및 디렉토리 관리
-```
+로컬 MCP client는 stdio 방식의 `ccg serve`를 시작하고, 원격 client는 `ccg-server`의 `/mcp` Streamable HTTP endpoint에 연결합니다. 두 런타임은 동일한 17개 도구를 등록합니다.

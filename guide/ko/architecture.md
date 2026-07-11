@@ -49,7 +49,7 @@ GORM ORM 기반 저장소입니다. SQLite 및 PostgreSQL과 호환됩니다.
 후 `ccg build`로 한 번 전체 재빌드하십시오 — 순수 증분 업데이트만 반복하면 변경된
 노드만 갱신되어, 건드리지 않은 노드는 변경 전까지 서브토큰이 없습니다.
 
-전체 빌드 및 명시적인 사후 처리 실행은 네임스페이스 검색 상태를 재생성합니다. 증분 업데이트는 영향을 받는 검색 문서와 FTS 행만 갱신하는 반면, 커뮤니티 사후 처리는 여전히 네임스페이스 전체에 걸쳐 이루어질 수 있습니다. 영구 저장된 흐름(stored-flow)의 재생성은 전체 사후 처리 실행 및 명시적인 `run_postprocess(flows=true)` 호출 시 구현되어 있으며, 진입점별 흐름 쿼리에는 `trace_flow`를 사용하십시오.
+전체 빌드 및 명시적인 사후 처리 실행은 네임스페이스 검색 상태를 재생성합니다. 증분 업데이트는 영향을 받는 검색 문서와 FTS 행만 갱신합니다. 영구 저장된 흐름(stored-flow)의 재생성은 전체 사후 처리 실행 및 명시적인 `run_postprocess(flows=true)` 호출 시 구현되어 있으며, 진입점별 흐름 쿼리에는 `trace_flow`를 사용하십시오.
 
 ### 분석 (Analysis) (`internal/analysis/`)
 
@@ -61,18 +61,9 @@ GORM ORM 기반 저장소입니다. SQLite 및 PostgreSQL과 호환됩니다.
 | `query` | 그래프 쿼리 (callers, callees, imports) |
 | `incremental` | 증분 업데이트 |
 
-### 평가 (Eval) (`internal/eval/`)
-
-골든 코퍼스 기반의 파서 정확도 및 검색 품질 평가 프레임워크입니다.
-
-- **파서 평가**: 12개 언어의 소스 파일을 파싱하고 골든 JSON과 비교하여 노드/엣지의 P/R/F1을 계산합니다.
-- **검색 평가**: 쿼리 코퍼스에 대해 P@K, MRR, nDCG 메트릭을 계산합니다.
-- **골든 업데이트**: `--update` 모드는 현재 파서 출력을 골든 파일로 저장합니다.
-- **코퍼스**: 언어별 소스 + 골든 JSON + queries.json이 포함된 `testdata/eval/` 디렉토리입니다.
-
 ### MCP 서버 (MCP Server) (`internal/mcp/`)
 
-MCP 프로토콜을 통해 33개의 도구를 노출합니다. 로컬 `ccg serve` 명령은 이
+MCP 프로토콜을 통해 17개의 도구를 노출합니다. 로컬 `ccg serve` 명령은 이
 도구들을 stdio로 노출합니다. 셀프호스트 `ccg-server` 바이너리는 같은 도구
 surface를 Streamable HTTP로 노출하고 health/status/webhook 엔드포인트를
 추가합니다.

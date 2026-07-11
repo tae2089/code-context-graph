@@ -100,9 +100,9 @@ ccg-server \
 서빙됩니다. `/wiki/api/*`는 `/mcp`와 같은 Bearer 토큰을 사용하며, UI는 API가
 `401`을 반환하면 토큰 입력을 요청합니다.
 Wiki를 열기 전에 각 네임스페이스에서 `ccg build`를 실행해 DB-backed tree
-navigation, search, retrieve가 읽을 graph row를 준비하십시오. `ccg docs
---out docs`는 생성 Markdown, 수동 RAG-index workflow용 `doc-index.json`,
-`wiki-index.json` 호환 snapshot이 필요할 때 계속 유용합니다. Wiki Graph 탭은
+navigation, search, 문서 탐색이 읽을 graph row를 준비하십시오. `ccg docs
+--out docs`는 생성 Markdown과 `wiki-index.json` 호환 snapshot이 필요할 때
+계속 유용합니다. Wiki Graph 탭은
 `/wiki/api/graph`를 통해 설정된 데이터베이스의 graph node와 edge를 직접
 읽으므로 최신 `ccg build` 또는 webhook sync 상태를 반영합니다.
 

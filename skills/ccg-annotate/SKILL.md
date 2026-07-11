@@ -1,16 +1,16 @@
 ---
 name: ccg-annotate
-description: code-context-graph — AI-driven annotation workflow. Add @intent/@domainRule/etc to code so search and RAG can find by business meaning.
+description: code-context-graph — AI-driven annotation workflow. Add @intent/@domainRule/etc so code and documentation search can find business meaning.
 ---
 
 # ccg-annotate — Annotation Workflow
 
-Add structured business metadata to code. **This is what makes search and RAG actually useful.**
+Add structured business metadata to code. **This is what makes code and documentation search useful.**
 
 ## Why Annotations Matter
 
 - Enables domain search that text matching can't do: "payment" → finds functions with `@intent payment processing`
-- Enriches RAG community summaries
+- Enriches generated docs and DB-backed documentation evidence
 - LLM can grasp intent without reading code → token savings
 - Surfaces domain rules automatically during PR review
 
@@ -119,7 +119,7 @@ WHAT only. Function name already tells you that.
 func CreateUser(...) {}
 ```
 
-WHY + business rules + side effects. Search and RAG become powerful.
+WHY + business rules + side effects. Code and documentation search become powerful.
 
 ## Annotation Priority
 

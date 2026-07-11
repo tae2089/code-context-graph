@@ -44,13 +44,10 @@ ccg update ./backend --namespace backend
 | `ccg status` | Graph statistics |
 | `ccg search <query>` | Full-text search |
 | `ccg search --path <prefix> <query>` | Scoped search by path prefix |
-| `ccg docs [--out dir]` | Generate Markdown documentation, the `wiki-index.json` compatibility snapshot, and the default RAG index (prunes stale generator-managed docs by default) |
-| `ccg docs --rag=false` | Generate Markdown and the `wiki-index.json` snapshot only, without rebuilding communities or the RAG index |
-| `ccg docs --rag-refresh=false` | Rebuild the RAG index from existing community rows instead of refreshing communities |
-| `ccg docs --rag-index-dir <dir>` | Override the `doc-index.json` and `wiki-index.json` output directory (default `.ccg` or `rag.index_dir`) |
+| `ccg docs [--out dir]` | Generate Markdown documentation and the `wiki-index.json` compatibility snapshot (prunes stale generator-managed docs by default) |
+| `ccg docs --rag-index-dir <dir>` | Override the legacy-named Wiki index output directory (default `.ccg` or `rag.index_dir`) |
 | `ccg docs --prune=false` | Regenerate docs without deleting older generator-managed files |
 | `ccg docs --exclude <pat>` | Exclude files/paths from generated docs (repeatable) |
-| `ccg rag-index [--out dir]` | Rebuild RAG index from generated docs and already-computed community structure |
 | `ccg languages` | List supported languages and extensions |
 | `ccg example [language]` | Show annotation writing example |
 | `ccg tags` | Show all annotation tag reference |
@@ -59,17 +56,16 @@ ccg update ./backend --namespace backend
 | `ccg lint [--out dir]` | 8-category docs lint |
 | `ccg lint --strict` | Exit 1 on issues (for CI/pre-commit) |
 | `ccg version` | Print build version, commit, date |
-| `ccg benchmark token-bench` | Measure token reduction: naive vs graph search (no LLM) |
 
 For the default local SQLite database (`ccg.db`, including `./ccg.db`, absolute paths ending in `ccg.db`, and `file:` DSNs for that file), runtime commands auto-run migrations only when the schema is missing. Existing SQLite schemas, PostgreSQL, custom SQLite DSNs, and controlled upgrades require an explicit `ccg migrate`. If you already have a default `ccg.db` from an older CCG version, treat it as an existing schema and run `ccg migrate` after upgrading.
 
-### Search and RAG Routing
+### Search and Documentation Routing
 
 CCG has two search surfaces with different jobs:
 
 | Use case | Preferred entrypoint |
 |----------|----------------------|
-| Natural-language code understanding, module exploration, architecture questions | `ccg docs`, then MCP `search_docs`, `get_rag_tree`, `get_doc_content` |
+| Natural-language code understanding and module exploration | `ccg docs`, then MCP `search_docs`, `get_doc_content` |
 | Exact symbol lookup, callers/callees, imports, bounded graph traversal | MCP `get_node`, `query_graph`, `get_minimal_context` |
 | Impact analysis, flow tracing | MCP analysis tools such as `get_impact_radius`, `trace_flow` |
 | Focused annotation/keyword candidate search | `ccg search` or MCP `search` |
@@ -94,16 +90,8 @@ normal tree payloads.
 The browser Wiki also provides a Graph tab backed by `/wiki/api/graph`; it reads
 the namespace's graph nodes and edges directly from the configured database and
 opens clicked file/symbol nodes through the same document viewer.
-Unless `--rag=false` is set, `ccg docs` also refreshes community structure and
-writes the default `.ccg/doc-index.json` compatibility snapshot for manual RAG
-index workflows.
-Use `--rag-refresh=false` only when you intentionally want to reuse existing
-community rows. The standalone `ccg rag-index` command remains available for
-manual rebuilds from generated docs and already-computed communities.
-
 Then use MCP `search_docs` to find relevant docs and `get_doc_content` to read
-one directly. Use `get_rag_tree` to expand the module/community context before
-drilling into a specific generated doc. `ccg search` remains useful for quick
+one directly. `ccg search` remains useful for quick
 keyword or annotation matches over symbols, but it should not be treated as the
 primary answering surface for broad natural-language questions.
 
@@ -185,64 +173,6 @@ When `--otel-endpoint` or `CCG_OTEL_ENDPOINT` is unset, CCG still creates real
 OpenTelemetry SDK spans for inbound MCP/webhook requests and internal webhook
 sync work. Logs emitted from traced contexts include `trace_id`, `span_id`, and
 `trace_sampled`, which is useful for local debugging even without an exporter.
-
-### Benchmark
-
-Measures token reduction directly without an LLM. Compares token counts between naive (full file read) and CCG graph search, and measures recall simultaneously.
-
-| Command | Description |
-|---------|-------------|
-| `ccg benchmark token-bench` | Measure token reduction + recall |
-| `ccg benchmark token-bench --corpus <path>` | Path to corpus YAML file (default: `testdata/benchmark/queries.yaml`) |
-| `ccg benchmark token-bench --repo <dir>` | Repository root for naive token counting (default: `.`) |
-| `ccg benchmark token-bench --exts .go,.ts` | Source file extensions to count (default: `.go`) |
-| `ccg benchmark token-bench --limit 30` | Total result budget per query — auto-split inversely by term count (default: `30`) |
-| `ccg benchmark token-bench --out result.json` | Save results to JSON file |
-| `ccg benchmark init` | Generate `testdata/benchmark/queries.yaml` template |
-| `ccg benchmark validate --corpus <path>` | Validate corpus YAML |
-
-**Output fields:**
-
-| Field | Description |
-|-------|-------------|
-| `naive_tokens` | Total token count of all source files (worst-case baseline) |
-| `graph_tokens` | Token count of CCG search results (including 1-hop expansion) |
-| `ratio` | `naive_tokens / graph_tokens` |
-| `recall` | `(files_hit + symbols_hit) / (files_total + symbols_total)` |
-| `files_hit` / `files_total` | Number of expected_files found in results |
-| `symbols_hit` / `symbols_total` | Number of expected_symbols found in results |
-| `search_elapsed_ms` | Search elapsed time (ms) |
-
-**Corpus YAML format:**
-
-```yaml
-version: "1"
-queries:
-  - id: router-01
-    description: "HTTP router tree structure and route registration"
-    expected_files:
-      - gin.go
-      - tree.go
-    expected_symbols:
-      - Engine
-      - addRoute
-    difficulty: hard
-```
-
-> **Note:** Only ASCII words from `description` are used for FTS search. `expected_symbols` is used only for recall calculation, not as a search query.
-
-### Eval
-
-For terminology, corpus layout, metrics, and interpretation guidance, see [Eval](eval.md).
-
-| Command | Description |
-|---------|-------------|
-| `ccg eval` | Evaluate parser accuracy and search quality against golden corpus |
-| `ccg eval --suite parser` | Run parser evaluation only |
-| `ccg eval --suite search` | Run search evaluation only |
-| `ccg eval --update` | Update golden files from current parser output |
-| `ccg eval --corpus <dir>` | Golden corpus directory (default `testdata/eval`) |
-| `ccg eval --format json` | Output in JSON format (default `table`) |
 
 ## Config File (`.ccg.yaml`)
 

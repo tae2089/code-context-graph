@@ -25,8 +25,9 @@ get_minimal_context          ← always start here (graph state + recommended to
         │                   → get_impact_radius(qualified_name: "...", depth: 3)
         │                   → get_affected_flows(repo_root: ".")
         │
-        ├─ understand structure → get_architecture_overview()
-        │                          → list_communities()
+        ├─ understand structure → search_docs()
+        │                          → get_doc_content()
+        │                          → query_graph(file_summary)
         │
         └─ after code change → build_or_update_graph(path: ".", full_rebuild: false)
 ```

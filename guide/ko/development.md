@@ -35,21 +35,6 @@ make test
 
 `make test`는 Go 테스트 스위트와 Docker 통합 테스트용 경량 셸 헬퍼 테스트를 모두 실행합니다.
 
-### 평가 테스트 (Eval Test)
-
-12개 언어의 골든 코퍼스에 대한 파서 정확도 평가:
-
-```bash
-# 골든 파일 업데이트 (파서 변경 후)
-ccg eval --suite parser --update
-
-# 정확도 비교
-ccg eval --suite parser
-
-# JSON 형식으로 출력
-ccg eval --format json
-```
-
 ## Integration Test
 
 풀스택 파이프라인 테스트: Gitea push → 명시적 `ccg migrate` → 웹훅 → ccg 복제 → 빌드 → PostgreSQL → MCP 검증:
@@ -112,22 +97,20 @@ docker compose -f docker-compose.integration.yml down -v
 cmd/ccg/              — 로컬 CLI 진입점 (cobra, stdio MCP)
 cmd/ccg-server/       — 셀프호스트 HTTP MCP/웹훅 서버 진입점
 internal/
-  analysis/           — 분석 엔진 (impact, flows, deadcode, community 등)
+  analysis/           — 분석 엔진 (impact, flows, changes, incremental update)
   annotation/         — 어노테이션 파서
-  benchmark/          — 토큰 감소 벤치마크 (일반 vs 그래프, 재현율 측정)
   cli/                — CLI 명령어 정의
   core/               — parser, DB, store, search, sync 공용 런타임 wiring
   ctxns/              — 컨텍스트 네임스페이스
   docs/               — 문서 생성 로직
-  eval/               — 파서/검색 품질 평가 (골든 코퍼스, P/R/F1, P@K, MRR, nDCG)
   mcpruntime/         — 공용 MCP runtime assembly, stdio runner, cache, telemetry
-  mcp/                — MCP 서버 (33개 도구)
+  mcp/                — MCP 서버 (17개 도구)
   wikiserver/         — ccg-server Wiki 정적 파일 서빙 및 viewer API
   wikiindex/          — Wiki 표시용 인덱스 생성기 (`wiki-index.json`)
   model/              — DB 모델
   parse/treesitter/   — Tree-sitter 파서 (Lua/Luau 포함 12개 언어)
   pathutil/           — 경로 유틸리티
-  ragindex/           — RAG 인덱스
+  ragindex/           — 공용 Wiki tree 및 문서 검색 DTO/helper
   server/             — HTTP MCP 서버, health/status 엔드포인트, 웹훅 런타임
   service/            — 비즈니스 로직
   store/              — GORM 저장소
@@ -135,7 +118,6 @@ internal/
 skills/               — 에이전트 스킬 파일
 guide/                — 프로젝트 문서
 docs/                 — 자동 생성된 문서 (ccg docs)
-testdata/eval/        — 평가용 골든 코퍼스 (12개 언어 소스 + 골든 JSON)
 scripts/              — 스크립트 (통합 테스트 등)
 ```
 
@@ -145,47 +127,6 @@ dist 디렉터리는 git에서 제외하고 release에서 별도 asset으로 패
 ```bash
 make wiki-build
 ```
-
-## 토큰 벤치마크 (Token Benchmark)
-
-CCG가 일반적인 전체 파일 읽기 방식에 비해 LLM에 전달되는 컨텍스트 토큰을 얼마나 줄이는지 측정합니다.
-
-```bash
-ccg benchmark token-bench \
-  --db-dsn ./ccg.db \
-  --corpus testdata/benchmark/queries.yaml \
-  --repo /path/to/target-repo \
-  --exts .go \
-  --limit 30
-```
-
-### 측정 방법 (Measurement Method)
-
-| 필드 | 설명 |
-|-------|-------------|
-| `naive_tokens` | 저장소 내 모든 소스 파일의 총 토큰 수 (`len(text)/4` 추정치) |
-| `graph_tokens` | 설명 → FTS 검색 → 1-hop 확장을 통해 수집된 노드들의 토큰 수 |
-| `ratio` | `naive / graph` 비율 |
-| `recall` | expected_files + expected_symbols에 대한 히트율 (0~1) |
-
-### 설계 원칙
-
-- **설명(description) 기반 검색**: `expected_symbols`를 검색 쿼리로 직접 사용하는 것은 일종의 '정답 미리 보기(cheating)'입니다. 자연어 설명에서 추출된 ASCII 단어들만 FTS에 전달됩니다.
-- **검색어당 제한 자동 조정**: `limitPerTerm = max(3, limit / len(terms))` — 검색어 수와 무관하게 총 결과 예산을 유지합니다.
-- **1-hop 확장 포함**: 인접 노드 및 어노테이션을 포함하는 gormstore 확장기를 통해 실제적인 `graph_tokens`를 측정합니다.
-- **재현율(recall) 없는 비율은 무의미함**: 재현율이 0.5 미만인 쿼리는 `graph_tokens`가 작더라도 신뢰할 수 없습니다.
-
-### gin-gonic 벤치마크 결과 (limit=30)
-
-| 쿼리 | 비율(ratio) | 재현율(recall) |
-|-------|-------|--------|
-| router | ~54x | 0.6 |
-| context | ~54x | 0.5 |
-| middleware | ~79x | 1.0 |
-| binding | ~35x | 0.75 |
-| recovery | ~46x | 1.0 |
-
-정직한 측정을 바탕으로, code-review-graph 논문의 기준선인 49x와 비슷하거나 더 나은 성능을 보여줍니다.
 
 ## 컨벤션 (Conventions)
 

@@ -107,9 +107,9 @@ The static `/wiki` app shell is served without request headers so browsers can
 open it directly. `/wiki/api/*` uses the same bearer token as `/mcp`; the UI
 prompts for that token when the API returns `401`.
 Run `ccg build` for each served namespace before opening the Wiki so DB-backed
-tree navigation, search, and retrieve have graph rows to read. `ccg docs --out
-docs` remains useful for generated Markdown, `doc-index.json` compatibility
-RAG-index workflows, and the `wiki-index.json` compatibility snapshot. The Wiki Graph tab
+tree navigation, search, and document discovery have graph rows to read. `ccg docs --out
+docs` remains useful for generated Markdown and the `wiki-index.json`
+compatibility snapshot. The Wiki Graph tab
 reads graph nodes and edges directly from the configured database via
 `/wiki/api/graph`, so it reflects the latest `ccg build` or webhook sync state.
 

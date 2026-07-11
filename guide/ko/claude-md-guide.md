@@ -27,8 +27,9 @@ get_minimal_context          ← 항상 여기서 시작하십시오 (그래프 
         │                   → get_impact_radius(qualified_name: "...", depth: 3)
         │                   → get_affected_flows(repo_root: ".")
         │
-        ├─ 구조 파악 → get_architecture_overview()
-        │                          → list_communities()
+        ├─ 구조 파악 → search_docs()
+        │                          → get_doc_content()
+        │                          → query_graph(file_summary)
         │
         └─ 코드 변경 후 → build_or_update_graph(path: ".", full_rebuild: false)
 ```

@@ -100,7 +100,7 @@ type Deps struct {
 	// Cache — nil disables caching
 	Cache *Cache
 
-	// RagIndexDir — Directory where doc-index.json is stored (default: ".ccg")
+	// RagIndexDir — Directory where Wiki index artifacts are stored (default: ".ccg")
 	RagIndexDir string
 	// RagProjectDesc — Project description used in root node summary
 	RagProjectDesc string

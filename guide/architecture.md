@@ -49,8 +49,7 @@ pure incremental-update workflow only refreshes changed nodes, leaving
 untouched nodes without sub-tokens until they change.
 
 Full builds and explicit postprocess runs rebuild namespace search state.
-Incremental updates refresh only affected search documents and FTS rows, while
-community postprocessing can still be namespace-wide. Persisted stored-flow
+Incremental updates refresh only affected search documents and FTS rows. Persisted stored-flow
 rebuild is implemented for full postprocess runs and explicit
 `run_postprocess(flows=true)` calls; use `trace_flow` for per-entry-point flow
 queries.
@@ -65,18 +64,9 @@ queries.
 | `query` | Graph queries (callers, callees, imports) |
 | `incremental` | Incremental update |
 
-### Eval (`internal/eval/`)
-
-Golden corpus-based parser accuracy and search quality evaluation framework.
-
-- **Parser eval**: Parses 12-language source files and compares against golden JSON to compute Node/Edge P/R/F1
-- **Search eval**: Computes P@K, MRR, nDCG metrics for query corpus
-- **Golden update**: `--update` mode saves current parser output as golden files
-- **Corpus**: `testdata/eval/` directory with per-language sources + golden JSON + queries.json
-
 ### MCP Server (`internal/mcp/`)
 
-Exposes 33 tools via MCP protocol. The local `ccg serve` command exposes these
+Exposes 17 tools via MCP protocol. The local `ccg serve` command exposes these
 tools over stdio. The self-hosted `ccg-server` binary exposes the same tool
 surface over Streamable HTTP and adds health/status/webhook endpoints.
 

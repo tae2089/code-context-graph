@@ -1,4 +1,4 @@
-// @index ragindex 패키지는 DB의 커뮤니티/어노테이션 데이터를 읽어 doc-index.json을 빌드한다.
+// @index ragindex 패키지는 Wiki 트리와 문서 검색 결과에 사용하는 공용 DTO와 탐색 helper를 제공한다.
 package ragindex
 
 import (
@@ -12,8 +12,8 @@ import (
 	"github.com/tae2089/trace"
 )
 
-// TreeNode는 doc-index.json의 단일 노드이다.
-// @intent RAG 탐색 트리에서 커뮤니티, 파일, 심볼 노드를 동일 구조로 표현한다.
+// TreeNode는 Wiki 탐색 트리의 단일 노드이다.
+// @intent Wiki 탐색 트리에서 디렉터리, 패키지, 파일, 심볼을 동일 구조로 표현한다.
 type TreeNode struct {
 	ID          string `json:"id"`
 	Label       string `json:"label"`
@@ -76,7 +76,7 @@ func DocTagDetailFromModel(tag model.DocTag) DocTagDetail {
 	return detail
 }
 
-// Index는 .ccg/doc-index.json 전체 포맷이다.
+// Index는 wiki-index.json 호환 snapshot의 전체 포맷이다.
 // @intent 디스크에 저장되는 문서 인덱스 루트 페이로드를 정의한다.
 type Index struct {
 	Version int       `json:"version"`

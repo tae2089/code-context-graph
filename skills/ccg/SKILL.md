@@ -14,7 +14,7 @@ ccg is a Tree-sitter-based code graph tool. **Complementary to Grep/Read, not a 
 | "Where is X?" — simple location lookup     | Grep + Read       | Faster and cheaper than ccg       |
 | "Find code related to X" — semantic search | `ccg search`      | Annotation/keyword semantic match |
 | "What's affected if I change X?"           | `/ccg-analyze`    | Graph traversal                   |
-| "Understand structure/architecture"        | `/ccg-docs` (RAG) | `search_docs`, then `get_doc_content` |
+| "Understand a module from generated docs"  | `/ccg-docs`       | `search_docs`, then `get_doc_content` |
 | "Document intent/rules in code"            | `/ccg-annotate`   | AI annotation workflow            |
 | "Manage multiple service codebases"        | `/ccg-namespace`  | MSA namespace isolation           |
 
@@ -27,7 +27,7 @@ ccg build .          # Build graph + search index (first time or after big chang
 ccg update .         # Incremental — changed files only
 ccg search "<query>" # FTS search (includes annotations)
 ccg status           # Graph statistics
-ccg docs --out docs  # Generate docs + default RAG index
+ccg docs --out docs  # Generate docs + Wiki compatibility index
 ccg serve            # Start MCP server (stdio)
 ```
 
@@ -68,7 +68,7 @@ For other tools, see `/ccg-analyze`, `/ccg-docs` skills.
 
 ## Agent Entry Pattern
 
-For broad natural-language questions, start with generated docs/RAG before
+For broad natural-language questions, start with generated docs before
 pulling exact graph edges:
 
 ```bash
@@ -76,8 +76,7 @@ ccg build .
 ccg docs --out docs
 ```
 
-Then use MCP `search_docs` to find docs and `get_doc_content` to read them, `get_rag_tree` to
-expand module context, and only then `query_graph`, `get_node`, or
+Then use MCP `search_docs` to find docs and `get_doc_content` to read them, and only then `query_graph`, `get_node`, or
 `trace_flow` for exact symbols and relationships.
 
 ## Response Budget Rule
@@ -92,13 +91,9 @@ Tools with explicit pagination:
 | ---- | ---------- |
 | `query_graph` | `limit`, `offset` |
 | `list_flows` | `limit`, `offset` |
-| `list_communities` | `limit`, `offset` |
-| `get_community` | `member_limit`, `member_offset` when `include_members=true` |
-| `get_architecture_overview` | `community_limit`, `community_offset`, `coupling_limit`, `coupling_offset` |
 
-High-volume analysis tools such as `find_dead_code` and broad
-architecture/onboarding prompts should be scoped by namespace, path, or a
-narrower first question before use.
+Broad architecture/onboarding prompts should start with a namespace or path and
+a narrow question before expanding through graph queries.
 
 ## Trade-offs (verified)
 

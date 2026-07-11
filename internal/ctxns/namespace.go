@@ -10,7 +10,7 @@ type ctxKey struct{}
 const DefaultNamespace = "default"
 
 // Normalize replaces an empty namespace with DefaultNamespace, leaving other values unchanged.
-// @intent normalize namespace query parameter values so store, retrieve_docs, and DB search layers always observe a non-empty namespace string.
+// @intent normalize namespace query parameter values so store and DB-backed search layers always observe a non-empty namespace string.
 func Normalize(ns string) string {
 	if ns == "" {
 		return DefaultNamespace

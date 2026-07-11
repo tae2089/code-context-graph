@@ -6,7 +6,7 @@ CCG is split into three runtime layers:
 |-------|------|----------------|
 | `ccg` | `cmd/ccg`, `internal/cli` | Local CLI commands and local MCP over stdio |
 | `ccg-server` | `cmd/ccg-server`, `internal/server` | Self-hosted Streamable HTTP MCP server, health/status endpoints, and webhook sync |
-| MCP runtime | `internal/mcpruntime` | Shared MCP handler assembly, cache, telemetry, postprocess policy, and stdio runner |
+| MCP runtime | `internal/mcpruntime` | Shared MCP handler assembly, cache, telemetry, and stdio runner |
 | `ccg-core` | `internal/core` | Shared parser, DB, store, search, migration, and incremental-sync wiring |
 
 This split keeps local agent usage small while letting self-hosted deployments
@@ -80,9 +80,8 @@ ccg docs --out docs
 ccg serve
 ```
 
-`ccg docs` writes `.ccg/wiki-index.json` as a `/wiki` compatibility snapshot
-and, unless `--rag=false` is set, `.ccg/doc-index.json` for manual RAG-index
-workflows.
+`ccg docs` writes generated Markdown and `.ccg/wiki-index.json` as a `/wiki`
+compatibility snapshot.
 
 Browser Wiki:
 
@@ -94,10 +93,9 @@ ccg-server \
   --wiki-dir web/wiki/dist
 ```
 
-The Wiki tree, search, and retrieve mode prefer the configured database.
+The Wiki tree, search, and document discovery prefer the configured database.
 `wiki-index.json` is a compatibility tree snapshot used only when the
-corresponding DB-backed path is unavailable; `doc-index.json` is kept for manual
-RAG-index compatibility rather than runtime retrieve.
+corresponding DB-backed path is unavailable.
 The Graph tab reads graph nodes and edges directly from the configured database
 through `/wiki/api/graph`, so it follows the latest `ccg build` or webhook sync
 state. Context Tray copy uses `/wiki/api/context` for generated docs and keeps

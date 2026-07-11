@@ -8,7 +8,7 @@ CCG는 세 개의 런타임 레이어로 분리됩니다.
 |--------|------|------|
 | `ccg` | `cmd/ccg`, `internal/cli` | 로컬 CLI 명령과 stdio 기반 로컬 MCP |
 | `ccg-server` | `cmd/ccg-server`, `internal/server` | 셀프호스트 Streamable HTTP MCP 서버, health/status 엔드포인트, 웹훅 동기화 |
-| MCP runtime | `internal/mcpruntime` | 공용 MCP handler assembly, cache, telemetry, postprocess policy, stdio runner |
+| MCP runtime | `internal/mcpruntime` | 공용 MCP handler assembly, cache, telemetry, stdio runner |
 | `ccg-core` | `internal/core` | 공용 parser, DB, store, search, migration, incremental sync wiring |
 
 이 분리는 로컬 에이전트 사용 경로를 작게 유지하고, 셀프호스트 배포의 HTTP
@@ -83,9 +83,8 @@ ccg docs --out docs
 ccg serve
 ```
 
-`ccg docs`는 `/wiki` 호환 snapshot인 `.ccg/wiki-index.json`을 기록하고,
-`--rag=false`가 설정되지 않은 경우 수동 RAG-index workflow용
-`.ccg/doc-index.json`도 함께 기록합니다.
+`ccg docs`는 생성 Markdown과 `/wiki` 호환 snapshot인
+`.ccg/wiki-index.json`을 기록합니다.
 
 브라우저 Wiki:
 
@@ -97,10 +96,9 @@ ccg-server \
   --wiki-dir web/wiki/dist
 ```
 
-Wiki tree, search, retrieve 모드는 설정된 데이터베이스를 우선 사용합니다.
+Wiki tree, search, 문서 탐색은 설정된 데이터베이스를 우선 사용합니다.
 `wiki-index.json`은 해당 DB-backed tree 경로를 사용할 수 없을 때만 쓰는
-호환 snapshot이며, `doc-index.json`은 runtime retrieve가 아니라 수동 RAG-index
-호환성을 위해 유지됩니다.
+호환 snapshot입니다.
 Graph 탭은 `/wiki/api/graph`를 통해 설정된 데이터베이스의 graph node와
 edge를 직접 읽으므로 최신 `ccg build` 또는 webhook sync 상태를 반영합니다.
 Context Tray copy는 생성 문서에 대해 `/wiki/api/context`를 사용하고,

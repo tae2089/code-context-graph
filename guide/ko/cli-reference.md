@@ -46,13 +46,10 @@ ccg update ./backend --namespace backend
 | `ccg status` | 그래프 통계 출력 |
 | `ccg search <query>` | 전체 텍스트 검색 |
 | `ccg search --path <prefix> <query>` | 경로 접두사로 검색 범위 제한 |
-| `ccg docs [--out dir]` | 마크다운 문서, `wiki-index.json` 호환 snapshot, 기본 RAG 인덱스 생성 (기본적으로 그래프에 없는 generator-managed 문서를 prune) |
-| `ccg docs --rag=false` | community/RAG 인덱스 재생성 없이 Markdown과 `wiki-index.json` snapshot만 생성 |
-| `ccg docs --rag-refresh=false` | community를 재계산하지 않고 기존 community row로 RAG 인덱스 재생성 |
-| `ccg docs --rag-index-dir <dir>` | `doc-index.json` 및 `wiki-index.json` 출력 디렉터리 지정 (기본 `.ccg` 또는 `rag.index_dir`) |
+| `ccg docs [--out dir]` | 마크다운 문서와 `wiki-index.json` 호환 snapshot 생성 (기본적으로 그래프에 없는 generator-managed 문서를 prune) |
+| `ccg docs --rag-index-dir <dir>` | legacy 이름을 유지한 Wiki index 출력 디렉터리 지정 (기본 `.ccg` 또는 `rag.index_dir`) |
 | `ccg docs --prune=false` | 기존 generator-managed 문서를 삭제하지 않고 문서만 다시 생성 |
 | `ccg docs --exclude <pat>` | 문서 생성 대상에서 파일/경로 제외 (반복 가능) |
-| `ccg rag-index [--out dir]` | 생성된 문서와 이미 계산된 커뮤니티 구조 기반 RAG 인덱스 재생성 |
 | `ccg languages` | 지원되는 언어 및 확장자 목록 출력 |
 | `ccg example [language]` | 어노테이션 작성 예시 출력 |
 | `ccg tags` | 모든 어노테이션 태그 레퍼런스 출력 |
@@ -61,17 +58,16 @@ ccg update ./backend --namespace backend
 | `ccg lint [--out dir]` | 8가지 카테고리의 문서 린트(lint) 실행 |
 | `ccg lint --strict` | 문제 발생 시 종료 코드 1로 종료 (CI/pre-commit용) |
 | `ccg version` | 빌드 버전, 커밋, 날짜 출력 |
-| `ccg benchmark token-bench` | 토큰 감소율 측정: 일반 방식 vs 그래프 검색 (LLM 미사용) |
 
 기본 로컬 SQLite 데이터베이스(`ccg.db`, `./ccg.db`, `ccg.db`로 끝나는 절대 경로 및 해당 파일에 대한 `file:` DSN 포함)의 경우, 실행 명령어는 스키마가 없는 경우에만 마이그레이션을 자동으로 실행합니다. 기존 SQLite 스키마, PostgreSQL, 커스텀 SQLite DSN 및 제어된 업그레이드에는 명시적인 `ccg migrate`가 필요합니다. 이전 버전의 CCG에서 생성된 기본 `ccg.db`가 이미 있는 경우, 이를 기존 스키마로 취급하고 업그레이드 후 `ccg migrate`를 실행하십시오.
 
-### 검색과 RAG 라우팅 (Search and RAG Routing)
+### 검색과 문서 라우팅 (Search and Documentation Routing)
 
 CCG에는 역할이 다른 두 검색 표면이 있습니다.
 
 | 사용 사례 | 우선 진입점 |
 |----------|-------------|
-| 자연어 기반 코드 이해, 모듈 탐색, 아키텍처 질문 | `ccg docs`, 이후 MCP `search_docs`, `get_rag_tree`, `get_doc_content` |
+| 자연어 기반 코드 이해와 모듈 탐색 | `ccg docs`, 이후 MCP `search_docs`, `get_doc_content` |
 | 정확한 심볼 조회, caller/callee, import, bounded graph traversal | MCP `get_node`, `query_graph`, `get_minimal_context` |
 | 영향 분석, flow 추적 | `get_impact_radius`, `trace_flow` 같은 MCP 분석 도구 |
 | 어노테이션/키워드 기반 후보 검색 | `ccg search` 또는 MCP `search` |
@@ -96,13 +92,7 @@ payload에는 이 숨겨진 text를 반환하지 않습니다.
 브라우저 Wiki는 `/wiki/api/graph` 기반 Graph 탭도 제공합니다. 이 탭은 설정된
 데이터베이스에서 해당 네임스페이스의 graph node와 edge를 직접 읽고, 클릭한
 file/symbol node를 같은 문서 viewer로 엽니다.
-`--rag=false`가 설정되지 않은 경우에는 community 구조도 갱신하고
-수동 RAG index workflow용 기본 `.ccg/doc-index.json` 호환 snapshot을 함께
-기록합니다. 기존 community row를 의도적으로 재사용하려면
-`--rag-refresh=false`를 사용하십시오. 독립 `ccg rag-index` 명령은 생성 문서와
-이미 계산된 community를 사용한 수동 재생성 용도로 남아 있습니다.
-
-그 다음 MCP `search_docs`로 관련 문서를 찾고 `get_doc_content`로 하나를 직접 읽습니다. `get_rag_tree`로 모듈/커뮤니티 맥락을 펼친 뒤 특정 생성 문서로 내려갑니다. `ccg search`는 빠른 키워드 또는 심볼 어노테이션 매칭에는 유용하지만, 넓은 자연어 질문의 기본 응답 표면으로 보기는 어렵습니다.
+그 다음 MCP `search_docs`로 관련 문서를 찾고 `get_doc_content`로 하나를 직접 읽습니다. `ccg search`는 빠른 키워드 또는 심볼 어노테이션 매칭에는 유용하지만, 넓은 자연어 질문의 기본 응답 표면으로 보기는 어렵습니다.
 
 ### 데이터베이스 선택 (Database Choice)
 
@@ -163,64 +153,6 @@ HTTP MCP와 웹훅 호스팅은 전용 `ccg-server` 바이너리에서 제공합
 `CCG_HTTP_BEARER_TOKEN`은 `--http-bearer-token`에 대해서도 지원되며, `CCG_OTEL_ENDPOINT`는 `--otel-endpoint`에 대해서도 지원됩니다. 이 토큰은 `/mcp`의 MCP HTTP 엔드포인트를 보호하지만, `/health`, `/ready`, `/status`, `/webhook` 자체를 비공개로 만들지는 않습니다.
 
 `--otel-endpoint` 또는 `CCG_OTEL_ENDPOINT`를 설정하지 않아도 CCG는 inbound MCP/웹훅 요청과 내부 웹훅 sync 작업에 대해 실제 OpenTelemetry SDK span을 생성합니다. trace가 연결된 컨텍스트에서 출력되는 로그에는 `trace_id`, `span_id`, `trace_sampled`가 포함되므로 exporter 없이도 로컬 디버깅에 사용할 수 있습니다.
-
-### 벤치마크 (Benchmark)
-
-LLM 없이 토큰 감소율을 직접 측정합니다. 일반 방식(전체 파일 읽기)과 CCG 그래프 검색 간의 토큰 수를 비교하고 동시에 재현율(recall)을 측정합니다.
-
-| 명령어 | 설명 |
-|---------|-------------|
-| `ccg benchmark token-bench` | 토큰 감소율 + 재현율 측정 |
-| `ccg benchmark token-bench --corpus <path>` | 코퍼스 YAML 파일 경로 (기본값: `testdata/benchmark/queries.yaml`) |
-| `ccg benchmark token-bench --repo <dir>` | 일반 토큰 카운팅을 위한 저장소 루트 (기본값: `.`) |
-| `ccg benchmark token-bench --exts .go,.ts` | 카운트할 소스 파일 확장자 (기본값: `.go`) |
-| `ccg benchmark token-bench --limit 30` | 쿼리당 총 결과 예산 — 검색어 수에 따라 반비례하여 자동 분할 (기본값: `30`) |
-| `ccg benchmark token-bench --out result.json` | 결과를 JSON 파일로 저장 |
-| `ccg benchmark init` | `testdata/benchmark/queries.yaml` 템플릿 생성 |
-| `ccg benchmark validate --corpus <path>` | 코퍼스 YAML 검증 |
-
-**출력 필드:**
-
-| 필드 | 설명 |
-|-------|-------------|
-| `naive_tokens` | 모든 소스 파일의 총 토큰 수 (최악의 경우의 기준선) |
-| `graph_tokens` | CCG 검색 결과의 토큰 수 (1-hop 확장 포함) |
-| `ratio` | `naive_tokens / graph_tokens` |
-| `recall` | `(files_hit + symbols_hit) / (files_total + symbols_total)` |
-| `files_hit` / `files_total` | 결과에서 발견된 `expected_files` 수 |
-| `symbols_hit` / `symbols_total` | 결과에서 발견된 `expected_symbols` 수 |
-| `search_elapsed_ms` | 검색 소요 시간 (ms) |
-
-**코퍼스 YAML 형식:**
-
-```yaml
-version: "1"
-queries:
-  - id: router-01
-    description: "HTTP router tree structure and route registration"
-    expected_files:
-      - gin.go
-      - tree.go
-    expected_symbols:
-      - Engine
-      - addRoute
-    difficulty: hard
-```
-
-> **참고:** `description`에서 추출된 ASCII 단어만 FTS 검색에 사용됩니다. `expected_symbols`는 검색 쿼리가 아닌 재현율 계산에만 사용됩니다.
-
-### Eval
-
-용어, 코퍼스 구조, 지표, 결과 해석은 [Eval](eval.md)을 참조하십시오.
-
-| 명령어 | 설명 |
-|---------|-------------|
-| `ccg eval` | 골든 코퍼스에 대한 파서 정확도 및 검색 품질 평가 |
-| `ccg eval --suite parser` | 파서 평가만 실행 |
-| `ccg eval --suite search` | 검색 평가만 실행 |
-| `ccg eval --update` | 현재 파서 출력으로 골든 파일 업데이트 |
-| `ccg eval --corpus <dir>` | 골든 코퍼스 디렉토리 (기본값 `testdata/eval`) |
-| `ccg eval --format json` | JSON 형식으로 출력 (기본값 `table`) |
 
 ## 설정 파일 (`.ccg.yaml`)
 
