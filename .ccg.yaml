@@ -1,6 +1,7 @@
 db:
-  driver: sqlite # sqlite | postgres
-  dsn: ccg.db
+  # driver: sqlite # sqlite | postgres/
+  driver: postgres
+  dsn: "host=localhost user=postgres password=postgres dbname=ccg_test sslmode=disable"
 
 namespace: default
 
