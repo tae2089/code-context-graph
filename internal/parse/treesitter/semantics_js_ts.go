@@ -243,18 +243,6 @@ func collectTypeScriptMemberTypes(root *sitter.Node, content []byte) map[string]
 	return members
 }
 
-// typescriptDeclaredTypeName extracts the declared type name from a TypeScript node.
-// @intent normalize AST-derived type names before they participate in receiver rewriting.
-func typescriptDeclaredTypeName(n *sitter.Node, content []byte) string {
-	if n == nil {
-		return ""
-	}
-	if nameNode := n.ChildByFieldName("name"); nameNode != nil {
-		return normalizeReceiverTypeName(nameNode.Content(content))
-	}
-	return ""
-}
-
 // typescriptReceiverChain extracts the selector chain from a TypeScript call node.
 // @intent recover member-call hops directly from the AST when callee text is insufficient.
 func typescriptReceiverChain(callNode *sitter.Node, content []byte) []string {
@@ -310,50 +298,6 @@ func collectTypeScriptMembersFromText(src string) map[string]map[string]string {
 		}
 	}
 	return members
-}
-
-// collectTypedMembersInto walks an AST subtree and records typed members under one owner.
-// @intent support future AST-based member extraction without changing the receiver rewrite contract.
-func collectTypedMembersInto(owner string, n *sitter.Node, content []byte, dst map[string]map[string]string) {
-	var walk func(*sitter.Node)
-	walk = func(cur *sitter.Node) {
-		if cur == nil {
-			return
-		}
-		switch cur.Type() {
-		case "property_signature", "public_field_definition":
-			name, typeName, ok := typedNameAndType(cur, content)
-			if ok && !isLooseReceiverType(typeName) {
-				if dst[owner] == nil {
-					dst[owner] = make(map[string]string)
-				}
-				dst[owner][name] = typeName
-			}
-		}
-		for i := 0; i < int(cur.NamedChildCount()); i++ {
-			walk(cur.NamedChild(i))
-		}
-	}
-	walk(n)
-}
-
-// typedNameAndType extracts a member name and type from one typed declaration node.
-// @intent share field-signature parsing between AST-backed member collectors.
-func typedNameAndType(n *sitter.Node, content []byte) (string, string, bool) {
-	if n == nil {
-		return "", "", false
-	}
-	nameNode := n.ChildByFieldName("name")
-	typeNode := n.ChildByFieldName("type")
-	if nameNode == nil || typeNode == nil {
-		return "", "", false
-	}
-	name := strings.TrimSpace(nameNode.Content(content))
-	typeName := normalizeReceiverTypeName(typeNode.Content(content))
-	if name == "" || typeName == "" {
-		return "", "", false
-	}
-	return name, typeName, true
 }
 
 // memberChainFromNode extracts a dotted selector chain from one AST node.

@@ -104,14 +104,6 @@ func buildDocsWikiIndex(ctx context.Context, deps *Deps, opts docsWikiOptions) (
 	return b.Build(ctx)
 }
 
-// @intent align CLI RAG index output with MCP and Wiki server namespace lookup paths.
-func namespaceRagIndexDir(baseDir, namespace string) string {
-	if ctxns.Normalize(namespace) == ctxns.DefaultNamespace {
-		return baseDir
-	}
-	return filepath.Join(baseDir, namespace)
-}
-
 // resolveRagIndexDir honors rag.index_dir when the CLI flag is left at its default.
 // @intent keep docs and rag-index commands aligned with config-based RAG output paths.
 func resolveRagIndexDir(flagValue string) string {

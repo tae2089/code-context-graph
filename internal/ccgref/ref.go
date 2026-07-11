@@ -70,16 +70,6 @@ func Parse(value string) (*Ref, error) {
 	}, nil
 }
 
-// MustParse is a test helper for constructing refs.
-// @intent keep tests concise while still using the production parser.
-func MustParse(value string) Ref {
-	ref, err := Parse(value)
-	if err != nil {
-		panic(err)
-	}
-	return *ref
-}
-
 // Display returns a compact human-readable form for UI labels and logs.
 // @intent shorten ccg refs while preserving namespace, path, and symbol identity.
 func (r Ref) Display() string {
