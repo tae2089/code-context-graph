@@ -15,6 +15,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/pathutil"
+	"github.com/tae2089/code-context-graph/internal/searchrank"
 )
 
 var strictFalse = false
@@ -22,9 +23,6 @@ var strictFalse = false
 const (
 	defaultQueryGraphLimit = 50
 	maxQueryGraphLimit     = 500
-	searchPathFetchFactor  = 5
-	searchPathFetchFloor   = 50
-	searchPathFetchCap     = 500
 )
 
 // annotationTagItem serializes one stored annotation tag.
@@ -197,14 +195,10 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 	}
 
 	return finalizeToolResult(h.cachedExecute(ctx, "search:", map[string]any{"query": query, "limit": limit, "path": pathPrefix, "namespace": requestNamespace(request)}, func() (string, error) {
-		// When path filtering is active, fetch more results from FTS so
-		// that after filtering we still have up to 'limit' results.
-		fetchLimit := limit
-		if pathPrefix != "" {
-			fetchLimit = min(max(limit*searchPathFetchFactor, searchPathFetchFloor), searchPathFetchCap)
-		}
-
-		nodes, err := h.deps.SearchBackend.Query(ctx, h.deps.DB, query, fetchLimit)
+		// Over-fetch a wider candidate pool so structural reranking can promote
+		// good matches that FTS ranked below the caller's limit, and so path
+		// filtering still leaves up to 'limit' results.
+		nodes, err := h.deps.SearchBackend.Query(ctx, h.deps.DB, query, searchrank.FetchLimit(limit))
 		if err != nil {
 			log.Error("search error", "query", query, trace.SlogError(err))
 			return "", trace.Wrap(err, "search error")
@@ -218,10 +212,10 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 				}
 			}
 			nodes = filtered
-			if len(nodes) > limit {
-				nodes = nodes[:limit]
-			}
 		}
+
+		// Rerank FTS candidates with structural signals, then bound to limit.
+		nodes = searchrank.Rerank(query, nodes, limit)
 
 		log.Info("search completed", "query", query, "result_count", len(nodes))
 
