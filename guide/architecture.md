@@ -41,6 +41,13 @@ Per-database full-text search backends:
 - **SQLite**: FTS5
 - **PostgreSQL**: tsvector + GIN index
 
+Search content indexes camelCase identifier sub-tokens (`getUserById` also
+indexes `get`, `user`, `by`, `id`), so inner words are searchable. Because this
+content is generated at index time, an existing graph only gains sub-tokens for
+nodes that are re-indexed. Run a full `ccg build` once after upgrading — a
+pure incremental-update workflow only refreshes changed nodes, leaving
+untouched nodes without sub-tokens until they change.
+
 Full builds and explicit postprocess runs rebuild namespace search state.
 Incremental updates refresh only affected search documents and FTS rows, while
 community postprocessing can still be namespace-wide. Persisted stored-flow
