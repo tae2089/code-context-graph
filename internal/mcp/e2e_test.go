@@ -54,7 +54,6 @@ func setupE2EDeps(t *testing.T) *Deps {
 	return &Deps{
 		Store:          st,
 		DB:             db,
-		Parser:         goParser,
 		Walkers:        map[string]Parser{".go": goParser},
 		SearchBackend:  sb,
 		ImpactAnalyzer: impact.New(st),
@@ -243,7 +242,7 @@ func TestE2E_IncrementalReparse(t *testing.T) {
 	deps := setupE2EDeps(t)
 	ctx := context.Background()
 
-	syncer := incremental.New(deps.Store, deps.Parser)
+	syncer := incremental.New(deps.Store, deps.Walkers[".go"])
 
 	// Step 1: Initial parse
 	originalCode := `package calc

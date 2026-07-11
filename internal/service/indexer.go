@@ -44,14 +44,6 @@ type Parser interface {
 	ParseWithContext(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, error)
 }
 
-// commentParserWithLanguage is the optional contract a Parser may satisfy to expose comment blocks plus its source language.
-// @intent let the build pipeline collect docstring/comment blocks alongside nodes and edges when the parser supports it.
-type commentParserWithLanguage interface {
-	Parser
-	ParseWithComments(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []treesitter.CommentBlock, error)
-	Language() string
-}
-
 // @intent 메타데이터와 언어 정보까지 돌려주는 parser 확장을 build 경로에서 감지하게 한다.
 type metadataParserWithLanguage interface {
 	Parser

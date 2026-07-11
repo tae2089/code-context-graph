@@ -56,10 +56,6 @@ func parseForBuild(ctx context.Context, parser Parser, relPath string, content [
 		nodes, edges, comments, meta, err := mp.ParseWithCommentsAndMetadata(ctx, relPath, content)
 		return nodes, edges, comments, meta, mp.Language(), err
 	}
-	if cp, ok := parser.(commentParserWithLanguage); ok {
-		nodes, edges, comments, err := cp.ParseWithComments(ctx, relPath, content)
-		return nodes, edges, comments, treesitter.ParseMetadata{}, cp.Language(), err
-	}
 	nodes, edges, err := parser.ParseWithContext(ctx, relPath, content)
 	return nodes, edges, nil, treesitter.ParseMetadata{}, "", err
 }

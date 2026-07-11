@@ -126,6 +126,11 @@ func (p *commentAwareGoParser) ParseWithComments(ctx context.Context, filePath s
 	return nodes, edges, comments, nil
 }
 
+func (p *commentAwareGoParser) ParseWithCommentsAndMetadata(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, []treesitter.CommentBlock, treesitter.ParseMetadata, error) {
+	nodes, edges, comments, err := p.ParseWithComments(ctx, filePath, content)
+	return nodes, edges, comments, treesitter.ParseMetadata{}, err
+}
+
 func (p *commentAwareGoParser) Language() string {
 	return "go"
 }
@@ -159,7 +164,6 @@ func setupTestDeps(t *testing.T) *Deps {
 	return &Deps{
 		Store:          st,
 		DB:             db,
-		Parser:         goParser,
 		Walkers:        map[string]Parser{".go": goParser},
 		SearchBackend:  sb,
 		ImpactAnalyzer: impact.New(st),
@@ -203,7 +207,6 @@ func setupTestDepsMinimal(t *testing.T) *Deps {
 	return &Deps{
 		Store:          st,
 		DB:             db,
-		Parser:         goParser,
 		Walkers:        map[string]Parser{".go": goParser},
 		SearchBackend:  sb,
 		ImpactAnalyzer: impact.New(st),
@@ -239,7 +242,6 @@ func setupGraphOnlyTestDeps(t *testing.T) *Deps {
 	return &Deps{
 		Store:          st,
 		DB:             db,
-		Parser:         goParser,
 		Walkers:        map[string]Parser{".go": goParser},
 		ImpactAnalyzer: impact.New(st),
 		FlowTracer:     flows.New(st),
@@ -373,7 +375,6 @@ func setupTestDepsWithComments(t *testing.T) *Deps {
 	t.Helper()
 	deps := setupTestDeps(t)
 	goParser := &commentAwareGoParser{}
-	deps.Parser = goParser
 	deps.Walkers = map[string]Parser{".go": goParser}
 	return deps
 }
