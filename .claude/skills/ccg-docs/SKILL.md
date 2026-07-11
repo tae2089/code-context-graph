@@ -56,15 +56,6 @@ User: "RAG 인덱스 만들어줘"
 → Creates searchable document tree from docs + communities
 ```
 
-### Build RAG index from namespace docs
-```
-User: "my-service namespace 문서로 RAG 인덱스 만들어줘"
-→ upload_file(namespace: "my-service", file_path: "docs/handler.go.md", content: "<base64>")
-→ build_rag_index(namespace: "my-service")
-→ search_docs(query: "handler")
-→ get_doc_content(namespace: "my-service", file_path: "docs/handler.go.md")
-```
-
 ### Check documentation quality
 ```
 User: "문서 상태 체크해줘"

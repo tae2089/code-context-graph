@@ -58,5 +58,13 @@ func queryTools(h *handlers) []server.ServerTool {
 			)...),
 			Handler: h.listGraphStats,
 		},
+		{
+			Tool: mcp.NewTool("list_namespaces",
+				mcp.WithDescription("List namespaces that hold graph data with per-namespace node counts, for scoping cross-namespace queries"),
+				mcp.WithNumber("limit", mcp.Description("Maximum namespaces to return (default: 50)"), mcp.DefaultNumber(50)),
+				mcp.WithNumber("offset", mcp.Description("Zero-based result offset for pagination (default: 0)"), mcp.DefaultNumber(0)),
+			),
+			Handler: h.listNamespaces,
+		},
 	}
 }

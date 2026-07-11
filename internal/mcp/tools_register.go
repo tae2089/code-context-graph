@@ -15,7 +15,6 @@ func registerTools(srv *server.MCPServer, h *handlers) {
 	tools = append(tools, analysisTools(h)...)
 	tools = append(tools, graphTools(h)...)
 	tools = append(tools, docsTools(h)...)
-	tools = append(tools, namespaceTools(h)...)
 	tools = append(tools, contextTools(h)...)
 	srv.AddTools(tools...)
 }

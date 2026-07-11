@@ -21,7 +21,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/ccgref"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
-	nsfs "github.com/tae2089/code-context-graph/internal/namespacefs"
+	"github.com/tae2089/code-context-graph/internal/pathutil"
 	"github.com/tae2089/code-context-graph/internal/ragindex"
 	"github.com/tae2089/code-context-graph/internal/retrieval"
 	storesearch "github.com/tae2089/code-context-graph/internal/store/search"
@@ -1152,7 +1152,7 @@ func validateNamespace(namespace string) error {
 	if namespace == ctxns.DefaultNamespace {
 		return nil
 	}
-	return nsfs.ValidatePath(namespace, "")
+	return pathutil.ValidateNamespacePath(namespace, "")
 }
 
 // @intent parse the optional edge_kinds filter for the Wiki graph API.
