@@ -22,7 +22,6 @@ import (
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
-	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 	"github.com/tae2089/code-context-graph/internal/store/search"
 )
@@ -170,11 +169,7 @@ func setupTestDeps(t *testing.T) *Deps {
 		FlowTracer:     flows.New(st),
 		FlowBuilder:    flows.NewBuilder(db, st),
 		Logger:         logger,
-		PostprocessPolicy: &stubPostprocessPolicy{
-			resolvedPolicy: postprocesspolicy.PolicyDegraded,
-			resolvedSource: postprocesspolicy.SourceAuto,
-		},
-		RepoRoot: os.TempDir(),
+		RepoRoot:       os.TempDir(),
 	}
 }
 
@@ -212,11 +207,7 @@ func setupTestDepsMinimal(t *testing.T) *Deps {
 		ImpactAnalyzer: impact.New(st),
 		FlowTracer:     flows.New(st),
 		Logger:         logger,
-		PostprocessPolicy: &stubPostprocessPolicy{
-			resolvedPolicy: postprocesspolicy.PolicyDegraded,
-			resolvedSource: postprocesspolicy.SourceAuto,
-		},
-		RepoRoot: os.TempDir(),
+		RepoRoot:       os.TempDir(),
 		// Note: QueryService, LargefuncAnalyzer, DeadcodeAnalyzer, CouplingAnalyzer,
 		// CoverageAnalyzer, FlowBuilder, and Incremental are intentionally nil
 	}
@@ -249,88 +240,6 @@ func setupGraphOnlyTestDeps(t *testing.T) *Deps {
 		Logger:         logger,
 		RepoRoot:       os.TempDir(),
 	}
-}
-
-type stubPostprocessPolicy struct {
-	resolvedPolicy string
-	resolvedSource string
-	resolveErr     error
-	recordErr      error
-	statusErr      error
-	resetErr       error
-	statusSummary  *postprocesspolicy.StatusSummary
-	resolvedInputs []postprocesspolicy.DecisionInput
-	recordedRuns   []postprocesspolicy.RunRecord
-	statusInputs   []postprocesspolicy.StatusOptions
-	resetTools     []string
-}
-
-func (s *stubPostprocessPolicy) Resolve(ctx context.Context, input postprocesspolicy.DecisionInput) (string, string, error) {
-	s.resolvedInputs = append(s.resolvedInputs, input)
-	if s.resolveErr != nil {
-		return "", "", s.resolveErr
-	}
-	// Respect explicit policy if provided
-	if input.ExplicitPolicy != "" {
-		return input.ExplicitPolicy, postprocesspolicy.SourceExplicit, nil
-	}
-	return s.resolvedPolicy, s.resolvedSource, nil
-}
-
-func (s *stubPostprocessPolicy) RecordRun(ctx context.Context, record postprocesspolicy.RunRecord) error {
-	s.recordedRuns = append(s.recordedRuns, record)
-	return s.recordErr
-}
-
-func (s *stubPostprocessPolicy) Status(ctx context.Context, opts postprocesspolicy.StatusOptions) (*postprocesspolicy.StatusSummary, error) {
-	s.statusInputs = append(s.statusInputs, opts)
-	if s.statusErr != nil {
-		return nil, s.statusErr
-	}
-	if s.statusSummary == nil {
-		return &postprocesspolicy.StatusSummary{Status: postprocesspolicy.StatusOK}, nil
-	}
-	return s.statusSummary, nil
-}
-
-func (s *stubPostprocessPolicy) Reset(ctx context.Context, tool string) error {
-	s.resetTools = append(s.resetTools, tool)
-	return s.resetErr
-}
-
-type realPostprocessPolicy struct {
-	engine *postprocesspolicy.Engine
-	store  *postprocesspolicy.Store
-}
-
-func newRealPostprocessPolicy(db *gorm.DB) *realPostprocessPolicy {
-	return &realPostprocessPolicy{
-		engine: &postprocesspolicy.Engine{},
-		store:  postprocesspolicy.NewStore(db),
-	}
-}
-
-func (p *realPostprocessPolicy) Resolve(ctx context.Context, input postprocesspolicy.DecisionInput) (string, string, error) {
-	return p.engine.Resolve(ctx, p.store, input)
-}
-
-func (p *realPostprocessPolicy) RecordRun(ctx context.Context, record postprocesspolicy.RunRecord) error {
-	return p.store.RecordRun(ctx, record)
-}
-
-func (p *realPostprocessPolicy) Status(ctx context.Context, opts postprocesspolicy.StatusOptions) (*postprocesspolicy.StatusSummary, error) {
-	return p.store.Status(ctx, opts)
-}
-
-func (p *realPostprocessPolicy) Reset(ctx context.Context, tool string) error {
-	return p.store.Reset(ctx, tool)
-}
-
-func setupTestDepsWithRealPostprocessPolicy(t *testing.T) *Deps {
-	t.Helper()
-	deps := setupTestDeps(t)
-	deps.PostprocessPolicy = newRealPostprocessPolicy(deps.DB)
-	return deps
 }
 
 func callToolWithNamespace(t *testing.T, deps *Deps, namespace, toolName string, args map[string]any) *mcp.CallToolResult {

@@ -230,7 +230,7 @@ CCG는 현재 웹훅 운영을 위한 `/metrics` 엔드포인트를 제공하지
 
    ```bash
    ccg update /data/repos/api --namespace api
-   ccg status --namespace api --errors
+   ccg status --namespace api
    ```
 
 5. 검색, 커뮤니티, 저장된 flow가 여전히 오래된 것처럼 보이면 namespace `api`에 대해 필요한 postprocess 플래그와 함께 MCP `run_postprocess` 도구를 호출합니다.

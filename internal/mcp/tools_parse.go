@@ -26,7 +26,6 @@ func parseTools(h *handlers) []server.ServerTool {
 				mcp.WithString("path", mcp.Description("Project directory path to parse"), mcp.Required()),
 				mcp.WithBoolean("full_rebuild", mcp.Description("If true, do a full rebuild; if false, use incremental sync")),
 				mcp.WithString("postprocess", mcp.Description("Postprocessing mode: full, minimal, or none (default: full)")),
-				mcp.WithString("postprocess_policy", mcp.Description("Postprocessing failure policy: degraded or fail_closed (default: auto -> degraded, escalates to fail_closed after repeated failures)")),
 				mcp.WithArray("include_paths", mcp.Description("Only include specific sub-paths (e.g. [\"src/api\", \"src/auth\"])"), mcp.WithStringItems()),
 				mcp.WithBoolean("replace", mcp.Description("When true (default), incremental include_paths replaces prior namespace graph state outside the included scope; when false, preserves out-of-scope files")),
 				mcp.WithNumber("max_file_bytes", mcp.Description("Maximum bytes allowed per parsed source file; overrides server default when set")),
@@ -36,8 +35,7 @@ func parseTools(h *handlers) []server.ServerTool {
 		},
 		{
 			Tool: mcp.NewTool("run_postprocess", withNamespaceParam(
-				mcp.WithDescription("Run postprocessing steps independently: rebuild stored flows, communities, and/or full-text search indexing"),
-				mcp.WithString("postprocess_policy", mcp.Description("Postprocessing failure policy: degraded or fail_closed (default: auto -> degraded, escalates to fail_closed after repeated failures)")),
+				mcp.WithDescription("Run postprocessing steps independently: rebuild stored flows and/or full-text search indexing"),
 				mcp.WithBoolean("flows", mcp.Description("Rebuild persisted stored flows when FlowBuilder is configured; otherwise report flows as skipped (default: true)")),
 				mcp.WithBoolean("communities", mcp.Description("Rebuild community detection (default: true)")),
 				mcp.WithBoolean("fts", mcp.Description("Rebuild full-text search index (default: true)")),

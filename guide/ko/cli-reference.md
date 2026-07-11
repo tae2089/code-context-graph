@@ -43,9 +43,7 @@ ccg update ./backend --namespace backend
 | `ccg build --fallback-calls` | (기본 off) best-effort fallback 호출 해상도 활성화 |
 | `ccg update [dir]` | 증분 동기화(Incremental sync) |
 | `ccg update --fallback-calls` | 증분 동기화에서 best-effort fallback 호출 해상도 활성화 |
-| `ccg status` | 그래프 통계 및 사후 처리 오류 요약 출력 |
-| `ccg status --errors` | 최근 사후 처리 실패 상세 포함 |
-| `ccg status --recent <n>` | 확인할 최근 사후 처리 실패 개수 (기본값 `5`) |
+| `ccg status` | 그래프 통계 출력 |
 | `ccg search <query>` | 전체 텍스트 검색 |
 | `ccg search --path <prefix> <query>` | 경로 접두사로 검색 범위 제한 |
 | `ccg docs [--out dir]` | 마크다운 문서, `wiki-index.json` 호환 snapshot, 기본 RAG 인덱스 생성 (기본적으로 그래프에 없는 generator-managed 문서를 prune) |

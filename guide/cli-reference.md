@@ -41,9 +41,7 @@ ccg update ./backend --namespace backend
 | `ccg build --fallback-calls` | Enable best-effort fallback call resolution (strict by default) |
 | `ccg update [dir]` | Incremental sync |
 | `ccg update --fallback-calls` | Enable best-effort fallback call resolution for incremental sync |
-| `ccg status` | Graph statistics and postprocess error summary |
-| `ccg status --errors` | Include recent postprocess failure details |
-| `ccg status --recent <n>` | Number of recent postprocess failures to inspect (default `5`) |
+| `ccg status` | Graph statistics |
 | `ccg search <query>` | Full-text search |
 | `ccg search --path <prefix> <query>` | Scoped search by path prefix |
 | `ccg docs [--out dir]` | Generate Markdown documentation, the `wiki-index.json` compatibility snapshot, and the default RAG index (prunes stale generator-managed docs by default) |

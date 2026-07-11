@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	RequiredSchemaVersion    = 6
+	RequiredSchemaVersion    = 7
 	SchemaVersionKey         = "schema"
 	LegacySchemaVersionTable = "ccg_schema_versions"
 )
@@ -57,14 +57,6 @@ type MigrationSchemaVersion struct {
 type SchemaColumn struct {
 	Table  string
 	Column string
-}
-
-// SchemaTypeCheck represents a required column type assertion.
-// @intent 특정 컬럼의 데이터 타입까지 검증해야 하는 조건을 표현한다.
-type SchemaTypeCheck struct {
-	Table    string
-	Column   string
-	DataType string
 }
 
 // Run executes all pending migrations and validates schema parity.
@@ -390,8 +382,6 @@ func RequiredSchemaTables() []string {
 		"community_memberships",
 		"flows",
 		"flow_memberships",
-		"ccg_postprocess_policy_state",
-		"ccg_postprocess_run_logs",
 		"search_documents",
 	}
 }
@@ -414,18 +404,6 @@ func ModelNullabilityColumns() []SchemaColumn {
 		{Table: "flows", Column: "name"},
 		{Table: "flow_memberships", Column: "flow_id"},
 		{Table: "flow_memberships", Column: "node_id"},
-		{Table: "ccg_postprocess_policy_state", Column: "namespace"},
-		{Table: "ccg_postprocess_policy_state", Column: "tool"},
-		{Table: "ccg_postprocess_policy_state", Column: "policy"},
-		{Table: "ccg_postprocess_policy_state", Column: "updated_at"},
-		{Table: "ccg_postprocess_run_logs", Column: "namespace"},
-		{Table: "ccg_postprocess_run_logs", Column: "tool"},
-		{Table: "ccg_postprocess_run_logs", Column: "policy"},
-		{Table: "ccg_postprocess_run_logs", Column: "source"},
-		{Table: "ccg_postprocess_run_logs", Column: "status"},
-		{Table: "ccg_postprocess_run_logs", Column: "failed_steps"},
-		{Table: "ccg_postprocess_run_logs", Column: "skipped_steps"},
-		{Table: "ccg_postprocess_run_logs", Column: "created_at"},
 	}
 }
 
@@ -606,18 +584,6 @@ func validatePostgresSchemaParity(db *gorm.DB) error {
 		return trace.Wrap(err, "inspect postgres search trigger")
 	} else if !ok {
 		return fmt.Errorf("required trigger %q is missing", "trg_search_documents_tsv")
-	}
-	for _, tc := range []SchemaTypeCheck{
-		{Table: "ccg_postprocess_run_logs", Column: "failed_steps", DataType: "jsonb"},
-		{Table: "ccg_postprocess_run_logs", Column: "skipped_steps", DataType: "jsonb"},
-	} {
-		dataType, err := postgresColumnDataType(db, tc.Table, tc.Column)
-		if err != nil {
-			return trace.Wrap(err, "inspect postgres column type")
-		}
-		if dataType != tc.DataType {
-			return fmt.Errorf("required column %q.%q type is %q, want %q", tc.Table, tc.Column, dataType, tc.DataType)
-		}
 	}
 	for _, indexName := range []string{"idx_edges_ns_from_kind_to", "idx_edges_ns_to_kind_from"} {
 		exists, err := postgresIndexExists(db, indexName)

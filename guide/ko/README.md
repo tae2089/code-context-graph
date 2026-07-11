@@ -29,7 +29,6 @@ matched fields, evidence node로 빠르게 경로를 좁힌 뒤 graph/search 도
 | [웹훅(Webhook)](webhook.md) | GitHub / Gitea 웹훅 동기화, 브랜치 필터링, Graceful Shutdown |
 | [Docker](docker.md) | Docker 이미지 빌드, MCP 서버 설정, Wiki UI 배포, PostgreSQL 연동 |
 | [운영(Operations)](operations.md) | 배포 프로필, 데이터베이스 선택, 준비성 체크, 웹훅 운영 및 문제 해결 |
-| [사후 처리 실패 정책](postprocess-failure-policy.md) | 상태 규칙, 실패 원인, 빌드 및 사후 처리 도구의 자동 성능 저하(degraded)/폐쇄형 실패(fail_closed) 정책 |
 | [런타임 구조](runtime-layout.md) | `ccg`, `ccg-server`, Wiki serving, 공용 `ccg-core` 소유권 경계 |
 | [아키텍처](architecture.md) | 시스템 아키텍처, 데이터 흐름, DB 스키마 |
 | [개발(Development)](development.md) | 빌드, 테스트, 통합 테스트(Gitea + PostgreSQL) |

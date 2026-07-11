@@ -261,7 +261,7 @@ Recommended checks:
 | Signal | Meaning | Operator Action |
 |--------|---------|-----------------|
 | `/ready` returns `not_ready` | DB unavailable, queue full, or blocking queue age | Stop sending traffic and inspect logs/status. |
-| `/status` is `degraded` | Last webhook or postprocess state needs attention | Inspect failed repo/config and retry with a new push or manual update. |
+| `/status` is `degraded` | Last webhook state needs attention | Inspect failed repo/config and retry with a new push or manual update. |
 | Queue age grows steadily | Workers cannot keep up with incoming pushes | Reduce repo scope, increase workers on PostgreSQL, or split namespaces. |
 | Search results look stale | Search postprocess may have failed or been skipped | Run `run_postprocess` with `fts=true` or rebuild/update the namespace. |
 
@@ -299,7 +299,7 @@ Manual recovery:
 
 ```bash
 ccg update /data/repos/api --namespace api
-ccg status --namespace api --errors
+ccg status --namespace api
 ```
 
 If search, communities, or saved flows still look stale, call the MCP
@@ -341,6 +341,6 @@ existing schema and migrated explicitly before restarting runtime commands.
 | Webhook returns forbidden | Repo or branch not allowed | Check `--allow-repo` patterns and branch refs. |
 | Webhook returns too many requests | Sync queue is full | Check `/status`, reduce push volume, or increase workers on PostgreSQL. |
 | `/ready` is `not_ready` | DB or queue blocking condition | Inspect `/status` and service logs. |
-| `/status` is `degraded` | Last webhook or postprocess failed | Fix repo config or rerun update/postprocess. |
+| `/status` is `degraded` | Last webhook failed | Fix repo config or rerun update/postprocess. |
 | Search misses recent code | FTS/search documents stale | Run `run_postprocess` with `fts=true` or rebuild the namespace. |
 | Migration error at startup | Schema version mismatch, migration source mismatch, or schema drift | Run `ccg migrate` from the deployed binary version; if it still fails, verify the configured migration source and schema drift. |
