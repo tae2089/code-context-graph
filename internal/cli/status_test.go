@@ -2,10 +2,8 @@ package cli
 
 import (
 	"bytes"
-	"context"
 	"strings"
 	"testing"
-	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -14,7 +12,6 @@ import (
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/parse/treesitter"
-	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 	"github.com/tae2089/code-context-graph/internal/store/gormstore"
 )
 
@@ -319,171 +316,5 @@ func TestStatusCommand_RespectsNamespace(t *testing.T) {
 	}
 	if strings.Contains(out, "Nodes: 2") {
 		t.Fatalf("unexpected cross-namespace aggregation: %s", out)
-	}
-}
-
-func TestStatusCommand_ShowsPostprocessOKSummary(t *testing.T) {
-	deps, stdout, stderr, db := setupStatusTest(t)
-
-	if err := db.Create(&model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "default.Foo", Kind: model.NodeKindFunction, Name: "Foo", FilePath: "default/foo.go", StartLine: 1, EndLine: 2, Language: "go"}).Error; err != nil {
-		t.Fatal(err)
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-
-	if err := executeCmd(deps, stdout, stderr, "status"); err != nil {
-		t.Fatalf("status: %v", err)
-	}
-
-	out := stdout.String()
-	for _, want := range []string{
-		"Postprocess:",
-		"Status: ok",
-		"Fail-closed: 0",
-		"Recent failures: 0",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("expected %q in output, got: %s", want, out)
-		}
-	}
-}
-
-func TestStatusCommand_ShowsPostprocessErrors(t *testing.T) {
-	deps, stdout, stderr, db := setupStatusTest(t)
-
-	if err := db.Create(&model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "default.Foo", Kind: model.NodeKindFunction, Name: "Foo", FilePath: "default/foo.go", StartLine: 1, EndLine: 2, Language: "go"}).Error; err != nil {
-		t.Fatal(err)
-	}
-
-	store := postprocesspolicy.NewStore(db)
-	ctx := ctxns.WithNamespace(context.Background(), ctxns.DefaultNamespace)
-	base := time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)
-	for i := 0; i < 3; i++ {
-		if err := store.RecordRun(ctx, postprocesspolicy.RunRecord{
-			Tool:         postprocesspolicy.ToolRunPostprocess,
-			Policy:       postprocesspolicy.PolicyFailClosed,
-			Source:       postprocesspolicy.SourceAuto,
-			Status:       postprocesspolicy.StatusDegraded,
-			FailedSteps:  []string{"communities"},
-			SkippedSteps: []string{"fts"},
-			CreatedAt:    base.Add(time.Duration(i) * time.Minute),
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-
-	if err := executeCmd(deps, stdout, stderr, "status", "--errors"); err != nil {
-		t.Fatalf("status: %v", err)
-	}
-
-	out := stdout.String()
-	for _, want := range []string{
-		"Status: degraded",
-		"Fail-closed:",
-		"run_postprocess  consecutive_failures=3",
-		"Recent failures:",
-		"policy=fail_closed",
-		"failed_steps=communities",
-		"skipped_steps=fts",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("expected %q in output, got: %s", want, out)
-		}
-	}
-}
-
-func TestStatusCommand_RecentLimitsPostprocessFailures(t *testing.T) {
-	deps, stdout, stderr, db := setupStatusTest(t)
-
-	if err := db.Create(&model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "default.Foo", Kind: model.NodeKindFunction, Name: "Foo", FilePath: "default/foo.go", StartLine: 1, EndLine: 2, Language: "go"}).Error; err != nil {
-		t.Fatal(err)
-	}
-
-	store := postprocesspolicy.NewStore(db)
-	ctx := ctxns.WithNamespace(context.Background(), ctxns.DefaultNamespace)
-	base := time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)
-	for i, step := range []string{"communities", "flows"} {
-		if err := store.RecordRun(ctx, postprocesspolicy.RunRecord{
-			Tool:        postprocesspolicy.ToolRunPostprocess,
-			Policy:      postprocesspolicy.PolicyDegraded,
-			Source:      postprocesspolicy.SourceAuto,
-			Status:      postprocesspolicy.StatusDegraded,
-			FailedSteps: []string{step},
-			CreatedAt:   base.Add(time.Duration(i) * time.Minute),
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-
-	if err := executeCmd(deps, stdout, stderr, "status", "--errors", "--recent", "1"); err != nil {
-		t.Fatalf("status: %v", err)
-	}
-
-	out := stdout.String()
-	if !strings.Contains(out, "failed_steps=flows") {
-		t.Fatalf("expected newest failure in output, got: %s", out)
-	}
-	if strings.Contains(out, "failed_steps=communities") {
-		t.Fatalf("expected older failure to be omitted, got: %s", out)
-	}
-}
-
-func TestStatusCommand_PostprocessErrorsRespectNamespace(t *testing.T) {
-	deps, stdout, stderr, db := setupStatusTest(t)
-
-	for _, ns := range []string{ctxns.DefaultNamespace, "other"} {
-		if err := db.Create(&model.Node{Namespace: ns, QualifiedName: ns + ".Foo", Kind: model.NodeKindFunction, Name: "Foo", FilePath: ns + "/foo.go", StartLine: 1, EndLine: 2, Language: "go"}).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	store := postprocesspolicy.NewStore(db)
-	otherCtx := ctxns.WithNamespace(context.Background(), "other")
-	if err := store.RecordRun(otherCtx, postprocesspolicy.RunRecord{
-		Tool:        postprocesspolicy.ToolRunPostprocess,
-		Policy:      postprocesspolicy.PolicyDegraded,
-		Source:      postprocesspolicy.SourceAuto,
-		Status:      postprocesspolicy.StatusDegraded,
-		FailedSteps: []string{"communities"},
-		CreatedAt:   time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC),
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-
-	if err := executeCmd(deps, stdout, stderr, "status"); err != nil {
-		t.Fatalf("status: %v", err)
-	}
-
-	out := stdout.String()
-	if !strings.Contains(out, "Status: ok") {
-		t.Fatalf("expected default namespace postprocess status ok, got: %s", out)
-	}
-	if strings.Contains(out, "communities") {
-		t.Fatalf("unexpected cross-namespace failure in output: %s", out)
-	}
-}
-
-func TestStatusCommand_RejectsInvalidRecent(t *testing.T) {
-	deps, stdout, stderr, _ := setupStatusTest(t)
-
-	stdout.Reset()
-	stderr.Reset()
-
-	err := executeCmd(deps, stdout, stderr, "status", "--recent", "0")
-	if err == nil {
-		t.Fatal("expected invalid recent error")
-	}
-	if !strings.Contains(err.Error(), "recent must be > 0") {
-		t.Fatalf("unexpected error: %v", err)
 	}
 }

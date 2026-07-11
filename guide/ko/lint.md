@@ -267,4 +267,3 @@ rules:
 - [CLI 레퍼런스](cli-reference.md#lint-categories)
 - [커스텀 어노테이션](annotations.md)
 - [개발](development.md)
-- [사후 처리 실패 정책](postprocess-failure-policy.md)

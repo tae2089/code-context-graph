@@ -26,7 +26,6 @@ explore graph edges.
 | [Webhook](webhook.md) | GitHub / Gitea webhook sync, branch filtering, graceful shutdown |
 | [Docker](docker.md) | Docker image build, MCP server setup, Wiki UI deployment, PostgreSQL integration |
 | [Operations](operations.md) | Deployment profiles, database choice, readiness, webhook operations, troubleshooting |
-| [Postprocess Failure Policy](postprocess-failure-policy.md) | Status rules, failure causes, and automatic degraded/fail_closed policy for build and postprocess tools |
 | [Runtime Layout](runtime-layout.md) | `ccg`, `ccg-server`, Wiki serving, and shared `ccg-core` ownership boundaries |
 | [Architecture](architecture.md) | System architecture, data flow, DB schema |
 | [Development](development.md) | Build, test, integration test (Gitea + PostgreSQL) |
