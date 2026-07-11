@@ -50,7 +50,6 @@ ccg update ./backend --namespace backend
 | `ccg docs --rag-index-dir <dir>` | Override the `doc-index.json` and `wiki-index.json` output directory (default `.ccg` or `rag.index_dir`) |
 | `ccg docs --prune=false` | Regenerate docs without deleting older generator-managed files |
 | `ccg docs --exclude <pat>` | Exclude files/paths from generated docs (repeatable) |
-| `ccg index [--out dir]` | Regenerate `index.md` only |
 | `ccg rag-index [--out dir]` | Rebuild RAG index from generated docs and already-computed community structure |
 | `ccg languages` | List supported languages and extensions |
 | `ccg example [language]` | Show annotation writing example |

@@ -13,7 +13,6 @@ The default namespace is now literally `"default"`. Previously, an unset namespa
 Implicit whole-database reads (scanning all namespaces when none is specified) have been removed from the following paths:
 - `status`
 - `docs`
-- `index`
 - `lint`
 - `eval`
 - All MCP-related tool paths

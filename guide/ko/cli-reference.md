@@ -52,7 +52,6 @@ ccg update ./backend --namespace backend
 | `ccg docs --rag-index-dir <dir>` | `doc-index.json` 및 `wiki-index.json` 출력 디렉터리 지정 (기본 `.ccg` 또는 `rag.index_dir`) |
 | `ccg docs --prune=false` | 기존 generator-managed 문서를 삭제하지 않고 문서만 다시 생성 |
 | `ccg docs --exclude <pat>` | 문서 생성 대상에서 파일/경로 제외 (반복 가능) |
-| `ccg index [--out dir]` | `index.md`만 재생성 |
 | `ccg rag-index [--out dir]` | 생성된 문서와 이미 계산된 커뮤니티 구조 기반 RAG 인덱스 재생성 |
 | `ccg languages` | 지원되는 언어 및 확장자 목록 출력 |
 | `ccg example [language]` | 어노테이션 작성 예시 출력 |

@@ -83,32 +83,6 @@ func (g *Generator) Run() error {
 	return errors.Join(errs...)
 }
 
-// RunIndex regenerates only index.md without rewriting per-file docs.
-// @intent 개별 문서를 유지한 채 파일 인덱스만 빠르게 갱신한다.
-// @sideEffect 출력 디렉터리의 index.md를 다시 기록한다.
-func (g *Generator) RunIndex() error {
-	nodes, annByID, err := g.loadNodes()
-	if err != nil {
-		return fmt.Errorf("load nodes: %w", err)
-	}
-
-	if len(g.Exclude) > 0 {
-		filtered := nodes[:0]
-		for _, n := range nodes {
-			if !pathutil.MatchExcludes(g.Exclude, n.FilePath) {
-				filtered = append(filtered, n)
-			}
-		}
-		nodes = filtered
-	}
-
-	groups := groupByFile(nodes, annByID, nil)
-	if err := g.validateDocGroups(groups); err != nil {
-		return err
-	}
-	return g.writeIndex(groups)
-}
-
 // validateDocGroups checks that every group's output path is safe before writing begins.
 // @intent prevent path-traversal writes before any file I/O is attempted
 func (g *Generator) validateDocGroups(groups []nodeGroup) error {
