@@ -10,7 +10,6 @@ import (
 	"github.com/tae2089/trace"
 	"gorm.io/gorm"
 
-	"github.com/tae2089/code-context-graph/internal/analysis/largefunc"
 	querypkg "github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/ccgref"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
@@ -27,14 +26,6 @@ const (
 	searchPathFetchFloor   = 50
 	searchPathFetchCap     = 500
 )
-
-// largeFunctionItem summarizes one oversized function candidate.
-// @intent preserve a stable per-item DTO for findLargeFunctions responses.
-type largeFunctionItem struct {
-	Name  string `json:"name"`
-	File  string `json:"file"`
-	Lines int    `json:"lines"`
-}
 
 // annotationTagItem serializes one stored annotation tag.
 // @intent expose annotation tags with typed fields for getAnnotation callers.
@@ -685,53 +676,6 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 			Evidence:        h.namespaceEvidenceFromContext(ctx),
 		}
 		result, err := marshalJSON(statsData)
-		if err != nil {
-			return "", trace.Wrap(err, "marshal result")
-		}
-		return result, nil
-	}))
-}
-
-// findLargeFunctions returns functions whose line counts exceed a threshold.
-// @intent find oversized functions so maintainers can prioritize refactoring or review attention.
-// @param request min_lines is the length threshold and path is an optional file path prefix filter.
-// @requires LargefuncAnalyzer must be configured.
-// @ensures returns functions exceeding the threshold and their count when analysis succeeds.
-// @domainRule function length is calculated as end_line-start_line+1.
-func (h *handlers) findLargeFunctions(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyNamespace(ctx, request)
-	log := h.logger()
-
-	input, err := decodeFindLargeFuncsRequest(request)
-	if err != nil {
-		return finalizeToolResult("", err)
-	}
-
-	log.Info("find_large_functions called", "min_lines", input.MinLines, "limit", input.Page.Limit, "offset", input.Page.Offset, "path", input.PathPrefix)
-
-	if h.deps.LargefuncAnalyzer == nil {
-		return mcp.NewToolResultError("LargefuncAnalyzer not configured"), nil
-	}
-
-	cacheParams := map[string]any{
-		"min_lines": input.MinLines,
-		"limit":     input.Page.Limit,
-		"offset":    input.Page.Offset,
-		"path":      input.PathPrefix,
-		"namespace": input.Namespace,
-	}
-	return finalizeToolResult(h.cachedExecute(ctx, "find_large_functions:", cacheParams, func() (string, error) {
-		page, err := h.deps.LargefuncAnalyzer.FindPage(ctx, largefunc.Options{Threshold: input.MinLines, PathPrefix: input.PathPrefix, Page: input.Page})
-		if err != nil {
-			return "", trace.Wrap(err, "largefunc error")
-		}
-
-		items := make([]largeFunctionItem, len(page.Items))
-		for i, n := range page.Items {
-			items[i] = largeFunctionItem{Name: n.QualifiedName, File: n.FilePath, Lines: n.EndLine - n.StartLine + 1}
-		}
-
-		result, err := encodePagedListResponse("results", items, page.Pagination)
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}

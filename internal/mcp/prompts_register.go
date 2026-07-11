@@ -23,14 +23,6 @@ func registerPrompts(srv *server.MCPServer, p *promptHandlers) {
 			Handler: p.reviewChanges,
 		},
 		server.ServerPrompt{
-			Prompt: mcp.NewPrompt("architecture_map",
-				mcp.WithPromptDescription("아키텍처 맵: 커뮤니티 구조 및 모듈 간 결합도 분석"),
-				mcp.WithArgument("limit", mcp.ArgumentDescription("표시할 최대 항목 수 (hard cap 적용)")),
-				mcp.WithArgument("namespace", mcp.ArgumentDescription("조회할 namespace (선택)")),
-			),
-			Handler: p.architectureMap,
-		},
-		server.ServerPrompt{
 			Prompt: mcp.NewPrompt("debug_issue",
 				mcp.WithPromptDescription("이슈 디버깅: 관련 코드 검색 및 호출 그래프 분석"),
 				mcp.WithArgument("description", mcp.ArgumentDescription("이슈 설명"), mcp.RequiredArgument()),

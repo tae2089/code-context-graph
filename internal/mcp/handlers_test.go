@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mark3labs/mcp-go/mcp"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"gorm.io/gorm"
 
@@ -482,51 +481,6 @@ func TestHandler_GetAnnotation_ExposesCCGSeeRef(t *testing.T) {
 // ============================================================
 // 11.0 Structural change (Tidy First)
 // ============================================================
-
-func TestPrompts_UsesDepsInterfaces(t *testing.T) {
-	// Keep the existing five prompt tests after refactoring prompts.go to use Deps fields.
-	// When QueryService, LargefuncAnalyzer, and others are set on Deps, prompts.go must use them.
-	deps := setupTestDeps(t)
-	ctx := context.Background()
-
-	// Set Deps fields with mock implementations.
-	mockQuery := &mockQueryService{}
-	mockLF := &mockLargefuncAnalyzer{}
-	mockDC := &mockDeadcodeAnalyzer{}
-	mockCoup := &mockCouplingAnalyzer{}
-	mockCov := &mockCoverageAnalyzer{}
-
-	deps.QueryService = mockQuery
-	deps.LargefuncAnalyzer = mockLF
-	deps.DeadcodeAnalyzer = mockDC
-	deps.CouplingAnalyzer = mockCoup
-	deps.CoverageAnalyzer = mockCov
-
-	// Set up test data.
-	deps.Store.UpsertNodes(ctx, []model.Node{
-		{QualifiedName: "pkg.TestFunc", Kind: model.NodeKindFunction, Name: "TestFunc", FilePath: "test.go", StartLine: 1, EndLine: 100, Language: "go"},
-	})
-
-	// Call the onboard_developer prompt; it must use LargefuncAnalyzer from Deps when present.
-	srv := NewServer(deps)
-	msg, _ := json.Marshal(map[string]any{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "prompts/get",
-		"params":  map[string]any{"name": "onboard_developer"},
-	})
-	resp := srv.HandleMessage(ctx, msg)
-	rpcResp, ok := resp.(mcp.JSONRPCResponse)
-	if !ok {
-		t.Fatalf("expected JSONRPCResponse, got %T", resp)
-	}
-	_ = rpcResp
-
-	// Check that mockLF.findCalled is true to verify that Deps.LargefuncAnalyzer was used.
-	if !mockLF.findPageCalled {
-		t.Error("expected prompts.go to use Deps.LargefuncAnalyzer.FindPage instead of inline creation")
-	}
-}
 
 func TestHandler_TraceFlow(t *testing.T) {
 	deps := setupTestDeps(t)
@@ -2161,135 +2115,6 @@ func TestListGraphStats_EmptyDB(t *testing.T) {
 }
 
 // ============================================================
-// 11.5 find_large_functions
-// ============================================================
-
-func TestFindLargeFunctions_DefaultThreshold(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	mockLF := &mockLargefuncAnalyzer{
-		result: []model.Node{
-			{QualifiedName: "pkg.Big", Kind: model.NodeKindFunction, Name: "Big", FilePath: "big.go", StartLine: 1, EndLine: 100},
-		},
-	}
-	deps.LargefuncAnalyzer = mockLF
-
-	result := callTool(t, deps, "find_large_functions", map[string]any{})
-	if result.IsError {
-		t.Fatalf("find_large_functions error: %s", getTextContent(result))
-	}
-	if !mockLF.findPageCalled {
-		t.Error("expected FindPage to be called")
-	}
-}
-
-func TestFindLargeFunctions_CustomThreshold(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	mockLF := &mockLargefuncAnalyzer{
-		result: []model.Node{
-			{QualifiedName: "pkg.Medium", Kind: model.NodeKindFunction, Name: "Medium", FilePath: "med.go", StartLine: 1, EndLine: 40},
-		},
-	}
-	deps.LargefuncAnalyzer = mockLF
-
-	result := callTool(t, deps, "find_large_functions", map[string]any{"min_lines": 30})
-	if result.IsError {
-		t.Fatalf("find_large_functions error: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
-	if resp["count"].(float64) != 1 {
-		t.Errorf("expected 1 result, got %v", resp["count"])
-	}
-}
-
-func TestFindLargeFunctions_Limit(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	mockLF := &mockLargefuncAnalyzer{
-		result: []model.Node{
-			{QualifiedName: "pkg.A", Kind: model.NodeKindFunction, Name: "A", FilePath: "a.go", StartLine: 1, EndLine: 100},
-			{QualifiedName: "pkg.B", Kind: model.NodeKindFunction, Name: "B", FilePath: "b.go", StartLine: 1, EndLine: 80},
-			{QualifiedName: "pkg.C", Kind: model.NodeKindFunction, Name: "C", FilePath: "c.go", StartLine: 1, EndLine: 60},
-			{QualifiedName: "pkg.D", Kind: model.NodeKindFunction, Name: "D", FilePath: "d.go", StartLine: 1, EndLine: 55},
-		},
-	}
-	deps.LargefuncAnalyzer = mockLF
-
-	result := callTool(t, deps, "find_large_functions", map[string]any{"limit": 3})
-	if result.IsError {
-		t.Fatalf("find_large_functions error: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
-	if resp["count"].(float64) != 3 {
-		t.Errorf("expected 3 results (limit), got %v", resp["count"])
-	}
-}
-
-func TestFindLargeFunctions_NoResults(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	mockLF := &mockLargefuncAnalyzer{result: []model.Node{}}
-	deps.LargefuncAnalyzer = mockLF
-
-	result := callTool(t, deps, "find_large_functions", map[string]any{"min_lines": 1000})
-	if result.IsError {
-		t.Fatalf("find_large_functions error: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
-	if resp["count"].(float64) != 0 {
-		t.Errorf("expected 0 results, got %v", resp["count"])
-	}
-}
-
-func TestFindLargeFunctions_InvalidLimit(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	result := callTool(t, deps, "find_large_functions", map[string]any{"limit": 0})
-	if !result.IsError {
-		t.Fatal("expected invalid limit to return tool error")
-	}
-	if !strings.Contains(getTextContent(result), "limit must be > 0") {
-		t.Fatalf("unexpected error: %s", getTextContent(result))
-	}
-}
-
-func TestFindLargeFunctions_PathFilter_RespectsPathBoundary(t *testing.T) {
-	deps := setupTestDeps(t)
-	deps.LargefuncAnalyzer = &mockLargefuncAnalyzer{result: []model.Node{
-		{QualifiedName: "pkg.API", Kind: model.NodeKindFunction, Name: "API", FilePath: "internal/api/handler.go", StartLine: 1, EndLine: 100},
-		{QualifiedName: "pkg.API2", Kind: model.NodeKindFunction, Name: "API2", FilePath: "internal/api2/handler.go", StartLine: 1, EndLine: 120},
-	}}
-
-	result := callTool(t, deps, "find_large_functions", map[string]any{"path": "internal/api"})
-	if result.IsError {
-		t.Fatalf("find_large_functions error: %s", getTextContent(result))
-	}
-
-	var resp map[string]any
-	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
-		t.Fatalf("expected JSON, got: %s", getTextContent(result))
-	}
-	if resp["count"].(float64) != 1 {
-		t.Fatalf("expected 1 boundary-safe result, got %v", resp["count"])
-	}
-	results := resp["results"].([]any)
-	entry := results[0].(map[string]any)
-	if entry["file"] != "internal/api/handler.go" {
-		t.Fatalf("unexpected file: %v", entry["file"])
-	}
-}
-
-// ============================================================
 // 11.6 detect_changes
 // ============================================================
 
@@ -2664,83 +2489,8 @@ func TestListFlows_InvalidLimit(t *testing.T) {
 // ============================================================
 
 // ============================================================
+// 11.12 find_suspect_fallback_edges
 // ============================================================
-
-// ============================================================
-// 11.12 find_dead_code
-// ============================================================
-
-func TestFindDeadCode_ReturnsUnusedFunctions(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	mockDC := &mockDeadcodeAnalyzer{
-		result: []model.Node{
-			{QualifiedName: "pkg.Unused", Kind: model.NodeKindFunction, Name: "Unused", FilePath: "unused.go", StartLine: 1},
-		},
-	}
-	deps.DeadcodeAnalyzer = mockDC
-
-	result := callTool(t, deps, "find_dead_code", map[string]any{})
-	if result.IsError {
-		t.Fatalf("find_dead_code error: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
-	if resp["count"].(float64) != 1 {
-		t.Errorf("expected 1 dead code, got %v", resp["count"])
-	}
-}
-
-func TestFindDeadCode_FilterByKind(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	mockDC := &mockDeadcodeAnalyzer{result: []model.Node{}}
-	deps.DeadcodeAnalyzer = mockDC
-
-	callTool(t, deps, "find_dead_code", map[string]any{
-		"kinds": []any{"function"},
-	})
-
-	if !mockDC.findPageCalled {
-		t.Error("expected FindPage to be called")
-	}
-}
-
-func TestFindDeadCode_FilterByFilePattern(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	mockDC := &mockDeadcodeAnalyzer{result: []model.Node{}}
-	deps.DeadcodeAnalyzer = mockDC
-
-	callTool(t, deps, "find_dead_code", map[string]any{
-		"path": "internal/",
-	})
-
-	if !mockDC.findPageCalled {
-		t.Error("expected FindPage to be called")
-	}
-}
-
-func TestFindDeadCode_NoDeadCode(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	mockDC := &mockDeadcodeAnalyzer{result: []model.Node{}}
-	deps.DeadcodeAnalyzer = mockDC
-
-	result := callTool(t, deps, "find_dead_code", map[string]any{})
-	if result.IsError {
-		t.Fatalf("find_dead_code error: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
-	if resp["count"].(float64) != 0 {
-		t.Errorf("expected 0 dead code, got %v", resp["count"])
-	}
-}
 
 func TestFindSuspectFallbackEdges_ReturnsSuspects(t *testing.T) {
 	deps := setupTestDeps(t)

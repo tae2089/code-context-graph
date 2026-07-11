@@ -8,17 +8,12 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
-	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
-	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
-	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
 	fallbackanalysis "github.com/tae2089/code-context-graph/internal/analysis/fallback"
 	flowspkg "github.com/tae2089/code-context-graph/internal/analysis/flows"
 	impactpkg "github.com/tae2089/code-context-graph/internal/analysis/impact"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
-	"github.com/tae2089/code-context-graph/internal/analysis/largefunc"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/model"
-	"github.com/tae2089/code-context-graph/internal/paging"
 	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 	"github.com/tae2089/code-context-graph/internal/store"
 	storesearch "github.com/tae2089/code-context-graph/internal/store/search"
@@ -79,45 +74,12 @@ type QueryService interface {
 	FindExactNameMatches(ctx context.Context, target string, limit int) ([]query.CandidateMatch, error)
 }
 
-// LargefuncAnalyzer defines the oversized-function detection contract.
-// @intent Injects an analyzer to detect large functions with high maintenance costs.
-// @see mcp.handlers.findLargeFunctions
-type LargefuncAnalyzer interface {
-	Find(ctx context.Context, threshold int) ([]model.Node, error)
-	FindPage(ctx context.Context, opts largefunc.Options) (largefunc.Result, error)
-}
-
-// DeadcodeAnalyzer defines the unused-code detection contract.
-// @intent Injects an analyzer to find unreferenced nodes as candidates for cleanup.
-// @see mcp.handlers.findDeadCode
-type DeadcodeAnalyzer interface {
-	Find(ctx context.Context, opts deadcode.Options) ([]model.Node, error)
-	FindPage(ctx context.Context, opts deadcode.Options) (deadcode.Result, error)
-}
-
 // FallbackAnalyzer defines the suspect fallback-edge analysis contract.
 // @intent Detects untrustworthy fallback call edges based on annotation overlap.
 // @see mcp.handlers.findSuspectFallbackEdges
 type FallbackAnalyzer interface {
 	FindSuspects(ctx context.Context, opts fallbackanalysis.Options) ([]fallbackanalysis.SuspectEdge, error)
 	FindSuspectsPage(ctx context.Context, opts fallbackanalysis.Options) (fallbackanalysis.Result, error)
-}
-
-// CouplingAnalyzer defines the inter-community coupling analysis contract.
-// @intent Connects an analyzer to the server that calculates coupling between architectural boundaries.
-// @see mcp.handlers.getArchitectureOverview
-type CouplingAnalyzer interface {
-	Analyze(ctx context.Context) ([]coupling.CouplingPair, error)
-	AnalyzePage(ctx context.Context, req paging.Request) (coupling.Result, error)
-}
-
-// CoverageAnalyzer defines file and community coverage lookup operations.
-// @intent Provides test coverage information for risk summaries and community detail responses.
-// @see mcp.handlers.getCommunity
-// @see mcp.promptHandlers.reviewChanges
-type CoverageAnalyzer interface {
-	ByFile(ctx context.Context, filePath string) (*coverage.FileCoverage, error)
-	ByCommunity(ctx context.Context, communityID uint) (*coverage.CommunityCoverage, error)
 }
 
 // IncrementalSyncer defines the incremental graph synchronization contract.
@@ -151,11 +113,7 @@ type Deps struct {
 
 	// Added in Phase 11
 	QueryService      QueryService
-	LargefuncAnalyzer LargefuncAnalyzer
-	DeadcodeAnalyzer  DeadcodeAnalyzer
 	FallbackAnalyzer  FallbackAnalyzer
-	CouplingAnalyzer  CouplingAnalyzer
-	CoverageAnalyzer  CoverageAnalyzer
 	FlowBuilder       FlowBuilder
 	Incremental       IncrementalSyncer
 	PostprocessPolicy PostprocessPolicy

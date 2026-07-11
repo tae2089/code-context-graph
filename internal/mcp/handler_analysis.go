@@ -10,7 +10,6 @@ import (
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
-	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
 	fallbackanalysis "github.com/tae2089/code-context-graph/internal/analysis/fallback"
 	flowspkg "github.com/tae2089/code-context-graph/internal/analysis/flows"
 	impactpkg "github.com/tae2089/code-context-graph/internal/analysis/impact"
@@ -103,15 +102,6 @@ type affectedFlowsResponse struct {
 	Items         []affectedFlowEntry `json:"items"`
 	Count         int                 `json:"count"`
 	Pagination    paging.Page         `json:"pagination"`
-}
-
-// deadCodeItem summarizes one node reported as dead code.
-// @intent preserve a stable per-item DTO for findDeadCode responses.
-type deadCodeItem struct {
-	Name      string         `json:"name"`
-	Kind      model.NodeKind `json:"kind"`
-	File      string         `json:"file"`
-	StartLine int            `json:"start_line"`
 }
 
 // suspectFallbackEdgeItem summarizes one fallback edge inspected for suspicion.
@@ -454,56 +444,6 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 			Count:         len(affected),
 			Pagination:    page,
 		})
-		if err != nil {
-			return "", trace.Wrap(err, "marshal result")
-		}
-		return result, nil
-	}))
-}
-
-// findDeadCode returns nodes that have no incoming usage edges.
-// @intent find unused code candidates so maintainers can reduce long-term maintenance burden.
-// @param request path and kinds narrow the detection scope.
-// @requires DeadcodeAnalyzer must be configured.
-// @ensures returns dead_code entries and their count when analysis succeeds.
-// @domainRule only nodes without incoming edges qualify as dead code candidates.
-func (h *handlers) findDeadCode(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyNamespace(ctx, request)
-	h.logger().Info("find_dead_code called")
-
-	input, err := decodeFindDeadCodeRequest(request)
-	if err != nil {
-		return finalizeToolResult("", err)
-	}
-
-	if h.deps.DeadcodeAnalyzer == nil {
-		return mcp.NewToolResultError("DeadcodeAnalyzer not configured"), nil
-	}
-
-	opts := deadcode.Options{Page: input.Page, FilePattern: input.PathPrefix}
-	for _, k := range input.Kinds {
-		opts.Kinds = append(opts.Kinds, model.NodeKind(k))
-	}
-
-	cacheParams := map[string]any{
-		"path":      input.PathPrefix,
-		"kinds":     input.Kinds,
-		"limit":     input.Page.Limit,
-		"offset":    input.Page.Offset,
-		"namespace": input.Namespace,
-	}
-	return finalizeToolResult(h.cachedExecute(ctx, "find_dead_code:", cacheParams, func() (string, error) {
-		page, err := h.deps.DeadcodeAnalyzer.FindPage(ctx, opts)
-		if err != nil {
-			return "", trace.Wrap(err, "deadcode error")
-		}
-
-		items := make([]deadCodeItem, len(page.Items))
-		for i, n := range page.Items {
-			items[i] = deadCodeItem{Name: n.QualifiedName, Kind: n.Kind, File: n.FilePath, StartLine: n.StartLine}
-		}
-
-		result, err := encodePagedListResponse("dead_code", items, page.Pagination)
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}

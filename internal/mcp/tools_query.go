@@ -58,15 +58,5 @@ func queryTools(h *handlers) []server.ServerTool {
 			)...),
 			Handler: h.listGraphStats,
 		},
-		{
-			Tool: mcp.NewTool("find_large_functions", withNamespaceParam(
-				mcp.WithDescription("Find functions exceeding a line count threshold"),
-				mcp.WithNumber("min_lines", mcp.Description("Minimum line count threshold (default: 50)")),
-				mcp.WithNumber("limit", mcp.Description("Maximum number of results (default: 50, max: 500)")),
-				mcp.WithNumber("offset", mcp.Description("Zero-based result offset for pagination (default: 0)")),
-				mcp.WithString("path", mcp.Description("Filter results to file paths starting with this prefix")),
-			)...),
-			Handler: h.findLargeFunctions,
-		},
 	}
 }

@@ -80,11 +80,8 @@ responses inspectable and reduces context pollution.
 
 Known high-volume surfaces that should be scoped before use:
 
-- `find_dead_code` can return every unreferenced node in a namespace.
 - `find_suspect_fallback_edges` can return every suspect fallback edge.
-- `find_large_functions` accepts `limit`, but the current implementation still
-  finds all matching functions before truncating the response.
-- MCP prompts such as architecture and onboarding prompts summarize broad
+- MCP prompts such as onboarding prompts summarize broad
   project state and are best used after the graph has been scoped by namespace.
 
 For shared services, prefer path filters, namespace splitting, and paginated

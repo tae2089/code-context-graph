@@ -29,11 +29,9 @@ func TestMCPServer_ListTools(t *testing.T) {
 		"run_postprocess",
 		"query_graph",
 		"list_graph_stats",
-		"find_large_functions",
 		"detect_changes",
 		"get_affected_flows",
 		"list_flows",
-		"find_dead_code",
 		"find_suspect_fallback_edges",
 		"get_doc_content",
 		"search_docs",
@@ -74,8 +72,8 @@ func TestMCPServer_ListTools_Count(t *testing.T) {
 	srv := NewServer(deps)
 	tools := srv.ListTools()
 
-	if len(tools) != 28 {
-		t.Fatalf("expected 28 tools, got %d", len(tools))
+	if len(tools) != 26 {
+		t.Fatalf("expected 26 tools, got %d", len(tools))
 	}
 }
 
@@ -172,11 +170,9 @@ func TestMCPServer_ToolRequiredFlags(t *testing.T) {
 		"run_postprocess":             nil,
 		"query_graph":                 {"pattern", "target"},
 		"list_graph_stats":            nil,
-		"find_large_functions":        nil,
 		"detect_changes":              {"repo_root"},
 		"get_affected_flows":          {"repo_root"},
 		"list_flows":                  nil,
-		"find_dead_code":              nil,
 		"find_suspect_fallback_edges": nil,
 		"get_doc_content":             {"file_path"},
 		"search_docs":                 {"query"},
@@ -251,7 +247,6 @@ func TestMCPServer_ListPrompts_ExactSetAndRequiredArgs(t *testing.T) {
 
 	expectedNames := []string{
 		"review_changes",
-		"architecture_map",
 		"debug_issue",
 		"onboard_developer",
 		"pre_merge_check",
@@ -290,7 +285,6 @@ func TestMCPServer_ListPrompts_ExactSetAndRequiredArgs(t *testing.T) {
 	}
 
 	assertRequired("review_changes", []string{"repo_root"})
-	assertRequired("architecture_map", nil)
 	assertRequired("debug_issue", []string{"description"})
 	assertRequired("onboard_developer", nil)
 	assertRequired("pre_merge_check", []string{"repo_root"})

@@ -121,32 +121,6 @@ func TestHandler_AnalysisResponses_WireContractFrozen(t *testing.T) {
 		}
 	})
 
-	t.Run("find_dead_code", func(t *testing.T) {
-		deps := setupTestDeps(t)
-		deps.DeadcodeAnalyzer = &mockDeadcodeAnalyzer{result: []model.Node{{QualifiedName: "pkg.Dead", Kind: model.NodeKindFunction, Name: "Dead", FilePath: "dead.go", StartLine: 10, EndLine: 20, Language: "go"}}}
-
-		result := callTool(t, deps, "find_dead_code", map[string]any{"limit": 10, "offset": 0})
-		if result.IsError {
-			t.Fatalf("find_dead_code returned error: %s", getTextContent(result))
-		}
-
-		var resp map[string]any
-		if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
-			t.Fatalf("expected JSON response, got: %s", getTextContent(result))
-		}
-
-		if !reflect.DeepEqual(sortedKeys(resp), []string{"count", "dead_code", "items", "pagination"}) {
-			t.Fatalf("unexpected top-level keys: %v", sortedKeys(resp))
-		}
-		pagination, ok := resp["pagination"].(map[string]any)
-		if !ok {
-			t.Fatalf("pagination type = %T, want map[string]any", resp["pagination"])
-		}
-		if !reflect.DeepEqual(sortedKeys(pagination), []string{"has_more", "limit", "offset", "returned"}) {
-			t.Fatalf("unexpected pagination keys: %v", sortedKeys(pagination))
-		}
-	})
-
 	t.Run("find_suspect_fallback_edges", func(t *testing.T) {
 		deps := setupTestDeps(t)
 		deps.FallbackAnalyzer = &mockFallbackAnalyzer{result: []fallbackanalysis.SuspectEdge{{
@@ -174,36 +148,6 @@ func TestHandler_AnalysisResponses_WireContractFrozen(t *testing.T) {
 			t.Fatalf("pagination type = %T, want map[string]any", resp["pagination"])
 		}
 		if !reflect.DeepEqual(sortedKeys(pagination), []string{"has_more", "limit", "offset", "returned"}) {
-			t.Fatalf("unexpected pagination keys: %v", sortedKeys(pagination))
-		}
-	})
-
-	t.Run("find_large_functions", func(t *testing.T) {
-		deps := setupTestDeps(t)
-		deps.LargefuncAnalyzer = &mockLargefuncAnalyzer{result: []model.Node{{QualifiedName: "pkg.Big", Kind: model.NodeKindFunction, Name: "Big", FilePath: "big.go", StartLine: 1, EndLine: 100}}}
-
-		result := callTool(t, deps, "find_large_functions", map[string]any{"limit": 3, "offset": 0})
-		if result.IsError {
-			t.Fatalf("find_large_functions returned error: %s", getTextContent(result))
-		}
-
-		var resp map[string]any
-		if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
-			t.Fatalf("expected JSON response, got: %s", getTextContent(result))
-		}
-
-		if !reflect.DeepEqual(sortedKeys(resp), []string{"count", "items", "pagination", "results"}) {
-			t.Fatalf("unexpected top-level keys: %v", sortedKeys(resp))
-		}
-		pagination, ok := resp["pagination"].(map[string]any)
-		if !ok {
-			t.Fatalf("pagination type = %T, want map[string]any", resp["pagination"])
-		}
-		if _, hasNext := pagination["next_offset"]; hasNext {
-			if !reflect.DeepEqual(sortedKeys(pagination), []string{"has_more", "limit", "next_offset", "offset", "returned"}) {
-				t.Fatalf("unexpected pagination keys: %v", sortedKeys(pagination))
-			}
-		} else if !reflect.DeepEqual(sortedKeys(pagination), []string{"has_more", "limit", "offset", "returned"}) {
 			t.Fatalf("unexpected pagination keys: %v", sortedKeys(pagination))
 		}
 	})

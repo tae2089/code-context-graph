@@ -76,7 +76,7 @@ CCG에는 역할이 다른 두 검색 표면이 있습니다.
 |----------|-------------|
 | 자연어 기반 코드 이해, 모듈 탐색, 아키텍처 질문 | `ccg docs`, 이후 MCP `retrieve_docs`, `get_rag_tree`, `get_doc_content` |
 | 정확한 심볼 조회, caller/callee, import, bounded graph traversal | MCP `get_node`, `query_graph`, `get_minimal_context` |
-| 영향 분석, flow 추적, dead code, large function | `get_impact_radius`, `trace_flow`, `find_dead_code`, `find_large_functions` 같은 MCP 분석 도구 |
+| 영향 분석, flow 추적 | `get_impact_radius`, `trace_flow` 같은 MCP 분석 도구 |
 | 어노테이션/키워드 기반 후보 검색 | `ccg search` 또는 MCP `search` |
 
 코딩 에이전트의 자연어 탐색에는 다음 흐름을 권장합니다.

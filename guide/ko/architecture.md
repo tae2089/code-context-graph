@@ -51,11 +51,6 @@ GORM ORM 기반 저장소입니다. SQLite 및 PostgreSQL과 호환됩니다.
 |--------|-------------|
 | `impact` | BFS 영향 범위 분석 |
 | `flows` | 호출 체인 흐름 추적 |
-| `deadcode` | 사용되지 않는 코드 감지 |
-| `community` | 디렉토리 기반 모듈 커뮤니티 분석 |
-| `coupling` | 모듈 간 결합도 분석 |
-| `coverage` | 테스트 커버리지 분석 |
-| `largefunc` | 대규모 함수 감지 |
 | `changes` | Git diff 리스크 점수 계산 |
 | `query` | 그래프 쿼리 (callers, callees, imports) |
 | `incremental` | 증분 업데이트 |

@@ -9,45 +9,11 @@ import (
 	"github.com/tae2089/code-context-graph/internal/paging"
 )
 
-// findDeadCodeInput captures decoded request arguments for find_dead_code.
-// @intent give findDeadCode a typed view of its request so the handler stays a thin adapter over deadcode.Service.
-type findDeadCodeInput struct {
-	Page       paging.Request
-	Kinds      []string
-	PathPrefix string
-	Namespace  string
-}
-
 // findSuspectFallbackInput captures decoded request arguments for find_suspect_fallback_edges.
 // @intent give findSuspectFallbackEdges a typed view of its request so the handler stays a thin adapter over the fallback analyzer.
 type findSuspectFallbackInput struct {
 	Page      paging.Request
 	Namespace string
-}
-
-// findLargeFuncsInput captures decoded request arguments for find_large_functions.
-// @intent give findLargeFunctions a typed view of its request so the handler stays a thin adapter over largefunc.Service.
-type findLargeFuncsInput struct {
-	MinLines   int
-	Page       paging.Request
-	PathPrefix string
-	Namespace  string
-}
-
-// decodeFindDeadCodeRequest extracts and validates find_dead_code arguments.
-// @intent isolate request parsing and pagination validation for find_dead_code.
-// @ensures returned page request is normalized and limit/offset are non-negative.
-func decodeFindDeadCodeRequest(request mcp.CallToolRequest) (findDeadCodeInput, error) {
-	pageReq, err := decodeListPageRequest(request, 50)
-	if err != nil {
-		return findDeadCodeInput{}, err
-	}
-	return findDeadCodeInput{
-		Page:       pageReq,
-		Kinds:      request.GetStringSlice("kinds", nil),
-		PathPrefix: request.GetString("path", ""),
-		Namespace:  requestNamespace(request),
-	}, nil
 }
 
 // decodeFindSuspectFallbackRequest extracts and validates find_suspect_fallback_edges arguments.
@@ -60,21 +26,6 @@ func decodeFindSuspectFallbackRequest(request mcp.CallToolRequest) (findSuspectF
 	return findSuspectFallbackInput{
 		Page:      pageReq,
 		Namespace: requestNamespace(request),
-	}, nil
-}
-
-// decodeFindLargeFuncsRequest extracts and validates find_large_functions arguments.
-// @intent isolate request parsing and pagination validation for find_large_functions.
-func decodeFindLargeFuncsRequest(request mcp.CallToolRequest) (findLargeFuncsInput, error) {
-	pageReq, err := decodeListPageRequest(request, 50)
-	if err != nil {
-		return findLargeFuncsInput{}, err
-	}
-	return findLargeFuncsInput{
-		MinLines:   request.GetInt("min_lines", 50),
-		Page:       pageReq,
-		PathPrefix: request.GetString("path", ""),
-		Namespace:  requestNamespace(request),
 	}, nil
 }
 
