@@ -6,6 +6,41 @@ import (
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
+func TestSanitizeFTS5_SplitsCamelCaseTokens(t *testing.T) {
+	tests := []struct {
+		query string
+		want  string
+	}{
+		{query: "", want: ""},
+		{query: "user", want: `"user"*`},                                 // 단일 단어 불변
+		{query: "get user", want: `"get"* "user"*`},                      // 소문자 멀티토큰 불변
+		{query: "getUser", want: `("getuser"* OR ("get"* AND "user"*))`}, // camelCase 분할
+		{query: "UserService", want: `("userservice"* OR ("user"* AND "service"*))`},
+	}
+	for _, tt := range tests {
+		if got := SanitizeFTS5(tt.query); got != tt.want {
+			t.Fatalf("SanitizeFTS5(%q) = %q, want %q", tt.query, got, tt.want)
+		}
+	}
+}
+
+func TestSanitizePostgresTSQuery_SplitsCamelCaseTokens(t *testing.T) {
+	tests := []struct {
+		query string
+		want  string
+	}{
+		{query: "", want: ""},
+		{query: "user", want: "user:*"},
+		{query: "get user", want: "get:* & user:*"},
+		{query: "getUser", want: "(getuser:* | (get:* & user:*))"},
+	}
+	for _, tt := range tests {
+		if got := SanitizePostgresTSQuery(tt.query); got != tt.want {
+			t.Fatalf("SanitizePostgresTSQuery(%q) = %q, want %q", tt.query, got, tt.want)
+		}
+	}
+}
+
 func TestExtractExactNameToken(t *testing.T) {
 	tests := []struct {
 		query string

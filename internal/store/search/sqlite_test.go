@@ -302,6 +302,32 @@ func TestSQLiteFTS_Query(t *testing.T) {
 	}
 }
 
+// A camelCase query matches via its sub-tokens: "userCredentials" has no whole
+// token in the index but its parts (user AND credentials) do. Exercises the
+// generated FTS5 OR-group syntax against a real backend.
+func TestSQLiteFTS_Query_SplitsCamelCaseQuery(t *testing.T) {
+	db := setupTestDB(t)
+	seedNodes(t, db)
+
+	backend := NewSQLiteBackend()
+	backend.Migrate(db)
+	backend.Rebuild(context.Background(), db)
+
+	nodes, err := backend.Query(context.Background(), db, "userCredentials", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, n := range nodes {
+		if n.QualifiedName == "pkg.AuthenticateUser" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected pkg.AuthenticateUser matched via camelCase sub-tokens, got %d nodes", len(nodes))
+	}
+}
+
 func TestSQLiteFTS_QueryNoResults(t *testing.T) {
 	db := setupTestDB(t)
 	seedNodes(t, db)

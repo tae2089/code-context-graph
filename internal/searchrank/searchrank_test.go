@@ -131,31 +131,6 @@ func TestFetchLimit(t *testing.T) {
 	}
 }
 
-func TestSplitIdentifier(t *testing.T) {
-	cases := []struct {
-		in   string
-		want []string
-	}{
-		{"getUserById", []string{"get", "user", "by", "id"}},
-		{"HTTPServer", []string{"http", "server"}},
-		{"user_id", []string{"user", "id"}},
-		{"parseHTML5", []string{"parse", "html", "5"}},
-	}
-	for _, c := range cases {
-		got := splitIdentifier(c.in)
-		if len(got) != len(c.want) {
-			t.Errorf("splitIdentifier(%q)=%v, want %v", c.in, got, c.want)
-			continue
-		}
-		for i := range c.want {
-			if got[i] != c.want[i] {
-				t.Errorf("splitIdentifier(%q)=%v, want %v", c.in, got, c.want)
-				break
-			}
-		}
-	}
-}
-
 func TestLevenshtein(t *testing.T) {
 	cases := []struct {
 		a, b string
