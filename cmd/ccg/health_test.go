@@ -10,9 +10,8 @@ import (
 	"testing"
 	"time"
 
-	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
-	ccgserver "github.com/tae2089/code-context-graph/internal/server"
 	ccgdb "github.com/tae2089/code-context-graph/internal/db"
+	ccgserver "github.com/tae2089/code-context-graph/internal/server"
 	"github.com/tae2089/code-context-graph/internal/webhook"
 )
 
@@ -113,7 +112,7 @@ func TestStatusHandler_ReportsWebhookQueueFull(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
 
-	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d body=%s", rec.Code, rec.Body.String())
@@ -136,7 +135,7 @@ func TestStatusHandler_ReportsWebhookQueueAges(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
 
-	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
@@ -207,7 +206,7 @@ func TestStatusHandler_ReportsUnresolvedWebhookFailure(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
 
-	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
@@ -283,7 +282,7 @@ func TestStatusHandler_DegradedWhenRecentRepoFailureUnresolved(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
-	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
@@ -326,7 +325,7 @@ func TestStatusHandler_DBNotReadyTakesPrecedenceOverWebhookDegraded(t *testing.T
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
-	ccgserver.StatusHandler(func(r *http.Request) error { return errors.New("db down") }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return errors.New("db down") }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d body=%s", rec.Code, rec.Body.String())
@@ -383,7 +382,7 @@ func TestStatusHandler_ReportsPerRepoRecentRepos(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
-	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
@@ -444,7 +443,7 @@ func TestStatusHandler_RecentRepos_FailureHasErrorFields(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
-	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
 
 	var body map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
@@ -476,7 +475,7 @@ func TestStatusHandler_ExistingAggregateFieldsPreserved(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
-	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }, nil).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
 
 	var body map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
@@ -490,41 +489,6 @@ func TestStatusHandler_ExistingAggregateFieldsPreserved(t *testing.T) {
 		if _, exists := webhookBody[field]; !exists {
 			t.Fatalf("aggregate field %q missing from webhook body: %v", field, webhookBody)
 		}
-	}
-}
-
-func TestStatusHandler_ReportsPostprocessSummary(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/status", nil)
-	rec := httptest.NewRecorder()
-
-	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, nil, func(context.Context) (*postprocesspolicy.StatusSummary, error) {
-		return &postprocesspolicy.StatusSummary{
-			Status: postprocesspolicy.StatusDegraded,
-			FailClosed: []postprocesspolicy.StateSnapshot{{
-				Namespace:           "default",
-				Tool:                postprocesspolicy.ToolRunPostprocess,
-				Policy:              postprocesspolicy.PolicyFailClosed,
-				ConsecutiveFailures: 3,
-			}},
-		}, nil
-	}).ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
-	}
-	var body map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode status: %v", err)
-	}
-	if got := body["status"]; got != "degraded" {
-		t.Fatalf("status = %v, want degraded", got)
-	}
-	postprocessBody, ok := body["postprocess"].(map[string]any)
-	if !ok {
-		t.Fatalf("missing postprocess body: %v", body)
-	}
-	if got := postprocessBody["status"]; got != "degraded" {
-		t.Fatalf("postprocess.status = %v, want degraded", got)
 	}
 }
 

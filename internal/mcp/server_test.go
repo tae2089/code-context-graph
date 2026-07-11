@@ -18,8 +18,6 @@ func TestMCPServer_ListTools(t *testing.T) {
 
 	expected := []string{
 		"parse_project",
-		"get_postprocess_policy",
-		"reset_postprocess_policy",
 		"get_node",
 		"get_impact_radius",
 		"search",
@@ -72,8 +70,8 @@ func TestMCPServer_ListTools_Count(t *testing.T) {
 	srv := NewServer(deps)
 	tools := srv.ListTools()
 
-	if len(tools) != 26 {
-		t.Fatalf("expected 26 tools, got %d", len(tools))
+	if len(tools) != 24 {
+		t.Fatalf("expected 24 tools, got %d", len(tools))
 	}
 }
 
@@ -159,8 +157,6 @@ func TestMCPServer_ToolRequiredFlags(t *testing.T) {
 
 	expected := map[string][]string{
 		"parse_project":               {"path"},
-		"get_postprocess_policy":      nil,
-		"reset_postprocess_policy":    {"tool"},
 		"get_node":                    {"qualified_name"},
 		"get_impact_radius":           {"qualified_name"},
 		"search":                      {"query"},

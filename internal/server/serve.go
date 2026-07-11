@@ -22,7 +22,6 @@ import (
 	"github.com/tae2089/code-context-graph/internal/mcpruntime"
 	ccgobs "github.com/tae2089/code-context-graph/internal/obs"
 	"github.com/tae2089/code-context-graph/internal/pathutil"
-	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 	"github.com/tae2089/code-context-graph/internal/service"
 	"github.com/tae2089/code-context-graph/internal/webhook"
 	"github.com/tae2089/code-context-graph/internal/wikiserver"
@@ -53,13 +52,13 @@ func Run(rt *core.Runtime, cfg Config, serviceVersion, ragIndexDir, ragProjectDe
 	}
 	defer inst.Close()
 	cfg.RagIndexDir = ragIndexDir
-	return RunStreamableHTTP(rt, inst.Server, cfg, inst.Cache, inst.PostprocessSummary)
+	return RunStreamableHTTP(rt, inst.Server, cfg, inst.Cache)
 }
 
 // RunStreamableHTTP serves the MCP server over streamable HTTP.
 // @intent MCP, health, readiness, status, webhook 엔드포인트를 하나의 HTTP 런타임으로 노출한다.
 // @sideEffect HTTP 서버, 시그널 핸들러, 웹훅 동기화 큐를 생성하고 종료 시 drain한다.
-func RunStreamableHTTP(rt *core.Runtime, srv *mcpgo.MCPServer, cfg Config, cache *mcp.Cache, postprocessSummary func(context.Context) (*postprocesspolicy.StatusSummary, error)) error {
+func RunStreamableHTTP(rt *core.Runtime, srv *mcpgo.MCPServer, cfg Config, cache *mcp.Cache) error {
 	rt.Logger.Info("serving MCP over streamable-http", "addr", cfg.HTTPAddr, "stateless", cfg.Stateless)
 
 	if err := ValidateHTTPExposure(cfg); err != nil {
@@ -116,7 +115,7 @@ func RunStreamableHTTP(rt *core.Runtime, srv *mcpgo.MCPServer, cfg Config, cache
 	// so it requires the same bearer auth as /mcp; /health and /ready stay open for probes.
 	mux.Handle("/status", MCPAuthMiddleware(cfg.HTTPBearerToken, StatusHandler(dbReadyCheck, cfg.WebhookAttemptTimeout, func() *webhook.SyncQueue {
 		return syncQueue
-	}, postprocessSummary)))
+	})))
 
 	if cfg.WikiDir != "" {
 		wiki, err := wikiserver.New(wikiserver.Config{
@@ -380,18 +379,17 @@ func ReadyHandler(check func(*http.Request) error) http.Handler {
 }
 
 // statusResponse defines the response structure for the status endpoint.
-// @intent /status가 DB, webhook, postprocess 상태를 한 payload로 반환하게 한다.
+// @intent /status가 DB와 webhook 상태를 한 payload로 반환하게 한다.
 type statusResponse struct {
-	Status      string                           `json:"status"`
-	DB          string                           `json:"db"`
-	Webhook     *webhook.SyncQueueStats          `json:"webhook,omitempty"`
-	Postprocess *postprocesspolicy.StatusSummary `json:"postprocess,omitempty"`
+	Status  string                  `json:"status"`
+	DB      string                  `json:"db"`
+	Webhook *webhook.SyncQueueStats `json:"webhook,omitempty"`
 }
 
-// StatusHandler provides detailed system status including DB, webhooks, and postprocess state.
+// StatusHandler provides detailed system status including DB and webhook state.
 // @intent 운영 진단용 상태를 종합해 HTTP 상태 코드와 JSON payload로 노출한다.
-// @sideEffect DB 상태, webhook 큐 상태, 후처리 상태를 읽고 JSON 응답을 기록한다.
-func StatusHandler(dbCheck func(*http.Request) error, webhookTimeout time.Duration, queue func() *webhook.SyncQueue, postprocessSummary func(context.Context) (*postprocesspolicy.StatusSummary, error)) http.Handler {
+// @sideEffect DB 상태와 webhook 큐 상태를 읽고 JSON 응답을 기록한다.
+func StatusHandler(dbCheck func(*http.Request) error, webhookTimeout time.Duration, queue func() *webhook.SyncQueue) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -417,18 +415,6 @@ func StatusHandler(dbCheck func(*http.Request) error, webhookTimeout time.Durati
 				}
 			}
 		}
-		if postprocessSummary != nil {
-			summary, err := postprocessSummary(r.Context())
-			if err == nil {
-				resp.Postprocess = summary
-				if code == http.StatusOK && summary != nil && summary.Status == postprocesspolicy.StatusDegraded {
-					resp.Status = "degraded"
-				}
-			} else {
-				slog.Error("postprocess status summary failed", "error", err)
-			}
-		}
-
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(code)
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
