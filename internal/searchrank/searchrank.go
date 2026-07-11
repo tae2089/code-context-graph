@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/tae2089/code-context-graph/internal/identtoken"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
@@ -117,7 +118,7 @@ func nameSim(qTokens []string, node model.Node) float64 {
 			continue
 		}
 		lower := strings.ToLower(raw)
-		subs := splitIdentifier(raw) // original case: camelCase boundaries matter
+		subs := identtoken.Split(raw) // original case: camelCase boundaries matter
 		sum := 0.0
 		for _, tok := range qTokens {
 			b := normLevSim(tok, lower)
@@ -130,45 +131,6 @@ func nameSim(qTokens []string, node model.Node) float64 {
 		best = max(best, cand)
 	}
 	return best
-}
-
-// splitIdentifier breaks an identifier into lowercased sub-tokens on separators,
-// camelCase boundaries, and letter/digit transitions ("getUserById" -> get,
-// user, by, id; "HTTPServer" -> http, server; "parseHTML5" -> parse, html, 5).
-func splitIdentifier(s string) []string {
-	runes := []rune(s)
-	var tokens []string
-	var cur []rune
-	flush := func() {
-		if len(cur) > 0 {
-			tokens = append(tokens, strings.ToLower(string(cur)))
-			cur = cur[:0]
-		}
-	}
-	for i, r := range runes {
-		if !isAlnum(r) {
-			flush()
-			continue
-		}
-		if len(cur) > 0 {
-			prev := cur[len(cur)-1]
-			switch {
-			case unicode.IsUpper(r) && (unicode.IsLower(prev) || unicode.IsDigit(prev)):
-				flush() // lower/digit -> Upper: new word
-			case unicode.IsUpper(r) && unicode.IsUpper(prev) && i+1 < len(runes) && unicode.IsLower(runes[i+1]):
-				flush() // acronym tail begins a new word (HTTPServer -> http, server)
-			case unicode.IsDigit(r) != unicode.IsDigit(prev):
-				flush() // letter/digit transition
-			}
-		}
-		cur = append(cur, r)
-	}
-	flush()
-	return tokens
-}
-
-func isAlnum(r rune) bool {
-	return unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
 // pathScore is the fraction of query tokens that appear as file-path segments.
