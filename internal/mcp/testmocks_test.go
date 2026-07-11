@@ -365,23 +365,6 @@ type mockFlowTracer struct {
 	remainderErr error
 }
 
-func (m *mockFlowTracer) TraceFlow(ctx context.Context, startNodeID uint) (*model.Flow, error) {
-	m.calls++
-	flow := m.returnFlow
-	if flow == nil {
-		flow = &model.Flow{
-			Namespace: ctxns.FromContext(ctx),
-			Name:      "flow_from_mock",
-			Members: []model.FlowMembership{{
-				NodeID:    startNodeID,
-				Ordinal:   0,
-				Namespace: ctxns.FromContext(ctx),
-			}},
-		}
-	}
-	return flow, m.traceErr
-}
-
 func (m *mockFlowTracer) TraceFlowBounded(ctx context.Context, startNodeID uint, opts flows.TraceOptions) (*flows.TraceResult, error) {
 	m.calls++
 	m.opts = append(m.opts, opts)
