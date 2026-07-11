@@ -94,18 +94,18 @@ Wiki compatibility snapshot. The Wiki prefers the graph database for tree
 navigation and search, then uses `wiki-index.json` only when DB-backed
 navigation is unavailable. By default `ccg docs` also refreshes community
 structure and writes `.ccg/doc-index.json` as a compatibility snapshot for
-manual RAG-index workflows; runtime `retrieve_docs` uses DB-backed graph and
+manual RAG-index workflows; runtime `search_docs` uses DB-backed graph and
 annotation evidence. Use `--rag=false` when you only want Markdown and the Wiki
 snapshot, or `--rag-refresh=false` when you want to rebuild the RAG index from
 existing community rows without recalculating communities.
 
-For LLM agents, use DB-backed `retrieve_docs` as the first stop for broad
+For LLM agents, use DB-backed `search_docs` as the first stop for broad
 natural-language questions such as "how does webhook sync work?" or "where are
 the operational risks?". It is not a Top1 search engine; it is an
 evidence-driven narrowing layer that should return a small set of relevant
-files with `matched_fields`, `matched_terms`, and evidence nodes. Use
-`get_doc_content`, `get_node`, `query_graph`, `trace_flow`, and impact tools
-only after the route is narrowed. Use `ccg search` as a focused
+files with `matched_fields`, `matched_terms`, and evidence nodes. Read the
+narrowed docs with `get_doc_content`, then use `get_node`, `query_graph`,
+`trace_flow`, and impact tools only after the route is narrowed. Use `ccg search` as a focused
 annotation/keyword candidate search rather than the first tool for broad code
 understanding.
 
@@ -125,7 +125,7 @@ size stays small.
 The Wiki is meant for developers and agents inspecting a generated codebase:
 
 - Tree navigation over folders, packages, files, and annotated symbols
-- Keyword search and DB-backed `retrieve_docs` with matched evidence and small
+- Keyword search and DB-backed `search_docs` with matched evidence and small
   file-level result sets
 - Rich symbol detail cards from CCG annotations even when a symbol has no
   generated Markdown file

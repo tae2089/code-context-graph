@@ -142,7 +142,7 @@ ccg build .
 ccg search "graph viewer ccg ref node focus"
 ```
 
-For MCP/Web UI retrieval, use `retrieve_docs` or the Wiki Retrieve mode. If the
+For MCP/Web UI retrieval, use `search_docs` + `get_doc_content` or the Wiki Retrieve mode. If the
 expected file is missing, prefer improving the precise `@index`, `@intent`,
 `@domainRule`, or `@see` evidence on that file over changing global scoring.
 

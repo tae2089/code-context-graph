@@ -35,7 +35,6 @@ func TestMCPServer_ListTools(t *testing.T) {
 		"find_suspect_fallback_edges",
 		"get_doc_content",
 		"search_docs",
-		"retrieve_docs",
 		"upload_file",
 		"list_namespaces",
 		"list_files",
@@ -72,8 +71,8 @@ func TestMCPServer_ListTools_Count(t *testing.T) {
 	srv := NewServer(deps)
 	tools := srv.ListTools()
 
-	if len(tools) != 26 {
-		t.Fatalf("expected 26 tools, got %d", len(tools))
+	if len(tools) != 25 {
+		t.Fatalf("expected 25 tools, got %d", len(tools))
 	}
 }
 
@@ -176,7 +175,6 @@ func TestMCPServer_ToolRequiredFlags(t *testing.T) {
 		"find_suspect_fallback_edges": nil,
 		"get_doc_content":             {"file_path"},
 		"search_docs":                 {"query"},
-		"retrieve_docs":               {"query"},
 		"upload_file":                 {"namespace", "file_path", "content"},
 		"list_namespaces":             nil,
 		"list_files":                  {"namespace"},

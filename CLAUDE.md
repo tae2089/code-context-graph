@@ -6,7 +6,7 @@ Follow the global prompt rules first. This file adds project-specific skill rout
 
 ## MCP 서버
 
-`.mcp.json`에 등록된 ccg MCP 서버가 26개 도구를 제공합니다:
+`.mcp.json`에 등록된 ccg MCP 서버가 25개 도구를 제공합니다:
 
 - `parse_project`, `build_or_update_graph`, `run_postprocess`
 - `get_postprocess_policy`, `reset_postprocess_policy`
@@ -14,7 +14,7 @@ Follow the global prompt rules first. This file adds project-specific skill rout
 - `get_impact_radius`, `trace_flow`, `find_suspect_fallback_edges`
 - `detect_changes`, `get_affected_flows`, `list_flows`
 - `get_annotation`
-- `get_doc_content`, `search_docs`, `retrieve_docs`
+- `get_doc_content`, `search_docs`
 - `upload_file`, `upload_files`, `list_files`, `delete_file`, `list_namespaces`, `delete_namespace`
 
 HTTP 모드 (`--transport streamable-http`)에서는 `/health` 및 `/webhook` 엔드포인트도 제공합니다.

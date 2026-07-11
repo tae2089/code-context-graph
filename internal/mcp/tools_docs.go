@@ -27,16 +27,5 @@ func docsTools(h *handlers) []server.ServerTool {
 			),
 			Handler: h.searchDocs,
 		},
-		{
-			Tool: mcp.NewTool("retrieve_docs",
-				mcp.WithDescription("Retrieve relevant generated docs for a natural-language or multi-keyword query. Uses DB-backed graph evidence and returns matched evidence plus bounded document content."),
-				mcp.WithString("query", mcp.Description("Natural-language or multi-keyword retrieval query"), mcp.Required()),
-				mcp.WithNumber("limit", mcp.Description("Maximum number of document results (default: 5, max: 50)")),
-				mcp.WithNumber("content_limit", mcp.Description("Maximum bytes of Markdown content per result (default: 4000, max: 20000; use 0 to omit content)")),
-				mcp.WithString("namespace", mcp.Description("Namespace. When set, retrieves from that namespace's DB rows and generated docs.")),
-				mcp.WithBoolean("explain", mcp.Description("When true, include available per-result diagnostics such as field_scores, literal_score, expanded_terms, and expansion_score (default: false).")),
-			),
-			Handler: h.retrieveDocs,
-		},
 	}
 }

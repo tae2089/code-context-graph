@@ -109,38 +109,24 @@ or broad MCP prompts.
 | `get_rag_tree` | Navigate RAG document tree by node ID (supports namespace) |
 | `get_doc_content` | Get documentation file content (supports namespace) |
 | `search_docs` | Search RAG document tree by keyword (supports namespace) |
-| `retrieve_docs` | Retrieve relevant docs from DB-backed graph evidence, with matched fields, evidence nodes, and bounded Markdown content |
 
-Use `retrieve_docs` as the first stop for natural-language code understanding.
-It scores file-level graph and annotation evidence so multi-keyword queries can
-match across related symbols and returns bounded Markdown content with evidence.
-It is designed for high Top10 recall and low token use, not guaranteed Top1
-ranking. `get_rag_tree` expands the surrounding module structure; call it
-without arguments first, then pass `node_id` from the returned tree to drill
-into `community`, `package`, `file`, or `symbol` nodes. The older
-`community_id` parameter remains a compatibility alias for `node_id`.
-`get_doc_content` reads one generated Markdown file directly. After that, use
-graph tools such as `get_node`, `query_graph`, `trace_flow`, or
+For natural-language code understanding, use `search_docs` to find relevant
+docs, then `get_doc_content` to read one. `search_docs` matches the RAG document
+tree by keyword and returns candidate docs, and `get_doc_content` reads one
+generated Markdown file directly. `get_rag_tree` expands the surrounding module
+structure; call it without arguments first, then pass `node_id` from the
+returned tree to drill into `community`, `package`, `file`, or `symbol` nodes.
+The older `community_id` parameter remains a compatibility alias for `node_id`.
+After that, use graph tools such as `get_node`, `query_graph`, `trace_flow`, or
 `get_impact_radius` when the task needs exact symbols, edges, flows, or impact
-sets. Use `search_docs` or MCP `search` for focused keyword/annotation
-candidate search, not as the default surface for broad architecture or "how does
-this work?" questions.
-
-`retrieve_docs` score is a per-query ranking signal, not an absolute quality
-metric. It should be compared only between results returned for the same query.
-The current DB-backed scoring favors exact symbol/file names and high-signal
-annotation buckets: exact label match, label contains, `qualified_name`,
-`@intent`, `@index`, `@domainRule`, `@requires`, `@ensures`, `@sideEffect`,
-`@mutates`, `@see`, and generic annotation text. Each distinct matched query
-term adds another ranking bonus. `matched_fields`, `matched_terms`, and
-`matches` explain which fields, terms, and graph nodes contributed evidence.
+sets. Use MCP `search` for focused keyword/annotation candidate search over
+symbols.
 
 RAG index quality depends on generated docs and non-empty community
 postprocessing. The CLI `ccg docs` command refreshes communities and writes the
 default `doc-index.json` compatibility snapshot for manual RAG-index workflows.
 It also writes a separate `wiki-index.json` compatibility snapshot for the
-browser Wiki tree. Runtime `retrieve_docs` and Wiki Retrieve use the database
-when it is configured. In MCP-only workflows, run `run_postprocess` with
+browser Wiki tree. Wiki Retrieve uses the database when it is configured. In MCP-only workflows, run `run_postprocess` with
 `communities=true`, `flows=false`, and `fts=false` before `build_rag_index` when
 communities may be missing.
 

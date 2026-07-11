@@ -13,27 +13,12 @@ import (
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
-// FromDB builds a retrieve_docs response from persisted graph nodes and annotations.
-// @intent orchestrate DB-backed retrieve_docs lookup through search backend first and namespace-scoped scan supplementation second.
+// FromDB builds a doc search/retrieval response from persisted graph nodes and annotations.
+// @intent orchestrate DB-backed doc lookup through search backend first and namespace-scoped scan supplementation second.
 // @requires Service.DB must be configured and limit must be positive for meaningful results.
 // @ensures results are grouped one-per-file, annotation-enriched, and optionally populated with bounded content.
 // @sideEffect queries the configured database and may invoke an injected content reader.
 func (s *Service) FromDB(ctx context.Context, namespace, query string, limit, contentLimit int, read ContentReader) (Response, error) {
-	return s.FromDBWithOptions(ctx, namespace, query, limit, contentLimit, read, Options{})
-}
-
-// Options controls optional DB-backed retrieval diagnostics.
-// @intent let DB-backed retrieve_docs expose opt-in scoring diagnostics without changing the default response shape.
-type Options struct {
-	Explain bool
-}
-
-// FromDBWithOptions builds a retrieve_docs response from DB data and optional diagnostics.
-// @intent support DB-primary retrieve_docs while preserving doc-index-compatible explain response fields.
-// @requires Service.DB must be configured and limit must be positive for meaningful results.
-// @ensures results are grouped one-per-file, annotation-enriched, and optionally populated with bounded content.
-// @sideEffect queries the configured database and may invoke an injected content reader.
-func (s *Service) FromDBWithOptions(ctx context.Context, namespace, query string, limit, contentLimit int, read ContentReader, opts Options) (Response, error) {
 	response := Response{Results: []Result{}}
 	if s.DB == nil {
 		return response, fmt.Errorf("DB not configured")
@@ -74,7 +59,7 @@ func (s *Service) FromDBWithOptions(ctx context.Context, namespace, query string
 	terms := MatchedTerms(query)
 	response.Results = make([]Result, 0, len(groups))
 	for idx, group := range groups {
-		result := Result{RetrieveResult: BuildDBResultWithOptions(group, annotations, terms, idx, opts)}
+		result := Result{RetrieveResult: BuildDBResult(group, annotations, terms, idx)}
 		result.Matches = DBMatches(group.Nodes, annotations)
 		response.Results = append(response.Results, result)
 	}
@@ -97,7 +82,7 @@ func (s *Service) FromDBWithOptions(ctx context.Context, namespace, query string
 }
 
 // @intent ask the configured FTS search backend for a bounded candidate set while letting callers supplement from DB scan when search is unavailable.
-// @domainRule FTS query errors are non-fatal for retrieve_docs because DB scan can still produce namespace-scoped file candidates.
+// @domainRule FTS query errors are non-fatal for doc retrieval because DB scan can still produce namespace-scoped file candidates.
 func (s *Service) searchCandidates(ctx context.Context, query string, limit int) []model.Node {
 	if s.SearchBackend == nil {
 		return nil
@@ -110,7 +95,7 @@ func (s *Service) searchCandidates(ctx context.Context, query string, limit int)
 }
 
 // scanDBCandidates collects supplemental candidates by scanning namespace-scoped nodes and annotations.
-// @intent supplement retrieve_docs candidates when backend FTS is missing, failing, or too narrow.
+// @intent supplement doc retrieval candidates when backend FTS is missing, failing, or too narrow.
 func (s *Service) scanDBCandidates(ctx context.Context, namespace, query string) ([]model.Node, error) {
 	terms := MatchedTerms(query)
 	if len(terms) == 0 {
@@ -125,11 +110,11 @@ func (s *Service) scanDBCandidates(ctx context.Context, namespace, query string)
 		Order("file_path ASC, qualified_name ASC, id ASC").
 		Limit(scanRowCap).
 		Find(&nodes).Error; err != nil {
-		return nil, fmt.Errorf("retrieve docs DB candidates: %w", err)
+		return nil, fmt.Errorf("doc retrieval DB candidates: %w", err)
 	}
 	if len(nodes) == scanRowCap {
 		// The scan hit its ceiling: matching nodes sorting after the cap are not considered.
-		slog.WarnContext(ctx, "retrieve_docs fallback scan truncated at cap; some matches may be omitted",
+		slog.WarnContext(ctx, "doc retrieval fallback scan truncated at cap; some matches may be omitted",
 			"namespace", namespace, "cap", scanRowCap)
 	}
 	if len(nodes) == 0 {
@@ -231,7 +216,7 @@ func (s *Service) batchAnnotations(ctx context.Context, namespace string, nodeID
 		Where("annotations.node_id IN ? AND nodes.namespace = ?", nodeIDs, namespace).
 		Preload("Tags").
 		Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("batch retrieve_docs annotations: %w", err)
+		return nil, fmt.Errorf("batch doc retrieval annotations: %w", err)
 	}
 	for i := range rows {
 		annotations[rows[i].NodeID] = &rows[i]

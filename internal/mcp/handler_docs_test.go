@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -327,181 +326,6 @@ func TestSearchDocs_UsesDBWhenDocIndexFileExists(t *testing.T) {
 	}
 }
 
-func TestRetrieveDocs_DBFallbackSucceedsWithoutDocIndex(t *testing.T) {
-	deps := setupTestDeps(t)
-	tmpDir := t.TempDir()
-	docsDir := filepath.Join(tmpDir, "docs")
-	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
-	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", model.TagIntent, "payment settlement workflow", "payment settlement workflow")
-	writeRetrieveDocsMarkdown(t, docsDir, "internal/billing/processor.go", "# processor.go\n\npayment settlement workflow docs\n")
-	rebuildRetrieveDocsSearchBackend(t, deps, ctxns.DefaultNamespace)
-
-	result := callTool(t, deps, "retrieve_docs", map[string]any{
-		"query":         "payment settlement",
-		"limit":         float64(5),
-		"content_limit": float64(2000),
-	})
-	if result.IsError {
-		t.Fatalf("retrieve_docs DB fallback error: %v", getTextContent(result))
-	}
-
-	response := decodeRetrieveDocsResponse(t, result)
-	if len(response.Results) != 1 {
-		t.Fatalf("results = %d, want 1: %#v", len(response.Results), response.Results)
-	}
-	got := response.Results[0]
-	if got.DocPath != "docs/internal/billing/processor.go.md" {
-		t.Fatalf("doc_path = %q, want docs/internal/billing/processor.go.md", got.DocPath)
-	}
-	if !strings.Contains(got.Content, "payment settlement workflow docs") {
-		t.Fatalf("content = %q", got.Content)
-	}
-}
-
-func TestRetrieveDocs_DBFallbackIsNamespaceIsolated(t *testing.T) {
-	deps := setupTestDeps(t)
-	tmpDir := t.TempDir()
-	deps.NamespaceRoot = filepath.Join(tmpDir, "namespaces")
-	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
-	alpha := "alpha-service"
-	beta := "beta-service"
-	seedRetrieveDocsDBFallbackNode(t, deps, alpha, "alpha.Checkout", "Checkout", "checkout.go", model.TagIntent, "sharedtenant alpha checkout", "sharedtenant alpha checkout")
-	seedRetrieveDocsDBFallbackNode(t, deps, beta, "beta.Checkout", "Checkout", "checkout.go", model.TagIntent, "sharedtenant beta checkout", "sharedtenant beta checkout")
-	writeRetrieveDocsMarkdown(t, filepath.Join(deps.NamespaceRoot, alpha, "docs"), "checkout.go", "# checkout\n\nalpha checkout docs\n")
-	writeRetrieveDocsMarkdown(t, filepath.Join(deps.NamespaceRoot, beta, "docs"), "checkout.go", "# checkout\n\nbeta checkout docs\n")
-	rebuildRetrieveDocsSearchBackend(t, deps, alpha)
-	rebuildRetrieveDocsSearchBackend(t, deps, beta)
-
-	result := callTool(t, deps, "retrieve_docs", map[string]any{
-		"namespace":     alpha,
-		"query":         "sharedtenant checkout",
-		"limit":         float64(5),
-		"content_limit": float64(2000),
-	})
-	if result.IsError {
-		t.Fatalf("retrieve_docs namespace DB fallback error: %v", getTextContent(result))
-	}
-
-	response := decodeRetrieveDocsResponse(t, result)
-	if len(response.Results) != 1 {
-		t.Fatalf("results = %d, want 1: %#v", len(response.Results), response.Results)
-	}
-	if !strings.Contains(response.Results[0].Content, "alpha checkout docs") {
-		t.Fatalf("expected alpha docs, got %q", response.Results[0].Content)
-	}
-	if strings.Contains(response.Results[0].Content, "beta checkout docs") || strings.Contains(response.Results[0].Summary, "beta") {
-		t.Fatalf("namespace leaked beta result: %#v", response.Results[0])
-	}
-}
-
-func TestRetrieveDocs_DBFallbackMissingMarkdownDoesNotFail(t *testing.T) {
-	deps := setupTestDeps(t)
-	tmpDir := t.TempDir()
-	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
-	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "docs.Missing", "Missing", "internal/docs/missing.go", model.TagIntent, "missing markdown fallback", "missing markdown fallback")
-	rebuildRetrieveDocsSearchBackend(t, deps, ctxns.DefaultNamespace)
-
-	result := callTool(t, deps, "retrieve_docs", map[string]any{
-		"query":         "missing markdown",
-		"limit":         float64(5),
-		"content_limit": float64(2000),
-	})
-	if result.IsError {
-		t.Fatalf("retrieve_docs should not fail when DB fallback markdown is missing: %v", getTextContent(result))
-	}
-
-	response := decodeRetrieveDocsResponse(t, result)
-	if len(response.Results) != 1 {
-		t.Fatalf("results = %d, want 1: %#v", len(response.Results), response.Results)
-	}
-	if response.Results[0].Content != "" {
-		t.Fatalf("missing markdown content = %q, want empty", response.Results[0].Content)
-	}
-	if response.Results[0].DocPath != "docs/internal/docs/missing.go.md" {
-		t.Fatalf("doc_path = %q, want docs/internal/docs/missing.go.md", response.Results[0].DocPath)
-	}
-}
-
-func TestRetrieveDocs_DBFallbackAnnotationOnlyMatchIncludesAnnotationBucket(t *testing.T) {
-	deps := setupTestDeps(t)
-	tmpDir := t.TempDir()
-	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
-	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "policy.Guard", "Guard", "internal/policy/guard.go", model.TagDomainRule, "breakglass approval required", "policy guard searchable")
-	rebuildRetrieveDocsSearchBackend(t, deps, ctxns.DefaultNamespace)
-
-	result := callTool(t, deps, "retrieve_docs", map[string]any{"query": "breakglass", "limit": float64(5), "content_limit": float64(0)})
-	if result.IsError {
-		t.Fatalf("retrieve_docs annotation-only DB fallback error: %v", getTextContent(result))
-	}
-
-	response := decodeRetrieveDocsResponse(t, result)
-	if len(response.Results) != 1 {
-		t.Fatalf("results = %d, want 1: %#v", len(response.Results), response.Results)
-	}
-	if !retrieveDocsHasField(response.Results[0].MatchedFields, string(model.TagDomainRule)) {
-		t.Fatalf("matched_fields missing domainRule annotation bucket: %#v", response.Results[0].MatchedFields)
-	}
-}
-
-func TestRetrieveDocs_DBFallbackHonorsLimitAfterFileGrouping(t *testing.T) {
-	deps := setupTestDeps(t)
-	tmpDir := t.TempDir()
-	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
-	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "alpha.First", "First", "internal/alpha/file.go", model.TagIntent, "groupterm first", "groupterm first")
-	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "alpha.Second", "Second", "internal/alpha/file.go", model.TagIntent, "groupterm second", "groupterm second")
-	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "beta.Only", "Only", "internal/beta/file.go", model.TagIntent, "groupterm beta", "groupterm beta")
-	rebuildRetrieveDocsSearchBackend(t, deps, ctxns.DefaultNamespace)
-
-	result := callTool(t, deps, "retrieve_docs", map[string]any{"query": "groupterm", "limit": float64(1), "content_limit": float64(0)})
-	if result.IsError {
-		t.Fatalf("retrieve_docs DB fallback limit error: %v", getTextContent(result))
-	}
-
-	response := decodeRetrieveDocsResponse(t, result)
-	if len(response.Results) != 1 {
-		t.Fatalf("results = %d, want exactly 1 file group: %#v", len(response.Results), response.Results)
-	}
-	if len(response.Results[0].Matches) != 2 {
-		t.Fatalf("first file group should keep both node matches, got %#v", response.Results[0].Matches)
-	}
-}
-
-func TestRetrieveDocs_DBFallbackResponseShapeStableByDefault(t *testing.T) {
-	deps := setupTestDeps(t)
-	tmpDir := t.TempDir()
-	deps.RagIndexDir = filepath.Join(tmpDir, ".ccg")
-	seedRetrieveDocsDBFallbackNode(t, deps, ctxns.DefaultNamespace, "stable.Shape", "Shape", "internal/stable/shape.go", model.TagIntent, "stable shape", "stable shape")
-	rebuildRetrieveDocsSearchBackend(t, deps, ctxns.DefaultNamespace)
-
-	result := callTool(t, deps, "retrieve_docs", map[string]any{"query": "stable", "limit": float64(5), "content_limit": float64(0)})
-	if result.IsError {
-		t.Fatalf("retrieve_docs DB fallback shape error: %v", getTextContent(result))
-	}
-	jsonText := getTextContent(result)
-	for _, key := range []string{"expanded_terms", "field_scores", "literal_score", "expansion_score"} {
-		if strings.Contains(jsonText, key) {
-			t.Fatalf("default response must omit %q diagnostic key, got %s", key, jsonText)
-		}
-	}
-
-	response := decodeRetrieveDocsResponse(t, result)
-	if len(response.Results) != 1 {
-		t.Fatalf("results = %d, want 1: %#v", len(response.Results), response.Results)
-	}
-	got := response.Results[0]
-	if got.ID == "" || got.Label == "" || got.Kind != "file" || got.DocPath == "" || len(got.Path) == 0 || len(got.MatchedTerms) == 0 || len(got.MatchedFields) == 0 {
-		t.Fatalf("unstable DB fallback response shape: %#v", got)
-	}
-}
-
-func TestRetrieveDocs_RejectsLimitAboveMax(t *testing.T) {
-	deps := setupTestDeps(t)
-	result := callTool(t, deps, "retrieve_docs", map[string]any{"query": "auth", "limit": float64(51)})
-	if !result.IsError {
-		t.Fatal("expected retrieve_docs to reject limit above max")
-	}
-}
-
 func TestSearchDocs_RejectsInvalidNamespace(t *testing.T) {
 	deps := setupTestDeps(t)
 	result := callTool(t, deps, "search_docs", map[string]any{"query": "auth", "namespace": "../outside"})
@@ -684,15 +508,6 @@ func writeRetrieveDocsMarkdown(t *testing.T, docsDir, filePath, content string) 
 	}
 }
 
-func decodeRetrieveDocsResponse(t *testing.T, result *mcp.CallToolResult) retrieveDocsResponse {
-	t.Helper()
-	var response retrieveDocsResponse
-	if err := json.Unmarshal([]byte(getTextContent(result)), &response); err != nil {
-		t.Fatalf("unmarshal retrieve response: %v", err)
-	}
-	return response
-}
-
 func decodeSearchDocsResults(t *testing.T, result *mcp.CallToolResult) []ragindex.SearchResult {
 	t.Helper()
 	var results []ragindex.SearchResult
@@ -700,8 +515,4 @@ func decodeSearchDocsResults(t *testing.T, result *mcp.CallToolResult) []raginde
 		t.Fatalf("unmarshal search_docs response: %v", err)
 	}
 	return results
-}
-
-func retrieveDocsHasField(fields []string, want string) bool {
-	return slices.Contains(fields, want)
 }

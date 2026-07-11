@@ -118,24 +118,19 @@ type SearchResult struct {
 }
 
 // RetrieveResult represents one document candidate selected from tree-aware query matching.
-// @intent return file-level RAG retrieval candidates with the matched tree evidence that caused the hit, including which annotation buckets contributed. Optional Phase 2 diagnostics (ExpandedTerms, FieldScores, LiteralScore, ExpansionScore) are emitted only when RetrieveOptions.Explain is true and stay omitempty so default responses keep the shape backward-compatible.
+// @intent return file-level doc candidates with the matched tree evidence that caused the hit, including which annotation buckets contributed.
 type RetrieveResult struct {
-	ID             string         `json:"id"`
-	Label          string         `json:"label"`
-	Kind           string         `json:"kind"`
-	Summary        string         `json:"summary"`
-	DocPath        string         `json:"doc_path"`
-	Path           []string       `json:"path"`
-	Score          int            `json:"score"`
-	MatchedTerms   []string       `json:"matched_terms"`
-	MatchedFields  []string       `json:"matched_fields"`
-	Matches        []SearchResult `json:"matches,omitempty"`
-	ExpandedTerms  []string       `json:"expanded_terms,omitempty"`
-	FieldScores    map[string]int `json:"field_scores,omitempty"`
-	LiteralScore   int            `json:"literal_score,omitempty"`
-	ExpansionScore int            `json:"expansion_score,omitempty"`
-
-	wholeWordHits int `json:"-"`
+	ID            string         `json:"id"`
+	Label         string         `json:"label"`
+	Kind          string         `json:"kind"`
+	Summary       string         `json:"summary"`
+	DocPath       string         `json:"doc_path"`
+	Path          []string       `json:"path"`
+	Score         int            `json:"score"`
+	MatchedTerms  []string       `json:"matched_terms"`
+	MatchedFields []string       `json:"matched_fields"`
+	Matches       []SearchResult `json:"matches,omitempty"`
+	wholeWordHits int            `json:"-"`
 }
 
 // Search는 root 트리를 DFS로 순회하며 query를 label, summary, search_text에서
