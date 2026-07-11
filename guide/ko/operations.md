@@ -68,10 +68,8 @@
 
 사용 전에 범위를 좁혀야 하는 고용량 표면:
 
-- `find_dead_code`는 네임스페이스의 모든 미참조 노드를 반환할 수 있습니다.
 - `find_suspect_fallback_edges`는 모든 의심 fallback edge를 반환할 수 있습니다.
-- `find_large_functions`는 `limit`을 받지만 현재 구현은 모든 매칭 함수를 찾은 뒤 응답을 자릅니다.
-- architecture/onboarding 같은 MCP prompt는 넓은 프로젝트 상태를 요약하므로 네임스페이스로 그래프를 좁힌 뒤 사용하는 것이 좋습니다.
+- onboarding 같은 MCP prompt는 넓은 프로젝트 상태를 요약하므로 네임스페이스로 그래프를 좁힌 뒤 사용하는 것이 좋습니다.
 
 공유 서비스에서는 광범위한 분석 요청보다 경로 필터, 네임스페이스 분리,
 페이지네이션 도구를 우선하십시오. 예상보다 큰 도구 응답은 네임스페이스가 너무

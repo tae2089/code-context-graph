@@ -10,7 +10,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/trace"
 
-	"github.com/tae2089/code-context-graph/internal/analysis/community"
 	flowspkg "github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/obs"
 	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
@@ -239,21 +238,6 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		} else {
 			skippedSteps = append(skippedSteps, "flows")
 		}
-		// community rebuild
-		if h.deps.CommunityBuilder != nil {
-			_, err := h.deps.CommunityBuilder.Rebuild(ctx, community.Config{Depth: 2})
-			if err != nil {
-				if failClosed {
-					failClosedErr = err
-					failedSteps = append(failedSteps, "communities")
-					break
-				}
-				log.WarnContext(ctx, "community rebuild failed", append(obs.TraceLogArgs(ctx), trace.SlogError(err))...)
-				failedSteps = append(failedSteps, "communities")
-			}
-		} else {
-			skippedSteps = appendUniqueStrings(skippedSteps, "communities")
-		}
 		// search rebuild
 		if h.deps.SearchBackend != nil && h.deps.DB != nil {
 			if _, err := h.refreshSearchDocuments(ctx); err != nil {
@@ -358,16 +342,11 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 	log := h.logger()
 
 	doFlows := request.GetBool("flows", true)
-	doCommunities := request.GetBool("communities", true)
 	doFTS := request.GetBool("fts", true)
 	postprocessPolicy := request.GetString("postprocess_policy", "")
 	policySource := postprocesspolicy.SourceExplicit
 	if postprocessPolicy == "" {
 		policySource = postprocesspolicy.SourceAuto
-	}
-	communityDepth := request.GetInt("community_depth", 2)
-	if communityDepth < 1 || communityDepth > 8 {
-		return mcp.NewToolResultError("community_depth must be between 1 and 8"), nil
 	}
 	if postprocessPolicy != "" && postprocessPolicy != postprocesspolicy.PolicyDegraded && postprocessPolicy != postprocesspolicy.PolicyFailClosed {
 		return mcp.NewToolResultError("postprocess_policy must be degraded or fail_closed"), nil
@@ -387,7 +366,7 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 	}
 	failClosed := postprocessPolicy == postprocesspolicy.PolicyFailClosed
 
-	log.Info("run_postprocess called", "flows", doFlows, "communities", doCommunities, "fts", doFTS)
+	log.Info("run_postprocess called", "flows", doFlows, "fts", doFTS)
 
 	var flowsCount, communitiesCount, ftsIndexed int
 	var failedSteps []string
@@ -414,27 +393,6 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 		}
 	} else {
 		skippedSteps = appendUniqueStrings(skippedSteps, "flows")
-	}
-
-	if doCommunities {
-		if h.deps.CommunityBuilder != nil {
-			stats, err := h.deps.CommunityBuilder.Rebuild(ctx, community.Config{Depth: communityDepth})
-			if err != nil {
-				if failClosed {
-					failClosedErr = err
-					failedSteps = append(failedSteps, "communities")
-				} else {
-					log.Warn("community rebuild failed", trace.SlogError(err))
-					failedSteps = append(failedSteps, "communities")
-				}
-			} else {
-				communitiesCount = len(stats)
-			}
-		} else {
-			skippedSteps = appendUniqueStrings(skippedSteps, "communities")
-		}
-	} else {
-		skippedSteps = appendUniqueStrings(skippedSteps, "communities")
 	}
 
 	if doFTS {

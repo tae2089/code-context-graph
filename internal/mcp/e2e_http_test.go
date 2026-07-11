@@ -179,7 +179,7 @@ func TestE2EHTTP_ListTools(t *testing.T) {
 		toolNames[tool.Name] = true
 	}
 
-	required := []string{"parse_project", "get_node", "search", "list_graph_stats", "find_dead_code"}
+	required := []string{"parse_project", "get_node", "search", "list_graph_stats", "query_graph"}
 	for _, name := range required {
 		if !toolNames[name] {
 			t.Errorf("missing tool: %s", name)

@@ -14,13 +14,8 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
-	"github.com/tae2089/code-context-graph/internal/analysis/community"
-	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
-	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
-	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
 	"github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/analysis/impact"
-	"github.com/tae2089/code-context-graph/internal/analysis/largefunc"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/core"
 	"github.com/tae2089/code-context-graph/internal/mcp"
@@ -93,11 +88,6 @@ func New(rt *core.Runtime, opts Options) (*Instance, error) {
 		FlowTracer:          flows.New(rt.Store),
 		ChangesGitClient:    changes.NewExecGitClient(),
 		QueryService:        query.New(rt.DB),
-		LargefuncAnalyzer:   largefunc.New(rt.DB),
-		DeadcodeAnalyzer:    deadcode.New(rt.DB),
-		CouplingAnalyzer:    coupling.New(rt.DB),
-		CoverageAnalyzer:    coverage.New(rt.DB),
-		CommunityBuilder:    community.New(rt.DB),
 		FlowBuilder:         flows.NewBuilder(rt.DB, rt.Store),
 		Incremental:         rt.Syncer,
 		PostprocessPolicy:   NewPostprocessPolicy(rt.DB),

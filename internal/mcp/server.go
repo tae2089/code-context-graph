@@ -29,7 +29,7 @@ func NewServer(deps *Deps) *server.MCPServer {
 	h := &handlers{deps: deps, cache: deps.Cache}
 	registerTools(srv, h)
 
-	log.Info("MCP server created", "name", "code-context-graph", "version", "1.0.0", "prompts", 5)
+	log.Info("MCP server created", "name", "code-context-graph", "version", "1.0.0", "prompts", 4)
 
 	p := &promptHandlers{deps: deps}
 	registerPrompts(srv, p)

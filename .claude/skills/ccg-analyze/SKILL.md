@@ -15,11 +15,7 @@ Graph-based analysis for **change impact, call flow, dead code, module structure
 | "Trace call flow from this function" | `trace_flow`                                     | If broken at interfaces, see workaround below |
 | "Who calls this function?"           | `query_graph` (callers_of)                       |                                               |
 | "What does this function call?"      | `query_graph` (callees_of)                       |                                               |
-| "Unused code"                        | `find_dead_code`                                 | Interface methods may give false positives    |
-| "Large functions"                    | `find_large_functions`                           | Refactoring candidates                        |
 | "Risk of this change"                | `detect_changes` + `get_affected_flows`          | git diff-based                                |
-| "Module structure"                   | `list_communities` + `get_architecture_overview` | First time on a codebase                      |
-| "Test coverage gaps"                 | `get_community` (with coverage)                  |                                               |
 
 ## trace_flow Limitations & Workaround
 
@@ -67,14 +63,9 @@ If results are huge, the change scope is likely too wide. Reconsider the change 
 | --------------------------- | ---------------------------- |
 | `get_impact_radius`         | BFS blast radius             |
 | `trace_flow`                | Call chain trace             |
-| `find_large_functions`      | Above line threshold         |
-| `find_dead_code`            | No callers                   |
 | `detect_changes`            | Git diff risk score          |
 | `get_affected_flows`        | Flows affected by change     |
 | `list_flows`                | Stored flow list             |
-| `list_communities`          | Louvain module clusters      |
-| `get_community`             | Community details + coverage |
-| `get_architecture_overview` | Coupling summary             |
 
 For detailed parameters, see MCP schema.
 

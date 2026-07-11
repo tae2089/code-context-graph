@@ -3,19 +3,13 @@ package mcp
 import (
 	"context"
 
-	"github.com/tae2089/code-context-graph/internal/analysis/community"
-	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
-	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
-	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
 	fallbackanalysis "github.com/tae2089/code-context-graph/internal/analysis/fallback"
 	"github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
-	"github.com/tae2089/code-context-graph/internal/analysis/largefunc"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/paging"
-	"github.com/tae2089/code-context-graph/internal/pathutil"
 )
 
 type mockQueryService struct {
@@ -203,66 +197,6 @@ func (m *mockQueryService) FindExactNameMatches(ctx context.Context, target stri
 	return m.matchResult, m.err
 }
 
-type mockLargefuncAnalyzer struct {
-	findCalled     bool
-	findPageCalled bool
-	findPageOpts   largefunc.Options
-	result         []model.Node
-	err            error
-}
-
-func (m *mockLargefuncAnalyzer) Find(ctx context.Context, threshold int) ([]model.Node, error) {
-	m.findCalled = true
-	return m.result, m.err
-}
-
-func (m *mockLargefuncAnalyzer) FindPage(ctx context.Context, opts largefunc.Options) (largefunc.Result, error) {
-	m.findPageCalled = true
-	m.findPageOpts = opts
-	items := m.result
-	if opts.PathPrefix != "" {
-		filtered := make([]model.Node, 0, len(items))
-		for _, item := range items {
-			if pathutil.HasPathPrefix(item.FilePath, opts.PathPrefix) {
-				filtered = append(filtered, item)
-			}
-		}
-		items = filtered
-	}
-	items, hasMore := applyPagedResult(items, opts.Page)
-	return largefunc.Result{Items: items, Pagination: paging.BuildPage(opts.Page, len(items), hasMore)}, m.err
-}
-
-type mockDeadcodeAnalyzer struct {
-	findCalled     bool
-	findPageCalled bool
-	findPageOpts   deadcode.Options
-	result         []model.Node
-	err            error
-}
-
-func (m *mockDeadcodeAnalyzer) Find(ctx context.Context, opts deadcode.Options) ([]model.Node, error) {
-	m.findCalled = true
-	return m.result, m.err
-}
-
-func (m *mockDeadcodeAnalyzer) FindPage(ctx context.Context, opts deadcode.Options) (deadcode.Result, error) {
-	m.findPageCalled = true
-	m.findPageOpts = opts
-	items := m.result
-	if opts.FilePattern != "" {
-		filtered := make([]model.Node, 0, len(items))
-		for _, item := range items {
-			if pathutil.HasPathPrefix(item.FilePath, opts.FilePattern) {
-				filtered = append(filtered, item)
-			}
-		}
-		items = filtered
-	}
-	items, hasMore := applyPagedResult(items, opts.Page)
-	return deadcode.Result{Items: items, Pagination: paging.BuildPage(opts.Page, len(items), hasMore)}, m.err
-}
-
 type mockFallbackAnalyzer struct {
 	findCalled     bool
 	findPageCalled bool
@@ -282,68 +216,6 @@ func (m *mockFallbackAnalyzer) FindSuspectsPage(ctx context.Context, opts fallba
 	items := m.result
 	items, hasMore := applyPagedResult(items, opts.Page)
 	return fallbackanalysis.Result{Items: items, Pagination: paging.BuildPage(opts.Page, len(items), hasMore)}, m.err
-}
-
-type mockCouplingAnalyzer struct {
-	analyzeCalled     bool
-	analyzePageCalled bool
-	result            []coupling.CouplingPair
-	err               error
-}
-
-func (m *mockCouplingAnalyzer) Analyze(ctx context.Context) ([]coupling.CouplingPair, error) {
-	m.analyzeCalled = true
-	return m.result, m.err
-}
-
-func (m *mockCouplingAnalyzer) AnalyzePage(ctx context.Context, req paging.Request) (coupling.Result, error) {
-	m.analyzePageCalled = true
-	if m.err != nil {
-		return coupling.Result{}, m.err
-	}
-	normalized, err := paging.Normalize(req)
-	if err != nil {
-		return coupling.Result{}, err
-	}
-	total := len(m.result)
-	if normalized.Offset >= total {
-		return coupling.Result{Items: []coupling.CouplingPair{}, Pagination: paging.BuildPage(normalized, 0, false)}, nil
-	}
-	end := normalized.Offset + normalized.Limit
-	hasMore := end < total
-	if end > total {
-		end = total
-	}
-	items := append([]coupling.CouplingPair(nil), m.result[normalized.Offset:end]...)
-	return coupling.Result{Items: items, Pagination: paging.BuildPage(normalized, len(items), hasMore)}, nil
-}
-
-type mockCoverageAnalyzer struct {
-	byFileCalled    bool
-	byCommunCalled  bool
-	fileResult      *coverage.FileCoverage
-	communityResult *coverage.CommunityCoverage
-	err             error
-}
-
-func (m *mockCoverageAnalyzer) ByFile(ctx context.Context, filePath string) (*coverage.FileCoverage, error) {
-	m.byFileCalled = true
-	return m.fileResult, m.err
-}
-func (m *mockCoverageAnalyzer) ByCommunity(ctx context.Context, communityID uint) (*coverage.CommunityCoverage, error) {
-	m.byCommunCalled = true
-	return m.communityResult, m.err
-}
-
-type mockCommunityBuilder struct {
-	rebuildCalled bool
-	result        []community.Stats
-	err           error
-}
-
-func (m *mockCommunityBuilder) Rebuild(ctx context.Context, cfg community.Config) ([]community.Stats, error) {
-	m.rebuildCalled = true
-	return m.result, m.err
 }
 
 type mockFlowBuilder struct {

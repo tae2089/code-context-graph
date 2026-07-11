@@ -15,8 +15,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/tae2089/code-context-graph/internal/analysis/community"
-	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
 	"github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/analysis/impact"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
@@ -527,51 +525,6 @@ func Gamma() {}
 	}
 }
 
-func TestE2E_BuildAndCommunities(t *testing.T) {
-	deps := setupE2EDeps(t)
-
-	commBuilder := community.New(deps.DB)
-	deps.CommunityBuilder = commBuilder
-
-	dir := t.TempDir()
-	writeGoFile(t, dir, "svc.go", `package svc
-
-func Run() {}
-func Stop() {}
-`)
-
-	buildResult := callTool(t, deps, "build_or_update_graph", map[string]any{
-		"path":         dir,
-		"full_rebuild": true,
-		"postprocess":  "none",
-	})
-	if buildResult.IsError {
-		t.Fatalf("build_or_update_graph error: %s", getTextContent(buildResult))
-	}
-
-	ppResult := callTool(t, deps, "run_postprocess", map[string]any{
-		"flows":       false,
-		"communities": true,
-		"fts":         false,
-	})
-	if ppResult.IsError {
-		t.Fatalf("run_postprocess error: %s", getTextContent(ppResult))
-	}
-
-	lcResult := callTool(t, deps, "list_communities", map[string]any{})
-	if lcResult.IsError {
-		t.Fatalf("list_communities error: %s", getTextContent(lcResult))
-	}
-
-	text := getTextContent(lcResult)
-	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
-	comms := resp["communities"].([]any)
-	if len(comms) == 0 {
-		t.Error("expected at least 1 community after rebuild")
-	}
-}
-
 func TestE2E_UploadBuildSearch(t *testing.T) {
 	deps := setupE2EDeps(t)
 
@@ -667,60 +620,5 @@ func RefundPayment(txID string) error {
 	}
 	if len(refundResults) == 0 {
 		t.Fatal("expected at least 1 search result for 'RefundPayment'")
-	}
-}
-
-func TestE2E_BuildAndDeadCode(t *testing.T) {
-	deps := setupE2EDeps(t)
-
-	dcAnalyzer := deadcode.New(deps.DB)
-	deps.DeadcodeAnalyzer = dcAnalyzer
-
-	dir := t.TempDir()
-	writeGoFile(t, dir, "dead.go", `package dead
-
-func UsedFunc() {}
-func UnusedFunc() {}
-`)
-
-	buildResult := callTool(t, deps, "build_or_update_graph", map[string]any{
-		"path":         dir,
-		"full_rebuild": true,
-		"postprocess":  "none",
-	})
-	if buildResult.IsError {
-		t.Fatalf("build_or_update_graph error: %s", getTextContent(buildResult))
-	}
-
-	// Make UsedFunc have an incoming edge
-	ctx := context.Background()
-	usedNode, _ := deps.Store.GetNode(ctx, "dead.UsedFunc")
-	unusedNode, _ := deps.Store.GetNode(ctx, "dead.UnusedFunc")
-	if usedNode == nil || unusedNode == nil {
-		t.Fatal("expected both nodes to exist")
-	}
-	deps.Store.UpsertEdges(ctx, []model.Edge{
-		{FromNodeID: unusedNode.ID, ToNodeID: usedNode.ID, Kind: model.EdgeKindCalls, Fingerprint: "calls-unused-used"},
-	})
-
-	dcResult := callTool(t, deps, "find_dead_code", map[string]any{})
-	if dcResult.IsError {
-		t.Fatalf("find_dead_code error: %s", getTextContent(dcResult))
-	}
-
-	text := getTextContent(dcResult)
-	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
-	deadCode := resp["dead_code"].([]any)
-	// UnusedFunc has no incoming edge, so it should appear as dead code
-	found := false
-	for _, dc := range deadCode {
-		entry := dc.(map[string]any)
-		if entry["name"] == "dead.UnusedFunc" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected dead.UnusedFunc in dead code results")
 	}
 }
