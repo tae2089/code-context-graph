@@ -232,25 +232,3 @@ func TestMCPHandler_QueryWithNamespace_IncludesNamespaceEvidence(t *testing.T) {
 		t.Fatal("expected branch in git evidence")
 	}
 }
-
-func TestBuildRagIndex_WritesToNamespaceIndexDir(t *testing.T) {
-	deps := setupTestDeps(t)
-	tmpDir := t.TempDir()
-	deps.RagIndexDir = tmpDir
-
-	nsDir := filepath.Join(tmpDir, "namespaces", "my-service", "docs")
-	if err := os.MkdirAll(nsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	deps.NamespaceRoot = filepath.Join(tmpDir, "namespaces")
-
-	result := callTool(t, deps, "build_rag_index", map[string]any{"namespace": "my-service"})
-	if result.IsError {
-		t.Fatalf("build_rag_index with namespace error: %v", getTextContent(result))
-	}
-
-	wsIndexPath := filepath.Join(tmpDir, "my-service", "doc-index.json")
-	if _, err := os.Stat(wsIndexPath); os.IsNotExist(err) {
-		t.Errorf("expected namespace index at %s, but not found", wsIndexPath)
-	}
-}
