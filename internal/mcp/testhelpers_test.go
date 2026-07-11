@@ -218,7 +218,7 @@ func setupTestDepsMinimal(t *testing.T) *Deps {
 		},
 		RepoRoot: os.TempDir(),
 		// Note: QueryService, LargefuncAnalyzer, DeadcodeAnalyzer, CouplingAnalyzer,
-		// CoverageAnalyzer, CommunityBuilder, FlowBuilder, and Incremental are intentionally nil
+		// CoverageAnalyzer, FlowBuilder, and Incremental are intentionally nil
 	}
 }
 

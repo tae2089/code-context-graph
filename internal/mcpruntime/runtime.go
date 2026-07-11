@@ -14,7 +14,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
-	"github.com/tae2089/code-context-graph/internal/analysis/community"
 	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
 	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
 	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
@@ -97,7 +96,6 @@ func New(rt *core.Runtime, opts Options) (*Instance, error) {
 		DeadcodeAnalyzer:    deadcode.New(rt.DB),
 		CouplingAnalyzer:    coupling.New(rt.DB),
 		CoverageAnalyzer:    coverage.New(rt.DB),
-		CommunityBuilder:    community.New(rt.DB),
 		FlowBuilder:         flows.NewBuilder(rt.DB, rt.Store),
 		Incremental:         rt.Syncer,
 		PostprocessPolicy:   NewPostprocessPolicy(rt.DB),

@@ -8,7 +8,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
-	"github.com/tae2089/code-context-graph/internal/analysis/community"
 	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
 	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
 	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
@@ -121,13 +120,6 @@ type CoverageAnalyzer interface {
 	ByCommunity(ctx context.Context, communityID uint) (*coverage.CommunityCoverage, error)
 }
 
-// CommunityBuilder defines the community rebuild contract.
-// @intent Injects an implementation to recalculate module communities during graph post-processing.
-// @see mcp.handlers.runPostprocess
-type CommunityBuilder interface {
-	Rebuild(ctx context.Context, cfg community.Config) ([]community.Stats, error)
-}
-
 // IncrementalSyncer defines the incremental graph synchronization contract.
 // @intent Injects a syncer that reflects only changed files into the graph without full re-parsing.
 // @see mcp.handlers.buildOrUpdateGraph
@@ -164,7 +156,6 @@ type Deps struct {
 	FallbackAnalyzer  FallbackAnalyzer
 	CouplingAnalyzer  CouplingAnalyzer
 	CoverageAnalyzer  CoverageAnalyzer
-	CommunityBuilder  CommunityBuilder
 	FlowBuilder       FlowBuilder
 	Incremental       IncrementalSyncer
 	PostprocessPolicy PostprocessPolicy
