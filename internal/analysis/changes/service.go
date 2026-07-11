@@ -55,35 +55,6 @@ func New(db *gorm.DB, git GitClient) *Service {
 	return &Service{db: db, git: git}
 }
 
-// Analyze detects changed functions and calculates risk scores.
-// Called from review_changes and pre_merge_check MCP prompts.
-//
-// @param repoDir git repository root path
-// @param baseRef git base reference for diff comparison
-// @return risk entries with hunk count and risk score per changed function
-// @intent identify high-risk code changes before merge
-// @domainRule risk score equals hunk count multiplied by outgoing edge count plus one
-// @sideEffect executes git diff via GitClient
-// @see impact.Analyzer.ImpactRadius
-func (s *Service) Analyze(ctx context.Context, repoDir, baseRef string) ([]RiskEntry, error) {
-	hunksByFile, files, err := s.collectDiffHunks(ctx, repoDir, baseRef)
-	if err != nil || hunksByFile == nil {
-		return nil, err
-	}
-
-	hits, err := matchHunksToNodes(s.db, ctx, files, hunksByFile)
-	if err != nil || len(hits) == 0 {
-		return nil, err
-	}
-
-	risks, err := computeRiskScores(s.db, ctx, hits)
-	if err != nil {
-		return nil, err
-	}
-	sortRiskEntries(risks)
-	return risks, nil
-}
-
 // AnalyzePage detects changed functions and returns one bounded page of risk entries.
 // @intent bound handler response allocation while preserving the same sorted risk window that legacy Analyze would expose.
 // @domainRule pagination limits returned items, but compute cost still scales with scoring every changed node to preserve legacy ordering.
@@ -147,23 +118,6 @@ func (s *Service) changedNodeHits(ctx context.Context, repoDir, baseRef string) 
 		return nil, err
 	}
 	return matchHunksToNodes(s.db, ctx, files, hunksByFile)
-}
-
-// sortRiskEntries orders entries deterministically for stable pagination windows.
-// @intent guarantee identical limit/offset slices regardless of map iteration order in computeRiskScores.
-func sortRiskEntries(entries []RiskEntry) {
-	sort.SliceStable(entries, func(i, j int) bool {
-		if entries[i].RiskScore != entries[j].RiskScore {
-			return entries[i].RiskScore > entries[j].RiskScore
-		}
-		if entries[i].Node.FilePath != entries[j].Node.FilePath {
-			return entries[i].Node.FilePath < entries[j].Node.FilePath
-		}
-		if entries[i].Node.StartLine != entries[j].Node.StartLine {
-			return entries[i].Node.StartLine < entries[j].Node.StartLine
-		}
-		return entries[i].Node.QualifiedName < entries[j].Node.QualifiedName
-	})
 }
 
 // sortNodesForChangeOrder orders changed nodes deterministically for downstream set consumers.
@@ -260,22 +214,6 @@ type riskCandidate struct {
 	node      model.Node
 	hunkCount int
 	riskScore float64
-}
-
-// computeRiskScores calculates risk for each hit node based on outgoing edge count.
-// @intent weight changed nodes by both diff overlap and graph connectivity to prioritize risky edits.
-func computeRiskScores(db *gorm.DB, ctx context.Context, hits map[uint]*hitInfo) ([]RiskEntry, error) {
-	candidates, err := computeRiskCandidates(db, ctx, hits)
-	if err != nil {
-		return nil, err
-	}
-	return riskCandidatesToEntries(candidates), nil
-}
-
-// computeRiskCandidates calculates sortable risk candidates for each hit node.
-// @intent allow paged callers to sort and slice before converting candidates into wire-facing risk entries.
-func computeRiskCandidates(db *gorm.DB, ctx context.Context, hits map[uint]*hitInfo) ([]riskCandidate, error) {
-	return computeTopRiskCandidates(db, ctx, hits, len(hits))
 }
 
 // selectTopRiskCandidates returns the best N risk candidates without materializing the full candidate slice.

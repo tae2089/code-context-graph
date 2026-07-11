@@ -196,44 +196,6 @@ func FindNode(root *TreeNode, id string) *TreeNode {
 	return nil
 }
 
-// PruneTree는 root 트리를 maxDepth 깊이까지만 포함한 새 트리를 반환한다.
-// maxDepth <= 0이면 전체 트리를 반환한다. 원본 트리는 변경하지 않는다.
-// depth 계산: root는 depth 0, root의 직계 자식은 depth 1.
-// @intent 대형 인덱스를 요약 응답에 맞게 깊이 제한된 복사본으로 축약한다.
-// @ensures 원본 트리는 수정되지 않는다.
-func PruneTree(root *TreeNode, maxDepth int) *TreeNode {
-	if root == nil {
-		return nil
-	}
-	return pruneNode(root, 0, maxDepth)
-}
-
-// pruneNode copies one subtree while enforcing the depth limit.
-// @intent PruneTree의 재귀 복사 작업을 깊이 기준으로 수행한다.
-// @return 자식이 제한된 새로운 TreeNode 복사본을 반환한다.
-func pruneNode(n *TreeNode, currentDepth, maxDepth int) *TreeNode {
-	copied := &TreeNode{
-		ID:          n.ID,
-		Label:       n.Label,
-		Kind:        n.Kind,
-		Summary:     n.Summary,
-		DocPath:     n.DocPath,
-		SearchText:  n.SearchText,
-		HasChildren: len(n.Children) > 0 || n.HasChildren,
-		FieldTexts:  n.FieldTexts,
-		Details:     n.Details,
-	}
-	if maxDepth <= 0 || currentDepth < maxDepth {
-		copied.Children = make([]*TreeNode, 0, len(n.Children))
-		for _, child := range n.Children {
-			copied.Children = append(copied.Children, pruneNode(child, currentDepth+1, maxDepth))
-		}
-	} else {
-		copied.Children = []*TreeNode{}
-	}
-	return copied
-}
-
 // LoadIndex reads a persisted Index (e.g. wiki-index.json) from disk.
 // @intent let the wiki index round-trip its written tree without the RAG-index builder.
 func LoadIndex(path string) (*Index, error) {

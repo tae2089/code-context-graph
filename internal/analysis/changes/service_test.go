@@ -89,7 +89,7 @@ func TestAnalyze_ChangedFunction(t *testing.T) {
 		hunks: []Hunk{{FilePath: "a.go", StartLine: 15, EndLine: 20}},
 	}
 	svc := New(db, git)
-	got, err := svc.Analyze(context.Background(), ".", "main")
+	got, err := analyzeAll(svc, context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestAnalyze_NoOverlap(t *testing.T) {
 		hunks: []Hunk{{FilePath: "a.go", StartLine: 1, EndLine: 5}},
 	}
 	svc := New(db, git)
-	got, err := svc.Analyze(context.Background(), ".", "main")
+	got, err := analyzeAll(svc, context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestAnalyze_MultipleHunks(t *testing.T) {
 		},
 	}
 	svc := New(db, git)
-	got, err := svc.Analyze(context.Background(), ".", "main")
+	got, err := analyzeAll(svc, context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestAnalyze_RiskScoreCalculation(t *testing.T) {
 		},
 	}
 	svc := New(db, git)
-	got, err := svc.Analyze(context.Background(), ".", "main")
+	got, err := analyzeAll(svc, context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestAnalyze_EmptyDiff(t *testing.T) {
 
 	git := &mockGit{files: nil, hunks: nil}
 	svc := New(db, git)
-	got, err := svc.Analyze(context.Background(), ".", "main")
+	got, err := analyzeAll(svc, context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestAnalyze_RespectsNamespace(t *testing.T) {
 	svc := New(db, git)
 
 	ctxA := ctxns.WithNamespace(context.Background(), "ns-a")
-	got, err := svc.Analyze(ctxA, ".", "main")
+	got, err := analyzeAll(svc, ctxA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,10 +288,9 @@ func TestAnalyzePage_PreservesAnalyzeOrderingForPagedConsumers(t *testing.T) {
 	}
 	svc := New(db, &mockGit{files: files, hunks: hunks})
 
-	legacy, err := svc.Analyze(context.Background(), ".", "main")
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Node i has i outgoing edges, so risk increases with i; the full descending
+	// order is 4,3,2,1. The {Limit:2, Offset:1} window must therefore be [3, 2],
+	// pinned to concrete node IDs so the check is independent of AnalyzePage itself.
 	page, err := svc.AnalyzePage(context.Background(), ".", "main", paging.Request{Limit: 2, Offset: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -300,10 +299,15 @@ func TestAnalyzePage_PreservesAnalyzeOrderingForPagedConsumers(t *testing.T) {
 	if len(page.Items) != 2 {
 		t.Fatalf("items = %d, want 2", len(page.Items))
 	}
+	if page.Items[0].Node.ID != 3 || page.Items[1].Node.ID != 2 {
+		t.Fatalf("window node IDs = [%d, %d], want [3, 2]", page.Items[0].Node.ID, page.Items[1].Node.ID)
+	}
+	if !(page.Items[0].RiskScore > page.Items[1].RiskScore) {
+		t.Fatalf("expected descending risk across the window, got %.1f then %.1f", page.Items[0].RiskScore, page.Items[1].RiskScore)
+	}
 	for i, item := range page.Items {
-		want := legacy[i+1]
-		if item.Node.ID != want.Node.ID || item.RiskScore != want.RiskScore || item.HunkCount != want.HunkCount {
-			t.Fatalf("page item %d = %+v, want legacy slice item %+v", i, item, want)
+		if item.HunkCount != 1 {
+			t.Fatalf("item %d HunkCount = %d, want 1", i, item.HunkCount)
 		}
 	}
 }
@@ -328,7 +332,7 @@ func TestAnalyzePage_MatchesAnalyzeAcrossRepresentativeWindows(t *testing.T) {
 	}
 	svc := New(db, &mockGit{files: files, hunks: hunks})
 
-	legacy, err := svc.Analyze(context.Background(), ".", "main")
+	legacy, err := analyzeAll(svc, context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -416,4 +420,11 @@ func TestAnalyzePage_OffsetBeyondTotalReturnsEmpty(t *testing.T) {
 	if page.Pagination.HasMore {
 		t.Fatal("has_more = true, want false")
 	}
+}
+
+// analyzeAll returns the full, unpaged risk-entry ordering via AnalyzePage,
+// used as the reference for verifying paged windows.
+func analyzeAll(svc *Service, ctx context.Context) ([]RiskEntry, error) {
+	page, err := svc.AnalyzePage(ctx, ".", "main", paging.Request{Limit: 500, Offset: 0})
+	return page.Items, err
 }
