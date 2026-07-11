@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 
-	"github.com/tae2089/code-context-graph/internal/analysis/community"
 	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
 	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
 	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
@@ -333,17 +332,6 @@ func (m *mockCoverageAnalyzer) ByFile(ctx context.Context, filePath string) (*co
 func (m *mockCoverageAnalyzer) ByCommunity(ctx context.Context, communityID uint) (*coverage.CommunityCoverage, error) {
 	m.byCommunCalled = true
 	return m.communityResult, m.err
-}
-
-type mockCommunityBuilder struct {
-	rebuildCalled bool
-	result        []community.Stats
-	err           error
-}
-
-func (m *mockCommunityBuilder) Rebuild(ctx context.Context, cfg community.Config) ([]community.Stats, error) {
-	m.rebuildCalled = true
-	return m.result, m.err
 }
 
 type mockFlowBuilder struct {

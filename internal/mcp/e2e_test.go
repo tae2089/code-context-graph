@@ -15,7 +15,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/tae2089/code-context-graph/internal/analysis/community"
 	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
 	"github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/analysis/impact"
@@ -524,51 +523,6 @@ func Gamma() {}
 	json.Unmarshal([]byte(text), &resp)
 	if resp["total_nodes"].(float64) < 3 {
 		t.Errorf("expected at least 3 nodes, got %v", resp["total_nodes"])
-	}
-}
-
-func TestE2E_BuildAndCommunities(t *testing.T) {
-	deps := setupE2EDeps(t)
-
-	commBuilder := community.New(deps.DB)
-	deps.CommunityBuilder = commBuilder
-
-	dir := t.TempDir()
-	writeGoFile(t, dir, "svc.go", `package svc
-
-func Run() {}
-func Stop() {}
-`)
-
-	buildResult := callTool(t, deps, "build_or_update_graph", map[string]any{
-		"path":         dir,
-		"full_rebuild": true,
-		"postprocess":  "none",
-	})
-	if buildResult.IsError {
-		t.Fatalf("build_or_update_graph error: %s", getTextContent(buildResult))
-	}
-
-	ppResult := callTool(t, deps, "run_postprocess", map[string]any{
-		"flows":       false,
-		"communities": true,
-		"fts":         false,
-	})
-	if ppResult.IsError {
-		t.Fatalf("run_postprocess error: %s", getTextContent(ppResult))
-	}
-
-	lcResult := callTool(t, deps, "list_communities", map[string]any{})
-	if lcResult.IsError {
-		t.Fatalf("list_communities error: %s", getTextContent(lcResult))
-	}
-
-	text := getTextContent(lcResult)
-	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
-	comms := resp["communities"].([]any)
-	if len(comms) == 0 {
-		t.Error("expected at least 1 community after rebuild")
 	}
 }
 
