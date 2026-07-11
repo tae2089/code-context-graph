@@ -150,7 +150,6 @@ type PostprocessPolicy interface {
 type Deps struct {
 	Store            store.GraphStore
 	DB               *gorm.DB
-	Parser           Parser
 	Walkers          map[string]Parser
 	SearchBackend    storesearch.Backend
 	ImpactAnalyzer   ImpactAnalyzer

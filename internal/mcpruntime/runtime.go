@@ -87,7 +87,6 @@ func New(rt *core.Runtime, opts Options) (*Instance, error) {
 	mcpDeps := &mcp.Deps{
 		Store:               rt.Store,
 		DB:                  rt.DB,
-		Parser:              rt.Walkers[".go"],
 		Walkers:             mcpWalkers,
 		SearchBackend:       rt.SearchBackend,
 		ImpactAnalyzer:      impact.New(rt.Store),
