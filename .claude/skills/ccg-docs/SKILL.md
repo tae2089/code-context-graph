@@ -12,7 +12,6 @@ Generate Markdown documentation from code graphs, build RAG indexes for AI consu
 | Command | Description | Example |
 |---------|-------------|---------|
 | `docs [--out dir]` | Generate Markdown documentation | `ccg docs --out docs` |
-| `index [--out dir]` | Regenerate index.md only | `ccg index` |
 | `lint [--out dir]` | 8-category docs lint | `ccg lint` |
 | `lint --strict` | Exit 1 on issues (for CI/pre-commit) | `ccg lint --strict` |
 | `hooks install` | Install pre-commit git hook | `ccg hooks install` |

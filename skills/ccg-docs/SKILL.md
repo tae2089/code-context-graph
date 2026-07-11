@@ -52,7 +52,6 @@ search_docs("auth")          # focused keyword → tree node candidates
 | Command               | Use                               |
 | --------------------- | --------------------------------- |
 | `ccg docs --out docs` | Generate Markdown for all modules |
-| `ccg index`           | Regenerate index.md only          |
 | `ccg lint`            | 8-category quality check          |
 | `ccg lint --strict`   | Exit 1 on issues (CI-friendly)    |
 | `ccg hooks install`   | Install pre-commit hook           |

@@ -105,8 +105,8 @@ func Lib() {}
 	// Index with exclusion
 	outDir := t.TempDir()
 	stdout.Reset()
-	if err := executeCmd(deps, stdout, stderr, "index", "--out", outDir, "--exclude", "vendor"); err != nil {
-		t.Fatalf("index: %v", err)
+	if err := executeCmd(deps, stdout, stderr, "docs", "--out", outDir, "--exclude", "vendor"); err != nil {
+		t.Fatalf("docs: %v", err)
 	}
 
 	content, err := os.ReadFile(filepath.Join(outDir, "index.md"))
@@ -145,8 +145,8 @@ func Inner() {}
 
 	outDir := t.TempDir()
 	stdout.Reset()
-	if err := executeCmd(deps, stdout, stderr, "index", "--out", outDir); err != nil {
-		t.Fatalf("index: %v", err)
+	if err := executeCmd(deps, stdout, stderr, "docs", "--out", outDir); err != nil {
+		t.Fatalf("docs: %v", err)
 	}
 
 	content, err := os.ReadFile(filepath.Join(outDir, "index.md"))
