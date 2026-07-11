@@ -1404,9 +1404,7 @@ func TestBuildOrUpdateGraph_DegradedOnSearchDocumentRefreshFailure(t *testing.T)
 	deps := setupTestDeps(t)
 	backend := &failSearchBackend{}
 	deps.SearchBackend = backend
-	origRefresh := refreshSearchDocuments
-	defer func() { refreshSearchDocuments = origRefresh }()
-	refreshSearchDocuments = func(ctx context.Context, db *gorm.DB) (int, error) {
+	deps.RefreshSearchDocuments = func(ctx context.Context, db *gorm.DB) (int, error) {
 		return 0, errors.New("search document refresh boom")
 	}
 
@@ -1451,9 +1449,7 @@ func TestBuildOrUpdateGraph_MinimalSkipsFTSRebuildOnSearchDocumentRefreshFailure
 	deps := setupTestDeps(t)
 	backend := &failSearchBackend{}
 	deps.SearchBackend = backend
-	origRefresh := refreshSearchDocuments
-	defer func() { refreshSearchDocuments = origRefresh }()
-	refreshSearchDocuments = func(ctx context.Context, db *gorm.DB) (int, error) {
+	deps.RefreshSearchDocuments = func(ctx context.Context, db *gorm.DB) (int, error) {
 		return 0, errors.New("search document refresh boom")
 	}
 

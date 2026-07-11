@@ -18,12 +18,7 @@ import (
 
 type languagePackageInfo = treesitter.PackageInfo
 
-var (
-	testBuildBatchReleaseHook func([]parsedBuildNodeBatch, int)
-	resolveBuildEdges         resolveBuildEdgesFn = edgeresolve.ResolveWithOptions
-)
-
-// @intent abstract build-time edge resolution so tests and build paths can swap resolver behavior without rewiring callers.
+// @intent abstract build-time edge resolution so tests can inject resolver behavior per GraphService.
 type resolveBuildEdgesFn func(ctx context.Context, lookup edgeresolve.NodeLookup, edges []model.Edge, options edgeresolve.ResolveOptions) ([]model.Edge, error)
 
 const (
@@ -89,6 +84,20 @@ type GraphService struct {
 	Walkers       map[string]*treesitter.Walker
 	Parsers       map[string]Parser
 	Logger        *slog.Logger
+
+	// resolveEdges overrides build-time edge resolution; nil uses edgeresolve.ResolveWithOptions.
+	// onBatchRelease, when set, is notified after each node batch is persisted and its buffers
+	// are released. Both are test seams kept per-instance so the server has no mutable globals.
+	resolveEdges   resolveBuildEdgesFn
+	onBatchRelease func([]parsedBuildNodeBatch, int)
+}
+
+// @intent resolve build edges through the injected resolver, defaulting to the production resolver.
+func (s *GraphService) edgeResolver() resolveBuildEdgesFn {
+	if s.resolveEdges != nil {
+		return s.resolveEdges
+	}
+	return edgeresolve.ResolveWithOptions
 }
 
 // BuildOptions configures one graph build run.

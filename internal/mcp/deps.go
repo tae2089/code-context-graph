@@ -183,4 +183,8 @@ type Deps struct {
 
 	MaxFileBytes        int64
 	MaxTotalParsedBytes int64
+
+	// RefreshSearchDocuments overrides the search-document refresh used after a build; nil uses
+	// service.RefreshSearchDocuments. Kept as an injectable field so tests need no package globals.
+	RefreshSearchDocuments func(ctx context.Context, db *gorm.DB) (int, error)
 }
