@@ -100,8 +100,8 @@ func (s *GraphService) bindAndReleaseNodeBatch(ctx context.Context, txStore stor
 
 	parsed.tsComments = nil
 	parsed.sourceLines = nil
-	if testBuildBatchReleaseHook != nil {
-		testBuildBatchReleaseHook(batches, idx)
+	if s.onBatchRelease != nil {
+		s.onBatchRelease(batches, idx)
 	}
 	return nil
 }
@@ -450,7 +450,7 @@ func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphS
 			return err
 		}
 		end := min(start+buildEdgeResolveChunkSize, len(implementsEdges))
-		resolved, err := resolveBuildEdges(ctx, txStore, implementsEdges[start:end], resolveOptions)
+		resolved, err := s.edgeResolver()(ctx, txStore, implementsEdges[start:end], resolveOptions)
 		if err != nil {
 			s.logger().ErrorContext(ctx, "resolve deferred implements edges failed", append(obs.TraceLogArgs(ctx), "start", start, "end", end, "error", err)...)
 			return trace.Wrap(err, "resolve deferred implements edges")
@@ -474,7 +474,7 @@ func (s *GraphService) flushBuildEdges(ctx context.Context, txStore store.GraphS
 			end := min(start+buildEdgeResolveChunkSize, len(parsed.edges))
 			chunk := parsed.edges[start:end]
 			resolveInput := chunkWithImportWarmup(chunk, importsByPath[parsed.relPath])
-			resolved, err := resolveBuildEdges(ctx, txStore, resolveInput, resolveOptions)
+			resolved, err := s.edgeResolver()(ctx, txStore, resolveInput, resolveOptions)
 			if err != nil {
 				s.logger().ErrorContext(ctx, "resolve deferred edges failed", append(obs.TraceLogArgs(ctx), "file", parsed.relPath, "error", err)...)
 				return trace.Wrap(err, "resolve deferred edges for "+parsed.relPath)

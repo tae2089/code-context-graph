@@ -498,22 +498,20 @@ func TestFlushBuildEdges_ResolvesAndUpsertsBoundedBatches(t *testing.T) {
 	}
 
 	var resolveSizes []int
-	oldResolve := resolveBuildEdges
-	resolveBuildEdges = func(ctx context.Context, lookup edgeresolve.NodeLookup, edges []model.Edge, options edgeresolve.ResolveOptions) ([]model.Edge, error) {
+	resolver := func(ctx context.Context, lookup edgeresolve.NodeLookup, edges []model.Edge, options edgeresolve.ResolveOptions) ([]model.Edge, error) {
 		resolveSizes = append(resolveSizes, len(edges))
 		if len(edges) > buildEdgeResolveChunkSize {
 			t.Fatalf("resolve batch exceeded limit: got %d want <= %d", len(edges), buildEdgeResolveChunkSize)
 		}
-		return oldResolve(ctx, lookup, edges, options)
+		return edgeresolve.ResolveWithOptions(ctx, lookup, edges, options)
 	}
-	t.Cleanup(func() { resolveBuildEdges = oldResolve })
 
 	batches := []parsedBuildEdgeBatch{
 		{relPath: "cmd/main.go", edges: []model.Edge{{Kind: model.EdgeKindImportsFrom, FilePath: "cmd/main.go", Line: 1, Fingerprint: "imports_from:cmd/main.go:github.com/example/project/mcp:1"}, {Kind: model.EdgeKindCalls, FilePath: "cmd/main.go", Line: 2, Fingerprint: "calls:cmd/main.go:h.deps.FlowTracer.TraceFlow:2"}}},
 		{relPath: "flows/tracer.go", edges: []model.Edge{{Kind: model.EdgeKindImplements, FilePath: "flows/tracer.go", Line: 7, Fingerprint: "implements:flows/tracer.go:flows.Tracer:mcp.FlowTracer"}}},
 	}
 
-	svc := &GraphService{}
+	svc := &GraphService{resolveEdges: resolver}
 	if err := svc.flushBuildEdges(ctx, st, batches, nil, edgeresolve.ResolveOptions{}); err != nil {
 		t.Fatalf("flushBuildEdges: %v", err)
 	}
@@ -543,8 +541,7 @@ func TestFlushBuildEdges_ResolvesImplementsOnlyOnce(t *testing.T) {
 	st.nodesByFP["flows/tracer.go"] = []model.Node{{ID: 30, QualifiedName: "flows/tracer.go", Name: "flows/tracer.go", Kind: model.NodeKindFile, FilePath: "flows/tracer.go", Language: "go"}, {ID: 3, QualifiedName: "flows.Tracer", Name: "Tracer", Kind: model.NodeKindClass, FilePath: "flows/tracer.go", StartLine: 7, EndLine: 7, Language: "go"}, {ID: 4, QualifiedName: "flows.Tracer.TraceFlow", Name: "TraceFlow", Kind: model.NodeKindFunction, FilePath: "flows/tracer.go", StartLine: 9, EndLine: 11, Language: "go"}}
 
 	var implementsSeen []int
-	oldResolve := resolveBuildEdges
-	resolveBuildEdges = func(ctx context.Context, lookup edgeresolve.NodeLookup, edges []model.Edge, options edgeresolve.ResolveOptions) ([]model.Edge, error) {
+	resolver := func(ctx context.Context, lookup edgeresolve.NodeLookup, edges []model.Edge, options edgeresolve.ResolveOptions) ([]model.Edge, error) {
 		count := 0
 		for _, edge := range edges {
 			if edge.Kind == model.EdgeKindImplements {
@@ -552,9 +549,8 @@ func TestFlushBuildEdges_ResolvesImplementsOnlyOnce(t *testing.T) {
 			}
 		}
 		implementsSeen = append(implementsSeen, count)
-		return oldResolve(ctx, lookup, edges, options)
+		return edgeresolve.ResolveWithOptions(ctx, lookup, edges, options)
 	}
-	t.Cleanup(func() { resolveBuildEdges = oldResolve })
 
 	batches := []parsedBuildEdgeBatch{
 		{relPath: "flows/tracer.go", edges: []model.Edge{{Kind: model.EdgeKindImplements, FilePath: "flows/tracer.go", Line: 7, Fingerprint: "implements:flows/tracer.go:flows.Tracer:mcp.FlowTracer"}}},
@@ -562,7 +558,7 @@ func TestFlushBuildEdges_ResolvesImplementsOnlyOnce(t *testing.T) {
 		{relPath: "cmd/main.go", edges: []model.Edge{{Kind: model.EdgeKindContains, FilePath: "cmd/main.go", Line: 1, Fingerprint: "contains:cmd/main.go:main.Run"}}},
 	}
 
-	svc := &GraphService{}
+	svc := &GraphService{resolveEdges: resolver}
 	if err := svc.flushBuildEdges(ctx, st, batches, nil, edgeresolve.ResolveOptions{}); err != nil {
 		t.Fatalf("flushBuildEdges: %v", err)
 	}
@@ -2100,8 +2096,7 @@ func TestBuild_ReleasesBatchCommentStateAfterBinding(t *testing.T) {
 		tsCommentsNil bool
 		sourceNil     bool
 	}
-	prevHook := testBuildBatchReleaseHook
-	testBuildBatchReleaseHook = func(batches []parsedBuildNodeBatch, idx int) {
+	recordRelease := func(batches []parsedBuildNodeBatch, idx int) {
 		snapshots = append(snapshots, struct {
 			batch         int
 			tsCommentsNil bool
@@ -2112,7 +2107,6 @@ func TestBuild_ReleasesBatchCommentStateAfterBinding(t *testing.T) {
 			sourceNil:     batches[idx].sourceLines == nil,
 		})
 	}
-	defer func() { testBuildBatchReleaseHook = prevHook }()
 
 	fakeStore := newRecordingGraphStore(t)
 	svc := &GraphService{
@@ -2120,7 +2114,8 @@ func TestBuild_ReleasesBatchCommentStateAfterBinding(t *testing.T) {
 		Walkers: map[string]*treesitter.Walker{
 			".go": treesitter.NewWalker(treesitter.GoSpec),
 		},
-		Logger: slog.Default(),
+		Logger:         slog.Default(),
+		onBatchRelease: recordRelease,
 	}
 
 	dir := t.TempDir()

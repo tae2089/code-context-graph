@@ -33,29 +33,19 @@ type Parser interface {
 	ParseWithContext(ctx context.Context, filePath string, content []byte) ([]model.Node, []model.Edge, error)
 }
 
-// ImpactAnalyzer defines the blast-radius analysis contract for graph nodes.
-// @intent Injects an analyzer that calculates the impact radius of node changes into the server handler.
+// ImpactAnalyzer defines the bounded blast-radius analysis contract for graph nodes.
+// @intent inject a node/depth-capped blast-radius analyzer so a single MCP request cannot
+// expand into an unbounded graph walk.
 // @see mcp.handlers.getImpactRadius
 type ImpactAnalyzer interface {
-	ImpactRadius(ctx context.Context, nodeID uint, depth int) ([]model.Node, error)
-}
-
-// BoundedImpactAnalyzer extends ImpactAnalyzer with node and depth caps to prevent runaway traversal on large graphs.
-// @intent expose bounded blast-radius analysis for handlers that must protect shared MCP requests from unbounded graph walks.
-type BoundedImpactAnalyzer interface {
 	ImpactRadiusBounded(ctx context.Context, nodeID uint, depth int, opts impactpkg.RadiusOptions) (*impactpkg.RadiusResult, error)
 }
 
-// FlowTracer defines the call-flow tracing contract for graph nodes.
-// @intent Connects an analyzer to the server that reconstructs call flows starting from a given node.
+// FlowTracer defines the bounded call-flow tracing contract for graph nodes.
+// @intent inject a node-capped call-flow tracer so a deep call chain cannot expand into an
+// unbounded traversal.
 // @see mcp.handlers.traceFlow
 type FlowTracer interface {
-	TraceFlow(ctx context.Context, startNodeID uint) (*model.Flow, error)
-}
-
-// BoundedFlowTracer extends FlowTracer with a node cap to prevent runaway traversal on deeply nested call chains.
-// @intent let MCP handlers trace deep call chains without letting one request expand into an unbounded traversal.
-type BoundedFlowTracer interface {
 	TraceFlowBounded(ctx context.Context, startNodeID uint, opts flowspkg.TraceOptions) (*flowspkg.TraceResult, error)
 }
 
@@ -193,4 +183,8 @@ type Deps struct {
 
 	MaxFileBytes        int64
 	MaxTotalParsedBytes int64
+
+	// RefreshSearchDocuments overrides the search-document refresh used after a build; nil uses
+	// service.RefreshSearchDocuments. Kept as an injectable field so tests need no package globals.
+	RefreshSearchDocuments func(ctx context.Context, db *gorm.DB) (int, error)
 }

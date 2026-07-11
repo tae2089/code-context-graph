@@ -18,7 +18,13 @@ import (
 	"github.com/tae2089/code-context-graph/internal/service"
 )
 
-var refreshSearchDocuments = service.RefreshSearchDocuments
+// @intent refresh search documents through the injected override, defaulting to the service impl.
+func (h *handlers) refreshSearchDocuments(ctx context.Context) (int, error) {
+	if h.deps.RefreshSearchDocuments != nil {
+		return h.deps.RefreshSearchDocuments(ctx, h.deps.DB)
+	}
+	return service.RefreshSearchDocuments(ctx, h.deps.DB)
+}
 
 // @intent serialize build_or_update_graph results with a fixed JSON schema without changing the wire format.
 type buildOrUpdateGraphResponse struct {
@@ -250,7 +256,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		}
 		// search rebuild
 		if h.deps.SearchBackend != nil && h.deps.DB != nil {
-			if _, err := refreshSearchDocuments(ctx, h.deps.DB); err != nil {
+			if _, err := h.refreshSearchDocuments(ctx); err != nil {
 				if failClosed {
 					failClosedErr = err
 					failedSteps = append(failedSteps, "search_documents")
@@ -274,7 +280,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		skippedSteps = appendUniqueStrings(skippedSteps, "communities", "flows")
 		// search only rebuild
 		if h.deps.SearchBackend != nil && h.deps.DB != nil {
-			if _, err := refreshSearchDocuments(ctx, h.deps.DB); err != nil {
+			if _, err := h.refreshSearchDocuments(ctx); err != nil {
 				if failClosed {
 					failClosedErr = err
 					failedSteps = append(failedSteps, "search_documents")
@@ -433,7 +439,7 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 
 	if doFTS {
 		if h.deps.SearchBackend != nil && h.deps.DB != nil {
-			if _, err := refreshSearchDocuments(ctx, h.deps.DB); err != nil {
+			if _, err := h.refreshSearchDocuments(ctx); err != nil {
 				if failClosed {
 					failClosedErr = err
 					failedSteps = append(failedSteps, "search_documents")

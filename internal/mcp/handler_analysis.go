@@ -161,32 +161,13 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 			return "", nodeNotFoundErr(qn)
 		}
 
-		var nodes []model.Node
-		truncated := false
-		if bounded, ok := h.deps.ImpactAnalyzer.(BoundedImpactAnalyzer); ok {
-			res, err := bounded.ImpactRadiusBounded(ctx, node.ID, depth, impactpkg.RadiusOptions{MaxDepth: maxDepth, MaxNodes: maxNodes})
-			if err != nil {
-				log.ErrorContext(ctx, "impact analysis error", append(obs.TraceLogArgs(ctx), "node_id", node.ID, trace.SlogError(err))...)
-				return "", trace.Wrap(err, "impact analysis error")
-			}
-			nodes = res.Nodes
-			truncated = res.Truncated
-		} else {
-			if maxDepth > 0 && depth > maxDepth {
-				depth = maxDepth
-				truncated = true
-			}
-			var err error
-			nodes, err = h.deps.ImpactAnalyzer.ImpactRadius(ctx, node.ID, depth)
-			if err != nil {
-				log.ErrorContext(ctx, "impact analysis error", append(obs.TraceLogArgs(ctx), "node_id", node.ID, trace.SlogError(err))...)
-				return "", trace.Wrap(err, "impact analysis error")
-			}
-			if maxNodes > 0 && len(nodes) > maxNodes {
-				nodes = nodes[:maxNodes]
-				truncated = true
-			}
+		res, err := h.deps.ImpactAnalyzer.ImpactRadiusBounded(ctx, node.ID, depth, impactpkg.RadiusOptions{MaxDepth: maxDepth, MaxNodes: maxNodes})
+		if err != nil {
+			log.ErrorContext(ctx, "impact analysis error", append(obs.TraceLogArgs(ctx), "node_id", node.ID, trace.SlogError(err))...)
+			return "", trace.Wrap(err, "impact analysis error")
 		}
+		nodes := res.Nodes
+		truncated := res.Truncated
 
 		log.InfoContext(ctx, "get_impact_radius completed", append(obs.TraceLogArgs(ctx), "qualified_name", qn, "result_count", len(nodes))...)
 
@@ -249,32 +230,15 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 			return "", nodeNotFoundErr(qn)
 		}
 
-		var flow *model.Flow
-		truncated := false
-		containsFallbackCalls := false
-		fallbackEdgesCount := 0
-		if bounded, ok := h.deps.FlowTracer.(BoundedFlowTracer); ok {
-			res, err := bounded.TraceFlowBounded(ctx, node.ID, flowspkg.TraceOptions{MaxNodes: maxNodes, IncludeFallbackCalls: &includeFallbackCalls})
-			if err != nil {
-				log.ErrorContext(ctx, "trace error", append(obs.TraceLogArgs(ctx), "node_id", node.ID, trace.SlogError(err))...)
-				return "", trace.Wrap(err, "trace error")
-			}
-			flow = res.Flow
-			truncated = res.Truncated
-			containsFallbackCalls = res.ContainsFallbackCalls
-			fallbackEdgesCount = res.FallbackEdgesCount
-		} else {
-			var err error
-			flow, err = h.deps.FlowTracer.TraceFlow(ctx, node.ID)
-			if err != nil {
-				log.ErrorContext(ctx, "trace error", append(obs.TraceLogArgs(ctx), "node_id", node.ID, trace.SlogError(err))...)
-				return "", trace.Wrap(err, "trace error")
-			}
-			if maxNodes > 0 && len(flow.Members) > maxNodes {
-				flow.Members = flow.Members[:maxNodes]
-				truncated = true
-			}
+		res, err := h.deps.FlowTracer.TraceFlowBounded(ctx, node.ID, flowspkg.TraceOptions{MaxNodes: maxNodes, IncludeFallbackCalls: &includeFallbackCalls})
+		if err != nil {
+			log.ErrorContext(ctx, "trace error", append(obs.TraceLogArgs(ctx), "node_id", node.ID, trace.SlogError(err))...)
+			return "", trace.Wrap(err, "trace error")
 		}
+		flow := res.Flow
+		truncated := res.Truncated
+		containsFallbackCalls := res.ContainsFallbackCalls
+		fallbackEdgesCount := res.FallbackEdgesCount
 
 		log.InfoContext(ctx, "trace_flow completed", append(obs.TraceLogArgs(ctx), "qualified_name", qn, "members", len(flow.Members))...)
 
