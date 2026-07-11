@@ -8,6 +8,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/pathutil"
+	"github.com/tae2089/code-context-graph/internal/searchrank"
 )
 
 // newSearchCmd creates the full-text search command.
@@ -31,12 +32,10 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 			ns, _ := cmd.Flags().GetString("namespace")
 			ctx = ctxns.WithNamespace(ctx, ns)
 
-			fetchLimit := limit
-			if pathPrefix != "" {
-				fetchLimit = max(limit*5, 50)
-			}
-
-			nodes, err := deps.SearchBackend.Query(ctx, deps.DB, query, fetchLimit)
+			// Over-fetch a wider candidate pool so structural reranking can
+			// promote good matches FTS ranked below the limit, and so path
+			// filtering still leaves up to 'limit' results.
+			nodes, err := deps.SearchBackend.Query(ctx, deps.DB, query, searchrank.FetchLimit(limit))
 			if err != nil {
 				return trace.Wrap(err, "search")
 			}
@@ -51,10 +50,10 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 					}
 				}
 				nodes = filtered
-				if len(nodes) > limit {
-					nodes = nodes[:limit]
-				}
 			}
+
+			// Rerank FTS candidates with structural signals, then bound to limit.
+			nodes = searchrank.Rerank(query, nodes, limit)
 
 			if len(nodes) == 0 {
 				fmt.Fprintln(out, "No results")
