@@ -13,7 +13,6 @@ import (
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/model"
-	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 	"github.com/tae2089/code-context-graph/internal/store"
 	storesearch "github.com/tae2089/code-context-graph/internal/store/search"
 )
@@ -81,15 +80,6 @@ type IncrementalSyncer interface {
 	SyncWithExisting(ctx context.Context, files map[string]incremental.FileInfo, existingFiles []string) (*incremental.SyncStats, error)
 }
 
-// PostprocessPolicy gates and records automatic postprocess runs so repeated failures can be detected and suppressed.
-// @intent centralize automatic postprocess decisions so repeated failures can degrade execution before handlers retry expensive work.
-type PostprocessPolicy interface {
-	Resolve(ctx context.Context, input postprocesspolicy.DecisionInput) (string, string, error)
-	RecordRun(ctx context.Context, record postprocesspolicy.RunRecord) error
-	Status(ctx context.Context, opts postprocesspolicy.StatusOptions) (*postprocesspolicy.StatusSummary, error)
-	Reset(ctx context.Context, tool string) error
-}
-
 // Deps collects the services and stores required by MCP handlers.
 // @intent Assembles tool and prompt handlers by injecting all MCP server components at once.
 type Deps struct {
@@ -103,10 +93,9 @@ type Deps struct {
 	Logger           *slog.Logger
 
 	// Added in Phase 11
-	QueryService      QueryService
-	FlowBuilder       FlowBuilder
-	Incremental       IncrementalSyncer
-	PostprocessPolicy PostprocessPolicy
+	QueryService QueryService
+	FlowBuilder  FlowBuilder
+	Incremental  IncrementalSyncer
 
 	// Cache — nil disables caching
 	Cache *Cache

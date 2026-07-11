@@ -265,4 +265,3 @@ Typical uses:
 - [CLI Reference](cli-reference.md#lint-categories)
 - [Custom Annotations](annotations.md)
 - [Development](development.md)
-- [Postprocess Failure Policy](postprocess-failure-policy.md)

@@ -274,7 +274,7 @@ growing, or a deployment restart may have interrupted an accepted event.
 
    ```bash
    ccg update /data/repos/api --namespace api
-   ccg status --namespace api --errors
+   ccg status --namespace api
    ```
 
 5. If search, communities, or saved flows still look stale, call the MCP

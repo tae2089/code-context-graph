@@ -11,7 +11,6 @@ import (
 
 	mcpgo "github.com/mark3labs/mcp-go/server"
 	"github.com/tae2089/trace"
-	"gorm.io/gorm"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
 	"github.com/tae2089/code-context-graph/internal/analysis/flows"
@@ -20,7 +19,6 @@ import (
 	"github.com/tae2089/code-context-graph/internal/core"
 	"github.com/tae2089/code-context-graph/internal/mcp"
 	ccgobs "github.com/tae2089/code-context-graph/internal/obs"
-	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 )
 
 // Options controls shared MCP runtime setup independent of transport.
@@ -41,17 +39,16 @@ type Options struct {
 // Instance is a fully assembled MCP server plus runtime resources.
 // @intent share MCP server construction while keeping stdio and HTTP transports in separate packages.
 type Instance struct {
-	Server             *mcpgo.MCPServer
-	Cache              *mcp.Cache
-	Deps               *mcp.Deps
-	PostprocessSummary func(context.Context) (*postprocesspolicy.StatusSummary, error)
+	Server *mcpgo.MCPServer
+	Cache  *mcp.Cache
+	Deps   *mcp.Deps
 
 	logger   *slog.Logger
 	shutdown func(context.Context) error
 	close    sync.Once
 }
 
-// New assembles MCP handlers, cache, telemetry, and postprocess policy.
+// New assembles MCP handlers, cache, and telemetry.
 // @intent centralize common MCP dependency wiring without linking webhook/HTTP code into the local CLI binary.
 // @sideEffect initializes telemetry and optional in-memory cache.
 func New(rt *core.Runtime, opts Options) (*Instance, error) {
@@ -90,7 +87,6 @@ func New(rt *core.Runtime, opts Options) (*Instance, error) {
 		QueryService:        query.New(rt.DB),
 		FlowBuilder:         flows.NewBuilder(rt.DB, rt.Store),
 		Incremental:         rt.Syncer,
-		PostprocessPolicy:   NewPostprocessPolicy(rt.DB),
 		Logger:              rt.Logger,
 		Cache:               cache,
 		RagIndexDir:         opts.RagIndexDir,
@@ -107,12 +103,6 @@ func New(rt *core.Runtime, opts Options) (*Instance, error) {
 		Deps:     mcpDeps,
 		logger:   rt.Logger,
 		shutdown: tel.Shutdown,
-	}
-	inst.PostprocessSummary = func(ctx context.Context) (*postprocesspolicy.StatusSummary, error) {
-		if mcpDeps.PostprocessPolicy == nil {
-			return nil, nil
-		}
-		return mcpDeps.PostprocessPolicy.Status(ctx, postprocesspolicy.StatusOptions{RecentLimit: postprocesspolicy.DefaultStatusLimit})
 	}
 	return inst, nil
 }
@@ -171,49 +161,4 @@ func FlushQueryCache(cache *mcp.Cache) {
 	if cache != nil {
 		cache.Flush()
 	}
-}
-
-// MCPPostprocessPolicy manages post-processing policies for the MCP runtime.
-// @intent MCP 실행 경로가 후처리 정책 결정을 공통 래퍼로 호출하게 한다.
-type MCPPostprocessPolicy struct {
-	engine *postprocesspolicy.Engine
-	store  *postprocesspolicy.Store
-}
-
-// NewPostprocessPolicy creates a new MCP post-processing policy wrapper.
-// @intent MCP 실행 경로에서 후처리 정책 엔진과 저장소를 함께 묶어 제공한다.
-func NewPostprocessPolicy(db *gorm.DB) *MCPPostprocessPolicy {
-	if db == nil {
-		return nil
-	}
-	return &MCPPostprocessPolicy{
-		engine: &postprocesspolicy.Engine{},
-		store:  postprocesspolicy.NewStore(db),
-	}
-}
-
-// Resolve decides the policy for a given tool and input.
-// @intent 요청된 후처리 도구에 적용할 정책과 출처를 계산한다.
-func (p *MCPPostprocessPolicy) Resolve(ctx context.Context, input postprocesspolicy.DecisionInput) (string, string, error) {
-	return p.engine.Resolve(ctx, p.store, input)
-}
-
-// RecordRun logs the results of a post-processing run.
-// @intent 후처리 실행 결과를 정책 저장소에 기록해 후속 판단에 반영한다.
-// @sideEffect ccg_postprocess_run_logs 상태를 갱신한다.
-func (p *MCPPostprocessPolicy) RecordRun(ctx context.Context, record postprocesspolicy.RunRecord) error {
-	return p.store.RecordRun(ctx, record)
-}
-
-// Status returns the current status summary of post-processing.
-// @intent 운영 상태 엔드포인트가 후처리 건강 상태를 요약해서 볼 수 있게 한다.
-func (p *MCPPostprocessPolicy) Status(ctx context.Context, opts postprocesspolicy.StatusOptions) (*postprocesspolicy.StatusSummary, error) {
-	return p.store.Status(ctx, opts)
-}
-
-// Reset clears the state of a specific post-processing tool.
-// @intent 실패 누적 상태를 초기화해 특정 후처리 도구를 다시 정상 정책으로 돌린다.
-// @sideEffect 해당 도구의 정책 상태를 재설정한다.
-func (p *MCPPostprocessPolicy) Reset(ctx context.Context, tool string) error {
-	return p.store.Reset(ctx, tool)
 }

@@ -12,7 +12,6 @@ import (
 
 	flowspkg "github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/obs"
-	postprocesspolicy "github.com/tae2089/code-context-graph/internal/postprocess/policy"
 	"github.com/tae2089/code-context-graph/internal/safepath"
 	"github.com/tae2089/code-context-graph/internal/service"
 )
@@ -27,27 +26,23 @@ func (h *handlers) refreshSearchDocuments(ctx context.Context) (int, error) {
 
 // @intent serialize build_or_update_graph results with a fixed JSON schema without changing the wire format.
 type buildOrUpdateGraphResponse struct {
-	Status            string   `json:"status"`
-	FilesParsed       int      `json:"files_parsed"`
-	NodesCreated      int      `json:"nodes_created"`
-	EdgesCreated      int      `json:"edges_created"`
-	ElapsedMS         int64    `json:"elapsed_ms"`
-	PostprocessPolicy string   `json:"postprocess_policy"`
-	PolicySource      string   `json:"policy_source"`
-	FailedSteps       []string `json:"failed_steps"`
-	SkippedSteps      []string `json:"skipped_steps"`
+	Status       string   `json:"status"`
+	FilesParsed  int      `json:"files_parsed"`
+	NodesCreated int      `json:"nodes_created"`
+	EdgesCreated int      `json:"edges_created"`
+	ElapsedMS    int64    `json:"elapsed_ms"`
+	FailedSteps  []string `json:"failed_steps"`
+	SkippedSteps []string `json:"skipped_steps"`
 }
 
 // @intent serialize run_postprocess results with a fixed JSON schema without changing the wire format.
 type runPostprocessResponse struct {
-	Status            string   `json:"status"`
-	FlowsCount        int      `json:"flows_count"`
-	CommunitiesCount  int      `json:"communities_count"`
-	FTSIndexed        int      `json:"fts_indexed"`
-	PostprocessPolicy string   `json:"postprocess_policy"`
-	PolicySource      string   `json:"policy_source"`
-	FailedSteps       []string `json:"failed_steps"`
-	SkippedSteps      []string `json:"skipped_steps"`
+	Status           string   `json:"status"`
+	FlowsCount       int      `json:"flows_count"`
+	CommunitiesCount int      `json:"communities_count"`
+	FTSIndexed       int      `json:"fts_indexed"`
+	FailedSteps      []string `json:"failed_steps"`
+	SkippedSteps     []string `json:"skipped_steps"`
 }
 
 // @intent apply per-request parse limits without mutating the shared handler dependency configuration.
@@ -143,36 +138,14 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 
 	fullRebuild := request.GetBool("full_rebuild", true)
 	postprocess := request.GetString("postprocess", "full")
-	postprocessPolicy := request.GetString("postprocess_policy", "")
-	policySource := postprocesspolicy.SourceExplicit
-	if postprocessPolicy == "" {
-		policySource = postprocesspolicy.SourceAuto
-	}
 	includePaths := request.GetStringSlice("include_paths", nil)
 	replace := request.GetBool("replace", true)
 
-	if postprocessPolicy != "" && postprocessPolicy != postprocesspolicy.PolicyDegraded && postprocessPolicy != postprocesspolicy.PolicyFailClosed {
-		return mcp.NewToolResultError("postprocess_policy must be degraded or fail_closed"), nil
-	}
 	if postprocess != "full" && postprocess != "minimal" && postprocess != "none" {
 		return mcp.NewToolResultError("postprocess must be full, minimal, or none"), nil
 	}
-	if h.deps.PostprocessPolicy != nil {
-		resolvedPolicy, resolvedSource, err := h.deps.PostprocessPolicy.Resolve(ctx, postprocesspolicy.DecisionInput{
-			Tool:           postprocesspolicy.ToolBuildOrUpdateGraph,
-			ExplicitPolicy: postprocessPolicy,
-		})
-		if err != nil {
-			return nil, err
-		}
-		postprocessPolicy = resolvedPolicy
-		policySource = resolvedSource
-	} else if postprocessPolicy == "" {
-		postprocessPolicy = postprocesspolicy.PolicyDegraded
-	}
-	failClosed := postprocessPolicy == postprocesspolicy.PolicyFailClosed && postprocess != "none"
 
-	log.Info("build_or_update_graph called", "path", dirPath, "full_rebuild", fullRebuild, "postprocess", postprocess, "postprocess_policy", postprocessPolicy)
+	log.Info("build_or_update_graph called", "path", dirPath, "full_rebuild", fullRebuild, "postprocess", postprocess)
 
 	validatedPath, err := h.validateAnalysisPath(dirPath)
 	if err != nil {
@@ -222,16 +195,10 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 	// Postprocessing
 	var failedSteps []string
 	var skippedSteps []string
-	var failClosedErr error
 	switch postprocess {
 	case "full":
 		if h.deps.FlowBuilder != nil {
 			if _, err := h.deps.FlowBuilder.Rebuild(ctx, flowspkg.Config{}); err != nil {
-				if failClosed {
-					failClosedErr = err
-					failedSteps = append(failedSteps, "flows")
-					break
-				}
 				log.WarnContext(ctx, "flow rebuild failed", append(obs.TraceLogArgs(ctx), trace.SlogError(err))...)
 				failedSteps = append(failedSteps, "flows")
 			}
@@ -241,19 +208,9 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		// search rebuild
 		if h.deps.SearchBackend != nil && h.deps.DB != nil {
 			if _, err := h.refreshSearchDocuments(ctx); err != nil {
-				if failClosed {
-					failClosedErr = err
-					failedSteps = append(failedSteps, "search_documents")
-					break
-				}
 				log.WarnContext(ctx, "search document refresh failed", append(obs.TraceLogArgs(ctx), trace.SlogError(err))...)
 				failedSteps = append(failedSteps, "search_documents")
 			} else if err := h.deps.SearchBackend.Rebuild(ctx, h.deps.DB); err != nil {
-				if failClosed {
-					failClosedErr = err
-					failedSteps = append(failedSteps, "fts")
-					break
-				}
 				log.WarnContext(ctx, "search rebuild failed", append(obs.TraceLogArgs(ctx), trace.SlogError(err))...)
 				failedSteps = append(failedSteps, "fts")
 			}
@@ -261,23 +218,13 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 			skippedSteps = appendUniqueStrings(skippedSteps, "search_documents", "fts")
 		}
 	case "minimal":
-		skippedSteps = appendUniqueStrings(skippedSteps, "communities", "flows")
+		skippedSteps = appendUniqueStrings(skippedSteps, "flows")
 		// search only rebuild
 		if h.deps.SearchBackend != nil && h.deps.DB != nil {
 			if _, err := h.refreshSearchDocuments(ctx); err != nil {
-				if failClosed {
-					failClosedErr = err
-					failedSteps = append(failedSteps, "search_documents")
-					break
-				}
 				log.WarnContext(ctx, "search document refresh failed", append(obs.TraceLogArgs(ctx), trace.SlogError(err))...)
 				failedSteps = append(failedSteps, "search_documents")
 			} else if err := h.deps.SearchBackend.Rebuild(ctx, h.deps.DB); err != nil {
-				if failClosed {
-					failClosedErr = err
-					failedSteps = append(failedSteps, "fts")
-					break
-				}
 				log.WarnContext(ctx, "search rebuild failed", append(obs.TraceLogArgs(ctx), trace.SlogError(err))...)
 				failedSteps = append(failedSteps, "fts")
 			}
@@ -286,7 +233,7 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 		}
 	case "none":
 		// skip
-		skippedSteps = appendUniqueStrings(skippedSteps, "communities", "flows", "search_documents", "fts")
+		skippedSteps = appendUniqueStrings(skippedSteps, "flows", "search_documents", "fts")
 	}
 
 	elapsed := time.Since(start).Milliseconds()
@@ -296,30 +243,13 @@ func (h *handlers) buildOrUpdateGraph(ctx context.Context, request mcp.CallToolR
 	}
 
 	result := buildOrUpdateGraphResponse{
-		Status:            status,
-		FilesParsed:       fileCount,
-		NodesCreated:      nodeCount,
-		EdgesCreated:      edgeCount,
-		ElapsedMS:         elapsed,
-		PostprocessPolicy: postprocessPolicy,
-		PolicySource:      string(policySource),
-		FailedSteps:       failedSteps,
-		SkippedSteps:      skippedSteps,
-	}
-	if h.deps.PostprocessPolicy != nil {
-		if err := h.deps.PostprocessPolicy.RecordRun(ctx, postprocesspolicy.RunRecord{
-			Tool:         postprocesspolicy.ToolBuildOrUpdateGraph,
-			Policy:       postprocessPolicy,
-			Source:       policySource,
-			Status:       status,
-			FailedSteps:  failedSteps,
-			SkippedSteps: skippedSteps,
-		}); err != nil {
-			return nil, err
-		}
-	}
-	if failClosedErr != nil {
-		return mcp.NewToolResultError(failClosedErr.Error()), nil
+		Status:       status,
+		FilesParsed:  fileCount,
+		NodesCreated: nodeCount,
+		EdgesCreated: edgeCount,
+		ElapsedMS:    elapsed,
+		FailedSteps:  failedSteps,
+		SkippedSteps: skippedSteps,
 	}
 	jsonStr, err := marshalJSON(result)
 	if err != nil {
@@ -343,48 +273,19 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 
 	doFlows := request.GetBool("flows", true)
 	doFTS := request.GetBool("fts", true)
-	postprocessPolicy := request.GetString("postprocess_policy", "")
-	policySource := postprocesspolicy.SourceExplicit
-	if postprocessPolicy == "" {
-		policySource = postprocesspolicy.SourceAuto
-	}
-	if postprocessPolicy != "" && postprocessPolicy != postprocesspolicy.PolicyDegraded && postprocessPolicy != postprocesspolicy.PolicyFailClosed {
-		return mcp.NewToolResultError("postprocess_policy must be degraded or fail_closed"), nil
-	}
-	if h.deps.PostprocessPolicy != nil {
-		resolvedPolicy, resolvedSource, err := h.deps.PostprocessPolicy.Resolve(ctx, postprocesspolicy.DecisionInput{
-			Tool:           postprocesspolicy.ToolRunPostprocess,
-			ExplicitPolicy: postprocessPolicy,
-		})
-		if err != nil {
-			return nil, err
-		}
-		postprocessPolicy = resolvedPolicy
-		policySource = resolvedSource
-	} else if postprocessPolicy == "" {
-		postprocessPolicy = postprocesspolicy.PolicyDegraded
-	}
-	failClosed := postprocessPolicy == postprocesspolicy.PolicyFailClosed
 
 	log.Info("run_postprocess called", "flows", doFlows, "fts", doFTS)
 
 	var flowsCount, communitiesCount, ftsIndexed int
 	var failedSteps []string
 	skippedSteps := []string{}
-	var failClosedErr error
 
 	if doFlows {
 		if h.deps.FlowBuilder != nil {
 			stats, err := h.deps.FlowBuilder.Rebuild(ctx, flowspkg.Config{})
 			if err != nil {
-				if failClosed {
-					failClosedErr = err
-					failedSteps = append(failedSteps, "flows")
-				}
-				if failClosedErr == nil {
-					log.Warn("flow rebuild failed", trace.SlogError(err))
-					failedSteps = append(failedSteps, "flows")
-				}
+				log.Warn("flow rebuild failed", trace.SlogError(err))
+				failedSteps = append(failedSteps, "flows")
 			} else {
 				flowsCount = len(stats)
 			}
@@ -398,21 +299,11 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 	if doFTS {
 		if h.deps.SearchBackend != nil && h.deps.DB != nil {
 			if _, err := h.refreshSearchDocuments(ctx); err != nil {
-				if failClosed {
-					failClosedErr = err
-					failedSteps = append(failedSteps, "search_documents")
-				} else {
-					log.Warn("search document refresh failed", trace.SlogError(err))
-					failedSteps = append(failedSteps, "search_documents")
-				}
+				log.Warn("search document refresh failed", trace.SlogError(err))
+				failedSteps = append(failedSteps, "search_documents")
 			} else if err := h.deps.SearchBackend.Rebuild(ctx, h.deps.DB); err != nil {
-				if failClosed {
-					failClosedErr = err
-					failedSteps = append(failedSteps, "fts")
-				} else {
-					log.Warn("search rebuild failed", trace.SlogError(err))
-					failedSteps = append(failedSteps, "fts")
-				}
+				log.Warn("search rebuild failed", trace.SlogError(err))
+				failedSteps = append(failedSteps, "fts")
 			} else {
 				ftsIndexed = 1 // at least one rebuild happened
 			}
@@ -429,29 +320,12 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 	}
 
 	result := runPostprocessResponse{
-		Status:            status,
-		FlowsCount:        flowsCount,
-		CommunitiesCount:  communitiesCount,
-		FTSIndexed:        ftsIndexed,
-		PostprocessPolicy: postprocessPolicy,
-		PolicySource:      string(policySource),
-		FailedSteps:       failedSteps,
-		SkippedSteps:      skippedSteps,
-	}
-	if h.deps.PostprocessPolicy != nil {
-		if err := h.deps.PostprocessPolicy.RecordRun(ctx, postprocesspolicy.RunRecord{
-			Tool:         postprocesspolicy.ToolRunPostprocess,
-			Policy:       postprocessPolicy,
-			Source:       policySource,
-			Status:       status,
-			FailedSteps:  failedSteps,
-			SkippedSteps: skippedSteps,
-		}); err != nil {
-			return nil, err
-		}
-	}
-	if failClosedErr != nil {
-		return mcp.NewToolResultError(failClosedErr.Error()), nil
+		Status:           status,
+		FlowsCount:       flowsCount,
+		CommunitiesCount: communitiesCount,
+		FTSIndexed:       ftsIndexed,
+		FailedSteps:      failedSteps,
+		SkippedSteps:     skippedSteps,
 	}
 	jsonStr, err := marshalJSON(result)
 	if err != nil {

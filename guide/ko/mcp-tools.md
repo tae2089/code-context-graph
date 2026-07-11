@@ -41,20 +41,14 @@ Codex 또는 Claude Code 같은 MCP 지원 코딩 에이전트가 연결할 수 
 |------|-------------|
 | `parse_project` | 소스 파일 파싱 |
 | `build_or_update_graph` | 사후 처리를 포함한 전체/증분 빌드 |
-| `run_postprocess` | 저장된 흐름(flow), 커뮤니티 및 전체 텍스트 검색 파생 상태 재생성 |
-| `get_postprocess_policy` | 자동 사후 처리 정책 상태 및 최근 실패 내역 확인 |
-| `reset_postprocess_policy` | 특정 도구에 대한 fail-closed 연속 기록을 지우기 위한 리셋 마커 기록 |
+| `run_postprocess` | 저장된 흐름(flow) 및 전체 텍스트 검색 파생 상태 재생성 |
 | `get_node` | 정규화된 이름으로 노드 조회 |
 | `search` | 전체 텍스트 검색 |
 | `query_graph` | 정의된 그래프 쿼리(callers, callees, imports 등) |
 | `list_graph_stats` | 노드/엣지/파일 수 확인 |
-| `get_minimal_context` | AI 에이전트 진입점을 위한 경량 요약(~100 토큰) — 그래프 통계, 리스크, 주요 커뮤니티/흐름, 도구 추천 포함 |
+| `get_minimal_context` | AI 에이전트 진입점을 위한 경량 요약(~100 토큰) — 그래프 통계, 리스크, 주요 흐름, 도구 추천 포함 |
 
-`build_or_update_graph`와 `run_postprocess`는 모두 자동 사후 처리 실패 정책(postprocess failure policy)을 지원합니다. 명시적인 `postprocess_policy`가 제공되지 않으면 CCG는 기본적으로 `degraded` 모드를 사용하며, 동일한 `(namespace, tool)` 쌍에 대해 3회 연속 `degraded` 실행 시 자동으로 `fail_closed`로 격상합니다.
-
-상태 표, 실패 원인, 건너뛰기 동작 및 `build_or_update_graph`와 `run_postprocess`에 대한 정책 격상 규칙 등 자세한 내용은 [사후 처리 실패 정책](postprocess-failure-policy.md)을 참조하십시오.
-
-CCG는 아직 Prometheus `/metrics` 엔드포인트를 제공하지 않습니다. 사후 처리 작업에 대해서는 현재 기계가 읽을 수 있는 운영 인터페이스인 `get_postprocess_policy`와 HTTP `/status` 요약을 사용하십시오.
+`build_or_update_graph`와 `run_postprocess`는 그래프 기록 후 파생 상태 단계(저장된 흐름, 전체 텍스트 검색)를 실행합니다. 단계가 실패하면 도구는 여전히 `status: "degraded"`와 실패한 단계를 담은 `failed_steps`가 포함된 구조화된 결과를 반환하며, 실패는 로그에도 남습니다. 이 응답(또는 HTTP `/status` 요약)으로 성능 저하된 사후 처리를 감지하십시오.
 
 ### 분석 (Analysis)
 

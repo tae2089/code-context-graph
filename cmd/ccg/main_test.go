@@ -109,7 +109,7 @@ func TestRunMigrations_AllowsRuntimeSchemaCheck(t *testing.T) {
 	}
 }
 
-func TestRunMigrations_SqliteAppliesPolicyTables(t *testing.T) {
+func TestRunMigrations_SqliteDropsPolicyTablesAtHead(t *testing.T) {
 	requireSQLiteFTS5(t)
 
 	dbPath := filepath.Join(t.TempDir(), "ccg.db")
@@ -128,29 +128,11 @@ func TestRunMigrations_SqliteAppliesPolicyTables(t *testing.T) {
 		t.Fatalf("run migrations: %v", err)
 	}
 
-	if !db.Migrator().HasTable("ccg_postprocess_policy_state") {
-		t.Fatal("expected ccg_postprocess_policy_state after migrations")
+	if db.Migrator().HasTable("ccg_postprocess_policy_state") {
+		t.Fatal("expected ccg_postprocess_policy_state to be dropped at head schema")
 	}
-	if !db.Migrator().HasTable("ccg_postprocess_run_logs") {
-		t.Fatal("expected ccg_postprocess_run_logs after migrations")
-	}
-
-	var version migration.MigrationSchemaVersion
-	if err := db.Table("schema_migrations").First(&version).Error; err != nil {
-		t.Fatalf("load schema version: %v", err)
-	}
-	if int(version.Version) != migration.RequiredSchemaVersion {
-		t.Fatalf("schema version = %d, want %d", version.Version, migration.RequiredSchemaVersion)
-	}
-	if version.Dirty {
-		t.Fatal("schema version is dirty")
-	}
-
-	if !db.Migrator().HasColumn("ccg_postprocess_policy_state", "namespace") {
-		t.Fatal("expected namespace column on ccg_postprocess_policy_state")
-	}
-	if !db.Migrator().HasColumn("ccg_postprocess_policy_state", "tool") {
-		t.Fatal("expected tool column on ccg_postprocess_policy_state")
+	if db.Migrator().HasTable("ccg_postprocess_run_logs") {
+		t.Fatal("expected ccg_postprocess_run_logs to be dropped at head schema")
 	}
 }
 
@@ -268,7 +250,7 @@ func TestRunMigrations_SQLiteDownRestoresNullableColumns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
 	}
-	if err := migrator.Steps(-5); err != nil {
+	if err := migrator.Steps(-6); err != nil {
 		t.Fatalf("run down migration: %v", err)
 	}
 
@@ -313,7 +295,7 @@ func TestRunMigrations_SQLiteDownFromVersionThreeDropsPolicyTables(t *testing.T)
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
 	}
-	if err := migrator.Steps(-4); err != nil {
+	if err := migrator.Steps(-5); err != nil {
 		t.Fatalf("run down migration: %v", err)
 	}
 
@@ -427,7 +409,7 @@ func TestEnsureSchemaVersion_LogsRuntimeSchemaPassAndFail(t *testing.T) {
 		t.Fatalf("ensure schema version: %v", err)
 	}
 	passLog := logs.String()
-	for _, want := range []string{"database runtime schema check passed", "driver=sqlite", "required_version=6", "auto_migrated=true"} {
+	for _, want := range []string{"database runtime schema check passed", "driver=sqlite", "required_version=7", "auto_migrated=true"} {
 		if !strings.Contains(passLog, want) {
 			t.Fatalf("expected runtime schema pass log to contain %q, got %q", want, passLog)
 		}
@@ -441,7 +423,7 @@ func TestEnsureSchemaVersion_LogsRuntimeSchemaPassAndFail(t *testing.T) {
 		t.Fatal("expected parity failure")
 	}
 	failLog := logs.String()
-	for _, want := range []string{"database runtime schema check failed", "driver=sqlite", "required_version=6", "auto_migrated=false", "error.message="} {
+	for _, want := range []string{"database runtime schema check failed", "driver=sqlite", "required_version=7", "auto_migrated=false", "error.message="} {
 		if !strings.Contains(failLog, want) {
 			t.Fatalf("expected runtime schema failure log to contain %q, got %q", want, failLog)
 		}

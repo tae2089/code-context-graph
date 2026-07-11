@@ -41,27 +41,18 @@ Start the self-hosted server with `ccg-server`; clients connect to its `/mcp` en
 |------|-------------|
 | `parse_project` | Parse source files |
 | `build_or_update_graph` | Full/incremental build with postprocessing |
-| `run_postprocess` | Rebuild stored flows, communities, and/or full-text search derived state |
-| `get_postprocess_policy` | Inspect automatic postprocess policy state and recent failures |
-| `reset_postprocess_policy` | Record a reset marker to clear fail-closed streak for one tool |
+| `run_postprocess` | Rebuild stored flows and/or full-text search derived state |
 | `get_node` | Get node by qualified name |
 | `search` | Full-text search |
 | `query_graph` | Predefined graph queries (callers, callees, imports, etc.) |
 | `list_graph_stats` | Node/edge/file counts |
-| `get_minimal_context` | Lightweight summary (~100 tokens) for AI agent entry point — graph stats, risk, top communities/flows, tool suggestions |
+| `get_minimal_context` | Lightweight summary (~100 tokens) for AI agent entry point — graph stats, risk, top flows, tool suggestions |
 
-`build_or_update_graph` and `run_postprocess` both support an automatic
-postprocess failure policy. When no explicit `postprocess_policy` is provided,
-CCG defaults to `degraded` and automatically escalates to `fail_closed` after
-three consecutive `degraded` runs for the same `(namespace, tool)` pair.
-
-See [Postprocess Failure Policy](postprocess-failure-policy.md) for the detailed
-status tables, failure causes, skip behavior, and policy escalation rules for
-`build_or_update_graph` and `run_postprocess`.
-
-CCG does not expose a Prometheus `/metrics` endpoint yet. For postprocess
-operations, use `get_postprocess_policy` and the HTTP `/status` summary as the
-current machine-readable operational surfaces.
+`build_or_update_graph` and `run_postprocess` run derived-state steps (stored
+flows, full-text search) after the graph write. When a step fails, the tool
+still returns a structured result with `status: "degraded"` and the failing
+steps listed in `failed_steps`; the failure is also logged. Inspect that
+response (or the HTTP `/status` summary) to detect degraded postprocessing.
 
 ### Analysis
 
