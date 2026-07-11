@@ -74,7 +74,7 @@ CCG has two search surfaces with different jobs:
 |----------|----------------------|
 | Natural-language code understanding, module exploration, architecture questions | `ccg docs`, then MCP `retrieve_docs`, `get_rag_tree`, `get_doc_content` |
 | Exact symbol lookup, callers/callees, imports, bounded graph traversal | MCP `get_node`, `query_graph`, `get_minimal_context` |
-| Impact analysis, flow tracing, dead code, large functions | MCP analysis tools such as `get_impact_radius`, `trace_flow`, `find_dead_code`, `find_large_functions` |
+| Impact analysis, flow tracing | MCP analysis tools such as `get_impact_radius`, `trace_flow` |
 | Focused annotation/keyword candidate search | `ccg search` or MCP `search` |
 
 For coding agents, the recommended natural-language path is:

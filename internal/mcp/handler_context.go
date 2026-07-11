@@ -254,7 +254,7 @@ func suggestTools(task string) []string {
 	}
 	for _, kw := range refactorKeywords {
 		if strings.Contains(lower, kw) {
-			return []string{"find_dead_code", "find_large_functions", "get_impact_radius"}
+			return []string{"get_impact_radius", "query_graph", "search"}
 		}
 	}
 	for _, kw := range onboardKeywords {

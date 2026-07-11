@@ -11,10 +11,6 @@ import (
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
-	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
-	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
-	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
-	"github.com/tae2089/code-context-graph/internal/analysis/largefunc"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/model"
@@ -66,40 +62,10 @@ func appendPromptItems[T any](sb *strings.Builder, items []T, render func(T), tr
 	}
 }
 
-// @intent preserve risk ordering while collapsing repeated files into a stable coverage worklist.
-func uniqueRiskFiles(risks []changes.RiskEntry) []string {
-	filesSeen := make(map[string]bool, len(risks))
-	files := make([]string, 0, len(risks))
-	for _, r := range risks {
-		if filesSeen[r.Node.FilePath] {
-			continue
-		}
-		filesSeen[r.Node.FilePath] = true
-		files = append(files, r.Node.FilePath)
-	}
-	return files
-}
-
 // promptHandlers groups dependencies for MCP prompt generation.
 // @intent Groups dependencies so prompt handlers can reuse the shared database and analyzers.
 type promptHandlers struct {
 	deps *Deps
-}
-
-// @intent resolve the coverage analyzer dependency with a DB-backed default.
-func (p *promptHandlers) coverageAnalyzer() CoverageAnalyzer {
-	if p.deps.CoverageAnalyzer != nil {
-		return p.deps.CoverageAnalyzer
-	}
-	return coverage.New(p.deps.DB)
-}
-
-// @intent resolve the coupling analyzer dependency with a DB-backed default.
-func (p *promptHandlers) couplingAnalyzer() CouplingAnalyzer {
-	if p.deps.CouplingAnalyzer != nil {
-		return p.deps.CouplingAnalyzer
-	}
-	return coupling.New(p.deps.DB)
 }
 
 // @intent resolve the query service dependency with a DB-backed default.
@@ -108,22 +74,6 @@ func (p *promptHandlers) queryService() QueryService {
 		return p.deps.QueryService
 	}
 	return query.New(p.deps.DB)
-}
-
-// @intent resolve the large-function analyzer dependency with a DB-backed default.
-func (p *promptHandlers) largefuncAnalyzer() LargefuncAnalyzer {
-	if p.deps.LargefuncAnalyzer != nil {
-		return p.deps.LargefuncAnalyzer
-	}
-	return largefunc.New(p.deps.DB)
-}
-
-// @intent resolve the dead-code analyzer dependency with a DB-backed default.
-func (p *promptHandlers) deadcodeAnalyzer() DeadcodeAnalyzer {
-	if p.deps.DeadcodeAnalyzer != nil {
-		return p.deps.DeadcodeAnalyzer
-	}
-	return deadcode.New(p.deps.DB)
 }
 
 // promptResult wraps plain text in the MCP prompt result shape.
@@ -160,18 +110,17 @@ func promptNamespaceRoot(deps *Deps) string {
 	return "namespaces"
 }
 
-// reviewChanges builds a prompt summarizing change risk and coverage gaps.
-// @intent Provides a single view of high-risk functions and test gaps before reviewing changes.
+// reviewChanges builds a prompt summarizing change risk for the diff range.
+// @intent Provides a single view of high-risk functions before reviewing changes.
 // @param request Defines the Git comparison range using repo_root and base arguments.
 // @requires ChangesGitClient must be configured to perform actual change analysis.
-// @ensures Returns a prompt including risk analysis and coverage summary on success.
-// @sideEffect Performs Git diff lookups and database-based coverage queries.
+// @ensures Returns a prompt including risk analysis on success.
+// @sideEffect Performs Git diff lookups and database-based risk queries.
 // @see mcp.promptHandlers.preMergeCheck
 func (p *promptHandlers) reviewChanges(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	args := request.Params.Arguments
 	ctx = ctxns.WithNamespace(ctx, resolvePromptNamespace(ctx, args))
 	riskLimit := promptLimitArg(args, promptHardCap, promptHardCap)
-	coverageLimit := promptLimitArg(args, promptSectionCap, promptSectionCap)
 	repoRoot := args["repo_root"]
 	base := args["base"]
 	if base == "" {
@@ -207,81 +156,6 @@ func (p *promptHandlers) reviewChanges(ctx context.Context, request mcp.GetPromp
 			r.Node.QualifiedName, r.Node.FilePath, r.Node.StartLine, r.Node.EndLine,
 			r.RiskScore, r.HunkCount))
 	}, risksPage.Pagination.HasMore)
-
-	sb.WriteString("\n## 테스트 커버리지 갭\n\n")
-
-	covAnalyzer := p.coverageAnalyzer()
-	files := uniqueRiskFiles(risks)
-	coverageFiles := files
-	coverageTruncated := len(files) > coverageLimit
-	if coverageTruncated {
-		coverageFiles = files[:coverageLimit]
-	}
-	appendPromptItems(&sb, coverageFiles, func(filePath string) {
-		fc, err := covAnalyzer.ByFile(ctx, filePath)
-		if err != nil {
-			return
-		}
-		sb.WriteString(fmt.Sprintf("- %s: 테스트 %d/%d (%.0f%%)\n",
-			fc.FilePath, fc.Tested, fc.Total, fc.Ratio*100))
-	}, coverageTruncated)
-
-	return promptResult(sb.String()), nil
-}
-
-// architectureMap builds a prompt summarizing communities and coupling.
-// @intent Aids in understanding module structure by providing a full architectural overview via a natural language prompt.
-// @ensures Returns a prompt containing a list of communities and inter-module coupling on success.
-// @sideEffect Queries community and coupling information from the database.
-func (p *promptHandlers) architectureMap(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-	args := request.Params.Arguments
-	ctx = ctxns.WithNamespace(ctx, resolvePromptNamespace(ctx, args))
-	sectionLimit := promptLimitArg(args, promptSectionCap, promptSectionCap)
-	ns := ctxns.FromContext(ctx)
-	var communities []model.Community
-	query := p.deps.DB.WithContext(ctx).Where("namespace = ?", ns).Order("id ASC").Limit(sectionLimit + 1)
-	if err := query.Find(&communities).Error; err != nil {
-		return nil, trace.Wrap(err, "query communities")
-	}
-
-	if len(communities) == 0 {
-		return promptResult("커뮤니티가 없습니다. 먼저 `community rebuild` 명령으로 커뮤니티를 생성하세요."), nil
-	}
-
-	var sb strings.Builder
-	sb.WriteString("## 아키텍처 맵\n\n### 커뮤니티 목록\n\n")
-
-	log := p.deps.Logger
-	communityTruncated := len(communities) > sectionLimit
-	if communityTruncated {
-		communities = communities[:sectionLimit]
-	}
-	appendPromptItems(&sb, communities, func(c model.Community) {
-		var memberCount int64
-		memberQ := p.deps.DB.WithContext(ctx).Model(&model.CommunityMembership{}).
-			Joins("JOIN communities ON communities.id = community_memberships.community_id").
-			Where("community_id = ?", c.ID).
-			Where("communities.namespace = ?", ns)
-		if err := memberQ.Count(&memberCount).Error; err != nil {
-			log.Warn("count community members failed", "community", c.ID, trace.SlogError(err))
-		}
-		sb.WriteString(fmt.Sprintf("- **%s** (전략: %s, 멤버: %d)\n", c.Label, c.Strategy, memberCount))
-	}, communityTruncated)
-
-	coupAnalyzer := p.couplingAnalyzer()
-	pairsPage, err := coupAnalyzer.AnalyzePage(ctx, promptPageRequest(sectionLimit))
-	if err != nil {
-		return nil, trace.Wrap(err, "coupling analyze")
-	}
-	pairs := pairsPage.Items
-
-	if len(pairs) > 0 {
-		sb.WriteString("\n### 모듈 간 결합도\n\n")
-		appendPromptItems(&sb, pairs, func(cp coupling.CouplingPair) {
-			sb.WriteString(fmt.Sprintf("- %s → %s: 결합도 %.2f (%d edges)\n",
-				cp.FromCommunity, cp.ToCommunity, cp.Strength, cp.EdgeCount))
-		}, pairsPage.Pagination.HasMore)
-	}
 
 	return promptResult(sb.String()), nil
 }
@@ -443,40 +317,6 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 		appendPromptTruncation(&sb, len(langs))
 	}
 
-	var communities []model.Community
-	commQ := p.deps.DB.WithContext(ctx).Where("namespace = ?", ns).Order("id ASC").Limit(sectionLimit + 1)
-	if err := commQ.Find(&communities).Error; err != nil {
-		log.Warn("find communities failed", trace.SlogError(err))
-	}
-	communitiesTruncated := len(communities) > sectionLimit
-	if communitiesTruncated {
-		communities = communities[:sectionLimit]
-	}
-	if len(communities) > 0 {
-		sb.WriteString("\n### 커뮤니티 구조\n\n")
-		for _, c := range communities {
-			sb.WriteString(fmt.Sprintf("- %s (%s)\n", c.Label, c.Strategy))
-		}
-		if communitiesTruncated {
-			appendPromptTruncation(&sb, len(communities))
-		}
-	}
-
-	lfAnalyzer := p.largefuncAnalyzer()
-	largeFuncsPage, err := lfAnalyzer.FindPage(ctx, largefunc.Options{Threshold: 50, Page: promptPageRequest(sectionLimit)})
-	if err != nil {
-		log.Warn("find large functions failed", trace.SlogError(err))
-	}
-	largeFuncs := largeFuncsPage.Items
-	if len(largeFuncs) > 0 {
-		sb.WriteString("\n### 대형 함수 (50줄 초과)\n\n")
-		appendPromptItems(&sb, largeFuncs, func(f model.Node) {
-			lines := f.EndLine - f.StartLine + 1
-			sb.WriteString(fmt.Sprintf("- %s (%s:%d-%d, %d줄)\n",
-				f.QualifiedName, f.FilePath, f.StartLine, f.EndLine, lines))
-		}, largeFuncsPage.Pagination.HasMore)
-	}
-
 	return promptResult(sb.String()), nil
 }
 
@@ -488,11 +328,9 @@ func (p *promptHandlers) onboardDeveloper(ctx context.Context, request mcp.GetPr
 // @sideEffect Performs Git diff lookups and multiple database-based analysis queries.
 // @see mcp.promptHandlers.reviewChanges
 func (p *promptHandlers) preMergeCheck(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-	log := p.deps.Logger
 	args := request.Params.Arguments
 	ctx = ctxns.WithNamespace(ctx, resolvePromptNamespace(ctx, args))
 	riskLimit := promptLimitArg(args, promptHardCap, promptHardCap)
-	sectionLimit := promptLimitArg(args, promptSectionCap, promptSectionCap)
 	repoRoot := args["repo_root"]
 	base := args["base"]
 	if base == "" {
@@ -526,60 +364,6 @@ func (p *promptHandlers) preMergeCheck(ctx context.Context, request mcp.GetPromp
 		appendPromptItems(&sb, risks, func(r changes.RiskEntry) {
 			sb.WriteString(fmt.Sprintf("- **%s** — 리스크 점수: %.1f\n", r.Node.QualifiedName, r.RiskScore))
 		}, risksPage.Pagination.HasMore)
-	}
-
-	sb.WriteString("\n### 커버리지\n\n")
-	covAnalyzer2 := p.coverageAnalyzer()
-	files := uniqueRiskFiles(risks)
-	coverageFiles := files
-	coverageTruncated := len(files) > sectionLimit
-	if coverageTruncated {
-		coverageFiles = files[:sectionLimit]
-	}
-	appendPromptItems(&sb, coverageFiles, func(filePath string) {
-		fc, err := covAnalyzer2.ByFile(ctx, filePath)
-		if err != nil {
-			return
-		}
-		sb.WriteString(fmt.Sprintf("- %s: %d/%d (%.0f%%)\n",
-			fc.FilePath, fc.Tested, fc.Total, fc.Ratio*100))
-	}, false)
-	if len(risks) == 0 {
-		sb.WriteString("변경사항이 없습니다.\n")
-	} else if coverageTruncated {
-		appendPromptTruncation(&sb, len(coverageFiles))
-	}
-
-	sb.WriteString("\n### 미사용 코드\n\n")
-	dcAnalyzer := p.deadcodeAnalyzer()
-	deadPage, err := dcAnalyzer.FindPage(ctx, deadcode.Options{Page: promptPageRequest(sectionLimit)})
-	if err != nil {
-		log.Warn("find dead code failed", trace.SlogError(err))
-	}
-	deadNodes := deadPage.Items
-	if len(deadNodes) > 0 {
-		appendPromptItems(&sb, deadNodes, func(n model.Node) {
-			sb.WriteString(fmt.Sprintf("- 미사용: %s (%s)\n", n.QualifiedName, n.FilePath))
-		}, deadPage.Pagination.HasMore)
-	} else {
-		sb.WriteString("미사용 코드 없음\n")
-	}
-
-	sb.WriteString("\n### 대형 함수\n\n")
-	lfAnalyzer2 := p.largefuncAnalyzer()
-	var largeFuncs []model.Node
-	largeFuncsPage, err := lfAnalyzer2.FindPage(ctx, largefunc.Options{Threshold: 50, Page: promptPageRequest(sectionLimit)})
-	if err != nil {
-		log.Warn("find large functions failed", trace.SlogError(err))
-	}
-	largeFuncs = largeFuncsPage.Items
-	if len(largeFuncs) > 0 {
-		appendPromptItems(&sb, largeFuncs, func(f model.Node) {
-			lines := f.EndLine - f.StartLine + 1
-			sb.WriteString(fmt.Sprintf("- %s (%d줄)\n", f.QualifiedName, lines))
-		}, largeFuncsPage.Pagination.HasMore)
-	} else {
-		sb.WriteString("대형 함수 없음\n")
 	}
 
 	return promptResult(sb.String()), nil

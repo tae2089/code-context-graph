@@ -54,11 +54,6 @@ queries.
 |--------|-------------|
 | `impact` | BFS blast-radius analysis |
 | `flows` | Call-chain flow tracing |
-| `deadcode` | Unused code detection |
-| `community` | Directory-based module communities |
-| `coupling` | Inter-module coupling analysis |
-| `coverage` | Test coverage analysis |
-| `largefunc` | Large function detection |
 | `changes` | Git diff risk scoring |
 | `query` | Graph queries (callers, callees, imports) |
 | `incremental` | Incremental update |

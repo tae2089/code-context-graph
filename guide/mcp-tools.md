@@ -69,8 +69,6 @@ current machine-readable operational surfaces.
 |------|-------------|
 | `get_impact_radius` | BFS blast-radius analysis |
 | `trace_flow` | Call-chain flow tracing |
-| `find_large_functions` | Functions exceeding line threshold; supports `limit` |
-| `find_dead_code` | Unused code detection |
 | `find_suspect_fallback_edges` | Suspect fallback call-edge quality report with pagination |
 | `detect_changes` | Git diff risk scoring |
 | `get_affected_flows` | Flows affected by changes |
@@ -99,10 +97,8 @@ communities, members, or coupling pairs. Paginated responses include
 | `get_architecture_overview` | `community_limit`, `community_offset`, `coupling_limit`, `coupling_offset` | Response includes separate community and coupling pagination objects |
 
 Some analysis tools still return full result sets internally. On large
-namespaces, prefer scoped inputs before calling `find_dead_code`,
-`find_suspect_fallback_edges`, or broad MCP prompts. `find_large_functions`
-accepts `limit`, but it currently performs the line-threshold query before
-truncating the response.
+namespaces, prefer scoped inputs before calling `find_suspect_fallback_edges`
+or broad MCP prompts.
 
 ### Annotation & Documentation
 

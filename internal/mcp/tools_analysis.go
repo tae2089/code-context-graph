@@ -50,15 +50,6 @@ func analysisTools(h *handlers) []server.ServerTool {
 			Handler: h.getAffectedFlows,
 		},
 		{
-			Tool: mcp.NewTool("find_dead_code", withNamespaceParam(
-				mcp.WithDescription("Find unused code with no incoming edges"),
-				mcp.WithNumber("limit", mcp.Description("Maximum number of results (default: 50, max: 500)")),
-				mcp.WithNumber("offset", mcp.Description("Zero-based result offset for pagination (default: 0)")),
-				mcp.WithString("path", mcp.Description("Filter results to file paths starting with this prefix")),
-			)...),
-			Handler: h.findDeadCode,
-		},
-		{
 			Tool: mcp.NewTool("find_suspect_fallback_edges", withNamespaceParam(
 				mcp.WithDescription("Find fallback call edges whose source/target annotations have no overlapping intent/domainRule context"),
 				mcp.WithNumber("limit", mcp.Description("Maximum number of results (default: 50, max: 500)")),
