@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -20,11 +19,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
-	"github.com/tae2089/code-context-graph/internal/analysis/community"
-	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
-	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
 	fallbackanalysis "github.com/tae2089/code-context-graph/internal/analysis/fallback"
-	"github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
@@ -487,51 +482,6 @@ func TestHandler_GetAnnotation_ExposesCCGSeeRef(t *testing.T) {
 // ============================================================
 // 11.0 Structural change (Tidy First)
 // ============================================================
-
-func TestDeps_NewInterfaces(t *testing.T) {
-	// The existing six tools must still work even when the new interface fields are nil.
-	deps := setupTestDepsMinimal(t)
-	ctx := context.Background()
-
-	// Set up the data required by the existing tools.
-	deps.Store.UpsertNodes(ctx, []model.Node{
-		{QualifiedName: "pkg.Func1", Kind: model.NodeKindFunction, Name: "Func1", FilePath: "func1.go", StartLine: 1, EndLine: 5, Language: "go"},
-	})
-
-	// Call the existing tools while every new interface field is nil.
-	// QueryService, LargefuncAnalyzer, DeadcodeAnalyzer, CouplingAnalyzer,
-	// CoverageAnalyzer, CommunityBuilder, and Incremental are all nil.
-	if deps.QueryService != nil {
-		t.Error("expected QueryService to be nil")
-	}
-	if deps.LargefuncAnalyzer != nil {
-		t.Error("expected LargefuncAnalyzer to be nil")
-	}
-	if deps.DeadcodeAnalyzer != nil {
-		t.Error("expected DeadcodeAnalyzer to be nil")
-	}
-	if deps.CouplingAnalyzer != nil {
-		t.Error("expected CouplingAnalyzer to be nil")
-	}
-	if deps.CoverageAnalyzer != nil {
-		t.Error("expected CoverageAnalyzer to be nil")
-	}
-	if deps.CommunityBuilder != nil {
-		t.Error("expected CommunityBuilder to be nil")
-	}
-	if deps.FlowBuilder != nil {
-		t.Error("expected FlowBuilder to be nil")
-	}
-	if deps.Incremental != nil {
-		t.Error("expected Incremental to be nil")
-	}
-
-	// Verify that the existing six tools still work.
-	result := callTool(t, deps, "get_node", map[string]any{"qualified_name": "pkg.Func1"})
-	if result.IsError {
-		t.Fatalf("get_node should work with nil new interfaces: %s", getTextContent(result))
-	}
-}
 
 func TestPrompts_UsesDepsInterfaces(t *testing.T) {
 	// Keep the existing five prompt tests after refactoring prompts.go to use Deps fields.
@@ -1236,170 +1186,6 @@ func Replaced() {}
 	}
 }
 
-func TestBuildOrUpdateGraph_PostprocessFull(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	mockComm := &mockCommunityBuilder{
-		result: []community.Stats{},
-	}
-	mockFlow := &mockFlowBuilder{}
-	deps.CommunityBuilder = mockComm
-	deps.FlowBuilder = mockFlow
-
-	dir := t.TempDir()
-	writeGoFile(t, dir, "svc.go", `package svc
-
-func Run() {}
-`)
-
-	result := callTool(t, deps, "build_or_update_graph", map[string]any{
-		"path":         dir,
-		"full_rebuild": true,
-		"postprocess":  "full",
-	})
-	if result.IsError {
-		t.Fatalf("build_or_update_graph error: %s", getTextContent(result))
-	}
-
-	if !mockComm.rebuildCalled {
-		t.Error("expected CommunityBuilder.Rebuild to be called for postprocess=full")
-	}
-	if !mockFlow.rebuildCalled {
-		t.Error("expected FlowBuilder.Rebuild to be called for postprocess=full")
-	}
-}
-
-func TestBuildOrUpdateGraph_PostprocessNone(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	mockComm := &mockCommunityBuilder{}
-	deps.CommunityBuilder = mockComm
-
-	dir := t.TempDir()
-	writeGoFile(t, dir, "svc.go", `package svc
-
-func Run() {}
-`)
-
-	result := callTool(t, deps, "build_or_update_graph", map[string]any{
-		"path":         dir,
-		"full_rebuild": true,
-		"postprocess":  "none",
-	})
-	if result.IsError {
-		t.Fatalf("build_or_update_graph error: %s", getTextContent(result))
-	}
-
-	if mockComm.rebuildCalled {
-		t.Error("expected CommunityBuilder.Rebuild NOT to be called for postprocess=none")
-	}
-}
-
-func TestBuildOrUpdateGraph_EmptyFailedStepsIsNullJSON(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	mockComm := &mockCommunityBuilder{}
-	deps.CommunityBuilder = mockComm
-
-	dir := t.TempDir()
-	writeGoFile(t, dir, "svc.go", `package svc
-
-func Run() {}
-`)
-
-	result := callTool(t, deps, "build_or_update_graph", map[string]any{
-		"path":         dir,
-		"full_rebuild": true,
-		"postprocess":  "none",
-	})
-	if result.IsError {
-		t.Fatalf("build_or_update_graph error: %s", getTextContent(result))
-	}
-
-	var resp struct {
-		FailedSteps  json.RawMessage `json:"failed_steps"`
-		SkippedSteps json.RawMessage `json:"skipped_steps"`
-		Status       string          `json:"status"`
-	}
-	text := getTextContent(result)
-	if err := json.Unmarshal([]byte(text), &resp); err != nil {
-		t.Fatalf("expected JSON, got: %s", text)
-	}
-	if string(resp.FailedSteps) != "null" {
-		t.Fatalf("expected failed_steps=null, got %s", string(resp.FailedSteps))
-	}
-	if string(resp.SkippedSteps) == "null" || len(resp.SkippedSteps) == 0 {
-		t.Fatalf("expected skipped_steps array, got %s", string(resp.SkippedSteps))
-	}
-
-	var skipped []any
-	if err := json.Unmarshal(resp.SkippedSteps, &skipped); err != nil {
-		t.Fatalf("expected skipped_steps array, got %s", string(resp.SkippedSteps))
-	}
-	if !containsString(skipped, "communities") || !containsString(skipped, "flows") {
-		t.Fatalf("expected skipped_steps to contain communities and flows, got %v", skipped)
-	}
-}
-
-func TestBuildOrUpdateGraph_DegradedOnCommunityFailure(t *testing.T) {
-	deps := setupTestDeps(t)
-	deps.CommunityBuilder = &mockCommunityBuilder{err: errors.New("community rebuild boom")}
-
-	dir := t.TempDir()
-	writeGoFile(t, dir, "svc.go", `package svc
-
-func Run() {}
-`)
-
-	result := callTool(t, deps, "build_or_update_graph", map[string]any{
-		"path":         dir,
-		"full_rebuild": true,
-		"postprocess":  "full",
-	})
-	if result.IsError {
-		t.Fatalf("build_or_update_graph should not return tool error, got: %s", getTextContent(result))
-	}
-
-	var resp map[string]any
-	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
-		t.Fatalf("expected JSON, got: %s", getTextContent(result))
-	}
-	if resp["status"] != "degraded" {
-		t.Fatalf("expected status=degraded, got %v", resp["status"])
-	}
-	failedSteps, ok := resp["failed_steps"].([]any)
-	if !ok || len(failedSteps) == 0 {
-		t.Fatalf("expected failed_steps to be non-empty, got %v", resp["failed_steps"])
-	}
-	if !containsString(failedSteps, "communities") {
-		t.Fatalf("expected communities in failed_steps, got %v", failedSteps)
-	}
-}
-
-func TestBuildOrUpdateGraph_FailClosedOnCommunityFailure(t *testing.T) {
-	deps := setupTestDeps(t)
-	deps.CommunityBuilder = &mockCommunityBuilder{err: errors.New("community rebuild boom")}
-
-	dir := t.TempDir()
-	writeGoFile(t, dir, "svc.go", `package svc
-
-func Run() {}
-`)
-
-	result := callTool(t, deps, "build_or_update_graph", map[string]any{
-		"path":               dir,
-		"full_rebuild":       true,
-		"postprocess":        "full",
-		"postprocess_policy": "fail_closed",
-	})
-	if !result.IsError {
-		t.Fatalf("expected fail_closed community failure to return tool error, got: %s", getTextContent(result))
-	}
-	if !strings.Contains(getTextContent(result), "community rebuild boom") {
-		t.Fatalf("unexpected error: %s", getTextContent(result))
-	}
-}
-
 func TestBuildOrUpdateGraph_DegradedOnSearchDocumentRefreshFailure(t *testing.T) {
 	deps := setupTestDeps(t)
 	backend := &failSearchBackend{}
@@ -1541,80 +1327,6 @@ func Run() {}
 	}
 }
 
-func TestBuildOrUpdateGraph_UsesAutomaticPolicyWhenNotExplicitlyProvided(t *testing.T) {
-	deps := setupTestDeps(t)
-	stub := &stubPostprocessPolicy{resolvedPolicy: "fail_closed", resolvedSource: "auto"}
-	deps.PostprocessPolicy = stub
-	deps.CommunityBuilder = &mockCommunityBuilder{err: errors.New("community rebuild boom")}
-
-	dir := t.TempDir()
-	writeGoFile(t, dir, "svc.go", "package svc\nfunc Run() {}\n")
-
-	result := callTool(t, deps, "build_or_update_graph", map[string]any{
-		"path":         dir,
-		"full_rebuild": true,
-		"postprocess":  "full",
-	})
-	if !result.IsError {
-		t.Fatalf("expected auto fail_closed policy to return tool error, got: %s", getTextContent(result))
-	}
-	if len(stub.resolvedInputs) != 1 {
-		t.Fatalf("resolve calls = %d, want 1", len(stub.resolvedInputs))
-	}
-	if stub.resolvedInputs[0].ExplicitPolicy != "" {
-		t.Fatalf("explicit policy = %q, want empty", stub.resolvedInputs[0].ExplicitPolicy)
-	}
-}
-
-func TestBuildOrUpdateGraph_PassesExplicitPolicyToResolverAndRecordsRun(t *testing.T) {
-	deps := setupTestDeps(t)
-	stub := &stubPostprocessPolicy{resolvedPolicy: "degraded", resolvedSource: "explicit"}
-	deps.PostprocessPolicy = stub
-	deps.CommunityBuilder = &mockCommunityBuilder{err: errors.New("community rebuild boom")}
-
-	dir := t.TempDir()
-	writeGoFile(t, dir, "svc.go", "package svc\nfunc Run() {}\n")
-
-	result := callTool(t, deps, "build_or_update_graph", map[string]any{
-		"path":               dir,
-		"full_rebuild":       true,
-		"postprocess":        "full",
-		"postprocess_policy": "degraded",
-	})
-	if result.IsError {
-		t.Fatalf("expected explicit degraded resolver result not to error, got: %s", getTextContent(result))
-	}
-	if got := len(stub.resolvedInputs); got != 1 {
-		t.Fatalf("resolve calls = %d, want 1", got)
-	}
-	if stub.resolvedInputs[0].ExplicitPolicy != "degraded" {
-		t.Fatalf("explicit policy = %q, want degraded", stub.resolvedInputs[0].ExplicitPolicy)
-	}
-	if got := len(stub.recordedRuns); got != 1 {
-		t.Fatalf("recorded runs = %d, want 1", got)
-	}
-	if stub.recordedRuns[0].Policy != "degraded" {
-		t.Fatalf("recorded policy = %q, want degraded", stub.recordedRuns[0].Policy)
-	}
-	if stub.recordedRuns[0].Source != "explicit" {
-		t.Fatalf("recorded source = %q, want explicit", stub.recordedRuns[0].Source)
-	}
-	if stub.recordedRuns[0].Tool != "build_or_update_graph" {
-		t.Fatalf("recorded tool = %q, want build_or_update_graph", stub.recordedRuns[0].Tool)
-	}
-
-	var resp map[string]any
-	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
-		t.Fatalf("expected JSON, got: %s", getTextContent(result))
-	}
-	if resp["postprocess_policy"] != "degraded" {
-		t.Fatalf("response postprocess_policy = %v, want degraded", resp["postprocess_policy"])
-	}
-	if resp["policy_source"] != "explicit" {
-		t.Fatalf("response policy_source = %v, want explicit", resp["policy_source"])
-	}
-}
-
 func containsString(values []any, target string) bool {
 	for _, v := range values {
 		if s, ok := v.(string); ok && s == target {
@@ -1706,49 +1418,6 @@ func Other() {}
 // 11.2 run_postprocess
 // ============================================================
 
-func TestRunPostprocess_AllEnabled(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	mockComm := &mockCommunityBuilder{result: []community.Stats{}}
-	mockFlow := &mockFlowBuilder{result: []flows.Stats{{NodeCount: 2}}}
-	deps.CommunityBuilder = mockComm
-	deps.FlowBuilder = mockFlow
-
-	result := callTool(t, deps, "run_postprocess", map[string]any{
-		"flows":       true,
-		"communities": true,
-		"fts":         true,
-	})
-	if result.IsError {
-		t.Fatalf("run_postprocess error: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	if err := json.Unmarshal([]byte(text), &resp); err != nil {
-		t.Fatalf("expected JSON, got: %s", text)
-	}
-	if resp["status"] != "ok" {
-		t.Errorf("expected status=ok, got %v", resp["status"])
-	}
-	if !mockComm.rebuildCalled {
-		t.Error("expected CommunityBuilder.Rebuild to be called")
-	}
-	if !mockFlow.rebuildCalled {
-		t.Error("expected FlowBuilder.Rebuild to be called")
-	}
-	if got := resp["flows_count"]; got != float64(1) {
-		t.Errorf("expected flows_count=1 after flow rebuild, got %v", got)
-	}
-	skipped, ok := resp["skipped_steps"].([]any)
-	if !ok {
-		t.Fatalf("expected skipped_steps array, got %v", resp["skipped_steps"])
-	}
-	if containsString(skipped, "flows") {
-		t.Fatalf("expected skipped_steps to omit flows when builder is configured, got %v", resp["skipped_steps"])
-	}
-}
-
 func TestRunPostprocess_FlowsSkippedWhenBuilderNil(t *testing.T) {
 	deps := setupTestDeps(t)
 	deps.FlowBuilder = nil
@@ -1775,33 +1444,12 @@ func TestRunPostprocess_FlowsSkippedWhenBuilderNil(t *testing.T) {
 	}
 }
 
-func TestRunPostprocess_OnlyFTS(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	mockComm := &mockCommunityBuilder{}
-	deps.CommunityBuilder = mockComm
-
-	result := callTool(t, deps, "run_postprocess", map[string]any{
-		"flows":       false,
-		"communities": false,
-		"fts":         true,
-	})
-	if result.IsError {
-		t.Fatalf("run_postprocess error: %s", getTextContent(result))
-	}
-
-	if mockComm.rebuildCalled {
-		t.Error("expected CommunityBuilder.Rebuild NOT to be called")
-	}
-}
-
 func TestRunPostprocess_NoneEnabled(t *testing.T) {
 	deps := setupTestDeps(t)
 
 	result := callTool(t, deps, "run_postprocess", map[string]any{
-		"flows":       false,
-		"communities": false,
-		"fts":         false,
+		"flows": false,
+		"fts":   false,
 	})
 	if result.IsError {
 		t.Fatalf("run_postprocess error: %s", getTextContent(result))
@@ -1821,9 +1469,8 @@ func TestRunPostprocess_EmptyFailedStepsIsNullJSON(t *testing.T) {
 	deps := setupTestDeps(t)
 
 	result := callTool(t, deps, "run_postprocess", map[string]any{
-		"flows":       false,
-		"communities": false,
-		"fts":         false,
+		"flows": false,
+		"fts":   false,
 	})
 	if result.IsError {
 		t.Fatalf("run_postprocess error: %s", getTextContent(result))
@@ -1849,57 +1496,10 @@ func TestRunPostprocess_EmptyFailedStepsIsNullJSON(t *testing.T) {
 	if err := json.Unmarshal(resp.SkippedSteps, &skipped); err != nil {
 		t.Fatalf("expected skipped_steps array, got %s", string(resp.SkippedSteps))
 	}
-	for _, want := range []string{"flows", "communities", "search_documents", "fts"} {
+	for _, want := range []string{"flows", "search_documents", "fts"} {
 		if !containsString(skipped, want) {
 			t.Fatalf("expected skipped_steps to contain %s, got %v", want, skipped)
 		}
-	}
-}
-
-func TestRunPostprocess_RejectsInvalidCommunityDepth(t *testing.T) {
-	for _, depth := range []int{0, 9} {
-		t.Run(fmt.Sprintf("depth-%d", depth), func(t *testing.T) {
-			deps := setupTestDeps(t)
-			mockComm := &mockCommunityBuilder{}
-			deps.CommunityBuilder = mockComm
-
-			result := callTool(t, deps, "run_postprocess", map[string]any{
-				"communities":     true,
-				"fts":             false,
-				"community_depth": depth,
-			})
-			if !result.IsError {
-				t.Fatalf("expected community_depth=%d to be rejected", depth)
-			}
-			if mockComm.rebuildCalled {
-				t.Fatal("community rebuild should not run for invalid depth")
-			}
-		})
-	}
-}
-
-func TestRunPostprocess_UsesAutomaticPolicyWhenNotExplicitlyProvided(t *testing.T) {
-	deps := setupTestDeps(t)
-	stub := &stubPostprocessPolicy{resolvedPolicy: "fail_closed", resolvedSource: "auto"}
-	deps.PostprocessPolicy = stub
-	deps.CommunityBuilder = &mockCommunityBuilder{err: errors.New("community rebuild boom")}
-
-	result := callTool(t, deps, "run_postprocess", map[string]any{
-		"communities": true,
-		"fts":         false,
-		"flows":       false,
-	})
-	if !result.IsError {
-		t.Fatalf("expected auto fail_closed policy to return tool error, got: %s", getTextContent(result))
-	}
-	if len(stub.resolvedInputs) != 1 {
-		t.Fatalf("resolve calls = %d, want 1", len(stub.resolvedInputs))
-	}
-	if stub.resolvedInputs[0].Tool != "run_postprocess" {
-		t.Fatalf("resolver tool = %q, want run_postprocess", stub.resolvedInputs[0].Tool)
-	}
-	if stub.resolvedInputs[0].ExplicitPolicy != "" {
-		t.Fatalf("explicit policy = %q, want empty", stub.resolvedInputs[0].ExplicitPolicy)
 	}
 }
 
@@ -1943,90 +1543,6 @@ func TestRunPostprocess_PassesExplicitPolicyToResolverAndRecordsRun(t *testing.T
 	}
 	if resp["policy_source"] != "explicit" {
 		t.Fatalf("response policy_source = %v, want explicit", resp["policy_source"])
-	}
-}
-
-func TestRunPostprocess_AutoEscalatesAfterThreeFailuresWithRealPolicyStore(t *testing.T) {
-	deps := setupTestDepsWithRealPostprocessPolicy(t)
-	deps.CommunityBuilder = &mockCommunityBuilder{err: errors.New("community rebuild boom")}
-
-	for i := 0; i < 3; i++ {
-		result := callTool(t, deps, "run_postprocess", map[string]any{
-			"communities": true,
-			"fts":         false,
-			"flows":       false,
-		})
-		if result.IsError {
-			t.Fatalf("attempt %d should be degraded before escalation, got: %s", i+1, getTextContent(result))
-		}
-		var resp map[string]any
-		if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
-			t.Fatalf("expected JSON, got: %s", getTextContent(result))
-		}
-		if resp["postprocess_policy"] != "degraded" {
-			t.Fatalf("attempt %d policy = %v, want degraded", i+1, resp["postprocess_policy"])
-		}
-	}
-
-	result := callTool(t, deps, "run_postprocess", map[string]any{
-		"communities": true,
-		"fts":         false,
-		"flows":       false,
-	})
-	if !result.IsError {
-		t.Fatalf("expected fourth attempt to fail_closed, got: %s", getTextContent(result))
-	}
-
-	policyStore := postprocesspolicy.NewStore(deps.DB)
-	count, err := policyStore.ConsecutiveFailures(context.Background(), postprocesspolicy.ToolRunPostprocess, 10)
-	if err != nil {
-		t.Fatalf("consecutive failures: %v", err)
-	}
-	if count != 4 {
-		t.Fatalf("consecutive failures = %d, want 4", count)
-	}
-	state, err := policyStore.GetState(context.Background(), postprocesspolicy.ToolRunPostprocess)
-	if err != nil {
-		t.Fatalf("get state: %v", err)
-	}
-	if state == nil || state.Policy != postprocesspolicy.PolicyFailClosed {
-		t.Fatalf("state policy = %v, want fail_closed", state)
-	}
-}
-
-func TestRunPostprocess_RealPolicyStoreIsolatedByNamespaceAndTool(t *testing.T) {
-	deps := setupTestDepsWithRealPostprocessPolicy(t)
-	deps.CommunityBuilder = &mockCommunityBuilder{err: errors.New("community rebuild boom")}
-
-	for i := 0; i < 3; i++ {
-		result := callToolWithNamespace(t, deps, "ns-a", "run_postprocess", map[string]any{
-			"communities": true,
-			"fts":         false,
-			"flows":       false,
-		})
-		if result.IsError {
-			t.Fatalf("ns-a attempt %d should be degraded, got: %s", i+1, getTextContent(result))
-		}
-	}
-
-	dir := t.TempDir()
-	writeGoFile(t, dir, "svc.go", "package svc\nfunc Run() {}\n")
-	buildResult := callToolWithNamespace(t, deps, "ns-b", "build_or_update_graph", map[string]any{
-		"path":         dir,
-		"full_rebuild": true,
-		"postprocess":  "none",
-	})
-	if buildResult.IsError {
-		t.Fatalf("ns-b build should not be affected by ns-a run_postprocess failures, got: %s", getTextContent(buildResult))
-	}
-
-	fourth := callToolWithNamespace(t, deps, "ns-a", "run_postprocess", map[string]any{
-		"communities": true,
-		"fts":         false,
-		"flows":       false,
-	})
-	if !fourth.IsError {
-		t.Fatalf("expected ns-a fourth run_postprocess attempt to fail_closed, got: %s", getTextContent(fourth))
 	}
 }
 
@@ -3142,395 +2658,13 @@ func TestListFlows_InvalidLimit(t *testing.T) {
 }
 
 // ============================================================
-// 11.9 list_communities
 // ============================================================
 
-func TestListCommunities_SortBySize(t *testing.T) {
-	deps := setupTestDeps(t)
-	ctx := context.Background()
-
-	c1 := model.Community{Key: "small", Label: "small", Strategy: "directory"}
-	c2 := model.Community{Key: "big", Label: "big", Strategy: "directory"}
-	deps.DB.Create(&c1)
-	deps.DB.Create(&c2)
-
-	deps.Store.UpsertNodes(ctx, []model.Node{
-		{QualifiedName: "s.N1", Kind: model.NodeKindFunction, Name: "N1", FilePath: "s.go", StartLine: 1, EndLine: 5, Language: "go"},
-		{QualifiedName: "b.N1", Kind: model.NodeKindFunction, Name: "N1", FilePath: "b.go", StartLine: 1, EndLine: 5, Language: "go"},
-		{QualifiedName: "b.N2", Kind: model.NodeKindFunction, Name: "N2", FilePath: "b.go", StartLine: 10, EndLine: 15, Language: "go"},
-	})
-	sn1, _ := deps.Store.GetNode(ctx, "s.N1")
-	bn1, _ := deps.Store.GetNode(ctx, "b.N1")
-	bn2, _ := deps.Store.GetNode(ctx, "b.N2")
-
-	deps.DB.Create(&model.CommunityMembership{CommunityID: c1.ID, NodeID: sn1.ID})
-	deps.DB.Create(&model.CommunityMembership{CommunityID: c2.ID, NodeID: bn1.ID})
-	deps.DB.Create(&model.CommunityMembership{CommunityID: c2.ID, NodeID: bn2.ID})
-
-	result := callTool(t, deps, "list_communities", map[string]any{"sort_by": "size"})
-	if result.IsError {
-		t.Fatalf("list_communities error: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
-	comms := resp["communities"].([]any)
-	first := comms[0].(map[string]any)
-	if first["label"] != "big" {
-		t.Errorf("expected big first (most nodes), got %v", first["label"])
-	}
-}
-
-func TestListCommunities_SortByName(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	deps.DB.Create(&model.Community{Key: "zulu", Label: "zulu", Strategy: "directory"})
-	deps.DB.Create(&model.Community{Key: "alpha", Label: "alpha", Strategy: "directory"})
-
-	result := callTool(t, deps, "list_communities", map[string]any{"sort_by": "name"})
-	if result.IsError {
-		t.Fatalf("list_communities error: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
-	comms := resp["communities"].([]any)
-	first := comms[0].(map[string]any)
-	if first["label"] != "alpha" {
-		t.Errorf("expected alpha first, got %v", first["label"])
-	}
-}
-
-func TestListCommunities_MinSize(t *testing.T) {
-	deps := setupTestDeps(t)
-	ctx := context.Background()
-
-	c1 := model.Community{Key: "tiny", Label: "tiny", Strategy: "directory"}
-	c2 := model.Community{Key: "large", Label: "large", Strategy: "directory"}
-	deps.DB.Create(&c1)
-	deps.DB.Create(&c2)
-
-	deps.Store.UpsertNodes(ctx, []model.Node{
-		{QualifiedName: "t.N1", Kind: model.NodeKindFunction, Name: "N1", FilePath: "t.go", StartLine: 1, EndLine: 5, Language: "go"},
-		{QualifiedName: "l.N1", Kind: model.NodeKindFunction, Name: "N1", FilePath: "l.go", StartLine: 1, EndLine: 5, Language: "go"},
-		{QualifiedName: "l.N2", Kind: model.NodeKindFunction, Name: "N2", FilePath: "l.go", StartLine: 10, EndLine: 15, Language: "go"},
-		{QualifiedName: "l.N3", Kind: model.NodeKindFunction, Name: "N3", FilePath: "l.go", StartLine: 20, EndLine: 25, Language: "go"},
-	})
-	tn1, _ := deps.Store.GetNode(ctx, "t.N1")
-	ln1, _ := deps.Store.GetNode(ctx, "l.N1")
-	ln2, _ := deps.Store.GetNode(ctx, "l.N2")
-	ln3, _ := deps.Store.GetNode(ctx, "l.N3")
-
-	deps.DB.Create(&model.CommunityMembership{CommunityID: c1.ID, NodeID: tn1.ID})
-	deps.DB.Create(&model.CommunityMembership{CommunityID: c2.ID, NodeID: ln1.ID})
-	deps.DB.Create(&model.CommunityMembership{CommunityID: c2.ID, NodeID: ln2.ID})
-	deps.DB.Create(&model.CommunityMembership{CommunityID: c2.ID, NodeID: ln3.ID})
-
-	result := callTool(t, deps, "list_communities", map[string]any{"min_size": 3})
-	if result.IsError {
-		t.Fatalf("list_communities error: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
-	comms := resp["communities"].([]any)
-	if len(comms) != 1 {
-		t.Errorf("expected 1 community with min_size=3, got %d", len(comms))
-	}
-}
-
-func TestListCommunities_Empty(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	result := callTool(t, deps, "list_communities", map[string]any{})
-	if result.IsError {
-		t.Fatalf("list_communities error: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
-	comms := resp["communities"].([]any)
-	if len(comms) != 0 {
-		t.Errorf("expected 0 communities, got %d", len(comms))
-	}
-	derived := resp["derived_state"].(map[string]any)
-	communityState := derived["communities"].(map[string]any)
-	if communityState["freshness"] != "unknown" {
-		t.Fatalf("expected communities freshness=unknown, got %v", communityState["freshness"])
-	}
-}
-
-func TestListCommunities_NamespaceScopesResults(t *testing.T) {
-	deps := setupTestDeps(t)
-	ctxAlpha := ctxns.WithNamespace(context.Background(), "alpha")
-	ctxBeta := ctxns.WithNamespace(context.Background(), "beta")
-
-	alphaCommunity := model.Community{Namespace: "alpha", Key: "alpha/core", Label: "alpha/core", Strategy: "directory"}
-	betaCommunity := model.Community{Namespace: "beta", Key: "beta/core", Label: "beta/core", Strategy: "directory"}
-	deps.DB.Create(&alphaCommunity)
-	deps.DB.Create(&betaCommunity)
-
-	if err := deps.Store.UpsertNodes(ctxAlpha, []model.Node{{QualifiedName: "alpha.Fn", Kind: model.NodeKindFunction, Name: "Fn", FilePath: "alpha.go", StartLine: 1, EndLine: 5, Language: "go"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := deps.Store.UpsertNodes(ctxBeta, []model.Node{{QualifiedName: "beta.Fn", Kind: model.NodeKindFunction, Name: "Fn", FilePath: "beta.go", StartLine: 1, EndLine: 5, Language: "go"}}); err != nil {
-		t.Fatal(err)
-	}
-	alphaNode, _ := deps.Store.GetNode(ctxAlpha, "alpha.Fn")
-	betaNode, _ := deps.Store.GetNode(ctxBeta, "beta.Fn")
-	deps.DB.Create(&model.CommunityMembership{CommunityID: alphaCommunity.ID, NodeID: alphaNode.ID})
-	deps.DB.Create(&model.CommunityMembership{CommunityID: betaCommunity.ID, NodeID: betaNode.ID})
-
-	result := callTool(t, deps, "list_communities", map[string]any{"namespace": "alpha"})
-	if result.IsError {
-		t.Fatalf("list_communities error: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	if strings.Contains(text, "beta/core") {
-		t.Fatalf("unexpected beta community leak: %s", text)
-	}
-	if !strings.Contains(text, "alpha/core") {
-		t.Fatalf("expected alpha community in scoped result: %s", text)
-	}
-}
-
 // ============================================================
-// 11.10 get_community
 // ============================================================
 
-func TestGetCommunity_Basic(t *testing.T) {
-	deps := setupTestDeps(t)
-	ctx := context.Background()
-
-	c := model.Community{Key: "core", Label: "core", Strategy: "directory"}
-	deps.DB.Create(&c)
-
-	deps.Store.UpsertNodes(ctx, []model.Node{
-		{QualifiedName: "core.Fn", Kind: model.NodeKindFunction, Name: "Fn", FilePath: "core.go", StartLine: 1, EndLine: 5, Language: "go"},
-	})
-	node, _ := deps.Store.GetNode(ctx, "core.Fn")
-	deps.DB.Create(&model.CommunityMembership{CommunityID: c.ID, NodeID: node.ID})
-
-	result := callTool(t, deps, "get_community", map[string]any{"community_id": c.ID})
-	if result.IsError {
-		t.Fatalf("get_community error: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	if err := json.Unmarshal([]byte(text), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if resp["label"] != "core" {
-		t.Errorf("expected label=core, got %v", resp["label"])
-	}
-	if resp["node_count"].(float64) != 1 {
-		t.Errorf("expected node_count=1, got %v", resp["node_count"])
-	}
-	if _, ok := resp["members"]; ok {
-		t.Fatalf("expected members to be omitted, got %v", resp["members"])
-	}
-	if _, ok := resp["members_pagination"]; ok {
-		t.Fatalf("expected members_pagination to be omitted, got %v", resp["members_pagination"])
-	}
-	if _, ok := resp["coverage"]; ok {
-		t.Fatalf("expected coverage to be omitted, got %v", resp["coverage"])
-	}
-}
-
-func TestGetCommunity_WithMembers(t *testing.T) {
-	deps := setupTestDeps(t)
-	ctx := context.Background()
-
-	c := model.Community{Key: "api", Label: "api", Strategy: "directory"}
-	deps.DB.Create(&c)
-
-	deps.Store.UpsertNodes(ctx, []model.Node{
-		{QualifiedName: "api.Handler", Kind: model.NodeKindFunction, Name: "Handler", FilePath: "api.go", StartLine: 1, EndLine: 10, Language: "go"},
-	})
-	node, _ := deps.Store.GetNode(ctx, "api.Handler")
-	deps.DB.Create(&model.CommunityMembership{CommunityID: c.ID, NodeID: node.ID})
-
-	result := callTool(t, deps, "get_community", map[string]any{
-		"community_id":    c.ID,
-		"include_members": true,
-	})
-	if result.IsError {
-		t.Fatalf("get_community error: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	if err := json.Unmarshal([]byte(text), &resp); err != nil {
-		t.Fatal(err)
-	}
-	members, ok := resp["members"].([]any)
-	if !ok {
-		t.Fatalf("expected members array, got %T", resp["members"])
-	}
-	if len(members) != 1 {
-		t.Errorf("expected 1 member, got %d", len(members))
-	}
-	if _, ok := resp["members_pagination"]; !ok {
-		t.Fatal("expected members_pagination to be present")
-	}
-}
-
-func TestGetCommunity_WithCoverage(t *testing.T) {
-	deps := setupTestDeps(t)
-	ctx := context.Background()
-
-	mockCov := &mockCoverageAnalyzer{
-		communityResult: &coverage.CommunityCoverage{
-			CommunityID: 1, Label: "core", Total: 10, Tested: 7, Ratio: 0.7,
-		},
-	}
-	deps.CoverageAnalyzer = mockCov
-
-	c := model.Community{Key: "core2", Label: "core2", Strategy: "directory"}
-	deps.DB.Create(&c)
-	deps.Store.UpsertNodes(ctx, []model.Node{
-		{QualifiedName: "core2.Fn", Kind: model.NodeKindFunction, Name: "Fn", FilePath: "core2.go", StartLine: 1, EndLine: 5, Language: "go"},
-	})
-	node, _ := deps.Store.GetNode(ctx, "core2.Fn")
-	deps.DB.Create(&model.CommunityMembership{CommunityID: c.ID, NodeID: node.ID})
-
-	result := callTool(t, deps, "get_community", map[string]any{"community_id": c.ID})
-	if result.IsError {
-		t.Fatalf("get_community error: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	if err := json.Unmarshal([]byte(text), &resp); err != nil {
-		t.Fatal(err)
-	}
-	coverage, ok := resp["coverage"].(float64)
-	if !ok {
-		t.Fatalf("expected coverage float, got %T", resp["coverage"])
-	}
-	if coverage != 0.7 {
-		t.Errorf("expected coverage=0.7, got %v", resp["coverage"])
-	}
-}
-
-func TestGetCommunity_NotFound(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	result := callTool(t, deps, "get_community", map[string]any{"community_id": 999})
-	if !result.IsError {
-		t.Fatal("expected error for nonexistent community")
-	}
-}
-
-func TestGetCommunity_NamespaceRejectsForeignCommunity(t *testing.T) {
-	deps := setupTestDeps(t)
-	community := model.Community{Namespace: "beta", Key: "beta/core", Label: "beta/core", Strategy: "directory"}
-	deps.DB.Create(&community)
-
-	result := callTool(t, deps, "get_community", map[string]any{"community_id": community.ID, "namespace": "alpha"})
-	if !result.IsError {
-		t.Fatalf("expected scoped lookup to reject foreign community: %s", getTextContent(result))
-	}
-}
-
 // ============================================================
-// 11.11 get_architecture_overview
 // ============================================================
-
-func TestArchitectureOverview_ReturnsCommunities2(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	deps.DB.Create(&model.Community{Key: "mod_a", Label: "mod_a", Strategy: "directory"})
-	deps.DB.Create(&model.Community{Key: "mod_b", Label: "mod_b", Strategy: "directory"})
-
-	result := callTool(t, deps, "get_architecture_overview", map[string]any{})
-	if result.IsError {
-		t.Fatalf("get_architecture_overview error: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
-	comms := resp["communities"].([]any)
-	if len(comms) != 2 {
-		t.Errorf("expected 2 communities, got %d", len(comms))
-	}
-}
-
-func TestArchitectureOverview_ReturnsCoupling2(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	mockCoup := &mockCouplingAnalyzer{
-		result: []coupling.CouplingPair{
-			{FromCommunity: "a", ToCommunity: "b", EdgeCount: 5, Strength: 0.5},
-		},
-	}
-	deps.CouplingAnalyzer = mockCoup
-
-	deps.DB.Create(&model.Community{Key: "a", Label: "a", Strategy: "directory"})
-
-	result := callTool(t, deps, "get_architecture_overview", map[string]any{})
-	if result.IsError {
-		t.Fatalf("get_architecture_overview error: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
-	cp := resp["coupling"].([]any)
-	if len(cp) != 1 {
-		t.Errorf("expected 1 coupling pair, got %d", len(cp))
-	}
-}
-
-func TestArchitectureOverview_Warnings(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	mockCoup := &mockCouplingAnalyzer{
-		result: []coupling.CouplingPair{
-			{FromCommunity: "x", ToCommunity: "y", EdgeCount: 100, Strength: 0.95},
-		},
-	}
-	deps.CouplingAnalyzer = mockCoup
-
-	deps.DB.Create(&model.Community{Key: "x", Label: "x", Strategy: "directory"})
-
-	result := callTool(t, deps, "get_architecture_overview", map[string]any{})
-	if result.IsError {
-		t.Fatalf("get_architecture_overview error: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
-	warnings := resp["warnings"].([]any)
-	if len(warnings) == 0 {
-		t.Error("expected warnings for high coupling")
-	}
-}
-
-func TestArchitectureOverview_Empty2(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	result := callTool(t, deps, "get_architecture_overview", map[string]any{})
-	if result.IsError {
-		t.Fatalf("get_architecture_overview error: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	json.Unmarshal([]byte(text), &resp)
-	warnings := resp["warnings"].([]any)
-	if len(warnings) == 0 {
-		t.Error("expected warning message when no communities")
-	}
-}
 
 // ============================================================
 // 11.12 find_dead_code
@@ -3706,46 +2840,6 @@ func (f *failSearchBackend) Query(ctx context.Context, db *gorm.DB, query string
 	return nil, nil
 }
 
-func TestRunPostprocess_DegradedOnCommunityFailure(t *testing.T) {
-	deps := setupTestDeps(t)
-	deps.CommunityBuilder = &mockCommunityBuilder{
-		err: errors.New("community rebuild boom"),
-	}
-
-	result := callTool(t, deps, "run_postprocess", map[string]any{
-		"communities": true,
-		"fts":         false,
-		"flows":       false,
-	})
-	if result.IsError {
-		t.Fatalf("run_postprocess should not return tool error, got: %s", getTextContent(result))
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	if err := json.Unmarshal([]byte(text), &resp); err != nil {
-		t.Fatalf("expected JSON, got: %s", text)
-	}
-
-	if resp["status"] != "degraded" {
-		t.Errorf("expected status=degraded, got %v", resp["status"])
-	}
-
-	failedSteps, ok := resp["failed_steps"].([]any)
-	if !ok || len(failedSteps) == 0 {
-		t.Fatalf("expected failed_steps to be non-empty, got %v", resp["failed_steps"])
-	}
-	found := false
-	for _, s := range failedSteps {
-		if s == "communities" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("expected 'communities' in failed_steps, got %v", failedSteps)
-	}
-}
-
 func TestRunPostprocess_DegradedOnSearchFailure(t *testing.T) {
 	deps := setupTestDeps(t)
 	deps.SearchBackend = &failSearchBackend{err: errors.New("fts rebuild boom")}
@@ -3897,12 +2991,10 @@ func MyService() {}
 	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
 		t.Fatalf("expected JSON, got: %s", getTextContent(result))
 	}
-	skipped, ok := resp["skipped_steps"].([]any)
-	if !ok {
-		t.Fatalf("expected skipped_steps array, got %v", resp["skipped_steps"])
-	}
+	// skipped_steps may be null when nothing is skipped; the assertion is only that flows is not skipped.
+	skipped, _ := resp["skipped_steps"].([]any)
 	if containsString(skipped, "flows") {
-		t.Fatalf("expected build_or_update_graph postprocess=full not to report flows as skipped when builder is configured, got %v", resp["skipped_steps"])
+		t.Fatalf("expected postprocess=full not to report flows as skipped when the builder is configured, got %v", resp["skipped_steps"])
 	}
 
 	var docs []model.SearchDocument

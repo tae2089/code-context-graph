@@ -2,7 +2,6 @@
 package server
 
 import (
-	"github.com/tae2089/code-context-graph/internal/analysis/community"
 	"github.com/tae2089/code-context-graph/internal/analysis/coupling"
 	"github.com/tae2089/code-context-graph/internal/analysis/coverage"
 	"github.com/tae2089/code-context-graph/internal/analysis/deadcode"
@@ -23,6 +22,5 @@ var (
 	_ mcp.DeadcodeAnalyzer  = (*deadcode.Service)(nil)
 	_ mcp.CouplingAnalyzer  = (*coupling.Service)(nil)
 	_ mcp.CoverageAnalyzer  = (*coverage.Service)(nil)
-	_ mcp.CommunityBuilder  = (*community.Builder)(nil)
 	_ mcp.IncrementalSyncer = (*incremental.Syncer)(nil)
 )
