@@ -12,6 +12,7 @@ import (
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/identtoken"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
@@ -201,6 +202,13 @@ func buildSearchContent(n model.Node, annByNode map[uint]*model.Annotation) stri
 	sb.WriteString(n.QualifiedName)
 	sb.WriteByte(' ')
 	sb.WriteString(string(n.Kind))
+	// Emit identifier sub-tokens so camelCase names are searchable by their
+	// inner words (getUserById -> get, user, by, id). The verbatim name above
+	// preserves existing whole-name and prefix matching.
+	for _, token := range identSubtokens(n.Name, n.QualifiedName) {
+		sb.WriteByte(' ')
+		sb.WriteString(token)
+	}
 	for _, token := range searchPathTokens(n.FilePath) {
 		sb.WriteByte(' ')
 		sb.WriteString(token)
@@ -220,6 +228,24 @@ func buildSearchContent(n model.Node, annByNode map[uint]*model.Annotation) stri
 		}
 	}
 	return sb.String()
+}
+
+// identSubtokens returns the deduplicated camelCase/separator sub-tokens of a
+// node's name and qualified name. Dedup keeps a token's term frequency from
+// being inflated just because it appears in both the name and the qualified name.
+func identSubtokens(name, qualifiedName string) []string {
+	seen := map[string]struct{}{}
+	var tokens []string
+	for _, raw := range []string{name, qualifiedName} {
+		for _, tok := range identtoken.Split(raw) {
+			if _, ok := seen[tok]; ok {
+				continue
+			}
+			seen[tok] = struct{}{}
+			tokens = append(tokens, tok)
+		}
+	}
+	return tokens
 }
 
 // searchPathTokens derives lowercase filename tokens and optional language aliases for search indexing.

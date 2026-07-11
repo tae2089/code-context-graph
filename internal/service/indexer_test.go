@@ -117,6 +117,47 @@ func TestBuildSearchDocuments_IndexesFileBaseAndLanguageTokens(t *testing.T) {
 	}
 }
 
+// camelCase 식별자를 서브토큰으로도 색인해, 내부 단어(user, id 등)로 검색 가능하게 한다.
+func TestBuildSearchContent_EmitsIdentifierSubtokens(t *testing.T) {
+	tests := []struct {
+		name     string
+		node     model.Node
+		contains []string
+	}{
+		{
+			name:     "camelCase name and qualified name split",
+			node:     model.Node{Name: "getUserById", QualifiedName: "svc.getUserById", Kind: model.NodeKindFunction, FilePath: "svc/user.go", Language: "go"},
+			contains: []string{"getuserbyid", "get", "user", "by", "id"},
+		},
+		{
+			name:     "PascalCase class split",
+			node:     model.Node{Name: "UserService", QualifiedName: "pkg.UserService", Kind: model.NodeKindClass, FilePath: "pkg/svc.go", Language: "go"},
+			contains: []string{"userservice", "user", "service"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content := strings.ToLower(buildSearchContent(tt.node, nil))
+			for _, want := range tt.contains {
+				if !containsToken(content, want) {
+					t.Fatalf("content %q missing subtoken %q", content, want)
+				}
+			}
+		})
+	}
+}
+
+// containsToken checks for a whitespace-delimited token, not a substring, so
+// "id" must appear as its own token rather than inside "identifier".
+func containsToken(content, tok string) bool {
+	for _, f := range strings.Fields(content) {
+		if f == tok {
+			return true
+		}
+	}
+	return false
+}
+
 type recordingGraphStore struct {
 	t             *testing.T
 	ops           []string
