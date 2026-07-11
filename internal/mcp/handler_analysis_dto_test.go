@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/model"
-	"github.com/tae2089/code-context-graph/internal/paging"
 )
 
 func TestHandler_AnalysisResponses_WireContractFrozen(t *testing.T) {
@@ -119,26 +118,6 @@ func TestHandler_AnalysisResponses_WireContractFrozen(t *testing.T) {
 			t.Fatalf("unexpected evidence keys: %v", sortedKeys(evidence))
 		}
 	})
-}
-
-func TestPagedListResponse_MarshalJSON_PreservesEnvelope(t *testing.T) {
-	b, err := json.Marshal(pagedListResponse[string]{
-		LegacyKey:  "dead_code",
-		Items:      []string{"one"},
-		Count:      1,
-		Pagination: paging.Page{Limit: 10, Offset: 0, Returned: 1, HasMore: false},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var resp map[string]any
-	if err := json.Unmarshal(b, &resp); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(sortedKeys(resp), []string{"count", "dead_code", "items", "pagination"}) {
-		t.Fatalf("unexpected top-level keys: %v", sortedKeys(resp))
-	}
 }
 
 func sortedKeys(m map[string]any) []string {

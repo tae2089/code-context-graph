@@ -6,18 +6,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-// DatabaseDriver returns the configured database driver.
-// @intent 설정에서 현재 런타임이 사용할 DB 드라이버를 공통 helper로 읽는다.
-func DatabaseDriver() string {
-	return viper.GetString("db.driver")
-}
-
-// DatabaseDSN returns the configured database DSN.
-// @intent 설정에서 현재 런타임이 사용할 DB 연결 문자열을 공통 helper로 읽는다.
-func DatabaseDSN() string {
-	return viper.GetString("db.dsn")
-}
-
 // MigrationsDir returns the configured migration directory.
 //
 // Empty string means use embedded migrations.
