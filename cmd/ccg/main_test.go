@@ -268,7 +268,7 @@ func TestRunMigrations_SQLiteDownRestoresNullableColumns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
 	}
-	if err := migrator.Steps(-4); err != nil {
+	if err := migrator.Steps(-5); err != nil {
 		t.Fatalf("run down migration: %v", err)
 	}
 
@@ -313,7 +313,7 @@ func TestRunMigrations_SQLiteDownFromVersionThreeDropsPolicyTables(t *testing.T)
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
 	}
-	if err := migrator.Steps(-3); err != nil {
+	if err := migrator.Steps(-4); err != nil {
 		t.Fatalf("run down migration: %v", err)
 	}
 
@@ -427,7 +427,7 @@ func TestEnsureSchemaVersion_LogsRuntimeSchemaPassAndFail(t *testing.T) {
 		t.Fatalf("ensure schema version: %v", err)
 	}
 	passLog := logs.String()
-	for _, want := range []string{"database runtime schema check passed", "driver=sqlite", "required_version=5", "auto_migrated=true"} {
+	for _, want := range []string{"database runtime schema check passed", "driver=sqlite", "required_version=6", "auto_migrated=true"} {
 		if !strings.Contains(passLog, want) {
 			t.Fatalf("expected runtime schema pass log to contain %q, got %q", want, passLog)
 		}
@@ -441,7 +441,7 @@ func TestEnsureSchemaVersion_LogsRuntimeSchemaPassAndFail(t *testing.T) {
 		t.Fatal("expected parity failure")
 	}
 	failLog := logs.String()
-	for _, want := range []string{"database runtime schema check failed", "driver=sqlite", "required_version=5", "auto_migrated=false", "error.message="} {
+	for _, want := range []string{"database runtime schema check failed", "driver=sqlite", "required_version=6", "auto_migrated=false", "error.message="} {
 		if !strings.Contains(failLog, want) {
 			t.Fatalf("expected runtime schema failure log to contain %q, got %q", want, failLog)
 		}

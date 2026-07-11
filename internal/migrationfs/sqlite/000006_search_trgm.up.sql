@@ -1,0 +1,1 @@
+-- pg_trgm fuzzy symbol search is PostgreSQL-only; no-op on SQLite.

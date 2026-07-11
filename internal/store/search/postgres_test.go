@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"github.com/tae2089/code-context-graph/internal/ctxns"
+	"github.com/tae2089/code-context-graph/internal/db/migration"
 	"github.com/tae2089/code-context-graph/internal/model"
 )
 
@@ -65,11 +66,13 @@ func setupPostgresDB(t *testing.T) *gorm.DB {
 		t.Skipf("PostgreSQL not available: %v", err)
 	}
 
-	db.Exec("DROP TABLE IF EXISTS search_documents CASCADE")
-	db.Exec("DROP TABLE IF EXISTS nodes CASCADE")
-
-	if err := db.AutoMigrate(&model.Node{}, &model.SearchDocument{}); err != nil {
-		t.Fatal(err)
+	// Reset to a clean schema and build it from the production migrations (the single source
+	// of truth), rather than AutoMigrate + hand-written backend DDL.
+	if err := db.Exec("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").Error; err != nil {
+		t.Fatalf("reset schema: %v", err)
+	}
+	if err := migration.RunMigrations(db, "postgres", ""); err != nil {
+		t.Fatalf("run migrations: %v", err)
 	}
 	return db
 }
@@ -232,15 +235,13 @@ func TestPostgresFTS_RebuildNodes_ChunksLargeNodeScopes(t *testing.T) {
 	if err != nil {
 		t.Skipf("PostgreSQL not available: %v", err)
 	}
-	db.Exec("DROP TABLE IF EXISTS search_documents CASCADE")
-	db.Exec("DROP TABLE IF EXISTS nodes CASCADE")
-	if err := db.AutoMigrate(&model.Node{}, &model.SearchDocument{}); err != nil {
-		t.Fatal(err)
+	if err := db.Exec("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").Error; err != nil {
+		t.Fatalf("reset schema: %v", err)
+	}
+	if err := migration.RunMigrations(db, "postgres", ""); err != nil {
+		t.Fatalf("run migrations: %v", err)
 	}
 	backend := NewPostgresBackend()
-	if err := backend.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
 
 	nodeIDs := make([]uint, 0, scopedRebuildChunkSize+1)
 	for i := range scopedRebuildChunkSize + 1 {

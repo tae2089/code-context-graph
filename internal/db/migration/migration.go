@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	RequiredSchemaVersion    = 5
+	RequiredSchemaVersion    = 6
 	SchemaVersionKey         = "schema"
 	LegacySchemaVersionTable = "ccg_schema_versions"
 )
