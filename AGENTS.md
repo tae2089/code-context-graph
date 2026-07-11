@@ -44,7 +44,6 @@ Main commands:
 - `ccg search <query>` - full-text search (includes annotations)
 - `ccg lint [--strict]` - check documentation quality
 - `/ccg-annotate annotate [file|dir]` - AI annotation generation workflow
-- `ccg example [language]`, `ccg tags` - annotation examples and tag reference
 
 Use `.ccg.yaml` to manage project defaults such as exclude patterns and DB settings.
 

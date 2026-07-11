@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -59,6 +60,18 @@ func TestRoot_NoCommand(t *testing.T) {
 	}
 }
 
+func TestRoot_MetadataCommandsAreNotRegistered(t *testing.T) {
+	for _, name := range []string{"languages", "example", "tags"} {
+		t.Run(name, func(t *testing.T) {
+			deps, stdout, stderr := newTestDeps()
+			err := executeCmd(deps, stdout, stderr, name)
+			if err == nil || !strings.Contains(err.Error(), "unknown command") {
+				t.Fatalf("execute removed command %q error = %v, want unknown command", name, err)
+			}
+		})
+	}
+}
+
 func TestRoot_ServeCommand(t *testing.T) {
 	deps, stdout, stderr := newTestDeps()
 
@@ -79,7 +92,7 @@ func TestRoot_ServeCommand(t *testing.T) {
 }
 
 func TestRoot_SkipDBInitCommandsDoNotCallInitFunc(t *testing.T) {
-	commands := []string{"version", "languages", "hooks", "example", "tags"}
+	commands := []string{"version", "hooks"}
 
 	for _, name := range commands {
 		t.Run(name, func(t *testing.T) {
@@ -90,11 +103,7 @@ func TestRoot_SkipDBInitCommandsDoNotCallInitFunc(t *testing.T) {
 				return nil
 			}
 
-			args := []string{name}
-			if name == "example" {
-				args = append(args, "go")
-			}
-			if err := executeCmd(deps, stdout, stderr, args...); err != nil {
+			if err := executeCmd(deps, stdout, stderr, name); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			if called != 0 {

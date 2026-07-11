@@ -104,17 +104,6 @@ Agent: 코드 분석 → @intent, @domainRule, @sideEffect, @mutates 생성
        → 이제 비즈니스 컨텍스트로 검색 가능
 ```
 
-### CLI
-
-```bash
-# 어노테이션 예시 보기
-ccg example go
-ccg example python
-
-# 전체 태그 레퍼런스
-ccg tags
-```
-
 ### 스킬 (Skill)
 
 스킬을 지원하는 코딩 에이전트에서 `/ccg-annotate` 스킬을 직접 사용하십시오:
@@ -122,3 +111,6 @@ ccg tags
 ```
 /ccg-annotate annotate internal/   — AI를 사용하여 어노테이션 자동 생성
 ```
+
+전체 태그 계약과 언어별 주석 문법 예시는 프로젝트 로컬 skill의
+[`skills/ccg-annotate/references/annotation-reference.md`](../../skills/ccg-annotate/references/annotation-reference.md)에 있습니다.

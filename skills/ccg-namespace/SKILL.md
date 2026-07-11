@@ -1,6 +1,17 @@
 ---
 name: ccg-namespace
-description: code-context-graph — namespace isolation for graph build, search, documentation discovery, and multi-repository workflows.
+description: "Isolate CCG graph build, search, documentation discovery, and analysis by namespace. Use when working across multiple repositories or services, preventing cross-project graph leakage, listing populated namespaces, or applying one namespace consistently across MCP and CLI operations. Do not use for ordinary single-repository work that fits the default namespace."
+metadata:
+  version: 1.1.0
+  openclaw:
+    category: "code-intelligence"
+    domain: "namespace"
+  requires:
+    bins:
+      - ccg
+    skills:
+      - ccg
+  cliHelp: "ccg build --help"
 ---
 
 # ccg-namespace — Graph Namespace Isolation
@@ -38,6 +49,19 @@ search_docs(namespace: "payment", query: "payment flow")
 ## Operational Guidance
 
 - Use one namespace per service or repository when graph state must remain isolated.
+- Keep one canonical source root per namespace; reusing a namespace for an unrelated root makes later update/replace behavior ambiguous.
 - Use the default namespace for ordinary single-repository local work.
 - Pass the same namespace consistently to build, search, docs, and analysis tools.
 - Namespace deletion and file upload are not MCP capabilities; manage source directories outside CCG and rebuild graph state as needed.
+- A graph namespace does not generate or copy Markdown files. Generate and place docs separately before expecting namespace-scoped `get_doc_content` reads to succeed.
+
+## Boundary
+
+- Use the default namespace for one local repository unless isolation is required.
+- Never combine evidence from different namespaces without labeling each source.
+- Keep filesystem source ownership outside CCG; namespaces isolate graph state, not repository permissions.
+- Verify the selected namespace has graph rows before interpreting an empty search as no match.
+
+## Completion
+
+State the namespace used for every build/search/analysis step, confirm it with `list_namespaces` or graph statistics, and report whether any cross-namespace evidence was intentionally included.

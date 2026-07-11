@@ -1,6 +1,17 @@
 ---
 name: ccg-docs
-description: code-context-graph — Markdown generation, DB-backed documentation discovery, generated document reads, and docs lint.
+description: "Generate, discover, read, and lint CCG documentation. Use when producing Markdown and Wiki snapshots, narrowing broad module questions with search_docs, reading generated docs with get_doc_content, or diagnosing orphan, missing, stale, incomplete, contradiction, dead-ref, and drift findings. Do not use for direct source annotation authoring or exact call-graph analysis."
+metadata:
+  version: 1.1.0
+  openclaw:
+    category: "code-intelligence"
+    domain: "documentation"
+  requires:
+    bins:
+      - ccg
+    skills:
+      - ccg
+  cliHelp: "ccg docs --help"
 ---
 
 # ccg-docs — Documentation Discovery
@@ -22,8 +33,11 @@ Generate Markdown from the code graph, find relevant generated documents through
 
 ## Core Pipeline
 
+Confirm the graph first. Use `ccg update .` after ordinary source edits or
+`ccg build .` when the graph is missing or an intentional full rebuild is
+needed. Generate files only when the task needs current Markdown or Wiki output:
+
 ```bash
-ccg build .
 ccg docs --out docs
 ccg lint
 ```
@@ -41,7 +55,6 @@ query_graph(pattern: "callers_of", target: "auth.Service.Login")
 | Command | Use |
 | ------- | --- |
 | `ccg docs --out docs` | Generate Markdown and `wiki-index.json` compatibility snapshot |
-| `ccg index` | Regenerate `index.md` only |
 | `ccg lint` | Run documentation quality checks |
 | `ccg lint --strict` | Exit 1 when lint reports actionable issues |
 
@@ -60,9 +73,9 @@ query_graph(pattern: "callers_of", target: "auth.Service.Login")
 
 ## Quality Checkpoints
 
-1. Sparse results: add accurate `@intent` or `@index` annotations through `/ccg-annotate`.
-2. Stale generated docs: rerun `ccg build .` and `ccg docs --out docs`.
-3. Empty `search_docs` results: confirm the namespace and graph statistics, then rebuild the graph.
+1. Sparse results: add accurate `@intent` or `@index` annotations with the `ccg-annotate` skill.
+2. Stale generated docs: refresh changed graph data with `ccg update .`, then rerun `ccg docs --out docs`.
+3. Empty `search_docs` results: confirm the namespace and graph statistics, then build or update only if the graph is missing or stale.
 4. Exact-answer needs: switch from documentation discovery to `get_node`, `query_graph`, or `trace_flow`.
 
 ## MCP Tools
@@ -72,4 +85,18 @@ query_graph(pattern: "callers_of", target: "auth.Service.Login")
 | `search_docs` | Search DB-backed documentation candidates and evidence |
 | `get_doc_content` | Safely read a selected generated Markdown file |
 
-Requires `ccg build .` first. Local MCP clients use `ccg serve`; self-hosted clients connect to `ccg-server` over Streamable HTTP.
+`search_docs` reads graph evidence without requiring a separately generated
+retrieval index. `get_doc_content` still needs the selected Markdown file to
+exist at the configured path. Local MCP clients use `ccg serve`; self-hosted
+clients connect to `ccg-server` over Streamable HTTP.
+
+## Boundary
+
+- Treat `search_docs` as a narrowing layer, not a guaranteed Top-1 answer.
+- Read selected generated docs before switching to exact graph tools.
+- Do not hand-edit generator-managed Markdown when the source annotation or generator owns the content.
+- Separate current lint results from pre-existing unrelated findings.
+
+## Completion
+
+Report generated output paths when generation was requested, list documents selected as evidence, state the namespace and graph freshness, and include the exact lint summary or explain why lint was not run.

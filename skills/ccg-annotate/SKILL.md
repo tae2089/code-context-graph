@@ -1,20 +1,27 @@
 ---
 name: ccg-annotate
-description: code-context-graph — AI-driven annotation workflow. Add @intent/@domainRule/etc so code and documentation search can find business meaning.
+description: "Author and refine CCG annotations such as @intent, @domainRule, @sideEffect, @mutates, @index, and @see. Use when adding business meaning to code, improving annotation-aware code or documentation retrieval, fixing annotation lint findings, or documenting operational contracts. Do not use for generated Markdown editing or annotations that merely restate symbol names."
+metadata:
+  version: 1.1.0
+  openclaw:
+    category: "code-intelligence"
+    domain: "annotation"
+  requires:
+    bins:
+      - ccg
+    skills:
+      - ccg
 ---
 
 # ccg-annotate — Annotation Workflow
 
-Add structured business metadata to code. **This is what makes code and documentation search useful.**
+Add structured business metadata to source comments so graph search and
+generated documentation can retrieve intent and operational contracts.
 
 ## Why Annotations Matter
 
-- Enables domain search that text matching can't do: "payment" → finds functions with `@intent payment processing`
+- Lets full-text retrieval match domain terms recorded in annotations even when symbol names differ
 - Enriches generated docs and DB-backed documentation evidence
-- LLM can grasp intent without reading code → token savings
-- Surfaces domain rules automatically during PR review
-
-**Without annotations, ccg delivers only half its value.**
 
 ## Core Tags
 
@@ -23,7 +30,7 @@ Add structured business metadata to code. **This is what makes code and document
 | `@intent`     | **WHY this function exists**        | `verify identity before granting access` |
 | `@domainRule` | Specific business rule              | `lock account after 5 failures`          |
 | `@sideEffect` | Real side effects (DB/network/file) | `writes to audit_log`                    |
-| `@mutates`    | State changes                       | `user.FailedAttempts, session.Token`     |
+| `@mutates`    | Receiver or argument state changes  | `user.FailedAttempts, session.Token`     |
 | `@requires`   | Precondition                        | `user.IsActive == true`                  |
 | `@ensures`    | Postcondition                       | `returns valid JWT with 24h expiry`      |
 | `@index`      | One-line file/package summary       | `User authentication service`            |
@@ -41,7 +48,7 @@ specific tag that matches the code's role instead of stuffing keywords into
 | Public function, handler, CLI command, service method, or UI workflow has a clear purpose | `@intent` |
 | Policy, constraint, operational rule, or false-positive/false-negative criterion matters | `@domainRule` |
 | DB/file/network/cache/log/process side effect exists | `@sideEffect` |
-| Receiver or input state changes | `@mutates` |
+| Receiver or argument object changes in memory | `@mutates` |
 | Caller-facing input/output contract matters | `@requires`, `@ensures` |
 | Related implementation must be followed, especially across namespaces | `@see` |
 
@@ -51,19 +58,23 @@ graph component focuses a resolved `ccg://` node, say `graph viewer`, `ccg ref`,
 and `node focus` in the appropriate `@index`/`@intent`. Do not add unrelated
 terms just to raise score; broad terms make the wrong files rank higher.
 
-## AI Workflow (`/ccg-annotate annotate <path>`)
+Read [`references/annotation-reference.md`](references/annotation-reference.md)
+when checking the complete tag contract, aliases, multiline behavior, or
+language-specific comment syntax.
 
-This is an agent skill workflow, not a `ccg` CLI subcommand. The CLI provides
-`ccg example <language>` and `ccg tags` for writing guidance; the agent reads
-and edits code directly.
+## Annotation Workflow
+
+This is an agent skill workflow, not a `ccg` CLI subcommand. The agent reads and
+edits code directly.
 
 ### Step 1: Pick targets
 
 - File path → that file only
 - Directory → all source files
-- **Skip**: tests, vendor, node_modules, generated
+- **Skip**: vendor, dependencies, and generated code
+- Skip tests by default; include a test only when it is itself important domain-contract evidence
 
-### Step 2: Analyze each function
+### Step 2: Analyze each target
 
 Read the code and determine:
 
@@ -84,18 +95,23 @@ For cross-namespace behavior, explain the reason in the semantic tag and put the
 
 ### Step 3: Write
 
-- Add as comments directly above the declaration using language syntax (`//`, `#`)
-- **Do NOT overwrite existing annotations**
+- Add comments directly above the declaration using the language's documentation-comment syntax
+- Preserve accurate human-authored context; update or remove stale, false, or duplicate tags when refinement is requested
+- Do not erase non-obvious rationale unless the code contradicts it; report such changes explicitly
 - **Skip trivial functions** (getters/setters, obvious one-line wrappers)
 - Do not add tags that do not match real behavior
 - Do not repeat the same keyword across tags unless each tag adds distinct evidence
 - Match the language of existing comments (Korean for Korean codebases, English for English)
 
-### Step 4: Rebuild
+### Step 4: Refresh and verify
 
 ```bash
-ccg build .   # re-index with annotations
+ccg update .  # ordinary source edits: re-index changed files
+ccg lint      # verify annotation quality and references
 ```
+
+Use `ccg build .` instead when the graph does not exist, a full rebuild is
+intentional, or incremental recovery is required.
 
 ## Quality Rules (this is what really matters)
 
@@ -111,12 +127,11 @@ WHAT only. Function name already tells you that.
 ✅ **Good annotation**:
 
 ```go
-// @intent register new account for onboarding flow
+// @intent register a normalized account for the onboarding flow
 // @domainRule email must be unique across all tenants
-// @domainRule password must satisfy NIST 800-63B
-// @sideEffect sends verification email
-// @mutates users table, audit_log
-func CreateUser(...) {}
+// @sideEffect inserts the user and audit record, then sends a verification email
+// @mutates input.NormalizedEmail
+func CreateUser(input *SignupRequest) error { ... }
 ```
 
 WHY + business rules + side effects. Code and documentation search become powerful.
@@ -138,22 +153,12 @@ After adding annotations for a feature area, run a few natural-language
 retrieve/search probes that match how an LLM or engineer would ask:
 
 ```bash
-ccg build .
 ccg search "graph viewer ccg ref node focus"
 ```
 
-For MCP/Web UI retrieval, use `search_docs` + `get_doc_content` or the Wiki Retrieve mode. If the
+For MCP/Web UI retrieval, use `search_docs` + `get_doc_content` or Wiki search. If the
 expected file is missing, prefer improving the precise `@index`, `@intent`,
 `@domainRule`, or `@see` evidence on that file over changing global scoring.
-
-## Search Integration
-
-Once annotated, `ccg search` indexes annotation text alongside code (see `/ccg` skill):
-
-```bash
-ccg search "결제"        # finds functions with "결제" in @intent (Korean)
-ccg search "lock"        # finds functions with "lock" in @domainRule
-```
 
 ## MCP Tools
 
@@ -161,6 +166,9 @@ ccg search "lock"        # finds functions with "lock" in @domainRule
 | ---------------- | ------------------------------------ |
 | `get_annotation` | Fetch annotation/doc tags for a node |
 
-## Prerequisites
+## Completion
 
-Requires `ccg build .` first. (See `/ccg` skill.)
+List annotated files and meaningful tags added or deliberately revised, report
+any existing rationale changed, refresh the graph with update or build as
+appropriate, run retrieval probes for the affected concepts, and report
+`ccg lint` results without claiming unrelated findings were fixed.

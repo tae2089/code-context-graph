@@ -50,9 +50,6 @@ ccg update ./backend --namespace backend
 | `ccg docs --rag-index-dir <dir>` | legacy 이름을 유지한 Wiki index 출력 디렉터리 지정 (기본 `.ccg` 또는 `rag.index_dir`) |
 | `ccg docs --prune=false` | 기존 generator-managed 문서를 삭제하지 않고 문서만 다시 생성 |
 | `ccg docs --exclude <pat>` | 문서 생성 대상에서 파일/경로 제외 (반복 가능) |
-| `ccg languages` | 지원되는 언어 및 확장자 목록 출력 |
-| `ccg example [language]` | 어노테이션 작성 예시 출력 |
-| `ccg tags` | 모든 어노테이션 태그 레퍼런스 출력 |
 | `ccg hooks install` | pre-commit git 훅 설치 |
 | `ccg hooks install --lint-strict` | 문제가 있을 경우 커밋을 차단하는 훅 설치 |
 | `ccg lint [--out dir]` | 8가지 카테고리의 문서 린트(lint) 실행 |

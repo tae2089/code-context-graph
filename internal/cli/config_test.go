@@ -220,12 +220,12 @@ func TestConfigFlag_LoadsYAML(t *testing.T) {
 	}
 
 	deps, stdout, stderr := newTestDeps()
-	// tags command doesn't need DB, so it works without InitFunc
-	if err := executeCmd(deps, stdout, stderr, "--config", cfgFile, "tags"); err != nil {
+	// version does not need DB, so config loading can be tested without InitFunc.
+	if err := executeCmd(deps, stdout, stderr, "--config", cfgFile, "version"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "@index") {
-		t.Errorf("expected tags output, got: %s", stdout.String())
+	if !strings.Contains(stdout.String(), "ccg dev") {
+		t.Errorf("expected version output, got: %s", stdout.String())
 	}
 }

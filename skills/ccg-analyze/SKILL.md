@@ -1,6 +1,16 @@
 ---
 name: ccg-analyze
-description: code-context-graph — impact analysis, flow tracing, changed-function risk, and affected-flow inspection.
+description: "Analyze code relationships with CCG impact radius, flow tracing, callers/callees, git-diff risk, and affected stored flows. Use when a task asks what a change affects, how a call path flows, who calls a symbol, or which flows recent changes touch. Do not use for simple text lookup, documentation generation, or annotation authoring."
+metadata:
+  version: 1.1.0
+  openclaw:
+    category: "code-intelligence"
+    domain: "analysis"
+  requires:
+    bins:
+      - ccg
+    skills:
+      - ccg
 ---
 
 # ccg-analyze — Code Analysis
@@ -12,26 +22,29 @@ Graph-based analysis for **change impact, call flow, and recent-change risk**.
 | User intent                          | Tool                                             | Notes                                         |
 | ------------------------------------ | ------------------------------------------------ | --------------------------------------------- |
 | "Impact of changing this function?"  | `get_impact_radius` (start with depth 3)         | Widen to depth 5 if too narrow                |
-| "Trace call flow from this function" | `trace_flow`                                     | If broken at interfaces, see workaround below |
+| "Trace call flow from this function" | `trace_flow`                                     | If unexpectedly thin, verify the causes below |
 | "Who calls this function?"           | `query_graph` (callers_of)                       |                                               |
 | "What does this function call?"      | `query_graph` (callees_of)                       |                                               |
 | "Risk of this change"                | `detect_changes` + `get_affected_flows`          | git diff-based                                |
 
-## trace_flow Limitations & Workaround
+## Thin `trace_flow` Results
 
-If `trace_flow` returns **only 1–2 starting nodes**, it broke at an interface dispatch boundary (Go's `h.deps.X.Method()`, Python duck typing, etc.).
+One or two returned nodes do not prove an interface-dispatch failure. The start
+may be a real leaf, the selected namespace or qualified name may be wrong, the
+graph may be stale, strict edges may be sparse, or dynamic dispatch may be
+unresolved.
 
-**Workaround**:
+Verify in this order:
 
 ```
-1. Confirm starting point via trace_flow
-2. Manually expand graph with callers_of / callees_of
-3. When you hit interface methods:
-   - Find the interface via search
-   - Reverse-trace implementations with callers_of
+1. Confirm the exact node with get_node.
+2. Confirm namespace population and graph freshness.
+3. Compare query_graph callers_of/callees_of with and without fallback calls.
+4. Read the relevant source around unresolved interface or dynamic calls.
 ```
 
-Latest ccg added an interface dispatch resolver, but it doesn't cover every pattern. If results look thin, fall back to this manual pattern.
+Report which explanation is supported; do not label a thin trace as an
+interface boundary without source or edge evidence.
 
 ## get_impact_radius Tips
 
@@ -39,7 +52,9 @@ Latest ccg added an interface dispatch resolver, but it doesn't cover every patt
 - **depth 3**: recommended default — covers most tasks
 - **depth 5+**: large monorepo propagation. Watch for noise.
 
-If results are huge, the change scope is likely too wide. Reconsider the change unit based on node count.
+If results are huge, narrow by namespace, starting symbol, depth, or edge mode
+before concluding the implementation change itself is too broad. High-fanout
+entry points can legitimately have a large radius.
 
 ## Pagination Defaults
 
@@ -49,6 +64,8 @@ Use explicit budgets for graph browsing tools when the namespace may be large:
 | ---- | ---------- | ---------------------- |
 | `query_graph` | `limit`, `offset` | `limit=50`, `offset=0` |
 | `list_flows` | `limit`, `offset` | `limit=50`, `offset=0` |
+| `detect_changes` | `limit`, `offset` | `limit=50`, `offset=0` |
+| `get_affected_flows` | `limit`, `offset` | `limit=50`, `offset=0` |
 
 Paginated responses include `has_more`. If true, call again with `next_offset`.
 Do not request the max page size first for LLM analysis; use 50 or 100 unless
@@ -60,9 +77,16 @@ the user specifically needs a bulk export.
 - Dynamic dispatch (reflection, plugins) → not captured
 - Build-tag-split files → both registered (noise)
 - Fallback call edges improve recall but may add false positives; use strict mode when evidence quality matters more than coverage
-- Don't trust 100%. For important decisions, cross-check with grep.
+- Treat graph results as a static approximation; cross-check important conclusions against source.
 
-## Full MCP Tool List
+## Boundary
+
+- Start from a verified qualified name; do not infer a symbol from a display label alone.
+- Scope namespace, path, traversal depth, and result limits before widening a query.
+- Separate strict call edges from fallback edges when evidence quality matters.
+- Do not treat missing graph edges as proof that runtime behavior is impossible.
+
+## Analysis MCP Tools
 
 | Tool                        | One-liner                    |
 | --------------------------- | ---------------------------- |
@@ -76,4 +100,12 @@ For detailed parameters, see MCP schema.
 
 ## Prerequisites
 
-Requires `ccg build .` first. Schema error → `ccg migrate`, retry. (See `/ccg` skill.)
+Confirm that the selected namespace contains a current graph. Build only when
+the graph is missing or a full rebuild is intentional; after ordinary code
+changes, prefer `ccg update .`. Stored-flow tools also require flow
+postprocessing; an empty flow list is not evidence of no flow until that state
+has been checked. Use the `ccg` skill for freshness and postprocessing guidance.
+
+## Completion
+
+Report the analyzed qualified name, namespace, depth/limits, included edge modes, returned impact or flow evidence, and any source-level cross-check used for an important conclusion.

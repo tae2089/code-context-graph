@@ -108,17 +108,6 @@ Agent: reads code → generates @intent, @domainRule, @sideEffect, @mutates
        → now searchable by business context
 ```
 
-### CLI
-
-```bash
-# Show annotation examples
-ccg example go
-ccg example python
-
-# Full tag reference
-ccg tags
-```
-
 ### Skill
 
 Use directly in a skill-capable coding agent with the `/ccg-annotate` skill:
@@ -126,3 +115,6 @@ Use directly in a skill-capable coding agent with the `/ccg-annotate` skill:
 ```
 /ccg-annotate annotate internal/   — AI-generate annotations
 ```
+
+The project-local skill keeps its complete tag contract and comment-syntax
+examples in [`skills/ccg-annotate/references/annotation-reference.md`](../skills/ccg-annotate/references/annotation-reference.md).

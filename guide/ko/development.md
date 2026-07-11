@@ -128,6 +128,24 @@ dist 디렉터리는 git에서 제외하고 release에서 별도 asset으로 패
 make wiki-build
 ```
 
+## Skill 계약 (Skill Contract)
+
+`skills/` 아래의 모든 프로젝트 로컬 skill은 다음을 frontmatter에 선언합니다:
+
+- 실제 trigger가 포함된 `name`과 `description`
+- semantic `metadata.version`
+- `metadata.openclaw.category`와 `domain`
+- `metadata.requires` 아래의 필수 binary와 선행 skill
+- 직접 대응하는 CLI help가 있을 때만 `metadata.cliHelp`
+
+세부 variant는 `SKILL.md`에서 직접 연결한 `references/` 파일에 두고, 핵심
+`SKILL.md` 지침은 특정 host에 종속되지 않게 유지합니다. metadata, dependency,
+직접 reference link, 제거된 command drift는 다음 명령으로 검증합니다:
+
+```bash
+go test ./internal/cli -run TestProjectSkills -count=1
+```
+
 ## 컨벤션 (Conventions)
 
 - TDD: Red → Green → Refactor

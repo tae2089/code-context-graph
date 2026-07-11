@@ -48,9 +48,6 @@ ccg update ./backend --namespace backend
 | `ccg docs --rag-index-dir <dir>` | Override the legacy-named Wiki index output directory (default `.ccg` or `rag.index_dir`) |
 | `ccg docs --prune=false` | Regenerate docs without deleting older generator-managed files |
 | `ccg docs --exclude <pat>` | Exclude files/paths from generated docs (repeatable) |
-| `ccg languages` | List supported languages and extensions |
-| `ccg example [language]` | Show annotation writing example |
-| `ccg tags` | Show all annotation tag reference |
 | `ccg hooks install` | Install pre-commit git hook |
 | `ccg hooks install --lint-strict` | Install hook that blocks commit on issues |
 | `ccg lint [--out dir]` | 8-category docs lint |

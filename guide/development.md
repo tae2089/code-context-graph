@@ -126,6 +126,24 @@ The dist directory is ignored by git and packaged separately for releases:
 make wiki-build
 ```
 
+## Skill Contract
+
+Each project-local skill under `skills/` declares:
+
+- trigger-rich `name` and `description` frontmatter
+- semantic `metadata.version`
+- `metadata.openclaw.category` and `domain`
+- required binaries and prerequisite skills under `metadata.requires`
+- `metadata.cliHelp` only when the skill has a direct CLI help surface
+
+Keep detailed variants in directly linked `references/` files and keep core
+`SKILL.md` instructions host-neutral. Validate metadata, dependencies, direct
+reference links, and removed-command drift with:
+
+```bash
+go test ./internal/cli -run TestProjectSkills -count=1
+```
+
 ## Conventions
 
 - TDD: Red → Green → Refactor
