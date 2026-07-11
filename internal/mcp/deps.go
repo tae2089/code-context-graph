@@ -8,7 +8,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
-	fallbackanalysis "github.com/tae2089/code-context-graph/internal/analysis/fallback"
 	flowspkg "github.com/tae2089/code-context-graph/internal/analysis/flows"
 	impactpkg "github.com/tae2089/code-context-graph/internal/analysis/impact"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
@@ -74,14 +73,6 @@ type QueryService interface {
 	FindExactNameMatches(ctx context.Context, target string, limit int) ([]query.CandidateMatch, error)
 }
 
-// FallbackAnalyzer defines the suspect fallback-edge analysis contract.
-// @intent Detects untrustworthy fallback call edges based on annotation overlap.
-// @see mcp.handlers.findSuspectFallbackEdges
-type FallbackAnalyzer interface {
-	FindSuspects(ctx context.Context, opts fallbackanalysis.Options) ([]fallbackanalysis.SuspectEdge, error)
-	FindSuspectsPage(ctx context.Context, opts fallbackanalysis.Options) (fallbackanalysis.Result, error)
-}
-
 // IncrementalSyncer defines the incremental graph synchronization contract.
 // @intent Injects a syncer that reflects only changed files into the graph without full re-parsing.
 // @see mcp.handlers.buildOrUpdateGraph
@@ -113,7 +104,6 @@ type Deps struct {
 
 	// Added in Phase 11
 	QueryService      QueryService
-	FallbackAnalyzer  FallbackAnalyzer
 	FlowBuilder       FlowBuilder
 	Incremental       IncrementalSyncer
 	PostprocessPolicy PostprocessPolicy

@@ -10,7 +10,6 @@ import (
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
-	fallbackanalysis "github.com/tae2089/code-context-graph/internal/analysis/fallback"
 	flowspkg "github.com/tae2089/code-context-graph/internal/analysis/flows"
 	impactpkg "github.com/tae2089/code-context-graph/internal/analysis/impact"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
@@ -102,18 +101,6 @@ type affectedFlowsResponse struct {
 	Items         []affectedFlowEntry `json:"items"`
 	Count         int                 `json:"count"`
 	Pagination    paging.Page         `json:"pagination"`
-}
-
-// suspectFallbackEdgeItem summarizes one fallback edge inspected for suspicion.
-// @intent preserve a stable per-item DTO for findSuspectFallbackEdges responses.
-type suspectFallbackEdgeItem struct {
-	EdgeKind    model.EdgeKind `json:"edge_kind"`
-	Fingerprint string         `json:"fingerprint"`
-	Source      string         `json:"source"`
-	SourceFile  string         `json:"source_file"`
-	Target      string         `json:"target"`
-	TargetFile  string         `json:"target_file"`
-	Suspect     bool           `json:"suspect"`
 }
 
 // getImpactRadius returns nodes reachable within a bounded dependency radius.
@@ -448,56 +435,6 @@ func (h *handlers) getAffectedFlows(ctx context.Context, request mcp.CallToolReq
 			return "", trace.Wrap(err, "marshal result")
 		}
 		return result, nil
-	}))
-}
-
-// findSuspectFallbackEdges returns fallback call edges whose source/target annotations do not overlap on intent/domain rules.
-// @intent surface low-confidence fallback call candidates so operators can manually review weakly explained edges.
-// @param request supports optional limit and offset to bound fallback suspect analysis.
-// @requires FallbackAnalyzer must be configured.
-// @ensures returns legacy suspect_fallback_edges plus items/count/pagination when analysis succeeds.
-func (h *handlers) findSuspectFallbackEdges(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = h.applyNamespace(ctx, request)
-	h.logger().Info("find_suspect_fallback_edges called")
-
-	input, err := decodeFindSuspectFallbackRequest(request)
-	if err != nil {
-		return finalizeToolResult("", err)
-	}
-
-	if h.deps.FallbackAnalyzer == nil {
-		return mcp.NewToolResultError("FallbackAnalyzer not configured"), nil
-	}
-
-	cacheParams := map[string]any{
-		"limit":     input.Page.Limit,
-		"offset":    input.Page.Offset,
-		"namespace": input.Namespace,
-	}
-	return finalizeToolResult(h.cachedExecute(ctx, "find_suspect_fallback_edges:", cacheParams, func() (string, error) {
-		page, err := h.deps.FallbackAnalyzer.FindSuspectsPage(ctx, fallbackanalysis.Options{Page: input.Page})
-		if err != nil {
-			return "", trace.Wrap(err, "fallback suspect analysis error")
-		}
-
-		items := make([]suspectFallbackEdgeItem, len(page.Items))
-		for i, result := range page.Items {
-			items[i] = suspectFallbackEdgeItem{
-				EdgeKind:    result.Edge.Kind,
-				Fingerprint: result.Edge.Fingerprint,
-				Source:      result.Source.QualifiedName,
-				SourceFile:  result.Source.FilePath,
-				Target:      result.Target.QualifiedName,
-				TargetFile:  result.Target.FilePath,
-				Suspect:     result.Suspect,
-			}
-		}
-
-		payload, err := encodePagedListResponse("suspect_fallback_edges", items, page.Pagination)
-		if err != nil {
-			return "", trace.Wrap(err, "marshal result")
-		}
-		return payload, nil
 	}))
 }
 

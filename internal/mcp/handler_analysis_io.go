@@ -1,4 +1,4 @@
-// @index Typed decode/encode helpers for analysis MCP handlers (find_dead_code, find_suspect_fallback_edges, find_large_functions).
+// @index Typed decode/encode helpers for analysis MCP handlers (find_dead_code, find_large_functions).
 package mcp
 
 import (
@@ -8,26 +8,6 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/paging"
 )
-
-// findSuspectFallbackInput captures decoded request arguments for find_suspect_fallback_edges.
-// @intent give findSuspectFallbackEdges a typed view of its request so the handler stays a thin adapter over the fallback analyzer.
-type findSuspectFallbackInput struct {
-	Page      paging.Request
-	Namespace string
-}
-
-// decodeFindSuspectFallbackRequest extracts and validates find_suspect_fallback_edges arguments.
-// @intent isolate request parsing and pagination validation for find_suspect_fallback_edges.
-func decodeFindSuspectFallbackRequest(request mcp.CallToolRequest) (findSuspectFallbackInput, error) {
-	pageReq, err := decodeListPageRequest(request, 50)
-	if err != nil {
-		return findSuspectFallbackInput{}, err
-	}
-	return findSuspectFallbackInput{
-		Page:      pageReq,
-		Namespace: requestNamespace(request),
-	}, nil
-}
 
 // decodeListPageRequest extracts shared limit/offset arguments and returns a normalized paging request.
 // @intent keep MCP list-style handlers from repeating the same pagination decode boilerplate.

@@ -5,15 +5,15 @@
 Follow the global prompt rules first. This file adds project-specific skill routing for a project that uses the `agent-team` CLI (github.com/tae2089/agent-team) as its durable work ledger.
 
 ## MCP 서버
-`.mcp.json`에 등록된 ccg MCP 서버가 21개 도구를 제공합니다:
+`.mcp.json`에 등록된 ccg MCP 서버가 19개 도구를 제공합니다:
 
 - `parse_project`, `build_or_update_graph`, `run_postprocess`
 - `get_postprocess_policy`, `reset_postprocess_policy`
 - `get_node`, `search`, `query_graph`, `list_graph_stats`, `list_namespaces`, `get_minimal_context`
-- `get_impact_radius`, `trace_flow`, `find_suspect_fallback_edges`
+- `get_impact_radius`, `trace_flow`
 - `detect_changes`, `get_affected_flows`, `list_flows`
 - `get_annotation`
-- `get_doc_content`, `search_docs`, `retrieve_docs`
+- `get_doc_content`, `search_docs`
 
 HTTP 모드 (`--transport streamable-http`)에서는 `/health` 및 `/webhook` 엔드포인트도 제공합니다.
 Webhook은 `--allow-repo` 플래그로 허용 리포지토리를 설정하면 활성화됩니다.

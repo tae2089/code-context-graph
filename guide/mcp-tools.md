@@ -69,7 +69,6 @@ current machine-readable operational surfaces.
 |------|-------------|
 | `get_impact_radius` | BFS blast-radius analysis |
 | `trace_flow` | Call-chain flow tracing |
-| `find_suspect_fallback_edges` | Suspect fallback call-edge quality report with pagination |
 | `detect_changes` | Git diff risk scoring |
 | `get_affected_flows` | Flows affected by changes |
 | `list_flows` | List traced flows with `limit` / `offset` pagination |
@@ -97,8 +96,7 @@ communities, members, or coupling pairs. Paginated responses include
 | `get_architecture_overview` | `community_limit`, `community_offset`, `coupling_limit`, `coupling_offset` | Response includes separate community and coupling pagination objects |
 
 Some analysis tools still return full result sets internally. On large
-namespaces, prefer scoped inputs before calling `find_suspect_fallback_edges`
-or broad MCP prompts.
+namespaces, prefer scoped inputs before calling broad MCP prompts.
 
 ### Annotation & Documentation
 

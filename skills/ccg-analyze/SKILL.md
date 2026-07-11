@@ -17,7 +17,6 @@ Graph-based analysis for **change impact, call flow, dead code, module structure
 | "What does this function call?"      | `query_graph` (callees_of)                       |                                               |
 | "Unused code"                        | `find_dead_code`                                 | Scope by path/kind on large namespaces        |
 | "Large functions"                    | `find_large_functions`                           | Use `limit`; DB still scans matches first     |
-| "Fallback edge quality"              | `find_suspect_fallback_edges`                    | Page and inspect as a quality report          |
 | "Risk of this change"                | `detect_changes` + `get_affected_flows`          | git diff-based                                |
 | "Module structure"                   | `list_communities` + `get_architecture_overview` | Use pagination on large namespaces            |
 | "Test coverage gaps"                 | `get_community` (with coverage)                  | Page members if `include_members=true`        |
@@ -55,7 +54,6 @@ Use explicit budgets for graph browsing tools when the namespace may be large:
 | `query_graph` | `limit`, `offset` | `limit=50`, `offset=0` |
 | `list_flows` | `limit`, `offset` | `limit=50`, `offset=0` |
 | `list_communities` | `limit`, `offset` | `limit=50`, `offset=0` |
-| `find_suspect_fallback_edges` | `limit`, `offset` | `limit=50`, `offset=0` |
 | `get_community` | `member_limit`, `member_offset` | Use only when `include_members=true` |
 | `get_architecture_overview` | `community_limit`, `community_offset`, `coupling_limit`, `coupling_offset` | Start with 50 each |
 
@@ -68,7 +66,6 @@ the user specifically needs a bulk export.
 These tools are useful, but can produce large responses in real services:
 
 - `find_dead_code`: scope with `path` and `kinds` before broad scans.
-- `find_suspect_fallback_edges`: inspect as an operational quality report, not a default first step.
 - `find_large_functions`: pass `limit`, and prefer `path` when reviewing one module.
 - Architecture/onboarding prompts: use after `list_communities` or `get_architecture_overview` has confirmed the namespace size.
 
@@ -88,7 +85,6 @@ These tools are useful, but can produce large responses in real services:
 | `trace_flow`                | Call chain trace             |
 | `find_large_functions`      | Above line threshold         |
 | `find_dead_code`            | No callers                   |
-| `find_suspect_fallback_edges` | Fallback call-edge quality report |
 | `detect_changes`            | Git diff risk score          |
 | `get_affected_flows`        | Flows affected by change     |
 | `list_flows`                | Stored flow list, paginated  |

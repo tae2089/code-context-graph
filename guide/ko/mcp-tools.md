@@ -62,7 +62,6 @@ CCG는 아직 Prometheus `/metrics` 엔드포인트를 제공하지 않습니다
 |------|-------------|
 | `get_impact_radius` | BFS 영향 범위(blast-radius) 분석 |
 | `trace_flow` | 호출 체인 흐름 추적 |
-| `find_suspect_fallback_edges` | 의심스러운 fallback 호출 엣지 품질 리포트, 페이지네이션 지원 |
 | `detect_changes` | Git diff 리스크 점수 계산 |
 | `get_affected_flows` | 변경 사항의 영향을 받는 흐름 확인 |
 | `list_flows` | `limit` / `offset` 페이지네이션으로 추적된 흐름 목록 출력 |
@@ -91,8 +90,7 @@ CCG는 아직 Prometheus `/metrics` 엔드포인트를 제공하지 않습니다
 | `get_architecture_overview` | `community_limit`, `community_offset`, `coupling_limit`, `coupling_offset` | 커뮤니티와 결합도에 별도 페이지네이션 객체 포함 |
 
 일부 분석 도구는 아직 내부적으로 전체 결과를 조회합니다. 큰 네임스페이스에서는
-`find_suspect_fallback_edges` 또는 광범위한 MCP prompt를 호출하기 전에 입력
-범위를 좁히십시오.
+광범위한 MCP prompt를 호출하기 전에 입력 범위를 좁히십시오.
 
 ### 어노테이션 및 문서화 (Annotation & Documentation)
 

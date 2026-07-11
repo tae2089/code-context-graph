@@ -96,9 +96,9 @@ Tools with explicit pagination:
 | `get_community` | `member_limit`, `member_offset` when `include_members=true` |
 | `get_architecture_overview` | `community_limit`, `community_offset`, `coupling_limit`, `coupling_offset` |
 
-High-volume analysis tools such as `find_dead_code`,
-`find_suspect_fallback_edges`, and broad architecture/onboarding prompts should
-be scoped by namespace, path, or a narrower first question before use.
+High-volume analysis tools such as `find_dead_code` and broad
+architecture/onboarding prompts should be scoped by namespace, path, or a
+narrower first question before use.
 
 ## Trade-offs (verified)
 
