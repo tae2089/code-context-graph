@@ -21,7 +21,9 @@ func buildHookBody(strict bool) string {
 	if strict {
 		lint = "ccg lint --strict"
 	}
-	return "\n" + hookGuardBegin + "\nccg build . && ccg docs && " + lint + "\n" + hookGuardEnd + "\n"
+	// Use the incremental update on commit: it re-parses only the changed files (fast) and
+	// preserves graph state, whereas a full build re-parses the whole repo every commit.
+	return "\n" + hookGuardBegin + "\nccg update . && ccg docs && " + lint + "\n" + hookGuardEnd + "\n"
 }
 
 // newHooksCmd creates the top-level hooks command group.
@@ -49,7 +51,7 @@ func newHooksInstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Install ccg pre-commit git hook",
-		Long: `Install a pre-commit hook that runs "ccg build && ccg docs && ccg lint".
+		Long: `Install a pre-commit hook that runs "ccg update && ccg docs && ccg lint".
 
 Use --strict to block commits when lint finds issues.
 If a pre-commit hook already exists, the ccg block is appended (idempotent).`,
