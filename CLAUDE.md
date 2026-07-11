@@ -6,16 +6,15 @@ Follow the global prompt rules first. This file adds project-specific skill rout
 
 ## MCP 서버
 
-`.mcp.json`에 등록된 ccg MCP 서버가 26개 도구를 제공합니다:
+`.mcp.json`에 등록된 ccg MCP 서버가 21개 도구를 제공합니다:
 
 - `parse_project`, `build_or_update_graph`, `run_postprocess`
 - `get_postprocess_policy`, `reset_postprocess_policy`
-- `get_node`, `search`, `query_graph`, `list_graph_stats`, `get_minimal_context`
+- `get_node`, `search`, `query_graph`, `list_graph_stats`, `list_namespaces`, `get_minimal_context`
 - `get_impact_radius`, `trace_flow`, `find_suspect_fallback_edges`
 - `detect_changes`, `get_affected_flows`, `list_flows`
 - `get_annotation`
 - `get_doc_content`, `search_docs`, `retrieve_docs`
-- `upload_file`, `upload_files`, `list_files`, `delete_file`, `list_namespaces`, `delete_namespace`
 
 HTTP 모드 (`--transport streamable-http`)에서는 `/health` 및 `/webhook` 엔드포인트도 제공합니다.
 Webhook은 `--allow-repo` 플래그로 허용 리포지토리를 설정하면 활성화됩니다.
@@ -24,15 +23,14 @@ GitHub (`X-Hub-Signature-256`) 및 Gitea (`X-Gitea-Signature`, `X-Gitea-Event`) 
 Push 이벤트 수신 → 자동 clone/pull → 그래프 빌드 → DB 저장 파이프라인.
 Graceful shutdown: SIGINT/SIGTERM 시 진행 중인 clone/build에 context cancel 전파.
 
-## CLI Skills (5개)
+## CLI Skills (4개)
 
-| Skill            | 설명                                                        |
-| ---------------- | ----------------------------------------------------------- |
-| `/ccg`           | 코어 빌드 & 검색 — 파싱, 그래프 빌드, 쿼리, 검색            |
-| `/ccg-analyze`   | 코드 분석 — 영향 반경, 플로우 추적, 데드코드, 아키텍처      |
-| `/ccg-annotate`  | 어노테이션 시스템 — AI 어노테이션 워크플로우, 태그 레퍼런스 |
-| `/ccg-docs`      | 문서 — 문서 생성, RAG 인덱싱, lint                          |
-| `/ccg-workspace` | 파일 워크스페이스 — 파일/워크스페이스 업로드, 목록, 삭제    |
+| Skill           | 설명                                                        |
+| --------------- | ----------------------------------------------------------- |
+| `/ccg`          | 코어 빌드 & 검색 — 파싱, 그래프 빌드, 쿼리, 검색            |
+| `/ccg-analyze`  | 코드 분석 — 영향 반경, 플로우 추적, 데드코드, 아키텍처      |
+| `/ccg-annotate` | 어노테이션 시스템 — AI 어노테이션 워크플로우, 태그 레퍼런스 |
+| `/ccg-docs`     | 문서 — 문서 생성, RAG 인덱싱, lint                          |
 
 주요 커맨드:
 

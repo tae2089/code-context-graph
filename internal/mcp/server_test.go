@@ -29,6 +29,7 @@ func TestMCPServer_ListTools(t *testing.T) {
 		"run_postprocess",
 		"query_graph",
 		"list_graph_stats",
+		"list_namespaces",
 		"detect_changes",
 		"get_affected_flows",
 		"list_flows",
@@ -36,12 +37,6 @@ func TestMCPServer_ListTools(t *testing.T) {
 		"get_doc_content",
 		"search_docs",
 		"retrieve_docs",
-		"upload_file",
-		"list_namespaces",
-		"list_files",
-		"delete_file",
-		"upload_files",
-		"delete_namespace",
 		"get_minimal_context",
 	}
 
@@ -72,8 +67,8 @@ func TestMCPServer_ListTools_Count(t *testing.T) {
 	srv := NewServer(deps)
 	tools := srv.ListTools()
 
-	if len(tools) != 26 {
-		t.Fatalf("expected 26 tools, got %d", len(tools))
+	if len(tools) != 21 {
+		t.Fatalf("expected 21 tools, got %d", len(tools))
 	}
 }
 
@@ -170,6 +165,7 @@ func TestMCPServer_ToolRequiredFlags(t *testing.T) {
 		"run_postprocess":             nil,
 		"query_graph":                 {"pattern", "target"},
 		"list_graph_stats":            nil,
+		"list_namespaces":             nil,
 		"detect_changes":              {"repo_root"},
 		"get_affected_flows":          {"repo_root"},
 		"list_flows":                  nil,
@@ -177,12 +173,6 @@ func TestMCPServer_ToolRequiredFlags(t *testing.T) {
 		"get_doc_content":             {"file_path"},
 		"search_docs":                 {"query"},
 		"retrieve_docs":               {"query"},
-		"upload_file":                 {"namespace", "file_path", "content"},
-		"list_namespaces":             nil,
-		"list_files":                  {"namespace"},
-		"delete_file":                 {"namespace", "file_path"},
-		"upload_files":                {"files"},
-		"delete_namespace":            {"namespace"},
 		"get_minimal_context":         nil,
 	}
 
