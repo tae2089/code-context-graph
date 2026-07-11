@@ -57,7 +57,7 @@ Use `.ccg.yaml` to manage project defaults such as exclude patterns and DB setti
 When looking for code locations, related implementations, call relationships, impact radius, or architecture context,
 use ccg MCP tools and Agent Skills first.
 
-- For natural-language code understanding, module exploration, and architecture context, prefer the `/ccg-docs` skill and `retrieve_docs`, `get_rag_tree`, `get_doc_content`.
+- For natural-language code understanding, module exploration, and architecture context, prefer the `/ccg-docs` skill: use `search_docs` to find relevant docs, then `get_doc_content` to read one (with `get_rag_tree` for module context).
 - For exact symbol locations, call relationships, and graph metadata, use ccg MCP `query_graph`, `get_node`, `get_minimal_context`, or the `/ccg` skill.
 - For annotation/keyword-based candidate search, use ccg MCP `search` or `ccg search` as a supplement.
 - For impact radius, flows, dead code, and structural analysis, prefer the `/ccg-analyze` skill and related MCP tools (`get_impact_radius`, `trace_flow`, `find_dead_code`, `get_architecture_overview`).

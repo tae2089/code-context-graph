@@ -25,14 +25,14 @@ func IsRetrievableNodeKind(kind model.NodeKind) bool {
 }
 
 // DBFileGroup은 파일 경로별로 묶인 DB 후보 노드 그룹이다.
-// @intent retrieve_docs DB-backed 결과가 파일 단위 세분성을 유지하도록 후보를 그룹화한다.
+// @intent doc retrieval DB-backed 결과가 파일 단위 세분성을 유지하도록 후보를 그룹화한다.
 type DBFileGroup struct {
 	FilePath string
 	Nodes    []model.Node
 }
 
 // DBCandidateLimit은 그룹화 후 파일 단위 결과 수가 충분하도록 FTS 후보 수를 결정한다.
-// @intent retrieve_docs는 파일당 하나의 결과를 반환하므로 후보 수는 최종 파일 한도를 초과해야 하되 무한정 커지면 안 된다.
+// @intent doc retrieval는 파일당 하나의 결과를 반환하므로 후보 수는 최종 파일 한도를 초과해야 하되 무한정 커지면 안 된다.
 // @domainRule 후보 수는 최소 dbCandidateFloor, 최대 dbCandidateCap으로 제한한다.
 func DBCandidateLimit(limit int) int {
 	return min(max(limit*10, dbCandidateFloor), dbCandidateCap)
@@ -189,15 +189,9 @@ func GroupCandidatesByFile(nodes []model.Node, limit int) ([]DBFileGroup, []uint
 	return groups, nodeIDs
 }
 
-// BuildDBResult는 그룹화된 DB 검색 히트와 구조화된 어노테이션으로부터 파일 수준 retrieve_docs 후보를 도출한다.
-// @intent 그룹화된 DB 검색 히트와 구조화된 어노테이션으로부터 파일 수준 retrieve_docs 후보를 도출한다.
+// BuildDBResult는 그룹화된 DB 검색 히트와 구조화된 어노테이션으로부터 파일 수준 문서 후보를 도출한다.
+// @intent score DB-backed doc candidates from structured annotation buckets while preserving backend rank in response order.
 func BuildDBResult(group DBFileGroup, annotations map[uint]*model.Annotation, terms []string, index int) ragindex.RetrieveResult {
-	return BuildDBResultWithOptions(group, annotations, terms, index, Options{})
-}
-
-// BuildDBResultWithOptions derives one file-level retrieve_docs candidate and optional diagnostics.
-// @intent score DB-backed retrieve_docs candidates from structured annotation buckets while preserving backend rank in response order.
-func BuildDBResultWithOptions(group DBFileGroup, annotations map[uint]*model.Annotation, terms []string, index int, opts Options) ragindex.RetrieveResult {
 	score, fieldScores, matchedTerms := ScoreDBFields(group.Nodes, annotations, terms)
 	fields := sortedFieldNames(fieldScores)
 	if len(fields) == 0 {
@@ -207,7 +201,7 @@ func BuildDBResultWithOptions(group DBFileGroup, annotations map[uint]*model.Ann
 		matchedTerms = terms
 	}
 	summary := DBSummary(group.Nodes, annotations)
-	result := ragindex.RetrieveResult{
+	return ragindex.RetrieveResult{
 		ID:            "file:" + group.FilePath,
 		Label:         filepath.Base(group.FilePath),
 		Kind:          "file",
@@ -218,28 +212,10 @@ func BuildDBResultWithOptions(group DBFileGroup, annotations map[uint]*model.Ann
 		MatchedTerms:  matchedTerms,
 		MatchedFields: fields,
 	}
-	if opts.Explain {
-		result.FieldScores = fieldScores
-		result.LiteralScore = score
-	}
-	return result
-}
-
-// MatchedFields는 DB-backed 파일 히트를 설명하는 노드 메타데이터 또는 어노테이션 버킷을 보고한다.
-// @intent DB-backed 매칭 필드 진단을 위해 어떤 노드 메타데이터 또는 어노테이션 버킷이 파일 히트를 설명하는지 보고한다.
-func MatchedFields(nodes []model.Node, annotations map[uint]*model.Annotation, terms []string) []string {
-	return sortedFieldNames(ScoreDBFieldBreakdown(nodes, annotations, terms))
-}
-
-// ScoreDBFieldBreakdown reports weighted retrieval buckets without the distinct-term bonus.
-// @intent expose DB retrieval bucket scores for tests and explain-mode diagnostics.
-func ScoreDBFieldBreakdown(nodes []model.Node, annotations map[uint]*model.Annotation, terms []string) map[string]int {
-	_, fields, _ := scoreDBFields(nodes, annotations, terms)
-	return fields
 }
 
 // ScoreDBFields scores DB-backed retrieval evidence using PageIndex-style structured bucket weights.
-// @intent rank high-signal annotation buckets above generic text fallback for DB-backed retrieve_docs.
+// @intent rank high-signal annotation buckets above generic text fallback for DB-backed doc retrieval.
 func ScoreDBFields(nodes []model.Node, annotations map[uint]*model.Annotation, terms []string) (int, map[string]int, []string) {
 	return scoreDBFields(nodes, annotations, terms)
 }
@@ -314,7 +290,7 @@ func scoreDBFields(nodes []model.Node, annotations map[uint]*model.Annotation, t
 	return score, fieldScores, sortedTerms(matchedTerms)
 }
 
-// @intent map persisted annotation tag kinds to retrieve_docs matched_fields names.
+// @intent map persisted annotation tag kinds to doc retrieval matched_fields names.
 func dbFieldName(kind model.TagKind) string {
 	if kind == model.TagIndex {
 		return "index_summary"
@@ -350,7 +326,7 @@ func sortedFieldNames(fieldScores map[string]int) []string {
 	return fields
 }
 
-// @intent produce stable matched_terms ordering for DB-backed retrieve_docs responses.
+// @intent produce stable matched_terms ordering for DB-backed doc retrieval responses.
 func sortedTerms(terms map[string]struct{}) []string {
 	out := make([]string, 0, len(terms))
 	for term := range terms {

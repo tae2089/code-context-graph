@@ -72,7 +72,7 @@ CCG has two search surfaces with different jobs:
 
 | Use case | Preferred entrypoint |
 |----------|----------------------|
-| Natural-language code understanding, module exploration, architecture questions | `ccg docs`, then MCP `retrieve_docs`, `get_rag_tree`, `get_doc_content` |
+| Natural-language code understanding, module exploration, architecture questions | `ccg docs`, then MCP `search_docs`, `get_rag_tree`, `get_doc_content` |
 | Exact symbol lookup, callers/callees, imports, bounded graph traversal | MCP `get_node`, `query_graph`, `get_minimal_context` |
 | Impact analysis, flow tracing | MCP analysis tools such as `get_impact_radius`, `trace_flow` |
 | Focused annotation/keyword candidate search | `ccg search` or MCP `search` |
@@ -104,12 +104,11 @@ Use `--rag-refresh=false` only when you intentionally want to reuse existing
 community rows. The standalone `ccg rag-index` command remains available for
 manual rebuilds from generated docs and already-computed communities.
 
-Then use MCP `retrieve_docs` to retrieve file-level candidates and bounded
-Markdown content with matched fields and graph evidence. Use `get_rag_tree` to expand the
-module/community context and `get_doc_content` to read a specific generated doc
-directly. `search_docs` and `ccg search` remain useful for quick keyword or
-annotation matches, but they should not be treated as the primary answering
-surface for broad natural-language questions.
+Then use MCP `search_docs` to find relevant docs and `get_doc_content` to read
+one directly. Use `get_rag_tree` to expand the module/community context before
+drilling into a specific generated doc. `ccg search` remains useful for quick
+keyword or annotation matches over symbols, but it should not be treated as the
+primary answering surface for broad natural-language questions.
 
 ### Database Choice
 

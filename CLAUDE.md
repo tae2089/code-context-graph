@@ -5,7 +5,6 @@
 Follow the global prompt rules first. This file adds project-specific skill routing for a project that uses the `agent-team` CLI (github.com/tae2089/agent-team) as its durable work ledger.
 
 ## MCP 서버
-
 `.mcp.json`에 등록된 ccg MCP 서버가 21개 도구를 제공합니다:
 
 - `parse_project`, `build_or_update_graph`, `run_postprocess`

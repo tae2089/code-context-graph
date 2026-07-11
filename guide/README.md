@@ -2,10 +2,11 @@
 
 Documentation index for code-context-graph.
 
-For LLM-agent workflows, start natural-language code exploration from
-DB-backed `retrieve_docs`. It is an evidence-driven narrowing layer, not a Top1
-search engine: use its small file-level candidates, matched fields, and evidence
-nodes to choose the shortest route into docs or graph tools.
+For LLM-agent workflows, start natural-language code exploration from the
+docs/RAG path: use `search_docs` to find relevant docs, then `get_doc_content`
+to read one. Treat these as an evidence-driven narrowing layer, not a Top1
+search engine: use the small file-level candidates to choose the shortest route
+into docs or graph tools.
 
 The browser Wiki is served by `ccg-server` when `--wiki-dir` points at built
 React assets. It prefers the graph database for presentation, uses

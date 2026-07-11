@@ -14,7 +14,7 @@ ccg is a Tree-sitter-based code graph tool. **Complementary to Grep/Read, not a 
 | "Where is X?" — simple location lookup     | Grep + Read       | Faster and cheaper than ccg       |
 | "Find code related to X" — semantic search | `ccg search`      | Annotation/keyword semantic match |
 | "What's affected if I change X?"           | `/ccg-analyze`    | Graph traversal                   |
-| "Understand structure/architecture"        | `/ccg-docs` (RAG) | `retrieve_docs` first, then tree  |
+| "Understand structure/architecture"        | `/ccg-docs` (RAG) | `search_docs`, then `get_doc_content` |
 | "Document intent/rules in code"            | `/ccg-annotate`   | AI annotation workflow            |
 | "Manage multiple service codebases"        | `/ccg-namespace`  | MSA namespace isolation           |
 
@@ -76,7 +76,7 @@ ccg build .
 ccg docs --out docs
 ```
 
-Then use MCP `retrieve_docs` for bounded Markdown evidence, `get_rag_tree` to
+Then use MCP `search_docs` to find docs and `get_doc_content` to read them, `get_rag_tree` to
 expand module context, and only then `query_graph`, `get_node`, or
 `trace_flow` for exact symbols and relationships.
 

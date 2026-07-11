@@ -74,7 +74,7 @@ CCG에는 역할이 다른 두 검색 표면이 있습니다.
 
 | 사용 사례 | 우선 진입점 |
 |----------|-------------|
-| 자연어 기반 코드 이해, 모듈 탐색, 아키텍처 질문 | `ccg docs`, 이후 MCP `retrieve_docs`, `get_rag_tree`, `get_doc_content` |
+| 자연어 기반 코드 이해, 모듈 탐색, 아키텍처 질문 | `ccg docs`, 이후 MCP `search_docs`, `get_rag_tree`, `get_doc_content` |
 | 정확한 심볼 조회, caller/callee, import, bounded graph traversal | MCP `get_node`, `query_graph`, `get_minimal_context` |
 | 영향 분석, flow 추적 | `get_impact_radius`, `trace_flow` 같은 MCP 분석 도구 |
 | 어노테이션/키워드 기반 후보 검색 | `ccg search` 또는 MCP `search` |
@@ -105,7 +105,7 @@ file/symbol node를 같은 문서 viewer로 엽니다.
 `--rag-refresh=false`를 사용하십시오. 독립 `ccg rag-index` 명령은 생성 문서와
 이미 계산된 community를 사용한 수동 재생성 용도로 남아 있습니다.
 
-그 다음 MCP `retrieve_docs`로 파일 단위 후보와 제한된 Markdown 본문을 matched fields 및 graph evidence와 함께 가져옵니다. `get_rag_tree`로 모듈/커뮤니티 맥락을 펼치고, `get_doc_content`로 특정 생성 문서를 직접 읽은 뒤 정확한 graph 도구로 내려갑니다. `search_docs`와 `ccg search`는 빠른 키워드 또는 어노테이션 매칭에는 유용하지만, 넓은 자연어 질문의 기본 응답 표면으로 보기는 어렵습니다.
+그 다음 MCP `search_docs`로 관련 문서를 찾고 `get_doc_content`로 하나를 직접 읽습니다. `get_rag_tree`로 모듈/커뮤니티 맥락을 펼친 뒤 특정 생성 문서로 내려갑니다. `ccg search`는 빠른 키워드 또는 심볼 어노테이션 매칭에는 유용하지만, 넓은 자연어 질문의 기본 응답 표면으로 보기는 어렵습니다.
 
 ### 데이터베이스 선택 (Database Choice)
 

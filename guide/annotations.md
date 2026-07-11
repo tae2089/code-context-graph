@@ -6,9 +6,9 @@ focused search can leverage business context. Annotations are indexed for
 index.
 
 For LLM-agent natural-language exploration, prefer the docs/RAG path first:
-`ccg docs`, then MCP `retrieve_docs`, `get_rag_tree`, and `get_doc_content`.
-Use `ccg search` when you need a focused list of
-annotation/keyword-matched symbol candidates.
+`ccg docs`, then use MCP `search_docs` to find relevant docs and `get_doc_content`
+to read one (with `get_rag_tree` for module context). Use `ccg search` when you
+need a focused list of annotation/keyword-matched symbol candidates.
 
 Annotation quality is validated by `ccg lint`. For category meanings such as `unannotated`, `incomplete`, `dead-ref`, `contradiction`, and `drifted`, see [Lint Guide](lint.md).
 
@@ -65,7 +65,7 @@ The path and symbol are optional, so `ccg://auth-svc/internal/auth` can point at
 
 ## Retrieval Quality
 
-Annotations are retrieval features. `retrieve_docs` and generated docs rank
+Annotations are retrieval features. `search_docs` and generated docs rank
 file-level evidence from structured buckets such as `@index`, `@intent`,
 `@domainRule`, `@sideEffect`, `@requires`, `@ensures`, and `@see`. Better
 annotations make natural-language retrieval more precise, but only when the
