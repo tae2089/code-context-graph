@@ -25,7 +25,7 @@ func TestHooksInstall_CreatesPreCommitHook(t *testing.T) {
 	}
 
 	hook := string(content)
-	for _, want := range []string{"#!/bin/sh", "ccg build", "ccg docs", "ccg lint"} {
+	for _, want := range []string{"#!/bin/sh", "ccg update", "ccg docs", "ccg lint"} {
 		if !strings.Contains(hook, want) {
 			t.Errorf("expected %q in hook, got:\n%s", want, hook)
 		}
@@ -106,8 +106,8 @@ func TestHooksInstall_ExistingHook_AppendsWithGuard(t *testing.T) {
 	if !strings.Contains(hook, "existing hook") {
 		t.Errorf("expected original hook content to be preserved")
 	}
-	if !strings.Contains(hook, "ccg build") {
-		t.Errorf("expected ccg build to be appended")
+	if !strings.Contains(hook, "ccg update") {
+		t.Errorf("expected ccg update to be appended")
 	}
 }
 
@@ -134,9 +134,9 @@ func TestHooksInstall_Idempotent(t *testing.T) {
 
 	// Should not have duplicate ccg blocks
 	hook := string(content)
-	first := strings.Index(hook, "ccg build")
-	last := strings.LastIndex(hook, "ccg build")
+	first := strings.Index(hook, "ccg update")
+	last := strings.LastIndex(hook, "ccg update")
 	if first != last {
-		t.Errorf("ccg build appears multiple times in hook (not idempotent):\n%s", hook)
+		t.Errorf("ccg update appears multiple times in hook (not idempotent):\n%s", hook)
 	}
 }
