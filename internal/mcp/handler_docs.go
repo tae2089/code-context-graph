@@ -78,20 +78,6 @@ func safePathUnderRoot(root, relPath, field string, createRoot bool, allowMissin
 	return target, nil
 }
 
-// @intent derive the safe doc-index.json path for either the shared docs root or one namespace-specific subtree.
-func (h *handlers) resolvedRagIndexPath(namespace string) (string, error) {
-	if ctxns.Normalize(namespace) == ctxns.DefaultNamespace {
-		return safePathUnderRoot(h.ragIndexRoot(), "doc-index.json", "file_path", false, true)
-	}
-	if namespace != "" {
-		if err := validateNamespacePath(namespace, ""); err != nil {
-			return "", err
-		}
-		return safePathUnderRoot(h.ragIndexRoot(), filepath.Join(namespace, "doc-index.json"), "namespace", false, true)
-	}
-	return safePathUnderRoot(h.ragIndexRoot(), "doc-index.json", "file_path", false, true)
-}
-
 // getDocContent reads a generated documentation file by relative path.
 // @intent Returns the content of a documentation file directly so agents can read detailed descriptions.
 // @param request file_path is the relative documentation path based on the working directory.

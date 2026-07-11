@@ -119,14 +119,6 @@ func WithParsers(parsers map[string]Parser) SyncerOption {
 	}
 }
 
-// WithResolveOptions sets edge-resolution options for this syncer instance.
-// @intent keep call resolution behavior configurable without changing core interfaces.
-func WithResolveOptions(opts edgeresolve.ResolveOptions) SyncerOption {
-	return func(s *Syncer) {
-		s.opts = opts
-	}
-}
-
 // New creates an incremental syncer.
 // @intent wire storage, parser, and optional configuration into a sync coordinator
 // @ensures returned syncer always has a non-nil logger
