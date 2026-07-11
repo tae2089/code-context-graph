@@ -7,7 +7,6 @@ import (
 	"slices"
 	"testing"
 
-	fallbackanalysis "github.com/tae2089/code-context-graph/internal/analysis/fallback"
 	"github.com/tae2089/code-context-graph/internal/model"
 	"github.com/tae2089/code-context-graph/internal/paging"
 )
@@ -118,37 +117,6 @@ func TestHandler_AnalysisResponses_WireContractFrozen(t *testing.T) {
 		}
 		if !reflect.DeepEqual(sortedKeys(evidence), []string{"namespace"}) {
 			t.Fatalf("unexpected evidence keys: %v", sortedKeys(evidence))
-		}
-	})
-
-	t.Run("find_suspect_fallback_edges", func(t *testing.T) {
-		deps := setupTestDeps(t)
-		deps.FallbackAnalyzer = &mockFallbackAnalyzer{result: []fallbackanalysis.SuspectEdge{{
-			Edge:    model.Edge{Kind: model.EdgeKindFallbackCalls, Fingerprint: "fallback-edge"},
-			Source:  model.Node{QualifiedName: "pkg.Source", FilePath: "source.go"},
-			Target:  model.Node{QualifiedName: "pkg.Target", FilePath: "target.go"},
-			Suspect: true,
-		}}}
-
-		result := callTool(t, deps, "find_suspect_fallback_edges", map[string]any{"limit": 10, "offset": 0})
-		if result.IsError {
-			t.Fatalf("find_suspect_fallback_edges returned error: %s", getTextContent(result))
-		}
-
-		var resp map[string]any
-		if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
-			t.Fatalf("expected JSON response, got: %s", getTextContent(result))
-		}
-
-		if !reflect.DeepEqual(sortedKeys(resp), []string{"count", "items", "pagination", "suspect_fallback_edges"}) {
-			t.Fatalf("unexpected top-level keys: %v", sortedKeys(resp))
-		}
-		pagination, ok := resp["pagination"].(map[string]any)
-		if !ok {
-			t.Fatalf("pagination type = %T, want map[string]any", resp["pagination"])
-		}
-		if !reflect.DeepEqual(sortedKeys(pagination), []string{"has_more", "limit", "offset", "returned"}) {
-			t.Fatalf("unexpected pagination keys: %v", sortedKeys(pagination))
 		}
 	})
 }

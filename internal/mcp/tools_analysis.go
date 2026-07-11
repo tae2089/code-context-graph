@@ -49,13 +49,5 @@ func analysisTools(h *handlers) []server.ServerTool {
 			)...),
 			Handler: h.getAffectedFlows,
 		},
-		{
-			Tool: mcp.NewTool("find_suspect_fallback_edges", withNamespaceParam(
-				mcp.WithDescription("Find fallback call edges whose source/target annotations have no overlapping intent/domainRule context"),
-				mcp.WithNumber("limit", mcp.Description("Maximum number of results (default: 50, max: 500)")),
-				mcp.WithNumber("offset", mcp.Description("Zero-based result offset for pagination (default: 0)")),
-			)...),
-			Handler: h.findSuspectFallbackEdges,
-		},
 	}
 }

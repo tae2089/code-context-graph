@@ -18,7 +18,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/tae2089/code-context-graph/internal/analysis/changes"
-	fallbackanalysis "github.com/tae2089/code-context-graph/internal/analysis/fallback"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
@@ -2487,35 +2486,6 @@ func TestListFlows_InvalidLimit(t *testing.T) {
 
 // ============================================================
 // ============================================================
-
-// ============================================================
-// 11.12 find_suspect_fallback_edges
-// ============================================================
-
-func TestFindSuspectFallbackEdges_ReturnsSuspects(t *testing.T) {
-	deps := setupTestDeps(t)
-	deps.FallbackAnalyzer = &mockFallbackAnalyzer{
-		result: []fallbackanalysis.SuspectEdge{{
-			Edge:    model.Edge{Kind: model.EdgeKindFallbackCalls, Fingerprint: "auth-invoice-fallback"},
-			Source:  model.Node{QualifiedName: "pkg.Authenticate", FilePath: "auth.go"},
-			Target:  model.Node{QualifiedName: "pkg.RenderInvoice", FilePath: "invoice.go"},
-			Suspect: true,
-		}},
-	}
-
-	result := callTool(t, deps, "find_suspect_fallback_edges", map[string]any{})
-	if result.IsError {
-		t.Fatalf("find_suspect_fallback_edges error: %s", getTextContent(result))
-	}
-
-	var resp map[string]any
-	if err := json.Unmarshal([]byte(getTextContent(result)), &resp); err != nil {
-		t.Fatalf("expected JSON response, got: %s", getTextContent(result))
-	}
-	if resp["count"].(float64) != 1 {
-		t.Fatalf("expected 1 suspect fallback edge, got %v", resp["count"])
-	}
-}
 
 func TestBuildOrUpdateGraph_Incremental_ExistingFilesNamespaceScoped(t *testing.T) {
 	deps := setupTestDeps(t)

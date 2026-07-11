@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 
-	fallbackanalysis "github.com/tae2089/code-context-graph/internal/analysis/fallback"
 	"github.com/tae2089/code-context-graph/internal/analysis/flows"
 	"github.com/tae2089/code-context-graph/internal/analysis/incremental"
 	"github.com/tae2089/code-context-graph/internal/analysis/query"
@@ -195,27 +194,6 @@ func (m *mockQueryService) FileSummaryOf(ctx context.Context, filePath string) (
 func (m *mockQueryService) FindExactNameMatches(ctx context.Context, target string, limit int) ([]query.CandidateMatch, error) {
 	m.findMatchesCalled = true
 	return m.matchResult, m.err
-}
-
-type mockFallbackAnalyzer struct {
-	findCalled     bool
-	findPageCalled bool
-	findPageOpts   fallbackanalysis.Options
-	result         []fallbackanalysis.SuspectEdge
-	err            error
-}
-
-func (m *mockFallbackAnalyzer) FindSuspects(ctx context.Context, opts fallbackanalysis.Options) ([]fallbackanalysis.SuspectEdge, error) {
-	m.findCalled = true
-	return m.result, m.err
-}
-
-func (m *mockFallbackAnalyzer) FindSuspectsPage(ctx context.Context, opts fallbackanalysis.Options) (fallbackanalysis.Result, error) {
-	m.findPageCalled = true
-	m.findPageOpts = opts
-	items := m.result
-	items, hasMore := applyPagedResult(items, opts.Page)
-	return fallbackanalysis.Result{Items: items, Pagination: paging.BuildPage(opts.Page, len(items), hasMore)}, m.err
 }
 
 type mockFlowBuilder struct {

@@ -80,7 +80,6 @@ responses inspectable and reduces context pollution.
 
 Known high-volume surfaces that should be scoped before use:
 
-- `find_suspect_fallback_edges` can return every suspect fallback edge.
 - MCP prompts such as onboarding prompts summarize broad
   project state and are best used after the graph has been scoped by namespace.
 
