@@ -11,25 +11,6 @@ import (
 func docsTools(h *handlers) []server.ServerTool {
 	return []server.ServerTool{
 		{
-			Tool: mcp.NewTool("build_rag_index",
-				mcp.WithDescription("Build Vectorless RAG index from docs/ and community structure. Stores result in .ccg/doc-index.json. When namespace is specified, reads docs from {namespace_root}/{namespace}/ instead of local docs/."),
-				mcp.WithString("out_dir", mcp.Description("Documentation directory root (default: from config or 'docs')")),
-				mcp.WithString("index_dir", mcp.Description("Directory to write doc-index.json (default: '.ccg')")),
-				mcp.WithString("namespace", mcp.Description("Namespace. When set, reads docs from the namespace directory instead of local docs/.")),
-			),
-			Handler: h.buildRagIndex,
-		},
-		{
-			Tool: mcp.NewTool("get_rag_tree",
-				mcp.WithDescription("Navigate the RAG document tree after retrieve_docs/search_docs has identified a useful area. Prefer depth=1 for overview or pass node_id with a small depth to expand nearby context; avoid unbounded full-tree calls on large namespaces."),
-				mcp.WithString("node_id", mcp.Description("Tree node ID as shown in search/retrieve/tree results (e.g. 'community:internal/analysis', 'package:internal/core', or 'file:internal/core/runtime.go'). Omit only for a bounded overview with depth set.")),
-				mcp.WithString("community_id", mcp.Description("Deprecated alias for node_id; accepts any tree node ID for compatibility.")),
-				mcp.WithNumber("depth", mcp.Description("Maximum tree depth to return (1=top-level communities/packages, 2=plus child packages/files). Recommended when node_id is omitted. Default: 0 (unlimited, only for small namespaces).")),
-				mcp.WithString("namespace", mcp.Description("Namespace. When set, reads that namespace's DB-backed tree.")),
-			),
-			Handler: h.getRagTree,
-		},
-		{
 			Tool: mcp.NewTool("get_doc_content",
 				mcp.WithDescription("Get the content of a documentation file by its path. When namespace is specified, reads from {namespace_root}/{namespace}/{file_path}."),
 				mcp.WithString("file_path", mcp.Description("Path to the doc file (e.g. 'docs/internal/mcp/handlers.go.md')"), mcp.Required()),

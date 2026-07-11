@@ -160,7 +160,6 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		newHooksCmd(deps),
 		newIndexCmd(deps),
 		newLintCmd(deps),
-		newRagIndexCmd(deps),
 		newVersionCmd(deps),
 	)
 

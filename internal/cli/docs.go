@@ -9,10 +9,8 @@ import (
 	"github.com/spf13/viper"
 	"github.com/tae2089/trace"
 
-	"github.com/tae2089/code-context-graph/internal/analysis/community"
 	"github.com/tae2089/code-context-graph/internal/ctxns"
 	"github.com/tae2089/code-context-graph/internal/docs"
-	"github.com/tae2089/code-context-graph/internal/ragindex"
 	"github.com/tae2089/code-context-graph/internal/wikiindex"
 )
 
@@ -26,9 +24,6 @@ func newDocsCmd(deps *Deps) *cobra.Command {
 	var projectDesc string
 	var excludePatterns []string
 	var prune bool
-	var buildRAG bool
-	var refreshRAG bool
-	var communityDepth int
 
 	cmd := &cobra.Command{
 		Use:   "docs",
@@ -68,47 +63,16 @@ func newDocsCmd(deps *Deps) *cobra.Command {
 				return trace.Wrap(err, "build wiki index")
 			}
 			fmt.Fprintf(stdout(cmd), "Wiki index written: %d packages, %d files\n", wikiPackages, wikiFiles)
-			if buildRAG {
-				communities, files, rebuilt, err := buildDocsRAGIndex(cmd.Context(), deps, docsRAGOptions{
-					OutDir:         absOut,
-					IndexDir:       resolveRagIndexDir(ragIndexDir),
-					ProjectDesc:    resolveRagDescription(projectDesc),
-					Refresh:        refreshRAG,
-					CommunityDepth: communityDepth,
-					Namespace:      viper.GetString("namespace"),
-				})
-				if err != nil {
-					return trace.Wrap(err, "build rag index")
-				}
-				if rebuilt {
-					fmt.Fprintf(stdout(cmd), "Communities rebuilt for RAG index\n")
-				}
-				fmt.Fprintf(stdout(cmd), "RAG index written: %d communities, %d files\n", communities, files)
-			}
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&outDir, "out", "docs", "Output directory for generated documentation")
-	cmd.Flags().BoolVar(&buildRAG, "rag", true, "Build RAG index from generated docs and community structure")
-	cmd.Flags().BoolVar(&refreshRAG, "rag-refresh", true, "Refresh community structure before building the RAG index")
-	cmd.Flags().StringVar(&ragIndexDir, "rag-index-dir", ".ccg", "Directory for doc-index.json output")
-	cmd.Flags().StringVar(&projectDesc, "rag-desc", "", "Project description for root RAG node summary")
-	cmd.Flags().IntVar(&communityDepth, "rag-community-depth", 2, "Directory depth for community detection when refreshing RAG communities")
+	cmd.Flags().StringVar(&ragIndexDir, "rag-index-dir", ".ccg", "Directory for the wiki index output")
+	cmd.Flags().StringVar(&projectDesc, "rag-desc", "", "Project description for root wiki node summary")
 	cmd.Flags().StringArrayVar(&excludePatterns, "exclude", nil, "Exclude files/paths matching pattern (repeatable, e.g. --exclude vendor --exclude '*.pb.go')")
 	cmd.Flags().BoolVar(&prune, "prune", true, "Prune stale generator-managed docs no longer present in the graph")
 	return cmd
-}
-
-// docsRAGOptions carries the RAG build controls derived from docs command flags.
-// @intent keep docs generation and RAG indexing options explicit without widening cobra command state.
-type docsRAGOptions struct {
-	OutDir         string
-	IndexDir       string
-	ProjectDesc    string
-	Refresh        bool
-	CommunityDepth int
-	Namespace      string
 }
 
 // @intent keep ccg docs Wiki-index settings separate from community-based RAG options.
@@ -138,37 +102,6 @@ func buildDocsWikiIndex(ctx context.Context, deps *Deps, opts docsWikiOptions) (
 		Exclude:     opts.Exclude,
 	}
 	return b.Build(ctx)
-}
-
-// buildDocsRAGIndex creates the vectorless RAG index after docs generation.
-// @intent make ccg docs the default entrypoint for natural-language agent exploration.
-// @requires opts.OutDir must point to generated Markdown docs.
-// @sideEffect may rebuild community rows and writes doc-index.json.
-func buildDocsRAGIndex(ctx context.Context, deps *Deps, opts docsRAGOptions) (int, int, bool, error) {
-	if opts.CommunityDepth < 1 || opts.CommunityDepth > 8 {
-		return 0, 0, false, trace.New("rag-community-depth must be between 1 and 8")
-	}
-	ns := opts.Namespace
-	if ns == "" {
-		ns = ctxns.DefaultNamespace
-	}
-	ctx = ctxns.WithNamespace(ctx, ns)
-
-	rebuilt := opts.Refresh
-	if rebuilt {
-		if _, err := community.New(deps.DB).Rebuild(ctx, community.Config{Depth: opts.CommunityDepth}); err != nil {
-			return 0, 0, false, err
-		}
-	}
-
-	b := &ragindex.Builder{
-		DB:          deps.DB,
-		OutDir:      opts.OutDir,
-		IndexDir:    namespaceRagIndexDir(opts.IndexDir, ns),
-		ProjectDesc: opts.ProjectDesc,
-	}
-	communities, files, err := b.Build(ctx)
-	return communities, files, rebuilt, err
 }
 
 // @intent align CLI RAG index output with MCP and Wiki server namespace lookup paths.

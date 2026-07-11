@@ -38,8 +38,6 @@ func TestMCPServer_ListTools(t *testing.T) {
 		"get_architecture_overview",
 		"find_dead_code",
 		"find_suspect_fallback_edges",
-		"build_rag_index",
-		"get_rag_tree",
 		"get_doc_content",
 		"search_docs",
 		"retrieve_docs",
@@ -79,8 +77,8 @@ func TestMCPServer_ListTools_Count(t *testing.T) {
 	srv := NewServer(deps)
 	tools := srv.ListTools()
 
-	if len(tools) != 33 {
-		t.Fatalf("expected 33 tools, got %d", len(tools))
+	if len(tools) != 31 {
+		t.Fatalf("expected 31 tools, got %d", len(tools))
 	}
 }
 
@@ -186,8 +184,6 @@ func TestMCPServer_ToolRequiredFlags(t *testing.T) {
 		"get_architecture_overview":   nil,
 		"find_dead_code":              nil,
 		"find_suspect_fallback_edges": nil,
-		"build_rag_index":             nil,
-		"get_rag_tree":                nil,
 		"get_doc_content":             {"file_path"},
 		"search_docs":                 {"query"},
 		"retrieve_docs":               {"query"},
