@@ -130,29 +130,22 @@ browser Wiki tree. Wiki Retrieve uses the database when it is configured. In MCP
 `communities=true`, `flows=false`, and `fts=false` before `build_rag_index` when
 communities may be missing.
 
-### Namespace File Management
+### Namespace Discovery
 
-Use `namespace` as the isolation term for uploaded files, per-service graph data,
-and namespace-specific RAG indexes.
+`namespace` is the isolation term for per-service graph data and namespace-specific
+RAG indexes.
 
 | Tool | Description |
 |------|-------------|
-| `upload_file` | Upload file to namespace (base64) |
-| `upload_files` | Upload multiple files to namespaces in a single call |
-| `list_namespaces` | List all namespaces |
-| `list_files` | List files in a namespace |
-| `delete_file` | Delete file from namespace |
-| `delete_namespace` | Delete an entire namespace and all its files |
+| `list_namespaces` | List namespaces that hold graph data, with per-namespace node counts |
 
-Canonical examples:
+Canonical example:
 
 ```
-upload_file(namespace: "payment-svc", file_path: "handler.go", content: "<base64>")
-list_files(namespace: "payment-svc")
-delete_namespace(namespace: "payment-svc")
+list_namespaces()  // -> [{namespace: "payment-svc", node_count: 128}, ...]
 ```
 
-## Agent Skills (5)
+## Agent Skills (4)
 
 | Skill | Description |
 |-------|-------------|
@@ -160,7 +153,6 @@ delete_namespace(namespace: "payment-svc")
 | `/ccg-analyze` | Code analysis — impact radius, flow tracing, dead code, architecture |
 | `/ccg-annotate` | Annotation system — AI-driven annotation workflow, tag reference |
 | `/ccg-docs` | Documentation — generate docs, RAG indexing, lint |
-| `/ccg-namespace` | Namespace file management — upload, list, and delete namespace files |
 
 These skill files live in `skills/` and are written for slash-command style
 agent workflows. They route common coding-agent tasks to the right CLI and MCP

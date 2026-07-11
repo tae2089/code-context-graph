@@ -123,29 +123,21 @@ RAG 인덱스 품질은 생성 문서와 비어 있지 않은 community postproc
 `run_postprocess`를 `communities=true`, `flows=false`, `fts=false`로
 호출하십시오.
 
-### 네임스페이스 파일 관리 (Namespace File Management)
+### 네임스페이스 탐색 (Namespace Discovery)
 
-업로드 파일, 서비스별 그래프 데이터, 네임스페이스별 RAG 인덱스의 격리 단위는
-`namespace`입니다.
+서비스별 그래프 데이터와 네임스페이스별 RAG 인덱스의 격리 단위는 `namespace`입니다.
 
 | 도구 | 설명 |
 |------|-------------|
-| `upload_file` | 네임스페이스에 파일 업로드 (base64) |
-| `upload_files` | 단일 호출로 여러 네임스페이스에 다수 파일 업로드 |
-| `list_namespaces` | 모든 네임스페이스 목록 출력 |
-| `list_files` | 네임스페이스 내 파일 목록 출력 |
-| `delete_file` | 네임스페이스에서 파일 삭제 |
-| `delete_namespace` | 네임스페이스 전체 및 관련 파일 모두 삭제 |
+| `list_namespaces` | 그래프 데이터를 가진 네임스페이스를 네임스페이스별 노드 수와 함께 출력 |
 
 정식 예시:
 
 ```
-upload_file(namespace: "payment-svc", file_path: "handler.go", content: "<base64>")
-list_files(namespace: "payment-svc")
-delete_namespace(namespace: "payment-svc")
+list_namespaces()  // -> [{namespace: "payment-svc", node_count: 128}, ...]
 ```
 
-## Agent Skills (5개)
+## Agent Skills (4개)
 
 | 스킬 | 설명 |
 |-------|-------------|
@@ -153,7 +145,6 @@ delete_namespace(namespace: "payment-svc")
 | `/ccg-analyze` | 코드 분석 — 영향 범위, 흐름 추적, 데드 코드, 아키텍처 |
 | `/ccg-annotate` | 어노테이션 시스템 — AI 기반 어노테이션 워크플로우, 태그 레퍼런스 |
 | `/ccg-docs` | 문서화 — 문서 생성, RAG 인덱싱, 린트 |
-| `/ccg-namespace` | 네임스페이스 파일 관리 — 네임스페이스 파일 업로드, 목록 출력, 삭제 |
 
 이 스킬 파일들은 `skills/`에 있으며 slash-command 스타일의 에이전트
 워크플로우를 위해 작성되었습니다. 일반적인 코딩 에이전트 작업을 적절한

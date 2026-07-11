@@ -8,14 +8,13 @@ The ccg MCP server registered in `.mcp.json` provides 33 tools:
 
 - `parse_project`, `build_or_update_graph`, `run_postprocess`
 - `get_postprocess_policy`, `reset_postprocess_policy`
-- `get_node`, `search`, `query_graph`, `list_graph_stats`, `get_minimal_context`
+- `get_node`, `search`, `query_graph`, `list_graph_stats`, `list_namespaces`, `get_minimal_context`
 - `get_impact_radius`, `trace_flow`
 - `find_large_functions`, `find_dead_code`
 - `detect_changes`, `get_affected_flows`, `list_flows`
 - `list_communities`, `get_community`, `get_architecture_overview`
 - `get_annotation`
-- `build_rag_index`, `get_rag_tree`, `get_doc_content`, `search_docs`
-- `upload_file`, `upload_files`, `list_namespaces`, `list_files`, `delete_file`, `delete_namespace`
+- `build_rag_index`, `get_rag_tree`, `get_doc_content`, `search_docs`, `retrieve_docs`
 
 `ccg serve` is the local stdio MCP entry point. Self-hosted HTTP mode is provided by
 the separate `ccg-server` binary, which serves `/mcp`, `/health`, `/ready`, `/status`,

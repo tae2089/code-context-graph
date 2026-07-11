@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -522,103 +521,5 @@ func Gamma() {}
 	json.Unmarshal([]byte(text), &resp)
 	if resp["total_nodes"].(float64) < 3 {
 		t.Errorf("expected at least 3 nodes, got %v", resp["total_nodes"])
-	}
-}
-
-func TestE2E_UploadBuildSearch(t *testing.T) {
-	deps := setupE2EDeps(t)
-
-	wsRoot := t.TempDir()
-	deps.NamespaceRoot = wsRoot
-
-	// Step 1: Upload Go source into the namespace with upload_file.
-	goSrc := `package payment
-
-func ProcessPayment(amount int) error {
-	return nil
-}
-
-func RefundPayment(txID string) error {
-	return nil
-}
-`
-	encoded := base64.StdEncoding.EncodeToString([]byte(goSrc))
-
-	uploadResult := callTool(t, deps, "upload_file", map[string]any{
-		"namespace": "payment-svc",
-		"file_path": "payment.go",
-		"content":   encoded,
-	})
-	if uploadResult.IsError {
-		t.Fatalf("upload_file error: %s", getTextContent(uploadResult))
-	}
-
-	// Step 2: Build the namespace path with build_or_update_graph.
-	wsPath := filepath.Join(wsRoot, "payment-svc")
-	buildResult := callTool(t, deps, "build_or_update_graph", map[string]any{
-		"path":         wsPath,
-		"full_rebuild": true,
-		"postprocess":  "none",
-	})
-	if buildResult.IsError {
-		t.Fatalf("build_or_update_graph error: %s", getTextContent(buildResult))
-	}
-
-	// Step 3: Build the search index.
-	ctx := context.Background()
-	nodesInFile, err := deps.Store.GetNodesByFile(ctx, "payment.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(nodesInFile) == 0 {
-		t.Fatal("expected at least 1 node after build")
-	}
-	for _, n := range nodesInFile {
-		if n.Kind == model.NodeKindFunction {
-			deps.DB.Create(&model.SearchDocument{
-				NodeID:   n.ID,
-				Content:  n.Name + " " + n.QualifiedName,
-				Language: n.Language,
-			})
-		}
-	}
-	deps.SearchBackend.Rebuild(ctx, deps.DB)
-
-	// Step 4: Verify with search.
-	searchResult := callTool(t, deps, "search", map[string]any{"query": "ProcessPayment", "limit": 10})
-	if searchResult.IsError {
-		t.Fatalf("search error: %s", getTextContent(searchResult))
-	}
-	searchText := getTextContent(searchResult)
-	var results []map[string]any
-	if err := json.Unmarshal([]byte(searchText), &results); err != nil {
-		t.Fatalf("search result not JSON array: %s", searchText)
-	}
-	if len(results) == 0 {
-		t.Fatal("expected at least 1 search result for 'ProcessPayment'")
-	}
-
-	found := false
-	for _, r := range results {
-		if name, ok := r["name"].(string); ok && name == "ProcessPayment" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected ProcessPayment in search results")
-	}
-
-	// Step 5: Confirm Refund is searchable too.
-	refundResult := callTool(t, deps, "search", map[string]any{"query": "RefundPayment", "limit": 10})
-	if refundResult.IsError {
-		t.Fatalf("search error: %s", getTextContent(refundResult))
-	}
-	refundText := getTextContent(refundResult)
-	var refundResults []map[string]any
-	if err := json.Unmarshal([]byte(refundText), &refundResults); err != nil {
-		t.Fatalf("search result not JSON array: %s", refundText)
-	}
-	if len(refundResults) == 0 {
-		t.Fatal("expected at least 1 search result for 'RefundPayment'")
 	}
 }
