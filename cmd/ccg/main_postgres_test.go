@@ -75,6 +75,32 @@ func TestRunMigrations_PostgresSmoke(t *testing.T) {
 			t.Fatalf("expected %s.%s to be NOT NULL", tc.Table, tc.Column)
 		}
 	}
+	for _, table := range []string{"ccg_postprocess_policy_state", "ccg_postprocess_run_logs"} {
+		if db.Migrator().HasTable(table) {
+			t.Fatalf("expected migration 007 to remove %s at schema version %d", table, migration.RequiredSchemaVersion)
+		}
+	}
+}
+
+func TestRunMigrations_PostgresVersionThreePolicyTablesUseJSONB(t *testing.T) {
+	db := setupPostgresMigrationDB(t)
+
+	migrator, _, err := migration.NewMigrator(db, "postgres", "")
+	if err != nil {
+		t.Fatalf("create migrator: %v", err)
+	}
+	if err := migrator.Steps(3); err != nil {
+		t.Fatalf("run migrations through version 3: %v", err)
+	}
+
+	var version migration.MigrationSchemaVersion
+	if err := db.Table("schema_migrations").First(&version).Error; err != nil {
+		t.Fatalf("load schema version: %v", err)
+	}
+	if version.Version != 3 {
+		t.Fatalf("schema version = %d, want 3", version.Version)
+	}
+
 	for _, tc := range []struct {
 		Table  string
 		Column string
@@ -153,7 +179,7 @@ func TestRunMigrations_PostgresDownRestoresNullableColumns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
 	}
-	if err := migrator.Steps(-5); err != nil {
+	if err := migrator.Steps(-6); err != nil {
 		t.Fatalf("run down migration: %v", err)
 	}
 
@@ -186,7 +212,7 @@ func TestRunMigrations_PostgresDownFromVersionThreeDropsPolicyTables(t *testing.
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
 	}
-	if err := migrator.Steps(-4); err != nil {
+	if err := migrator.Steps(-5); err != nil {
 		t.Fatalf("run down migration: %v", err)
 	}
 

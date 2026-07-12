@@ -10,9 +10,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	ccgserver "github.com/tae2089/code-context-graph/internal/adapters/inbound/http"
 	ccgconfig "github.com/tae2089/code-context-graph/internal/config"
-	"github.com/tae2089/code-context-graph/internal/core"
-	ccgserver "github.com/tae2089/code-context-graph/internal/server"
+	ccgruntime "github.com/tae2089/code-context-graph/internal/runtime"
+	remote "github.com/tae2089/code-context-graph/internal/runtime/remote"
 	"github.com/tae2089/trace"
 )
 
@@ -25,7 +26,7 @@ var (
 // @intent run the self-hosted HTTP MCP/webhook server as a dedicated binary.
 func main() {
 	logger := slog.Default()
-	rt := core.NewRuntime(logger)
+	rt := ccgruntime.NewRuntime(logger)
 	cmd := newRootCmd(rt, version)
 	if err := cmd.Execute(); err != nil {
 		slog.Error("server command failed", trace.SlogError(err))
@@ -38,7 +39,7 @@ func main() {
 // newRootCmd builds the ccg-server command with HTTP and webhook options.
 // @intent keep self-hosted server flags separate from the local ccg CLI.
 // @sideEffect reads config/env, opens the DB, and starts a long-running HTTP server.
-func newRootCmd(rt *core.Runtime, serviceVersion string) *cobra.Command {
+func newRootCmd(rt *ccgruntime.Runtime, serviceVersion string) *cobra.Command {
 	cfg := ccgserver.DefaultConfig()
 	cfg.Transport = "streamable-http"
 
@@ -107,7 +108,7 @@ func newRootCmd(rt *core.Runtime, serviceVersion string) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return ccgserver.Run(rt, cfg, serviceVersion, ccgconfig.RagIndexDir(), ccgconfig.RagDescription())
+			return remote.RunHTTP(rt, cfg, serviceVersion, ccgconfig.RagIndexDir(), ccgconfig.RagDescription())
 		},
 	}
 

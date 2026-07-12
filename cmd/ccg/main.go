@@ -6,10 +6,11 @@ import (
 	"os"
 	"sync"
 
-	"github.com/tae2089/code-context-graph/internal/cli"
+	"github.com/tae2089/code-context-graph/internal/adapters/inbound/cli"
+	"github.com/tae2089/code-context-graph/internal/app/ingest"
 	ccgconfig "github.com/tae2089/code-context-graph/internal/config"
-	"github.com/tae2089/code-context-graph/internal/core"
-	"github.com/tae2089/code-context-graph/internal/mcpruntime"
+	ccgruntime "github.com/tae2089/code-context-graph/internal/runtime"
+	mcpruntime "github.com/tae2089/code-context-graph/internal/runtime/mcp"
 	"github.com/tae2089/trace"
 )
 
@@ -22,11 +23,15 @@ var (
 // @intent assemble local CLI dependencies and guarantee cleanup on command failure.
 func main() {
 	logger := slog.Default()
-	rt := core.NewRuntime(logger)
+	rt := ccgruntime.NewRuntime(logger)
+	walkers := make(map[string]ingest.Parser, len(rt.Walkers))
+	for ext, walker := range rt.Walkers {
+		walkers[ext] = walker
+	}
 
 	deps := &cli.Deps{
 		Logger:      logger,
-		Walkers:     rt.Walkers,
+		Walkers:     walkers,
 		CleanupFunc: rt.Close,
 		Version: cli.VersionInfo{
 			Version: version,
@@ -48,9 +53,13 @@ func main() {
 		if err := rt.Init(driver, dsn); err != nil {
 			return err
 		}
-		deps.DB = rt.DB
 		deps.Store = rt.Store
-		deps.SearchBackend = rt.SearchBackend
+		deps.UnitOfWork = rt.UnitOfWork
+		deps.Search = rt.Search
+		deps.SearchReader = rt.SearchReader
+		deps.Statistics = rt.Store
+		deps.Docs = rt.Store
+		deps.Wiki = rt.Store
 		deps.Syncer = rt.Syncer
 		deps.CleanupFunc = rt.Close
 		return nil
@@ -68,7 +77,7 @@ func main() {
 				repoRoot = wd
 			}
 		}
-		return mcpruntime.RunStdio(rt, mcpruntime.Options{
+		return mcpruntime.RunStdio(rt.MCPComponents(), mcpruntime.Options{
 			CacheTTL:            cfg.CacheTTL,
 			NoCache:             cfg.NoCache,
 			OTELEndpoint:        cfg.OTELEndpoint,

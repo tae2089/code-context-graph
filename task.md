@@ -55,7 +55,7 @@ Red 테스트로 4개 언어 각각 fixture 파싱한 결과 (`internal/parse/tr
   - Red 테스트: `TestPythonDocstring_Module` Green
 
 - [x] **P0-3. Rust normalizer `///` 접두사 제거** — 완료
-  - `internal/annotation/normalizer.go:23-108`의 `stripLinePrefix` 언어별 분기에 `rust` 케이스 누락
+  - `internal/domain/annotation/normalizer.go:23-108`의 `stripLinePrefix` 언어별 분기에 `rust` 케이스 누락
   - Green: `rust` 케이스 추가 — `///` (doc) 와 `//` (일반) 둘 다 제거
   - 추가 고려: `//!` (inner doc), `/** ... */`, `/*! ... */` 처리
   - Red 테스트: rust fixture에서 `ann.Tags`에 `@intent`가 들어있어야 통과
@@ -93,7 +93,7 @@ Red fixture + 통합 테스트 작성: `testdata/binding_gap/{typescript,kotlin,
 
 - [x] **P2-1. Go `//go:generate` 같은 디렉티브가 `@intent` 주석에 섞이는 문제** — 완료
   - 선택: 옵션 2 — normalizer Go 분기에서 `//go:<word>` 시작 줄 제거
-  - 구현: `internal/annotation/normalizer.go`에 `isGoDirective(line)` 헬퍼 추가. `Normalize()` 라인 루프에서 `language == "go" && isGoDirective(line)`이면 `continue`로 건너뜀
+  - 구현: `internal/domain/annotation/normalizer.go`에 `isGoDirective(line)` 헬퍼 추가. `Normalize()` 라인 루프에서 `language == "go" && isGoDirective(line)`이면 `continue`로 건너뜀
   - 디렉티브 판별: `//go:` 뒤에 알파벳 또는 `_` 1자 이상. `// go:` (공백 포함)는 일반 주석으로 보존
   - Red 테스트:
     - `TestNormalize_GoDirectiveSkip` 4 케이스 (unit) — `go:generate`, `go:noinline`, 중간 낀 디렉티브, 공백 있는 `// go:` 보존
@@ -114,12 +114,12 @@ Red fixture + 통합 테스트 작성: `testdata/binding_gap/{typescript,kotlin,
     - `@throws ExceptionType description` → Kind=TagThrows, Name=ExceptionType, Value=description (@param과 동일 규칙)
     - `@exception` = `@throws` Javadoc 공식 alias
     - `@typedef {Type} Name desc` → Kind=TagTypedef, Value=원문 보존 (구조 복잡, 검색/표시용)
-  - 변경: `internal/model/annotation.go` 상수 추가 + parser knownTags + parseTagLine param-like 분기 확장
+  - 변경: `internal/domain/graph/annotation.go` 상수 추가 + parser knownTags + parseTagLine param-like 분기 확장
   - 테스트: `TestParse_Throws_WithType`, `TestParse_Throws_TypeOnly`, `TestParse_Exception_AliasOfThrows`, `TestParse_Typedef`
   - 커밋: `0591560`
 
 - [x] **P2-c. YARD `@param [Type] name` 타입 부분 파싱** — 완료
-  - 구조 변경: `model.DocTag`에 `Type string` 필드 추가 (별도 커밋 `0ff2511`)
+  - 구조 변경: `graph.DocTag`에 `Type string` 필드 추가 (별도 커밋 `0ff2511`)
   - 행위 변경:
     - `extractTypePrefix()` 헬퍼 — `[...]` / `{...}` balance 기반 분리, 중첩 지원
     - `parseTagLine`에서 param/return/throws는 value 앞의 type prefix를 먼저 추출 → `DocTag.Type`
@@ -142,7 +142,7 @@ Red fixture + 통합 테스트 작성: `testdata/binding_gap/{typescript,kotlin,
   - 리뷰 후속 정비(커밋 `5af7446`):
     - 초기 1 SKIP(lua)를 `expectBound=false` **Red 계약**으로 승격 → 회귀 탐지력 확보
     - Rust 빈 줄 회피 Green 케이스 유지하면서 "빈 줄 없는 Rust" Red 서브케이스 추가 → walker trailing-newline quirk 명시 고정
-    - `expectedKind model.NodeKind` 필드로 Node.Kind 동시 검증, 파싱 실패 vs 바인딩 실패 진단 분리
+    - `expectedKind graph.NodeKind` 필드로 Node.Kind 동시 검증, 파싱 실패 vs 바인딩 실패 진단 분리
     - PHP `<?php` 필요성, `tc.spec.Name` 단일 원천화 등 minor 정리
   - 최종 결과: **13 PASS** (11 Green + 2 Red 계약)
   - 후속 과제: Rust `line_comment` / Lua `comment`·`function_statement` range 보정 — walker 레벨 수정 필요하나 기존 gap=2 계약 회귀를 피하려면 단일 주석에 한정된 스코프로 해야 함
@@ -245,7 +245,7 @@ Red fixture + 통합 테스트 작성: `testdata/binding_gap/{typescript,kotlin,
 
 - [x] Green: Python docstring 수집/정규화에서 허용 prefix만 docstring으로 처리
   - `internal/parse/treesitter/walker.go`
-  - `internal/annotation/normalizer.go`
+  - `internal/domain/annotation/normalizer.go`
   - fixture/테스트 기대값 조정
 
 - [ ] Verify

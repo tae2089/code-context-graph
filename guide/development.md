@@ -99,7 +99,7 @@ internal/
   annotation/         — Annotation parser
   cli/                — CLI command definitions
   core/               — Shared runtime wiring for parsers, DB, store, search, sync
-  ctxns/              — Context namespace
+  ctx/                — Request-context values (namespace isolation)
   docs/               — Documentation generation
   mcpruntime/         — Shared MCP runtime assembly, stdio runner, cache, telemetry
   mcp/                — MCP server (17 tools)
@@ -107,7 +107,7 @@ internal/
   wikiindex/          — Wiki presentation index builder (`wiki-index.json`)
   model/              — DB models
   parse/treesitter/   — Tree-sitter parser (12 languages, including Lua/Luau)
-  pathutil/           — Path utilities
+  pathspec/           — Pure include/exclude and lexical path matching
   ragindex/           — Shared Wiki tree and documentation-search DTOs/helpers
   server/             — HTTP MCP server, health/status endpoints, webhook runtime
   service/            — Business logic
@@ -141,7 +141,7 @@ Keep detailed variants in directly linked `references/` files and keep core
 reference links, and removed-command drift with:
 
 ```bash
-go test ./internal/cli -run TestProjectSkills -count=1
+go test ./internal/adapters/inbound/cli -run TestProjectSkills -count=1
 ```
 
 ## Conventions

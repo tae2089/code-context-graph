@@ -19,7 +19,7 @@ Use this reference when choosing a less-common tag, checking syntax, or adapting
 | `@typedef <description>` | Named type documentation carried into generated docs/search evidence |
 | `@see <target>` | Related qualified symbol, `file::symbol`, or `ccg://namespace/path#symbol` reference |
 
-The parser implementation in `internal/annotation/parser.go` is the source of truth for recognized tags and aliases.
+The parser implementation in `internal/domain/annotation/parser.go` is the source of truth for recognized tags and aliases.
 
 ## Comment Syntax
 

@@ -1,118 +1,84 @@
-# 아키텍처 (Architecture)
+# 아키텍처
 
-[English](../architecture.md)
+CCG는 모듈형 헥사고날 아키텍처를 사용합니다. 기능 중심 application 패키지가
+자신이 소비하는 port를 소유하고, inbound adapter는 프로토콜을 변환하며,
+outbound adapter는 DB/parser/Git/filesystem 구현을 제공합니다. 모든 조립은
+runtime 패키지 트리에서만 수행합니다.
 
-## 데이터 흐름 (Data Flow)
+## 데이터 흐름
 
-```
-소스 코드 → Tree-sitter 파서 → 노드 + 엣지 + 어노테이션
-                                        ↓
-                               SQLite / PostgreSQL (GORM)
-                                        ↓
-                                   FTS 검색
-                                        ↓
-                          ccg serve          ccg-server
-                          stdio MCP       Streamable HTTP
-                             ↓             ↓          ↑
-                      코딩 에이전트    원격 클라이언트  GitHub / Gitea 웹훅
-                                              push → 복제 → 빌드 → DB
+```text
+Source -> Tree-sitter adapter -> ingest application -> graph/search ports
+                                              |              |
+                                              v              v
+                                        graph-GORM      search-SQL
+
+CLI / MCP / HTTP / Wiki / webhook -> application capability -> outbound port
 ```
 
-## 구성 요소 (Components)
+## 패키지 소유권
 
-### 파서 (Parser) (`internal/parse/treesitter/`)
+| 계층 | 현재 패키지 | 책임 |
+| --- | --- | --- |
+| Domain | `internal/domain/{graph,annotation,reference}` | 안정적인 graph 값, annotation 어휘, `ccg://` reference |
+| Application | `internal/app/{ingest,analyze,search,docs,wiki,reposync}` | use case 정책과 consumer-owned port |
+| Inbound adapter | `internal/adapters/inbound/{cli,mcp,http,webhook,wikihttp}` | Cobra, MCP, HTTP, webhook, Wiki 프로토콜 매핑 |
+| Outbound adapter | `internal/adapters/outbound/*` | GORM, SQL 검색, Tree-sitter, Git, 파일, sync graph, observability 구현 |
+| Runtime | `internal/runtime`, `internal/runtime/mcp`, `internal/runtime/remote` | 공용 조립, MCP lifecycle, 원격 전용 조립 |
+| 소형 primitive | `internal/{config,ctx,db,obs,pathspec,safepath}` | 기능 정책을 담지 않는 제한된 공용 primitive. DB migration과 embedded SQL 자산은 `internal/db/migration`이 함께 소유합니다. |
 
-Tree-sitter 기반 코드 파서입니다. 12개 언어를 지원하며, 각 언어는 함수, 클래스, 타입, 임포트 및 호출 관계를 추출하는 고유한 `LangSpec`을 가집니다.
+## 기능 모듈
 
-**지원 언어**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua/Luau
+- `app/ingest`: parse, annotation bind, edge resolve, 전체 build, transaction 기반
+  incremental update. `ingest.UnitOfWork`가 graph와 파생 search 변경을 원자적으로 묶습니다.
+- `app/analyze`: callers/callees, impact radius, flow trace/rebuild, Git diff risk,
+  통계와 bounded read model.
+- `app/search`: search document 생성, FTS retrieval, 구조 rerank, retrieval evidence,
+  그리고 document/rank/query syntax가 공유하는 identifier tokenization을 소유합니다.
+  SQLite는 FTS5, PostgreSQL은 tsvector/GIN을 사용합니다.
+- `app/docs`: 결정적 Markdown 생성, history, auto-rule, lint.
+- `app/wiki`: CCG 고유의 코드 탐색 tree와 compatibility snapshot. 별도 제품인
+  향후 OpenWiki와 합치거나 추출하지 않습니다.
+- `app/reposync`: repository admission, branch 정책, retry/queue, checkout부터
+  ingest까지의 orchestration.
 
-> Lua 파서는 Luau(Roblox) 문법도 지원합니다. 타입 어노테이션은 Tree-sitter의 에러 복구를 통해 조용히 무시됩니다. 함수(전역, 로컬, 메서드) 및 주석(한 줄, 블록, `--!strict`)을 추출합니다.
+## 의존성 규칙
 
-### 저장소 (Store) (`internal/store/gormstore/`)
+1. Domain은 표준 라이브러리와 다른 domain 패키지만 import합니다.
+2. Application은 domain과 해당 consumer가 소유한 port만 import합니다.
+3. Application은 adapter, runtime, GORM, Cobra, MCP, HTTP를 import하지 않습니다.
+4. Inbound adapter는 application contract를 호출하며 GORM query를 포함하지 않습니다.
+5. Outbound adapter는 application port를 구현하고 GORM, DB driver, Tree-sitter,
+   go-git, filesystem, telemetry 라이브러리를 사용할 수 있습니다.
+6. 전역 ports/store 패키지는 금지하며 port는 consumer 옆에 둡니다.
+7. Runtime만 의도적으로 fan-out이 큰 조립 트리입니다.
+8. `cmd/*`는 runtime/adapter를 선택하고 process exit만 소유합니다.
 
-GORM ORM 기반 저장소입니다. SQLite 및 PostgreSQL과 호환됩니다.
+`internal/archtest`가 `go list -json`으로 이 규칙, 과거 패키지 부재, 로컬
+바이너리 의존성 폐쇄를 검증합니다.
 
-- **Node**: 함수, 클래스, 타입, 파일 등
-- **Edge**: 호출, 포함(contains), 테스트 대상(tested_by), 임포트 원천(imports_from) 등
-- **SearchDocument**: FTS 검색을 위한 문서들
-- **Flow/FlowMembership**: 실행 흐름(flow) 정보
+## 런타임과 전송 계층
 
-### 검색 (Search) (`internal/store/search/`)
+`ccg serve`(stdio)와 `ccg-server`(Streamable HTTP)는 동일한 다섯 MCP 의존성
+그룹을 사용하며 정확히 17개 tool과 4개 prompt를 노출합니다. 로컬 바이너리는
+원격 HTTP, Wiki, webhook, remote runtime 패키지를 링크하지 않습니다.
+자세한 내용은 [런타임 레이아웃](runtime-layout.md)을 참고하세요.
 
-데이터베이스별 전체 텍스트 검색 백엔드:
-- **SQLite**: FTS5
-- **PostgreSQL**: tsvector + GIN 인덱스
+## 영속성과 격리
 
-검색 콘텐츠는 camelCase 식별자의 서브토큰을 색인합니다(`getUserById`는 `get`,
-`user`, `by`, `id`도 색인) — 내부 단어로도 검색됩니다. 이 콘텐츠는 색인 시점에
-생성되므로, 기존 그래프는 재색인된 노드에 대해서만 서브토큰을 갖습니다. 업그레이드
-후 `ccg build`로 한 번 전체 재빌드하십시오 — 순수 증분 업데이트만 반복하면 변경된
-노드만 갱신되어, 건드리지 않은 노드는 변경 전까지 서브토큰이 없습니다.
+Graph record, search document, community, flow는 namespace를 가집니다.
+Application 호출은 context로 namespace를 전달하고 outbound repository가 필터를
+적용합니다. SQLite/PostgreSQL graph 연산은 GORM을 공유하고 full-text search는
+DB별 adapter를 사용합니다. Application과 inbound package는 SQL을 실행하지 않으며,
+DB별 SQL은 outbound adapter와 migration code 내부에만 캡슐화합니다.
 
-전체 빌드 및 명시적인 사후 처리 실행은 네임스페이스 검색 상태를 재생성합니다. 증분 업데이트는 영향을 받는 검색 문서와 FTS 행만 갱신합니다. 영구 저장된 흐름(stored-flow)의 재생성은 전체 사후 처리 실행 및 명시적인 `run_postprocess(flows=true)` 호출 시 구현되어 있으며, 진입점별 흐름 쿼리에는 `trace_flow`를 사용하십시오.
+## 신뢰성과 보안
 
-### 분석 (Analysis) (`internal/analysis/`)
+- Repository sync는 trust 전에 HMAC을 검증하고 ordered allow rule, bounded
+  queue/retry, clone root 검증, 종료 drain을 적용합니다.
+- HTTP는 body/read/header/idle 제한, 민감 endpoint bearer 인증, bounded graceful
+  shutdown을 적용합니다.
+- Parser, DB, cache, telemetry, queue는 각각 명시적이고 idempotent한 lifecycle owner가 있습니다.
+- Wiki/static/docs 경로는 목적별 containment 및 symlink-safe 정책을 사용합니다.
 
-| 모듈 | 설명 |
-|--------|-------------|
-| `impact` | BFS 영향 범위 분석 |
-| `flows` | 호출 체인 흐름 추적 |
-| `changes` | Git diff 리스크 점수 계산 |
-| `query` | 그래프 쿼리 (callers, callees, imports) |
-| `incremental` | 증분 업데이트 |
-
-### MCP 서버 (MCP Server) (`internal/mcp/`)
-
-MCP 프로토콜을 통해 17개의 도구를 노출합니다. 로컬 `ccg serve` 명령은 이
-도구들을 stdio로 노출합니다. 셀프호스트 `ccg-server` 바이너리는 같은 도구
-surface를 Streamable HTTP로 노출하고 health/status/webhook 엔드포인트를
-추가합니다.
-
-### 런타임 구조 (Runtime Layout)
-
-CCG는 로컬 사용과 셀프호스트 사용을 위한 런타임 진입점을 분리합니다.
-
-| Runtime | 코드 | 책임 |
-|---------|------|------|
-| `ccg` | `cmd/ccg`, `internal/cli` | 로컬 CLI 명령과 stdio MCP |
-| `ccg-server` | `cmd/ccg-server`, `internal/server` | Streamable HTTP MCP, health/status 엔드포인트, 웹훅 동기화 |
-| `ccg-core` | `internal/core` | 공용 parser, DB, store, search, migration, incremental sync wiring |
-
-`ccg serve --transport streamable-http`에서 `ccg-server`로 전환하는
-마이그레이션 메모와 소유권 경계는 [런타임 구조](runtime-layout.md)를
-참조하십시오.
-
-### 안정성 (Reliability)
-
-운영 안정성을 위해 모든 고루틴에 패닉 복구가 적용됩니다:
-
-- **시그널 핸들러**: 패닉 발생 시 에러를 기록하고 `os.Exit(2)`를 호출합니다.
-- **HTTP 서버**: 패닉을 에러 채널로 전달하여 정상 종료 흐름을 수행합니다.
-- **SyncQueue 워커**: 다른 워커에 영향을 주지 않고 패닉을 기록합니다.
-- **SyncQueue 종료**: 종료 중 발생하는 패닉을 격리합니다.
-
-### 웹훅 (Webhook) (`internal/webhook/`)
-
-GitHub/Gitea push 이벤트를 수신하여 자동 복제/빌드 파이프라인을 실행합니다.
-
-- **RepoFilter**: 저장소별 브랜치 필터링 (`IsAllowedRef`)
-- **SyncQueue**: 중복 제거 및 동시성이 제어된 워커 큐. 핸들러 실패 시 지수 백오프 재시도(기본 3회, 1s→2s→4s, 최대 30s)
-- **CloneOrPull**: go-git 기반 복제/pull (SSH 키 및 앱 토큰 지원)
-
-## 데이터베이스 스키마 (Database Schema)
-
-### 핵심 테이블 (Core Tables)
-
-```
-nodes                 — namespace, qualified_name, kind, file_path, start_line, end_line, language 등
-edges                 — namespace, from_node_id, to_node_id, kind, file_path, line, fingerprint
-search_documents      — namespace, node_id, content, language (FTS 인덱싱됨)
-communities           — namespace, key, label, strategy, description
-community_memberships — community_id, node_id
-flows                 — namespace, name, description
-flow_memberships      — namespace, flow_id, node_id, ordinal
-```
-
-### 네임스페이스 격리 (Namespace Isolation)
-
-네임스페이스는 컨텍스트에 저장되며 저장소 내부에서 자동으로 추출됩니다. 다중 저장소 환경에서 데이터 격리를 제공합니다.
+결정과 기각한 대안은 [ADR-0001](../adr/0001-modular-hexagonal-architecture.md)을 참고하세요.

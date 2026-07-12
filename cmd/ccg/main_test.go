@@ -13,12 +13,12 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
-	"github.com/tae2089/code-context-graph/internal/ctxns"
+	mcpserver "github.com/tae2089/code-context-graph/internal/adapters/inbound/mcp"
+	"github.com/tae2089/code-context-graph/internal/adapters/outbound/graphgorm"
+	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	ccgdb "github.com/tae2089/code-context-graph/internal/db"
 	"github.com/tae2089/code-context-graph/internal/db/migration"
-	mcpserver "github.com/tae2089/code-context-graph/internal/mcp"
-	"github.com/tae2089/code-context-graph/internal/model"
-	"github.com/tae2089/code-context-graph/internal/store/gormstore"
+	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
 func TestFlushMCPQueryCache_RemovesCachedValues(t *testing.T) {
@@ -51,11 +51,11 @@ func setupNamespaceMigrationDB(t *testing.T) *gorm.DB {
 		t.Fatalf("get sql db: %v", err)
 	}
 	sqlDB.SetMaxOpenConns(1)
-	st := gormstore.New(db)
+	st := graphgorm.New(db)
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate store: %v", err)
 	}
-	if err := db.AutoMigrate(&model.SearchDocument{}, &model.Flow{}, &model.FlowMembership{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.Flow{}, &graph.FlowMembership{}); err != nil {
 		t.Fatalf("migrate extra models: %v", err)
 	}
 	return db
@@ -189,22 +189,22 @@ func TestRunMigrations_SQLiteBackfillsVersionOneNulls(t *testing.T) {
 		t.Fatalf("run version 1 migration: %v", err)
 	}
 
-	if err := db.Exec(`INSERT INTO nodes(namespace) VALUES (?)`, ctxns.DefaultNamespace).Error; err != nil {
+	if err := db.Exec(`INSERT INTO nodes(namespace) VALUES (?)`, requestctx.DefaultNamespace).Error; err != nil {
 		t.Fatalf("insert null node: %v", err)
 	}
-	if err := db.Exec(`INSERT INTO edges(namespace) VALUES (?)`, ctxns.DefaultNamespace).Error; err != nil {
+	if err := db.Exec(`INSERT INTO edges(namespace) VALUES (?)`, requestctx.DefaultNamespace).Error; err != nil {
 		t.Fatalf("insert null edge: %v", err)
 	}
-	if err := db.Exec(`INSERT INTO communities(namespace, label, strategy) VALUES (?, ?, ?)`, ctxns.DefaultNamespace, "community", "manual").Error; err != nil {
+	if err := db.Exec(`INSERT INTO communities(namespace, label, strategy) VALUES (?, ?, ?)`, requestctx.DefaultNamespace, "community", "manual").Error; err != nil {
 		t.Fatalf("insert null community key: %v", err)
 	}
 	if err := db.Exec(`INSERT INTO community_memberships DEFAULT VALUES`).Error; err != nil {
 		t.Fatalf("insert null community membership: %v", err)
 	}
-	if err := db.Exec(`INSERT INTO flows(namespace) VALUES (?)`, ctxns.DefaultNamespace).Error; err != nil {
+	if err := db.Exec(`INSERT INTO flows(namespace) VALUES (?)`, requestctx.DefaultNamespace).Error; err != nil {
 		t.Fatalf("insert null flow name: %v", err)
 	}
-	if err := db.Exec(`INSERT INTO flow_memberships(namespace, ordinal) VALUES (?, ?)`, ctxns.DefaultNamespace, 0).Error; err != nil {
+	if err := db.Exec(`INSERT INTO flow_memberships(namespace, ordinal) VALUES (?, ?)`, requestctx.DefaultNamespace, 0).Error; err != nil {
 		t.Fatalf("insert null flow membership: %v", err)
 	}
 
@@ -346,7 +346,7 @@ func TestEnsureSchemaVersion_AutoMigratesLocalSQLiteDefault(t *testing.T) {
 	if err := migration.CheckSchemaVersion(db, migration.RequiredSchemaVersion); err != nil {
 		t.Fatalf("schema check after auto migrate: %v", err)
 	}
-	if !db.Migrator().HasTable(&model.Node{}) {
+	if !db.Migrator().HasTable(&graph.Node{}) {
 		t.Fatal("expected nodes table after auto migrate")
 	}
 }
@@ -441,14 +441,14 @@ func TestRunMigrations_WrapsParityFailureWithRemediation(t *testing.T) {
 			_ = sqlDB.Close()
 		}
 	}()
-	st := gormstore.New(db)
+	st := graphgorm.New(db)
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate store: %v", err)
 	}
-	if err := db.AutoMigrate(&model.SearchDocument{}, &model.Flow{}, &model.FlowMembership{}, &model.SchemaVersion{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.Flow{}, &graph.FlowMembership{}, &graph.SchemaVersion{}); err != nil {
 		t.Fatalf("migrate extra models: %v", err)
 	}
-	if err := db.Create(&model.SchemaVersion{Key: migration.SchemaVersionKey, Version: migration.RequiredSchemaVersion}).Error; err != nil {
+	if err := db.Create(&graph.SchemaVersion{Key: migration.SchemaVersionKey, Version: migration.RequiredSchemaVersion}).Error; err != nil {
 		t.Fatalf("create legacy schema version: %v", err)
 	}
 
@@ -590,10 +590,10 @@ func TestRunMigrations_BaselinesLegacySchemaVersion(t *testing.T) {
 	if err := db.Exec(`DELETE FROM schema_migrations`).Error; err != nil {
 		t.Fatalf("clear schema migrations: %v", err)
 	}
-	if err := db.AutoMigrate(&model.SchemaVersion{}); err != nil {
+	if err := db.AutoMigrate(&graph.SchemaVersion{}); err != nil {
 		t.Fatalf("migrate legacy schema version table: %v", err)
 	}
-	if err := db.Create(&model.SchemaVersion{Key: migration.SchemaVersionKey, Version: migration.RequiredSchemaVersion}).Error; err != nil {
+	if err := db.Create(&graph.SchemaVersion{Key: migration.SchemaVersionKey, Version: migration.RequiredSchemaVersion}).Error; err != nil {
 		t.Fatalf("create legacy schema version: %v", err)
 	}
 
@@ -616,14 +616,14 @@ func TestRunMigrations_FailsLegacyBaselineWithSchemaDrift(t *testing.T) {
 			_ = sqlDB.Close()
 		}
 	}()
-	st := gormstore.New(db)
+	st := graphgorm.New(db)
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate store: %v", err)
 	}
-	if err := db.AutoMigrate(&model.SearchDocument{}, &model.Flow{}, &model.FlowMembership{}, &model.SchemaVersion{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.Flow{}, &graph.FlowMembership{}, &graph.SchemaVersion{}); err != nil {
 		t.Fatalf("migrate extra models: %v", err)
 	}
-	if err := db.Create(&model.SchemaVersion{Key: migration.SchemaVersionKey, Version: migration.RequiredSchemaVersion}).Error; err != nil {
+	if err := db.Create(&graph.SchemaVersion{Key: migration.SchemaVersionKey, Version: migration.RequiredSchemaVersion}).Error; err != nil {
 		t.Fatalf("create legacy schema version: %v", err)
 	}
 
@@ -639,30 +639,30 @@ func TestRunMigrations_FailsLegacyBaselineWithSchemaDrift(t *testing.T) {
 func TestMigrateLegacyDefaultNamespace_BackfillsEmptyNamespaceRows(t *testing.T) {
 	db := setupNamespaceMigrationDB(t)
 
-	if err := db.Exec(`INSERT INTO nodes(namespace, qualified_name, kind, name, file_path, start_line, end_line, language, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`, "", "pkg.Legacy", model.NodeKindFunction, "Legacy", "legacy.go", 1, 2, "go").Error; err != nil {
+	if err := db.Exec(`INSERT INTO nodes(namespace, qualified_name, kind, name, file_path, start_line, end_line, language, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`, "", "pkg.Legacy", graph.NodeKindFunction, "Legacy", "legacy.go", 1, 2, "go").Error; err != nil {
 		t.Fatalf("insert legacy node: %v", err)
 	}
-	var node model.Node
+	var node graph.Node
 	if err := db.Where("namespace = ? AND qualified_name = ?", "", "pkg.Legacy").First(&node).Error; err != nil {
 		t.Fatalf("load legacy node: %v", err)
 	}
-	if err := db.Exec(`INSERT INTO edges(namespace, from_node_id, to_node_id, kind, fingerprint, created_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`, "", node.ID, node.ID, model.EdgeKindCalls, "legacy-edge").Error; err != nil {
+	if err := db.Exec(`INSERT INTO edges(namespace, from_node_id, to_node_id, kind, fingerprint, created_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`, "", node.ID, node.ID, graph.EdgeKindCalls, "legacy-edge").Error; err != nil {
 		t.Fatalf("insert legacy edge: %v", err)
 	}
-	if err := db.Create(&model.SearchDocument{Namespace: "", NodeID: node.ID, Content: "legacy doc", Language: "go"}).Error; err != nil {
+	if err := db.Create(&graph.SearchDocument{Namespace: "", NodeID: node.ID, Content: "legacy doc", Language: "go"}).Error; err != nil {
 		t.Fatalf("create search doc: %v", err)
 	}
 	if err := db.Exec(`INSERT INTO communities(namespace, key, label, strategy, created_at, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`, "", "legacy", "legacy", "directory").Error; err != nil {
 		t.Fatalf("insert legacy community: %v", err)
 	}
-	var community model.Community
+	var community graph.Community
 	if err := db.Where("namespace = ? AND key = ?", "", "legacy").First(&community).Error; err != nil {
 		t.Fatalf("load legacy community: %v", err)
 	}
 	if err := db.Exec(`INSERT INTO flows(namespace, name, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)`, "", "legacy-flow").Error; err != nil {
 		t.Fatalf("insert legacy flow: %v", err)
 	}
-	var flow model.Flow
+	var flow graph.Flow
 	if err := db.Where("namespace = ? AND name = ?", "", "legacy-flow").First(&flow).Error; err != nil {
 		t.Fatalf("load legacy flow: %v", err)
 	}
@@ -678,12 +678,12 @@ func TestMigrateLegacyDefaultNamespace_BackfillsEmptyNamespaceRows(t *testing.T)
 		name  string
 		model any
 	}{
-		{name: "nodes", model: &model.Node{}},
-		{name: "edges", model: &model.Edge{}},
-		{name: "search_documents", model: &model.SearchDocument{}},
-		{name: "communities", model: &model.Community{}},
-		{name: "flows", model: &model.Flow{}},
-		{name: "flow_memberships", model: &model.FlowMembership{}},
+		{name: "nodes", model: &graph.Node{}},
+		{name: "edges", model: &graph.Edge{}},
+		{name: "search_documents", model: &graph.SearchDocument{}},
+		{name: "communities", model: &graph.Community{}},
+		{name: "flows", model: &graph.Flow{}},
+		{name: "flow_memberships", model: &graph.FlowMembership{}},
 	} {
 		var legacyCount int64
 		if err := db.Model(tc.model).Where("namespace = ?", "").Count(&legacyCount).Error; err != nil {
@@ -694,20 +694,20 @@ func TestMigrateLegacyDefaultNamespace_BackfillsEmptyNamespaceRows(t *testing.T)
 		}
 	}
 
-	var defaultNode model.Node
+	var defaultNode graph.Node
 	if err := db.Where("qualified_name = ?", "pkg.Legacy").First(&defaultNode).Error; err != nil {
 		t.Fatalf("load migrated node: %v", err)
 	}
-	if defaultNode.Namespace != ctxns.DefaultNamespace {
-		t.Fatalf("migrated node namespace = %q, want %q", defaultNode.Namespace, ctxns.DefaultNamespace)
+	if defaultNode.Namespace != requestctx.DefaultNamespace {
+		t.Fatalf("migrated node namespace = %q, want %q", defaultNode.Namespace, requestctx.DefaultNamespace)
 	}
 }
 
 func TestMigrateLegacyDefaultNamespace_FailsOnNodeCollision(t *testing.T) {
 	db := setupNamespaceMigrationDB(t)
 
-	current := model.Node{Namespace: ctxns.DefaultNamespace, QualifiedName: "pkg.Collision", Kind: model.NodeKindFunction, Name: "Collision", FilePath: "same.go", StartLine: 1, EndLine: 2, Language: "go"}
-	if err := db.Exec(`INSERT INTO nodes(namespace, qualified_name, kind, name, file_path, start_line, end_line, language, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`, "", "pkg.Collision", model.NodeKindFunction, "Collision", "same.go", 1, 2, "go").Error; err != nil {
+	current := graph.Node{Namespace: requestctx.DefaultNamespace, QualifiedName: "pkg.Collision", Kind: graph.NodeKindFunction, Name: "Collision", FilePath: "same.go", StartLine: 1, EndLine: 2, Language: "go"}
+	if err := db.Exec(`INSERT INTO nodes(namespace, qualified_name, kind, name, file_path, start_line, end_line, language, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`, "", "pkg.Collision", graph.NodeKindFunction, "Collision", "same.go", 1, 2, "go").Error; err != nil {
 		t.Fatalf("insert legacy node: %v", err)
 	}
 	if err := db.Create(&current).Error; err != nil {
@@ -720,7 +720,7 @@ func TestMigrateLegacyDefaultNamespace_FailsOnNodeCollision(t *testing.T) {
 	}
 
 	var legacyCount int64
-	if err := db.Model(&model.Node{}).Where("namespace = ?", "").Count(&legacyCount).Error; err != nil {
+	if err := db.Model(&graph.Node{}).Where("namespace = ?", "").Count(&legacyCount).Error; err != nil {
 		t.Fatalf("count legacy nodes: %v", err)
 	}
 	if legacyCount != 1 {

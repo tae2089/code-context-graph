@@ -1,107 +1,82 @@
 # Runtime Layout
 
-CCG is split into three runtime layers:
+CCG has one runtime composition tree and two binaries with deliberately different
+dependency closures.
 
-| Layer | Path | Responsibility |
-|-------|------|----------------|
-| `ccg` | `cmd/ccg`, `internal/cli` | Local CLI commands and local MCP over stdio |
-| `ccg-server` | `cmd/ccg-server`, `internal/server` | Self-hosted Streamable HTTP MCP server, health/status endpoints, and webhook sync |
-| MCP runtime | `internal/mcpruntime` | Shared MCP handler assembly, cache, telemetry, and stdio runner |
-| `ccg-core` | `internal/core` | Shared parser, DB, store, search, migration, and incremental-sync wiring |
+| Runtime owner | Path | Responsibility |
+| --- | --- | --- |
+| Shared runtime | `internal/runtime` | Parser registry, DB/schema, graph/search adapters, ingest transaction, migration, idempotent parser/DB close |
+| MCP runtime | `internal/runtime/mcp` | Five grouped MCP dependency surfaces, cache, telemetry, stdio signals, idempotent MCP close |
+| Remote runtime | `internal/runtime/remote` | Remote MCP, Wiki, webhook/repository-sync queue, and HTTP host composition |
+| HTTP host | `internal/adapters/inbound/http` | Routes, auth/body limits, readiness/status mapping, listener, signals, bounded HTTP shutdown |
 
-This split keeps local agent usage small while letting self-hosted deployments
-own HTTP exposure and webhook policy explicitly.
-
-## Binaries
+## Binary closure
 
 ### `ccg`
 
-`ccg` is the local developer and agent binary. It owns one-shot commands such as
-`build`, `update`, `search`, `docs`, `lint`, `status`, `migrate`, and `eval`.
-
-`ccg serve` starts MCP over stdio only. It is intended for local MCP clients
-such as Codex or Claude Code launched on the same machine. HTTP and webhook
-flags are intentionally not part of this command.
+`cmd/ccg` selects the shared runtime, CLI adapter, and MCP runtime. It provides
+one-shot build/update/search/docs/lint/status/migrate commands and `ccg serve`
+over stdio. It does not link the HTTP host, Wiki HTTP, webhook adapter, or remote
+runtime. This keeps local MCP use independent of remote hosting policy.
 
 ### `ccg-server`
 
-`ccg-server` is the long-running self-hosted service. It serves:
+`cmd/ccg-server` selects shared plus remote runtime. It exposes:
 
-- `/mcp` for Streamable HTTP MCP
-- `/health` for liveness
-- `/ready` for readiness
-- `/status` for operational diagnostics
-- `/wiki` when `--wiki-dir` points at built Wiki assets
-- `/wiki/api/*` for Wiki tree, docs, retrieval, context copying, and visual graph data
-- `/webhook` when `--allow-repo` is configured
+- `/mcp` — Streamable HTTP MCP
+- `/health` — liveness
+- `/ready` — DB and blocking-queue readiness
+- `/status` — authenticated operational state
+- `/wiki` and `/wiki/api/*` — optional built-in CCG Wiki
+- `/webhook` — optional GitHub/Gitea repository sync
 
-Use `ccg-server` for remote clients, team deployments, container deployments,
-and GitHub/Gitea webhook sync.
+Both transports call `Runtime.MCPComponents()` and therefore register the same
+17 tools and four prompts.
 
-### `ccg-core`
+## Resource ownership
 
-`internal/core` is the shared runtime assembly layer. It provides:
+| Resource | Owner | Close rule |
+| --- | --- | --- |
+| Tree-sitter walkers | shared runtime | Deduplicate alias pointers, close once |
+| DB connection | shared runtime | Close once after parser cleanup |
+| MCP cache and telemetry | MCP Instance | Close once; telemetry gets a bounded shutdown context |
+| Repository-sync context/workers | remote runtime | Cancel then drain once |
+| HTTP listener | inbound HTTP host | Stop accepting, bounded `Shutdown`, then queue cleanup |
+| Process exit | `cmd/*` | Log final error, invoke runtime close, choose exit code |
 
-- language walker registration
-- database opening and schema-version validation
-- migration execution
-- GORM store construction
-- search backend selection
-- incremental sync construction
-- parser and database cleanup
+Partial startup follows stack discipline: MCP cleanup is registered immediately;
+Wiki validation runs before queue creation; queue cleanup is registered immediately;
+HTTP returns through the same idempotent cleanup functions on listener error or signal.
 
-The package is intentionally runtime wiring, not a command layer. CLI flag
-parsing stays in `internal/cli` and HTTP/webhook policy stays in
-`internal/server`.
+## Dependency direction
 
-## Ownership Boundaries
+- Application and adapters never import runtime.
+- `runtime/remote` imports inbound/outbound sides and passes `HostDeps` to HTTP.
+- HTTP receives prebuilt handlers/checks/queue hooks and cannot construct DB,
+  Wiki, webhook, Git, search, or telemetry implementations.
+- Remote composition is a subpackage so importing shared runtime from local
+  `ccg` cannot pull remote packages into its dependency closure.
 
-| Concern | Owner |
-|---------|-------|
-| Cobra local command definitions | `internal/cli` |
-| Local stdio MCP command | `internal/cli/serve.go`, `internal/mcpruntime` |
-| HTTP listen address, bearer token, stateless sessions | `internal/server` and `cmd/ccg-server` |
-| Wiki static serving and viewer API | `internal/wikiserver`, `web/wiki`, and `internal/server` |
-| Webhook allowlist, HMAC, clone base URL, repo root, retry policy | `internal/server` and `internal/webhook` |
-| MCP tool handlers and DTOs | `internal/mcp` |
-| Shared MCP transport-neutral runtime | `internal/mcpruntime` |
-| Shared graph runtime dependencies | `internal/core` |
-| Business graph build/update behavior | `internal/service` |
-| Docker default process | `ccg-server` |
+`internal/archtest` checks these constraints and removed runtime-package absence.
 
-## Common Workflows
+## Workflows
 
-Local graph work:
+Local MCP:
 
 ```bash
 ccg build .
-ccg search "authentication"
-ccg docs --out docs
 ccg serve
 ```
-
-`ccg docs` writes generated Markdown and `.ccg/wiki-index.json` as a `/wiki`
-compatibility snapshot.
 
 Browser Wiki:
 
 ```bash
 ccg build .
 ccg docs --out docs
-ccg-server \
-  --http-addr 127.0.0.1:8080 \
-  --wiki-dir web/wiki/dist
+ccg-server --http-addr 127.0.0.1:8080 --wiki-dir web/wiki/dist
 ```
 
-The Wiki tree, search, and document discovery prefer the configured database.
-`wiki-index.json` is a compatibility tree snapshot used only when the
-corresponding DB-backed path is unavailable.
-The Graph tab reads graph nodes and edges directly from the configured database
-through `/wiki/api/graph`, so it follows the latest `ccg build` or webhook sync
-state. Context Tray copy uses `/wiki/api/context` for generated docs and keeps
-doc-less symbol details in the browser payload.
-
-Self-hosted HTTP MCP:
+Remote MCP:
 
 ```bash
 ccg-server \
@@ -121,50 +96,5 @@ ccg-server \
   --repo-root /data/repos
 ```
 
-Docker:
-
-```bash
-docker run -d -p 8080:8080 \
-  -e CCG_HTTP_BEARER_TOKEN="$CCG_HTTP_BEARER_TOKEN" \
-  ccg --http-addr :8080
-```
-
-The Docker image still includes `ccg` for one-shot build/migrate workflows, but
-the default entrypoint is `ccg-server`.
-
-GitHub release archives and the npm package include both executables. Install
-one package and choose `ccg` or `ccg-server` at runtime.
-
-## Migration Notes
-
-Previous deployments that used:
-
-```bash
-ccg serve --transport streamable-http ...
-```
-
-should switch to:
-
-```bash
-ccg-server ...
-```
-
-`ccg serve --transport streamable-http` now returns guidance instead of starting
-HTTP. Existing stdio MCP clients can keep using `ccg serve`.
-
-The local `ccg` binary does not import `internal/server` or `internal/webhook`.
-Both binaries still share `internal/mcpruntime`, `internal/mcp`, parser, DB, and
-analysis packages, so most code size remains common while HTTP/webhook code is
-linked only into `ccg-server`.
-
-## Config Notes
-
-Both binaries read the same DB settings:
-
-- `--db-driver`, `CCG_DB_DRIVER`, or `.ccg.yaml` `db.driver`
-- `--db-dsn`, `CCG_DB_DSN`, or `.ccg.yaml` `db.dsn`
-
-`ccg-server` also reads server defaults from supported environment variables,
-including `CCG_HTTP_BEARER_TOKEN`, `CCG_OTEL_ENDPOINT`,
-`CCG_WEBHOOK_WORKERS`, `CCG_WEBHOOK_MAX_TRACKED_REPOS`,
-`CCG_WEBHOOK_ATTEMPT_TIMEOUT`, retry tuning variables, and `CCG_REPO_ROOT`.
+The built-in Wiki remains a CCG capability. A future OpenWiki deployment is a
+separate product boundary and does not replace these runtime routes.

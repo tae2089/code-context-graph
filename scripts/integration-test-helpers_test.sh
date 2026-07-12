@@ -134,6 +134,50 @@ test_assert_mcp_contains_rejects_missing_content_text() {
     assert_fails "missing MCP content text" assert_mcp_contains "bad_tool" "$resp" "needle"
 }
 
+test_assert_mcp_not_contains_rejects_present_content() {
+    local resp
+    resp='{"result":{"isError":false,"content":[{"type":"text","text":"contains leaked symbol"}]}}'
+    assert_fails "unexpected MCP content" assert_mcp_not_contains "search" "$resp" "leaked"
+}
+
+test_assert_mcp_not_contains_accepts_absent_content() {
+    local resp
+    resp='{"result":{"isError":false,"content":[{"type":"text","text":"contains only scoped symbol"}]}}'
+    assert_mcp_not_contains "search" "$resp" "foreign"
+}
+
+test_assert_mcp_error_accepts_expected_tool_error() {
+    local resp
+    resp='{"result":{"isError":true,"content":[{"type":"text","text":"read file failed"}]}}'
+    assert_mcp_error "get_doc_content" "$resp" "read file"
+}
+
+test_assert_mcp_error_accepts_any_tool_error_without_message_contract() {
+    local resp
+    resp='{"result":{"isError":true,"content":[{"type":"text","text":"resolve namespace path failed"}]}}'
+    assert_mcp_error "get_doc_content" "$resp"
+}
+
+test_assert_mcp_error_rejects_success_result() {
+    local resp
+    resp='{"result":{"isError":false,"content":[{"type":"text","text":"ok"}]}}'
+    assert_fails "successful MCP result" assert_mcp_error "get_doc_content" "$resp" "read file"
+}
+
+test_integration_script_has_no_removed_mcp_tools() {
+    if rg -n 'build_rag_index|get_rag_tree|find_large_functions|find_dead_code|get_architecture_overview|list_communities|get_community' "${ROOT_DIR}/scripts/integration-test.sh" >/dev/null; then
+        echo "integration script references removed MCP tools" >&2
+        exit 1
+    fi
+}
+
+test_integration_script_does_not_interpolate_sensitive_values_into_failures() {
+    if rg -n 'Token acquired:.*GITEA_TOKEN|MCP session:.*MCP_SESSION|fail ".*\$(TOKEN_RESP|HOOK_RESP|HOOK2_RESP|logs)' "${ROOT_DIR}/scripts/integration-test.sh" >/dev/null; then
+        echo "integration script interpolates a sensitive response, session, token, or log value" >&2
+        exit 1
+    fi
+}
+
 test_mcp_init_failure_requires_explicit_debug_override() {
     assert_fails "MCP init failure should be fatal by default" mcp_session_required ""
     CCG_E2E_ALLOW_MCP_LOG_FALLBACK=1
@@ -238,6 +282,13 @@ run_test test_assert_mcp_ok_rejects_jsonrpc_error
 run_test test_assert_mcp_ok_reports_jsonrpc_error_without_python_nameerror
 run_test test_assert_mcp_ok_rejects_result_is_error
 run_test test_assert_mcp_contains_rejects_missing_content_text
+run_test test_assert_mcp_not_contains_rejects_present_content
+run_test test_assert_mcp_not_contains_accepts_absent_content
+run_test test_assert_mcp_error_accepts_expected_tool_error
+run_test test_assert_mcp_error_accepts_any_tool_error_without_message_contract
+run_test test_assert_mcp_error_rejects_success_result
+run_test test_integration_script_has_no_removed_mcp_tools
+run_test test_integration_script_does_not_interpolate_sensitive_values_into_failures
 run_test test_mcp_init_failure_requires_explicit_debug_override
 run_test test_mcp_log_fallback_allowed_defaults_false
 run_test test_extract_mcp_session_id_reads_header_case_insensitively

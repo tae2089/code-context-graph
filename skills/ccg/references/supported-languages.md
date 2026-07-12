@@ -17,4 +17,4 @@ CCG registers these Tree-sitter walkers at runtime:
 | PHP | `.php` |
 | Lua/Luau | `.lua`, `.luau` |
 
-`internal/core/runtime.go` (`BuildWalkers`) is the implementation source of truth. When changing language support, update this reference, README language claims, and parser tests in the same change.
+`internal/runtime/runtime.go` (`BuildWalkers`) is the implementation source of truth. When changing language support, update this reference, README language claims, and parser tests in the same change.

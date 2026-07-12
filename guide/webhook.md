@@ -138,7 +138,7 @@ After shutdown begins, new webhook deliveries are rejected with `503 Service Una
 Push Event → HMAC Verify → RepoFilter.IsAllowedRef()
   → SyncQueue.Add() (dedup) → Worker
     → CloneOrPull (ctx, 15min timeout)
-    → GraphService.Update (incremental, ctx, 15min timeout)
+    → workflow.Service.Update (incremental, ctx, 15min timeout)
     → Save to DB
 ```
 

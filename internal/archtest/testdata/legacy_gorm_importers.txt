@@ -1,0 +1,2 @@
+# Transitional direct GORM imports outside persistence/search adapters.
+# Remove an entry in the same AR phase that removes the corresponding import.

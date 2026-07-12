@@ -146,52 +146,55 @@ Actual output from CCG parsing its own codebase.
 
 ```
 $ ccg build .
-Build complete: 127 files, 1220 nodes, 12222 edges
+Build complete: 145 files, 1654 nodes, 10489 edges
 ```
 
 ### 2. Graph Statistics
 
 ```
 $ ccg status
-Nodes: 1220
-Edges: 12222
-Files: 127
+Nodes: 1654
+Edges: 3767
+Files: 192
 
 Node kinds:
-  class:    124
-  file:     127
-  function: 405
-  test:     543
-  type:      21
+  class: 253
+  file: 145
+  function: 1111
+  package: 47
+  type: 98
 
 Edge kinds:
-  calls:        9245
-  contains:     1097
-  imports_from: 1128
-  inherits:        1
-  tested_by:     751
+  calls: 1822
+  contains: 1597
+  imports_from: 278
+  implements: 66
+  inherits: 4
 
-Postprocess:
-  Status: ok
-  Fail-closed: 0
-  Recent failures: 0
+Fallback call analysis:
+  calls: 1823
+  fallback_calls: 0
+  fallback_ratio: 0.00%
 ```
 
 ### 3. Code Search
 
 ```
 $ ccg search "impact analysis"
-internal/analysis/impact/impact_test.go  file      internal/analysis/impact/impact_test.go:1
-internal/analysis/impact/impact.go       file      internal/analysis/impact/impact.go:1
-mcp.ImpactAnalyzer                       type      internal/mcp/server.go:36
-impact.EdgeReader                        type      internal/analysis/impact/impact.go:12
-impact.Analyzer.ImpactRadius             function  internal/analysis/impact/impact.go:42
-internal/mcp/handler_analysis.go         file      internal/mcp/handler_analysis.go:1
+internal/app/analyze/impact/impact.go              file      internal/app/analyze/impact/impact.go:1
+mcp.impactRadiusResponse                           class     internal/adapters/inbound/mcp/handler_analysis.go:36
+internal/adapters/inbound/mcp/handler_analysis.go  file      internal/adapters/inbound/mcp/handler_analysis.go:1
+mcp.ImpactAnalyzer                                 type      internal/adapters/inbound/mcp/deps.go:40
+mcp.impactRadiusMetadata                           class     internal/adapters/inbound/mcp/handler_analysis.go:27
+mcp.handlers.getImpactRadius                       function  internal/adapters/inbound/mcp/handler_analysis.go:109
 
-$ ccg search "dead code"
-deadcode.Options          class     internal/analysis/deadcode/service.go:14
-deadcode.Service.Find     function  internal/analysis/deadcode/service.go:38
-mcp.handlers.findDeadCode function  internal/mcp/handler_analysis.go:273
+$ ccg search "repository sync"
+reposync.Service.Sync                               function  internal/app/reposync/service.go:27
+remote.buildRepoSyncHTTP                            function  internal/runtime/remote/http.go:88
+reposync.syncPayload                                class     internal/app/reposync/queue.go:94
+reposync.SyncHandlerFunc                            type      internal/app/reposync/queue.go:21
+reposync.SyncQueue                                  class     internal/app/reposync/queue.go:118
+webhook.SyncFunc                                    type      internal/adapters/inbound/webhook/handler.go:22
 ```
 
 ### 4. Agent Integration via MCP
@@ -205,7 +208,7 @@ The agent calls CCG MCP tools and answers directly from the graph:
 ```
 trace_flow(qualified_name: "webhook.WebhookHandler.ServeHTTP")
 → WebhookHandler.ServeHTTP
-  → SyncQueue.Enqueue
+  → SyncQueue.Add
     → safeHandle (retry loop: max 3 attempts, exponential backoff 1s→30s)
       → clone (git clone, 15min timeout)
       → build (ccg build, same context)
@@ -215,7 +218,7 @@ trace_flow(qualified_name: "webhook.WebhookHandler.ServeHTTP")
 
 ```
 search(query: "authentication")
-→ internal/webhook/handler.go  (HMAC signature validation)
+→ internal/adapters/inbound/webhook/handler.go  (HMAC signature validation)
 → cmd/ccg-server/main.go       (--webhook-secret flag)
 ```
 

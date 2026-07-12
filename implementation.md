@@ -144,7 +144,7 @@ binder의 NodeKindFile 처리에 `if first.IsDocstring && first.OwnerStartLine =
 ### 구현 스케치
 
 ```go
-// internal/annotation/normalizer.go:stripLinePrefix
+// internal/domain/annotation/normalizer.go:stripLinePrefix
 case "rust":
     line = strings.TrimPrefix(line, "///")
     line = strings.TrimPrefix(line, "//")
@@ -183,7 +183,7 @@ Tidy First + TDD:
 - `internal/parse/binder.go:46-83` — `Bind()` 로직
 - `internal/parse/binder_test.go` — 단위 테스트
 - `internal/parse/treesitter/binding_gap_integration_test.go` — 통합 테스트 (실측 결과 기록)
-- `internal/annotation/normalizer.go:23-108` — 언어별 접두사 제거
+- `internal/domain/annotation/normalizer.go:23-108` — 언어별 접두사 제거
 - `internal/parse/treesitter/queries/python/tags.scm` — Python 쿼리
 - `internal/parse/treesitter/queries/rust/tags.scm` — Rust 쿼리
 - `testdata/binding_gap/{python,java,rust,c}/` — P0 fixture
@@ -210,7 +210,7 @@ Python docstring 수집 자체는 이미 동작하지만, `r"""..."""`, `f"""...
 
 ### TDD
 
-1. `internal/annotation/normalizer_test.go`
+1. `internal/domain/annotation/normalizer_test.go`
    - prefix별 normalize 결과가 `@intent ...` 로 시작하는지 검증
 2. `internal/parse/treesitter/python_docstring_prefix_binding_test.go`
    - 실제 walker → binder 경로에서 각 함수의 `@intent` 바인딩 검증

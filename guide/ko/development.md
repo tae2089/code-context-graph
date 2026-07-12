@@ -101,7 +101,7 @@ internal/
   annotation/         — 어노테이션 파서
   cli/                — CLI 명령어 정의
   core/               — parser, DB, store, search, sync 공용 런타임 wiring
-  ctxns/              — 컨텍스트 네임스페이스
+  ctx/                — 요청 컨텍스트 값 (namespace 격리)
   docs/               — 문서 생성 로직
   mcpruntime/         — 공용 MCP runtime assembly, stdio runner, cache, telemetry
   mcp/                — MCP 서버 (17개 도구)
@@ -109,7 +109,7 @@ internal/
   wikiindex/          — Wiki 표시용 인덱스 생성기 (`wiki-index.json`)
   model/              — DB 모델
   parse/treesitter/   — Tree-sitter 파서 (Lua/Luau 포함 12개 언어)
-  pathutil/           — 경로 유틸리티
+  pathspec/           — 순수 include/exclude 및 경로 문자열 매칭
   ragindex/           — 공용 Wiki tree 및 문서 검색 DTO/helper
   server/             — HTTP MCP 서버, health/status 엔드포인트, 웹훅 런타임
   service/            — 비즈니스 로직
@@ -143,7 +143,7 @@ make wiki-build
 직접 reference link, 제거된 command drift는 다음 명령으로 검증합니다:
 
 ```bash
-go test ./internal/cli -run TestProjectSkills -count=1
+go test ./internal/adapters/inbound/cli -run TestProjectSkills -count=1
 ```
 
 ## 컨벤션 (Conventions)

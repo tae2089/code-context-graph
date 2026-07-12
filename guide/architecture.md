@@ -1,119 +1,88 @@
 # Architecture
 
-## Data Flow
+CCG uses a modular hexagonal architecture. Capability-oriented application
+packages own their ports; inbound adapters map protocols, outbound adapters
+implement persistence/parser/Git/filesystem details, and runtime packages are the
+only composition roots.
 
-```
-Source Code → Tree-sitter Parser → Nodes + Edges + Annotations
-                                        ↓
-                              SQLite / PostgreSQL (GORM)
-                                        ↓
-                                   FTS Search
-                                        ↓
-                         ccg serve          ccg-server
-                         stdio MCP       Streamable HTTP
-                            ↓             ↓          ↑
-                     Coding Agents   Remote Clients  GitHub / Gitea Webhook
-                                             push → clone → build → DB
-```
+## Data flow
 
-## Components
+```text
+Source -> Tree-sitter adapter -> ingest application -> graph/search ports
+                                              |              |
+                                              v              v
+                                        graph-GORM      search-SQL
 
-### Parser (`internal/parse/treesitter/`)
-
-Tree-sitter based code parser. Supports 12 languages. Each language has its own `LangSpec` that extracts functions, classes, types, imports, and call relationships.
-
-**Supported languages**: Go, Python, TypeScript, Java, Ruby, JavaScript, C, C++, Rust, Kotlin, PHP, Lua/Luau
-
-> The Lua parser also supports Luau (Roblox) syntax. Type annotations are silently ignored via tree-sitter error recovery. Extracts functions (global, local, method) and comments (single-line, block, `--!strict`).
-
-### Store (`internal/store/gormstore/`)
-
-GORM ORM-based store. Compatible with SQLite and PostgreSQL.
-
-- **Node**: functions, classes, types, files, etc.
-- **Edge**: calls, contains, tested_by, imports_from, etc.
-- **SearchDocument**: documents for FTS search
-- **Flow/FlowMembership**: execution flows
-
-### Search (`internal/store/search/`)
-
-Per-database full-text search backends:
-- **SQLite**: FTS5
-- **PostgreSQL**: tsvector + GIN index
-
-Search content indexes camelCase identifier sub-tokens (`getUserById` also
-indexes `get`, `user`, `by`, `id`), so inner words are searchable. Because this
-content is generated at index time, an existing graph only gains sub-tokens for
-nodes that are re-indexed. Run a full `ccg build` once after upgrading — a
-pure incremental-update workflow only refreshes changed nodes, leaving
-untouched nodes without sub-tokens until they change.
-
-Full builds and explicit postprocess runs rebuild namespace search state.
-Incremental updates refresh only affected search documents and FTS rows. Persisted stored-flow
-rebuild is implemented for full postprocess runs and explicit
-`run_postprocess(flows=true)` calls; use `trace_flow` for per-entry-point flow
-queries.
-
-### Analysis (`internal/analysis/`)
-
-| Module | Description |
-|--------|-------------|
-| `impact` | BFS blast-radius analysis |
-| `flows` | Call-chain flow tracing |
-| `changes` | Git diff risk scoring |
-| `query` | Graph queries (callers, callees, imports) |
-| `incremental` | Incremental update |
-
-### MCP Server (`internal/mcp/`)
-
-Exposes 17 tools via MCP protocol. The local `ccg serve` command exposes these
-tools over stdio. The self-hosted `ccg-server` binary exposes the same tool
-surface over Streamable HTTP and adds health/status/webhook endpoints.
-
-### Runtime Layout
-
-CCG has separate runtime entry points for local and self-hosted use:
-
-| Runtime | Code | Responsibility |
-|---------|------|----------------|
-| `ccg` | `cmd/ccg`, `internal/cli` | Local CLI commands and stdio MCP |
-| `ccg-server` | `cmd/ccg-server`, `internal/server` | Streamable HTTP MCP, health/status endpoints, webhook sync |
-| `ccg-core` | `internal/core` | Shared parser, DB, store, search, migration, and incremental-sync wiring |
-
-See [Runtime Layout](runtime-layout.md) for ownership boundaries and migration
-notes from `ccg serve --transport streamable-http` to `ccg-server`.
-
-### Reliability
-
-Panic recovery is applied to all goroutines for operational stability:
-
-- **Signal handler**: logs error on panic then calls `os.Exit(2)`
-- **HTTP server**: propagates panic to error channel for graceful shutdown flow
-- **SyncQueue worker**: logs panic without affecting other workers
-- **SyncQueue shutdown**: isolates panics during shutdown
-
-### Webhook (`internal/webhook/`)
-
-Receives GitHub/Gitea push events → automatic clone/build pipeline.
-
-- **RepoFilter**: Per-repo branch filtering (`IsAllowedRef`)
-- **SyncQueue**: Deduplication + concurrency-controlled worker queue. On handler failure, exponential backoff retry (default 3 attempts, 1s→2s→4s, max 30s)
-- **CloneOrPull**: go-git based clone/pull (SSH key and app token support)
-
-## Database Schema
-
-### Core Tables
-
-```
-nodes                 — namespace, qualified_name, kind, file_path, start_line, end_line, language, ...
-edges                 — namespace, from_node_id, to_node_id, kind, file_path, line, fingerprint
-search_documents      — namespace, node_id, content, language (FTS indexed)
-communities           — namespace, key, label, strategy, description
-community_memberships — community_id, node_id
-flows                 — namespace, name, description
-flow_memberships      — namespace, flow_id, node_id, ordinal
+CLI / MCP / HTTP / Wiki / webhook -> application capabilities -> outbound ports
 ```
 
-### Namespace Isolation
+## Package ownership
 
-Namespace is stored in the context and automatically extracted inside the store. Provides data isolation in multi-repo environments.
+| Layer | Current packages | Responsibility |
+| --- | --- | --- |
+| Domain | `internal/domain/{graph,annotation,reference}` | Stable graph values, annotation vocabulary, and `ccg://` references |
+| Application | `internal/app/{ingest,analyze,search,docs,wiki,reposync}` | Use-case policy and consumer-owned ports |
+| Inbound adapters | `internal/adapters/inbound/{cli,mcp,http,webhook,wikihttp}` | Cobra, MCP, HTTP, webhook, and Wiki protocol mapping |
+| Outbound adapters | `internal/adapters/outbound/*` | GORM, SQL search, Tree-sitter, Git, filesystem, sync graph, and observability implementations |
+| Runtime | `internal/runtime`, `internal/runtime/mcp`, `internal/runtime/remote` | Shared assembly, MCP lifecycle, and remote-only composition |
+| Small primitives | `internal/{config,ctx,db,obs,pathspec,safepath}` | Focused cross-capability primitives; no feature-policy dumping ground. Database migrations and their embedded SQL assets live together in `internal/db/migration`. |
+
+## Capability modules
+
+- `app/ingest`: parse, bind annotations, resolve edges, full build, and
+  transactional incremental update. `ingest.UnitOfWork` keeps graph and derived
+  search changes atomic.
+- `app/analyze`: callers/callees, impact radius, flow tracing/rebuild, Git-diff
+  risk, statistics, and bounded read models.
+- `app/search`: search-document generation, FTS retrieval, structural reranking,
+  and retrieval evidence. It also owns identifier tokenization shared by search
+  documents, ranking, and query syntax. SQLite uses FTS5; PostgreSQL uses
+  tsvector/GIN.
+- `app/docs`: deterministic Markdown generation, history, auto-rules, and lint.
+- `app/wiki`: CCG's built-in code-exploration tree and compatibility snapshot.
+  This is a CCG capability, not the separate future OpenWiki product.
+- `app/reposync`: repository admission, branch policy, retry/queue policy, and
+  checkout-to-ingest orchestration.
+
+## Dependency rules
+
+1. Domain imports only standard library and other domain packages.
+2. Application imports domain and ports owned by the consuming capability.
+3. Application imports no adapter, runtime, GORM, Cobra, MCP, or HTTP package.
+4. Inbound adapters invoke application contracts and contain no GORM query.
+5. Outbound adapters implement application ports and may use GORM, SQL drivers,
+   Tree-sitter, go-git, filesystem, or telemetry libraries.
+6. Global ports/store packages are forbidden; ports live beside their consumer.
+7. Runtime is the only intentionally high-fan-out composition tree.
+8. `cmd/*` selects a runtime/adapter and owns process exit only.
+
+`internal/archtest` enforces these rules, legacy-package absence, and local binary
+closure with deterministic `go list -json` checks.
+
+## Runtime and transports
+
+Both `ccg serve` (stdio) and `ccg-server` (Streamable HTTP) use the same five
+grouped MCP dependency surfaces and expose exactly 17 tools plus four prompts.
+The local binary does not link remote HTTP, Wiki, webhook, or remote runtime
+packages. See [Runtime Layout](runtime-layout.md).
+
+## Persistence and isolation
+
+Graph records, search documents, communities, and flows carry a namespace.
+Application calls propagate it through context; outbound repositories apply the
+filters. SQLite and PostgreSQL share GORM-owned graph operations and backend-
+specific full-text search adapters. Application and inbound packages never issue
+SQL; backend-specific SQL remains encapsulated in outbound adapters and migration code.
+
+## Reliability and security
+
+- Repository sync verifies HMAC before trust, applies ordered allow rules, bounds
+  queue state/retries, validates clone roots, and drains workers on shutdown.
+- HTTP enforces body/read/header/idle limits, bearer authentication for sensitive
+  endpoints, and bounded graceful shutdown.
+- Parser, DB, cache, telemetry, and queue resources each have explicit,
+  idempotent lifecycle ownership.
+- Wiki/static/docs paths use dedicated containment and symlink-safe policies.
+
+See [ADR-0001](adr/0001-modular-hexagonal-architecture.md) for the decision and
+rejected alternatives.

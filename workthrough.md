@@ -164,14 +164,14 @@
 ## 2026-04-20 (밤 III) — P2-1 Go 디렉티브 오염 Green 완료
 
 ### Red 테스트 강화 (구조 커밋)
-- `internal/annotation/normalizer_test.go`에 `TestNormalize_GoDirectiveSkip` 4 케이스 추가
+- `internal/domain/annotation/normalizer_test.go`에 `TestNormalize_GoDirectiveSkip` 4 케이스 추가
   - `go:generate`, `go:noinline`, 디렉티브가 `@intent`와 `@domainRule` 사이에 낀 케이스, 공백 있는 `// go:` (비-디렉티브) 보존
 - `internal/parse/treesitter/binding_gap_go_directives_test.go` 테이블 테스트(`TestWalkerBinder_Go_DirectivePollution`)로 확장 — `go:generate/type`, `go:noinline/func` 2 케이스
 - fixture: `testdata/binding_gap/go/directive_gap.go` 복원, `directive_noinline.go` 추가
 - `var_declaration` 미캡처 확인 후 `go:embed` 케이스 제외
 
 ### Green (행위 커밋)
-- `internal/annotation/normalizer.go`에 `isGoDirective(line)` 헬퍼 추가
+- `internal/domain/annotation/normalizer.go`에 `isGoDirective(line)` 헬퍼 추가
   - `//go:` 뒤에 알파벳 또는 `_` 1자 이상이면 디렉티브로 간주
   - `// go:` (공백 포함)는 일반 주석 — 보존
 - `Normalize()` 라인 루프에서 `language == "go" && isGoDirective(line)`이면 `continue`
@@ -231,7 +231,7 @@
 "task 진행 안된것들 확인" 후 사용자 지시로 P2 세 항목 순차 진행. 바인딩 견고성 파이프라인과는 독립된 파서 레벨 호환성 개선.
 
 ### P2-a — @returns JSDoc alias
-- 변경: `knownTags["returns"] = model.TagReturn`. Ordinal 카운터는 `kind` 기준이라 @return과 자동 공유
+- 변경: `knownTags["returns"] = graph.TagReturn`. Ordinal 카운터는 `kind` 기준이라 @return과 자동 공유
 - 테스트: `TestParse_ReturnsAlias` + 혼용 시 ordinal 공유 검증 `TestParse_ReturnAndReturnsAlias_SharedOrdinal`
 - 커밋: `eade3f0`
 
@@ -245,7 +245,7 @@
 - 커밋: `0591560`
 
 ### P2-c — YARD/JSDoc 타입 prefix 파싱
-- **구조 변경 먼저**(Tidy First): `model.DocTag`에 `Type string` 컬럼 추가. GORM AutoMigrate가 기존 테이블에 nullable 컬럼 자동 추가. 커밋 `0ff2511` — 단독으로는 행위 변화 없음 확인 후 분리 커밋.
+- **구조 변경 먼저**(Tidy First): `graph.DocTag`에 `Type string` 컬럼 추가. GORM AutoMigrate가 기존 테이블에 nullable 컬럼 자동 추가. 커밋 `0ff2511` — 단독으로는 행위 변화 없음 확인 후 분리 커밋.
 - **행위 변경**: `extractTypePrefix(value) (typeStr, rest, ok)` 헬퍼 신설. `[...]`/`{...}` balance 기반으로 중첩 허용(`[Hash<Symbol, [String, Integer]>]` 같은 YARD 문법, `{string|number}` 같은 JSDoc union type).
   - `parseTagLine`에서 kind가 param/return/throws면 value 맨앞 type prefix 먼저 추출 → `tag.Type` 설정 후 남은 문자열에 기존 name/value 로직 적용
   - 타입 없는 기존 문법 `@param name desc`는 `extractTypePrefix`의 첫 바이트 체크에서 `ok=false` 반환 → 기존 경로 그대로 동작 (하위호환)
@@ -308,7 +308,7 @@
 - **Blocker #1 (Rust blank-line workaround)** — `///` 뒤에 빈 줄을 둔 Green 케이스는 유지하되, 빈 줄 없는 자연스러운 Rust 주석 패턴을 `expectBound=false` **Red 케이스**로 추가(`Rust_DocComment_Function_NoBlankLine`). walker의 line_comment trailing-newline quirk를 회피하지 않고 "현재 상태로 고정". 구현이 고쳐져 우연히 바인딩되면 Red 위반으로 실패 → 승격 강제.
   - walker.go를 전역 수정하려 했으나 merge된 comment block의 EndLine까지 줄여 `TestWalkerBinder_RustAttribute_CurrentlyFailsBinding`의 gap=2 계약을 깨뜨림. 전역 보정 대신 테스트 범위에서 명시적 Red로 전환.
 - **Blocker #2 (Lua SKIP 부정확)** — `t.Skip`을 제거하고 `expectBound=false` Red로 승격. skipReason 설명도 "선행 newline 포함/선행 공백 흡수"라는 정확한 quirk 쌍으로 교정.
-- **Important #1 (Kind 미검증)** — `expectedKind model.NodeKind` 필드 추가. 파싱/바인딩 양쪽에서 Name과 Kind를 동시에 매칭. 동명 심볼 false-positive 방지.
+- **Important #1 (Kind 미검증)** — `expectedKind graph.NodeKind` 필드 추가. 파싱/바인딩 양쪽에서 Name과 Kind를 동시에 매칭. 동명 심볼 false-positive 방지.
 - **Important #3 (진단 불명확)** — 파싱 단계(Phase 1)와 바인딩 단계(Phase 2)를 분리. "심볼 파싱 실패(파서/LangSpec 회귀)"와 "심볼은 파싱됐지만 바인딩 누락(binder/walker 회귀)"의 실패 메시지가 달라 원인 분리가 빠름.
 - **Important #4 (PHP `<?php` 필요성)** — 인라인 주석으로 "태그 없으면 text 노드 취급되어 함수가 심볼로 안 뜬다"는 이유 명시.
 - **Minor #1 (lang 필드 중복)** — `tc.lang` 제거하고 `tc.spec.Name`으로 통일. 진실의 단일 원천.
@@ -326,7 +326,7 @@
 
 ### Red
 - `testdata/binding_gap/python/docstring_prefix.py`를 `r/f/b/rb/fr/u` prefix 케이스까지 확장
-- `internal/annotation/normalizer_test.go`에 prefix normalize Red 테스트 추가
+- `internal/domain/annotation/normalizer_test.go`에 prefix normalize Red 테스트 추가
 - `internal/parse/treesitter/python_docstring_prefix_binding_test.go`에 실제 walker→binder 경로 바인딩 Red 테스트 추가
 - 실패 확인:
   - normalizer가 `r"""..."""` 등 prefix를 제거하지 못함

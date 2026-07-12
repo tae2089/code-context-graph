@@ -1,0 +1,807 @@
+package annotation
+
+import (
+	"testing"
+
+	"github.com/tae2089/code-context-graph/internal/domain/graph"
+)
+
+func TestParse_EmptyString(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("")
+	if ann.Summary != "" {
+		t.Errorf("expected empty Summary, got %q", ann.Summary)
+	}
+	if ann.Context != "" {
+		t.Errorf("expected empty Context, got %q", ann.Context)
+	}
+	if len(ann.Tags) != 0 {
+		t.Errorf("expected 0 tags, got %d", len(ann.Tags))
+	}
+}
+
+func TestParse_WhitespaceOnly(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("   \n\t\n  ")
+	if ann.Summary != "" {
+		t.Errorf("expected empty Summary, got %q", ann.Summary)
+	}
+	if ann.Context != "" {
+		t.Errorf("expected empty Context, got %q", ann.Context)
+	}
+	if len(ann.Tags) != 0 {
+		t.Errorf("expected 0 tags, got %d", len(ann.Tags))
+	}
+}
+
+func TestParse_SummaryOnly(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("사용자 인증을 수행한다")
+	if ann.Summary != "사용자 인증을 수행한다" {
+		t.Errorf("Summary = %q, want %q", ann.Summary, "사용자 인증을 수행한다")
+	}
+	if ann.Context != "" {
+		t.Errorf("Context = %q, want empty", ann.Context)
+	}
+}
+
+func TestParse_SummaryAndContext(t *testing.T) {
+	p := NewParser()
+	// 빈 줄 없이 이어진 두 줄은 같은 단락 → Summary 하나로 합쳐짐
+	ann, _ := p.Parse("사용자 인증을 수행한다\n로그인 핸들러에서 호출됨")
+	if ann.Summary != "사용자 인증을 수행한다\n로그인 핸들러에서 호출됨" {
+		t.Errorf("Summary = %q, want multiline summary", ann.Summary)
+	}
+	if ann.Context != "" {
+		t.Errorf("Context = %q, want empty", ann.Context)
+	}
+}
+
+func TestParse_SummaryAndContext_WithBlankLine(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("사용자 인증을 수행한다\n\n로그인 핸들러에서 호출됨")
+	if ann.Summary != "사용자 인증을 수행한다" {
+		t.Errorf("Summary = %q, want %q", ann.Summary, "사용자 인증을 수행한다")
+	}
+	if ann.Context != "로그인 핸들러에서 호출됨" {
+		t.Errorf("Context = %q, want %q", ann.Context, "로그인 핸들러에서 호출됨")
+	}
+}
+
+func TestParse_MultilineSummary(t *testing.T) {
+	p := NewParser()
+	// 빈 줄 없이 이어진 여러 줄은 하나의 Summary 단락
+	ann, _ := p.Parse("첫째 줄\n둘째 줄\n셋째 줄")
+	if ann.Summary != "첫째 줄\n둘째 줄\n셋째 줄" {
+		t.Errorf("Summary = %q, want multiline", ann.Summary)
+	}
+	if ann.Context != "" {
+		t.Errorf("Context = %q, want empty", ann.Context)
+	}
+}
+
+func TestParse_MultilineContext(t *testing.T) {
+	p := NewParser()
+	// 빈 줄로 구분된 두 단락: 첫 단락 → Summary, 둘째 단락 → Context
+	input := "요약 첫째 줄\n요약 둘째 줄\n\n컨텍스트 첫째 줄\n컨텍스트 둘째 줄"
+	ann, _ := p.Parse(input)
+	if ann.Summary != "요약 첫째 줄\n요약 둘째 줄" {
+		t.Errorf("Summary = %q, want multiline summary", ann.Summary)
+	}
+	if ann.Context != "컨텍스트 첫째 줄\n컨텍스트 둘째 줄" {
+		t.Errorf("Context = %q, want multiline context", ann.Context)
+	}
+}
+
+func TestParse_SingleParam(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@param username 사용자 로그인 ID")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	tag := ann.Tags[0]
+	if tag.Kind != graph.TagParam {
+		t.Errorf("Kind = %q, want %q", tag.Kind, graph.TagParam)
+	}
+	if tag.Name != "username" {
+		t.Errorf("Name = %q, want %q", tag.Name, "username")
+	}
+	if tag.Value != "사용자 로그인 ID" {
+		t.Errorf("Value = %q, want %q", tag.Value, "사용자 로그인 ID")
+	}
+	if tag.Ordinal != 0 {
+		t.Errorf("Ordinal = %d, want 0", tag.Ordinal)
+	}
+}
+
+func TestParse_MultipleParams(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@param username 사용자 ID\n@param password 비밀번호")
+	if len(ann.Tags) != 2 {
+		t.Fatalf("expected 2 tags, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Name != "username" || ann.Tags[0].Ordinal != 0 {
+		t.Errorf("first param: Name=%q Ordinal=%d", ann.Tags[0].Name, ann.Tags[0].Ordinal)
+	}
+	if ann.Tags[1].Name != "password" || ann.Tags[1].Ordinal != 1 {
+		t.Errorf("second param: Name=%q Ordinal=%d", ann.Tags[1].Name, ann.Tags[1].Ordinal)
+	}
+}
+
+func TestParse_Return(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@return 인증된 사용자 토큰")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	tag := ann.Tags[0]
+	if tag.Kind != graph.TagReturn {
+		t.Errorf("Kind = %q, want %q", tag.Kind, graph.TagReturn)
+	}
+	if tag.Name != "" {
+		t.Errorf("Name = %q, want empty", tag.Name)
+	}
+	if tag.Value != "인증된 사용자 토큰" {
+		t.Errorf("Value = %q, want %q", tag.Value, "인증된 사용자 토큰")
+	}
+}
+
+func TestParse_See(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@see LoginHandler.Handle")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != graph.TagSee {
+		t.Errorf("Kind = %q, want %q", ann.Tags[0].Kind, graph.TagSee)
+	}
+	if ann.Tags[0].Value != "LoginHandler.Handle" {
+		t.Errorf("Value = %q, want %q", ann.Tags[0].Value, "LoginHandler.Handle")
+	}
+}
+
+func TestParse_CCGSeeRef(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@see ccg://auth-svc/internal/auth/token.go#ValidateToken")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != graph.TagSee {
+		t.Errorf("Kind = %q, want %q", ann.Tags[0].Kind, graph.TagSee)
+	}
+	if ann.Tags[0].Value != "ccg://auth-svc/internal/auth/token.go#ValidateToken" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+func TestParse_MultipleSee(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@see LoginHandler.Handle\n@see SessionManager.Create")
+	if len(ann.Tags) != 2 {
+		t.Fatalf("expected 2 tags, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Value != "LoginHandler.Handle" {
+		t.Errorf("first see Value = %q", ann.Tags[0].Value)
+	}
+	if ann.Tags[1].Value != "SessionManager.Create" {
+		t.Errorf("second see Value = %q", ann.Tags[1].Value)
+	}
+}
+
+func TestParse_Intent(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@intent 사용자 세션 생성 전 자격 검증")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != graph.TagIntent {
+		t.Errorf("Kind = %q, want %q", ann.Tags[0].Kind, graph.TagIntent)
+	}
+	if ann.Tags[0].Value != "사용자 세션 생성 전 자격 검증" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+func TestParse_DomainRule(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@domainRule 5회 실패 시 계정 잠금")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != graph.TagDomainRule {
+		t.Errorf("Kind = %q, want %q", ann.Tags[0].Kind, graph.TagDomainRule)
+	}
+	if ann.Tags[0].Value != "5회 실패 시 계정 잠금" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+func TestParse_SideEffect(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@sideEffect 감사 로그 기록")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != graph.TagSideEffect {
+		t.Errorf("Kind = %q, want %q", ann.Tags[0].Kind, graph.TagSideEffect)
+	}
+	if ann.Tags[0].Value != "감사 로그 기록" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+func TestParse_Mutates(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@mutates user.LastLoginAt, session.Token")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != graph.TagMutates {
+		t.Errorf("Kind = %q, want %q", ann.Tags[0].Kind, graph.TagMutates)
+	}
+	if ann.Tags[0].Value != "user.LastLoginAt, session.Token" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+func TestParse_Requires(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@requires user.IsActive == true")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != graph.TagRequires {
+		t.Errorf("Kind = %q, want %q", ann.Tags[0].Kind, graph.TagRequires)
+	}
+	if ann.Tags[0].Value != "user.IsActive == true" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+func TestParse_Ensures(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@ensures session != nil")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != graph.TagEnsures {
+		t.Errorf("Kind = %q, want %q", ann.Tags[0].Kind, graph.TagEnsures)
+	}
+	if ann.Tags[0].Value != "session != nil" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+func TestParse_MultiLineParam(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@param username 사용자의\n  로그인 ID")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != graph.TagParam {
+		t.Errorf("Kind = %q, want %q", ann.Tags[0].Kind, graph.TagParam)
+	}
+	if ann.Tags[0].Name != "username" {
+		t.Errorf("Name = %q, want %q", ann.Tags[0].Name, "username")
+	}
+	// 태그 continuation은 \n으로 이어붙임
+	if ann.Tags[0].Value != "사용자의\n로그인 ID" {
+		t.Errorf("Value = %q, want %q", ann.Tags[0].Value, "사용자의\n로그인 ID")
+	}
+}
+
+func TestParse_MultiLineIntent(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@intent 사용자 세션 생성 전\n  자격을 검증한다")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	// 태그 continuation은 \n으로 이어붙임
+	if ann.Tags[0].Value != "사용자 세션 생성 전\n자격을 검증한다" {
+		t.Errorf("Value = %q, want %q", ann.Tags[0].Value, "사용자 세션 생성 전\n자격을 검증한다")
+	}
+}
+
+func TestParse_FullAnnotation(t *testing.T) {
+	input := `사용자 인증을 수행한다
+
+로그인 핸들러에서 호출됨
+
+@param username 사용자 로그인 ID
+@param password 비밀번호
+@return 인증 성공 시 JWT 토큰
+@intent 세션 생성 전 자격 검증
+@domainRule 5회 실패 시 계정 잠금
+@sideEffect 감사 로그 기록
+@mutates user.FailedAttempts
+@requires user.IsActive == true
+@ensures err == nil이면 token 유효
+@see LoginHandler.Handle
+@see SessionManager.Create`
+
+	p := NewParser()
+	ann, _ := p.Parse(input)
+	// 빈 줄로 구분된 두 단락: Summary와 Context
+	if ann.Summary != "사용자 인증을 수행한다" {
+		t.Errorf("Summary = %q", ann.Summary)
+	}
+	if ann.Context != "로그인 핸들러에서 호출됨" {
+		t.Errorf("Context = %q", ann.Context)
+	}
+	if len(ann.Tags) != 11 {
+		t.Fatalf("expected 11 tags, got %d", len(ann.Tags))
+	}
+
+	expects := []struct {
+		kind  graph.TagKind
+		name  string
+		value string
+	}{
+		{graph.TagParam, "username", "사용자 로그인 ID"},
+		{graph.TagParam, "password", "비밀번호"},
+		{graph.TagReturn, "", "인증 성공 시 JWT 토큰"},
+		{graph.TagIntent, "", "세션 생성 전 자격 검증"},
+		{graph.TagDomainRule, "", "5회 실패 시 계정 잠금"},
+		{graph.TagSideEffect, "", "감사 로그 기록"},
+		{graph.TagMutates, "", "user.FailedAttempts"},
+		{graph.TagRequires, "", "user.IsActive == true"},
+		{graph.TagEnsures, "", "err == nil이면 token 유효"},
+		{graph.TagSee, "", "LoginHandler.Handle"},
+		{graph.TagSee, "", "SessionManager.Create"},
+	}
+
+	for i, exp := range expects {
+		tag := ann.Tags[i]
+		if tag.Kind != exp.kind {
+			t.Errorf("tag[%d] Kind = %q, want %q", i, tag.Kind, exp.kind)
+		}
+		if tag.Name != exp.name {
+			t.Errorf("tag[%d] Name = %q, want %q", i, tag.Name, exp.name)
+		}
+		if tag.Value != exp.value {
+			t.Errorf("tag[%d] Value = %q, want %q", i, tag.Value, exp.value)
+		}
+	}
+}
+
+// P2-a. JSDoc `@returns`는 `@return`의 공식 alias로 JSDoc 표준에서 양쪽 모두 허용된다.
+// ccg 파서는 `@return`만 인식하고 있어 `@returns`는 unknown warning을 내고 드롭됨.
+// alias로 매핑해 Kind=TagReturn, Ordinal도 @return과 동일 카운터를 공유해야 한다.
+func TestParse_ReturnsAlias(t *testing.T) {
+	p := NewParser()
+	ann, warnings := p.Parse("@returns 인증된 사용자 토큰")
+	if len(warnings) != 0 {
+		t.Errorf("@returns should not produce warnings, got %v", warnings)
+	}
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != graph.TagReturn {
+		t.Errorf("Kind = %q, want %q", ann.Tags[0].Kind, graph.TagReturn)
+	}
+	if ann.Tags[0].Value != "인증된 사용자 토큰" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+// `@return`과 `@returns`가 섞여 쓰여도 Kind 수준에서는 동일하게 Ordinal이 순차 증가해야 한다.
+// (JSDoc 코드베이스에서 혼용 문서가 흔함.)
+func TestParse_ReturnAndReturnsAlias_SharedOrdinal(t *testing.T) {
+	p := NewParser()
+	ann, warnings := p.Parse("@return first\n@returns second")
+	if len(warnings) != 0 {
+		t.Errorf("no warnings expected, got %v", warnings)
+	}
+	if len(ann.Tags) != 2 {
+		t.Fatalf("expected 2 tags, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != graph.TagReturn || ann.Tags[0].Ordinal != 0 {
+		t.Errorf("tag[0]: Kind=%q Ordinal=%d", ann.Tags[0].Kind, ann.Tags[0].Ordinal)
+	}
+	if ann.Tags[1].Kind != graph.TagReturn || ann.Tags[1].Ordinal != 1 {
+		t.Errorf("tag[1]: Kind=%q Ordinal=%d (want shared counter)", ann.Tags[1].Kind, ann.Tags[1].Ordinal)
+	}
+}
+
+// P2-b. JSDoc/Javadoc `@throws ExceptionType description` 파싱.
+// Javadoc `@exception`은 `@throws`의 공식 alias.
+// 파싱 규칙: first token → Name(=Exception/Error type), 나머지 → Value(=설명)
+// `@param`과 동일한 name-value 규칙을 따른다.
+func TestParse_Throws_WithType(t *testing.T) {
+	p := NewParser()
+	ann, warnings := p.Parse("@throws IllegalArgumentException 입력이 nil일 때")
+	if len(warnings) != 0 {
+		t.Errorf("no warnings expected, got %v", warnings)
+	}
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	tag := ann.Tags[0]
+	if tag.Kind != graph.TagThrows {
+		t.Errorf("Kind = %q, want %q", tag.Kind, graph.TagThrows)
+	}
+	if tag.Name != "IllegalArgumentException" {
+		t.Errorf("Name = %q, want IllegalArgumentException", tag.Name)
+	}
+	if tag.Value != "입력이 nil일 때" {
+		t.Errorf("Value = %q", tag.Value)
+	}
+}
+
+func TestParse_Throws_TypeOnly(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@throws NullPointerException")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != graph.TagThrows {
+		t.Errorf("Kind = %q", ann.Tags[0].Kind)
+	}
+	if ann.Tags[0].Name != "NullPointerException" {
+		t.Errorf("Name = %q", ann.Tags[0].Name)
+	}
+	if ann.Tags[0].Value != "" {
+		t.Errorf("Value = %q, want empty", ann.Tags[0].Value)
+	}
+}
+
+// Javadoc `@exception`은 `@throws`의 alias.
+func TestParse_Exception_AliasOfThrows(t *testing.T) {
+	p := NewParser()
+	ann, warnings := p.Parse("@exception IOException 파일을 읽지 못할 때")
+	if len(warnings) != 0 {
+		t.Errorf("no warnings expected, got %v", warnings)
+	}
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != graph.TagThrows {
+		t.Errorf("Kind = %q, want TagThrows (exception is alias)", ann.Tags[0].Kind)
+	}
+	if ann.Tags[0].Name != "IOException" {
+		t.Errorf("Name = %q", ann.Tags[0].Name)
+	}
+}
+
+// P2-b. JSDoc `@typedef {Type} Name [description]` 파싱.
+// 구조가 param/throws와 달라(타입 위치가 다름) 전체 Value로 보존.
+// 용도상 검색/표시용이므로 세분화 대신 원문 텍스트 유지.
+func TestParse_Typedef(t *testing.T) {
+	p := NewParser()
+	ann, warnings := p.Parse("@typedef {Object} UserProfile 사용자 프로필 구조")
+	if len(warnings) != 0 {
+		t.Errorf("no warnings expected, got %v", warnings)
+	}
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	tag := ann.Tags[0]
+	if tag.Kind != graph.TagTypedef {
+		t.Errorf("Kind = %q, want %q", tag.Kind, graph.TagTypedef)
+	}
+	if tag.Value != "{Object} UserProfile 사용자 프로필 구조" {
+		t.Errorf("Value = %q", tag.Value)
+	}
+}
+
+// P2-c. YARD `@param [Type] name description` 타입 prefix 파싱.
+// Ruby 생태계 YARD 문법: `[String]`, `[Array<String>]`, `[Hash<Symbol,String>]`.
+// Type 추출 후 나머지는 기존 name/value 규칙을 그대로 적용.
+func TestParse_Param_YardType(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@param [String] name 사용자 이름")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	tag := ann.Tags[0]
+	if tag.Type != "String" {
+		t.Errorf("Type = %q, want String", tag.Type)
+	}
+	if tag.Name != "name" {
+		t.Errorf("Name = %q, want name", tag.Name)
+	}
+	if tag.Value != "사용자 이름" {
+		t.Errorf("Value = %q", tag.Value)
+	}
+}
+
+// JSDoc `@param {Type} name description` — 중괄호 스타일 타입 prefix.
+func TestParse_Param_JSDocType(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@param {string} name 사용자 이름")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	tag := ann.Tags[0]
+	if tag.Type != "string" {
+		t.Errorf("Type = %q, want string", tag.Type)
+	}
+	if tag.Name != "name" {
+		t.Errorf("Name = %q", tag.Name)
+	}
+	if tag.Value != "사용자 이름" {
+		t.Errorf("Value = %q", tag.Value)
+	}
+}
+
+// JSDoc union type `{string|number}` — 괄호 내부 연산자 포함.
+func TestParse_Param_JSDocUnionType(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@param {string|number} id 식별자")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Type != "string|number" {
+		t.Errorf("Type = %q", ann.Tags[0].Type)
+	}
+	if ann.Tags[0].Name != "id" {
+		t.Errorf("Name = %q", ann.Tags[0].Name)
+	}
+}
+
+// YARD generic type `[Array<String>]` — 꺾쇠 포함.
+func TestParse_Param_YardGenericType(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@param [Array<String>] items 태그 목록")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Type != "Array<String>" {
+		t.Errorf("Type = %q", ann.Tags[0].Type)
+	}
+	if ann.Tags[0].Name != "items" {
+		t.Errorf("Name = %q", ann.Tags[0].Name)
+	}
+	if ann.Tags[0].Value != "태그 목록" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+// 기존 `@param name description` (타입 없음) 동작 유지 — 하위호환 보장.
+func TestParse_Param_PlainStillWorks(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@param username 사용자 ID")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	tag := ann.Tags[0]
+	if tag.Type != "" {
+		t.Errorf("Type = %q, want empty (plain style)", tag.Type)
+	}
+	if tag.Name != "username" {
+		t.Errorf("Name = %q", tag.Name)
+	}
+	if tag.Value != "사용자 ID" {
+		t.Errorf("Value = %q", tag.Value)
+	}
+}
+
+// YARD `@return [Type] description` — return 태그도 동일 규칙 적용.
+func TestParse_Return_YardType(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@return [String] 인증 토큰")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Type != "String" {
+		t.Errorf("Type = %q", ann.Tags[0].Type)
+	}
+	if ann.Tags[0].Value != "인증 토큰" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+// JSDoc `@return {Type} description`.
+func TestParse_Return_JSDocType(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@returns {boolean} 인증 성공 여부")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Type != "boolean" {
+		t.Errorf("Type = %q", ann.Tags[0].Type)
+	}
+	if ann.Tags[0].Kind != graph.TagReturn {
+		t.Errorf("Kind = %q, want TagReturn (@returns alias)", ann.Tags[0].Kind)
+	}
+	if ann.Tags[0].Value != "인증 성공 여부" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+// 기존 `@return description` 동작 유지.
+func TestParse_Return_PlainStillWorks(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@return 인증 성공 시 JWT 토큰")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Type != "" {
+		t.Errorf("Type = %q, want empty", ann.Tags[0].Type)
+	}
+	if ann.Tags[0].Value != "인증 성공 시 JWT 토큰" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+// 리뷰 #8. 중첩 대괄호 YARD 타입 `[Hash<Symbol, [String, Integer]>]`
+// 커밋 메시지에 "중첩 허용"을 명시했으므로 회귀 방지용 실측 테스트 필요.
+func TestParse_Param_YardNestedBracketType(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@param [Hash<Symbol, [String, Integer]>] options 옵션 맵")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Type != "Hash<Symbol, [String, Integer]>" {
+		t.Errorf("Type = %q", ann.Tags[0].Type)
+	}
+	if ann.Tags[0].Name != "options" {
+		t.Errorf("Name = %q", ann.Tags[0].Name)
+	}
+	if ann.Tags[0].Value != "옵션 맵" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+// 리뷰 #10. typedef는 extractTypePrefix를 건너뛰어야 함을 명시적으로 단언.
+// 향후 실수로 typedef도 type 추출 대상에 포함되면 이 테스트로 차단.
+func TestParse_Typedef_KeepsTypeEmpty(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@typedef {Object} UserProfile 사용자 프로필")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Type != "" {
+		t.Errorf("typedef should skip type extraction, Type = %q", ann.Tags[0].Type)
+	}
+	// 원문 전체 보존
+	if ann.Tags[0].Value != "{Object} UserProfile 사용자 프로필" {
+		t.Errorf("Value = %q", ann.Tags[0].Value)
+	}
+}
+
+// 리뷰 #2. `@param [String]` — Type만 있고 Name이 없을 때 현재 동작은 조용히 드롭.
+// 기대: 경고 1건("param"), tag는 드롭 유지 (Name 필수 규칙 유지).
+func TestParse_Param_TypeOnly_NoName_EmitsWarning(t *testing.T) {
+	p := NewParser()
+	ann, warnings := p.Parse("@param [String]")
+	if len(ann.Tags) != 0 {
+		t.Errorf("expected 0 tags (name missing), got %d", len(ann.Tags))
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("expected 1 warning for name-missing param, got %d: %v", len(warnings), warnings)
+	}
+	if warnings[0] != "param" {
+		t.Errorf("warning = %q, want %q", warnings[0], "param")
+	}
+}
+
+// 리뷰 #2. `@throws [IOException]` — Name 없을 때도 동일 경고.
+func TestParse_Throws_TypeOnly_NoName_EmitsWarning(t *testing.T) {
+	p := NewParser()
+	ann, warnings := p.Parse("@throws [IOException]")
+	if len(ann.Tags) != 0 {
+		t.Errorf("expected 0 tags, got %d", len(ann.Tags))
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d: %v", len(warnings), warnings)
+	}
+	if warnings[0] != "throws" {
+		t.Errorf("warning = %q, want %q", warnings[0], "throws")
+	}
+}
+
+// 리뷰 #6. 멀티라인 태그 — 첫 줄에 type만, 둘째 줄에 name desc.
+// 현재 parseTagLine은 첫 줄에서만 extractTypePrefix 실행되고,
+// continuation 줄(space 들여쓴 줄)은 tag.Value에 "\n..." 로 붙음.
+// 이 테스트는 현재 동작을 명시적으로 고정 — future 변경 시 이 계약을 지켜야 함.
+func TestParse_Param_MultilineTypeDefersNameToContinuation(t *testing.T) {
+	p := NewParser()
+	// 첫 줄: "@param {string}" (type만, name 없음) → warning + drop
+	// 둘째 줄: "  name desc" (continuation이지만 이전 tag가 nil이라 inTag=false → drop)
+	ann, warnings := p.Parse("@param {string}\n  name desc")
+	if len(ann.Tags) != 0 {
+		t.Errorf("expected 0 tags (malformed multiline), got %d: %+v", len(ann.Tags), ann.Tags)
+	}
+	if len(warnings) != 1 || warnings[0] != "param" {
+		t.Errorf("expected [param] warning, got %v", warnings)
+	}
+}
+
+// 리뷰 #6. 정상 멀티라인 — 첫 줄에 type + name, 둘째 줄에 description continuation.
+// continuation은 tag.Value에 "\n description" 으로 붙어야 함.
+func TestParse_Param_MultilineDescriptionContinuation(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@param {string} name 사용자 ID\n  로그인용 식별자")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	tag := ann.Tags[0]
+	if tag.Type != "string" {
+		t.Errorf("Type = %q", tag.Type)
+	}
+	if tag.Name != "name" {
+		t.Errorf("Name = %q", tag.Name)
+	}
+	if tag.Value != "사용자 ID\n로그인용 식별자" {
+		t.Errorf("Value = %q, want continuation joined with \\n", tag.Value)
+	}
+}
+
+func TestParse_RawTextPreserved(t *testing.T) {
+	input := "요약\n@param x 값"
+	p := NewParser()
+	ann, _ := p.Parse(input)
+	if ann.RawText != input {
+		t.Errorf("RawText = %q, want %q", ann.RawText, input)
+	}
+}
+
+func TestParse_UnknownTag(t *testing.T) {
+	p := NewParser()
+	ann, warnings := p.Parse("@foo 알 수 없는 태그\n@param x 값")
+	if len(warnings) != 1 {
+		t.Fatalf("expected 1 warning for unknown tag, got %d: %v", len(warnings), warnings)
+	}
+	if warnings[0] != "foo" {
+		t.Errorf("warning = %q, want %q", warnings[0], "foo")
+	}
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag (unknown skipped), got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != graph.TagParam {
+		t.Errorf("Kind = %q, want %q", ann.Tags[0].Kind, graph.TagParam)
+	}
+}
+
+func TestParse_TagWithoutValue(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("@return")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Kind != graph.TagReturn {
+		t.Errorf("Kind = %q, want %q", ann.Tags[0].Kind, graph.TagReturn)
+	}
+	if ann.Tags[0].Value != "" {
+		t.Errorf("Value = %q, want empty", ann.Tags[0].Value)
+	}
+}
+
+func TestParse_ParamWithoutName(t *testing.T) {
+	p := NewParser()
+	// @param 이름 없이 단독 사용 → 무시
+	ann, _ := p.Parse("@param")
+	if len(ann.Tags) != 0 {
+		t.Errorf("expected 0 tags for @param without name, got %d: %+v", len(ann.Tags), ann.Tags)
+	}
+}
+
+func TestParse_ParamNameOnlyNoDescription(t *testing.T) {
+	p := NewParser()
+	// @param name (설명 없음) → Name은 있지만 Value는 빈 문자열로 허용
+	ann, _ := p.Parse("@param x")
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Name != "x" {
+		t.Errorf("Name = %q, want %q", ann.Tags[0].Name, "x")
+	}
+	if ann.Tags[0].Value != "" {
+		t.Errorf("Value = %q, want empty", ann.Tags[0].Value)
+	}
+}
+
+func TestParse_MixedIndentation(t *testing.T) {
+	p := NewParser()
+	ann, _ := p.Parse("\t  요약 내용  \n\t\t@param x 값")
+	if ann.Summary != "요약 내용" {
+		t.Errorf("Summary = %q, want %q", ann.Summary, "요약 내용")
+	}
+	if len(ann.Tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(ann.Tags))
+	}
+	if ann.Tags[0].Name != "x" {
+		t.Errorf("Name = %q, want %q", ann.Tags[0].Name, "x")
+	}
+}

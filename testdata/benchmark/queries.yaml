@@ -66,7 +66,7 @@ queries:
   - id: q-impact-02
     description: "Node.Namespace 필드를 변경하면 어떤 파일들이 영향받는가"
     expected_files:
-      - internal/model/node.go
+      - internal/domain/graph/node.go
       - internal/store/gormstore/gormstore.go
       - internal/ctxns/namespace.go
     expected_symbols:

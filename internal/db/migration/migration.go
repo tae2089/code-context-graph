@@ -16,9 +16,8 @@ import (
 	"github.com/golang-migrate/migrate/v4/source"
 	"github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	"github.com/tae2089/code-context-graph/internal/ctxns"
-	"github.com/tae2089/code-context-graph/internal/migrationfs"
-	"github.com/tae2089/code-context-graph/internal/model"
+	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
+	"github.com/tae2089/code-context-graph/internal/domain/graph"
 	"github.com/tae2089/trace"
 	"gorm.io/gorm"
 )
@@ -196,7 +195,7 @@ func migrateSourceDriver(driver, migrationsDir string) (source.Driver, string, S
 		return nil, "", SourceInfo{}, err
 	}
 	if sourceInfo.Kind == "embedded" {
-		d, err := iofs.New(migrationfs.FS, driver)
+		d, err := iofs.New(FS, driver)
 		if err != nil {
 			return nil, "", SourceInfo{}, trace.Wrap(err, "create embedded migration source")
 		}
@@ -334,7 +333,7 @@ func BaselineLegacySchemaVersion(db *gorm.DB, migrator *gomigrate.Migrate, drive
 		return false, nil
 	}
 
-	var current model.SchemaVersion
+	var current graph.SchemaVersion
 	err := db.Table(legacySchemaTable).Where("key = ?", schemaVersionKey).First(&current).Error
 	if err != nil {
 		return false, trace.Wrap(err, "check legacy schema version")
@@ -419,16 +418,16 @@ func MigrateLegacyDefaultNamespace(db *gorm.DB) error {
 		updates := []struct {
 			model any
 		}{
-			{model: &model.Node{}},
-			{model: &model.Edge{}},
-			{model: &model.SearchDocument{}},
-			{model: &model.Community{}},
-			{model: &model.Flow{}},
-			{model: &model.FlowMembership{}},
+			{model: &graph.Node{}},
+			{model: &graph.Edge{}},
+			{model: &graph.SearchDocument{}},
+			{model: &graph.Community{}},
+			{model: &graph.Flow{}},
+			{model: &graph.FlowMembership{}},
 		}
 
 		for _, update := range updates {
-			if err := tx.Model(update.model).Where("namespace = ?", "").Update("namespace", ctxns.DefaultNamespace).Error; err != nil {
+			if err := tx.Model(update.model).Where("namespace = ?", "").Update("namespace", requestctx.DefaultNamespace).Error; err != nil {
 				return trace.Wrap(err, "backfill namespace")
 			}
 		}
@@ -458,7 +457,7 @@ func failOnLegacyNamespaceCollisions(db *gorm.DB) error {
 			AND current.qualified_name = legacy.qualified_name
 			AND current.file_path = legacy.file_path
 			AND current.start_line = legacy.start_line
-	`, ctxns.DefaultNamespace).Scan(&nodeCollisions).Error; err != nil {
+	`, requestctx.DefaultNamespace).Scan(&nodeCollisions).Error; err != nil {
 		return trace.Wrap(err, "check node namespace collisions")
 	}
 	if len(nodeCollisions) > 0 {
@@ -479,7 +478,7 @@ func failOnLegacyNamespaceCollisions(db *gorm.DB) error {
 			ON current.namespace = ?
 			AND legacy.namespace = ''
 			AND current.fingerprint = legacy.fingerprint
-	`, ctxns.DefaultNamespace).Scan(&edgeCollisions).Error; err != nil {
+	`, requestctx.DefaultNamespace).Scan(&edgeCollisions).Error; err != nil {
 		return trace.Wrap(err, "check edge namespace collisions")
 	}
 	if len(edgeCollisions) > 0 {
@@ -499,7 +498,7 @@ func failOnLegacyNamespaceCollisions(db *gorm.DB) error {
 			ON current.namespace = ?
 			AND legacy.namespace = ''
 			AND current.node_id = legacy.node_id
-	`, ctxns.DefaultNamespace).Scan(&searchDocCollisions).Error; err != nil {
+	`, requestctx.DefaultNamespace).Scan(&searchDocCollisions).Error; err != nil {
 		return trace.Wrap(err, "check search document namespace collisions")
 	}
 	if len(searchDocCollisions) > 0 {
@@ -519,7 +518,7 @@ func failOnLegacyNamespaceCollisions(db *gorm.DB) error {
 			ON current.namespace = ?
 			AND legacy.namespace = ''
 			AND current.key = legacy.key
-	`, ctxns.DefaultNamespace).Scan(&communityCollisions).Error; err != nil {
+	`, requestctx.DefaultNamespace).Scan(&communityCollisions).Error; err != nil {
 		return trace.Wrap(err, "check community namespace collisions")
 	}
 	if len(communityCollisions) > 0 {

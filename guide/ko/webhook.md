@@ -125,7 +125,7 @@ SIGINT/SIGTERM 수신 시:
 Push 이벤트 → HMAC 검증 → RepoFilter.IsAllowedRef()
   → SyncQueue.Add() (중복 제거) → 워커
     → CloneOrPull (ctx, 15분 타임아웃)
-    → GraphService.Update (증분 빌드, ctx, 15분 타임아웃)
+    → workflow.Service.Update (증분 빌드, ctx, 15분 타임아웃)
     → DB 저장
 ```
 

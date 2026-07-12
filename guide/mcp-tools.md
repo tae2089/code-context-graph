@@ -55,4 +55,4 @@ Use explicit `limit` and `offset` values for `query_graph` and `list_flows`. Sta
 
 Local MCP clients start `ccg serve` over stdio. Remote clients connect to the `/mcp` Streamable HTTP endpoint served by `ccg-server`. Both runtimes register the same 17 tools.
 
-For tool parameters and response schemas, inspect the MCP schema exposed by the running server; source registration lives under `internal/mcp/tools_*.go`.
+For tool parameters and response schemas, inspect the MCP schema exposed by the running server; source registration lives under `internal/adapters/inbound/mcp/tools_*.go`.

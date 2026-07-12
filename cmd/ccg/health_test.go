@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
+	ccgserver "github.com/tae2089/code-context-graph/internal/adapters/inbound/http"
+	"github.com/tae2089/code-context-graph/internal/app/reposync"
 	ccgdb "github.com/tae2089/code-context-graph/internal/db"
-	ccgserver "github.com/tae2089/code-context-graph/internal/server"
-	"github.com/tae2089/code-context-graph/internal/webhook"
 )
 
 func TestHandleHealth_OK(t *testing.T) {
@@ -98,10 +98,10 @@ func TestReadyHandler_MethodNotAllowed(t *testing.T) {
 }
 
 func TestStatusHandler_ReportsWebhookQueueFull(t *testing.T) {
-	q := webhook.NewSyncQueueWithConfig(nil, 0, func(context.Context, string, string, string) error {
+	q := reposync.NewSyncQueueWithConfig(nil, 0, func(context.Context, string, string, string) error {
 		return nil
-	}, webhook.QueueConfig{
-		RetryConfig:     webhook.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+	}, reposync.QueueConfig{
+		RetryConfig:     reposync.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
 		MaxTrackedRepos: 1,
 	})
 	defer q.Shutdown()
@@ -112,7 +112,7 @@ func TestStatusHandler_ReportsWebhookQueueFull(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
 
-	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *reposync.SyncQueue { return q }).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d body=%s", rec.Code, rec.Body.String())
@@ -120,10 +120,10 @@ func TestStatusHandler_ReportsWebhookQueueFull(t *testing.T) {
 }
 
 func TestStatusHandler_ReportsWebhookQueueAges(t *testing.T) {
-	q := webhook.NewSyncQueueWithConfig(nil, 0, func(context.Context, string, string, string) error {
+	q := reposync.NewSyncQueueWithConfig(nil, 0, func(context.Context, string, string, string) error {
 		return nil
-	}, webhook.QueueConfig{
-		RetryConfig:     webhook.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+	}, reposync.QueueConfig{
+		RetryConfig:     reposync.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
 		MaxTrackedRepos: 2,
 	})
 	defer q.Shutdown()
@@ -135,7 +135,7 @@ func TestStatusHandler_ReportsWebhookQueueAges(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
 
-	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *reposync.SyncQueue { return q }).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
@@ -154,10 +154,10 @@ func TestStatusHandler_ReportsWebhookQueueAges(t *testing.T) {
 }
 
 func TestReadyHandler_ReportsWebhookQueueDelay(t *testing.T) {
-	q := webhook.NewSyncQueueWithConfig(nil, 0, func(context.Context, string, string, string) error {
+	q := reposync.NewSyncQueueWithConfig(nil, 0, func(context.Context, string, string, string) error {
 		return nil
-	}, webhook.QueueConfig{
-		RetryConfig:     webhook.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+	}, reposync.QueueConfig{
+		RetryConfig:     reposync.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
 		MaxTrackedRepos: 2,
 	})
 	defer q.Shutdown()
@@ -180,11 +180,11 @@ func TestReadyHandler_ReportsWebhookQueueDelay(t *testing.T) {
 
 func TestStatusHandler_ReportsUnresolvedWebhookFailure(t *testing.T) {
 	done := make(chan struct{})
-	q := webhook.NewSyncQueueWithConfig(nil, 1, func(context.Context, string, string, string) error {
+	q := reposync.NewSyncQueueWithConfig(nil, 1, func(context.Context, string, string, string) error {
 		close(done)
 		return errors.New("boom")
-	}, webhook.QueueConfig{
-		RetryConfig:     webhook.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+	}, reposync.QueueConfig{
+		RetryConfig:     reposync.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
 		MaxTrackedRepos: 2,
 	})
 	defer q.Shutdown()
@@ -206,7 +206,7 @@ func TestStatusHandler_ReportsUnresolvedWebhookFailure(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
 
-	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *reposync.SyncQueue { return q }).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
@@ -224,9 +224,9 @@ func TestWebhookStatsDegraded_PerRepoUnresolvedFailure(t *testing.T) {
 	errTime := time.Now()
 	successTime := errTime.Add(2 * time.Minute)
 
-	if !ccgserver.WebhookStatsDegraded(webhook.SyncQueueStats{
+	if !ccgserver.WebhookStatsDegraded(reposync.SyncQueueStats{
 		LastSuccessTime: successTime,
-		RecentRepos: []webhook.RepoStats{{
+		RecentRepos: []reposync.RepoStats{{
 			Repo:          "org/failrepo",
 			LastErrorTime: errTime,
 		}},
@@ -234,9 +234,9 @@ func TestWebhookStatsDegraded_PerRepoUnresolvedFailure(t *testing.T) {
 		t.Fatal("expected unresolved repo failure to degrade status")
 	}
 
-	if ccgserver.WebhookStatsDegraded(webhook.SyncQueueStats{
+	if ccgserver.WebhookStatsDegraded(reposync.SyncQueueStats{
 		LastSuccessTime: successTime,
-		RecentRepos: []webhook.RepoStats{{
+		RecentRepos: []reposync.RepoStats{{
 			Repo:            "org/recovered",
 			LastErrorTime:   errTime,
 			LastSuccessTime: successTime,
@@ -249,7 +249,7 @@ func TestWebhookStatsDegraded_PerRepoUnresolvedFailure(t *testing.T) {
 func TestStatusHandler_DegradedWhenRecentRepoFailureUnresolved(t *testing.T) {
 	var mu sync.Mutex
 	completed := make([]string, 0, 2)
-	q := webhook.NewSyncQueueWithConfig(nil, 1, func(_ context.Context, repoFullName, cloneURL, branch string) error {
+	q := reposync.NewSyncQueueWithConfig(nil, 1, func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		mu.Lock()
 		completed = append(completed, repoFullName)
 		mu.Unlock()
@@ -257,8 +257,8 @@ func TestStatusHandler_DegradedWhenRecentRepoFailureUnresolved(t *testing.T) {
 			return errors.New("boom")
 		}
 		return nil
-	}, webhook.QueueConfig{
-		RetryConfig:     webhook.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+	}, reposync.QueueConfig{
+		RetryConfig:     reposync.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
 		MaxTrackedRepos: 10,
 	})
 	defer q.Shutdown()
@@ -282,7 +282,7 @@ func TestStatusHandler_DegradedWhenRecentRepoFailureUnresolved(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
-	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *reposync.SyncQueue { return q }).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
@@ -298,11 +298,11 @@ func TestStatusHandler_DegradedWhenRecentRepoFailureUnresolved(t *testing.T) {
 
 func TestStatusHandler_DBNotReadyTakesPrecedenceOverWebhookDegraded(t *testing.T) {
 	done := make(chan struct{})
-	q := webhook.NewSyncQueueWithConfig(nil, 1, func(_ context.Context, repoFullName, cloneURL, branch string) error {
+	q := reposync.NewSyncQueueWithConfig(nil, 1, func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		close(done)
 		return errors.New("boom")
-	}, webhook.QueueConfig{
-		RetryConfig:     webhook.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+	}, reposync.QueueConfig{
+		RetryConfig:     reposync.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
 		MaxTrackedRepos: 10,
 	})
 	defer q.Shutdown()
@@ -325,7 +325,7 @@ func TestStatusHandler_DBNotReadyTakesPrecedenceOverWebhookDegraded(t *testing.T
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
-	ccgserver.StatusHandler(func(r *http.Request) error { return errors.New("db down") }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return errors.New("db down") }, time.Minute, func() *reposync.SyncQueue { return q }).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d body=%s", rec.Code, rec.Body.String())
@@ -340,7 +340,7 @@ func TestStatusHandler_DBNotReadyTakesPrecedenceOverWebhookDegraded(t *testing.T
 }
 
 func TestReadyHandler_IgnoresUnresolvedWebhookFailure(t *testing.T) {
-	stats := webhook.SyncQueueStats{LastErrorTime: time.Now()}
+	stats := reposync.SyncQueueStats{LastErrorTime: time.Now()}
 	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
 	rec := httptest.NewRecorder()
 
@@ -355,11 +355,11 @@ func TestReadyHandler_IgnoresUnresolvedWebhookFailure(t *testing.T) {
 
 func TestStatusHandler_ReportsPerRepoRecentRepos(t *testing.T) {
 	done := make(chan struct{})
-	q := webhook.NewSyncQueueWithConfig(nil, 1, func(_ context.Context, repoFullName, cloneURL, branch string) error {
+	q := reposync.NewSyncQueueWithConfig(nil, 1, func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		close(done)
 		return nil
-	}, webhook.QueueConfig{
-		RetryConfig:     webhook.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+	}, reposync.QueueConfig{
+		RetryConfig:     reposync.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
 		MaxTrackedRepos: 10,
 	})
 	defer q.Shutdown()
@@ -385,7 +385,7 @@ func TestStatusHandler_ReportsPerRepoRecentRepos(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
-	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *reposync.SyncQueue { return q }).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
@@ -419,11 +419,11 @@ func TestStatusHandler_ReportsPerRepoRecentRepos(t *testing.T) {
 
 func TestStatusHandler_RecentRepos_FailureHasErrorFields(t *testing.T) {
 	done := make(chan struct{})
-	q := webhook.NewSyncQueueWithConfig(nil, 1, func(_ context.Context, repoFullName, cloneURL, branch string) error {
+	q := reposync.NewSyncQueueWithConfig(nil, 1, func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		close(done)
 		return errors.New("auth failed")
-	}, webhook.QueueConfig{
-		RetryConfig:     webhook.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+	}, reposync.QueueConfig{
+		RetryConfig:     reposync.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
 		MaxTrackedRepos: 10,
 	})
 	defer q.Shutdown()
@@ -449,7 +449,7 @@ func TestStatusHandler_RecentRepos_FailureHasErrorFields(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
-	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *reposync.SyncQueue { return q }).ServeHTTP(rec, req)
 
 	var body map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
@@ -471,17 +471,17 @@ func TestStatusHandler_RecentRepos_FailureHasErrorFields(t *testing.T) {
 }
 
 func TestStatusHandler_ExistingAggregateFieldsPreserved(t *testing.T) {
-	q := webhook.NewSyncQueueWithConfig(nil, 0, func(context.Context, string, string, string) error {
+	q := reposync.NewSyncQueueWithConfig(nil, 0, func(context.Context, string, string, string) error {
 		return nil
-	}, webhook.QueueConfig{
-		RetryConfig:     webhook.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
+	}, reposync.QueueConfig{
+		RetryConfig:     reposync.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
 		MaxTrackedRepos: 5,
 	})
 	defer q.Shutdown()
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
-	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *webhook.SyncQueue { return q }).ServeHTTP(rec, req)
+	ccgserver.StatusHandler(func(r *http.Request) error { return nil }, time.Minute, func() *reposync.SyncQueue { return q }).ServeHTTP(rec, req)
 
 	var body map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {

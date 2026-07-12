@@ -1,0 +1,1279 @@
+// @index HTTP handlers for the ccg-server Wiki UI and its viewer-oriented JSON API.
+package wikiserver
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"log/slog"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/tae2089/code-context-graph/internal/app/search/retrieval"
+	"github.com/tae2089/code-context-graph/internal/app/wiki"
+	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
+	"github.com/tae2089/code-context-graph/internal/domain/graph"
+	"github.com/tae2089/code-context-graph/internal/domain/reference"
+	"github.com/tae2089/code-context-graph/internal/safepath"
+	"github.com/tae2089/trace"
+)
+
+const maxDocContentBytes = 1 << 20
+
+// Config describes the external Wiki asset directory and data roots.
+// @intent keep Wiki UI serving outside the ccg binary while letting ccg-server expose docs/RAG data.
+type Config struct {
+	StaticDir     string
+	RagIndexDir   string
+	NamespaceRoot string
+	Repository    wiki.Repository
+	Retrieval     *retrieval.Service
+	Logger        *slog.Logger
+}
+
+// Server serves static Wiki assets and small JSON APIs for docs exploration.
+// @intent isolate browser-facing Wiki behavior from MCP transport and webhook handlers.
+type Server struct {
+	staticRoot    string
+	ragIndexDir   string
+	namespaceRoot string
+	repository    wiki.Repository
+	retrieval     *retrieval.Service
+	logger        *slog.Logger
+}
+
+// New validates the Wiki static directory and creates a server instance.
+// @intent fail server startup early when --wiki-dir points at an unusable dist directory.
+func New(cfg Config) (*Server, error) {
+	if strings.TrimSpace(cfg.StaticDir) == "" {
+		return nil, fmt.Errorf("wiki static directory is required")
+	}
+	root, err := resolveExistingDir(cfg.StaticDir)
+	if err != nil {
+		return nil, trace.Wrap(err, "resolve wiki directory")
+	}
+	if _, err := os.Stat(filepath.Join(root, "index.html")); err != nil {
+		return nil, trace.Wrap(err, "stat wiki index.html")
+	}
+	ragDir := cfg.RagIndexDir
+	if ragDir == "" {
+		ragDir = ".ccg"
+	}
+	nsRoot := cfg.NamespaceRoot
+	if nsRoot == "" {
+		nsRoot = "namespaces"
+	}
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Server{
+		staticRoot:    root,
+		ragIndexDir:   ragDir,
+		namespaceRoot: nsRoot,
+		repository:    cfg.Repository,
+		retrieval:     cfg.Retrieval,
+		logger:        logger,
+	}, nil
+}
+
+// StaticHandler serves the React dist directory with SPA fallback to index.html.
+// @intent let ccg-server expose the Wiki UI without embedding frontend assets into the binary.
+// @sideEffect reads static files from --wiki-dir.
+func (s *Server) StaticHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		rel := strings.TrimPrefix(r.URL.Path, "/wiki/")
+		if rel == "" || rel == "." {
+			rel = "index.html"
+		}
+		target, ok := s.safeStaticPath(rel)
+		if !ok {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		if info, err := os.Stat(target); err == nil && !info.IsDir() {
+			http.ServeFile(w, r, target)
+			return
+		}
+		http.ServeFile(w, r, filepath.Join(s.staticRoot, "index.html"))
+	})
+}
+
+// APIHandler routes Wiki JSON API requests.
+// @intent provide browser-friendly access to namespaces, Wiki trees, docs, search, and copied context.
+func (s *Server) APIHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/wiki/api/namespaces", s.handleNamespaces)
+	mux.HandleFunc("/wiki/api/tree", s.handleTree)
+	mux.HandleFunc("/wiki/api/doc", s.handleDoc)
+	mux.HandleFunc("/wiki/api/ref", s.handleRef)
+	mux.HandleFunc("/wiki/api/search", s.handleSearch)
+	mux.HandleFunc("/wiki/api/retrieve", s.handleRetrieve)
+	mux.HandleFunc("/wiki/api/graph", s.handleGraph)
+	mux.HandleFunc("/wiki/api/context", s.handleContext)
+	return mux
+}
+
+// @intent resolve a request path under the static dist directory without allowing traversal.
+func (s *Server) safeStaticPath(rel string) (string, bool) {
+	clean := filepath.Clean(rel)
+	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return "", false
+	}
+	target := filepath.Join(s.staticRoot, clean)
+	cleanTarget := filepath.Clean(target)
+	if cleanTarget != s.staticRoot && !strings.HasPrefix(cleanTarget, s.staticRoot+string(os.PathSeparator)) {
+		return "", false
+	}
+	return cleanTarget, true
+}
+
+// @intent return namespaces discovered from graph data.
+func (s *Server) handleNamespaces(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	namespaces := map[string]struct{}{requestctx.DefaultNamespace: {}}
+	if s.repository == nil {
+		writeError(w, http.StatusServiceUnavailable, "graph database is not configured", nil)
+		return
+	}
+	rows, err := s.repository.Namespaces(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list namespaces", err)
+		return
+	}
+	for _, ns := range rows {
+		namespaces[requestctx.Normalize(ns)] = struct{}{}
+	}
+	items := make([]string, 0, len(namespaces))
+	for ns := range namespaces {
+		items = append(items, ns)
+	}
+	sort.Strings(items)
+	writeJSON(w, http.StatusOK, map[string]any{"namespaces": items})
+}
+
+// @intent return the active namespace Wiki tree, optionally pruned for lighter UI payloads.
+func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	ns, ok := namespaceParam(w, r)
+	if !ok {
+		return
+	}
+	if s.repository == nil {
+		writeError(w, http.StatusServiceUnavailable, "graph database is not configured", nil)
+		return
+	}
+	depth, err := boundedIntParam(r, "depth", 0, 0, 20)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	nodeID := strings.TrimSpace(r.URL.Query().Get("node_id"))
+	root, builtAt, _, err := s.loadWikiTreeRange(r.Context(), ns, nodeID, depth)
+	if err != nil {
+		writeError(w, statusForReadErr(err), "load wiki tree", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "built_at": builtAt, "root": root})
+}
+
+// @intent search Wiki tree labels and summaries for the active namespace.
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	ns, ok := namespaceParam(w, r)
+	if !ok {
+		return
+	}
+	if s.repository == nil {
+		writeError(w, http.StatusServiceUnavailable, "graph database is not configured", nil)
+		return
+	}
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query == "" {
+		writeError(w, http.StatusBadRequest, "q must not be empty", nil)
+		return
+	}
+	limit, err := boundedIntParam(r, "limit", 20, 1, 100)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	root, _, _, err := s.loadWikiTree(r.Context(), ns)
+	if err != nil {
+		writeError(w, statusForReadErr(err), "load wiki tree", err)
+		return
+	}
+	results := wiki.Search(root, query, limit)
+	if results == nil {
+		results = []wiki.SearchResult{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "results": results})
+}
+
+// @intent run DB-primary retrieval for LLM context discovery in the Wiki UI.
+func (s *Server) handleRetrieve(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	ns, ok := namespaceParam(w, r)
+	if !ok {
+		return
+	}
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query == "" {
+		writeError(w, http.StatusBadRequest, "q must not be empty", nil)
+		return
+	}
+	limit, err := boundedIntParam(r, "limit", 10, 1, 50)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	contentLimit, err := boundedIntParam(r, "content_limit", 0, 0, 20000)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	if s.retrieval == nil {
+		writeError(w, http.StatusServiceUnavailable, "graph database is not configured", nil)
+		return
+	}
+	response, err := s.retrieveFromDB(r.Context(), ns, query, limit, contentLimit)
+	if err != nil {
+		writeError(w, statusForReadErr(err), "retrieve from DB", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "results": response.Results})
+}
+
+// @intent provide Wiki retrieve results from graph DB data.
+// @domainRule DB results are authoritative when the database is configured and queryable.
+// @sideEffect queries the graph DB and may read generated Markdown docs for response snippets.
+func (s *Server) retrieveFromDB(ctx context.Context, namespace, query string, limit, contentLimit int) (retrieval.Response, error) {
+	return s.retrieval.FromDB(ctx, namespace, query, limit, contentLimit, func(_ context.Context, ns, docPath string, limit int) (string, bool, error) {
+		content, _, err := s.readDBFallbackDoc(ns, docPath)
+		if err != nil {
+			return "", false, err
+		}
+		if len(content) <= limit {
+			return content, false, nil
+		}
+		return content[:limit], true, nil
+	})
+}
+
+// @intent read DB fallback document content without crossing from a named namespace into shared/global docs roots.
+// @domainRule named namespace retrieve fallback must omit content rather than read another namespace's generated Markdown.
+// @sideEffect reads a generated Markdown file from disk when it exists under the namespace root.
+func (s *Server) readDBFallbackDoc(namespace, docPath string) (string, string, error) {
+	if requestctx.Normalize(namespace) == requestctx.DefaultNamespace {
+		return s.readDoc(namespace, docPath)
+	}
+	return s.readDocUnderRoot(filepath.Join(s.namespaceRoot, namespace), docPath)
+}
+
+// @intent return a bounded namespace graph for the browser force-directed graph viewer.
+func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	if s.repository == nil {
+		writeError(w, http.StatusServiceUnavailable, "graph database is not configured", nil)
+		return
+	}
+	ns, ok := namespaceParam(w, r)
+	if !ok {
+		return
+	}
+	limit, err := boundedIntParam(r, "limit", 800, 1, 2000)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	edgeKinds, err := graphEdgeKindsParam(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+
+	ctx := requestctx.WithNamespace(r.Context(), ns)
+	view, err := s.repository.GraphView(ctx, limit, edgeKinds)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, graphViewErrorMessage(err), err)
+		return
+	}
+
+	graphNodes := make([]graphNode, 0, len(view.Nodes))
+	for _, node := range view.Nodes {
+		graphNodes = append(graphNodes, graphNodeFromModel(node))
+	}
+	graphEdges := make([]graphEdge, 0, len(view.Edges))
+	for _, edge := range view.Edges {
+		graphEdges = append(graphEdges, graphEdgeFromModel(edge))
+	}
+
+	writeJSON(w, http.StatusOK, graphResponse{
+		Namespace: ns,
+		Limit:     limit,
+		Truncated: view.TotalNodes > int64(len(view.Nodes)),
+		Nodes:     graphNodes,
+		Edges:     graphEdges,
+	})
+}
+
+// @intent map application graph-view stages back to the established Wiki HTTP error contract.
+func graphViewErrorMessage(err error) string {
+	var viewErr *wiki.GraphViewError
+	if !errors.As(err, &viewErr) {
+		return "load graph view"
+	}
+	switch viewErr.Stage {
+	case wiki.GraphViewStageCountNodes:
+		return "count graph nodes"
+	case wiki.GraphViewStageListNodes:
+		return "list graph nodes"
+	case wiki.GraphViewStageListEdges:
+		return "list graph edges"
+	default:
+		return "load graph view"
+	}
+}
+
+// @intent read one generated Markdown document for display in the Wiki viewer.
+func (s *Server) handleDoc(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	ns, ok := namespaceParam(w, r)
+	if !ok {
+		return
+	}
+	docPath := strings.TrimSpace(r.URL.Query().Get("path"))
+	if docPath == "" {
+		writeError(w, http.StatusBadRequest, "path must not be empty", nil)
+		return
+	}
+	readDoc := s.readDoc
+	if s.repository != nil {
+		readDoc = s.readDBFallbackDoc
+	}
+	content, resolved, err := readDoc(ns, docPath)
+	if err != nil {
+		if root, _, _, indexErr := s.loadWikiTree(r.Context(), ns); indexErr == nil {
+			if node := findDocPath(root, docPath); node != nil {
+				writeJSON(w, http.StatusOK, map[string]any{
+					"namespace": ns,
+					"path":      docPath,
+					"resolved":  "",
+					"content":   nodeMarkdown(node),
+					"generated": false,
+				})
+				return
+			}
+		}
+		writeError(w, statusForReadErr(err), "read doc", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"namespace": ns,
+		"path":      docPath,
+		"resolved":  resolved,
+		"content":   content,
+		"generated": true,
+	})
+}
+
+// @intent resolve a ccg:// annotation reference to a Wiki target and optional graph node.
+func (s *Server) handleRef(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	if s.repository == nil {
+		writeError(w, http.StatusServiceUnavailable, "graph database is not configured", nil)
+		return
+	}
+	rawRef := strings.TrimSpace(r.URL.Query().Get("ref"))
+	if rawRef == "" {
+		writeError(w, http.StatusBadRequest, "ref must not be empty", nil)
+		return
+	}
+	ref, err := reference.Parse(rawRef)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "parse ref", err)
+		return
+	}
+	if err := validateNamespace(ref.Namespace); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	root, _, _, indexErr := s.loadWikiTree(r.Context(), ref.Namespace)
+	var treeNode *wiki.TreeNode
+	if indexErr == nil {
+		treeNode = findRefTreeNode(root, ref)
+	}
+	graphNode, graphErr := s.findRefGraphNode(r, ref)
+	if treeNode == nil && graphNode == nil {
+		if indexErr != nil {
+			writeError(w, statusForReadErr(indexErr), "load wiki tree", indexErr)
+			return
+		}
+		if graphErr != nil && !errors.Is(graphErr, os.ErrNotExist) {
+			writeError(w, http.StatusInternalServerError, "resolve graph ref", graphErr)
+			return
+		}
+		writeError(w, http.StatusNotFound, "ref target not found", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, refResponse{
+		Namespace: ref.Namespace,
+		Ref:       ref,
+		Target:    refTargetFromMatches(treeNode, graphNode),
+	})
+}
+
+// @intent assemble selected docs or summaries into one Markdown block for LLM context.
+func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	if s.repository == nil {
+		writeError(w, http.StatusServiceUnavailable, "graph database is not configured", nil)
+		return
+	}
+	var req contextRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "decode context request", err)
+		return
+	}
+	ns := requestctx.Normalize(strings.TrimSpace(req.Namespace))
+	if err := validateNamespace(ns); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	if len(req.Paths) > 20 {
+		writeError(w, http.StatusBadRequest, "paths must contain <= 20 items", nil)
+		return
+	}
+	root, _, fromDB, err := s.loadWikiTree(r.Context(), ns)
+	if err != nil {
+		writeError(w, statusForReadErr(err), "load wiki tree", err)
+		return
+	}
+	readDoc := s.readDoc
+	if fromDB {
+		readDoc = s.readDBFallbackDoc
+	}
+	sections := make([]string, 0, len(req.Paths))
+	items := make([]contextItem, 0, len(req.Paths))
+	for _, rawPath := range req.Paths {
+		docPath := strings.TrimSpace(rawPath)
+		if docPath == "" {
+			continue
+		}
+		item := contextItem{Path: docPath}
+		if content, _, err := readDoc(ns, docPath); err == nil {
+			item.Found = true
+			item.Markdown = fmt.Sprintf("## %s\n\n%s", docPath, strings.TrimSpace(content))
+			sections = append(sections, item.Markdown)
+		} else if node := findDocPath(root, docPath); node != nil {
+			item.Found = true
+			item.Label = node.Label
+			item.Markdown = fmt.Sprintf("## %s\n\n%s", node.Label, strings.TrimSpace(nodeMarkdown(node)))
+			sections = append(sections, item.Markdown)
+		} else {
+			item.Error = "not found"
+		}
+		items = append(items, item)
+	}
+	writeJSON(w, http.StatusOK, contextResponse{Markdown: strings.Join(sections, "\n\n"), Items: items})
+}
+
+// @intent decode selected Wiki document paths from the context-copy request body.
+type contextRequest struct {
+	Namespace string   `json:"namespace"`
+	Paths     []string `json:"paths"`
+}
+
+// @intent report whether one requested context item was found in docs or tree summaries.
+type contextItem struct {
+	Path     string `json:"path"`
+	Label    string `json:"label,omitempty"`
+	Found    bool   `json:"found"`
+	Markdown string `json:"markdown,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// @intent return the assembled Markdown and per-item resolution status.
+type contextResponse struct {
+	Markdown string        `json:"markdown"`
+	Items    []contextItem `json:"items"`
+}
+
+// @intent return the resolved Wiki navigation target for one ccg:// ref.
+type refResponse struct {
+	Namespace string         `json:"namespace"`
+	Ref       *reference.Ref `json:"ref"`
+	Target    refTarget      `json:"target"`
+}
+
+// @intent describe the doc and graph destinations available for a resolved ccg:// ref.
+type refTarget struct {
+	Label       string            `json:"label"`
+	Kind        string            `json:"kind"`
+	Summary     string            `json:"summary,omitempty"`
+	DocPath     string            `json:"doc_path,omitempty"`
+	GraphNodeID string            `json:"graph_node_id,omitempty"`
+	Details     *wiki.NodeDetails `json:"details,omitempty"`
+}
+
+// @intent describe one graph node in the Wiki force graph API.
+type graphNode struct {
+	ID            string            `json:"id"`
+	Label         string            `json:"label"`
+	Kind          string            `json:"kind"`
+	QualifiedName string            `json:"qualified_name"`
+	FilePath      string            `json:"file_path"`
+	DocPath       string            `json:"doc_path,omitempty"`
+	StartLine     int               `json:"start_line,omitempty"`
+	EndLine       int               `json:"end_line,omitempty"`
+	Language      string            `json:"language,omitempty"`
+	Details       *wiki.NodeDetails `json:"details,omitempty"`
+}
+
+// @intent describe one directed graph edge in the Wiki force graph API.
+type graphEdge struct {
+	ID     string `json:"id"`
+	Source string `json:"source"`
+	Target string `json:"target"`
+	Kind   string `json:"kind"`
+	File   string `json:"file_path,omitempty"`
+	Line   int    `json:"line,omitempty"`
+}
+
+// @intent return bounded graph data and truncation metadata to the Wiki UI.
+type graphResponse struct {
+	Namespace string      `json:"namespace"`
+	Limit     int         `json:"limit"`
+	Truncated bool        `json:"truncated"`
+	Nodes     []graphNode `json:"nodes"`
+	Edges     []graphEdge `json:"edges"`
+}
+
+// @intent convert persisted graph node metadata into a browser graph payload.
+func graphNodeFromModel(node graph.Node) graphNode {
+	label := node.Name
+	if strings.TrimSpace(label) == "" {
+		label = node.QualifiedName
+	}
+	if strings.TrimSpace(label) == "" {
+		label = node.FilePath
+	}
+	out := graphNode{
+		ID:            strconv.FormatUint(uint64(node.ID), 10),
+		Label:         label,
+		Kind:          string(node.Kind),
+		QualifiedName: node.QualifiedName,
+		FilePath:      node.FilePath,
+		StartLine:     node.StartLine,
+		EndLine:       node.EndLine,
+		Language:      node.Language,
+	}
+	if node.Kind == graph.NodeKindFile {
+		out.DocPath = docPathForSource(node.FilePath)
+	} else {
+		out.Details = &wiki.NodeDetails{
+			QualifiedName: node.QualifiedName,
+			FilePath:      node.FilePath,
+			StartLine:     node.StartLine,
+			EndLine:       node.EndLine,
+			Language:      node.Language,
+		}
+	}
+	return out
+}
+
+// @intent convert persisted edge metadata into a stable browser graph edge payload.
+func graphEdgeFromModel(edge graph.Edge) graphEdge {
+	return graphEdge{
+		ID:     fmt.Sprintf("%d:%d:%s:%d", edge.FromNodeID, edge.ToNodeID, edge.Kind, edge.ID),
+		Source: strconv.FormatUint(uint64(edge.FromNodeID), 10),
+		Target: strconv.FormatUint(uint64(edge.ToNodeID), 10),
+		Kind:   string(edge.Kind),
+		File:   edge.FilePath,
+		Line:   edge.Line,
+	}
+}
+
+// @intent convert repository-relative source paths to their generated Markdown doc path.
+func docPathForSource(filePath string) string {
+	rel := filePath
+	if filepath.IsAbs(filePath) {
+		rel = strings.TrimPrefix(filePath, string(filepath.Separator))
+	}
+	return filepath.Join("docs", rel+".md")
+}
+
+// @intent load a Wiki tree from DB rows for browser navigation and return built_at metadata.
+func (s *Server) loadWikiTree(ctx context.Context, namespace string) (*wiki.TreeNode, time.Time, bool, error) {
+	return s.loadWikiTreeRange(ctx, namespace, "", 0)
+}
+
+// @intent build one bounded Wiki tree range from DB rows for lazy browser navigation.
+func (s *Server) loadWikiTreeRange(ctx context.Context, namespace, nodeID string, depth int) (*wiki.TreeNode, time.Time, bool, error) {
+	if s.repository == nil {
+		return nil, time.Time{}, false, fmt.Errorf("graph database is not configured")
+	}
+	builder := &wiki.Builder{Repository: s.repository, OutDir: "docs", Namespace: namespace}
+	root, err := builder.BuildSubtree(ctx, nodeID, depth)
+	if err != nil {
+		return nil, time.Time{}, false, err
+	}
+	return root, time.Now().UTC(), true, nil
+}
+
+// @intent enforce doc size limits before returning generated Markdown content.
+func (s *Server) readDoc(namespace, docPath string) (string, string, error) {
+	resolved, err := s.resolveDocPath(namespace, docPath)
+	if err != nil {
+		return "", "", err
+	}
+	return readDocFile(resolved)
+}
+
+// @intent read a generated doc path from one explicit root with the standard Wiki size limit.
+func (s *Server) readDocUnderRoot(root, docPath string) (string, string, error) {
+	clean := filepath.Clean(docPath)
+	if clean == "." || clean == ".." || filepath.IsAbs(clean) || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return "", "", fmt.Errorf("invalid path: path traversal not allowed")
+	}
+	resolved, err := safePath(root, clean)
+	if err != nil {
+		return "", "", err
+	}
+	return readDocFile(resolved)
+}
+
+// @intent enforce generated doc size limits and read the resolved Markdown file.
+func readDocFile(resolved string) (string, string, error) {
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", "", err
+	}
+	if info.IsDir() {
+		return "", "", fs.ErrInvalid
+	}
+	if info.Size() > maxDocContentBytes {
+		return "", "", fmt.Errorf("file exceeds 1 MB size limit")
+	}
+	content, err := os.ReadFile(resolved)
+	if err != nil {
+		return "", "", err
+	}
+	return string(content), resolved, nil
+}
+
+// @intent resolve a generated doc path under approved docs, RAG, or namespace roots.
+// @domainRule the working directory is only searched through its docs/ subtree; arbitrary
+// repository files (config, source, secrets) must never be readable through the doc API.
+func (s *Server) resolveDocPath(namespace, docPath string) (string, error) {
+	clean := filepath.Clean(docPath)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("invalid path: path traversal not allowed")
+	}
+	var roots []string
+	if namespace != requestctx.DefaultNamespace {
+		roots = append(roots, filepath.Join(s.namespaceRoot, namespace))
+	}
+	// Generated shared docs live under ./docs (doc_path values carry the docs/ prefix),
+	// so the local root is the docs directory itself, not the bare working directory.
+	roots = append(roots, "docs", s.ragIndexDir, s.namespaceRoot)
+	if filepath.IsAbs(clean) {
+		for _, root := range roots {
+			target, err := safeAbsolutePath(root, clean)
+			if err != nil {
+				continue
+			}
+			if _, err := os.Stat(target); err == nil {
+				return target, nil
+			}
+		}
+		return "", fs.ErrNotExist
+	}
+	for _, root := range roots {
+		rel := clean
+		if root == "docs" {
+			// doc_path values are docs-prefixed ("docs/pkg/file.md"); resolve the remainder
+			// inside the docs root so containment is enforced against docs/, not the CWD.
+			after, ok := strings.CutPrefix(clean, "docs"+string(os.PathSeparator))
+			if !ok {
+				continue
+			}
+			rel = after
+		}
+		target, err := safePath(root, rel)
+		if err != nil {
+			continue
+		}
+		if _, err := os.Stat(target); err == nil {
+			return target, nil
+		}
+	}
+	return "", fs.ErrNotExist
+}
+
+// @intent find a tree node by its generated doc_path value.
+func findDocPath(root *wiki.TreeNode, docPath string) *wiki.TreeNode {
+	if root == nil {
+		return nil
+	}
+	if root.DocPath == docPath {
+		return root
+	}
+	for _, child := range root.Children {
+		if found := findDocPath(child, docPath); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+// @intent locate the Wiki tree node that best matches a parsed ccg:// ref.
+func findRefTreeNode(root *wiki.TreeNode, ref *reference.Ref) *wiki.TreeNode {
+	if root == nil || ref == nil {
+		return nil
+	}
+	if ref.Path == "" && ref.Symbol == "" {
+		return root
+	}
+	if refPathMatchesTree(root, ref) {
+		return root
+	}
+	for _, child := range root.Children {
+		if found := findRefTreeNode(child, ref); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+// @intent compare a ccg:// path/symbol target against one Wiki tree node.
+func refPathMatchesTree(node *wiki.TreeNode, ref *reference.Ref) bool {
+	if ref.Symbol != "" {
+		if node.Details == nil {
+			return false
+		}
+		if ref.Path != "" && !sameRefPath(node.Details.FilePath, ref.Path) {
+			return false
+		}
+		return symbolMatches(node.Label, node.Details.QualifiedName, ref.Symbol)
+	}
+	if ref.Path == "" {
+		return false
+	}
+	if node.Details != nil && sameRefPath(node.Details.FilePath, ref.Path) {
+		return true
+	}
+	if node.DocPath != "" && filepath.ToSlash(node.DocPath) == filepath.ToSlash(docPathForSource(ref.Path)) {
+		return true
+	}
+	idPath := strings.TrimPrefix(strings.TrimPrefix(node.ID, "file:"), "package:")
+	idPath = strings.TrimPrefix(idPath, "folder:")
+	return sameRefPath(idPath, ref.Path)
+}
+
+// @intent resolve a ccg:// ref against graph nodes so the browser graph can focus the destination.
+func (s *Server) findRefGraphNode(r *http.Request, ref *reference.Ref) (*graphNode, error) {
+	if s.repository == nil {
+		return nil, fmt.Errorf("%w: graph reference", os.ErrNotExist)
+	}
+	node, err := s.repository.ResolveReference(r.Context(), ref)
+	if err != nil {
+		return nil, err
+	}
+	graphNode := graphNodeFromModel(*node)
+	if node.Annotation != nil && graphNode.Details != nil {
+		graphNode.Details.Annotation = annotationDetailFromModel(node.Annotation)
+	}
+	return &graphNode, nil
+}
+
+// @intent merge tree and graph matches into one browser navigation payload.
+func refTargetFromMatches(treeNode *wiki.TreeNode, graphNode *graphNode) refTarget {
+	target := refTarget{}
+	if treeNode != nil {
+		target.Label = treeNode.Label
+		target.Kind = treeNode.Kind
+		target.Summary = treeNode.Summary
+		target.DocPath = treeNode.DocPath
+		target.Details = treeNode.Details
+	}
+	if graphNode != nil {
+		if target.Label == "" {
+			target.Label = graphNode.Label
+		}
+		if target.Kind == "" {
+			target.Kind = graphNode.Kind
+		}
+		if target.Summary == "" {
+			target.Summary = strings.TrimSpace(graphNode.FilePath)
+		}
+		if target.DocPath == "" {
+			target.DocPath = graphNode.DocPath
+		}
+		if target.Details == nil {
+			target.Details = graphNode.Details
+		}
+		target.GraphNodeID = graphNode.ID
+	}
+	if target.DocPath == "" && target.Details != nil && strings.TrimSpace(target.Details.FilePath) != "" {
+		target.DocPath = docPathForSource(target.Details.FilePath)
+	}
+	return target
+}
+
+// @intent convert a stored annotation into the same details shape used by wiki-index.json.
+func annotationDetailFromModel(annotation *graph.Annotation) *wiki.AnnotationDetail {
+	if annotation == nil {
+		return nil
+	}
+	tags := make([]wiki.DocTagDetail, 0, len(annotation.Tags))
+	for _, tag := range annotation.Tags {
+		tags = append(tags, wiki.DocTagDetailFromModel(tag))
+	}
+	return &wiki.AnnotationDetail{
+		Summary: strings.TrimSpace(annotation.Summary),
+		Context: strings.TrimSpace(annotation.Context),
+		Tags:    tags,
+	}
+}
+
+// @intent match ccg:// file paths against graph and Wiki slash-separated paths.
+func sameRefPath(left, right string) bool {
+	return strings.Trim(filepath.ToSlash(left), "/") == strings.Trim(filepath.ToSlash(right), "/")
+}
+
+// @intent allow short symbol refs to match names and language-qualified names.
+func symbolMatches(name, qualifiedName, want string) bool {
+	if want == "" {
+		return true
+	}
+	return name == want ||
+		qualifiedName == want ||
+		strings.HasSuffix(qualifiedName, "."+want) ||
+		strings.HasSuffix(qualifiedName, "::"+want)
+}
+
+// @intent render a Wiki tree node as generated-doc-shaped fallback Markdown when no generated file exists.
+func nodeMarkdown(node *wiki.TreeNode) string {
+	parts := []string{
+		"<!-- generated-by: code-context-graph docs -->",
+		fmt.Sprintf("# %s", node.Label),
+	}
+	if summary := cleanMarkdownText(node.Summary); summary != "" {
+		parts = append(parts, "> "+summary)
+	}
+	if len(node.Children) > 0 {
+		sections := nodeMarkdownSections(node.Children)
+		for _, section := range []string{"Files", "Packages", "Functions", "Classes", "Types", "Tests", "Symbols", "Children"} {
+			children := sections[section]
+			if len(children) == 0 {
+				continue
+			}
+			lines := []string{"## " + section}
+			for _, child := range children {
+				lines = append(lines, nodeMarkdownChild(child)...)
+			}
+			parts = append(parts, strings.Join(lines, "\n"))
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// @intent group fallback child nodes into stable sections that the Wiki visual renderer can cardify.
+func nodeMarkdownSections(children []*wiki.TreeNode) map[string][]*wiki.TreeNode {
+	sections := map[string][]*wiki.TreeNode{}
+	for _, child := range children {
+		section := nodeMarkdownSection(child)
+		sections[section] = append(sections[section], child)
+	}
+	return sections
+}
+
+// @intent map graph node kinds to generated docs section names for DB-backed Wiki fallback.
+func nodeMarkdownSection(node *wiki.TreeNode) string {
+	switch node.Kind {
+	case "file":
+		return "Files"
+	case "package":
+		return "Packages"
+	case string(graph.NodeKindFunction):
+		return "Functions"
+	case string(graph.NodeKindClass):
+		return "Classes"
+	case string(graph.NodeKindType):
+		return "Types"
+	case string(graph.NodeKindTest):
+		return "Tests"
+	case "symbol":
+		return "Symbols"
+	default:
+		return "Children"
+	}
+}
+
+// @intent render one fallback tree child in the same symbol-card Markdown shape as generated docs.
+func nodeMarkdownChild(child *wiki.TreeNode) []string {
+	lines := []string{"", "### " + child.Label, ""}
+	description := cleanMarkdownText(child.Summary)
+	if child.Details != nil && child.Details.Annotation != nil {
+		if summary := cleanMarkdownText(child.Details.Annotation.Summary); summary != "" {
+			description = summary
+		}
+	}
+	if description != "" {
+		lines = append(lines, description, "")
+	}
+	if child.Details != nil {
+		if lineRange := markdownLineRange(child.Details.StartLine, child.Details.EndLine); lineRange != "" {
+			lines = append(lines, "- **Lines:** "+lineRange)
+		}
+		if filePath := cleanMarkdownText(child.Details.FilePath); filePath != "" {
+			lines = append(lines, "- **File:** "+filePath)
+		}
+		if language := cleanMarkdownText(child.Details.Language); language != "" {
+			lines = append(lines, "- **Language:** "+language)
+		}
+		if child.Details.Annotation != nil {
+			lines = append(lines, annotationMarkdownBlocks(child.Details.Annotation)...)
+		}
+		return lines
+	}
+	if child.Kind != "" {
+		lines = append(lines, "- **Kind:** "+child.Kind)
+	}
+	if child.DocPath != "" {
+		lines = append(lines, "- **Path:** "+child.DocPath)
+	}
+	return lines
+}
+
+// @intent format annotation tags into labels already understood by the Wiki generated-doc renderer.
+func annotationMarkdownBlocks(annotation *wiki.AnnotationDetail) []string {
+	blocks := []annotationMarkdownBlock{}
+	index := map[string]int{}
+	add := func(label, value string) {
+		value = cleanMarkdownText(value)
+		if value == "" {
+			return
+		}
+		pos, ok := index[label]
+		if !ok {
+			pos = len(blocks)
+			index[label] = pos
+			blocks = append(blocks, annotationMarkdownBlock{label: label})
+		}
+		blocks[pos].items = append(blocks[pos].items, value)
+	}
+	for _, tag := range annotation.Tags {
+		value := annotationTagMarkdownValue(tag)
+		switch tag.Kind {
+		case graph.TagIntent:
+			add("Intent", value)
+		case graph.TagDomainRule:
+			add("Domain Rules", value)
+		case graph.TagSideEffect:
+			add("Side Effects", value)
+		case graph.TagMutates:
+			add("Mutates", value)
+		case graph.TagRequires:
+			add("Requires", value)
+		case graph.TagEnsures:
+			add("Ensures", value)
+		case graph.TagParam:
+			add("Params", formatParamMarkdownTag(tag))
+		case graph.TagReturn:
+			add("Returns", value)
+		case graph.TagSee:
+			add("See", value)
+		case graph.TagThrows:
+			add("Throws", value)
+		default:
+			add(string(tag.Kind), value)
+		}
+	}
+	if context := cleanMarkdownText(annotation.Context); context != "" {
+		add("Context", context)
+	}
+
+	var lines []string
+	for _, block := range blocks {
+		if len(block.items) == 1 && (block.label == "Intent" || block.label == "Returns" || block.label == "See") {
+			lines = append(lines, fmt.Sprintf("- **%s:** %s", block.label, block.items[0]))
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("- **%s:**", block.label))
+		for _, item := range block.items {
+			lines = append(lines, "  - "+item)
+		}
+	}
+	return lines
+}
+
+// annotationMarkdownBlock groups same-label annotation fallback lines before Markdown rendering.
+// @intent keep annotation Markdown output stable while preserving original tag ordering by first label occurrence.
+type annotationMarkdownBlock struct {
+	label string
+	items []string
+}
+
+// @intent preserve annotation tag name/type context in fallback Markdown without exposing raw JSON.
+func annotationTagMarkdownValue(tag wiki.DocTagDetail) string {
+	parts := []string{}
+	if strings.TrimSpace(tag.Name) != "" {
+		parts = append(parts, tag.Name)
+	}
+	if strings.TrimSpace(tag.Value) != "" {
+		parts = append(parts, tag.Value)
+	}
+	return strings.Join(parts, " — ")
+}
+
+// @intent format @param tags consistently with browser-side generated doc fallback.
+func formatParamMarkdownTag(tag wiki.DocTagDetail) string {
+	name := strings.TrimSpace(tag.Name)
+	if name == "" {
+		name = "param"
+	}
+	if typ := strings.TrimSpace(tag.Type); typ != "" {
+		name = fmt.Sprintf("%s [%s]", name, typ)
+	}
+	if value := cleanMarkdownText(tag.Value); value != "" {
+		return name + " — " + value
+	}
+	return name
+}
+
+// @intent keep fallback Markdown attributes single-line so the visual parser can read them predictably.
+func cleanMarkdownText(value string) string {
+	return strings.Join(strings.Fields(value), " ")
+}
+
+// @intent format graph node source ranges for generated-doc-compatible fallback Markdown.
+func markdownLineRange(start, end int) string {
+	if start > 0 && end > 0 {
+		return fmt.Sprintf("%d-%d", start, end)
+	}
+	if start > 0 {
+		return strconv.Itoa(start)
+	}
+	if end > 0 {
+		return strconv.Itoa(end)
+	}
+	return ""
+}
+
+// @intent normalize and validate the namespace query parameter shared by Wiki API endpoints.
+func namespaceParam(w http.ResponseWriter, r *http.Request) (string, bool) {
+	ns := requestctx.Normalize(strings.TrimSpace(r.URL.Query().Get("namespace")))
+	if err := validateNamespace(ns); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), nil)
+		return "", false
+	}
+	return ns, true
+}
+
+// @intent keep namespace path validation aligned with namespace filesystem rules.
+func validateNamespace(namespace string) error {
+	if namespace == requestctx.DefaultNamespace {
+		return nil
+	}
+	return safepath.ValidateNamespacePath(namespace, "")
+}
+
+// @intent parse the optional edge_kinds filter for the Wiki graph API.
+func graphEdgeKindsParam(r *http.Request) ([]graph.EdgeKind, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get("edge_kinds"))
+	if raw == "" {
+		return nil, nil
+	}
+	allowed := map[graph.EdgeKind]struct{}{
+		graph.EdgeKindCalls:         {},
+		graph.EdgeKindFallbackCalls: {},
+		graph.EdgeKindImportsFrom:   {},
+		graph.EdgeKindInherits:      {},
+		graph.EdgeKindImplements:    {},
+		graph.EdgeKindContains:      {},
+		graph.EdgeKindTestedBy:      {},
+		graph.EdgeKindDependsOn:     {},
+		graph.EdgeKindReferences:    {},
+	}
+	var out []graph.EdgeKind
+	seen := map[graph.EdgeKind]struct{}{}
+	for item := range strings.SplitSeq(raw, ",") {
+		kind := graph.EdgeKind(strings.TrimSpace(item))
+		if kind == "" {
+			continue
+		}
+		if _, ok := allowed[kind]; !ok {
+			return nil, fmt.Errorf("unsupported edge kind %q", kind)
+		}
+		if _, ok := seen[kind]; ok {
+			continue
+		}
+		seen[kind] = struct{}{}
+		out = append(out, kind)
+	}
+	return out, nil
+}
+
+// @intent parse bounded integer query parameters for lightweight API pagination and tree depth.
+func boundedIntParam(r *http.Request, name string, fallback, minValue, maxValue int) (int, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get(name))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer", name)
+	}
+	if value < minValue || value > maxValue {
+		return 0, fmt.Errorf("%s must be between %d and %d", name, minValue, maxValue)
+	}
+	return value, nil
+}
+
+// @intent reject unsupported HTTP methods with a consistent status code.
+func requireMethod(w http.ResponseWriter, r *http.Request, method string) bool {
+	if r.Method != method {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return false
+	}
+	return true
+}
+
+// @intent write a JSON response with a stable content type.
+func writeJSON(w http.ResponseWriter, code int, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// @intent write a compact JSON error payload for browser API callers.
+func writeError(w http.ResponseWriter, code int, message string, err error) {
+	resp := map[string]any{"error": message}
+	if err != nil {
+		resp["detail"] = err.Error()
+	}
+	writeJSON(w, code, resp)
+}
+
+// @intent map filesystem and validation failures to browser-appropriate HTTP status codes.
+func statusForReadErr(err error) int {
+	if strings.Contains(err.Error(), "path traversal") || strings.Contains(err.Error(), "outside root") {
+		return http.StatusBadRequest
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return http.StatusNotFound
+	}
+	if errors.Is(err, fs.ErrPermission) {
+		return http.StatusForbidden
+	}
+	return http.StatusInternalServerError
+}
+
+// @intent resolve a relative path under one root while rejecting traversal and symlink escapes.
+func safePath(root, relPath string) (string, error) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	realRoot := filepath.Clean(absRoot)
+	if stat, err := os.Stat(absRoot); err == nil && stat.IsDir() {
+		if resolved, err := filepath.EvalSymlinks(absRoot); err == nil {
+			realRoot = filepath.Clean(resolved)
+		}
+	}
+	target := filepath.Join(realRoot, filepath.Clean(relPath))
+	target = filepath.Clean(target)
+	if target != realRoot && !strings.HasPrefix(target, realRoot+string(os.PathSeparator)) {
+		return "", fmt.Errorf("path is outside root")
+	}
+	if resolved, err := filepath.EvalSymlinks(target); err == nil {
+		target = filepath.Clean(resolved)
+		if target != realRoot && !strings.HasPrefix(target, realRoot+string(os.PathSeparator)) {
+			return "", fmt.Errorf("path is outside root")
+		}
+	}
+	return target, nil
+}
+
+// @intent validate an absolute wiki-index path against one approved root.
+func safeAbsolutePath(root, absPath string) (string, error) {
+	if !filepath.IsAbs(absPath) {
+		return "", fmt.Errorf("path is not absolute")
+	}
+	realRoot, err := realPathRoot(root)
+	if err != nil {
+		return "", err
+	}
+	target := filepath.Clean(absPath)
+	if resolved, err := filepath.EvalSymlinks(target); err == nil {
+		target = filepath.Clean(resolved)
+	}
+	if target != realRoot && !strings.HasPrefix(target, realRoot+string(os.PathSeparator)) {
+		return "", fmt.Errorf("path is outside root")
+	}
+	return target, nil
+}
+
+// @intent resolve an allowed root to an absolute symlink-aware path for containment checks.
+func realPathRoot(root string) (string, error) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	realRoot := filepath.Clean(absRoot)
+	if stat, err := os.Stat(absRoot); err == nil && stat.IsDir() {
+		if resolved, err := filepath.EvalSymlinks(absRoot); err == nil {
+			realRoot = filepath.Clean(resolved)
+		}
+	}
+	return realRoot, nil
+}
+
+// @intent resolve and validate an existing static asset directory.
+func resolveExistingDir(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	real, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(real)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%q is not a directory", path)
+	}
+	return filepath.Clean(real), nil
+}

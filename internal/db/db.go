@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
-	"github.com/tae2089/code-context-graph/internal/store/search"
+	search "github.com/tae2089/code-context-graph/internal/adapters/outbound/searchsql"
 )
 
 // SQLDBPool abstracts configurable SQL connection pool knobs.
