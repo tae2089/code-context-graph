@@ -146,7 +146,10 @@ func TestWireNodeToNode(t *testing.T) {
 		Language:      "go",
 	}
 
-	got := wn.toNode()
+	got, err := wn.toNode()
+	if err != nil {
+		t.Fatalf("toNode() error = %v", err)
+	}
 
 	if got.QualifiedName != "pkg.Foo.bar" {
 		t.Errorf("QualifiedName = %q, want %q", got.QualifiedName, "pkg.Foo.bar")
@@ -168,6 +171,17 @@ func TestWireNodeToNode(t *testing.T) {
 	}
 	if got.Language != "go" {
 		t.Errorf("Language = %q, want %q", got.Language, "go")
+	}
+}
+
+func TestWireNodeToNodeRejectsInvalidKind(t *testing.T) {
+	for _, kind := range []string{"func", "struct", "bogus", ""} {
+		t.Run(kind, func(t *testing.T) {
+			wn := wireNode{QualifiedName: "pkg.Foo", Kind: kind, Name: "Foo", FilePath: "src/foo.go", Language: "go"}
+			if _, err := wn.toNode(); err == nil {
+				t.Errorf("toNode() for kind %q = nil error, want error", kind)
+			}
+		})
 	}
 }
 

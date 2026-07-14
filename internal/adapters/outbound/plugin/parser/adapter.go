@@ -23,13 +23,13 @@ func New(c *client, language string) *Adapter {
 // Parse parses one file. content is ignored: the plugin reads the file from disk (protocol §1).
 // @intent satisfy the context-free Parser entry point by delegating to the plugin.
 func (a *Adapter) Parse(filePath string, _ []byte) ([]graph.Node, []graph.Edge, error) {
-	return a.client.parse(filePath, a.language)
+	return a.client.parse(context.Background(), filePath, a.language)
 }
 
 // ParseWithContext parses one file. content is ignored: the plugin reads from disk (protocol §1).
-// @intent satisfy the context-aware Parser entry point by delegating to the plugin.
-func (a *Adapter) ParseWithContext(_ context.Context, filePath string, _ []byte) ([]graph.Node, []graph.Edge, error) {
-	return a.client.parse(filePath, a.language)
+// @intent satisfy the context-aware Parser entry point, propagating cancellation to the plugin read.
+func (a *Adapter) ParseWithContext(ctx context.Context, filePath string, _ []byte) ([]graph.Node, []graph.Edge, error) {
+	return a.client.parse(ctx, filePath, a.language)
 }
 
 // Close stops the underlying plugin subprocess.

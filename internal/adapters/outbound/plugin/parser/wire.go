@@ -20,19 +20,34 @@ type wireNode struct {
 	Language      string `json:"language"`
 }
 
-// toNode converts a wire node into a domain node.
-// @intent map plugin-supplied declaration fields onto the graph node the ingest workflow persists.
-func (n wireNode) toNode() graph.Node {
+// validNodeKinds is the closed set of node kinds a plugin may emit.
+// @intent reject mistyped/unknown kinds at the boundary instead of persisting a bogus enum.
+var validNodeKinds = map[graph.NodeKind]bool{
+	graph.NodeKindFile:     true,
+	graph.NodeKindPackage:  true,
+	graph.NodeKindClass:    true,
+	graph.NodeKindFunction: true,
+	graph.NodeKindType:     true,
+	graph.NodeKindTest:     true,
+}
+
+// toNode converts a wire node into a domain node, rejecting unknown kinds.
+// @intent map plugin-supplied declaration fields onto the graph node while guarding the Kind enum.
+func (n wireNode) toNode() (graph.Node, error) {
+	kind := graph.NodeKind(n.Kind)
+	if !validNodeKinds[kind] {
+		return graph.Node{}, fmt.Errorf("unsupported node kind %q", n.Kind)
+	}
 	return graph.Node{
 		QualifiedName: n.QualifiedName,
-		Kind:          graph.NodeKind(n.Kind),
+		Kind:          kind,
 		Name:          n.Name,
 		FilePath:      n.FilePath,
 		StartLine:     n.StartLine,
 		EndLine:       n.EndLine,
 		Hash:          n.Hash,
 		Language:      n.Language,
-	}
+	}, nil
 }
 
 // wireEdge is the structured edge a parser plugin emits per relationship.
