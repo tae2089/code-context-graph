@@ -152,3 +152,37 @@ go test ./internal/adapters/inbound/cli -run TestProjectSkills -count=1
 - Logging: `slog`
 - CLI: `cobra` framework
 - Build flags: `CGO_ENABLED=1 -tags "fts5"`
+
+### Declaration order within a file
+
+Follow the standard-library convention of **cohesion over kind-grouping**: keep a
+type together with everything that operates on it, rather than sorting the file
+into "all types, then all functions". Go does not care about declaration order at
+compile time, so this rule exists purely for the reader.
+
+Within a file, order top-level declarations as:
+
+1. Package-level `const` / `var` blocks that configure the whole file, near the top
+   (after imports).
+2. For each type, a contiguous block: the `type` declaration → its interface-
+   satisfaction assertion(s) → its `New*` constructor(s) → its methods. Do not let a
+   free function or an unrelated type split a type's method set.
+3. Free helper functions after the type they support, or grouped at the end of the
+   file if they are shared.
+
+Interface-satisfaction assertions go **above** the methods, not at the bottom of the
+file, so the implemented contract is visible upfront:
+
+- `var _ Iface = (*T)(nil)` sits immediately after the `type T` declaration.
+- When `T` is declared in another file of the same package (e.g. the split
+  `graphgorm.Store`), put the assertion at the top of the file — after imports,
+  before that file's methods on `T`.
+
+One deliberate exception stays next to what it describes (this *is* the cohesion
+rule, not a violation of it):
+
+- A package-level `var` (e.g. a compiled `regexp`) placed immediately above the
+  single function that uses it.
+
+There is no standard tool that enforces this ordering; `gofmt`/`gofumpt` handle
+formatting only. It is a review-time convention.

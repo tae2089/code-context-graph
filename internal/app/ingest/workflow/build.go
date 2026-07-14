@@ -56,6 +56,38 @@ func newParsedBuildNodeBatch(relPath string, content []byte, nodes []graph.Node,
 	return out
 }
 
+// buildPersistBatch accumulates parsed file batches until a flush threshold is reached.
+// @intent amortize transaction overhead by persisting groups of files together while bounding memory.
+type buildPersistBatch struct {
+	nodeBatches []parsedBuildNodeBatch
+	files       int
+	bytes       int64
+}
+
+// add appends one parsed file's nodes to the in-flight build batch and tracks size.
+// @intent accumulate work between flushes so persistence happens in bounded chunks.
+// @mutates batch.nodeBatches, batch.files, batch.bytes
+func (b *buildPersistBatch) add(nodeBatch parsedBuildNodeBatch, parsedBytes int64) {
+	b.nodeBatches = append(b.nodeBatches, nodeBatch)
+	b.files++
+	b.bytes += parsedBytes
+}
+
+// shouldFlush reports whether the batch reached the file count or parsed byte threshold.
+// @intent bound transaction size so long builds do not balloon memory or transaction logs.
+func (b *buildPersistBatch) shouldFlush() bool {
+	return b.files >= buildFlushFileBatchSize || b.bytes >= buildFlushParsedBytes
+}
+
+// reset clears the batch for reuse after a successful flush.
+// @intent recycle the batch struct without reallocating to keep build loops allocation-light.
+// @mutates batch.nodeBatches, batch.files, batch.bytes
+func (b *buildPersistBatch) reset() {
+	b.nodeBatches = nil
+	b.files = 0
+	b.bytes = 0
+}
+
 // bindAndReleaseNodeBatch upserts a parsed file's nodes and binds its comment annotations within a transaction-scoped store.
 // @intent persist nodes and their annotation bindings atomically per file before releasing comment buffers.
 // @sideEffect writes graph nodes and annotation rows via the transaction-scoped store.
@@ -362,52 +394,6 @@ func (s *Service) packageSemanticEdgeBatches(batches []parsedBuildNodeBatch) []p
 	return out
 }
 
-// rewriteImplementsFingerprintScope rewrites an implements fingerprint to use a package anchor file.
-// @intent keep synthesized package semantic edges idempotent even when they are rebuilt from different files.
-func rewriteImplementsFingerprintScope(fingerprint, scope string) string {
-	if !strings.HasPrefix(fingerprint, "implements:") {
-		return fingerprint
-	}
-	rest := strings.TrimPrefix(fingerprint, "implements:")
-	idx := strings.Index(rest, ":")
-	if idx < 0 {
-		return fingerprint
-	}
-	return "implements:" + scope + ":" + rest[idx+1:]
-}
-
-// buildPersistBatch accumulates parsed file batches until a flush threshold is reached.
-// @intent amortize transaction overhead by persisting groups of files together while bounding memory.
-type buildPersistBatch struct {
-	nodeBatches []parsedBuildNodeBatch
-	files       int
-	bytes       int64
-}
-
-// add appends one parsed file's nodes to the in-flight build batch and tracks size.
-// @intent accumulate work between flushes so persistence happens in bounded chunks.
-// @mutates batch.nodeBatches, batch.files, batch.bytes
-func (b *buildPersistBatch) add(nodeBatch parsedBuildNodeBatch, parsedBytes int64) {
-	b.nodeBatches = append(b.nodeBatches, nodeBatch)
-	b.files++
-	b.bytes += parsedBytes
-}
-
-// shouldFlush reports whether the batch reached the file count or parsed byte threshold.
-// @intent bound transaction size so long builds do not balloon memory or transaction logs.
-func (b *buildPersistBatch) shouldFlush() bool {
-	return b.files >= buildFlushFileBatchSize || b.bytes >= buildFlushParsedBytes
-}
-
-// reset clears the batch for reuse after a successful flush.
-// @intent recycle the batch struct without reallocating to keep build loops allocation-light.
-// @mutates batch.nodeBatches, batch.files, batch.bytes
-func (b *buildPersistBatch) reset() {
-	b.nodeBatches = nil
-	b.files = 0
-	b.bytes = 0
-}
-
 // flushBuildBatch persists the buffered nodes for the current batch.
 // @intent persist nodes before all edges so foreign-key style references can resolve.
 // @sideEffect upserts graph nodes and annotations through the transaction-scoped store.
@@ -482,6 +468,20 @@ func (s *Service) flushBuildEdges(ctx context.Context, txStore ingestapp.GraphSt
 		}
 	}
 	return nil
+}
+
+// rewriteImplementsFingerprintScope rewrites an implements fingerprint to use a package anchor file.
+// @intent keep synthesized package semantic edges idempotent even when they are rebuilt from different files.
+func rewriteImplementsFingerprintScope(fingerprint, scope string) string {
+	if !strings.HasPrefix(fingerprint, "implements:") {
+		return fingerprint
+	}
+	rest := strings.TrimPrefix(fingerprint, "implements:")
+	idx := strings.Index(rest, ":")
+	if idx < 0 {
+		return fingerprint
+	}
+	return "implements:" + scope + ":" + rest[idx+1:]
 }
 
 // mergeBuildUnresolvedDiagnostics folds one chunk's unresolved-edge diagnostics into build totals.

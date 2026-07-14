@@ -17,6 +17,8 @@ import (
 // @intent prevent readers from observing partial built-in Wiki index snapshots.
 type WikiIndexWriter struct{ Root string }
 
+var _ wiki.IndexWriter = (*WikiIndexWriter)(nil)
+
 // NewWikiIndexWriter binds Wiki snapshots to the configured state directory.
 // @intent preserve the default .ccg output root while allowing CLI-configured state paths.
 func NewWikiIndexWriter(root string) *WikiIndexWriter { return &WikiIndexWriter{Root: root} }
@@ -62,8 +64,6 @@ func (w *WikiIndexWriter) WriteWikiIndex(_ context.Context, namespace string, id
 	}
 	return nil
 }
-
-var _ wiki.IndexWriter = (*WikiIndexWriter)(nil)
 
 // LoadWikiIndex decodes one persisted built-in Wiki compatibility snapshot.
 // @intent round-trip compatibility fixtures and fallback readers through the outbound file adapter.

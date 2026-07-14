@@ -15,10 +15,6 @@ import (
 // @intent emit Java hierarchy edges directly from class declaration syntax so type resolution can bind them later.
 type JavaSemantics struct{}
 
-// KotlinSemantics recovers Kotlin superclass and interface relationships from class declarations.
-// @intent emit Kotlin hierarchy edges from declaration text while preserving package-qualified child names.
-type KotlinSemantics struct{}
-
 // CallRewriter returns a conservative Java receiver-type rewriter.
 // @intent rewrite member-call chains only when local/field declarations prove the receiver types.
 func (JavaSemantics) CallRewriter(ctx SemanticContext) CallRewriter {
@@ -26,17 +22,6 @@ func (JavaSemantics) CallRewriter(ctx SemanticContext) CallRewriter {
 	return explicitReceiverTypeCallRewriter{
 		bindings: collectJavaReceiverBindings(ctx.Root, ctx.Content, ctx.Package, imports, blocked, hasWildcard),
 		members:  collectJavaMemberTypes(ctx.Root, ctx.Content, ctx.Package, imports, blocked, hasWildcard),
-		chain:    jvmReceiverChain,
-	}
-}
-
-// CallRewriter returns a conservative Kotlin receiver-type rewriter.
-// @intent rewrite member-call chains only when explicit property/value types prove the receiver chain.
-func (KotlinSemantics) CallRewriter(ctx SemanticContext) CallRewriter {
-	imports, blocked, hasWildcard := collectJVMImportMetadata(ctx.Root, ctx.Content, map[string]struct{}{"import_header": {}})
-	return explicitReceiverTypeCallRewriter{
-		bindings: collectKotlinReceiverBindings(ctx.Root, ctx.Content, ctx.Package, imports, blocked, hasWildcard),
-		members:  collectKotlinMemberTypes(ctx.Root, ctx.Content, ctx.Package, imports, blocked, hasWildcard),
 		chain:    jvmReceiverChain,
 	}
 }
@@ -104,6 +89,21 @@ func (JavaSemantics) ImplementedTypes(ctx DefinitionContext) []string {
 		traits[i] = qualifyImportedTypeName(traits[i], ctx.Package, imports)
 	}
 	return traits
+}
+
+// KotlinSemantics recovers Kotlin superclass and interface relationships from class declarations.
+// @intent emit Kotlin hierarchy edges from declaration text while preserving package-qualified child names.
+type KotlinSemantics struct{}
+
+// CallRewriter returns a conservative Kotlin receiver-type rewriter.
+// @intent rewrite member-call chains only when explicit property/value types prove the receiver chain.
+func (KotlinSemantics) CallRewriter(ctx SemanticContext) CallRewriter {
+	imports, blocked, hasWildcard := collectJVMImportMetadata(ctx.Root, ctx.Content, map[string]struct{}{"import_header": {}})
+	return explicitReceiverTypeCallRewriter{
+		bindings: collectKotlinReceiverBindings(ctx.Root, ctx.Content, ctx.Package, imports, blocked, hasWildcard),
+		members:  collectKotlinMemberTypes(ctx.Root, ctx.Content, ctx.Package, imports, blocked, hasWildcard),
+		chain:    jvmReceiverChain,
+	}
 }
 
 // AdditionalEdges adds Kotlin inherits and implements edges from class declarations.

@@ -16,6 +16,13 @@ import (
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
+// languagePackageDiscoverer combines parser-owned discovery with a stable language identity.
+// @intent select deterministic package discovery capabilities through the parser port.
+type languagePackageDiscoverer interface {
+	ingestapp.PackageDiscoverer
+	Language() string
+}
+
 // collectLanguagePackages discovers language-specific package information within the build directory.
 // @intent identify package boundaries and file memberships to populate the graph's package structure.
 func (s *Service) collectLanguagePackages(ctx context.Context, absDir string, opts BuildOptions) map[string]languagePackageInfo {
@@ -42,13 +49,6 @@ func (s *Service) collectLanguagePackages(ctx context.Context, absDir string, op
 		return nil
 	}
 	return merged
-}
-
-// languagePackageDiscoverer combines parser-owned discovery with a stable language identity.
-// @intent select deterministic package discovery capabilities through the parser port.
-type languagePackageDiscoverer interface {
-	ingestapp.PackageDiscoverer
-	Language() string
 }
 
 // packageDiscoverers collects unique discovery-capable parsers for all active languages.
@@ -114,6 +114,117 @@ func (s *Service) packageEdgeBuilder(language string) ingestapp.PackageEdgeBuild
 	return nil
 }
 
+// withImportPackageContext attaches discovered package names to the context for use during edge resolution.
+// @intent ensure cross-package imports can be resolved using their semantic names.
+func (s *Service) withImportPackageContext(ctx context.Context, packages map[string]languagePackageInfo) context.Context {
+	ctx = ingestapp.WithImportPackages(ctx, importPackageContext(packages))
+	return ingestapp.WithFilePackages(ctx, filePackageImportPaths(packages))
+}
+
+// refreshPackageSemanticEdges rebuilds package-level semantic edges for affected packages only.
+// @intent keep synthesized package relationships in sync after incremental file changes without rebuilding every package.
+// @sideEffect deletes stale package semantic edges and upserts regenerated ones through the graph store.
+// @mutates graph edges
+func (s *Service) refreshPackageSemanticEdges(ctx context.Context, graphStore ingestapp.GraphStore, absDir string, packages map[string]languagePackageInfo, changedFiles, deletedFiles []string, resolveOptions resolve.ResolveOptions) error {
+	if graphStore == nil || len(packages) == 0 {
+		return nil
+	}
+	batches, anchors, err := s.collectAffectedPackageSemanticBatches(ctx, graphStore, absDir, packages, changedFiles, deletedFiles)
+	if err != nil {
+		return err
+	}
+	if err := graphStore.DeletePackageSemanticEdges(ctx, anchors); err != nil {
+		return err
+	}
+	edgeBatches := s.packageSemanticEdgeBatches(batches)
+	if len(edgeBatches) == 0 {
+		return nil
+	}
+	return s.flushBuildEdges(ctx, graphStore, edgeBatches, nil, resolveOptions)
+}
+
+// collectAffectedPackageSemanticBatches gathers node batches for packages touched by changed or deleted files.
+// @intent limit package semantic edge refresh work to packages whose file sets overlap the current update.
+func (s *Service) collectAffectedPackageSemanticBatches(ctx context.Context, graphStore ingestapp.GraphStore, absDir string, packages map[string]languagePackageInfo, changedFiles, deletedFiles []string) ([]parsedBuildNodeBatch, []string, error) {
+	affected := affectedPackageImportPaths(packages, append(append([]string(nil), changedFiles...), deletedFiles...))
+	if len(affected) == 0 {
+		return nil, nil, nil
+	}
+	fileSet := make(map[string]struct{})
+	for _, importPath := range affected {
+		for _, filePath := range packages[importPath].Files {
+			fileSet[filePath] = struct{}{}
+		}
+	}
+	filePaths := make([]string, 0, len(fileSet))
+	for filePath := range fileSet {
+		filePaths = append(filePaths, filePath)
+	}
+	slices.Sort(filePaths)
+	nodesByFile, err := graphStore.GetNodesByFiles(ctx, filePaths)
+	if err != nil {
+		return nil, nil, err
+	}
+	var batches []parsedBuildNodeBatch
+	anchors := make([]string, 0, len(affected))
+	for _, importPath := range affected {
+		pkg := packages[importPath]
+		files := append([]string(nil), pkg.Files...)
+		slices.Sort(files)
+		if len(files) == 0 {
+			continue
+		}
+		anchors = append(anchors, files...)
+		for _, filePath := range files {
+			nodes := nodesByFile[filePath]
+			if len(nodes) == 0 {
+				continue
+			}
+			meta, language, err := s.packageSemanticMetadataForFile(ctx, absDir, filePath)
+			if err != nil {
+				return nil, nil, err
+			}
+			if language == "" {
+				continue
+			}
+			packageName := meta.Package
+			if packageName == "" {
+				packageName = pkg.Name
+			}
+			batches = append(batches, parsedBuildNodeBatch{
+				relPath:     filePath,
+				nodes:       nodes,
+				packageName: packageName,
+				interfaces:  meta.Interfaces,
+				language:    language,
+			})
+		}
+	}
+	return batches, anchors, nil
+}
+
+// packageSemanticMetadataForFile reparses one file to recover package-level semantic metadata.
+// @intent reload package and interface metadata only for files participating in a package semantic refresh.
+func (s *Service) packageSemanticMetadataForFile(ctx context.Context, absDir, relPath string) (ingestapp.ParseMetadata, string, error) {
+	parser, ok := s.parserForExt(strings.ToLower(filepath.Ext(relPath)))
+	if !ok {
+		return ingestapp.ParseMetadata{}, "", nil
+	}
+	mp, ok := parser.(metadataParserWithLanguage)
+	if !ok {
+		return ingestapp.ParseMetadata{}, "", nil
+	}
+	content, err := os.ReadFile(filepath.Join(absDir, relPath))
+	if err != nil {
+		return ingestapp.ParseMetadata{}, "", err
+	}
+	_, _, _, meta, err := mp.ParseWithCommentsAndMetadata(ctx, relPath, content)
+	if err != nil {
+		return ingestapp.ParseMetadata{}, "", err
+	}
+	return meta, mp.Language(), nil
+}
+
 // packageEdgeBuilderForParser returns a matching optional semantic capability from one parser.
 // @intent let explicit parsers and fallback walkers be evaluated independently for package semantics.
 func packageEdgeBuilderForParser(parser Parser, language string) ingestapp.PackageEdgeBuilder {
@@ -123,13 +234,6 @@ func packageEdgeBuilderForParser(parser Parser, language string) ingestapp.Packa
 	}
 	builder, _ := parser.(ingestapp.PackageEdgeBuilder)
 	return builder
-}
-
-// withImportPackageContext attaches discovered package names to the context for use during edge resolution.
-// @intent ensure cross-package imports can be resolved using their semantic names.
-func (s *Service) withImportPackageContext(ctx context.Context, packages map[string]languagePackageInfo) context.Context {
-	ctx = ingestapp.WithImportPackages(ctx, importPackageContext(packages))
-	return ingestapp.WithFilePackages(ctx, filePackageImportPaths(packages))
 }
 
 // mergeLanguagePackages aggregates discovered packages into a central map while filtering ambiguous paths.
@@ -365,110 +469,6 @@ func singleNodeOfKind(nodes []graph.Node, kind graph.NodeKind) *graph.Node {
 func packageContainsFingerprint(importPath, filePath string) string {
 	sum := sha256.Sum256([]byte(importPath + "\x00" + filePath))
 	return fmt.Sprintf("contains:package:%x", sum)
-}
-
-// refreshPackageSemanticEdges rebuilds package-level semantic edges for affected packages only.
-// @intent keep synthesized package relationships in sync after incremental file changes without rebuilding every package.
-// @sideEffect deletes stale package semantic edges and upserts regenerated ones through the graph store.
-// @mutates graph edges
-func (s *Service) refreshPackageSemanticEdges(ctx context.Context, graphStore ingestapp.GraphStore, absDir string, packages map[string]languagePackageInfo, changedFiles, deletedFiles []string, resolveOptions resolve.ResolveOptions) error {
-	if graphStore == nil || len(packages) == 0 {
-		return nil
-	}
-	batches, anchors, err := s.collectAffectedPackageSemanticBatches(ctx, graphStore, absDir, packages, changedFiles, deletedFiles)
-	if err != nil {
-		return err
-	}
-	if err := graphStore.DeletePackageSemanticEdges(ctx, anchors); err != nil {
-		return err
-	}
-	edgeBatches := s.packageSemanticEdgeBatches(batches)
-	if len(edgeBatches) == 0 {
-		return nil
-	}
-	return s.flushBuildEdges(ctx, graphStore, edgeBatches, nil, resolveOptions)
-}
-
-// collectAffectedPackageSemanticBatches gathers node batches for packages touched by changed or deleted files.
-// @intent limit package semantic edge refresh work to packages whose file sets overlap the current update.
-func (s *Service) collectAffectedPackageSemanticBatches(ctx context.Context, graphStore ingestapp.GraphStore, absDir string, packages map[string]languagePackageInfo, changedFiles, deletedFiles []string) ([]parsedBuildNodeBatch, []string, error) {
-	affected := affectedPackageImportPaths(packages, append(append([]string(nil), changedFiles...), deletedFiles...))
-	if len(affected) == 0 {
-		return nil, nil, nil
-	}
-	fileSet := make(map[string]struct{})
-	for _, importPath := range affected {
-		for _, filePath := range packages[importPath].Files {
-			fileSet[filePath] = struct{}{}
-		}
-	}
-	filePaths := make([]string, 0, len(fileSet))
-	for filePath := range fileSet {
-		filePaths = append(filePaths, filePath)
-	}
-	slices.Sort(filePaths)
-	nodesByFile, err := graphStore.GetNodesByFiles(ctx, filePaths)
-	if err != nil {
-		return nil, nil, err
-	}
-	var batches []parsedBuildNodeBatch
-	anchors := make([]string, 0, len(affected))
-	for _, importPath := range affected {
-		pkg := packages[importPath]
-		files := append([]string(nil), pkg.Files...)
-		slices.Sort(files)
-		if len(files) == 0 {
-			continue
-		}
-		anchors = append(anchors, files...)
-		for _, filePath := range files {
-			nodes := nodesByFile[filePath]
-			if len(nodes) == 0 {
-				continue
-			}
-			meta, language, err := s.packageSemanticMetadataForFile(ctx, absDir, filePath)
-			if err != nil {
-				return nil, nil, err
-			}
-			if language == "" {
-				continue
-			}
-			packageName := meta.Package
-			if packageName == "" {
-				packageName = pkg.Name
-			}
-			batches = append(batches, parsedBuildNodeBatch{
-				relPath:     filePath,
-				nodes:       nodes,
-				packageName: packageName,
-				interfaces:  meta.Interfaces,
-				language:    language,
-			})
-		}
-	}
-	return batches, anchors, nil
-}
-
-// packageSemanticMetadataForFile reparses one file to recover package-level semantic metadata.
-// @intent reload package and interface metadata only for files participating in a package semantic refresh.
-func (s *Service) packageSemanticMetadataForFile(ctx context.Context, absDir, relPath string) (ingestapp.ParseMetadata, string, error) {
-	parser, ok := s.parserForExt(strings.ToLower(filepath.Ext(relPath)))
-	if !ok {
-		return ingestapp.ParseMetadata{}, "", nil
-	}
-	mp, ok := parser.(metadataParserWithLanguage)
-	if !ok {
-		return ingestapp.ParseMetadata{}, "", nil
-	}
-	content, err := os.ReadFile(filepath.Join(absDir, relPath))
-	if err != nil {
-		return ingestapp.ParseMetadata{}, "", err
-	}
-	_, _, _, meta, err := mp.ParseWithCommentsAndMetadata(ctx, relPath, content)
-	if err != nil {
-		return ingestapp.ParseMetadata{}, "", err
-	}
-	return meta, mp.Language(), nil
 }
 
 // affectedPackageImportPaths identifies packages whose file lists intersect the changed scope.

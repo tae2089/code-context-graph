@@ -30,16 +30,6 @@ type WebhookHandler struct {
 	cloneBaseURLs []string
 }
 
-// NewWebhookHandler wires a webhook handler from the common secret/filter/sync callback inputs.
-// @intent keep the default construction path small while routing all configuration through the shared config builder.
-// @param secret is the shared webhook secret used for signature validation.
-// @param filter decides which repo and branch combinations are eligible for sync.
-// @param onSync dispatches the validated sync request.
-// @ensures returns a handler configured with the default secure validation path.
-func NewWebhookHandler(secret []byte, filter *reposync.RepoFilter, onSync SyncFunc) *WebhookHandler {
-	return NewWebhookHandlerWithConfig(WebhookHandlerConfig{Secret: secret, Filter: filter, OnSync: onSync})
-}
-
 // @intent carry all constructor options for webhook validation, clone URL policy, and sync dispatch.
 type WebhookHandlerConfig struct {
 	Secret        []byte
@@ -48,6 +38,16 @@ type WebhookHandlerConfig struct {
 	Insecure      bool
 	CloneBaseURL  string
 	CloneBaseURLs []string
+}
+
+// NewWebhookHandler wires a webhook handler from the common secret/filter/sync callback inputs.
+// @intent keep the default construction path small while routing all configuration through the shared config builder.
+// @param secret is the shared webhook secret used for signature validation.
+// @param filter decides which repo and branch combinations are eligible for sync.
+// @param onSync dispatches the validated sync request.
+// @ensures returns a handler configured with the default secure validation path.
+func NewWebhookHandler(secret []byte, filter *reposync.RepoFilter, onSync SyncFunc) *WebhookHandler {
+	return NewWebhookHandlerWithConfig(WebhookHandlerConfig{Secret: secret, Filter: filter, OnSync: onSync})
 }
 
 // NewWebhookHandlerWithOptions builds a handler with the legacy option-style constructor.
@@ -169,14 +169,6 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// @intent skip webhook pushes that only report branch deletion instead of a syncable commit head.
-func isDeletedBranchPush(event pushEvent) bool {
-	if event.Deleted {
-		return true
-	}
-	return event.After != "" && strings.Trim(event.After, "0") == ""
-}
-
 // @intent authenticate webhook payloads before the sync pipeline trusts their repository metadata.
 // @param payload is the raw webhook request body.
 // @param signature is the GitHub or Gitea signature header value.
@@ -200,4 +192,12 @@ func (h *WebhookHandler) verifySignature(payload []byte, signature string) bool 
 	// GitHub: "sha256=<hex>", Gitea: "<hex>"
 	sig := strings.TrimPrefix(signature, "sha256=")
 	return hmac.Equal([]byte(expectedHex), []byte(sig))
+}
+
+// @intent skip webhook pushes that only report branch deletion instead of a syncable commit head.
+func isDeletedBranchPush(event pushEvent) bool {
+	if event.Deleted {
+		return true
+	}
+	return event.After != "" && strings.Trim(event.After, "0") == ""
 }

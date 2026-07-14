@@ -35,6 +35,8 @@ type Checkout struct {
 	Auth   transport.AuthMethod
 }
 
+var _ reposync.Checkout = (*Checkout)(nil)
+
 // NewCheckout constructs the outbound repository synchronization capability.
 // @intent bind repository root, lock coordination, and transport authentication once at composition.
 func NewCheckout(root string, locker *RepoLocker, auth transport.AuthMethod) *Checkout {
@@ -50,8 +52,6 @@ func (c *Checkout) Sync(ctx context.Context, req reposync.CheckoutRequest) (stri
 	}
 	return RepoDir(c.Root, req.Namespace), nil
 }
-
-var _ reposync.Checkout = (*Checkout)(nil)
 
 // @intent treat repository lock files older than this threshold as abandoned by a previous process.
 const repoLockStaleAfter = 30 * time.Minute

@@ -17,14 +17,6 @@ import (
 	"github.com/tae2089/code-context-graph/internal/safepath"
 )
 
-// @intent refresh search documents through the injected override, defaulting to the service impl.
-func (h *handlers) refreshSearchDocuments(ctx context.Context) (int, error) {
-	if h.deps.Build.Maintenance == nil {
-		return 0, nil
-	}
-	return h.deps.Build.Maintenance.RefreshDocuments(ctx)
-}
-
 // @intent serialize build_or_update_graph results with a fixed JSON schema without changing the wire format.
 type buildOrUpdateGraphResponse struct {
 	Status       string   `json:"status"`
@@ -44,6 +36,14 @@ type runPostprocessResponse struct {
 	FTSIndexed       int      `json:"fts_indexed"`
 	FailedSteps      []string `json:"failed_steps"`
 	SkippedSteps     []string `json:"skipped_steps"`
+}
+
+// @intent refresh search documents through the injected override, defaulting to the service impl.
+func (h *handlers) refreshSearchDocuments(ctx context.Context) (int, error) {
+	if h.deps.Build.Maintenance == nil {
+		return 0, nil
+	}
+	return h.deps.Build.Maintenance.RefreshDocuments(ctx)
 }
 
 // @intent apply per-request parse limits without mutating the shared handler dependency configuration.
@@ -342,16 +342,6 @@ func (h *handlers) runPostprocess(ctx context.Context, request mcp.CallToolReque
 	return mcp.NewToolResultText(jsonStr), nil
 }
 
-// @intent append values to a slice while preserving uniqueness for skipped-step reporting.
-func appendUniqueStrings(dst []string, values ...string) []string {
-	for _, value := range values {
-		if !slices.Contains(dst, value) {
-			dst = append(dst, value)
-		}
-	}
-	return dst
-}
-
 // @intent restrict parse and build requests to configured analysis roots before filesystem traversal begins.
 // @domainRule only paths contained in configured analysis roots may be parsed or rebuilt.
 // @ensures returned path is canonical, existing, and contained within an allowed analysis root.
@@ -375,4 +365,14 @@ func (h *handlers) validateAnalysisPath(path string) (string, error) {
 		return "", fmt.Errorf("path %q is outside configured analysis root", path)
 	}
 	return target, nil
+}
+
+// @intent append values to a slice while preserving uniqueness for skipped-step reporting.
+func appendUniqueStrings(dst []string, values ...string) []string {
+	for _, value := range values {
+		if !slices.Contains(dst, value) {
+			dst = append(dst, value)
+		}
+	}
+	return dst
 }

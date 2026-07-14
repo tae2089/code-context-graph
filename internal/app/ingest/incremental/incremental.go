@@ -64,30 +64,6 @@ type Syncer struct {
 	logger  *slog.Logger
 }
 
-// parsedSyncFile holds parsed output and file metadata for one incremental sync input.
-// @intent carry parsed nodes, edges, comments, and language state through the sync pipeline.
-type parsedSyncFile struct {
-	filePath    string
-	info        FileInfo
-	nodes       []graph.Node
-	edges       []graph.Edge
-	comments    []ingest.CommentBlock
-	language    string
-	hadExisting bool
-}
-
-// releaseContent drops the in-memory file content for one path so the sync loop can free memory early.
-// @intent prevent the FileInfo map from holding all source bytes after a file has been processed.
-// @mutates files[filePath].Content
-func releaseContent(files map[string]FileInfo, filePath string) {
-	info, ok := files[filePath]
-	if !ok {
-		return
-	}
-	info.Content = nil
-	files[filePath] = info
-}
-
 // SyncerOption configures a Syncer instance.
 // @intent customize incremental sync behavior without expanding the constructor signature
 type SyncerOption func(*Syncer)
@@ -277,26 +253,6 @@ func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files ma
 	return stats, nil
 }
 
-// setNodeHashes records the file content hash on every node parsed from that file.
-// @intent keep incremental hash comparisons aligned with the stored graph rows.
-// @mutates nodes
-func setNodeHashes(nodes []graph.Node, hash string) {
-	for i := range nodes {
-		nodes[i].Hash = hash
-	}
-}
-
-// sortedFilePaths returns the file map keys in deterministic order.
-// @intent stabilize incremental sync traversal so logs, batching, and tests stay reproducible.
-func sortedFilePaths(files map[string]FileInfo) []string {
-	paths := make([]string, 0, len(files))
-	for filePath := range files {
-		paths = append(paths, filePath)
-	}
-	sort.Strings(paths)
-	return paths
-}
-
 // resolveAndUpsertEdges resolves parsed edges in dependency-safe phases before persisting them.
 // @intent preserve interface dispatch and import-backed call resolution during incremental sync updates.
 // @sideEffect upserts resolved graph edges through the sync store.
@@ -337,6 +293,112 @@ func (s *Syncer) resolveAndUpsertEdges(ctx context.Context, syncStore Store, par
 		}
 	}
 	return nil
+}
+
+// resolveParser picks an extension-specific parser when configured, otherwise the legacy single parser.
+// @intent let multi-language projects sync without losing the single-parser fallback for callers using New.
+func (s *Syncer) resolveParser(filePath string) Parser {
+	if len(s.parsers) > 0 {
+		ext := strings.ToLower(filepath.Ext(filePath))
+		if parser, ok := s.parsers[ext]; ok {
+			return parser
+		}
+	}
+	return s.parser
+}
+
+// restoreAnnotations re-binds parsed comment blocks to the freshly persisted nodes for one file.
+// @intent keep doc comments associated with their owning declarations after incremental reparses.
+// @sideEffect upserts annotation rows through the store's annotation writer.
+// @mutates graph annotations
+func (s *Syncer) restoreAnnotations(ctx context.Context, syncStore Store, filePath string, content []byte, nodes []graph.Node, comments []ingest.CommentBlock, language string) error {
+	writer, ok := syncStore.(annotationWriter)
+	if !ok || language == "" {
+		return nil
+	}
+
+	binder := binding.NewBinder()
+	bindingComments := make([]binding.CommentBlock, len(comments))
+	for i, c := range comments {
+		bindingComments[i] = binding.CommentBlock{
+			StartLine:      c.StartLine,
+			EndLine:        c.EndLine,
+			Text:           c.Text,
+			IsDocstring:    c.IsDocstring,
+			OwnerStartLine: c.OwnerStartLine,
+		}
+	}
+	sourceLines := strings.Split(string(content), "\n")
+	bindings := binder.Bind(bindingComments, nodes, language, sourceLines)
+	if len(bindings) == 0 {
+		return nil
+	}
+
+	storedNodes, err := syncStore.GetNodesByFile(ctx, filePath)
+	if err != nil {
+		return err
+	}
+	storedByKey := make(map[string]*graph.Node, len(storedNodes))
+	for i := range storedNodes {
+		storedByKey[annotationBindingKey(storedNodes[i].QualifiedName, storedNodes[i].StartLine)] = &storedNodes[i]
+	}
+
+	for _, binding := range bindings {
+		stored := storedByKey[annotationBindingKey(binding.Node.QualifiedName, binding.Node.StartLine)]
+		if stored == nil {
+			continue
+		}
+		binding.Annotation.NodeID = stored.ID
+		if err := writer.UpsertAnnotation(ctx, binding.Annotation); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// parsedSyncFile holds parsed output and file metadata for one incremental sync input.
+// @intent carry parsed nodes, edges, comments, and language state through the sync pipeline.
+type parsedSyncFile struct {
+	filePath    string
+	info        FileInfo
+	nodes       []graph.Node
+	edges       []graph.Edge
+	comments    []ingest.CommentBlock
+	language    string
+	hadExisting bool
+}
+
+// releaseContent drops the in-memory file content for one path so the sync loop can free memory early.
+// @intent prevent the FileInfo map from holding all source bytes after a file has been processed.
+// @mutates files[filePath].Content
+func releaseContent(files map[string]FileInfo, filePath string) {
+	info, ok := files[filePath]
+	if !ok {
+		return
+	}
+	info.Content = nil
+	files[filePath] = info
+}
+
+// setNodeHashes records the file content hash on every node parsed from that file.
+// @intent keep incremental hash comparisons aligned with the stored graph rows.
+// @mutates nodes
+func setNodeHashes(nodes []graph.Node, hash string) {
+	for i := range nodes {
+		nodes[i].Hash = hash
+	}
+}
+
+// sortedFilePaths returns the file map keys in deterministic order.
+// @intent stabilize incremental sync traversal so logs, batching, and tests stay reproducible.
+func sortedFilePaths(files map[string]FileInfo) []string {
+	paths := make([]string, 0, len(files))
+	for filePath := range files {
+		paths = append(paths, filePath)
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 // mergeSyncUnresolvedDiagnostics folds one chunk's unresolved-edge diagnostics into sync totals.
@@ -468,68 +530,6 @@ func splitEdgeChunks(edges []graph.Edge) [][]graph.Edge {
 		chunks = append(chunks, edges[start:end])
 	}
 	return chunks
-}
-
-// resolveParser picks an extension-specific parser when configured, otherwise the legacy single parser.
-// @intent let multi-language projects sync without losing the single-parser fallback for callers using New.
-func (s *Syncer) resolveParser(filePath string) Parser {
-	if len(s.parsers) > 0 {
-		ext := strings.ToLower(filepath.Ext(filePath))
-		if parser, ok := s.parsers[ext]; ok {
-			return parser
-		}
-	}
-	return s.parser
-}
-
-// restoreAnnotations re-binds parsed comment blocks to the freshly persisted nodes for one file.
-// @intent keep doc comments associated with their owning declarations after incremental reparses.
-// @sideEffect upserts annotation rows through the store's annotation writer.
-// @mutates graph annotations
-func (s *Syncer) restoreAnnotations(ctx context.Context, syncStore Store, filePath string, content []byte, nodes []graph.Node, comments []ingest.CommentBlock, language string) error {
-	writer, ok := syncStore.(annotationWriter)
-	if !ok || language == "" {
-		return nil
-	}
-
-	binder := binding.NewBinder()
-	bindingComments := make([]binding.CommentBlock, len(comments))
-	for i, c := range comments {
-		bindingComments[i] = binding.CommentBlock{
-			StartLine:      c.StartLine,
-			EndLine:        c.EndLine,
-			Text:           c.Text,
-			IsDocstring:    c.IsDocstring,
-			OwnerStartLine: c.OwnerStartLine,
-		}
-	}
-	sourceLines := strings.Split(string(content), "\n")
-	bindings := binder.Bind(bindingComments, nodes, language, sourceLines)
-	if len(bindings) == 0 {
-		return nil
-	}
-
-	storedNodes, err := syncStore.GetNodesByFile(ctx, filePath)
-	if err != nil {
-		return err
-	}
-	storedByKey := make(map[string]*graph.Node, len(storedNodes))
-	for i := range storedNodes {
-		storedByKey[annotationBindingKey(storedNodes[i].QualifiedName, storedNodes[i].StartLine)] = &storedNodes[i]
-	}
-
-	for _, binding := range bindings {
-		stored := storedByKey[annotationBindingKey(binding.Node.QualifiedName, binding.Node.StartLine)]
-		if stored == nil {
-			continue
-		}
-		binding.Annotation.NodeID = stored.ID
-		if err := writer.UpsertAnnotation(ctx, binding.Annotation); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 // annotationBindingKey produces a stable lookup key combining qualified name and start line.

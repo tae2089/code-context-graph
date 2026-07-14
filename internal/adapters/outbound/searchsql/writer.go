@@ -27,6 +27,8 @@ type Writer struct {
 	logger  *slog.Logger
 }
 
+var _ document.Maintenance = (*Writer)(nil)
+
 // NewSearchWriter binds derived search updates to the supplied database handle.
 // @intent construct a search writer that can share an ingest transaction with graph persistence.
 func NewSearchWriter(db *gorm.DB, backend Backend, logger *slog.Logger) *Writer {
@@ -79,8 +81,6 @@ func (w *Writer) RebuildIndex(ctx context.Context) error {
 	}
 	return w.backend.Rebuild(ctx, w.db)
 }
-
-var _ document.Maintenance = (*Writer)(nil)
 
 // RebuildNodes refreshes only the supplied node IDs and updates the matching backend scope.
 // @intent implement the incremental derived-search refresh required by graph updates.

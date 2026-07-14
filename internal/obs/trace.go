@@ -79,6 +79,52 @@ func Setup(ctx context.Context, cfg Config) (*Telemetry, error) {
 	}, nil
 }
 
+// Shutdown flushes and stops the active tracer provider.
+// @intent 서버 종료 시 export 대기 중인 span을 정리하고 provider를 닫는다.
+// @sideEffect tracer provider의 종료 훅을 실행한다.
+func (t *Telemetry) Shutdown(ctx context.Context) error {
+	if t == nil || t.provider == nil {
+		return nil
+	}
+	if ctx == nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
+		defer cancel()
+		ctx = shutdownCtx
+	}
+	return t.provider.Shutdown(ctx)
+}
+
+// StartServerSpan extracts inbound HTTP headers and starts a server-kind span.
+// @intent telemetry 인스턴스에 묶인 tracer로 HTTP 진입 span을 시작한다.
+func (t *Telemetry) StartServerSpan(ctx context.Context, name string, header http.Header, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span) {
+	ctx = ContextWithHTTPTrace(ctx, header)
+	return t.start(ctx, name, oteltrace.WithSpanKind(oteltrace.SpanKindServer), oteltrace.WithAttributes(attrs...))
+}
+
+// StartSpan starts an internal span with the telemetry instance tracer.
+// @intent 개별 telemetry 인스턴스로 일반 내부 span을 생성한다.
+func (t *Telemetry) StartSpan(ctx context.Context, name string, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span) {
+	return t.start(ctx, name, oteltrace.WithAttributes(attrs...))
+}
+
+// StartChildSpan starts a child span with the telemetry instance tracer.
+// @intent telemetry 인스턴스 기준으로 후속 작업 span을 생성한다.
+func (t *Telemetry) StartChildSpan(ctx context.Context, name string, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span) {
+	return t.start(ctx, name, oteltrace.WithAttributes(attrs...))
+}
+
+// start is the common span creation path shared by server/internal helpers.
+// @intent nil-safe tracer fallback과 span 시작 옵션 적용을 한 곳으로 모은다.
+func (t *Telemetry) start(ctx context.Context, name string, opts ...oteltrace.SpanStartOption) (context.Context, oteltrace.Span) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if t == nil || t.tracer == nil {
+		return otel.Tracer("code-context-graph").Start(ctx, name, opts...)
+	}
+	return t.tracer.Start(ctx, name, opts...)
+}
+
 // SetGlobal replaces the process-wide telemetry handle used by helper functions.
 // @intent 서버 초기화 이후 어디서나 같은 tracer를 쓰도록 전역 핸들을 갱신한다.
 // @sideEffect globalTelemetry를 교체한다.
@@ -98,21 +144,6 @@ func Global() *Telemetry {
 	globalMu.RLock()
 	defer globalMu.RUnlock()
 	return globalTelemetry
-}
-
-// Shutdown flushes and stops the active tracer provider.
-// @intent 서버 종료 시 export 대기 중인 span을 정리하고 provider를 닫는다.
-// @sideEffect tracer provider의 종료 훅을 실행한다.
-func (t *Telemetry) Shutdown(ctx context.Context) error {
-	if t == nil || t.provider == nil {
-		return nil
-	}
-	if ctx == nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
-		defer cancel()
-		ctx = shutdownCtx
-	}
-	return t.provider.Shutdown(ctx)
 }
 
 // ContextWithHTTPTrace extracts inbound trace headers into the provided context.
@@ -145,25 +176,6 @@ func StartChildSpan(ctx context.Context, name string, attrs ...attribute.KeyValu
 	return Global().StartChildSpan(ctx, name, attrs...)
 }
 
-// StartServerSpan extracts inbound HTTP headers and starts a server-kind span.
-// @intent telemetry 인스턴스에 묶인 tracer로 HTTP 진입 span을 시작한다.
-func (t *Telemetry) StartServerSpan(ctx context.Context, name string, header http.Header, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span) {
-	ctx = ContextWithHTTPTrace(ctx, header)
-	return t.start(ctx, name, oteltrace.WithSpanKind(oteltrace.SpanKindServer), oteltrace.WithAttributes(attrs...))
-}
-
-// StartSpan starts an internal span with the telemetry instance tracer.
-// @intent 개별 telemetry 인스턴스로 일반 내부 span을 생성한다.
-func (t *Telemetry) StartSpan(ctx context.Context, name string, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span) {
-	return t.start(ctx, name, oteltrace.WithAttributes(attrs...))
-}
-
-// StartChildSpan starts a child span with the telemetry instance tracer.
-// @intent telemetry 인스턴스 기준으로 후속 작업 span을 생성한다.
-func (t *Telemetry) StartChildSpan(ctx context.Context, name string, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span) {
-	return t.start(ctx, name, oteltrace.WithAttributes(attrs...))
-}
-
 // TraceLogArgs extracts trace identifiers for structured logging.
 // @intent span이 있는 컨텍스트를 slog 필드(trace_id, span_id, sampled)로 바꾼다.
 func TraceLogArgs(ctx context.Context) []any {
@@ -179,18 +191,6 @@ func TraceLogArgs(ctx context.Context) []any {
 		"span_id", sc.SpanID().String(),
 		"trace_sampled", sc.IsSampled(),
 	}
-}
-
-// start is the common span creation path shared by server/internal helpers.
-// @intent nil-safe tracer fallback과 span 시작 옵션 적용을 한 곳으로 모은다.
-func (t *Telemetry) start(ctx context.Context, name string, opts ...oteltrace.SpanStartOption) (context.Context, oteltrace.Span) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if t == nil || t.tracer == nil {
-		return otel.Tracer("code-context-graph").Start(ctx, name, opts...)
-	}
-	return t.tracer.Start(ctx, name, opts...)
 }
 
 // logger returns the configured logger or the process default.

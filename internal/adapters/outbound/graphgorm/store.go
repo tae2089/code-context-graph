@@ -25,6 +25,8 @@ type Store struct {
 	db *gorm.DB
 }
 
+var _ ingest.GraphStore = (*Store)(nil)
+
 // New creates a repository wrapping a GORM DB.
 // @intent initialize the GraphStore implementation with the injected DB handle.
 func New(db *gorm.DB) *Store {
@@ -595,5 +597,3 @@ func (s *Store) WithTxDB(ctx context.Context, fn func(ingest.GraphStore, *gorm.D
 		return fn(txStore, tx)
 	})
 }
-
-var _ ingest.GraphStore = (*Store)(nil)

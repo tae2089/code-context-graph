@@ -19,6 +19,8 @@ import (
 // @intent provide GitClient behavior using the local git executable
 type ExecGitClient struct{}
 
+var _ changesapp.GitClient = (*ExecGitClient)(nil)
+
 const (
 	DefaultGitCommandTimeout = 30 * time.Second
 	MaxGitOutputSize         = 100 * 1024 * 1024
@@ -188,5 +190,3 @@ func parseHunkHeader(line string) (start, count int) {
 	}
 	return s, c
 }
-
-var _ changesapp.GitClient = (*ExecGitClient)(nil)

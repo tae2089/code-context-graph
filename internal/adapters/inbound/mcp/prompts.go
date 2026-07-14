@@ -23,39 +23,6 @@ const (
 	promptCallGraphCap = 10
 )
 
-// @intent clamp the optional prompt limit argument to the handler's hard cap.
-// @domainRule invalid or non-positive prompt limits fall back to the section default instead of failing the prompt.
-func promptLimitArg(args map[string]string, defaultLimit, hardCap int) int {
-	raw := strings.TrimSpace(args["limit"])
-	if raw == "" {
-		return defaultLimit
-	}
-	limit, err := strconv.Atoi(raw)
-	if err != nil || limit <= 0 {
-		return defaultLimit
-	}
-	return min(limit, hardCap)
-}
-
-// @intent append a visible truncation marker when a prompt section omits extra items.
-// @domainRule prompt truncation messages show how many items were rendered, not an expensive total count.
-func appendPromptTruncation(sb *strings.Builder, shown int) {
-	if shown <= 0 {
-		return
-	}
-	sb.WriteString(fmt.Sprintf("_... 일부 결과 생략 (표시: %d건)_\n", shown))
-}
-
-// @intent render a prompt list section and append a truncation marker when needed.
-func appendPromptItems[T any](sb *strings.Builder, items []T, render func(T), truncated bool) {
-	for _, item := range items {
-		render(item)
-	}
-	if truncated {
-		appendPromptTruncation(sb, len(items))
-	}
-}
-
 // promptHandlers groups dependencies for MCP prompt generation.
 // @intent Groups dependencies so prompt handlers can reuse the shared database and analyzers.
 type promptHandlers struct {
@@ -65,40 +32,6 @@ type promptHandlers struct {
 // @intent resolve the query service dependency with a DB-backed default.
 func (p *promptHandlers) queryService() QueryService {
 	return p.deps.Graph.Query
-}
-
-// promptResult wraps plain text in the MCP prompt result shape.
-// @intent Enables prompt handlers to generate consistent user message responses from plain strings.
-// @param text The user message to be returned as the prompt body.
-// @return Returns a GetPromptResult containing a single user text message.
-func promptResult(text string) *mcp.GetPromptResult {
-	return &mcp.GetPromptResult{
-		Messages: []mcp.PromptMessage{
-			{
-				Role: mcp.RoleUser,
-				Content: mcp.TextContent{
-					Type: "text",
-					Text: text,
-				},
-			},
-		},
-	}
-}
-
-// @intent pick the namespace for a prompt invocation, preferring an explicit argument over context.
-func resolvePromptNamespace(ctx context.Context, args map[string]string) string {
-	if namespace := args["namespace"]; namespace != "" {
-		return requestctx.Normalize(namespace)
-	}
-	return resolveNamespace(ctx, "")
-}
-
-// @intent resolve the on-disk root used to validate prompt repo paths, falling back to the namespace default.
-func promptNamespaceRoot(deps *Deps) string {
-	if deps.Runtime.NamespaceRoot != "" {
-		return deps.Runtime.NamespaceRoot
-	}
-	return "namespaces"
 }
 
 // reviewChanges builds a prompt summarizing change risk for the diff range.
@@ -345,4 +278,71 @@ func (p *promptHandlers) preMergeCheck(ctx context.Context, request mcp.GetPromp
 	}
 
 	return promptResult(sb.String()), nil
+}
+
+// @intent clamp the optional prompt limit argument to the handler's hard cap.
+// @domainRule invalid or non-positive prompt limits fall back to the section default instead of failing the prompt.
+func promptLimitArg(args map[string]string, defaultLimit, hardCap int) int {
+	raw := strings.TrimSpace(args["limit"])
+	if raw == "" {
+		return defaultLimit
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit <= 0 {
+		return defaultLimit
+	}
+	return min(limit, hardCap)
+}
+
+// @intent append a visible truncation marker when a prompt section omits extra items.
+// @domainRule prompt truncation messages show how many items were rendered, not an expensive total count.
+func appendPromptTruncation(sb *strings.Builder, shown int) {
+	if shown <= 0 {
+		return
+	}
+	sb.WriteString(fmt.Sprintf("_... 일부 결과 생략 (표시: %d건)_\n", shown))
+}
+
+// @intent render a prompt list section and append a truncation marker when needed.
+func appendPromptItems[T any](sb *strings.Builder, items []T, render func(T), truncated bool) {
+	for _, item := range items {
+		render(item)
+	}
+	if truncated {
+		appendPromptTruncation(sb, len(items))
+	}
+}
+
+// promptResult wraps plain text in the MCP prompt result shape.
+// @intent Enables prompt handlers to generate consistent user message responses from plain strings.
+// @param text The user message to be returned as the prompt body.
+// @return Returns a GetPromptResult containing a single user text message.
+func promptResult(text string) *mcp.GetPromptResult {
+	return &mcp.GetPromptResult{
+		Messages: []mcp.PromptMessage{
+			{
+				Role: mcp.RoleUser,
+				Content: mcp.TextContent{
+					Type: "text",
+					Text: text,
+				},
+			},
+		},
+	}
+}
+
+// @intent pick the namespace for a prompt invocation, preferring an explicit argument over context.
+func resolvePromptNamespace(ctx context.Context, args map[string]string) string {
+	if namespace := args["namespace"]; namespace != "" {
+		return requestctx.Normalize(namespace)
+	}
+	return resolveNamespace(ctx, "")
+}
+
+// @intent resolve the on-disk root used to validate prompt repo paths, falling back to the namespace default.
+func promptNamespaceRoot(deps *Deps) string {
+	if deps.Runtime.NamespaceRoot != "" {
+		return deps.Runtime.NamespaceRoot
+	}
+	return "namespaces"
 }

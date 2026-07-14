@@ -11,6 +11,8 @@ import (
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
+var _ analyzeapp.QueryRepository = (*Store)(nil)
+
 // RelatedNodes loads one deterministic distinct relationship page and its total count.
 // @intent implement namespace-scoped relationship joins behind the analysis query repository.
 func (s *Store) RelatedNodes(ctx context.Context, request analyzeapp.RelatedNodesRequest) (analyzeapp.RelatedNodesPage, error) {
@@ -71,5 +73,3 @@ func (s *Store) NodesByExactName(ctx context.Context, name string, limit int) ([
 	}
 	return nodes, nil
 }
-
-var _ analyzeapp.QueryRepository = (*Store)(nil)

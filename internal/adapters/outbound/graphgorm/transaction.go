@@ -21,6 +21,8 @@ type UnitOfWork struct {
 	newSearchWriter SearchWriterFactory
 }
 
+var _ ingest.UnitOfWork = (*UnitOfWork)(nil)
+
 // NewUnitOfWork constructs a GORM-backed ingest unit of work.
 // @intent inject the database transaction owner and transaction-scoped search writer factory.
 func NewUnitOfWork(db *gorm.DB, newSearchWriter SearchWriterFactory) *UnitOfWork {
@@ -33,6 +35,8 @@ type transaction struct {
 	graph  ingest.GraphStore
 	search ingest.SearchWriter
 }
+
+var _ ingest.Transaction = transaction{}
 
 // Graph returns graph persistence bound to this transaction.
 // @intent supply transaction-scoped graph operations to the ingest callback.
@@ -64,6 +68,3 @@ func (u *UnitOfWork) WithinTransaction(ctx context.Context, fn func(ingest.Trans
 		})
 	})
 }
-
-var _ ingest.Transaction = transaction{}
-var _ ingest.UnitOfWork = (*UnitOfWork)(nil)

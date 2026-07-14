@@ -11,6 +11,9 @@ import (
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
+var _ analyzeapp.FlowRebuildStore = (*Store)(nil)
+var _ analyzeapp.FlowUnitOfWork = (*Store)(nil)
+
 // WithinFlowRebuild executes stored-flow replacement against one transaction-scoped store.
 // @intent implement the analysis flow unit of work without exposing GORM to application policy.
 // @sideEffect starts a transaction and commits or rolls back namespace-scoped flow changes.
@@ -78,6 +81,3 @@ func (s *Store) CreateFlow(ctx context.Context, flow *graph.Flow) error {
 	flow.Members = members
 	return nil
 }
-
-var _ analyzeapp.FlowRebuildStore = (*Store)(nil)
-var _ analyzeapp.FlowUnitOfWork = (*Store)(nil)

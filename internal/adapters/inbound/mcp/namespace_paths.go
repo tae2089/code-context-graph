@@ -21,18 +21,6 @@ func (h *handlers) namespaceRoot() string {
 	return root
 }
 
-// validateNamespacePath rejects namespace and file inputs that could escape the namespace root.
-// @intent keep namespace path validation in one place shared across handler files.
-func validateNamespacePath(namespace, filePath string) error {
-	return safepath.ValidateNamespacePath(namespace, filePath)
-}
-
-// ensureNoSymlinkInPath walks each segment from root to relPath rejecting symlinks.
-// @intent prevent symlink traversal from escaping the namespace root before a read.
-func ensureNoSymlinkInPath(root, relPath string, allowMissingLeaf bool) (string, error) {
-	return safepath.EnsureNoSymlinkInPath(root, relPath, allowMissingLeaf)
-}
-
 // safeNamespaceRoot returns the absolute, symlink-resolved namespace root, creating it if needed.
 // @intent resolve namespace paths under a trusted, real filesystem location.
 // @sideEffect creates the namespace root directory when it does not yet exist.
@@ -77,4 +65,16 @@ func (h *handlers) resolveNamespacePath(namespace, filePath string, allowMissing
 	}
 	rel := filepath.Join(filepath.Clean(namespace), filepath.Clean(filePath))
 	return ensureNoSymlinkInPath(root, rel, allowMissingLeaf)
+}
+
+// validateNamespacePath rejects namespace and file inputs that could escape the namespace root.
+// @intent keep namespace path validation in one place shared across handler files.
+func validateNamespacePath(namespace, filePath string) error {
+	return safepath.ValidateNamespacePath(namespace, filePath)
+}
+
+// ensureNoSymlinkInPath walks each segment from root to relPath rejecting symlinks.
+// @intent prevent symlink traversal from escaping the namespace root before a read.
+func ensureNoSymlinkInPath(root, relPath string, allowMissingLeaf bool) (string, error) {
+	return safepath.EnsureNoSymlinkInPath(root, relPath, allowMissingLeaf)
 }

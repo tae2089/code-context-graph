@@ -338,24 +338,6 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// @intent map application graph-view stages back to the established Wiki HTTP error contract.
-func graphViewErrorMessage(err error) string {
-	var viewErr *wiki.GraphViewError
-	if !errors.As(err, &viewErr) {
-		return "load graph view"
-	}
-	switch viewErr.Stage {
-	case wiki.GraphViewStageCountNodes:
-		return "count graph nodes"
-	case wiki.GraphViewStageListNodes:
-		return "list graph nodes"
-	case wiki.GraphViewStageListEdges:
-		return "list graph edges"
-	default:
-		return "load graph view"
-	}
-}
-
 // @intent read one generated Markdown document for display in the Wiki viewer.
 func (s *Server) handleDoc(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodGet) {
@@ -505,6 +487,111 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, contextResponse{Markdown: strings.Join(sections, "\n\n"), Items: items})
 }
 
+// @intent load a Wiki tree from DB rows for browser navigation and return built_at metadata.
+func (s *Server) loadWikiTree(ctx context.Context, namespace string) (*wiki.TreeNode, time.Time, bool, error) {
+	return s.loadWikiTreeRange(ctx, namespace, "", 0)
+}
+
+// @intent build one bounded Wiki tree range from DB rows for lazy browser navigation.
+func (s *Server) loadWikiTreeRange(ctx context.Context, namespace, nodeID string, depth int) (*wiki.TreeNode, time.Time, bool, error) {
+	if s.repository == nil {
+		return nil, time.Time{}, false, fmt.Errorf("graph database is not configured")
+	}
+	builder := &wiki.Builder{Repository: s.repository, OutDir: "docs", Namespace: namespace}
+	root, err := builder.BuildSubtree(ctx, nodeID, depth)
+	if err != nil {
+		return nil, time.Time{}, false, err
+	}
+	return root, time.Now().UTC(), true, nil
+}
+
+// @intent enforce doc size limits before returning generated Markdown content.
+func (s *Server) readDoc(namespace, docPath string) (string, string, error) {
+	resolved, err := s.resolveDocPath(namespace, docPath)
+	if err != nil {
+		return "", "", err
+	}
+	return readDocFile(resolved)
+}
+
+// @intent read a generated doc path from one explicit root with the standard Wiki size limit.
+func (s *Server) readDocUnderRoot(root, docPath string) (string, string, error) {
+	clean := filepath.Clean(docPath)
+	if clean == "." || clean == ".." || filepath.IsAbs(clean) || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return "", "", fmt.Errorf("invalid path: path traversal not allowed")
+	}
+	resolved, err := safePath(root, clean)
+	if err != nil {
+		return "", "", err
+	}
+	return readDocFile(resolved)
+}
+
+// @intent resolve a generated doc path under approved docs, RAG, or namespace roots.
+// @domainRule the working directory is only searched through its docs/ subtree; arbitrary
+// repository files (config, source, secrets) must never be readable through the doc API.
+func (s *Server) resolveDocPath(namespace, docPath string) (string, error) {
+	clean := filepath.Clean(docPath)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("invalid path: path traversal not allowed")
+	}
+	var roots []string
+	if namespace != requestctx.DefaultNamespace {
+		roots = append(roots, filepath.Join(s.namespaceRoot, namespace))
+	}
+	// Generated shared docs live under ./docs (doc_path values carry the docs/ prefix),
+	// so the local root is the docs directory itself, not the bare working directory.
+	roots = append(roots, "docs", s.ragIndexDir, s.namespaceRoot)
+	if filepath.IsAbs(clean) {
+		for _, root := range roots {
+			target, err := safeAbsolutePath(root, clean)
+			if err != nil {
+				continue
+			}
+			if _, err := os.Stat(target); err == nil {
+				return target, nil
+			}
+		}
+		return "", fs.ErrNotExist
+	}
+	for _, root := range roots {
+		rel := clean
+		if root == "docs" {
+			// doc_path values are docs-prefixed ("docs/pkg/file.md"); resolve the remainder
+			// inside the docs root so containment is enforced against docs/, not the CWD.
+			after, ok := strings.CutPrefix(clean, "docs"+string(os.PathSeparator))
+			if !ok {
+				continue
+			}
+			rel = after
+		}
+		target, err := safePath(root, rel)
+		if err != nil {
+			continue
+		}
+		if _, err := os.Stat(target); err == nil {
+			return target, nil
+		}
+	}
+	return "", fs.ErrNotExist
+}
+
+// @intent resolve a ccg:// ref against graph nodes so the browser graph can focus the destination.
+func (s *Server) findRefGraphNode(r *http.Request, ref *reference.Ref) (*graphNode, error) {
+	if s.repository == nil {
+		return nil, fmt.Errorf("%w: graph reference", os.ErrNotExist)
+	}
+	node, err := s.repository.ResolveReference(r.Context(), ref)
+	if err != nil {
+		return nil, err
+	}
+	graphNode := graphNodeFromModel(*node)
+	if node.Annotation != nil && graphNode.Details != nil {
+		graphNode.Details.Annotation = annotationDetailFromModel(node.Annotation)
+	}
+	return &graphNode, nil
+}
+
 // @intent decode selected Wiki document paths from the context-copy request body.
 type contextRequest struct {
 	Namespace string   `json:"namespace"`
@@ -576,6 +663,31 @@ type graphResponse struct {
 	Edges     []graphEdge `json:"edges"`
 }
 
+// annotationMarkdownBlock groups same-label annotation fallback lines before Markdown rendering.
+// @intent keep annotation Markdown output stable while preserving original tag ordering by first label occurrence.
+type annotationMarkdownBlock struct {
+	label string
+	items []string
+}
+
+// @intent map application graph-view stages back to the established Wiki HTTP error contract.
+func graphViewErrorMessage(err error) string {
+	var viewErr *wiki.GraphViewError
+	if !errors.As(err, &viewErr) {
+		return "load graph view"
+	}
+	switch viewErr.Stage {
+	case wiki.GraphViewStageCountNodes:
+		return "count graph nodes"
+	case wiki.GraphViewStageListNodes:
+		return "list graph nodes"
+	case wiki.GraphViewStageListEdges:
+		return "list graph edges"
+	default:
+		return "load graph view"
+	}
+}
+
 // @intent convert persisted graph node metadata into a browser graph payload.
 func graphNodeFromModel(node graph.Node) graphNode {
 	label := node.Name
@@ -630,46 +742,6 @@ func docPathForSource(filePath string) string {
 	return filepath.Join("docs", rel+".md")
 }
 
-// @intent load a Wiki tree from DB rows for browser navigation and return built_at metadata.
-func (s *Server) loadWikiTree(ctx context.Context, namespace string) (*wiki.TreeNode, time.Time, bool, error) {
-	return s.loadWikiTreeRange(ctx, namespace, "", 0)
-}
-
-// @intent build one bounded Wiki tree range from DB rows for lazy browser navigation.
-func (s *Server) loadWikiTreeRange(ctx context.Context, namespace, nodeID string, depth int) (*wiki.TreeNode, time.Time, bool, error) {
-	if s.repository == nil {
-		return nil, time.Time{}, false, fmt.Errorf("graph database is not configured")
-	}
-	builder := &wiki.Builder{Repository: s.repository, OutDir: "docs", Namespace: namespace}
-	root, err := builder.BuildSubtree(ctx, nodeID, depth)
-	if err != nil {
-		return nil, time.Time{}, false, err
-	}
-	return root, time.Now().UTC(), true, nil
-}
-
-// @intent enforce doc size limits before returning generated Markdown content.
-func (s *Server) readDoc(namespace, docPath string) (string, string, error) {
-	resolved, err := s.resolveDocPath(namespace, docPath)
-	if err != nil {
-		return "", "", err
-	}
-	return readDocFile(resolved)
-}
-
-// @intent read a generated doc path from one explicit root with the standard Wiki size limit.
-func (s *Server) readDocUnderRoot(root, docPath string) (string, string, error) {
-	clean := filepath.Clean(docPath)
-	if clean == "." || clean == ".." || filepath.IsAbs(clean) || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
-		return "", "", fmt.Errorf("invalid path: path traversal not allowed")
-	}
-	resolved, err := safePath(root, clean)
-	if err != nil {
-		return "", "", err
-	}
-	return readDocFile(resolved)
-}
-
 // @intent enforce generated doc size limits and read the resolved Markdown file.
 func readDocFile(resolved string) (string, string, error) {
 	info, err := os.Stat(resolved)
@@ -687,55 +759,6 @@ func readDocFile(resolved string) (string, string, error) {
 		return "", "", err
 	}
 	return string(content), resolved, nil
-}
-
-// @intent resolve a generated doc path under approved docs, RAG, or namespace roots.
-// @domainRule the working directory is only searched through its docs/ subtree; arbitrary
-// repository files (config, source, secrets) must never be readable through the doc API.
-func (s *Server) resolveDocPath(namespace, docPath string) (string, error) {
-	clean := filepath.Clean(docPath)
-	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
-		return "", fmt.Errorf("invalid path: path traversal not allowed")
-	}
-	var roots []string
-	if namespace != requestctx.DefaultNamespace {
-		roots = append(roots, filepath.Join(s.namespaceRoot, namespace))
-	}
-	// Generated shared docs live under ./docs (doc_path values carry the docs/ prefix),
-	// so the local root is the docs directory itself, not the bare working directory.
-	roots = append(roots, "docs", s.ragIndexDir, s.namespaceRoot)
-	if filepath.IsAbs(clean) {
-		for _, root := range roots {
-			target, err := safeAbsolutePath(root, clean)
-			if err != nil {
-				continue
-			}
-			if _, err := os.Stat(target); err == nil {
-				return target, nil
-			}
-		}
-		return "", fs.ErrNotExist
-	}
-	for _, root := range roots {
-		rel := clean
-		if root == "docs" {
-			// doc_path values are docs-prefixed ("docs/pkg/file.md"); resolve the remainder
-			// inside the docs root so containment is enforced against docs/, not the CWD.
-			after, ok := strings.CutPrefix(clean, "docs"+string(os.PathSeparator))
-			if !ok {
-				continue
-			}
-			rel = after
-		}
-		target, err := safePath(root, rel)
-		if err != nil {
-			continue
-		}
-		if _, err := os.Stat(target); err == nil {
-			return target, nil
-		}
-	}
-	return "", fs.ErrNotExist
 }
 
 // @intent find a tree node by its generated doc_path value.
@@ -796,22 +819,6 @@ func refPathMatchesTree(node *wiki.TreeNode, ref *reference.Ref) bool {
 	idPath := strings.TrimPrefix(strings.TrimPrefix(node.ID, "file:"), "package:")
 	idPath = strings.TrimPrefix(idPath, "folder:")
 	return sameRefPath(idPath, ref.Path)
-}
-
-// @intent resolve a ccg:// ref against graph nodes so the browser graph can focus the destination.
-func (s *Server) findRefGraphNode(r *http.Request, ref *reference.Ref) (*graphNode, error) {
-	if s.repository == nil {
-		return nil, fmt.Errorf("%w: graph reference", os.ErrNotExist)
-	}
-	node, err := s.repository.ResolveReference(r.Context(), ref)
-	if err != nil {
-		return nil, err
-	}
-	graphNode := graphNodeFromModel(*node)
-	if node.Annotation != nil && graphNode.Details != nil {
-		graphNode.Details.Annotation = annotationDetailFromModel(node.Annotation)
-	}
-	return &graphNode, nil
 }
 
 // @intent merge tree and graph matches into one browser navigation payload.
@@ -1034,13 +1041,6 @@ func annotationMarkdownBlocks(annotation *wiki.AnnotationDetail) []string {
 		}
 	}
 	return lines
-}
-
-// annotationMarkdownBlock groups same-label annotation fallback lines before Markdown rendering.
-// @intent keep annotation Markdown output stable while preserving original tag ordering by first label occurrence.
-type annotationMarkdownBlock struct {
-	label string
-	items []string
 }
 
 // @intent preserve annotation tag name/type context in fallback Markdown without exposing raw JSON.

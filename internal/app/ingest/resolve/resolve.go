@@ -33,6 +33,33 @@ type FilterResolvedDiagnostics struct {
 	Samples      []FilterResolvedSample
 }
 
+// add aggregates one dropped edge into the diagnostics summary.
+// @intent accumulate per-kind, per-file, and sampled unresolved-edge diagnostics during filtering.
+// @mutates diagnostics counters, maps, and samples
+func (d *FilterResolvedDiagnostics) add(edge graph.Edge, reason string) {
+	d.DroppedCount++
+	if d.ByKind == nil {
+		d.ByKind = make(map[graph.EdgeKind]int)
+	}
+	if d.ByFile == nil {
+		d.ByFile = make(map[string]int)
+	}
+	if d.ByReason == nil {
+		d.ByReason = make(map[string]int)
+	}
+	d.ByKind[edge.Kind]++
+	d.ByFile[edge.FilePath]++
+	d.ByReason[reason]++
+	if len(d.Samples) < filterResolvedSampleLimit {
+		d.Samples = append(d.Samples, FilterResolvedSample{
+			Kind:        edge.Kind,
+			FilePath:    edge.FilePath,
+			Fingerprint: edge.Fingerprint,
+			Reason:      reason,
+		})
+	}
+}
+
 // UnresolvedEdgeFilter returns true when a dropped unresolved edge should be omitted
 // from diagnostics aggregation while still being dropped from the returned edge list.
 // @intent allow callers to suppress noisy unresolved-edge classes (e.g., expected external imports).
@@ -67,6 +94,161 @@ type resolveState struct {
 	fileNodeByPath map[string]graph.Node
 	nodeByID       map[uint]graph.Node
 	implementsBy   map[string][]graph.Node
+}
+
+// loadImportFileNodes fetches file nodes for all files belonging to a package.
+// @intent populate state with file nodes to support deeper resolution of imported symbols.
+func (st *resolveState) loadImportFileNodes(ctx context.Context, lookup NodeLookup, importPath string) {
+	prefixLookup, ok := lookup.(filePrefixLookup)
+	if !ok || importPath == "" {
+		return
+	}
+	nodes, err := prefixLookup.GetFileNodesByPathSuffix(ctx, importPath)
+	if err != nil {
+		return
+	}
+	for _, node := range uniqueFileNodes(nodes) {
+		st.loadFileNodes(ctx, lookup, node.FilePath)
+	}
+}
+
+// loadFileNodes fetches all symbols defined in a specific file.
+// @intent ensure target file contents are available for cross-file resolution.
+func (st *resolveState) loadFileNodes(ctx context.Context, lookup NodeLookup, filePath string) {
+	if filePath == "" {
+		return
+	}
+	if nodes, ok := st.nodesByFile[filePath]; ok && len(nodes) > 1 {
+		return
+	}
+	loaded, err := lookup.GetNodesByFiles(ctx, []string{filePath})
+	if err != nil {
+		return
+	}
+	st.addNodes(loaded[filePath])
+}
+
+// loadExistingImplements populates implementer cache from existing DB edges.
+// @intent enable cross-file interface resolution by loading historical data.
+func (st *resolveState) loadExistingImplements(ctx context.Context, lookup NodeLookup) error {
+	edgeReader, ok := lookup.(edgeLookup)
+	if !ok {
+		return nil
+	}
+	var ifaceIDs []uint
+	for _, nodes := range st.qnIndex {
+		for _, n := range nodes {
+			if n.Kind == graph.NodeKindType && n.ID != 0 {
+				ifaceIDs = append(ifaceIDs, n.ID)
+			}
+		}
+	}
+	if len(ifaceIDs) == 0 {
+		return nil
+	}
+	edges, err := edgeReader.GetEdgesToNodes(ctx, ifaceIDs)
+	if err != nil {
+		return err
+	}
+	var missingIDs []uint
+	for _, e := range edges {
+		if e.Kind != graph.EdgeKindImplements || e.FromNodeID == 0 || e.ToNodeID == 0 {
+			continue
+		}
+		if _, ok := st.nodeByID[e.FromNodeID]; !ok {
+			missingIDs = append(missingIDs, e.FromNodeID)
+		}
+		if _, ok := st.nodeByID[e.ToNodeID]; !ok {
+			missingIDs = append(missingIDs, e.ToNodeID)
+		}
+	}
+	if len(missingIDs) > 0 {
+		nodes, err := lookup.GetNodesByIDs(ctx, missingIDs)
+		if err != nil {
+			return err
+		}
+		st.addNodes(nodes)
+	}
+	for _, e := range edges {
+		if e.Kind != graph.EdgeKindImplements || e.FromNodeID == 0 || e.ToNodeID == 0 {
+			continue
+		}
+		concrete, okConcrete := st.nodeByID[e.FromNodeID]
+		iface, okIface := st.nodeByID[e.ToNodeID]
+		if okConcrete && okIface {
+			st.addImplementer(iface, concrete)
+		}
+	}
+	return nil
+}
+
+// ensureDispatchTargets pre-fetches potential interface method implementations.
+// @intent batch load nodes needed to resolve polymorphic calls.
+func (st *resolveState) ensureDispatchTargets(ctx context.Context, lookup NodeLookup, edges []graph.Edge) error {
+	seen := make(map[string]bool)
+	var names []string
+	for _, e := range edges {
+		if e.Kind != graph.EdgeKindCalls {
+			continue
+		}
+		callee, ok := callCallee(e)
+		if !ok {
+			continue
+		}
+		caller := enclosingCallable(st.nodesByFile[e.FilePath], e.Line)
+		dispatch := dispatchForLanguage(callerLanguage(caller))
+		if caller == nil || dispatch == nil {
+			continue
+		}
+		for _, candidate := range dispatch.EnsureDispatchTargets(caller, callee, st) {
+			addName(&names, seen, candidate)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	queried, err := lookup.GetNodesByQualifiedNames(ctx, names)
+	if err != nil {
+		return err
+	}
+	for _, ns := range queried {
+		st.addNodes(ns)
+	}
+	return nil
+}
+
+// addNodes indexes multiple nodes into the resolution state.
+// @intent batch add nodes to internal indexes.
+func (st *resolveState) addNodes(nodes []graph.Node) {
+	for _, n := range nodes {
+		st.indexNode(n)
+	}
+}
+
+// indexNode adds a single node to all relevant resolution indexes.
+// @intent maintain consistent node indexing by ID, QN, file, and name.
+func (st *resolveState) indexNode(n graph.Node) {
+	st.qnIndex[n.QualifiedName] = appendUniqueNode(st.qnIndex[n.QualifiedName], n)
+	if n.ID != 0 {
+		st.nodeByID[n.ID] = n
+	}
+	st.nodesByFile[n.FilePath] = appendUniqueNode(st.nodesByFile[n.FilePath], n)
+	if n.Kind == graph.NodeKindFunction || n.Kind == graph.NodeKindTest {
+		if st.nameByFile[n.FilePath] == nil {
+			st.nameByFile[n.FilePath] = make(map[string][]graph.Node)
+		}
+		st.nameByFile[n.FilePath][n.Name] = appendUniqueNode(st.nameByFile[n.FilePath][n.Name], n)
+	}
+	if n.Kind == graph.NodeKindFile {
+		st.fileNodeByPath[n.FilePath] = n
+	}
+}
+
+// addImplementer records an implementation link in the local cache.
+// @intent track interface-implementer pairs for method dispatch resolution.
+func (st *resolveState) addImplementer(iface graph.Node, concrete graph.Node) {
+	st.implementsBy[iface.QualifiedName] = appendUniqueNode(st.implementsBy[iface.QualifiedName], concrete)
+	st.implementsBy[iface.Name] = appendUniqueNode(st.implementsBy[iface.Name], concrete)
 }
 
 // Resolve fills FromNodeID and ToNodeID for parsed edges when a unique local
@@ -192,33 +374,6 @@ func unresolvedReason(edge graph.Edge) (string, bool) {
 		return "missing_to", true
 	default:
 		return "", false
-	}
-}
-
-// add aggregates one dropped edge into the diagnostics summary.
-// @intent accumulate per-kind, per-file, and sampled unresolved-edge diagnostics during filtering.
-// @mutates diagnostics counters, maps, and samples
-func (d *FilterResolvedDiagnostics) add(edge graph.Edge, reason string) {
-	d.DroppedCount++
-	if d.ByKind == nil {
-		d.ByKind = make(map[graph.EdgeKind]int)
-	}
-	if d.ByFile == nil {
-		d.ByFile = make(map[string]int)
-	}
-	if d.ByReason == nil {
-		d.ByReason = make(map[string]int)
-	}
-	d.ByKind[edge.Kind]++
-	d.ByFile[edge.FilePath]++
-	d.ByReason[reason]++
-	if len(d.Samples) < filterResolvedSampleLimit {
-		d.Samples = append(d.Samples, FilterResolvedSample{
-			Kind:        edge.Kind,
-			FilePath:    edge.FilePath,
-			Fingerprint: edge.Fingerprint,
-			Reason:      reason,
-		})
 	}
 }
 
@@ -556,38 +711,6 @@ func resolveImportsFrom(ctx context.Context, lookup NodeLookup, edge *graph.Edge
 	}
 }
 
-// loadImportFileNodes fetches file nodes for all files belonging to a package.
-// @intent populate state with file nodes to support deeper resolution of imported symbols.
-func (st *resolveState) loadImportFileNodes(ctx context.Context, lookup NodeLookup, importPath string) {
-	prefixLookup, ok := lookup.(filePrefixLookup)
-	if !ok || importPath == "" {
-		return
-	}
-	nodes, err := prefixLookup.GetFileNodesByPathSuffix(ctx, importPath)
-	if err != nil {
-		return
-	}
-	for _, node := range uniqueFileNodes(nodes) {
-		st.loadFileNodes(ctx, lookup, node.FilePath)
-	}
-}
-
-// loadFileNodes fetches all symbols defined in a specific file.
-// @intent ensure target file contents are available for cross-file resolution.
-func (st *resolveState) loadFileNodes(ctx context.Context, lookup NodeLookup, filePath string) {
-	if filePath == "" {
-		return
-	}
-	if nodes, ok := st.nodesByFile[filePath]; ok && len(nodes) > 1 {
-		return
-	}
-	loaded, err := lookup.GetNodesByFiles(ctx, []string{filePath})
-	if err != nil {
-		return
-	}
-	st.addNodes(loaded[filePath])
-}
-
 // resolveImportFile finds a file node matching an import path string.
 // @intent map language-specific import paths to physical file nodes in the graph.
 func resolveImportFile(ctx context.Context, lookup NodeLookup, st *resolveState, importPath string) *graph.Node {
@@ -860,129 +983,6 @@ func testedByEndpoints(edge graph.Edge) (string, string, bool) {
 	bare := rest[:idx]
 	testQN := rest[idx+1:]
 	return bare, testQN, bare != "" && testQN != ""
-}
-
-// loadExistingImplements populates implementer cache from existing DB edges.
-// @intent enable cross-file interface resolution by loading historical data.
-func (st *resolveState) loadExistingImplements(ctx context.Context, lookup NodeLookup) error {
-	edgeReader, ok := lookup.(edgeLookup)
-	if !ok {
-		return nil
-	}
-	var ifaceIDs []uint
-	for _, nodes := range st.qnIndex {
-		for _, n := range nodes {
-			if n.Kind == graph.NodeKindType && n.ID != 0 {
-				ifaceIDs = append(ifaceIDs, n.ID)
-			}
-		}
-	}
-	if len(ifaceIDs) == 0 {
-		return nil
-	}
-	edges, err := edgeReader.GetEdgesToNodes(ctx, ifaceIDs)
-	if err != nil {
-		return err
-	}
-	var missingIDs []uint
-	for _, e := range edges {
-		if e.Kind != graph.EdgeKindImplements || e.FromNodeID == 0 || e.ToNodeID == 0 {
-			continue
-		}
-		if _, ok := st.nodeByID[e.FromNodeID]; !ok {
-			missingIDs = append(missingIDs, e.FromNodeID)
-		}
-		if _, ok := st.nodeByID[e.ToNodeID]; !ok {
-			missingIDs = append(missingIDs, e.ToNodeID)
-		}
-	}
-	if len(missingIDs) > 0 {
-		nodes, err := lookup.GetNodesByIDs(ctx, missingIDs)
-		if err != nil {
-			return err
-		}
-		st.addNodes(nodes)
-	}
-	for _, e := range edges {
-		if e.Kind != graph.EdgeKindImplements || e.FromNodeID == 0 || e.ToNodeID == 0 {
-			continue
-		}
-		concrete, okConcrete := st.nodeByID[e.FromNodeID]
-		iface, okIface := st.nodeByID[e.ToNodeID]
-		if okConcrete && okIface {
-			st.addImplementer(iface, concrete)
-		}
-	}
-	return nil
-}
-
-// ensureDispatchTargets pre-fetches potential interface method implementations.
-// @intent batch load nodes needed to resolve polymorphic calls.
-func (st *resolveState) ensureDispatchTargets(ctx context.Context, lookup NodeLookup, edges []graph.Edge) error {
-	seen := make(map[string]bool)
-	var names []string
-	for _, e := range edges {
-		if e.Kind != graph.EdgeKindCalls {
-			continue
-		}
-		callee, ok := callCallee(e)
-		if !ok {
-			continue
-		}
-		caller := enclosingCallable(st.nodesByFile[e.FilePath], e.Line)
-		dispatch := dispatchForLanguage(callerLanguage(caller))
-		if caller == nil || dispatch == nil {
-			continue
-		}
-		for _, candidate := range dispatch.EnsureDispatchTargets(caller, callee, st) {
-			addName(&names, seen, candidate)
-		}
-	}
-	if len(names) == 0 {
-		return nil
-	}
-	queried, err := lookup.GetNodesByQualifiedNames(ctx, names)
-	if err != nil {
-		return err
-	}
-	for _, ns := range queried {
-		st.addNodes(ns)
-	}
-	return nil
-}
-
-// addNodes indexes multiple nodes into the resolution state.
-// @intent batch add nodes to internal indexes.
-func (st *resolveState) addNodes(nodes []graph.Node) {
-	for _, n := range nodes {
-		st.indexNode(n)
-	}
-}
-
-// indexNode adds a single node to all relevant resolution indexes.
-// @intent maintain consistent node indexing by ID, QN, file, and name.
-func (st *resolveState) indexNode(n graph.Node) {
-	st.qnIndex[n.QualifiedName] = appendUniqueNode(st.qnIndex[n.QualifiedName], n)
-	if n.ID != 0 {
-		st.nodeByID[n.ID] = n
-	}
-	st.nodesByFile[n.FilePath] = appendUniqueNode(st.nodesByFile[n.FilePath], n)
-	if n.Kind == graph.NodeKindFunction || n.Kind == graph.NodeKindTest {
-		if st.nameByFile[n.FilePath] == nil {
-			st.nameByFile[n.FilePath] = make(map[string][]graph.Node)
-		}
-		st.nameByFile[n.FilePath][n.Name] = appendUniqueNode(st.nameByFile[n.FilePath][n.Name], n)
-	}
-	if n.Kind == graph.NodeKindFile {
-		st.fileNodeByPath[n.FilePath] = n
-	}
-}
-
-// addImplementer records an implementation link in the local cache.
-// @intent track interface-implementer pairs for method dispatch resolution.
-func (st *resolveState) addImplementer(iface graph.Node, concrete graph.Node) {
-	st.implementsBy[iface.QualifiedName] = appendUniqueNode(st.implementsBy[iface.QualifiedName], concrete)
-	st.implementsBy[iface.Name] = appendUniqueNode(st.implementsBy[iface.Name], concrete)
 }
 
 // resolveTypeEndpoint finds a type node (class/interface) by name or QN.

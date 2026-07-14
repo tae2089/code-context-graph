@@ -16,6 +16,9 @@ var (
 	ErrSyncQueueShuttingDown = errors.New("sync queue shutting down")
 )
 
+// @intent cap how many recent repositories are reported in queue stats to bound response size.
+const maxRecentRepos = 50
+
 // SyncHandlerFunc processes one deduplicated repository sync payload.
 // @intent provide the queue-to-service invocation contract without transport ownership.
 type SyncHandlerFunc func(ctx context.Context, repoFullName, cloneURL, branch string) error
@@ -111,9 +114,6 @@ type RepoStats struct {
 	LastError       string    `json:"last_error,omitempty"`
 }
 
-// @intent cap how many recent repositories are reported in queue stats to bound response size.
-const maxRecentRepos = 50
-
 // @intent coordinate deduplicated per-repository sync execution across a worker pool.
 type SyncQueue struct {
 	ctx             context.Context
@@ -141,32 +141,6 @@ type SyncQueue struct {
 	wg              sync.WaitGroup
 }
 
-// @intent retain the latest success and failure outcome for one repository inside the bounded MRU stats map.
-type repoStatEntry struct {
-	branch          string
-	lastSuccessTime time.Time
-	lastErrorTime   time.Time
-	lastError       string
-}
-
-// @intent summarize queue-wide health and recent repository activity for observability.
-type SyncQueueStats struct {
-	Queued              int           `json:"queued"`
-	Dirty               int           `json:"dirty"`
-	Processing          int           `json:"processing"`
-	TrackedRepos        int           `json:"tracked_repos"`
-	MaxTrackedRepos     int           `json:"max_tracked_repos"`
-	QueueFullTotal      int64         `json:"queue_full_total"`
-	FailureTotal        int64         `json:"failure_total"`
-	LastError           string        `json:"last_error,omitempty"`
-	LastErrorTime       time.Time     `json:"last_error_time,omitempty"`
-	OldestQueuedAge     time.Duration `json:"oldest_queued_age"`
-	OldestProcessingAge time.Duration `json:"oldest_processing_age"`
-	LastSuccessTime     time.Time     `json:"last_success_time,omitempty"`
-	Shutdown            bool          `json:"shutdown"`
-	RecentRepos         []RepoStats   `json:"recent_repos,omitempty"`
-}
-
 // NewSyncQueue creates a queue with background workers and default lifecycle settings.
 // @intent provide the smallest constructor for production webhook dispatch.
 // @param workers is the number of background workers to start.
@@ -182,14 +156,6 @@ func NewSyncQueue(workers int, handler SyncHandlerFunc) *SyncQueue {
 // @sideEffect starts background worker goroutines immediately.
 func NewSyncQueueWithContext(ctx context.Context, workers int, handler SyncHandlerFunc) *SyncQueue {
 	return NewSyncQueueWithOptions(ctx, workers, handler, defaultRetryConfig())
-}
-
-// @intent configure queue retry policy and memory bounds when constructing a SyncQueue.
-type QueueConfig struct {
-	RetryConfig
-	ShutdownTimeout time.Duration
-	MaxTrackedRepos int
-	Observability   Observability
 }
 
 // NewSyncQueueWithOptions applies retry tuning while keeping default queue limits.
@@ -422,21 +388,6 @@ func (q *SyncQueue) recentRepoStatsLocked(repo string) RepoStats {
 	return rs
 }
 
-// @intent derive a comparable activity timestamp for sorting repository summaries.
-func recentRepoActivityTime(stats RepoStats) time.Time {
-	latest := stats.EnqueuedAt
-	if stats.ProcessingAt.After(latest) {
-		latest = stats.ProcessingAt
-	}
-	if stats.LastSuccessTime.After(latest) {
-		latest = stats.LastSuccessTime
-	}
-	if stats.LastErrorTime.After(latest) {
-		latest = stats.LastErrorTime
-	}
-	return latest
-}
-
 // @intent surface the oldest outstanding queue age so operators can detect stuck work.
 func (q *SyncQueue) oldestAgeLocked(now time.Time, times map[string]time.Time) time.Duration {
 	var oldest time.Duration
@@ -623,6 +574,55 @@ func (q *SyncQueue) done(repo string) {
 	} else {
 		delete(q.payloads, repo)
 	}
+}
+
+// @intent retain the latest success and failure outcome for one repository inside the bounded MRU stats map.
+type repoStatEntry struct {
+	branch          string
+	lastSuccessTime time.Time
+	lastErrorTime   time.Time
+	lastError       string
+}
+
+// @intent summarize queue-wide health and recent repository activity for observability.
+type SyncQueueStats struct {
+	Queued              int           `json:"queued"`
+	Dirty               int           `json:"dirty"`
+	Processing          int           `json:"processing"`
+	TrackedRepos        int           `json:"tracked_repos"`
+	MaxTrackedRepos     int           `json:"max_tracked_repos"`
+	QueueFullTotal      int64         `json:"queue_full_total"`
+	FailureTotal        int64         `json:"failure_total"`
+	LastError           string        `json:"last_error,omitempty"`
+	LastErrorTime       time.Time     `json:"last_error_time,omitempty"`
+	OldestQueuedAge     time.Duration `json:"oldest_queued_age"`
+	OldestProcessingAge time.Duration `json:"oldest_processing_age"`
+	LastSuccessTime     time.Time     `json:"last_success_time,omitempty"`
+	Shutdown            bool          `json:"shutdown"`
+	RecentRepos         []RepoStats   `json:"recent_repos,omitempty"`
+}
+
+// @intent configure queue retry policy and memory bounds when constructing a SyncQueue.
+type QueueConfig struct {
+	RetryConfig
+	ShutdownTimeout time.Duration
+	MaxTrackedRepos int
+	Observability   Observability
+}
+
+// @intent derive a comparable activity timestamp for sorting repository summaries.
+func recentRepoActivityTime(stats RepoStats) time.Time {
+	latest := stats.EnqueuedAt
+	if stats.ProcessingAt.After(latest) {
+		latest = stats.ProcessingAt
+	}
+	if stats.LastSuccessTime.After(latest) {
+		latest = stats.LastSuccessTime
+	}
+	if stats.LastErrorTime.After(latest) {
+		latest = stats.LastErrorTime
+	}
+	return latest
 }
 
 // @intent cancel a sync attempt when either the queue lifecycle or the payload-specific context is done.

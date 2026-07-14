@@ -63,6 +63,26 @@ func (s *Service) edgeResolver() resolveBuildEdgesFn {
 	return resolve.ResolveWithOptions
 }
 
+// logger returns the configured slog.Logger or the process default when none was supplied.
+// @intent keep service code logging-safe even when callers leave Logger nil.
+func (s *Service) logger() *slog.Logger {
+	if s.Logger != nil {
+		return s.Logger
+	}
+	return slog.Default()
+}
+
+// parserForExt resolves a Parser for the given file extension, preferring an explicit Parsers map over Walkers.
+// @intent let tests inject custom parsers while still using the production walker registry by default.
+func (s *Service) parserForExt(ext string) (Parser, bool) {
+	if s.Parsers != nil {
+		parser, ok := s.Parsers[ext]
+		return parser, ok
+	}
+	parser, ok := s.Walkers[ext]
+	return parser, ok
+}
+
 // BuildOptions configures one graph build run.
 // @intent 빌드 대상 경로와 탐색 범위를 호출자에서 제어하게 한다.
 type BuildOptions struct {
@@ -109,24 +129,4 @@ func (e *UnreadableFilesError) Error() string {
 	}
 	sample := e.Files[0]
 	return fmt.Sprintf("unreadable files encountered during update: count=%d sample=%s", len(e.Files), sample)
-}
-
-// logger returns the configured slog.Logger or the process default when none was supplied.
-// @intent keep service code logging-safe even when callers leave Logger nil.
-func (s *Service) logger() *slog.Logger {
-	if s.Logger != nil {
-		return s.Logger
-	}
-	return slog.Default()
-}
-
-// parserForExt resolves a Parser for the given file extension, preferring an explicit Parsers map over Walkers.
-// @intent let tests inject custom parsers while still using the production walker registry by default.
-func (s *Service) parserForExt(ext string) (Parser, bool) {
-	if s.Parsers != nil {
-		parser, ok := s.Parsers[ext]
-		return parser, ok
-	}
-	parser, ok := s.Walkers[ext]
-	return parser, ok
 }

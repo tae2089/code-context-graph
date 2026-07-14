@@ -12,13 +12,6 @@ import (
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 )
 
-// namespaceEvidenceFromContext builds evidence metadata for namespace-scoped graph queries.
-// @intent include namespace path and git state when available so LLM has traceable provenance.
-func (h *handlers) namespaceEvidenceFromContext(ctx context.Context) namespaceEvidenceBlock {
-	ns := requestctx.FromContext(ctx)
-	return h.namespaceEvidence(ns)
-}
-
 // namespaceEvidenceBlock captures stable namespace provenance fields shared across MCP responses.
 // @intent keep evidence payloads typed while exposing namespace and git provenance.
 type namespaceEvidenceBlock struct {
@@ -34,6 +27,13 @@ type namespaceGitEvidenceBlock struct {
 	Commit string `json:"commit"`
 	Dirty  *bool  `json:"dirty,omitempty"`
 	Remote string `json:"remote,omitempty"`
+}
+
+// namespaceEvidenceFromContext builds evidence metadata for namespace-scoped graph queries.
+// @intent include namespace path and git state when available so LLM has traceable provenance.
+func (h *handlers) namespaceEvidenceFromContext(ctx context.Context) namespaceEvidenceBlock {
+	ns := requestctx.FromContext(ctx)
+	return h.namespaceEvidence(ns)
 }
 
 // @intent collect namespace-scoped path and git provenance so MCP responses can explain where graph evidence came from.

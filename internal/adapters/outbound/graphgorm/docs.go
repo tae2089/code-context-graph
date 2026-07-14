@@ -10,6 +10,8 @@ import (
 	"github.com/tae2089/code-context-graph/internal/domain/reference"
 )
 
+var _ docsapp.Repository = (*Store)(nil)
+
 // @intent load documentable nodes and their annotations from one namespace.
 func (s *Store) Snapshot(ctx context.Context, namespace string, kinds []graph.NodeKind) (docsapp.Snapshot, error) {
 	var nodes []graph.Node
@@ -85,5 +87,3 @@ func (s *Store) CCGRefExists(ctx context.Context, ref reference.Ref) (bool, erro
 	err := q.Count(&count).Error
 	return count > 0, err
 }
-
-var _ docsapp.Repository = (*Store)(nil)

@@ -57,6 +57,10 @@ type interfaceInfo struct {
 // @intent expose package-level enrichment inputs to build/update paths without changing the base parser contract.
 type ParseMetadata = ingest.ParseMetadata
 
+// CommentBlock records one contiguous comment region discovered in source.
+// @intent preserve raw comment text with source line bounds for later annotation binding
+type CommentBlock = ingest.CommentBlock
+
 // WalkerOption configures optional Walker behavior during construction.
 // @intent allow caller-supplied dependencies such as logging without expanding constructor arguments
 type WalkerOption func(*Walker)
@@ -249,19 +253,6 @@ func (w *Walker) ParseWithCommentsAndMetadata(ctx context.Context, filePath stri
 	w.logger.Debug("parse completed", "file", filePath, "nodes", len(nodes), "edges", len(edges))
 
 	return nodes, edges, comments, ParseMetadata{Package: pkgName, Interfaces: exportPackageInterfaces(interfaces)}, nil
-}
-
-// exportPackageInterfaces converts internal interface metadata into exported parse metadata.
-// @intent expose package interface summaries without leaking walker-private helper types.
-func exportPackageInterfaces(interfaces []interfaceInfo) []PackageInterfaceInfo {
-	if len(interfaces) == 0 {
-		return nil
-	}
-	out := make([]PackageInterfaceInfo, 0, len(interfaces))
-	for _, iface := range interfaces {
-		out = append(out, PackageInterfaceInfo{Name: iface.name, Methods: append([]string(nil), iface.methods...)})
-	}
-	return out
 }
 
 // executeQueries runs the compiled tags query and converts captures into nodes and edges.
@@ -526,98 +517,6 @@ func (w *Walker) executeQueries(root *sitter.Node, content []byte, filePath stri
 	return nodes, edges, pkgName, interfaces, nil
 }
 
-// contentForImplementedTypes extracts implemented-type text from one capture node.
-// @intent normalize raw implements captures into a shared slice before language-specific enrichment.
-func contentForImplementedTypes(content []byte, implementsNode *sitter.Node) []string {
-	if implementsNode == nil {
-		return nil
-	}
-	value := strings.TrimSpace(implementsNode.Content(content))
-	if value == "" {
-		return nil
-	}
-	return splitTopLevelCSV(value)
-}
-
-// appendUniqueEdges appends edges while deduplicating on fingerprint when available.
-// @intent prevent overlapping Tree-sitter captures from emitting duplicate relationship edges.
-func appendUniqueEdges(edges []graph.Edge, seen map[string]struct{}, add ...graph.Edge) []graph.Edge {
-	for _, edge := range add {
-		if edge.Fingerprint == "" {
-			edges = append(edges, edge)
-			continue
-		}
-		if _, ok := seen[edge.Fingerprint]; ok {
-			continue
-		}
-		seen[edge.Fingerprint] = struct{}{}
-		edges = append(edges, edge)
-	}
-	return edges
-}
-
-// appendUniqueInterfaces appends interface summaries while deduplicating by name and method set.
-// @intent avoid repeating package interface metadata when multiple query patterns capture the same interface.
-func appendUniqueInterfaces(interfaces []interfaceInfo, seen map[string]struct{}, add ...interfaceInfo) []interfaceInfo {
-	for _, iface := range add {
-		key := iface.name + ":" + strings.Join(iface.methods, ",")
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		interfaces = append(interfaces, iface)
-	}
-	return interfaces
-}
-
-// splitTopLevelCSV splits a comma-separated list while respecting nested delimiters.
-// @intent preserve generic and tuple type syntax when parsing implements lists from raw query captures.
-func splitTopLevelCSV(value string) []string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return nil
-	}
-	var parts []string
-	start := 0
-	depthAngle := 0
-	depthParen := 0
-	depthBracket := 0
-	for i, r := range value {
-		switch r {
-		case '<':
-			depthAngle++
-		case '>':
-			if depthAngle > 0 {
-				depthAngle--
-			}
-		case '(':
-			depthParen++
-		case ')':
-			if depthParen > 0 {
-				depthParen--
-			}
-		case '[':
-			depthBracket++
-		case ']':
-			if depthBracket > 0 {
-				depthBracket--
-			}
-		case ',':
-			if depthAngle == 0 && depthParen == 0 && depthBracket == 0 {
-				part := strings.TrimSpace(value[start:i])
-				if part != "" {
-					parts = append(parts, part)
-				}
-				start = i + 1
-			}
-		}
-	}
-	if part := strings.TrimSpace(value[start:]); part != "" {
-		parts = append(parts, part)
-	}
-	return appendUniquePackageFile(nil, parts...)
-}
-
 // extractCallName extracts the callable expression text from a call node.
 // @intent derive stable callee names for call edge fingerprints across grammars
 func (w *Walker) extractCallName(callNode *sitter.Node, content []byte) string {
@@ -668,32 +567,6 @@ func (w *Walker) mapDefTypeToNodeKind(defType string, name string) graph.NodeKin
 		}
 		return graph.NodeKindFunction
 	}
-}
-
-// isTestName reports whether name denotes a test given the language's test prefix.
-// @intent avoid misclassifying production symbols like testimonialCard or TestConfig as tests.
-// @domainRule a separator-terminated prefix (e.g. "test_") is a boundary on its own; a bare-word
-// prefix (e.g. "Test", "test", "TEST") must be followed by end-of-name or a non-lowercase character
-// so it does not swallow a longer lowercase word.
-func isTestName(name, prefix string) bool {
-	if prefix == "" || !strings.HasPrefix(name, prefix) {
-		return false
-	}
-	last := prefix[len(prefix)-1]
-	if !isASCIILetterOrDigit(last) {
-		return true
-	}
-	rest := name[len(prefix):]
-	if rest == "" {
-		return true
-	}
-	c := rest[0]
-	return c < 'a' || c > 'z'
-}
-
-// @intent classify ASCII identifier characters for test-prefix boundary detection.
-func isASCIILetterOrDigit(c byte) bool {
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 }
 
 // buildQualifiedName joins package, receiver, and declaration name into a stable identifier.
@@ -750,10 +623,6 @@ func (w *Walker) resolveTestedBy(nodes []graph.Node, edges *[]graph.Edge, filePa
 		}
 	}
 }
-
-// CommentBlock records one contiguous comment region discovered in source.
-// @intent preserve raw comment text with source line bounds for later annotation binding
-type CommentBlock = ingest.CommentBlock
 
 // ExtractComments parses a file and returns merged comment blocks.
 // @intent expose comment extraction without forcing callers to build nodes and edges
@@ -856,25 +725,6 @@ func (w *Walker) collectComments(node *sitter.Node, content []byte, comments *[]
 	}
 }
 
-// mergeCommentBlocks는 기존 comments와 새 docstrings를 StartLine 오름차순으로 병합한다.
-// @intent collectComments 결과와 collectDocstrings 결과를 단일 슬라이스로 합성
-func mergeCommentBlocks(comments, docstrings []CommentBlock) []CommentBlock {
-	merged := make([]CommentBlock, 0, len(comments)+len(docstrings))
-	i, j := 0, 0
-	for i < len(comments) && j < len(docstrings) {
-		if comments[i].StartLine <= docstrings[j].StartLine {
-			merged = append(merged, comments[i])
-			i++
-		} else {
-			merged = append(merged, docstrings[j])
-			j++
-		}
-	}
-	merged = append(merged, comments[i:]...)
-	merged = append(merged, docstrings[j:]...)
-	return merged
-}
-
 // acquireParser borrows a Tree-sitter parser from the per-walker pool, creating one on first use.
 // @intent amortize parser construction cost across many parses on the same language.
 func (w *Walker) acquireParser() *sitter.Parser {
@@ -930,6 +780,156 @@ func (w *Walker) getLanguage() (*sitter.Language, error) {
 	default:
 		return nil, trace.Wrap(errUnsupportedLanguage, w.spec.Name)
 	}
+}
+
+// exportPackageInterfaces converts internal interface metadata into exported parse metadata.
+// @intent expose package interface summaries without leaking walker-private helper types.
+func exportPackageInterfaces(interfaces []interfaceInfo) []PackageInterfaceInfo {
+	if len(interfaces) == 0 {
+		return nil
+	}
+	out := make([]PackageInterfaceInfo, 0, len(interfaces))
+	for _, iface := range interfaces {
+		out = append(out, PackageInterfaceInfo{Name: iface.name, Methods: append([]string(nil), iface.methods...)})
+	}
+	return out
+}
+
+// contentForImplementedTypes extracts implemented-type text from one capture node.
+// @intent normalize raw implements captures into a shared slice before language-specific enrichment.
+func contentForImplementedTypes(content []byte, implementsNode *sitter.Node) []string {
+	if implementsNode == nil {
+		return nil
+	}
+	value := strings.TrimSpace(implementsNode.Content(content))
+	if value == "" {
+		return nil
+	}
+	return splitTopLevelCSV(value)
+}
+
+// appendUniqueEdges appends edges while deduplicating on fingerprint when available.
+// @intent prevent overlapping Tree-sitter captures from emitting duplicate relationship edges.
+func appendUniqueEdges(edges []graph.Edge, seen map[string]struct{}, add ...graph.Edge) []graph.Edge {
+	for _, edge := range add {
+		if edge.Fingerprint == "" {
+			edges = append(edges, edge)
+			continue
+		}
+		if _, ok := seen[edge.Fingerprint]; ok {
+			continue
+		}
+		seen[edge.Fingerprint] = struct{}{}
+		edges = append(edges, edge)
+	}
+	return edges
+}
+
+// appendUniqueInterfaces appends interface summaries while deduplicating by name and method set.
+// @intent avoid repeating package interface metadata when multiple query patterns capture the same interface.
+func appendUniqueInterfaces(interfaces []interfaceInfo, seen map[string]struct{}, add ...interfaceInfo) []interfaceInfo {
+	for _, iface := range add {
+		key := iface.name + ":" + strings.Join(iface.methods, ",")
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		interfaces = append(interfaces, iface)
+	}
+	return interfaces
+}
+
+// splitTopLevelCSV splits a comma-separated list while respecting nested delimiters.
+// @intent preserve generic and tuple type syntax when parsing implements lists from raw query captures.
+func splitTopLevelCSV(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	var parts []string
+	start := 0
+	depthAngle := 0
+	depthParen := 0
+	depthBracket := 0
+	for i, r := range value {
+		switch r {
+		case '<':
+			depthAngle++
+		case '>':
+			if depthAngle > 0 {
+				depthAngle--
+			}
+		case '(':
+			depthParen++
+		case ')':
+			if depthParen > 0 {
+				depthParen--
+			}
+		case '[':
+			depthBracket++
+		case ']':
+			if depthBracket > 0 {
+				depthBracket--
+			}
+		case ',':
+			if depthAngle == 0 && depthParen == 0 && depthBracket == 0 {
+				part := strings.TrimSpace(value[start:i])
+				if part != "" {
+					parts = append(parts, part)
+				}
+				start = i + 1
+			}
+		}
+	}
+	if part := strings.TrimSpace(value[start:]); part != "" {
+		parts = append(parts, part)
+	}
+	return appendUniquePackageFile(nil, parts...)
+}
+
+// isTestName reports whether name denotes a test given the language's test prefix.
+// @intent avoid misclassifying production symbols like testimonialCard or TestConfig as tests.
+// @domainRule a separator-terminated prefix (e.g. "test_") is a boundary on its own; a bare-word
+// prefix (e.g. "Test", "test", "TEST") must be followed by end-of-name or a non-lowercase character
+// so it does not swallow a longer lowercase word.
+func isTestName(name, prefix string) bool {
+	if prefix == "" || !strings.HasPrefix(name, prefix) {
+		return false
+	}
+	last := prefix[len(prefix)-1]
+	if !isASCIILetterOrDigit(last) {
+		return true
+	}
+	rest := name[len(prefix):]
+	if rest == "" {
+		return true
+	}
+	c := rest[0]
+	return c < 'a' || c > 'z'
+}
+
+// @intent classify ASCII identifier characters for test-prefix boundary detection.
+func isASCIILetterOrDigit(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+}
+
+// mergeCommentBlocks는 기존 comments와 새 docstrings를 StartLine 오름차순으로 병합한다.
+// @intent collectComments 결과와 collectDocstrings 결과를 단일 슬라이스로 합성
+func mergeCommentBlocks(comments, docstrings []CommentBlock) []CommentBlock {
+	merged := make([]CommentBlock, 0, len(comments)+len(docstrings))
+	i, j := 0, 0
+	for i < len(comments) && j < len(docstrings) {
+		if comments[i].StartLine <= docstrings[j].StartLine {
+			merged = append(merged, comments[i])
+			i++
+		} else {
+			merged = append(merged, docstrings[j])
+			j++
+		}
+	}
+	merged = append(merged, comments[i:]...)
+	merged = append(merged, docstrings[j:]...)
+	return merged
 }
 
 // rangesOverlap reports whether two inclusive line ranges share at least one line.

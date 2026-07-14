@@ -124,6 +124,22 @@ func (s *Service) scanDBCandidates(ctx context.Context, query string) ([]graph.N
 	return filtered, nil
 }
 
+// @intent load structured annotations for candidate nodes in one namespace-scoped query so reranking evidence stays bounded.
+func (s *Service) batchAnnotations(ctx context.Context, nodeIDs []uint) (map[uint]*graph.Annotation, error) {
+	annotations := make(map[uint]*graph.Annotation, len(nodeIDs))
+	if len(nodeIDs) == 0 {
+		return annotations, nil
+	}
+	rows, err := s.Repository.Annotations(ctx, nodeIDs)
+	if err != nil {
+		return nil, fmt.Errorf("batch doc retrieval annotations: %w", err)
+	}
+	for nodeID, annotation := range rows {
+		annotations[nodeID] = annotation
+	}
+	return annotations, nil
+}
+
 // @intent merge FTS and DB-scan candidates without duplicating node evidence already returned by the backend.
 func mergeCandidates(primary, supplemental []graph.Node) []graph.Node {
 	if len(primary) == 0 {
@@ -196,22 +212,6 @@ func sortRetrieveResults(results []Result, ftsRanks map[string]int) {
 		}
 		return strings.Join(results[i].Path, "/") < strings.Join(results[j].Path, "/")
 	})
-}
-
-// @intent load structured annotations for candidate nodes in one namespace-scoped query so reranking evidence stays bounded.
-func (s *Service) batchAnnotations(ctx context.Context, nodeIDs []uint) (map[uint]*graph.Annotation, error) {
-	annotations := make(map[uint]*graph.Annotation, len(nodeIDs))
-	if len(nodeIDs) == 0 {
-		return annotations, nil
-	}
-	rows, err := s.Repository.Annotations(ctx, nodeIDs)
-	if err != nil {
-		return nil, fmt.Errorf("batch doc retrieval annotations: %w", err)
-	}
-	for nodeID, annotation := range rows {
-		annotations[nodeID] = annotation
-	}
-	return annotations, nil
 }
 
 // @intent map the default namespace to shared docs paths while preserving named namespace-relative content lookup.

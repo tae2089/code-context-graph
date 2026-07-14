@@ -15,13 +15,6 @@ import (
 	"github.com/tae2089/code-context-graph/internal/obs"
 )
 
-// handlers groups shared dependencies for MCP tool handlers.
-// @intent group shared dependencies so individual MCP tool handlers can reuse the same services and cache.
-type handlers struct {
-	deps  *Deps
-	cache *Cache
-}
-
 const maxPaginationLimit = 500
 
 // pagination is the MCP wire metadata for one limit/offset result window.
@@ -34,30 +27,11 @@ type pagination struct {
 	NextOffset *int `json:"next_offset,omitempty"`
 }
 
-// marshalJSON encodes a value into a JSON string.
-// @intent serialize handler payloads into a stable JSON string for MCP responses and cache keys.
-// @param v is the response payload or cache-key input value to encode.
-// @return returns the serialized JSON string.
-func marshalJSON(v any) (string, error) {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
-}
-
-// makeCacheKey builds a cache key from a prefix and JSON-encoded parameters.
-// @intent turn request parameters into a stable string key so tool-result caching can reuse previous responses.
-// @param prefix scopes the cache namespace for a tool family.
-// @param v is the parameter set to embed into the cache key.
-// @return returns the cache key built from prefix and serialized parameters.
-// @see mcp.handlers.cachedExecute
-func makeCacheKey(prefix string, v any) (string, error) {
-	key, err := marshalJSON(v)
-	if err != nil {
-		return "", err
-	}
-	return prefix + key, nil
+// handlers groups shared dependencies for MCP tool handlers.
+// @intent group shared dependencies so individual MCP tool handlers can reuse the same services and cache.
+type handlers struct {
+	deps  *Deps
+	cache *Cache
 }
 
 // logger returns the configured logger or the default logger.
@@ -76,6 +50,48 @@ func (h *handlers) applyNamespace(ctx context.Context, request mcp.CallToolReque
 	return requestctx.WithNamespace(ctx, resolveNamespace(ctx, requestNamespace(request)))
 }
 
+// cachedExecute extracts the cache lookup → execute → cache store flow.
+// It runs fn directly when cache is nil.
+// @intent centralize caching for read-oriented tool responses so repeated DB and analyzer work can be skipped.
+// @param prefix is the tool-specific cache namespace prefix.
+// @param params are the request parameters embedded in the cache key.
+// @sideEffect may read and write the in-memory cache and emit debug logs.
+// @domainRule namespace values are normalized before key generation.
+// @mutates h.cache
+func (h *handlers) cachedExecute(ctx context.Context, prefix string, params map[string]any, fn func() (string, error)) (string, error) {
+	if h.cache == nil {
+		return fn()
+	}
+	cacheParams := make(map[string]any, len(params))
+	for k, v := range params {
+		cacheParams[k] = v
+	}
+	if namespace, ok := cacheParams["namespace"].(string); ok {
+		cacheParams["namespace"] = resolveNamespace(ctx, namespace)
+	}
+
+	key, err := makeCacheKey(prefix, cacheParams)
+	if err != nil {
+		h.logger().WarnContext(ctx, "failed to marshal cache key", append(obs.TraceLogArgs(ctx), "prefix", prefix, trace.SlogError(err))...)
+		return fn()
+	}
+	if key != "" {
+		if cached, ok := h.cache.Get(key); ok {
+			h.logger().DebugContext(ctx, "cache hit", append(obs.TraceLogArgs(ctx), "prefix", prefix)...)
+			return cached, nil
+		}
+	}
+
+	result, err := fn()
+	if err != nil {
+		return "", err
+	}
+	if key != "" {
+		h.cache.Set(key, result)
+	}
+	return result, nil
+}
+
 // @intent prefer an explicit request namespace while falling back to the namespace already carried on context.
 // @domainRule an explicit request namespace always overrides the namespace already on context.
 func resolveNamespace(ctx context.Context, namespace string) string {
@@ -88,6 +104,32 @@ func resolveNamespace(ctx context.Context, namespace string) string {
 // @intent read the canonical namespace isolation argument.
 func requestNamespace(request mcp.CallToolRequest) string {
 	return request.GetString("namespace", "")
+}
+
+// makeCacheKey builds a cache key from a prefix and JSON-encoded parameters.
+// @intent turn request parameters into a stable string key so tool-result caching can reuse previous responses.
+// @param prefix scopes the cache namespace for a tool family.
+// @param v is the parameter set to embed into the cache key.
+// @return returns the cache key built from prefix and serialized parameters.
+// @see mcp.handlers.cachedExecute
+func makeCacheKey(prefix string, v any) (string, error) {
+	key, err := marshalJSON(v)
+	if err != nil {
+		return "", err
+	}
+	return prefix + key, nil
+}
+
+// marshalJSON encodes a value into a JSON string.
+// @intent serialize handler payloads into a stable JSON string for MCP responses and cache keys.
+// @param v is the response payload or cache-key input value to encode.
+// @return returns the serialized JSON string.
+func marshalJSON(v any) (string, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 // toolResultErr carries an MCP tool result alongside an error value.
@@ -172,48 +214,6 @@ func finalizeToolResult(result string, err error) (*mcp.CallToolResult, error) {
 		return nil, err
 	}
 	return mcp.NewToolResultText(result), nil
-}
-
-// cachedExecute extracts the cache lookup → execute → cache store flow.
-// It runs fn directly when cache is nil.
-// @intent centralize caching for read-oriented tool responses so repeated DB and analyzer work can be skipped.
-// @param prefix is the tool-specific cache namespace prefix.
-// @param params are the request parameters embedded in the cache key.
-// @sideEffect may read and write the in-memory cache and emit debug logs.
-// @domainRule namespace values are normalized before key generation.
-// @mutates h.cache
-func (h *handlers) cachedExecute(ctx context.Context, prefix string, params map[string]any, fn func() (string, error)) (string, error) {
-	if h.cache == nil {
-		return fn()
-	}
-	cacheParams := make(map[string]any, len(params))
-	for k, v := range params {
-		cacheParams[k] = v
-	}
-	if namespace, ok := cacheParams["namespace"].(string); ok {
-		cacheParams["namespace"] = resolveNamespace(ctx, namespace)
-	}
-
-	key, err := makeCacheKey(prefix, cacheParams)
-	if err != nil {
-		h.logger().WarnContext(ctx, "failed to marshal cache key", append(obs.TraceLogArgs(ctx), "prefix", prefix, trace.SlogError(err))...)
-		return fn()
-	}
-	if key != "" {
-		if cached, ok := h.cache.Get(key); ok {
-			h.logger().DebugContext(ctx, "cache hit", append(obs.TraceLogArgs(ctx), "prefix", prefix)...)
-			return cached, nil
-		}
-	}
-
-	result, err := fn()
-	if err != nil {
-		return "", err
-	}
-	if key != "" {
-		h.cache.Set(key, result)
-	}
-	return result, nil
 }
 
 // nodeSummary is a compact node response payload shared by graph handlers.

@@ -30,6 +30,8 @@ type SQLiteBackend struct {
 	batchInserter func(ctx context.Context, tx *gorm.DB, tableName string, docs []graph.SearchDocument) error
 }
 
+var _ Backend = (*SQLiteBackend)(nil)
+
 // NewSQLiteBackend creates a SQLite search backend.
 // @intent Provides a Backend implementation specifically for SQLite.
 func NewSQLiteBackend() *SQLiteBackend {
@@ -163,40 +165,6 @@ func (s *SQLiteBackend) rebuildTableNodes(ctx context.Context, db *gorm.DB, tabl
 	})
 }
 
-// insertSQLiteFTSBatch executes one bulk INSERT for a batch of search documents into an FTS table.
-// @intent push many rows in a single statement so rebuild paths avoid per-row round trips.
-// @sideEffect inserts rows into the supplied FTS virtual table.
-// @mutates search_fts virtual table contents
-func insertSQLiteFTSBatch(ctx context.Context, tx *gorm.DB, tableName string, docs []graph.SearchDocument) error {
-	if len(docs) == 0 {
-		return nil
-	}
-	insertSQL, args := buildSQLiteFTSInsert(tableName, docs)
-	return tx.WithContext(ctx).Exec(insertSQL, args...).Error
-}
-
-// buildSQLiteFTSInsert constructs a bulk INSERT statement for the FTS virtual
-// table, returning the SQL string and its positional arguments. Each document
-// maps to a (node_id, content, language, namespace) value row.
-// @intent batch SQLite FTS inserts into one statement so rebuild paths can stream many documents with minimal per-row overhead.
-func buildSQLiteFTSInsert(tableName string, docs []graph.SearchDocument) (string, []any) {
-	if len(docs) == 0 {
-		return "", nil
-	}
-	placeholders := make([]string, len(docs))
-	args := make([]any, 0, len(docs)*4)
-	for i, doc := range docs {
-		placeholders[i] = "(?, ?, ?, ?)"
-		args = append(args, doc.NodeID, doc.Content, doc.Language, doc.Namespace)
-	}
-	insertSQL := fmt.Sprintf(
-		"INSERT INTO %s(node_id, content, language, namespace) VALUES %s",
-		tableName,
-		strings.Join(placeholders, ", "),
-	)
-	return insertSQL, args
-}
-
 // ftsRow scans node_id values from search_fts MATCH queries.
 // @intent decode the single-column FTS result before joining back to nodes.
 type ftsRow struct {
@@ -265,6 +233,73 @@ func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, li
 	return result, nil
 }
 
+// upgradeLegacyFTSTable migrates a pre-namespace search_fts schema to the
+// current four-column layout (node_id, content, language, namespace). It builds
+// a shadow table, populates it via rebuildTable, then swaps it into place using
+// RENAME, keeping the old table as a backup until the swap succeeds.
+// @intent upgrade legacy SQLite FTS storage to the namespace-aware schema without losing the indexed search snapshot.
+func (s *SQLiteBackend) upgradeLegacyFTSTable(db *gorm.DB) error {
+	for _, tableName := range []string{sqliteFTSUpgradeTable, sqliteFTSLegacyBackup} {
+		if err := db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)).Error; err != nil {
+			return trace.Wrap(err, "drop stale upgrade table")
+		}
+	}
+	if err := createSQLiteFTSTable(db, sqliteFTSUpgradeTable, false); err != nil {
+		if strings.Contains(err.Error(), "no such module: fts5") {
+			return trace.Wrap(ErrFTS5NotAvailable, err.Error())
+		}
+		return trace.Wrap(err, "create upgraded fts shadow")
+	}
+	if err := s.rebuildTable(context.Background(), db, sqliteFTSUpgradeTable); err != nil {
+		return trace.Wrap(err, "populate upgraded fts shadow")
+	}
+	if err := db.Exec(fmt.Sprintf("ALTER TABLE %s RENAME TO %s", sqliteFTSTable, sqliteFTSLegacyBackup)).Error; err != nil {
+		return trace.Wrap(err, "rename legacy fts backup")
+	}
+	if err := db.Exec(fmt.Sprintf("ALTER TABLE %s RENAME TO %s", sqliteFTSUpgradeTable, sqliteFTSTable)).Error; err != nil {
+		_ = db.Exec(fmt.Sprintf("ALTER TABLE %s RENAME TO %s", sqliteFTSLegacyBackup, sqliteFTSTable)).Error
+		return trace.Wrap(err, "activate upgraded fts")
+	}
+	if err := db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", sqliteFTSLegacyBackup)).Error; err != nil {
+		return trace.Wrap(err, "drop legacy fts backup")
+	}
+	return nil
+}
+
+// insertSQLiteFTSBatch executes one bulk INSERT for a batch of search documents into an FTS table.
+// @intent push many rows in a single statement so rebuild paths avoid per-row round trips.
+// @sideEffect inserts rows into the supplied FTS virtual table.
+// @mutates search_fts virtual table contents
+func insertSQLiteFTSBatch(ctx context.Context, tx *gorm.DB, tableName string, docs []graph.SearchDocument) error {
+	if len(docs) == 0 {
+		return nil
+	}
+	insertSQL, args := buildSQLiteFTSInsert(tableName, docs)
+	return tx.WithContext(ctx).Exec(insertSQL, args...).Error
+}
+
+// buildSQLiteFTSInsert constructs a bulk INSERT statement for the FTS virtual
+// table, returning the SQL string and its positional arguments. Each document
+// maps to a (node_id, content, language, namespace) value row.
+// @intent batch SQLite FTS inserts into one statement so rebuild paths can stream many documents with minimal per-row overhead.
+func buildSQLiteFTSInsert(tableName string, docs []graph.SearchDocument) (string, []any) {
+	if len(docs) == 0 {
+		return "", nil
+	}
+	placeholders := make([]string, len(docs))
+	args := make([]any, 0, len(docs)*4)
+	for i, doc := range docs {
+		placeholders[i] = "(?, ?, ?, ?)"
+		args = append(args, doc.NodeID, doc.Content, doc.Language, doc.Namespace)
+	}
+	insertSQL := fmt.Sprintf(
+		"INSERT INTO %s(node_id, content, language, namespace) VALUES %s",
+		tableName,
+		strings.Join(placeholders, ", "),
+	)
+	return insertSQL, args
+}
+
 // sqliteColumnExists reports whether a column is present on a given SQLite table via PRAGMA table_info.
 // @intent gate schema migrations on actual table layout instead of guessing from version markers.
 func sqliteColumnExists(db *gorm.DB, tableName, columnName string) (bool, error) {
@@ -304,39 +339,6 @@ func createSQLiteFTSTable(db *gorm.DB, tableName string, ifNotExists bool) error
 	return db.Exec(stmt).Error
 }
 
-// upgradeLegacyFTSTable migrates a pre-namespace search_fts schema to the
-// current four-column layout (node_id, content, language, namespace). It builds
-// a shadow table, populates it via rebuildTable, then swaps it into place using
-// RENAME, keeping the old table as a backup until the swap succeeds.
-// @intent upgrade legacy SQLite FTS storage to the namespace-aware schema without losing the indexed search snapshot.
-func (s *SQLiteBackend) upgradeLegacyFTSTable(db *gorm.DB) error {
-	for _, tableName := range []string{sqliteFTSUpgradeTable, sqliteFTSLegacyBackup} {
-		if err := db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)).Error; err != nil {
-			return trace.Wrap(err, "drop stale upgrade table")
-		}
-	}
-	if err := createSQLiteFTSTable(db, sqliteFTSUpgradeTable, false); err != nil {
-		if strings.Contains(err.Error(), "no such module: fts5") {
-			return trace.Wrap(ErrFTS5NotAvailable, err.Error())
-		}
-		return trace.Wrap(err, "create upgraded fts shadow")
-	}
-	if err := s.rebuildTable(context.Background(), db, sqliteFTSUpgradeTable); err != nil {
-		return trace.Wrap(err, "populate upgraded fts shadow")
-	}
-	if err := db.Exec(fmt.Sprintf("ALTER TABLE %s RENAME TO %s", sqliteFTSTable, sqliteFTSLegacyBackup)).Error; err != nil {
-		return trace.Wrap(err, "rename legacy fts backup")
-	}
-	if err := db.Exec(fmt.Sprintf("ALTER TABLE %s RENAME TO %s", sqliteFTSUpgradeTable, sqliteFTSTable)).Error; err != nil {
-		_ = db.Exec(fmt.Sprintf("ALTER TABLE %s RENAME TO %s", sqliteFTSLegacyBackup, sqliteFTSTable)).Error
-		return trace.Wrap(err, "activate upgraded fts")
-	}
-	if err := db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", sqliteFTSLegacyBackup)).Error; err != nil {
-		return trace.Wrap(err, "drop legacy fts backup")
-	}
-	return nil
-}
-
 // sqliteTableExists reports whether a regular table with the given name exists in sqlite_master.
 // @intent let migration code branch on table presence without depending on GORM AutoMigrate side effects.
 func sqliteTableExists(db *gorm.DB, tableName string) (bool, error) {
@@ -346,5 +348,3 @@ func sqliteTableExists(db *gorm.DB, tableName string) (bool, error) {
 	}
 	return count > 0, nil
 }
-
-var _ Backend = (*SQLiteBackend)(nil)

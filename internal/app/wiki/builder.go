@@ -450,86 +450,6 @@ func (b *Builder) hasSymbol(ctx context.Context, filePath string) bool {
 	return err == nil && found
 }
 
-// @intent compute the immediate child path under a folder prefix.
-func immediateChildPath(parentPath, filePath string) (string, bool, bool) {
-	parentPath = strings.Trim(path.Clean(parentPath), "/")
-	if parentPath == "." {
-		parentPath = ""
-	}
-	filePath = strings.Trim(path.Clean(filePath), "/")
-	rel := filePath
-	if parentPath != "" {
-		prefix := parentPath + "/"
-		if !strings.HasPrefix(filePath, prefix) {
-			return "", false, false
-		}
-		rel = strings.TrimPrefix(filePath, prefix)
-	}
-	parts := strings.Split(rel, "/")
-	if len(parts) == 0 || parts[0] == "" {
-		return "", false, false
-	}
-	childPath := parts[0]
-	if parentPath != "" {
-		childPath = parentPath + "/" + parts[0]
-	}
-	return childPath, len(parts) == 1, true
-}
-
-// @intent identify package nodes that represent the repository root rather than a sidebar child.
-// @domainRule the root package is folded into the Wiki root so top-level files are not duplicated under a synthetic "." package.
-func isRootPackagePath(filePath string) bool {
-	filePath = strings.Trim(path.Clean(filePath), "/")
-	return filePath == "." || filePath == ""
-}
-
-// @intent collect graph node IDs for batch annotation lookup.
-func nodeIDs(nodes []graph.Node) []uint {
-	ids := make([]uint, 0, len(nodes))
-	for _, node := range nodes {
-		ids = append(ids, node.ID)
-	}
-	return ids
-}
-
-// @intent expose symbol node kinds as strings for GORM IN clauses.
-func symbolKindStrings() []string {
-	return []string{string(graph.NodeKindFunction), string(graph.NodeKindClass), string(graph.NodeKindType), string(graph.NodeKindTest)}
-}
-
-// @intent centralize the symbol kinds eligible for built-in Wiki navigation.
-func symbolKinds() []graph.NodeKind {
-	return []graph.NodeKind{graph.NodeKindFunction, graph.NodeKindClass, graph.NodeKindType, graph.NodeKindTest}
-}
-
-// @intent adapt legacy string kind sets into the repository's typed node-kind request.
-func nodeKinds(values []string) []graph.NodeKind {
-	kinds := make([]graph.NodeKind, len(values))
-	for i := range values {
-		kinds[i] = graph.NodeKind(values[i])
-	}
-	return kinds
-}
-
-// @intent expose path-bearing node kinds that can imply folder and file tree entries.
-func lazyPathNodeKinds() []string {
-	return []string{
-		string(graph.NodeKindPackage),
-		string(graph.NodeKindFile),
-		string(graph.NodeKindFunction),
-		string(graph.NodeKindClass),
-		string(graph.NodeKindType),
-		string(graph.NodeKindTest),
-	}
-}
-
-// @intent hold one immediate child candidate while lazy tree nodes are materialized.
-type lazyEntry struct {
-	kind string
-	path string
-	node *graph.Node
-}
-
 // @intent resolve the namespace used for both DB reads and wiki-index output paths.
 func (b *Builder) namespace(ctx context.Context) string {
 	ns := b.Namespace
@@ -575,6 +495,19 @@ func (b *Builder) loadNodes(ctx context.Context) ([]graph.Node, map[uint]*graph.
 		return nil, nil, trace.Wrap(err, "load wiki annotations")
 	}
 	return nodes, annByID, nil
+}
+
+// @intent convert a repository-relative source path to the generated Markdown doc path.
+func (b *Builder) docPath(filePath string) string {
+	outDir := b.OutDir
+	if outDir == "" {
+		outDir = "docs"
+	}
+	rel := filePath
+	if filepath.IsAbs(filePath) {
+		rel = strings.TrimPrefix(filePath, string(filepath.Separator))
+	}
+	return filepath.Join(outDir, rel+".md")
 }
 
 // @intent hold mutable lookup maps while building the folder/package/file Wiki tree.
@@ -679,6 +612,86 @@ func (s *treeState) ensureFileWithSummary(filePath, docPath, summary, searchText
 	return file
 }
 
+// @intent hold one immediate child candidate while lazy tree nodes are materialized.
+type lazyEntry struct {
+	kind string
+	path string
+	node *graph.Node
+}
+
+// @intent compute the immediate child path under a folder prefix.
+func immediateChildPath(parentPath, filePath string) (string, bool, bool) {
+	parentPath = strings.Trim(path.Clean(parentPath), "/")
+	if parentPath == "." {
+		parentPath = ""
+	}
+	filePath = strings.Trim(path.Clean(filePath), "/")
+	rel := filePath
+	if parentPath != "" {
+		prefix := parentPath + "/"
+		if !strings.HasPrefix(filePath, prefix) {
+			return "", false, false
+		}
+		rel = strings.TrimPrefix(filePath, prefix)
+	}
+	parts := strings.Split(rel, "/")
+	if len(parts) == 0 || parts[0] == "" {
+		return "", false, false
+	}
+	childPath := parts[0]
+	if parentPath != "" {
+		childPath = parentPath + "/" + parts[0]
+	}
+	return childPath, len(parts) == 1, true
+}
+
+// @intent identify package nodes that represent the repository root rather than a sidebar child.
+// @domainRule the root package is folded into the Wiki root so top-level files are not duplicated under a synthetic "." package.
+func isRootPackagePath(filePath string) bool {
+	filePath = strings.Trim(path.Clean(filePath), "/")
+	return filePath == "." || filePath == ""
+}
+
+// @intent collect graph node IDs for batch annotation lookup.
+func nodeIDs(nodes []graph.Node) []uint {
+	ids := make([]uint, 0, len(nodes))
+	for _, node := range nodes {
+		ids = append(ids, node.ID)
+	}
+	return ids
+}
+
+// @intent expose symbol node kinds as strings for GORM IN clauses.
+func symbolKindStrings() []string {
+	return []string{string(graph.NodeKindFunction), string(graph.NodeKindClass), string(graph.NodeKindType), string(graph.NodeKindTest)}
+}
+
+// @intent centralize the symbol kinds eligible for built-in Wiki navigation.
+func symbolKinds() []graph.NodeKind {
+	return []graph.NodeKind{graph.NodeKindFunction, graph.NodeKindClass, graph.NodeKindType, graph.NodeKindTest}
+}
+
+// @intent adapt legacy string kind sets into the repository's typed node-kind request.
+func nodeKinds(values []string) []graph.NodeKind {
+	kinds := make([]graph.NodeKind, len(values))
+	for i := range values {
+		kinds[i] = graph.NodeKind(values[i])
+	}
+	return kinds
+}
+
+// @intent expose path-bearing node kinds that can imply folder and file tree entries.
+func lazyPathNodeKinds() []string {
+	return []string{
+		string(graph.NodeKindPackage),
+		string(graph.NodeKindFile),
+		string(graph.NodeKindFunction),
+		string(graph.NodeKindClass),
+		string(graph.NodeKindType),
+		string(graph.NodeKindTest),
+	}
+}
+
 // @intent identify graph node kinds that should appear as symbols under a file in the Wiki tree.
 func isSymbolKind(kind graph.NodeKind) bool {
 	return kind == graph.NodeKindFunction || kind == graph.NodeKindClass || kind == graph.NodeKindType || kind == graph.NodeKindTest
@@ -751,17 +764,4 @@ func kindRank(kind string) int {
 	default:
 		return 3
 	}
-}
-
-// @intent convert a repository-relative source path to the generated Markdown doc path.
-func (b *Builder) docPath(filePath string) string {
-	outDir := b.OutDir
-	if outDir == "" {
-		outDir = "docs"
-	}
-	rel := filePath
-	if filepath.IsAbs(filePath) {
-		rel = strings.TrimPrefix(filePath, string(filepath.Separator))
-	}
-	return filepath.Join(outDir, rel+".md")
 }

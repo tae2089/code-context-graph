@@ -12,6 +12,8 @@ import (
 	"github.com/tae2089/code-context-graph/internal/pathspec"
 )
 
+const generatorManagedMarker = "<!-- generated-by: code-context-graph docs -->\n"
+
 // Generator reads the SQLite graph and writes markdown documentation.
 // @intent 그래프에 저장된 심볼과 어노테이션을 문서 생성 단계로 전달한다.
 type Generator struct {
@@ -21,13 +23,6 @@ type Generator struct {
 	Exclude    []string // path/glob patterns to exclude (see pathspec.MatchExcludes)
 	Namespace  string
 	Prune      bool
-}
-
-const generatorManagedMarker = "<!-- generated-by: code-context-graph docs -->\n"
-
-type manifest struct {
-	Namespace string   `json:"namespace"`
-	Files     []string `json:"files"`
 }
 
 // Run generates index.md and per-file docs into g.OutDir.
@@ -121,17 +116,6 @@ func (g *Generator) loadEdges(nodeIDs []uint) (map[uint][]graph.Edge, error) {
 	return result, nil
 }
 
-// generatedFiles builds the list of output paths that this run will produce.
-// @intent track expected output files so the manifest and prune step stay consistent
-func generatedFiles(groups []nodeGroup) []string {
-	files := make([]string, 0, len(groups)+1)
-	for _, grp := range groups {
-		files = append(files, filepath.ToSlash(grp.FilePath+".md"))
-	}
-	files = append(files, "index.md")
-	return files
-}
-
 // manifestPath returns the namespace-scoped path for the docs manifest file.
 // @intent isolate manifest files per namespace so concurrent namespaces do not collide
 func (g *Generator) manifestPath() string {
@@ -205,6 +189,22 @@ func (g *Generator) pruneManaged(previous, current []string) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+type manifest struct {
+	Namespace string   `json:"namespace"`
+	Files     []string `json:"files"`
+}
+
+// generatedFiles builds the list of output paths that this run will produce.
+// @intent track expected output files so the manifest and prune step stay consistent
+func generatedFiles(groups []nodeGroup) []string {
+	files := make([]string, 0, len(groups)+1)
+	for _, grp := range groups {
+		files = append(files, filepath.ToSlash(grp.FilePath+".md"))
+	}
+	files = append(files, "index.md")
+	return files
 }
 
 // symbolNodeIDs returns IDs of non-file nodes only.

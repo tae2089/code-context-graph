@@ -25,6 +25,8 @@ const fuzzyWordSimilarityThreshold = 0.4
 // @intent Handles full-text search indexing and querying in a PostgreSQL environment.
 type PostgresBackend struct{}
 
+var _ Backend = (*PostgresBackend)(nil)
+
 // NewPostgresBackend creates a PostgreSQL search backend.
 // @intent Provides a Backend implementation specifically for PostgreSQL.
 func NewPostgresBackend() *PostgresBackend {
@@ -224,5 +226,3 @@ func (p *PostgresBackend) appendFuzzyMatches(ctx context.Context, db *gorm.DB, q
 	}
 	return ordered
 }
-
-var _ Backend = (*PostgresBackend)(nil)

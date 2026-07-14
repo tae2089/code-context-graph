@@ -9,6 +9,8 @@ import (
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
+var _ analyzeapp.ChangeRepository = (*Store)(nil)
+
 // NodesByFiles loads deterministic namespace-scoped graph nodes for changed files.
 // @intent supply diff-overlap inputs without exposing database filters to change policy.
 func (s *Store) NodesByFiles(ctx context.Context, filePaths []string) ([]graph.Node, error) {
@@ -52,5 +54,3 @@ func (s *Store) OutgoingEdgeCounts(ctx context.Context, nodeIDs []uint) (map[uin
 	}
 	return counts, nil
 }
-
-var _ analyzeapp.ChangeRepository = (*Store)(nil)

@@ -18,21 +18,14 @@ import (
 	"github.com/tae2089/code-context-graph/internal/domain/reference"
 )
 
+var _ wiki.Repository = (*Store)(nil)
+
 // Namespaces returns distinct stored namespaces in stable order.
 // @intent implement Wiki namespace discovery without exposing persistence to HTTP.
 func (s *Store) Namespaces(ctx context.Context) ([]string, error) {
 	var rows []string
 	err := s.db.WithContext(ctx).Model(&graph.Node{}).Distinct("namespace").Order("namespace ASC").Pluck("namespace", &rows).Error
 	return rows, err
-}
-
-// @intent convert domain node kinds to stable GORM IN-clause values at the adapter boundary.
-func wikiKinds(kinds []graph.NodeKind) []string {
-	values := make([]string, len(kinds))
-	for i := range kinds {
-		values[i] = string(kinds[i])
-	}
-	return values
 }
 
 // @intent load the stable graph snapshot from which the eager Wiki hierarchy is derived.
@@ -168,4 +161,11 @@ func (s *Store) ResolveReference(ctx context.Context, ref *reference.Ref) (*grap
 	return nil, fmt.Errorf("%w: graph reference", os.ErrNotExist)
 }
 
-var _ wiki.Repository = (*Store)(nil)
+// @intent convert domain node kinds to stable GORM IN-clause values at the adapter boundary.
+func wikiKinds(kinds []graph.NodeKind) []string {
+	values := make([]string, len(kinds))
+	for i := range kinds {
+		values[i] = string(kinds[i])
+	}
+	return values
+}

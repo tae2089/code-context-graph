@@ -38,16 +38,6 @@ type Runtime struct {
 	closeHook         func()
 }
 
-// MCPComponents returns the shared application/adapter set used by stdio and HTTP MCP runtimes.
-// @intent keep both transports on one grouped MCP assembly input without exposing composition to inbound adapters.
-func (r *Runtime) MCPComponents() mcpruntime.Components {
-	return mcpruntime.Components{
-		Logger: r.Logger, Store: r.Store, UnitOfWork: r.UnitOfWork,
-		Search: r.Search, SearchMaintenance: r.SearchMaintenance,
-		SearchReader: r.SearchReader, Walkers: r.Walkers, Syncer: r.Syncer,
-	}
-}
-
 // NewRuntime creates shared runtime dependencies that do not require the database yet.
 // @intent initialize parser walkers once before command-specific database setup runs.
 func NewRuntime(logger *slog.Logger) *Runtime {
@@ -57,6 +47,16 @@ func NewRuntime(logger *slog.Logger) *Runtime {
 	return &Runtime{
 		Logger:  logger,
 		Walkers: BuildWalkers(logger),
+	}
+}
+
+// MCPComponents returns the shared application/adapter set used by stdio and HTTP MCP runtimes.
+// @intent keep both transports on one grouped MCP assembly input without exposing composition to inbound adapters.
+func (r *Runtime) MCPComponents() mcpruntime.Components {
+	return mcpruntime.Components{
+		Logger: r.Logger, Store: r.Store, UnitOfWork: r.UnitOfWork,
+		Search: r.Search, SearchMaintenance: r.SearchMaintenance,
+		SearchReader: r.SearchReader, Walkers: r.Walkers, Syncer: r.Syncer,
 	}
 }
 

@@ -11,6 +11,8 @@ import (
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
+var _ analyze.StatisticsReader = (*Store)(nil)
+
 // groupedCount is the adapter-local scan target for kind/language aggregates.
 // @intent keep GORM aggregate rows private to the statistics adapter.
 type groupedCount struct {
@@ -66,5 +68,3 @@ func (s *Store) GraphStatistics(ctx context.Context) (analyze.GraphStatistics, e
 	result.FallbackCalls = result.EdgesByKind[string(graph.EdgeKindFallbackCalls)]
 	return result, nil
 }
-
-var _ analyze.StatisticsReader = (*Store)(nil)

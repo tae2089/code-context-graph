@@ -15,18 +15,6 @@ import (
 // @intent emit extends and implements relationships for TypeScript classes without adding language branches to Walker.
 type TypeScriptSemantics struct{}
 
-// JavaScriptSemantics recovers class inheritance edges from JavaScript class heritage clauses.
-// @intent emit extends relationships for JavaScript classes using the same heritage parsing model as TypeScript.
-type JavaScriptSemantics struct{}
-
-// explicitReceiverTypeCallRewriter rewrites typed JS/TS receiver chains into qualified calls.
-// @intent preserve conservative member-call rewriting when each hop is proven by explicit type annotations.
-type explicitReceiverTypeCallRewriter struct {
-	bindings map[string]string
-	members  map[string]map[string]string
-	chain    func(*sitter.Node, []byte) []string
-}
-
 // AdditionalEdges adds TypeScript extends and implements edges from class heritage clauses.
 // @intent capture TypeScript class hierarchy semantics directly from the parsed AST.
 func (TypeScriptSemantics) AdditionalEdges(ctx SemanticContext) []graph.Edge {
@@ -73,6 +61,29 @@ func (TypeScriptSemantics) AdditionalEdges(ctx SemanticContext) []graph.Edge {
 	}
 	walk(ctx.Root)
 	return edges
+}
+
+// ImplementedTypes normalizes query-captured implements targets through the TypeScript heritage parser.
+// @intent keep explicit query captures and AST-derived hierarchy parsing on one normalization path.
+func (TypeScriptSemantics) ImplementedTypes(ctx DefinitionContext) []string {
+	if ctx.Definition == nil {
+		return nil
+	}
+	base, traits := typescriptHeritage(ctx.Definition, ctx.Content)
+	if base == "" && len(traits) == 0 {
+		return slices.Clone(ctx.ImplementedTypes)
+	}
+	return traits
+}
+
+// CallRewriter returns a conservative TypeScript receiver-type rewriter.
+// @intent rewrite member-call chains only when explicit type annotations prove each hop.
+func (TypeScriptSemantics) CallRewriter(ctx SemanticContext) CallRewriter {
+	return explicitReceiverTypeCallRewriter{
+		bindings: collectTypeScriptReceiverBindings(ctx.Root, ctx.Content),
+		members:  collectTypeScriptMemberTypes(ctx.Root, ctx.Content),
+		chain:    typescriptReceiverChain,
+	}
 }
 
 // qualifyTypeScriptHeritageTypeName resolves a heritage type name through imports or the current file.
@@ -148,69 +159,6 @@ func typeScriptImportPackages(content []byte, importPackages map[string]string) 
 	return aliases
 }
 
-// ImplementedTypes normalizes query-captured implements targets through the TypeScript heritage parser.
-// @intent keep explicit query captures and AST-derived hierarchy parsing on one normalization path.
-func (TypeScriptSemantics) ImplementedTypes(ctx DefinitionContext) []string {
-	if ctx.Definition == nil {
-		return nil
-	}
-	base, traits := typescriptHeritage(ctx.Definition, ctx.Content)
-	if base == "" && len(traits) == 0 {
-		return slices.Clone(ctx.ImplementedTypes)
-	}
-	return traits
-}
-
-// CallRewriter returns a conservative TypeScript receiver-type rewriter.
-// @intent rewrite member-call chains only when explicit type annotations prove each hop.
-func (TypeScriptSemantics) CallRewriter(ctx SemanticContext) CallRewriter {
-	return explicitReceiverTypeCallRewriter{
-		bindings: collectTypeScriptReceiverBindings(ctx.Root, ctx.Content),
-		members:  collectTypeScriptMemberTypes(ctx.Root, ctx.Content),
-		chain:    typescriptReceiverChain,
-	}
-}
-
-// ImplementedTypes returns query-captured relationships unchanged for JavaScript.
-// @intent satisfy shared relationship normalization without inventing JS interface semantics.
-func (JavaScriptSemantics) ImplementedTypes(ctx DefinitionContext) []string {
-	return slices.Clone(ctx.ImplementedTypes)
-}
-
-// RewriteCall rewrites a member-call chain when explicit type annotations prove every hop.
-// @intent preserve conservative receiver dispatch by upgrading only typed call chains into owner-qualified selectors.
-func (r explicitReceiverTypeCallRewriter) RewriteCall(ctx CallRewriteContext) string {
-	if len(r.bindings) == 0 {
-		return ctx.Callee
-	}
-	var chain []string
-	if r.chain != nil {
-		chain = r.chain(ctx.Node, ctx.Content)
-	}
-	if len(chain) == 0 {
-		chain = callChainFromCallee(ctx.Callee)
-	}
-	if len(chain) < 2 {
-		return ctx.Callee
-	}
-	typeName := r.bindings[chain[0]]
-	if typeName == "" {
-		return ctx.Callee
-	}
-	for i := 1; i < len(chain)-1; i++ {
-		members := r.members[typeName]
-		if len(members) == 0 {
-			return ctx.Callee
-		}
-		nextType := members[chain[i]]
-		if nextType == "" || isLooseReceiverType(nextType) {
-			return ctx.Callee
-		}
-		typeName = nextType
-	}
-	return typeName + "." + chain[len(chain)-1]
-}
-
 // collectTypeScriptReceiverBindings extracts explicit TypeScript variable and parameter type bindings.
 // @intent seed conservative receiver rewriting with only textually provable TypeScript type annotations.
 func collectTypeScriptReceiverBindings(root *sitter.Node, content []byte) map[string]string {
@@ -258,12 +206,6 @@ func typescriptReceiverChain(callNode *sitter.Node, content []byte) []string {
 
 var typedIdentifierPattern = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_\.]*)`)
 
-// callChainFromCallee splits a raw callee string into selector segments.
-// @intent share one normalized chain representation across language-specific receiver rewriters.
-func callChainFromCallee(callee string) []string {
-	return selectorChainFromText(callee)
-}
-
 // collectTypeScriptMembersFromText scans TypeScript source text for explicitly typed members.
 // @intent avoid depending on grammar-specific field captures when proving member-chain types.
 func collectTypeScriptMembersFromText(src string) map[string]map[string]string {
@@ -298,117 +240,6 @@ func collectTypeScriptMembersFromText(src string) map[string]map[string]string {
 		}
 	}
 	return members
-}
-
-// memberChainFromNode extracts a dotted selector chain from one AST node.
-// @intent reuse AST-derived selector parsing when raw callee strings are incomplete.
-func memberChainFromNode(n *sitter.Node, content []byte) []string {
-	if n == nil {
-		return nil
-	}
-	return selectorChainFromText(n.Content(content))
-}
-
-// selectorChainFromText splits selector text into ordered path segments.
-// @intent share one normalized selector chain representation across call rewriting helpers.
-func selectorChainFromText(raw string) []string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-	raw = selectorPrefix(raw)
-	if raw == "" || !strings.Contains(raw, ".") {
-		return nil
-	}
-	parts := strings.Split(raw, ".")
-	if len(parts) < 2 {
-		return nil
-	}
-	for i := range parts {
-		parts[i] = strings.TrimSpace(parts[i])
-		if parts[i] == "" {
-			return nil
-		}
-	}
-	return parts
-}
-
-// selectorPrefix returns the leading selector segment from raw text.
-// @intent support conservative receiver qualification by identifying the base selector quickly.
-func selectorPrefix(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	for i, r := range raw {
-		switch r {
-		case '(', '{', ' ', '\t', '\n', '\r':
-			return strings.TrimSpace(raw[:i])
-		}
-	}
-	return raw
-}
-
-// normalizeReceiverTypeName strips suffix syntax that would destabilize receiver type matching.
-// @intent canonicalize explicit type names before they are used as receiver-chain proof.
-func normalizeReceiverTypeName(raw string) string {
-	raw = strings.TrimSpace(raw)
-	for _, sep := range []string{"=", "{", "<", "(", "?", "!"} {
-		if before, _, ok := strings.Cut(raw, sep); ok {
-			raw = strings.TrimSpace(before)
-		}
-	}
-	raw = strings.TrimPrefix(raw, "readonly ")
-	raw = strings.TrimPrefix(raw, "public ")
-	raw = strings.TrimPrefix(raw, "private ")
-	raw = strings.TrimPrefix(raw, "protected ")
-	raw = strings.TrimSpace(raw)
-	return raw
-}
-
-// isLooseReceiverType reports whether a type is too imprecise for conservative receiver rewriting.
-// @intent keep any/unknown/object-style declarations from producing false-positive dispatch rewrites.
-func isLooseReceiverType(typeName string) bool {
-	switch typeName {
-	case "", "any", "unknown", "object", "Object", "Any":
-		return true
-	default:
-		return false
-	}
-}
-
-// AdditionalEdges adds JavaScript extends edges from class heritage clauses.
-// @intent capture JavaScript class inheritance while ignoring TypeScript-only interface semantics.
-func (JavaScriptSemantics) AdditionalEdges(ctx SemanticContext) []graph.Edge {
-	if ctx.Root == nil {
-		return nil
-	}
-	var edges []graph.Edge
-	var walk func(*sitter.Node)
-	walk = func(n *sitter.Node) {
-		if n == nil {
-			return
-		}
-		if n.Type() == "class_declaration" {
-			className := javascriptClassName(n, ctx.Content)
-			if className != "" {
-				base, _ := typescriptHeritage(n, ctx.Content)
-				if base != "" {
-					edges = append(edges, graph.Edge{
-						Kind:        graph.EdgeKindInherits,
-						FilePath:    ctx.FilePath,
-						Line:        int(n.StartPoint().Row) + 1,
-						Fingerprint: graph.BuildInheritsFingerprintV2(ctx.FilePath, className, base),
-					})
-				}
-			}
-		}
-		for i := 0; i < int(n.ChildCount()); i++ {
-			walk(n.Child(i))
-		}
-	}
-	walk(ctx.Root)
-	return edges
 }
 
 // typescriptClassName extracts the declared class name from a TypeScript class_declaration node.
@@ -558,6 +389,50 @@ func namedTypeReferences(n *sitter.Node, content []byte) []string {
 	return appendUniquePackageFile(nil, refs...)
 }
 
+// JavaScriptSemantics recovers class inheritance edges from JavaScript class heritage clauses.
+// @intent emit extends relationships for JavaScript classes using the same heritage parsing model as TypeScript.
+type JavaScriptSemantics struct{}
+
+// ImplementedTypes returns query-captured relationships unchanged for JavaScript.
+// @intent satisfy shared relationship normalization without inventing JS interface semantics.
+func (JavaScriptSemantics) ImplementedTypes(ctx DefinitionContext) []string {
+	return slices.Clone(ctx.ImplementedTypes)
+}
+
+// AdditionalEdges adds JavaScript extends edges from class heritage clauses.
+// @intent capture JavaScript class inheritance while ignoring TypeScript-only interface semantics.
+func (JavaScriptSemantics) AdditionalEdges(ctx SemanticContext) []graph.Edge {
+	if ctx.Root == nil {
+		return nil
+	}
+	var edges []graph.Edge
+	var walk func(*sitter.Node)
+	walk = func(n *sitter.Node) {
+		if n == nil {
+			return
+		}
+		if n.Type() == "class_declaration" {
+			className := javascriptClassName(n, ctx.Content)
+			if className != "" {
+				base, _ := typescriptHeritage(n, ctx.Content)
+				if base != "" {
+					edges = append(edges, graph.Edge{
+						Kind:        graph.EdgeKindInherits,
+						FilePath:    ctx.FilePath,
+						Line:        int(n.StartPoint().Row) + 1,
+						Fingerprint: graph.BuildInheritsFingerprintV2(ctx.FilePath, className, base),
+					})
+				}
+			}
+		}
+		for i := 0; i < int(n.ChildCount()); i++ {
+			walk(n.Child(i))
+		}
+	}
+	walk(ctx.Root)
+	return edges
+}
+
 // javascriptClassName extracts the declared class name from a JavaScript class_declaration node.
 // @intent isolate JavaScript class-name lookup from hierarchy extraction logic.
 func javascriptClassName(n *sitter.Node, content []byte) string {
@@ -568,4 +443,129 @@ func javascriptClassName(n *sitter.Node, content []byte) string {
 		return strings.TrimSpace(nameNode.Content(content))
 	}
 	return ""
+}
+
+// explicitReceiverTypeCallRewriter rewrites typed JS/TS receiver chains into qualified calls.
+// @intent preserve conservative member-call rewriting when each hop is proven by explicit type annotations.
+type explicitReceiverTypeCallRewriter struct {
+	bindings map[string]string
+	members  map[string]map[string]string
+	chain    func(*sitter.Node, []byte) []string
+}
+
+// RewriteCall rewrites a member-call chain when explicit type annotations prove every hop.
+// @intent preserve conservative receiver dispatch by upgrading only typed call chains into owner-qualified selectors.
+func (r explicitReceiverTypeCallRewriter) RewriteCall(ctx CallRewriteContext) string {
+	if len(r.bindings) == 0 {
+		return ctx.Callee
+	}
+	var chain []string
+	if r.chain != nil {
+		chain = r.chain(ctx.Node, ctx.Content)
+	}
+	if len(chain) == 0 {
+		chain = callChainFromCallee(ctx.Callee)
+	}
+	if len(chain) < 2 {
+		return ctx.Callee
+	}
+	typeName := r.bindings[chain[0]]
+	if typeName == "" {
+		return ctx.Callee
+	}
+	for i := 1; i < len(chain)-1; i++ {
+		members := r.members[typeName]
+		if len(members) == 0 {
+			return ctx.Callee
+		}
+		nextType := members[chain[i]]
+		if nextType == "" || isLooseReceiverType(nextType) {
+			return ctx.Callee
+		}
+		typeName = nextType
+	}
+	return typeName + "." + chain[len(chain)-1]
+}
+
+// callChainFromCallee splits a raw callee string into selector segments.
+// @intent share one normalized chain representation across language-specific receiver rewriters.
+func callChainFromCallee(callee string) []string {
+	return selectorChainFromText(callee)
+}
+
+// memberChainFromNode extracts a dotted selector chain from one AST node.
+// @intent reuse AST-derived selector parsing when raw callee strings are incomplete.
+func memberChainFromNode(n *sitter.Node, content []byte) []string {
+	if n == nil {
+		return nil
+	}
+	return selectorChainFromText(n.Content(content))
+}
+
+// selectorChainFromText splits selector text into ordered path segments.
+// @intent share one normalized selector chain representation across call rewriting helpers.
+func selectorChainFromText(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	raw = selectorPrefix(raw)
+	if raw == "" || !strings.Contains(raw, ".") {
+		return nil
+	}
+	parts := strings.Split(raw, ".")
+	if len(parts) < 2 {
+		return nil
+	}
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+		if parts[i] == "" {
+			return nil
+		}
+	}
+	return parts
+}
+
+// selectorPrefix returns the leading selector segment from raw text.
+// @intent support conservative receiver qualification by identifying the base selector quickly.
+func selectorPrefix(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	for i, r := range raw {
+		switch r {
+		case '(', '{', ' ', '\t', '\n', '\r':
+			return strings.TrimSpace(raw[:i])
+		}
+	}
+	return raw
+}
+
+// normalizeReceiverTypeName strips suffix syntax that would destabilize receiver type matching.
+// @intent canonicalize explicit type names before they are used as receiver-chain proof.
+func normalizeReceiverTypeName(raw string) string {
+	raw = strings.TrimSpace(raw)
+	for _, sep := range []string{"=", "{", "<", "(", "?", "!"} {
+		if before, _, ok := strings.Cut(raw, sep); ok {
+			raw = strings.TrimSpace(before)
+		}
+	}
+	raw = strings.TrimPrefix(raw, "readonly ")
+	raw = strings.TrimPrefix(raw, "public ")
+	raw = strings.TrimPrefix(raw, "private ")
+	raw = strings.TrimPrefix(raw, "protected ")
+	raw = strings.TrimSpace(raw)
+	return raw
+}
+
+// isLooseReceiverType reports whether a type is too imprecise for conservative receiver rewriting.
+// @intent keep any/unknown/object-style declarations from producing false-positive dispatch rewrites.
+func isLooseReceiverType(typeName string) bool {
+	switch typeName {
+	case "", "any", "unknown", "object", "Object", "Any":
+		return true
+	default:
+		return false
+	}
 }

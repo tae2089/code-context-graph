@@ -16,8 +16,6 @@ import (
 	"github.com/tae2089/trace"
 )
 
-var strictFalse = false
-
 const (
 	defaultQueryGraphLimit = 50
 	maxQueryGraphLimit     = 500
@@ -117,6 +115,17 @@ type nodeResponse struct {
 	EndLine       int                    `json:"end_line"`
 	Language      string                 `json:"language"`
 	Evidence      namespaceEvidenceBlock `json:"evidence"`
+}
+
+// listGraphStatsResponse is the serialized payload for graph statistics.
+// @intent preserve a stable typed JSON response for graph statistics without changing the wire format.
+type listGraphStatsResponse struct {
+	TotalNodes      int64                  `json:"total_nodes"`
+	TotalEdges      int64                  `json:"total_edges"`
+	NodesByKind     map[string]int64       `json:"nodes_by_kind"`
+	NodesByLanguage map[string]int64       `json:"nodes_by_language"`
+	EdgesByKind     map[string]int64       `json:"edges_by_kind"`
+	Evidence        namespaceEvidenceBlock `json:"evidence"`
 }
 
 // getNode returns detailed metadata for a graph node by qualified name.
@@ -229,18 +238,6 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 	}))
 }
 
-// validateQueryGraphLimit checks that the limit parameter for queryGraph is within acceptable bounds.
-// @intent enforce reasonable limits on queryGraph results to prevent excessive load and encourage pagination.
-func validateQueryGraphLimit(limit int) error {
-	if err := validatePositiveLimit(limit); err != nil {
-		return err
-	}
-	if limit > maxQueryGraphLimit {
-		return newToolResultErr(fmt.Sprintf("limit must be <= %d, got %d", maxQueryGraphLimit, limit))
-	}
-	return nil
-}
-
 // getAnnotation returns stored annotation metadata for a graph node.
 // @intent fetch stored annotation tags and summary data so semantic search results can show business context.
 // @param request qualified_name is the fully qualified node name whose annotations should be loaded.
@@ -297,6 +294,8 @@ func (h *handlers) getAnnotation(ctx context.Context, request mcp.CallToolReques
 		return result, nil
 	}))
 }
+
+var strictFalse = false
 
 // queryGraph runs one of the predefined graph traversal patterns.
 // @intent expose repeated graph traversals through one pattern-driven tool entry point.
@@ -545,27 +544,6 @@ func (h *handlers) callQueryPatternEdges(ctx context.Context, anchorID uint, pat
 	return h.deps.Graph.Reader.CallEdges(ctx, anchorID, peerIDs, direction)
 }
 
-// compactQueryTargetAmbiguity formats ambiguous query_graph matches into one compact error string.
-// @intent compress ambiguous short-symbol matches into one line so callers can choose the intended node.
-func compactQueryTargetAmbiguity(target string, matches []querypkg.CandidateMatch) string {
-	parts := make([]string, 0, len(matches))
-	for _, match := range matches {
-		parts = append(parts, fmt.Sprintf("%s (%s, %s:%d)", match.QualifiedName, match.Kind, match.FilePath, match.StartLine))
-	}
-	return fmt.Sprintf("query_graph target %q is ambiguous: %s", target, strings.Join(parts, "; "))
-}
-
-// listGraphStatsResponse is the serialized payload for graph statistics.
-// @intent preserve a stable typed JSON response for graph statistics without changing the wire format.
-type listGraphStatsResponse struct {
-	TotalNodes      int64                  `json:"total_nodes"`
-	TotalEdges      int64                  `json:"total_edges"`
-	NodesByKind     map[string]int64       `json:"nodes_by_kind"`
-	NodesByLanguage map[string]int64       `json:"nodes_by_language"`
-	EdgesByKind     map[string]int64       `json:"edges_by_kind"`
-	Evidence        namespaceEvidenceBlock `json:"evidence"`
-}
-
 // listGraphStats returns aggregate node and edge statistics for the graph.
 // @intent summarize the current graph load state with kind and language distributions.
 // @ensures returns total node and edge counts plus kind and language aggregates when the query succeeds.
@@ -594,4 +572,26 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 		}
 		return result, nil
 	}))
+}
+
+// validateQueryGraphLimit checks that the limit parameter for queryGraph is within acceptable bounds.
+// @intent enforce reasonable limits on queryGraph results to prevent excessive load and encourage pagination.
+func validateQueryGraphLimit(limit int) error {
+	if err := validatePositiveLimit(limit); err != nil {
+		return err
+	}
+	if limit > maxQueryGraphLimit {
+		return newToolResultErr(fmt.Sprintf("limit must be <= %d, got %d", maxQueryGraphLimit, limit))
+	}
+	return nil
+}
+
+// compactQueryTargetAmbiguity formats ambiguous query_graph matches into one compact error string.
+// @intent compress ambiguous short-symbol matches into one line so callers can choose the intended node.
+func compactQueryTargetAmbiguity(target string, matches []querypkg.CandidateMatch) string {
+	parts := make([]string, 0, len(matches))
+	for _, match := range matches {
+		parts = append(parts, fmt.Sprintf("%s (%s, %s:%d)", match.QualifiedName, match.Kind, match.FilePath, match.StartLine))
+	}
+	return fmt.Sprintf("query_graph target %q is ambiguous: %s", target, strings.Join(parts, "; "))
 }

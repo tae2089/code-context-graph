@@ -18,6 +18,9 @@ type Reader struct {
 	backend Backend
 }
 
+var _ retrievalapp.CandidateSearcher = (*Reader)(nil)
+var _ retrievalapp.Repository = (*Reader)(nil)
+
 // NewReader constructs bound search and retrieval ports.
 // @intent keep database handles out of application service construction.
 func NewReader(db *gorm.DB, backend Backend) *Reader {
@@ -72,6 +75,3 @@ func (r *Reader) Annotations(ctx context.Context, nodeIDs []uint) (map[uint]*gra
 	}
 	return result, nil
 }
-
-var _ retrievalapp.CandidateSearcher = (*Reader)(nil)
-var _ retrievalapp.Repository = (*Reader)(nil)

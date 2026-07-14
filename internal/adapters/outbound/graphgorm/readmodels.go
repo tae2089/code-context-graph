@@ -9,6 +9,8 @@ import (
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
+var _ analyze.GraphReadRepository = (*Store)(nil)
+
 // @intent load one stable global namespace page with node counts.
 func (s *Store) NamespacesPage(ctx context.Context, limit, offset int) ([]analyze.NamespaceSummary, bool, error) {
 	var rows []analyze.NamespaceSummary
@@ -134,5 +136,3 @@ func (s *Store) TopFlows(ctx context.Context, limit int) ([]analyze.NamedCount, 
 	err := s.db.WithContext(ctx).Model(&graph.FlowMembership{}).Joins("JOIN flows ON flows.id = flow_memberships.flow_id").Where("flow_memberships.namespace = ?", requestctx.FromContext(ctx)).Select("flows.name AS name, COUNT(*) AS count").Group("flow_id").Group("flows.name").Order("count DESC").Order("flow_id ASC").Limit(limit).Scan(&rows).Error
 	return rows, err
 }
-
-var _ analyze.GraphReadRepository = (*Store)(nil)

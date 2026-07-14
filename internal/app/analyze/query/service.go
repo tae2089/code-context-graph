@@ -10,61 +10,16 @@ import (
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
-// FileSummary aggregates node counts for one file.
-// @intent summarize the kinds of graph nodes stored for a source file
-type FileSummary struct {
-	FilePath  string
-	Functions int
-	Classes   int
-	Types     int
-	Tests     int
-	Total     int
-}
-
 // Service serves predefined graph relationship queries.
 // @intent provide reusable higher-level graph lookups for MCP queries
 type Service struct {
 	repository analyzeapp.QueryRepository
 }
 
-// @intent carry paginated graph query rows together with the total match count for MCP responses.
-type PagedNodes struct {
-	Nodes      []graph.Node
-	TotalCount int
-}
-
-// CandidateMatch describes one exact short-name fallback candidate for query_graph.
-// @intent provide compact, stable target suggestions when a short symbol name matches multiple nodes.
-type CandidateMatch struct {
-	QualifiedName string
-	Kind          graph.NodeKind
-	FilePath      string
-	StartLine     int
-}
-
-// QueryOptions controls how predefined relationship lookups treat lower-confidence edges.
-// @intent let callers choose between compatibility mode and strict call-edge analysis.
-type QueryOptions struct {
-	IncludeFallbackCalls *bool
-	Limit                int
-	Offset               int
-}
-
 // New creates a predefined query service.
 // @intent construct a service for common graph traversal queries
 func New(repository analyzeapp.QueryRepository) *Service {
 	return &Service{repository: repository}
-}
-
-// defaultQueryOptions normalizes zero-value options into the compatibility-preserving defaults.
-// @intent keep legacy callers fallback-inclusive unless they explicitly opt into strict mode.
-func defaultQueryOptions(opts QueryOptions) QueryOptions {
-	if opts.IncludeFallbackCalls != nil {
-		return opts
-	}
-	includeFallbackCalls := true
-	opts.IncludeFallbackCalls = &includeFallbackCalls
-	return opts
 }
 
 // nodesByEdge loads nodes connected by an edge kind and direction.
@@ -117,33 +72,6 @@ func (s *Service) nodesByEdgePageWithOptions(ctx context.Context, nodeID uint, k
 		Nodes:      normalizeResults(page.Nodes),
 		TotalCount: page.TotalCount,
 	}, nil
-}
-
-// normalizeResults deduplicates and sorts graph query results.
-// @intent keep predefined query responses stable across joins that may return duplicate nodes.
-func normalizeResults(nodes []graph.Node) []graph.Node {
-	if len(nodes) <= 1 {
-		return nodes
-	}
-	seen := make(map[uint]struct{}, len(nodes))
-	result := make([]graph.Node, 0, len(nodes))
-	for _, node := range nodes {
-		if _, ok := seen[node.ID]; ok {
-			continue
-		}
-		seen[node.ID] = struct{}{}
-		result = append(result, node)
-	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].FilePath != result[j].FilePath {
-			return result[i].FilePath < result[j].FilePath
-		}
-		if result[i].StartLine != result[j].StartLine {
-			return result[i].StartLine < result[j].StartLine
-		}
-		return result[i].QualifiedName < result[j].QualifiedName
-	})
-	return result
 }
 
 // CallersOf returns nodes that call the target node.
@@ -291,4 +219,76 @@ func (s *Service) FindExactNameMatches(ctx context.Context, target string, limit
 		}
 	}
 	return matches, nil
+}
+
+// FileSummary aggregates node counts for one file.
+// @intent summarize the kinds of graph nodes stored for a source file
+type FileSummary struct {
+	FilePath  string
+	Functions int
+	Classes   int
+	Types     int
+	Tests     int
+	Total     int
+}
+
+// @intent carry paginated graph query rows together with the total match count for MCP responses.
+type PagedNodes struct {
+	Nodes      []graph.Node
+	TotalCount int
+}
+
+// CandidateMatch describes one exact short-name fallback candidate for query_graph.
+// @intent provide compact, stable target suggestions when a short symbol name matches multiple nodes.
+type CandidateMatch struct {
+	QualifiedName string
+	Kind          graph.NodeKind
+	FilePath      string
+	StartLine     int
+}
+
+// QueryOptions controls how predefined relationship lookups treat lower-confidence edges.
+// @intent let callers choose between compatibility mode and strict call-edge analysis.
+type QueryOptions struct {
+	IncludeFallbackCalls *bool
+	Limit                int
+	Offset               int
+}
+
+// defaultQueryOptions normalizes zero-value options into the compatibility-preserving defaults.
+// @intent keep legacy callers fallback-inclusive unless they explicitly opt into strict mode.
+func defaultQueryOptions(opts QueryOptions) QueryOptions {
+	if opts.IncludeFallbackCalls != nil {
+		return opts
+	}
+	includeFallbackCalls := true
+	opts.IncludeFallbackCalls = &includeFallbackCalls
+	return opts
+}
+
+// normalizeResults deduplicates and sorts graph query results.
+// @intent keep predefined query responses stable across joins that may return duplicate nodes.
+func normalizeResults(nodes []graph.Node) []graph.Node {
+	if len(nodes) <= 1 {
+		return nodes
+	}
+	seen := make(map[uint]struct{}, len(nodes))
+	result := make([]graph.Node, 0, len(nodes))
+	for _, node := range nodes {
+		if _, ok := seen[node.ID]; ok {
+			continue
+		}
+		seen[node.ID] = struct{}{}
+		result = append(result, node)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].FilePath != result[j].FilePath {
+			return result[i].FilePath < result[j].FilePath
+		}
+		if result[i].StartLine != result[j].StartLine {
+			return result[i].StartLine < result[j].StartLine
+		}
+		return result[i].QualifiedName < result[j].QualifiedName
+	})
+	return result
 }

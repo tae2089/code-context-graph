@@ -129,23 +129,6 @@ func (s *Service) changedNodeHits(ctx context.Context, repoDir, baseRef string) 
 	return matchHunksToNodes(s.repository, ctx, files, hunksByFile)
 }
 
-// sortNodesForChangeOrder orders changed nodes deterministically for downstream set consumers.
-// @intent prevent flow lookups from depending on database or map iteration order.
-func sortNodesForChangeOrder(nodes []graph.Node) {
-	sort.SliceStable(nodes, func(i, j int) bool {
-		if nodes[i].FilePath != nodes[j].FilePath {
-			return nodes[i].FilePath < nodes[j].FilePath
-		}
-		if nodes[i].StartLine != nodes[j].StartLine {
-			return nodes[i].StartLine < nodes[j].StartLine
-		}
-		if nodes[i].QualifiedName != nodes[j].QualifiedName {
-			return nodes[i].QualifiedName < nodes[j].QualifiedName
-		}
-		return nodes[i].ID < nodes[j].ID
-	})
-}
-
 // collectDiffHunks retrieves changed files and their diff hunks from git,
 // returning hunks grouped by file path.
 // @intent gather the minimal diff context needed before matching git changes back to graph nodes.
@@ -171,6 +154,23 @@ func (s *Service) collectDiffHunks(ctx context.Context, repoDir, baseRef string)
 		hunksByFile[h.FilePath] = append(hunksByFile[h.FilePath], h)
 	}
 	return hunksByFile, files, nil
+}
+
+// sortNodesForChangeOrder orders changed nodes deterministically for downstream set consumers.
+// @intent prevent flow lookups from depending on database or map iteration order.
+func sortNodesForChangeOrder(nodes []graph.Node) {
+	sort.SliceStable(nodes, func(i, j int) bool {
+		if nodes[i].FilePath != nodes[j].FilePath {
+			return nodes[i].FilePath < nodes[j].FilePath
+		}
+		if nodes[i].StartLine != nodes[j].StartLine {
+			return nodes[i].StartLine < nodes[j].StartLine
+		}
+		if nodes[i].QualifiedName != nodes[j].QualifiedName {
+			return nodes[i].QualifiedName < nodes[j].QualifiedName
+		}
+		return nodes[i].ID < nodes[j].ID
+	})
 }
 
 // hitInfo pairs a graph node with the number of overlapping diff hunks.

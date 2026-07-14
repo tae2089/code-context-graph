@@ -120,47 +120,6 @@ func (p *Parser) Parse(text string) (*graph.Annotation, []string) {
 	return ann, warnings
 }
 
-// extractTypePrefix extracts a leading YARD `[Type]` or JSDoc `{Type}` prefix
-// from a tag value string, returning the inner type text and the remaining rest.
-// Supports same-bracket nesting (e.g. `[Hash<Symbol, [String, Integer]>]`,
-// `{Record<string, {a: number}>}`). Mixed bracket nesting is not tracked —
-// `{Array[string]}` is parsed as `Array[string]` because only `{`/`}` are counted.
-// This is intentional: YARD uses only `[...]`, JSDoc uses only `{...}`, and real-world
-// type expressions never mix the two at the outer level.
-// @intent separate type annotation from name/description portion for param/return/throws tags
-func extractTypePrefix(value string) (typeStr, rest string, ok bool) {
-	if len(value) == 0 {
-		return "", value, false
-	}
-	var open, close byte
-	switch value[0] {
-	case '[':
-		open, close = '[', ']'
-	case '{':
-		open, close = '{', '}'
-	default:
-		return "", value, false
-	}
-	depth := 0
-	for i := 0; i < len(value); i++ {
-		switch value[i] {
-		case open:
-			depth++
-		case close:
-			depth--
-			if depth == 0 {
-				inner := strings.TrimSpace(value[1:i])
-				if inner == "" {
-					return "", value, false
-				}
-				remainder := strings.TrimLeft(value[i+1:], " \t")
-				return inner, remainder, true
-			}
-		}
-	}
-	return "", value, false
-}
-
 // parseTagLine parses a single @tag line.
 // Returns (tag, "") on success, (nil, tagName) when the tag is unknown.
 // @intent decode one normalized tag line into a DocTag with ordinal tracking
@@ -213,4 +172,45 @@ func (p *Parser) parseTagLine(line string, ordinals map[graph.TagKind]int) (*gra
 	}
 
 	return tag, ""
+}
+
+// extractTypePrefix extracts a leading YARD `[Type]` or JSDoc `{Type}` prefix
+// from a tag value string, returning the inner type text and the remaining rest.
+// Supports same-bracket nesting (e.g. `[Hash<Symbol, [String, Integer]>]`,
+// `{Record<string, {a: number}>}`). Mixed bracket nesting is not tracked —
+// `{Array[string]}` is parsed as `Array[string]` because only `{`/`}` are counted.
+// This is intentional: YARD uses only `[...]`, JSDoc uses only `{...}`, and real-world
+// type expressions never mix the two at the outer level.
+// @intent separate type annotation from name/description portion for param/return/throws tags
+func extractTypePrefix(value string) (typeStr, rest string, ok bool) {
+	if len(value) == 0 {
+		return "", value, false
+	}
+	var open, close byte
+	switch value[0] {
+	case '[':
+		open, close = '[', ']'
+	case '{':
+		open, close = '{', '}'
+	default:
+		return "", value, false
+	}
+	depth := 0
+	for i := 0; i < len(value); i++ {
+		switch value[i] {
+		case open:
+			depth++
+		case close:
+			depth--
+			if depth == 0 {
+				inner := strings.TrimSpace(value[1:i])
+				if inner == "" {
+					return "", value, false
+				}
+				remainder := strings.TrimLeft(value[i+1:], " \t")
+				return inner, remainder, true
+			}
+		}
+	}
+	return "", value, false
 }
