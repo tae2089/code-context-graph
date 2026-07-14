@@ -37,7 +37,7 @@ func newUpdateCmd(deps *Deps) *cobra.Command {
 			fileLimit := resolveMaxFileBytes(maxFileBytes)
 			totalLimit := resolveMaxTotalParsedBytes(maxTotalParsedBytes)
 			ctx := cmd.Context()
-			ns, _ := cmd.Flags().GetString("namespace")
+			ns := resolveNamespace(cmd)
 			ctx = requestctx.WithNamespace(ctx, ns)
 
 			svc := &workflow.Service{

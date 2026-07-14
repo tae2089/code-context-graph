@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/viper"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
@@ -320,5 +321,39 @@ func TestStatusCommand_RespectsNamespace(t *testing.T) {
 	}
 	if strings.Contains(out, "Nodes: 2") {
 		t.Fatalf("unexpected cross-namespace aggregation: %s", out)
+	}
+}
+
+func TestStatusCommand_NamespaceFromConfig(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+
+	deps, stdout, stderr, db := setupStatusTest(t)
+
+	// One node in the default namespace, two in "backend".
+	if err := db.Create(&graph.Node{Namespace: requestctx.DefaultNamespace, QualifiedName: "default.Foo", Kind: graph.NodeKindFunction, Name: "Foo", FilePath: "default/foo.go", StartLine: 1, EndLine: 2, Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&graph.Node{Namespace: "backend", QualifiedName: "backend.Bar", Kind: graph.NodeKindFunction, Name: "Bar", FilePath: "backend/bar.go", StartLine: 1, EndLine: 2, Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&graph.Node{Namespace: "backend", QualifiedName: "backend.Baz", Kind: graph.NodeKindFunction, Name: "Baz", FilePath: "backend/baz.go", StartLine: 1, EndLine: 2, Language: "go"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// Config selects namespace=backend; no --namespace flag is passed, so the
+	// config value must win over the flag's default.
+	viper.Set("namespace", "backend")
+
+	stdout.Reset()
+	stderr.Reset()
+
+	if err := executeCmd(deps, stdout, stderr, "status"); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "Nodes: 2") {
+		t.Fatalf("expected config namespace 'backend' (2 nodes), got: %s", out)
 	}
 }

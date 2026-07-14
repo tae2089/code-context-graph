@@ -45,7 +45,7 @@ func newDocsCmd(deps *Deps) *cobra.Command {
 				Files:      contentfiles.NewRoot(absOut),
 				OutDir:     absOut,
 				Exclude:    resolveExcludes(excludePatterns),
-				Namespace:  viper.GetString("namespace"),
+				Namespace:  resolveNamespace(cmd),
 				Prune:      prune,
 			}
 
@@ -58,7 +58,7 @@ func newDocsCmd(deps *Deps) *cobra.Command {
 				OutDir:      absOut,
 				IndexDir:    resolveRagIndexDir(ragIndexDir),
 				ProjectDesc: resolveRagDescription(projectDesc),
-				Namespace:   viper.GetString("namespace"),
+				Namespace:   resolveNamespace(cmd),
 				Exclude:     resolveExcludes(excludePatterns),
 			})
 			if err != nil {

@@ -200,6 +200,21 @@ func resolveOutDir(flagValue string) string {
 	return flagValue
 }
 
+// resolveNamespace returns the effective namespace for a command, reading through
+// viper instead of cmd.Flags() so a namespace set only in the config file is not
+// masked by the --namespace flag's default value.
+// @intent config의 namespace 설정이 --namespace 플래그 기본값에 가려지지 않도록 우선순위대로 해석한다.
+// @ensures 우선순위는 명시적 --namespace 플래그 > CCG_NAMESPACE 환경변수 > config namespace > 기본값(default) 순이다.
+func resolveNamespace(cmd *cobra.Command) string {
+	if flag := cmd.Flags().Lookup("namespace"); flag != nil && flag.Changed {
+		return flag.Value.String()
+	}
+	if ns := viper.GetString("namespace"); ns != "" {
+		return ns
+	}
+	return requestctx.DefaultNamespace
+}
+
 // resolveExcludes merges exclude patterns from the config file (viper "exclude"
 // key) and the command-line flag, deduplicating nothing — order is config first,
 // then flags.

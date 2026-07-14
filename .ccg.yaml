@@ -3,7 +3,7 @@ db:
   driver: postgres
   dsn: "host=localhost user=postgres password=postgres dbname=ccg_test sslmode=disable"
 
-namespace: default
+namespace: ccg
 
 output:
   dir: ./docs

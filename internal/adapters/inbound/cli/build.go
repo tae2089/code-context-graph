@@ -56,7 +56,7 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 			}
 
 			ctx := context.Background()
-			ns, _ := cmd.Flags().GetString("namespace")
+			ns := resolveNamespace(cmd)
 			ctx = requestctx.WithNamespace(ctx, ns)
 			stats, err := svc.Build(ctx, opts)
 			if err != nil {

@@ -29,7 +29,7 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 				return fmt.Errorf("limit must be > 0, got %d", limit)
 			}
 			ctx := cmd.Context()
-			ns, _ := cmd.Flags().GetString("namespace")
+			ns := resolveNamespace(cmd)
 			ctx = requestctx.WithNamespace(ctx, ns)
 
 			// Over-fetch a wider candidate pool so structural reranking can

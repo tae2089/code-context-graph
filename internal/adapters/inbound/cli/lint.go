@@ -443,7 +443,7 @@ func newLintCmd(deps *Deps) *cobra.Command {
 				Files:      contentfiles.NewRoot(absOut),
 				OutDir:     absOut,
 				Exclude:    resolveExcludes(excludePatterns),
-				Namespace:  viper.GetString("namespace"),
+				Namespace:  resolveNamespace(cmd),
 			}
 
 			report, err := gen.Lint()

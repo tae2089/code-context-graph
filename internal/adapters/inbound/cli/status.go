@@ -27,7 +27,7 @@ func newStatusCmd(deps *Deps) *cobra.Command {
 				return errDBNotInitialized
 			}
 
-			ns, _ := cmd.Flags().GetString("namespace")
+			ns := resolveNamespace(cmd)
 			ctx := requestctx.WithNamespace(cmd.Context(), ns)
 			stats, err := deps.Statistics.GraphStatistics(ctx)
 			if err != nil {

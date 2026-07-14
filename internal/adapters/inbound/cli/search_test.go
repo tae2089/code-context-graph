@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/viper"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
@@ -277,6 +278,52 @@ func TestSearchCommand_RejectsNonPositiveLimit(t *testing.T) {
 		if called {
 			t.Fatalf("search backend should not be called for invalid limit %s", limit)
 		}
+	}
+}
+
+func TestSearchCommand_NamespaceFromConfig(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+
+	deps, stdout, stderr, _ := setupSearchTest(t)
+
+	var gotNS string
+	deps.SearchReader = &spySearchBackend{queryFn: func(ctx context.Context, query string, queryLimit int) ([]graph.Node, error) {
+		gotNS = requestctx.FromContext(ctx)
+		return nil, nil
+	}}
+
+	// Config selects namespace=backend; no --namespace flag is passed.
+	viper.Set("namespace", "backend")
+
+	if err := executeCmd(deps, stdout, stderr, "search", "hello"); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if gotNS != "backend" {
+		t.Fatalf("expected config namespace 'backend', got %q", gotNS)
+	}
+}
+
+func TestSearchCommand_FlagOverridesConfigNamespace(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+
+	deps, stdout, stderr, _ := setupSearchTest(t)
+
+	var gotNS string
+	deps.SearchReader = &spySearchBackend{queryFn: func(ctx context.Context, query string, queryLimit int) ([]graph.Node, error) {
+		gotNS = requestctx.FromContext(ctx)
+		return nil, nil
+	}}
+
+	// Explicit --namespace must win over the config value.
+	viper.Set("namespace", "backend")
+
+	if err := executeCmd(deps, stdout, stderr, "--namespace", "frontend", "search", "hello"); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if gotNS != "frontend" {
+		t.Fatalf("expected flag namespace 'frontend' to override config, got %q", gotNS)
 	}
 }
 
