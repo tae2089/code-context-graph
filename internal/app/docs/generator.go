@@ -207,16 +207,6 @@ func (g *Generator) pruneManaged(previous, current []string) error {
 	return errors.Join(errs...)
 }
 
-// nodeIDsFrom collects node IDs from a node slice.
-// @intent 후속 배치 조회용 IN 절 입력을 간단히 만든다.
-func nodeIDsFrom(nodes []graph.Node) []uint {
-	ids := make([]uint, len(nodes))
-	for i, n := range nodes {
-		ids[i] = n.ID
-	}
-	return ids
-}
-
 // symbolNodeIDs returns IDs of non-file nodes only.
 // File nodes do not originate call/import edges, so excluding them
 // keeps the loadEdges IN clause minimal.
