@@ -27,7 +27,7 @@ func initBareRepo(t *testing.T) string {
 		}
 	}
 
-	run("init", "--bare", bareDir)
+	run("init", "--bare", "--initial-branch=main", bareDir)
 
 	workDir := filepath.Join(dir, "work")
 	run("clone", bareDir, workDir)

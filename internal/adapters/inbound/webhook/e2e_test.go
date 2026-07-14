@@ -20,7 +20,7 @@ func initBareRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	bareDir := filepath.Join(dir, "bare.git")
-	runTestGit(t, dir, "init", "--bare", bareDir)
+	runTestGit(t, dir, "init", "--bare", "--initial-branch=main", bareDir)
 	workDir := filepath.Join(dir, "work")
 	runTestGit(t, dir, "clone", bareDir, workDir)
 	if err := os.WriteFile(filepath.Join(workDir, "hello.txt"), []byte("hello"), 0o644); err != nil {
