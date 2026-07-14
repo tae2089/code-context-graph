@@ -244,22 +244,18 @@ Override with `ccg --config path/to/config.yaml`.
 | incomplete | Incomplete annotation |
 | drifted | Annotation not updated after code change |
 
-For lint rule matching, both `drifted` and `drift` are accepted for the same category. User-facing reports use `drifted`, while generated state and internal normalization may use `drift`.
+For lint rule matching, both `drifted` and `drift` are accepted for the same category. User-facing reports use `drifted`, while internal normalization may use `drift`.
 
 See [Lint Guide](lint.md) for the exact per-category rules, overlaps, and implementation-aligned semantics.
 
-Per-category `action: ignore` can be set in `.ccg.yaml`'s `rules`. In `--strict` mode, `action: ignore` rules are applied.
+### Lint Rules
 
-### Lint Policy vs Generated State
+Lint policy lives in `.ccg.yaml`'s `rules` section — a list of suppression rules:
 
-CCG now separates human-managed lint policy from generated lint state:
+| Field | Purpose |
+|-------|---------|
+| `pattern` | Exact qualified name or regular expression to match |
+| `category` | Lint category the rule applies to (e.g. `unannotated`, `orphan`) |
+| `action` | `ignore` to suppress matching findings |
 
-| Path | Owner | Purpose |
-|------|-------|---------|
-| `.ccg.yaml` | Human | Project policy: excludes, include paths, manual lint rules (`ignore`, etc.) |
-| `.ccg/lint-history.json` | Generated | Twice Rule consecutive-occurrence counters |
-| `.ccg/auto-rules.yaml` | Generated | Warn-only rules recorded by Twice Rule |
-
-`ccg lint` no longer appends generated warn rules into `.ccg.yaml`. Repeated issues are recorded in `.ccg/auto-rules.yaml`, while `.ccg.yaml` remains the place for manual policy decisions.
-
-If an older repository already has generated `auto: true` rules inside `.ccg.yaml`, run `ccg lint --migrate-auto-rules` once to move them into `.ccg/auto-rules.yaml`.
+`action: ignore` rules are applied in normal and `--strict` mode alike; findings they match are filtered from the report and excluded from the strict failure count.

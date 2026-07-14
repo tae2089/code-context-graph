@@ -36,7 +36,7 @@ CLI / MCP / HTTP / Wiki / webhook -> application capability -> outbound port
 - `app/search`: search document 생성, FTS retrieval, 구조 rerank, retrieval evidence,
   그리고 document/rank/query syntax가 공유하는 identifier tokenization을 소유합니다.
   SQLite는 FTS5, PostgreSQL은 tsvector/GIN을 사용합니다.
-- `app/docs`: 결정적 Markdown 생성, history, auto-rule, lint.
+- `app/docs`: 결정적 Markdown 생성 및 lint.
 - `app/wiki`: CCG 고유의 코드 탐색 tree와 compatibility snapshot. 별도 제품인
   향후 OpenWiki와 합치거나 추출하지 않습니다.
 - `app/reposync`: repository admission, branch 정책, retry/queue, checkout부터

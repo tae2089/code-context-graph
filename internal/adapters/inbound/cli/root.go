@@ -33,9 +33,6 @@ func shouldSkipDBInit(cmd *cobra.Command) bool {
 			return true
 		}
 	}
-	if flag := cmd.Flags().Lookup("migrate-auto-rules"); flag != nil && flag.Changed {
-		return true
-	}
 	return false
 }
 

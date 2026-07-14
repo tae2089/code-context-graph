@@ -6,14 +6,11 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/tae2089/code-context-graph/internal/adapters/outbound/contentfiles"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 	"github.com/tae2089/code-context-graph/internal/domain/reference"
 )
 
 type testRepository struct{ db *gorm.DB }
-
-var testStateFiles = contentfiles.NewStateFiles()
 
 func migrateDocsTestDB(db *gorm.DB) error {
 	return db.AutoMigrate(&graph.Node{}, &graph.Edge{}, &graph.Annotation{}, &graph.DocTag{}, &graph.Community{}, &graph.CommunityMembership{}, &graph.Flow{}, &graph.FlowMembership{})

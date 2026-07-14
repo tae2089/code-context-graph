@@ -244,13 +244,9 @@ rules:
     action: ignore
 ```
 
-생성된 린트 상태는 수동 정책과 별도로 저장됩니다:
+`action: ignore` 규칙은 매칭되는 결과를 억제하며, `--strict` 모드에서도 동일하게 적용됩니다. 패턴은 정확한 정규화 이름 또는 정규식일 수 있습니다.
 
-- `.ccg.yaml` — 수동 린트 정책
-- `.ccg/lint-history.json` — 생성된 발생 카운터
-- `.ccg/auto-rules.yaml` — 생성된 경고 전용 규칙
-
-정확한 규칙 흐름은 [CLI 레퍼런스](cli-reference.md#lint-policy-vs-generated-state)를 참조하십시오.
+전체 규칙 레퍼런스는 [CLI 레퍼런스](cli-reference.md#lint-categories)를 참조하십시오.
 
 ## CI 및 Strict 모드
 

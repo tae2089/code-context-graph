@@ -38,7 +38,7 @@ CLI / MCP / HTTP / Wiki / webhook -> application capabilities -> outbound ports
   and retrieval evidence. It also owns identifier tokenization shared by search
   documents, ranking, and query syntax. SQLite uses FTS5; PostgreSQL uses
   tsvector/GIN.
-- `app/docs`: deterministic Markdown generation, history, auto-rules, and lint.
+- `app/docs`: deterministic Markdown generation and lint.
 - `app/wiki`: CCG's built-in code-exploration tree and compatibility snapshot.
   This is a CCG capability, not the separate future OpenWiki product.
 - `app/reposync`: repository admission, branch policy, retry/queue policy, and

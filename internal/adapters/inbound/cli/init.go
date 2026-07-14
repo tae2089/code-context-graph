@@ -21,8 +21,7 @@ exclude:
 docs:
   out: docs
 
-# lint policy lives in .ccg.yaml.
-# generated lint state such as Twice Rule history and auto warn rules lives under .ccg/.
+# lint policy (suppression rules) lives in .ccg.yaml under the rules section.
 
 parse:
   max_file_bytes: 0

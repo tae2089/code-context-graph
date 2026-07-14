@@ -20,12 +20,6 @@ type RootedFiles interface {
 	MarkdownFiles() (map[string]time.Time, error)
 }
 
-// StateFiles atomically persists explicitly addressed lint history and rule state files.
-type StateFiles interface {
-	ReadPath(path string) ([]byte, bool, error)
-	WritePath(path string, data []byte) error
-}
-
 // Snapshot couples documentable nodes to their structured annotations.
 // @intent keep generation and lint facts from drifting across separate persistence queries.
 type Snapshot struct {

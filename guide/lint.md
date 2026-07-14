@@ -242,13 +242,9 @@ rules:
     action: ignore
 ```
 
-Generated lint state is stored separately from human policy:
+Rules with `action: ignore` suppress matching findings, including under `--strict`. Patterns may be exact qualified names or regular expressions.
 
-- `.ccg.yaml` — manual lint policy
-- `.ccg/lint-history.json` — generated occurrence counters
-- `.ccg/auto-rules.yaml` — generated warn-only rules
-
-See [CLI Reference](cli-reference.md#lint-policy-vs-generated-state) for the exact rule flow.
+See [CLI Reference](cli-reference.md#lint-categories) for the full rule reference.
 
 ## CI and Strict Mode
 

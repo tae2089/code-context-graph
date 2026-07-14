@@ -224,22 +224,18 @@ rules:
 | incomplete | 불완전한 어노테이션 |
 | drifted | 코드 변경 후 업데이트되지 않은 어노테이션 |
 
-lint 규칙 매칭에서는 `drifted`와 `drift`를 같은 카테고리로 모두 받을 수 있습니다. 사용자에게 보이는 리포트 이름은 `drifted`이고, 내부 정규화나 generated state에서는 `drift`가 사용될 수 있습니다.
+lint 규칙 매칭에서는 `drifted`와 `drift`를 같은 카테고리로 모두 받을 수 있습니다. 사용자에게 보이는 리포트 이름은 `drifted`이고, 내부 정규화에서는 `drift`가 사용될 수 있습니다.
 
 각 카테고리별 규칙, 중복 및 구현 정렬 의미에 대한 자세한 내용은 [Lint 가이드](lint.md)를 참조하십시오.
 
-카테고리별 `action: ignore`는 `.ccg.yaml`의 `rules`에서 설정할 수 있습니다. `--strict` 모드에서는 `action: ignore` 규칙이 적용됩니다.
+### Lint 규칙
 
-### Lint Policy vs Generated State
+린트 정책은 `.ccg.yaml`의 `rules` 섹션에 억제 규칙 목록으로 저장됩니다.
 
-CCG는 이제 사람이 관리하는 린트 정책과 생성된 린트 상태를 분리합니다.
+| 필드 | 용도 |
+|------|------|
+| `pattern` | 매칭할 정확한 정규화 이름 또는 정규식 |
+| `category` | 규칙이 적용되는 린트 카테고리 (예: `unannotated`, `orphan`) |
+| `action` | 매칭된 결과를 억제하려면 `ignore` |
 
-| 경로 | 소유자 | 용도 |
-|------|-------|---------|
-| `.ccg.yaml` | 사람 | 프로젝트 정책: 제외, 포함 경로, 수동 린트 규칙(`ignore` 등) |
-| `.ccg/lint-history.json` | 생성됨 | Twice Rule 연속 발생 카운터 |
-| `.ccg/auto-rules.yaml` | 생성됨 | Twice Rule에 의해 기록된 경고 전용 규칙 |
-
-`ccg lint`는 더 이상 생성된 경고 규칙을 `.ccg.yaml`에 추가하지 않습니다. 반복되는 문제는 `.ccg/auto-rules.yaml`에 기록되며, `.ccg.yaml`은 수동 정책 결정을 위한 장소로 남습니다.
-
-이전 버전의 저장소에 이미 `.ccg.yaml` 내부에 생성된 `auto: true` 규칙이 있는 경우, `ccg lint --migrate-auto-rules`를 한 번 실행하여 `.ccg/auto-rules.yaml`로 이동하십시오.
+`action: ignore` 규칙은 일반 모드와 `--strict` 모드에서 동일하게 적용됩니다. 매칭된 결과는 리포트에서 필터링되고 strict 실패 카운트에서도 제외됩니다.
