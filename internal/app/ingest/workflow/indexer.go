@@ -19,7 +19,8 @@ type resolveBuildEdgesFn func(ctx context.Context, lookup resolve.NodeLookup, ed
 const (
 	buildFlushFileBatchSize   = 100
 	buildFlushParsedBytes     = 16 << 20
-	buildEdgeResolveChunkSize = 400
+	buildEdgeResolveChunkSize = 4000
+	buildParseWorkerCount     = 4
 	forceReparseEdgeChunkSize = 400
 	scopedINQueryChunkSize    = 400
 )
@@ -103,6 +104,37 @@ type BuildStats struct {
 	TotalNodes int
 	TotalEdges int
 	Unresolved resolve.FilterResolvedDiagnostics
+	Timing     BuildTiming
+}
+
+// BuildTiming reports elapsed milliseconds for the major full-build stages.
+// @intent expose actionable stage-level evidence so large-build regressions can be diagnosed without guessing.
+type BuildTiming struct {
+	ParseMS         int64
+	PersistNodesMS  int64
+	ResolveEdgesMS  int64
+	SearchRebuildMS int64
+	TotalMS         int64
+	Resolve         BuildResolveTiming
+}
+
+// BuildResolveOperationTiming reports one resolver operation's call count and elapsed time.
+// @intent show which edge-resolution store operation dominates a full build without changing resolution behavior.
+type BuildResolveOperationTiming struct {
+	Calls int
+	MS    int64
+}
+
+// BuildResolveTiming breaks edge resolution into resolver, store-read, and edge-write operations.
+// @intent expose actionable evidence for optimizing the remaining full-build bottleneck.
+type BuildResolveTiming struct {
+	Resolver              BuildResolveOperationTiming
+	NodesByIDs            BuildResolveOperationTiming
+	NodesByFiles          BuildResolveOperationTiming
+	NodesByQualifiedNames BuildResolveOperationTiming
+	ImportFileNodes       BuildResolveOperationTiming
+	EdgesToNodes          BuildResolveOperationTiming
+	UpsertEdges           BuildResolveOperationTiming
 }
 
 // UpdateOptions configures one incremental graph sync run.

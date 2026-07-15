@@ -7,9 +7,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/tae2089/trace"
 
@@ -37,6 +40,23 @@ type parsedBuildNodeBatch struct {
 type parsedBuildEdgeBatch struct {
 	relPath string
 	edges   []graph.Edge
+}
+
+// buildParseInput is one validated source file assigned to a parse worker.
+// @intent keep deterministic input sequencing separate from concurrent filesystem and parser work.
+type buildParseInput struct {
+	seq     int
+	path    string
+	relPath string
+	parser  Parser
+}
+
+// buildParseResult is one parsed source file returned to the spool coordinator.
+// @intent let workers finish out of order while the coordinator preserves record order.
+type buildParseResult struct {
+	seq    int
+	record spooledBuildRecord
+	err    error
 }
 
 // newParsedBuildNodeBatch packages parsed nodes plus comment metadata for later persistence.
@@ -140,6 +160,7 @@ func (s *Service) bindAndReleaseNodeBatch(ctx context.Context, txStore ingestapp
 // @sideEffect 파일 시스템을 읽고 그래프 저장소·DB·검색 인덱스를 갱신한다.
 func (s *Service) Build(ctx context.Context, opts BuildOptions) (BuildStats, error) {
 	var stats BuildStats
+	totalStart := time.Now()
 
 	absDir, err := filepath.Abs(opts.Dir)
 	if err != nil {
@@ -170,18 +191,39 @@ func (s *Service) Build(ctx context.Context, opts BuildOptions) (BuildStats, err
 	stats = spool.stats
 	stats.TotalNodes += len(packageNodes(packages))
 	stats.TotalEdges += packageContainsEdgeCount(packages)
+	stats.Timing.ParseMS = time.Since(totalStart).Milliseconds()
 
 	err = s.withBuildTx(ctx, func(tx ingestapp.Transaction) error {
-		return s.applyBuildSpoolInTx(ctx, tx, opts, spool)
+		return s.applyBuildSpoolInTx(ctx, tx, opts, spool, &stats.Timing)
 	})
 	if err != nil {
 		return stats, err
 	}
 
+	stats.Timing.TotalMS = time.Since(totalStart).Milliseconds()
 	s.logger().Info("build complete",
 		"files", stats.TotalFiles,
 		"nodes", stats.TotalNodes,
 		"edges", stats.TotalEdges,
+		"parse_ms", stats.Timing.ParseMS,
+		"persist_nodes_ms", stats.Timing.PersistNodesMS,
+		"resolve_edges_ms", stats.Timing.ResolveEdgesMS,
+		"resolver_calls", stats.Timing.Resolve.Resolver.Calls,
+		"resolver_ms", stats.Timing.Resolve.Resolver.MS,
+		"resolve_nodes_by_ids_calls", stats.Timing.Resolve.NodesByIDs.Calls,
+		"resolve_nodes_by_ids_ms", stats.Timing.Resolve.NodesByIDs.MS,
+		"resolve_nodes_by_files_calls", stats.Timing.Resolve.NodesByFiles.Calls,
+		"resolve_nodes_by_files_ms", stats.Timing.Resolve.NodesByFiles.MS,
+		"resolve_nodes_by_qn_calls", stats.Timing.Resolve.NodesByQualifiedNames.Calls,
+		"resolve_nodes_by_qn_ms", stats.Timing.Resolve.NodesByQualifiedNames.MS,
+		"resolve_import_file_nodes_calls", stats.Timing.Resolve.ImportFileNodes.Calls,
+		"resolve_import_file_nodes_ms", stats.Timing.Resolve.ImportFileNodes.MS,
+		"resolve_edges_to_nodes_calls", stats.Timing.Resolve.EdgesToNodes.Calls,
+		"resolve_edges_to_nodes_ms", stats.Timing.Resolve.EdgesToNodes.MS,
+		"resolve_edge_upsert_calls", stats.Timing.Resolve.UpsertEdges.Calls,
+		"resolve_edge_upsert_ms", stats.Timing.Resolve.UpsertEdges.MS,
+		"search_rebuild_ms", stats.Timing.SearchRebuildMS,
+		"total_ms", stats.Timing.TotalMS,
 		"unresolved_edges", stats.Unresolved.DroppedCount,
 		"unresolved_by_kind", formatEdgeKindCounts(stats.Unresolved.ByKind),
 		"unresolved_by_file", stats.Unresolved.ByFile,
@@ -208,9 +250,39 @@ func (s *Service) prepareBuildSpool(ctx context.Context, absDir string, opts Bui
 		return nil, trace.Wrap(err, "create build spool")
 	}
 	spool := &buildSpool{dir: dir}
-	var totalParsedBytes int64
-	var seq int
+	inputs, err := s.collectBuildParseInputs(ctx, absDir, opts)
+	if err != nil {
+		spool.cleanup(s.logger())
+		return nil, err
+	}
 
+	var totalParsedBytes int64
+	err = s.parseBuildInputs(ctx, inputs, func(result buildParseResult) error {
+		if err := CheckTotalParsedBytes(result.record.RelPath, 0, totalParsedBytes+result.record.Bytes, opts.MaxTotalParsedBytes); err != nil {
+			return err
+		}
+		totalParsedBytes += result.record.Bytes
+		if err := spool.writeRecord(result.seq, result.record); err != nil {
+			return err
+		}
+		spool.stats.TotalFiles++
+		spool.stats.TotalNodes += len(result.record.Nodes)
+		spool.stats.TotalEdges += len(result.record.Edges)
+		return nil
+	})
+	if err != nil {
+		spool.cleanup(s.logger())
+		return nil, err
+	}
+
+	return spool, nil
+}
+
+// collectBuildParseInputs walks eligible files once and validates their scheduled parse budget.
+// @intent preserve build traversal policy and deterministic file order before concurrent parsing starts.
+func (s *Service) collectBuildParseInputs(ctx context.Context, absDir string, opts BuildOptions) ([]buildParseInput, error) {
+	var inputs []buildParseInput
+	var scheduledParsedBytes int64
 	if err := walkMatchingFiles(ctx, absDir, opts, func(path, relPath string) error {
 		parser, ok := s.parserForExt(strings.ToLower(filepath.Ext(path)))
 		if !ok {
@@ -224,63 +296,182 @@ func (s *Service) prepareBuildSpool(ctx context.Context, absDir string, opts Bui
 		if err := CheckParseFileSize(relPath, info.Size(), opts.MaxFileBytes); err != nil {
 			return err
 		}
-		if err := CheckTotalParsedBytes(relPath, totalParsedBytes, info.Size(), opts.MaxTotalParsedBytes); err != nil {
+		if err := CheckTotalParsedBytes(relPath, scheduledParsedBytes, info.Size(), opts.MaxTotalParsedBytes); err != nil {
 			return err
 		}
-
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return trace.Wrap(err, "read build file "+relPath)
-		}
-		contentBytes := int64(len(content))
-		totalParsedBytes += contentBytes
-		if err := CheckTotalParsedBytes(relPath, 0, totalParsedBytes, opts.MaxTotalParsedBytes); err != nil {
-			return err
-		}
-
-		nodes, edges, tsComments, meta, language, err := parseForBuild(ctx, parser, relPath, content)
-		if err != nil {
-			return trace.Wrap(err, "parse build file "+relPath)
-		}
-		hash := sha256.Sum256(content)
-		hashString := hex.EncodeToString(hash[:])
-		for i := range nodes {
-			nodes[i].Hash = hashString
-		}
-
-		nodeBatch := newParsedBuildNodeBatch(relPath, content, nodes, meta.Package, meta.Interfaces, tsComments, language)
-		record := spooledBuildRecord{
-			RelPath:     relPath,
-			Nodes:       nodes,
-			PackageName: meta.Package,
-			Interfaces:  meta.Interfaces,
-			Comments:    tsComments,
-			Language:    language,
-			SourceLines: nodeBatch.sourceLines,
-			Edges:       edges,
-			Bytes:       contentBytes,
-		}
-		if err := spool.writeRecord(seq, record); err != nil {
-			return err
-		}
-		seq++
-		spool.stats.TotalFiles++
-		spool.stats.TotalNodes += len(nodes)
-		spool.stats.TotalEdges += len(edges)
+		scheduledParsedBytes += info.Size()
+		inputs = append(inputs, buildParseInput{
+			seq:     len(inputs),
+			path:    path,
+			relPath: relPath,
+			parser:  parser,
+		})
 		return nil
 	}); err != nil {
-		spool.cleanup(s.logger())
 		return nil, trace.Wrap(err, "walk build directory")
 	}
+	return inputs, nil
+}
 
-	return spool, nil
+// parseBuildInputs runs a bounded worker pool and emits successful records in input order.
+// @intent parallelize CPU-bound parsing without changing spool order or retaining every parsed file in memory.
+// @sideEffect reads source files and invokes parser implementations concurrently.
+func (s *Service) parseBuildInputs(ctx context.Context, inputs []buildParseInput, emit func(buildParseResult) error) error {
+	if len(inputs) == 0 {
+		return nil
+	}
+
+	workerCount := min(buildParseWorkerCount, len(inputs))
+	workerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	jobs := make(chan buildParseInput)
+	results := make(chan buildParseResult, workerCount)
+	var workers sync.WaitGroup
+	var stopOnce sync.Once
+	for range workerCount {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for {
+				select {
+				case <-workerCtx.Done():
+					return
+				case input, ok := <-jobs:
+					if !ok {
+						return
+					}
+					result := s.parseBuildInput(workerCtx, input)
+					select {
+					case results <- result:
+					case <-workerCtx.Done():
+						return
+					}
+				}
+			}
+		}()
+	}
+
+	stopWorkers := func() {
+		stopOnce.Do(func() {
+			cancel()
+			close(jobs)
+			workers.Wait()
+		})
+	}
+	defer stopWorkers()
+
+	nextSubmit := 0
+	nextEmit := 0
+	inFlight := 0
+	pending := make(map[int]buildParseResult, workerCount)
+	submitUntilWindowFull := func() error {
+		for nextSubmit < len(inputs) && nextSubmit-nextEmit < workerCount {
+			select {
+			case jobs <- inputs[nextSubmit]:
+				nextSubmit++
+				inFlight++
+			case <-workerCtx.Done():
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				return trace.New("build parse workers stopped")
+			}
+		}
+		return nil
+	}
+	if err := submitUntilWindowFull(); err != nil {
+		stopWorkers()
+		return err
+	}
+
+	for inFlight > 0 {
+		select {
+		case <-workerCtx.Done():
+			stopWorkers()
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return trace.New("build parse workers stopped")
+		case result := <-results:
+			inFlight--
+			pending[result.seq] = result
+			for {
+				next, ok := pending[nextEmit]
+				if !ok {
+					break
+				}
+				delete(pending, nextEmit)
+				if next.err != nil {
+					stopWorkers()
+					return next.err
+				}
+				if err := emit(next); err != nil {
+					stopWorkers()
+					return err
+				}
+				nextEmit++
+			}
+			if err := submitUntilWindowFull(); err != nil {
+				stopWorkers()
+				return err
+			}
+		}
+	}
+
+	if nextEmit != len(inputs) {
+		stopWorkers()
+		return trace.New("build parse workers completed without all records")
+	}
+	return nil
+}
+
+// parseBuildInput reads and parses one source file for the spool coordinator.
+// @intent keep each worker's filesystem, parser, and hash work isolated from shared build state.
+func (s *Service) parseBuildInput(ctx context.Context, input buildParseInput) buildParseResult {
+	result := buildParseResult{seq: input.seq}
+	if err := ctx.Err(); err != nil {
+		result.err = err
+		return result
+	}
+	content, err := os.ReadFile(input.path)
+	if err != nil {
+		result.err = trace.Wrap(err, "read build file "+input.relPath)
+		return result
+	}
+	if err := ctx.Err(); err != nil {
+		result.err = err
+		return result
+	}
+	nodes, edges, tsComments, meta, language, err := parseForBuild(ctx, input.parser, input.relPath, content)
+	if err != nil {
+		result.err = trace.Wrap(err, "parse build file "+input.relPath)
+		return result
+	}
+	hash := sha256.Sum256(content)
+	hashString := hex.EncodeToString(hash[:])
+	for i := range nodes {
+		nodes[i].Hash = hashString
+	}
+	nodeBatch := newParsedBuildNodeBatch(input.relPath, content, nodes, meta.Package, meta.Interfaces, tsComments, language)
+	result.record = spooledBuildRecord{
+		RelPath:     input.relPath,
+		Nodes:       nodes,
+		PackageName: meta.Package,
+		Interfaces:  meta.Interfaces,
+		Comments:    tsComments,
+		Language:    language,
+		SourceLines: nodeBatch.sourceLines,
+		Edges:       edges,
+		Bytes:       int64(len(content)),
+	}
+	return result
 }
 
 // applyBuildSpoolInTx replays spool records into the transaction-scoped graph store and triggers search rebuild.
 // @intent rebuild the graph from scratch atomically so partial failures cannot leave stale state.
 // @sideEffect resets and repopulates graph nodes/edges/annotations and may rebuild search documents.
 // @mutates graph nodes, edges, annotations, and search_documents
-func (s *Service) applyBuildSpoolInTx(ctx context.Context, tx ingestapp.Transaction, opts BuildOptions, spool *buildSpool) error {
+func (s *Service) applyBuildSpoolInTx(ctx context.Context, tx ingestapp.Transaction, opts BuildOptions, spool *buildSpool, timing *BuildTiming) error {
 	txStore := tx.Graph()
 	if err := ctx.Err(); err != nil {
 		return err
@@ -293,6 +484,7 @@ func (s *Service) applyBuildSpoolInTx(ctx context.Context, tx ingestapp.Transact
 	}
 
 	batch := buildPersistBatch{}
+	nodePersistStart := time.Now()
 	var edgeBatches []parsedBuildEdgeBatch
 	var packageNodeBatches []parsedBuildNodeBatch
 	for _, path := range spool.records {
@@ -330,18 +522,33 @@ func (s *Service) applyBuildSpoolInTx(ctx context.Context, tx ingestapp.Transact
 	if err := s.flushBuildBatch(ctx, txStore, &batch); err != nil {
 		return err
 	}
+	if timing != nil {
+		timing.PersistNodesMS = time.Since(nodePersistStart).Milliseconds()
+	}
 	edgeBatches = append(edgeBatches, s.packageSemanticEdgeBatches(packageNodeBatches)...)
 	if err := upsertPackageContainsEdges(ctx, txStore, spool.packages); err != nil {
 		return trace.Wrap(err, "upsert package file edges")
 	}
+	edgeResolveStart := time.Now()
 	resolveOptions := resolve.ResolveOptions{FallbackCalls: opts.FallbackCalls}
-	if err := s.flushBuildEdges(ctx, txStore, edgeBatches, &spool.stats, resolveOptions); err != nil {
+	var resolveTiming *BuildResolveTiming
+	if timing != nil {
+		resolveTiming = &timing.Resolve
+	}
+	if err := s.flushBuildEdgesWithTiming(ctx, txStore, edgeBatches, &spool.stats, resolveOptions, resolveTiming); err != nil {
 		return err
+	}
+	if timing != nil {
+		timing.ResolveEdgesMS = time.Since(edgeResolveStart).Milliseconds()
 	}
 
 	if !opts.SkipSearchRebuild {
+		searchStart := time.Now()
 		if err := tx.Search().RebuildAll(ctx); err != nil {
 			return err
+		}
+		if timing != nil {
+			timing.SearchRebuildMS = time.Since(searchStart).Milliseconds()
 		}
 	}
 
@@ -415,19 +622,188 @@ func (s *Service) flushBuildBatch(ctx context.Context, txStore ingestapp.GraphSt
 	return nil
 }
 
+// buildResolveLookup memoizes immutable file-suffix lookups for one edge-resolution phase.
+// @intent avoid repeatedly scanning persisted file nodes for identical import paths during a full build.
+type buildResolveLookup struct {
+	ingestapp.GraphStore
+	fileNodesBySuffix map[string][]graph.Node
+	importFileIndex   *buildImportFileIndex
+	timing            *BuildResolveTiming
+}
+
+// buildImportFileIndex maps exact directories and their suffixes to persisted file nodes.
+// @intent resolve many imports from one immutable build-phase file-node snapshot.
+type buildImportFileIndex struct {
+	byDirectory map[string][]graph.Node
+	bySuffix    map[string][]graph.Node
+}
+
+// newBuildImportFileIndex precomputes directory suffixes for the current build's file nodes.
+// @intent turn repeated longest-suffix scans into bounded map lookups during edge resolution.
+func newBuildImportFileIndex(nodes []graph.Node) *buildImportFileIndex {
+	index := &buildImportFileIndex{
+		byDirectory: make(map[string][]graph.Node),
+		bySuffix:    make(map[string][]graph.Node),
+	}
+	for _, node := range nodes {
+		if node.Kind != graph.NodeKindFile {
+			continue
+		}
+		dir := strings.Trim(path.Dir(node.FilePath), "/")
+		if dir == "" || dir == "." {
+			continue
+		}
+		index.byDirectory[dir] = append(index.byDirectory[dir], node)
+		parts := strings.Split(dir, "/")
+		for start := range parts {
+			suffix := strings.Join(parts[start:], "/")
+			index.bySuffix[suffix] = append(index.bySuffix[suffix], node)
+		}
+	}
+	return index
+}
+
+// find returns exact directory matches first, then all longest suffix matches.
+// @intent preserve GraphStore import resolution precedence while avoiding repeated database scans.
+func (i *buildImportFileIndex) find(importPath string) []graph.Node {
+	if i == nil {
+		return nil
+	}
+	importPath = strings.Trim(path.Clean(strings.TrimSpace(importPath)), "/")
+	if importPath == "" || importPath == "." {
+		return nil
+	}
+	if exact := i.byDirectory[importPath]; len(exact) > 0 {
+		return exact
+	}
+	parts := strings.Split(importPath, "/")
+	for start := range parts {
+		if candidates := i.bySuffix[strings.Join(parts[start:], "/")]; len(candidates) > 0 {
+			return candidates
+		}
+	}
+	return nil
+}
+
+// newBuildResolveLookup creates the build-scoped read-through lookup cache.
+// @intent share immutable import file-node results across all resolver chunks in one build.
+func newBuildResolveLookup(store ingestapp.GraphStore) *buildResolveLookup {
+	return newBuildResolveLookupWithTiming(store, nil)
+}
+
+// newBuildResolveLookupWithTiming creates a build-scoped lookup cache that records store-read timings when requested.
+// @intent retain the existing resolver lookup contract while making individual database-read costs observable.
+func newBuildResolveLookupWithTiming(store ingestapp.GraphStore, timing *BuildResolveTiming) *buildResolveLookup {
+	return &buildResolveLookup{
+		GraphStore:        store,
+		fileNodesBySuffix: make(map[string][]graph.Node),
+		timing:            timing,
+	}
+}
+
+// add records one resolver operation after its underlying work completes.
+// @intent accumulate a single build-scoped timing without changing the observed operation result.
+func (t *BuildResolveOperationTiming) add(duration time.Duration) {
+	if t == nil {
+		return
+	}
+	t.Calls++
+	t.MS += duration.Milliseconds()
+}
+
+// GetNodesByIDs delegates the resolver's node-ID lookup and records its store cost.
+// @intent measure node-ID store reads while preserving the resolver lookup contract.
+func (l *buildResolveLookup) GetNodesByIDs(ctx context.Context, ids []uint) ([]graph.Node, error) {
+	started := time.Now()
+	nodes, err := l.GraphStore.GetNodesByIDs(ctx, ids)
+	if l.timing != nil {
+		l.timing.NodesByIDs.add(time.Since(started))
+	}
+	return nodes, err
+}
+
+// GetNodesByFiles delegates the resolver's file-node lookup and records its store cost.
+// @intent measure file-node store reads while preserving the resolver lookup contract.
+func (l *buildResolveLookup) GetNodesByFiles(ctx context.Context, filePaths []string) (map[string][]graph.Node, error) {
+	started := time.Now()
+	nodes, err := l.GraphStore.GetNodesByFiles(ctx, filePaths)
+	if l.timing != nil {
+		l.timing.NodesByFiles.add(time.Since(started))
+	}
+	return nodes, err
+}
+
+// GetNodesByQualifiedNames delegates the resolver's qualified-name lookup and records its store cost.
+// @intent measure qualified-name store reads while preserving the resolver lookup contract.
+func (l *buildResolveLookup) GetNodesByQualifiedNames(ctx context.Context, names []string) (map[string][]graph.Node, error) {
+	started := time.Now()
+	nodes, err := l.GraphStore.GetNodesByQualifiedNames(ctx, names)
+	if l.timing != nil {
+		l.timing.NodesByQualifiedNames.add(time.Since(started))
+	}
+	return nodes, err
+}
+
+// GetEdgesToNodes delegates the resolver's implements lookup and records its store cost.
+// @intent measure implements-edge store reads while preserving the resolver lookup contract.
+func (l *buildResolveLookup) GetEdgesToNodes(ctx context.Context, nodeIDs []uint) ([]graph.Edge, error) {
+	started := time.Now()
+	edges, err := l.GraphStore.GetEdgesToNodes(ctx, nodeIDs)
+	if l.timing != nil {
+		l.timing.EdgesToNodes.add(time.Since(started))
+	}
+	return edges, err
+}
+
+// GetFileNodesByPathSuffix returns a cached suffix lookup or reads and stores it once.
+// @intent eliminate repeated store scans while preserving the GraphStore lookup contract.
+func (l *buildResolveLookup) GetFileNodesByPathSuffix(ctx context.Context, suffix string) ([]graph.Node, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if nodes, ok := l.fileNodesBySuffix[suffix]; ok {
+		return nodes, nil
+	}
+	if l.importFileIndex == nil {
+		started := time.Now()
+		nodes, err := l.GraphStore.ListImportFileNodes(ctx)
+		if l.timing != nil {
+			l.timing.ImportFileNodes.add(time.Since(started))
+		}
+		if err != nil {
+			return nil, err
+		}
+		l.importFileIndex = newBuildImportFileIndex(nodes)
+	}
+	nodes := l.importFileIndex.find(suffix)
+	l.fileNodesBySuffix[suffix] = nodes
+	return nodes, nil
+}
+
 // flushBuildEdges resolves and persists all deferred edges after graph nodes exist.
 // @intent attach parsed relationships to stored node IDs without depending on build batch order.
 // @sideEffect upserts graph edges through the transaction-scoped store.
 // @mutates graph edges
 func (s *Service) flushBuildEdges(ctx context.Context, txStore ingestapp.GraphStore, edgeBatches []parsedBuildEdgeBatch, stats *BuildStats, resolveOptions resolve.ResolveOptions) error {
+	return s.flushBuildEdgesWithTiming(ctx, txStore, edgeBatches, stats, resolveOptions, nil)
+}
+
+// flushBuildEdgesWithTiming resolves and persists deferred edges while recording each resolver operation when timing is supplied.
+// @intent measure edge-resolution database reads and writes without altering the existing resolution order or transaction.
+func (s *Service) flushBuildEdgesWithTiming(ctx context.Context, txStore ingestapp.GraphStore, edgeBatches []parsedBuildEdgeBatch, stats *BuildStats, resolveOptions resolve.ResolveOptions, timing *BuildResolveTiming) error {
 	implementsEdges, otherBatches := partitionBuildEdges(edgeBatches)
 	importsByPath := importEdgesByFile(otherBatches)
+	lookup := newBuildResolveLookupWithTiming(txStore, timing)
 	for start := 0; start < len(implementsEdges); start += buildEdgeResolveChunkSize {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		end := min(start+buildEdgeResolveChunkSize, len(implementsEdges))
-		resolved, err := s.edgeResolver()(ctx, txStore, implementsEdges[start:end], resolveOptions)
+		resolveStarted := time.Now()
+		resolved, err := s.edgeResolver()(ctx, lookup, implementsEdges[start:end], resolveOptions)
+		if timing != nil {
+			timing.Resolver.add(time.Since(resolveStarted))
+		}
 		if err != nil {
 			s.logger().ErrorContext(ctx, "resolve deferred implements edges failed", append(obs.TraceLogArgs(ctx), "start", start, "end", end, "error", err)...)
 			return trace.Wrap(err, "resolve deferred implements edges")
@@ -437,12 +813,62 @@ func (s *Service) flushBuildEdges(ctx context.Context, txStore ingestapp.GraphSt
 		if diagnostics.DroppedCount > 0 {
 			s.logger().DebugContext(ctx, "dropped unresolved implements edges", append(obs.TraceLogArgs(ctx), "count", diagnostics.DroppedCount, "by_kind", formatEdgeKindCounts(diagnostics.ByKind), "by_reason", diagnostics.ByReason)...)
 		}
-		if err := txStore.UpsertEdges(ctx, resolved); err != nil {
+		upsertStarted := time.Now()
+		err = txStore.UpsertEdges(ctx, resolved)
+		if timing != nil {
+			timing.UpsertEdges.add(time.Since(upsertStarted))
+		}
+		if err != nil {
 			s.logger().ErrorContext(ctx, "upsert deferred implements edges failed", append(obs.TraceLogArgs(ctx), "start", start, "end", end, "error", err)...)
 			return trace.Wrap(err, "upsert deferred implements edges")
 		}
 	}
 
+	// actualEdgeRange identifies parsed edges within a resolver input that also contains import warmup edges.
+	// @intent persist only original parsed edges after using import edges to enrich resolution context.
+	type actualEdgeRange struct{ start, end int }
+	var pending []graph.Edge
+	var actualRanges []actualEdgeRange
+	flushPending := func() error {
+		if len(pending) == 0 {
+			return nil
+		}
+		resolveStarted := time.Now()
+		resolved, err := s.edgeResolver()(ctx, lookup, pending, resolveOptions)
+		if timing != nil {
+			timing.Resolver.add(time.Since(resolveStarted))
+		}
+		if err != nil {
+			s.logger().ErrorContext(ctx, "resolve deferred edge batch failed", append(obs.TraceLogArgs(ctx), "edges", len(pending), "error", err)...)
+			return trace.Wrap(err, "resolve deferred edge batch")
+		}
+		resolvedEdges := make([]graph.Edge, 0, len(resolved))
+		for _, actual := range actualRanges {
+			if actual.end > len(resolved) {
+				actual.end = len(resolved)
+			}
+			if actual.start >= actual.end {
+				continue
+			}
+			resolvedChunk, diagnostics := resolve.FilterResolvedWithDiagnosticsFiltered(resolved[actual.start:actual.end], shouldSuppressExternalImportUnresolved)
+			mergeBuildUnresolvedDiagnostics(stats, diagnostics)
+			resolvedEdges = append(resolvedEdges, resolvedChunk...)
+		}
+		if len(resolvedEdges) > 0 {
+			upsertStarted := time.Now()
+			err = txStore.UpsertEdges(ctx, resolvedEdges)
+			if timing != nil {
+				timing.UpsertEdges.add(time.Since(upsertStarted))
+			}
+			if err != nil {
+				s.logger().ErrorContext(ctx, "upsert deferred edge batch failed", append(obs.TraceLogArgs(ctx), "edges", len(resolvedEdges), "error", err)...)
+				return trace.Wrap(err, "upsert deferred edge batch")
+			}
+		}
+		pending = nil
+		actualRanges = nil
+		return nil
+	}
 	for _, parsed := range otherBatches {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -451,21 +877,18 @@ func (s *Service) flushBuildEdges(ctx context.Context, txStore ingestapp.GraphSt
 			end := min(start+buildEdgeResolveChunkSize, len(parsed.edges))
 			chunk := parsed.edges[start:end]
 			resolveInput := chunkWithImportWarmup(chunk, importsByPath[parsed.relPath])
-			resolved, err := s.edgeResolver()(ctx, txStore, resolveInput, resolveOptions)
-			if err != nil {
-				s.logger().ErrorContext(ctx, "resolve deferred edges failed", append(obs.TraceLogArgs(ctx), "file", parsed.relPath, "error", err)...)
-				return trace.Wrap(err, "resolve deferred edges for "+parsed.relPath)
+			if len(pending) > 0 && len(pending)+len(resolveInput) > buildEdgeResolveChunkSize {
+				if err := flushPending(); err != nil {
+					return err
+				}
 			}
-			resolvedChunk, diagnostics := resolve.FilterResolvedWithDiagnosticsFiltered(resolved[len(resolveInput)-len(chunk):], shouldSuppressExternalImportUnresolved)
-			mergeBuildUnresolvedDiagnostics(stats, diagnostics)
-			if diagnostics.DroppedCount > 0 {
-				s.logger().DebugContext(ctx, "dropped unresolved edges", append(obs.TraceLogArgs(ctx), "file", parsed.relPath, "count", diagnostics.DroppedCount, "by_kind", formatEdgeKindCounts(diagnostics.ByKind), "by_reason", diagnostics.ByReason)...)
-			}
-			if err := txStore.UpsertEdges(ctx, resolvedChunk); err != nil {
-				s.logger().ErrorContext(ctx, "upsert deferred edges failed", append(obs.TraceLogArgs(ctx), "file", parsed.relPath, "error", err)...)
-				return trace.Wrap(err, "upsert deferred edges for "+parsed.relPath)
-			}
+			actualStart := len(pending) + len(resolveInput) - len(chunk)
+			pending = append(pending, resolveInput...)
+			actualRanges = append(actualRanges, actualEdgeRange{start: actualStart, end: actualStart + len(chunk)})
 		}
+	}
+	if err := flushPending(); err != nil {
+		return err
 	}
 	return nil
 }

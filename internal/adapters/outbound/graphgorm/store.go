@@ -195,6 +195,19 @@ func (s *Store) ListFileNodes(ctx context.Context) ([]graph.Node, error) {
 	return nodes, nil
 }
 
+// ListImportFileNodes returns actual file nodes for build-scoped import-path resolution.
+// @intent let full builds create an in-memory import suffix index without reloading all file nodes per import.
+func (s *Store) ListImportFileNodes(ctx context.Context) ([]graph.Node, error) {
+	ns := requestctx.FromContext(ctx)
+	var nodes []graph.Node
+	if err := s.db.WithContext(ctx).
+		Where("namespace = ? AND kind = ?", ns, graph.NodeKindFile).
+		Find(&nodes).Error; err != nil {
+		return nil, trace.Wrap(err, "list import file nodes")
+	}
+	return nodes, nil
+}
+
 // GetFileNodesByPathSuffix finds file nodes whose directory matches an import-path suffix.
 // @intent let import edge resolution bind repo-local import paths back to stored file nodes.
 func (s *Store) GetFileNodesByPathSuffix(ctx context.Context, suffix string) ([]graph.Node, error) {

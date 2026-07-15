@@ -561,6 +561,32 @@ func TestListFileNodes_ReturnsMinimalNonPackageStateForNamespace(t *testing.T) {
 	}
 }
 
+func TestListImportFileNodes_ReturnsOnlyFileNodesForNamespace(t *testing.T) {
+	s := setupTestDB(t)
+	ctxA := requestctx.WithNamespace(context.Background(), "ns-a")
+	ctxB := requestctx.WithNamespace(context.Background(), "ns-b")
+	if err := s.UpsertNodes(ctxA, []graph.Node{
+		{QualifiedName: "a.go", Kind: graph.NodeKindFile, Name: "a.go", FilePath: "a.go", Hash: "hash-a"},
+		{QualifiedName: "pkg.A", Kind: graph.NodeKindFunction, Name: "A", FilePath: "a.go", Hash: "hash-a"},
+	}); err != nil {
+		t.Fatalf("UpsertNodes(ns-a): %v", err)
+	}
+	if err := s.UpsertNodes(ctxB, []graph.Node{{QualifiedName: "b.go", Kind: graph.NodeKindFile, Name: "b.go", FilePath: "b.go"}}); err != nil {
+		t.Fatalf("UpsertNodes(ns-b): %v", err)
+	}
+
+	nodes, err := s.ListImportFileNodes(ctxA)
+	if err != nil {
+		t.Fatalf("ListImportFileNodes: %v", err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("ListImportFileNodes returned %d nodes, want 1: %#v", len(nodes), nodes)
+	}
+	if nodes[0].ID == 0 || nodes[0].Kind != graph.NodeKindFile || nodes[0].FilePath != "a.go" {
+		t.Fatalf("ListImportFileNodes returned unexpected node: %#v", nodes[0])
+	}
+}
+
 func TestDeletePackageSemanticEdges_FiltersByNamespaceAnchorKindAndLine(t *testing.T) {
 	s := setupTestDB(t)
 	ctxA := requestctx.WithNamespace(context.Background(), "ns-a")

@@ -28,5 +28,6 @@ explore graph edges.
 | [Runtime Layout](runtime-layout.md) | `ccg`, `ccg-server`, Wiki serving, and shared `ccg-core` ownership boundaries |
 | [Architecture](architecture.md) | System architecture, data flow, DB schema |
 | [Development](development.md) | Build, test, integration test (Gitea + PostgreSQL) |
+| [Large Build Performance](build-performance.md) | Measured full-build bottlenecks, bounded concurrency, and import-file indexing |
 | [Namespace Migration](namespace-migration.md) | Default namespace change and migration guide |
 | [CLAUDE.md Guide](claude-md-guide.md) | CLAUDE.md template for projects using CCG |

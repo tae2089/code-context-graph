@@ -63,6 +63,7 @@ type PackageContext struct {
 
 // Parser is the minimum source parser consumed by build and update workflows.
 // @intent parse source into domain graph values without exposing Tree-sitter or another parser implementation.
+// @domainRule full builds may invoke one Parser instance concurrently, so ParseWithContext implementations must isolate mutable parser state.
 type Parser interface {
 	Parse(filePath string, content []byte) ([]graph.Node, []graph.Edge, error)
 	ParseWithContext(ctx context.Context, filePath string, content []byte) ([]graph.Node, []graph.Edge, error)
@@ -103,6 +104,7 @@ type GraphStore interface {
 	GetNodesByFiles(ctx context.Context, filePaths []string) (map[string][]graph.Node, error)
 	GetNodesByQualifiedNames(ctx context.Context, names []string) (map[string][]graph.Node, error)
 	ListFileNodes(ctx context.Context) ([]graph.Node, error)
+	ListImportFileNodes(ctx context.Context) ([]graph.Node, error)
 	GetFileNodesByPathSuffix(ctx context.Context, suffix string) ([]graph.Node, error)
 	GetEdgesFromNodes(ctx context.Context, nodeIDs []uint) ([]graph.Edge, error)
 	GetEdgesToNodes(ctx context.Context, nodeIDs []uint) ([]graph.Edge, error)

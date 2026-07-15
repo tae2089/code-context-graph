@@ -110,12 +110,14 @@ func countServiceSQLInList(sql string) int {
 }
 
 type recordingGraphStore struct {
-	t             *testing.T
-	ops           []string
-	nextID        uint
-	nodesByFP     map[string][]graph.Node
-	edges         []graph.Edge
-	upsertedEdges [][]graph.Edge
+	t                     *testing.T
+	ops                   []string
+	nextID                uint
+	nodesByFP             map[string][]graph.Node
+	edges                 []graph.Edge
+	upsertedEdges         [][]graph.Edge
+	fileSuffixLookupCalls int
+	importFileNodeCalls   int
 }
 
 func newRecordingGraphStore(t *testing.T) *recordingGraphStore {
@@ -231,7 +233,21 @@ func (r *recordingGraphStore) ListFileNodes(context.Context) ([]graph.Node, erro
 	return result, nil
 }
 
+func (r *recordingGraphStore) ListImportFileNodes(context.Context) ([]graph.Node, error) {
+	r.importFileNodeCalls++
+	var result []graph.Node
+	for _, nodes := range r.nodesByFP {
+		for _, node := range nodes {
+			if node.Kind == graph.NodeKindFile {
+				result = append(result, node)
+			}
+		}
+	}
+	return result, nil
+}
+
 func (r *recordingGraphStore) GetFileNodesByPathSuffix(ctx context.Context, suffix string) ([]graph.Node, error) {
+	r.fileSuffixLookupCalls++
 	suffix = strings.Trim(path.Clean(strings.TrimSpace(suffix)), "/")
 	if suffix == "" || suffix == "." {
 		return nil, nil
@@ -263,6 +279,70 @@ func (r *recordingGraphStore) GetFileNodesByPathSuffix(ctx context.Context, suff
 		}
 	}
 	return out, nil
+}
+
+func TestBuildResolveLookup_IndexesImportFilesOnceAndPreservesSuffixRules(t *testing.T) {
+	store := newRecordingGraphStore(t)
+	store.nodesByFP["internal/mcp/deps.go"] = []graph.Node{{ID: 1, Kind: graph.NodeKindFile, FilePath: "internal/mcp/deps.go"}}
+	store.nodesByFP["pkg/mcp/deps.go"] = []graph.Node{{ID: 2, Kind: graph.NodeKindFile, FilePath: "pkg/mcp/deps.go"}}
+	store.nodesByFP["pkg/internal/mcp/deps.go"] = []graph.Node{{ID: 3, Kind: graph.NodeKindFile, FilePath: "pkg/internal/mcp/deps.go"}}
+	lookup := newBuildResolveLookup(store)
+
+	exact, err := lookup.GetFileNodesByPathSuffix(context.Background(), "internal/mcp")
+	if err != nil {
+		t.Fatalf("exact suffix lookup: %v", err)
+	}
+	if got := nodeFilePaths(exact); !slices.Equal(got, []string{"internal/mcp/deps.go"}) {
+		t.Fatalf("exact suffix nodes = %v, want internal/mcp only", got)
+	}
+
+	longest, err := lookup.GetFileNodesByPathSuffix(context.Background(), "github.com/example/project/mcp")
+	if err != nil {
+		t.Fatalf("longest suffix lookup: %v", err)
+	}
+	if got := nodeFilePaths(longest); !slices.Equal(got, []string{"internal/mcp/deps.go", "pkg/internal/mcp/deps.go", "pkg/mcp/deps.go"}) {
+		t.Fatalf("longest suffix nodes = %v, want all mcp directories", got)
+	}
+	if store.importFileNodeCalls != 1 {
+		t.Fatalf("import file node reads = %d, want 1", store.importFileNodeCalls)
+	}
+	if store.fileSuffixLookupCalls != 0 {
+		t.Fatalf("single-suffix store reads = %d, want 0", store.fileSuffixLookupCalls)
+	}
+}
+
+func nodeFilePaths(nodes []graph.Node) []string {
+	paths := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		paths = append(paths, node.FilePath)
+	}
+	slices.Sort(paths)
+	return paths
+}
+
+func TestBuildResolveLookup_RecordsStoreReadTiming(t *testing.T) {
+	store := newRecordingGraphStore(t)
+	store.nodesByFP["sample.go"] = []graph.Node{{
+		ID:       1,
+		Kind:     graph.NodeKindFile,
+		FilePath: "sample.go",
+	}}
+	timing := BuildResolveTiming{}
+	lookup := newBuildResolveLookupWithTiming(store, &timing)
+
+	got, err := lookup.GetNodesByFiles(context.Background(), []string{"sample.go"})
+	if err != nil {
+		t.Fatalf("get nodes by files: %v", err)
+	}
+	if len(got["sample.go"]) != 1 {
+		t.Fatalf("nodes for sample.go = %v, want one node", got)
+	}
+	if timing.NodesByFiles.Calls != 1 {
+		t.Fatalf("GetNodesByFiles calls = %d, want 1", timing.NodesByFiles.Calls)
+	}
+	if timing.NodesByFiles.MS < 0 {
+		t.Fatalf("GetNodesByFiles milliseconds = %d, want non-negative", timing.NodesByFiles.MS)
+	}
 }
 
 func serviceCommonPathSuffixDepth(a, b string) int {
@@ -408,6 +488,29 @@ func (p failingBuildParser) ParseWithContext(ctx context.Context, filePath strin
 	}}, nil, nil
 }
 
+type blockingBuildParser struct {
+	started chan<- struct{}
+	release <-chan struct{}
+}
+
+func (p blockingBuildParser) Parse(filePath string, content []byte) ([]graph.Node, []graph.Edge, error) {
+	return p.ParseWithContext(context.Background(), filePath, content)
+}
+
+func (p blockingBuildParser) ParseWithContext(ctx context.Context, filePath string, content []byte) ([]graph.Node, []graph.Edge, error) {
+	select {
+	case p.started <- struct{}{}:
+	case <-ctx.Done():
+		return nil, nil, ctx.Err()
+	}
+	select {
+	case <-p.release:
+	case <-ctx.Done():
+		return nil, nil, ctx.Err()
+	}
+	return failingBuildParser{}.ParseWithContext(ctx, filePath, content)
+}
+
 func TestToBinderComments_PreservesBasicFields(t *testing.T) {
 	in := []treesitter.CommentBlock{
 		{StartLine: 3, EndLine: 4, Text: "// hello"},
@@ -511,13 +614,14 @@ func TestFlushBuildEdges_ResolvesAndUpsertsBoundedBatches(t *testing.T) {
 	batches := []parsedBuildEdgeBatch{
 		{relPath: "cmd/main.go", edges: []graph.Edge{{Kind: graph.EdgeKindImportsFrom, FilePath: "cmd/main.go", Line: 1, Fingerprint: "imports_from:cmd/main.go:github.com/example/project/mcp:1"}, {Kind: graph.EdgeKindCalls, FilePath: "cmd/main.go", Line: 2, Fingerprint: "calls:cmd/main.go:h.deps.FlowTracer.TraceFlow:2"}}},
 		{relPath: "flows/tracer.go", edges: []graph.Edge{{Kind: graph.EdgeKindImplements, FilePath: "flows/tracer.go", Line: 7, Fingerprint: "implements:flows/tracer.go:flows.Tracer:mcp.FlowTracer"}}},
+		{relPath: "other/main.go", edges: []graph.Edge{{Kind: graph.EdgeKindContains, FilePath: "other/main.go", Line: 1, Fingerprint: "contains:other/main.go:main.Run"}}},
 	}
 
 	svc := &Service{resolveEdges: resolver}
 	if err := svc.flushBuildEdges(ctx, st, batches, nil, resolve.ResolveOptions{}); err != nil {
 		t.Fatalf("flushBuildEdges: %v", err)
 	}
-	if got, want := resolveSizes, []int{1, 3}; !reflect.DeepEqual(got, want) {
+	if got, want := resolveSizes, []int{1, 4}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("resolve sizes: got=%v want=%v", got, want)
 	}
 	if len(st.upsertedEdges) != 2 {
@@ -532,6 +636,42 @@ func TestFlushBuildEdges_ResolvesAndUpsertsBoundedBatches(t *testing.T) {
 	call := st.upsertedEdges[1][1]
 	if call.Kind != graph.EdgeKindCalls || call.FromNodeID != 1 || call.ToNodeID != 4 {
 		t.Fatalf("call edge mismatch: %+v", call)
+	}
+}
+
+func TestFlushBuildEdges_RecordsResolverAndUpsertTiming(t *testing.T) {
+	ctx := context.Background()
+	st := newRecordingGraphStore(t)
+	st.nodesByFP["sample.go"] = []graph.Node{
+		{ID: 10, QualifiedName: "sample.go", Name: "sample.go", Kind: graph.NodeKindFile, FilePath: "sample.go", Language: "go"},
+		{ID: 1, QualifiedName: "sample.Keep", Name: "Keep", Kind: graph.NodeKindFunction, FilePath: "sample.go", StartLine: 1, EndLine: 3, Language: "go"},
+	}
+	timing := BuildResolveTiming{}
+	batches := []parsedBuildEdgeBatch{{
+		relPath: "sample.go",
+		edges: []graph.Edge{{
+			Kind:        graph.EdgeKindContains,
+			FilePath:    "sample.go",
+			Line:        1,
+			Fingerprint: "contains:sample.go:sample.Keep",
+		}},
+	}}
+
+	svc := &Service{}
+	if err := svc.flushBuildEdgesWithTiming(ctx, st, batches, nil, resolve.ResolveOptions{}, &timing); err != nil {
+		t.Fatalf("flush build edges: %v", err)
+	}
+	if timing.Resolver.Calls != 1 {
+		t.Fatalf("resolver calls = %d, want 1", timing.Resolver.Calls)
+	}
+	if timing.UpsertEdges.Calls != len(st.upsertedEdges) {
+		t.Fatalf("edge upsert calls = %d, want %d", timing.UpsertEdges.Calls, len(st.upsertedEdges))
+	}
+	if timing.NodesByFiles.Calls == 0 {
+		t.Fatal("expected GetNodesByFiles timing to record resolver lookup")
+	}
+	if timing.Resolver.MS < 0 || timing.UpsertEdges.MS < 0 || timing.NodesByFiles.MS < 0 {
+		t.Fatalf("resolve timing must be non-negative: %+v", timing)
 	}
 }
 
@@ -564,7 +704,7 @@ func TestFlushBuildEdges_ResolvesImplementsOnlyOnce(t *testing.T) {
 	if err := svc.flushBuildEdges(ctx, st, batches, nil, resolve.ResolveOptions{}); err != nil {
 		t.Fatalf("flushBuildEdges: %v", err)
 	}
-	if got, want := implementsSeen, []int{1, 0, 0}; !reflect.DeepEqual(got, want) {
+	if got, want := implementsSeen, []int{1, 0}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("implements counts per resolve call: got=%v want=%v", got, want)
 	}
 }
@@ -585,8 +725,8 @@ func TestFlushBuildEdges_WarmsImportsAcrossChunkBoundaries(t *testing.T) {
 	if err := svc.flushBuildEdges(ctx, st, batches, nil, resolve.ResolveOptions{}); err != nil {
 		t.Fatalf("flushBuildEdges: %v", err)
 	}
-	if len(st.upsertedEdges) < 3 {
-		t.Fatalf("expected multiple upsert batches, got %d", len(st.upsertedEdges))
+	if len(st.upsertedEdges) < 2 {
+		t.Fatalf("expected implements and call edge batches, got %d", len(st.upsertedEdges))
 	}
 	lastBatch := st.upsertedEdges[len(st.upsertedEdges)-1]
 	call := lastBatch[len(lastBatch)-1]
@@ -1635,6 +1775,65 @@ func TestPrepareBuildSpool_TypeScriptImportedHeritageEdgesPresent(t *testing.T) 
 	}
 }
 
+func TestPrepareBuildSpool_ParsesFilesConcurrentlyAndKeepsOrder(t *testing.T) {
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+
+	svc := &Service{Parsers: map[string]Parser{
+		".stub": blockingBuildParser{started: started, release: release},
+	}}
+	tmpDir := t.TempDir()
+	for _, relPath := range []string{"a.stub", "b.stub"} {
+		if err := os.WriteFile(filepath.Join(tmpDir, relPath), []byte(relPath), 0o644); err != nil {
+			t.Fatalf("write %s: %v", relPath, err)
+		}
+	}
+
+	type prepareResult struct {
+		spool *buildSpool
+		err   error
+	}
+	resultCh := make(chan prepareResult, 1)
+	go func() {
+		spool, err := svc.prepareBuildSpool(context.Background(), tmpDir, BuildOptions{Dir: tmpDir})
+		resultCh <- prepareResult{spool: spool, err: err}
+	}()
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("expected two files to begin parsing concurrently")
+		}
+	}
+	close(release)
+	released = true
+
+	result := <-resultCh
+	if result.err != nil {
+		t.Fatalf("prepareBuildSpool: %v", result.err)
+	}
+	defer result.spool.cleanup(slog.Default())
+	if len(result.spool.records) != 2 {
+		t.Fatalf("spool records = %d, want 2", len(result.spool.records))
+	}
+	for i, want := range []string{"a.stub", "b.stub"} {
+		record, err := result.spool.readRecord(result.spool.records[i])
+		if err != nil {
+			t.Fatalf("read record %d: %v", i, err)
+		}
+		if record.RelPath != want {
+			t.Fatalf("record %d path = %q, want %q", i, record.RelPath, want)
+		}
+	}
+}
+
 func TestImportPackageContext_TypeScriptAliasUsesCanonicalImportPath(t *testing.T) {
 	packages := map[string]languagePackageInfo{
 		"@acme/app/src/base": {
@@ -2067,6 +2266,12 @@ func Keep` + strconv.Itoa(i) + `() {}
 	if stats.TotalFiles != buildFlushFileBatchSize+1 {
 		t.Fatalf("TotalFiles = %d, want %d", stats.TotalFiles, buildFlushFileBatchSize+1)
 	}
+	if stats.Timing.TotalMS <= 0 {
+		t.Fatalf("Timing.TotalMS = %d, want a positive duration", stats.Timing.TotalMS)
+	}
+	if stats.Timing.ParseMS < 0 || stats.Timing.PersistNodesMS < 0 || stats.Timing.ResolveEdgesMS < 0 || stats.Timing.SearchRebuildMS < 0 {
+		t.Fatalf("build stage timings must be non-negative: %+v", stats.Timing)
+	}
 
 	edgeFlushes := 0
 	for _, op := range fakeStore.ops {
@@ -2074,8 +2279,13 @@ func Keep` + strconv.Itoa(i) + `() {}
 			edgeFlushes++
 		}
 	}
-	if edgeFlushes < 2 {
-		t.Fatalf("expected at least 2 edge flushes, got %d (ops=%v)", edgeFlushes, fakeStore.ops)
+	if edgeFlushes == 0 {
+		t.Fatalf("expected at least 1 edge flush, got %d (ops=%v)", edgeFlushes, fakeStore.ops)
+	}
+	for _, batch := range fakeStore.upsertedEdges {
+		if len(batch) > buildEdgeResolveChunkSize {
+			t.Fatalf("edge batch exceeded limit: got %d want <= %d", len(batch), buildEdgeResolveChunkSize)
+		}
 	}
 
 	firstEdge := slices.Index(fakeStore.ops, "UpsertEdges")

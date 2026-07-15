@@ -21,6 +21,9 @@ func (graphStoreContractStub) GetNodesByQualifiedNames(context.Context, []string
 	return nil, nil
 }
 func (graphStoreContractStub) ListFileNodes(context.Context) ([]graph.Node, error) { return nil, nil }
+func (graphStoreContractStub) ListImportFileNodes(context.Context) ([]graph.Node, error) {
+	return nil, nil
+}
 func (graphStoreContractStub) GetFileNodesByPathSuffix(context.Context, string) ([]graph.Node, error) {
 	return nil, nil
 }
