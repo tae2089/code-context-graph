@@ -45,6 +45,14 @@ jobs:
       - name: Build Wiki UI
         run: make wiki-build
 
+      - name: Build production image
+        run: |
+          docker build \
+            --build-arg VERSION=ci \
+            --build-arg COMMIT=${{ github.sha }} \
+            --build-arg DATE=unknown \
+            --tag ccg:ci .
+
       - name: Capture go build JSON
         run: make build-json
 

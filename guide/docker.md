@@ -1,5 +1,17 @@
 # Docker
 
+## Pull Published Image
+
+Tagged releases publish multi-platform images for Linux AMD64 and ARM64 to
+GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/tae2089/code-context-graph:0.11.0
+```
+
+Each stable release publishes the full semantic version, minor, major, and
+`latest` tags. Prefer a full semantic-version tag for reproducible deployments.
+
 ## Build Image
 
 ```bash

@@ -12,13 +12,17 @@ FROM golang:1.25-alpine AS builder
 
 RUN apk add --no-cache gcc musl-dev git
 
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG DATE=unknown
+
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=1 go build -tags "fts5" -ldflags="-s -w" -o /usr/local/bin/ccg ./cmd/ccg/ \
-    && CGO_ENABLED=1 go build -tags "fts5" -ldflags="-s -w" -o /usr/local/bin/ccg-server ./cmd/ccg-server/
+RUN CGO_ENABLED=1 go build -tags "fts5" -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o /usr/local/bin/ccg ./cmd/ccg/ \
+    && CGO_ENABLED=1 go build -tags "fts5" -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o /usr/local/bin/ccg-server ./cmd/ccg-server/
 
 # Runtime stage
 FROM alpine:3.21
