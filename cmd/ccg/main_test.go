@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -250,8 +251,8 @@ func TestRunMigrations_SQLiteDownRestoresNullableColumns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
 	}
-	if err := migrator.Steps(-6); err != nil {
-		t.Fatalf("run down migration: %v", err)
+	if err := migrator.Migrate(1); err != nil {
+		t.Fatalf("migrate down to version 1: %v", err)
 	}
 
 	var version migration.MigrationSchemaVersion
@@ -295,8 +296,8 @@ func TestRunMigrations_SQLiteDownFromVersionThreeDropsPolicyTables(t *testing.T)
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
 	}
-	if err := migrator.Steps(-5); err != nil {
-		t.Fatalf("run down migration: %v", err)
+	if err := migrator.Migrate(2); err != nil {
+		t.Fatalf("migrate down to version 2: %v", err)
 	}
 
 	var version migration.MigrationSchemaVersion
@@ -409,7 +410,8 @@ func TestEnsureSchemaVersion_LogsRuntimeSchemaPassAndFail(t *testing.T) {
 		t.Fatalf("ensure schema version: %v", err)
 	}
 	passLog := logs.String()
-	for _, want := range []string{"database runtime schema check passed", "driver=sqlite", "required_version=7", "auto_migrated=true"} {
+	requiredVersionLog := "required_version=" + strconv.Itoa(migration.RequiredSchemaVersion)
+	for _, want := range []string{"database runtime schema check passed", "driver=sqlite", requiredVersionLog, "auto_migrated=true"} {
 		if !strings.Contains(passLog, want) {
 			t.Fatalf("expected runtime schema pass log to contain %q, got %q", want, passLog)
 		}
@@ -423,7 +425,7 @@ func TestEnsureSchemaVersion_LogsRuntimeSchemaPassAndFail(t *testing.T) {
 		t.Fatal("expected parity failure")
 	}
 	failLog := logs.String()
-	for _, want := range []string{"database runtime schema check failed", "driver=sqlite", "required_version=7", "auto_migrated=false", "error.message="} {
+	for _, want := range []string{"database runtime schema check failed", "driver=sqlite", requiredVersionLog, "auto_migrated=false", "error.message="} {
 		if !strings.Contains(failLog, want) {
 			t.Fatalf("expected runtime schema failure log to contain %q, got %q", want, failLog)
 		}

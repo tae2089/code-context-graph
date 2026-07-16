@@ -51,6 +51,37 @@ func TestWithTxDB_PostgresRollsBackGraphAndSearchDocumentTogether(t *testing.T) 
 	assertGraphAndSearchDocumentCounts(t, db, "txdb.PostgresRollback", "postgres rolled back search document", 0)
 }
 
+func TestDeleteGraph_PostgresHandlesMoreThanBindParameterLimit(t *testing.T) {
+	s, db := setupIsolatedPostgresStore(t)
+	ctx := context.Background()
+	const nodeCount = 66_000
+	nodes := make([]graph.Node, nodeCount)
+	for i := range nodes {
+		nodes[i] = graph.Node{
+			QualifiedName: fmt.Sprintf("bindlimit.Node%d", i),
+			Kind:          graph.NodeKindFunction,
+			Name:          fmt.Sprintf("Node%d", i),
+			FilePath:      "bind-limit.go",
+			StartLine:     i + 1,
+			EndLine:       i + 1,
+			Language:      "go",
+		}
+	}
+	if err := s.UpsertNodes(ctx, nodes); err != nil {
+		t.Fatalf("upsert %d nodes: %v", nodeCount, err)
+	}
+	if err := s.DeleteGraph(ctx); err != nil {
+		t.Fatalf("delete graph with %d nodes: %v", nodeCount, err)
+	}
+	var remaining int64
+	if err := db.Model(&graph.Node{}).Count(&remaining).Error; err != nil {
+		t.Fatalf("count remaining nodes: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("remaining nodes = %d, want 0", remaining)
+	}
+}
+
 func setupIsolatedPostgresStore(t *testing.T) (*Store, *gorm.DB) {
 	t.Helper()
 

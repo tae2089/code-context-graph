@@ -26,7 +26,7 @@ func setupUpdateTest(t *testing.T) (*Deps, *bytes.Buffer, *bytes.Buffer, *gorm.D
 	t.Helper()
 	deps, stdout, stderr := newTestDeps()
 
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "ccg.db")), &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func setupUpdateGraphOnlyTest(t *testing.T) (*Deps, *bytes.Buffer, *bytes.Buffer
 	t.Helper()
 	deps, stdout, stderr := newTestDeps()
 
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "ccg.db")), &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {
 		t.Fatal(err)
 	}

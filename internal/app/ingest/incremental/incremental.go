@@ -20,12 +20,12 @@ import (
 // @intent abstract graph storage so changed files can be reparsed and upserted
 type Store interface {
 	GetNodesByIDs(ctx context.Context, ids []uint) ([]graph.Node, error)
-	GetNodesByFile(ctx context.Context, filePath string) ([]graph.Node, error)
 	GetNodesByFiles(ctx context.Context, filePaths []string) (map[string][]graph.Node, error)
 	GetNodesByQualifiedNames(ctx context.Context, names []string) (map[string][]graph.Node, error)
 	UpsertNodes(ctx context.Context, nodes []graph.Node) error
 	UpsertEdges(ctx context.Context, edges []graph.Edge) error
-	DeleteNodesByFile(ctx context.Context, filePath string) error
+	UpsertAnnotations(ctx context.Context, annotations []*graph.Annotation) error
+	DeleteNodesByFiles(ctx context.Context, filePaths []string) error
 }
 
 // Parser parses one file into graph nodes and edges.
@@ -40,12 +40,6 @@ type AnnotatingParser interface {
 	Parser
 	ParseWithComments(ctx context.Context, filePath string, content []byte) ([]graph.Node, []graph.Edge, []ingest.CommentBlock, error)
 	Language() string
-}
-
-// annotationWriter is the optional store capability needed to persist comment-derived annotations.
-// @intent allow incremental sync to skip annotation writes when the underlying store does not support them.
-type annotationWriter interface {
-	UpsertAnnotation(ctx context.Context, ann *graph.Annotation) error
 }
 
 // FileInfo holds change-tracking data for one file.
@@ -217,30 +211,24 @@ func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files ma
 		parsedFiles = append(parsedFiles, parsed)
 	}
 
+	modifiedPaths := make([]string, 0, len(parsedFiles))
 	for _, parsed := range parsedFiles {
 		if !parsed.hadExisting {
 			s.logger.Debug("file added", "file", parsed.filePath)
 			stats.Added++
 			continue
 		}
-		if err := syncStore.DeleteNodesByFile(ctx, parsed.filePath); err != nil {
-			return nil, err
-		}
+		modifiedPaths = append(modifiedPaths, parsed.filePath)
 		s.logger.Debug("file modified", "file", parsed.filePath)
 		stats.Modified++
 	}
-
-	for _, parsed := range parsedFiles {
-		if len(parsed.nodes) > 0 {
-			if err := syncStore.UpsertNodes(ctx, parsed.nodes); err != nil {
-				return nil, err
-			}
-			if len(parsed.comments) > 0 {
-				if err := s.restoreAnnotations(ctx, syncStore, parsed.filePath, parsed.info.Content, parsed.nodes, parsed.comments, parsed.language); err != nil {
-					return nil, err
-				}
-			}
+	if len(modifiedPaths) > 0 {
+		if err := syncStore.DeleteNodesByFiles(ctx, modifiedPaths); err != nil {
+			return nil, err
 		}
+	}
+	if err := s.persistParsedNodesAndAnnotations(ctx, syncStore, parsedFiles); err != nil {
+		return nil, err
 	}
 	if err := s.resolveAndUpsertEdges(ctx, syncStore, syncStore, parsedFiles, stats); err != nil {
 		return nil, err
@@ -249,13 +237,17 @@ func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files ma
 		releaseContent(files, parsed.filePath)
 	}
 
+	deletedPaths := make([]string, 0, len(existingFiles))
 	for _, ep := range existingFiles {
 		if _, stillPresent := files[ep]; !stillPresent {
-			if err := syncStore.DeleteNodesByFile(ctx, ep); err != nil {
-				return nil, err
-			}
+			deletedPaths = append(deletedPaths, ep)
 			s.logger.Debug("file deleted", "file", ep)
 			stats.Deleted++
+		}
+	}
+	if len(deletedPaths) > 0 {
+		if err := syncStore.DeleteNodesByFiles(ctx, deletedPaths); err != nil {
+			return nil, err
 		}
 	}
 
@@ -297,10 +289,12 @@ func (s *Syncer) syncBatchesWithExisting(ctx context.Context, syncStore Store, s
 		return nil, err
 	}
 
-	for _, filePath := range deletedFiles {
-		if err := syncStore.DeleteNodesByFile(ctx, filePath); err != nil {
+	if len(deletedFiles) > 0 {
+		if err := syncStore.DeleteNodesByFiles(ctx, deletedFiles); err != nil {
 			return nil, err
 		}
+	}
+	for _, filePath := range deletedFiles {
 		s.logger.Debug("file deleted", "file", filePath)
 		stats.Deleted++
 	}
@@ -395,32 +389,29 @@ func (s *Syncer) stageBatch(ctx context.Context, syncStore Store, files map[stri
 		parsedFiles = append(parsedFiles, parsed)
 	}
 
+	modifiedPaths := make([]string, 0, len(parsedFiles))
 	for _, parsed := range parsedFiles {
 		if !parsed.hadExisting {
 			s.logger.Debug("file added", "file", parsed.filePath)
 			stats.Added++
 			continue
 		}
-		if err := syncStore.DeleteNodesByFile(ctx, parsed.filePath); err != nil {
-			return err
-		}
+		modifiedPaths = append(modifiedPaths, parsed.filePath)
 		s.logger.Debug("file modified", "file", parsed.filePath)
 		stats.Modified++
+	}
+	if len(modifiedPaths) > 0 {
+		if err := syncStore.DeleteNodesByFiles(ctx, modifiedPaths); err != nil {
+			return err
+		}
+	}
+	if err := s.persistParsedNodesAndAnnotations(ctx, syncStore, parsedFiles); err != nil {
+		return err
 	}
 
 	edgeRecord := deferredEdgeRecord{Files: make([]deferredEdgeFile, 0, len(parsedFiles))}
 	for i := range parsedFiles {
 		parsed := &parsedFiles[i]
-		if len(parsed.nodes) > 0 {
-			if err := syncStore.UpsertNodes(ctx, parsed.nodes); err != nil {
-				return err
-			}
-			if len(parsed.comments) > 0 {
-				if err := s.restoreAnnotations(ctx, syncStore, parsed.filePath, parsed.info.Content, parsed.nodes, parsed.comments, parsed.language); err != nil {
-					return err
-				}
-			}
-		}
 		if len(parsed.edges) > 0 {
 			edgeRecord.Files = append(edgeRecord.Files, deferredEdgeFile{FilePath: parsed.filePath, Edges: parsed.edges})
 		}
@@ -533,19 +524,55 @@ func (s *Syncer) resolveParser(filePath string) Parser {
 	return s.parser
 }
 
-// restoreAnnotations re-binds parsed comment blocks to the freshly persisted nodes for one file.
-// @intent keep doc comments associated with their owning declarations after incremental reparses.
-// @sideEffect upserts annotation rows through the store's annotation writer.
-// @mutates graph annotations
-func (s *Syncer) restoreAnnotations(ctx context.Context, syncStore Store, filePath string, content []byte, nodes []graph.Node, comments []ingest.CommentBlock, language string) error {
-	writer, ok := syncStore.(annotationWriter)
-	if !ok || language == "" {
+// persistParsedNodesAndAnnotations writes one parsed file set with one node call and one annotation call.
+// @intent keep incremental persistence proportional to bounded batches instead of individual files or comments.
+// @sideEffect upserts graph nodes and annotations through the supplied store.
+// @mutates persisted node IDs and annotation ownership.
+func (s *Syncer) persistParsedNodesAndAnnotations(ctx context.Context, syncStore Store, parsedFiles []parsedSyncFile) error {
+	nodeCount := 0
+	annotationFilePaths := make([]string, 0, len(parsedFiles))
+	for i := range parsedFiles {
+		nodeCount += len(parsedFiles[i].nodes)
+		if len(parsedFiles[i].comments) > 0 && parsedFiles[i].language != "" {
+			annotationFilePaths = append(annotationFilePaths, parsedFiles[i].filePath)
+		}
+	}
+	nodes := make([]graph.Node, 0, nodeCount)
+	for i := range parsedFiles {
+		nodes = append(nodes, parsedFiles[i].nodes...)
+	}
+	if len(nodes) > 0 {
+		if err := syncStore.UpsertNodes(ctx, nodes); err != nil {
+			return trace.Wrap(err, "upsert incremental batch nodes")
+		}
+	}
+	if len(annotationFilePaths) == 0 {
 		return nil
 	}
+	storedNodesByFile, err := syncStore.GetNodesByFiles(ctx, annotationFilePaths)
+	if err != nil {
+		return trace.Wrap(err, "get incremental annotation nodes")
+	}
+	annotations := make([]*graph.Annotation, 0)
+	for i := range parsedFiles {
+		annotations = append(annotations, collectAnnotations(parsedFiles[i], storedNodesByFile[parsedFiles[i].filePath])...)
+	}
+	if err := syncStore.UpsertAnnotations(ctx, annotations); err != nil {
+		return trace.Wrap(err, "upsert incremental batch annotations")
+	}
+	return nil
+}
 
+// collectAnnotations re-binds one parsed file's comments to its freshly persisted nodes.
+// @intent prepare annotation rows for the flush-scoped bulk write without issuing per-file SQL.
+// @mutates returned annotations receive persisted node IDs.
+func collectAnnotations(parsed parsedSyncFile, storedNodes []graph.Node) []*graph.Annotation {
+	if len(parsed.comments) == 0 || parsed.language == "" {
+		return nil
+	}
 	binder := binding.NewBinder()
-	bindingComments := make([]binding.CommentBlock, len(comments))
-	for i, c := range comments {
+	bindingComments := make([]binding.CommentBlock, len(parsed.comments))
+	for i, c := range parsed.comments {
 		bindingComments[i] = binding.CommentBlock{
 			StartLine:      c.StartLine,
 			EndLine:        c.EndLine,
@@ -554,33 +581,26 @@ func (s *Syncer) restoreAnnotations(ctx context.Context, syncStore Store, filePa
 			OwnerStartLine: c.OwnerStartLine,
 		}
 	}
-	sourceLines := strings.Split(string(content), "\n")
-	bindings := binder.Bind(bindingComments, nodes, language, sourceLines)
+	sourceLines := strings.Split(string(parsed.info.Content), "\n")
+	bindings := binder.Bind(bindingComments, parsed.nodes, parsed.language, sourceLines)
 	if len(bindings) == 0 {
 		return nil
-	}
-
-	storedNodes, err := syncStore.GetNodesByFile(ctx, filePath)
-	if err != nil {
-		return err
 	}
 	storedByKey := make(map[string]*graph.Node, len(storedNodes))
 	for i := range storedNodes {
 		storedByKey[annotationBindingKey(storedNodes[i].QualifiedName, storedNodes[i].StartLine)] = &storedNodes[i]
 	}
 
+	annotations := make([]*graph.Annotation, 0, len(bindings))
 	for _, binding := range bindings {
 		stored := storedByKey[annotationBindingKey(binding.Node.QualifiedName, binding.Node.StartLine)]
 		if stored == nil {
 			continue
 		}
 		binding.Annotation.NodeID = stored.ID
-		if err := writer.UpsertAnnotation(ctx, binding.Annotation); err != nil {
-			return err
-		}
+		annotations = append(annotations, binding.Annotation)
 	}
-
-	return nil
+	return annotations
 }
 
 // parsedSyncFile holds parsed output and file metadata for one incremental sync input.

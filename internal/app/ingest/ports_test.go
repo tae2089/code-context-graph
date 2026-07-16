@@ -35,11 +35,11 @@ func (graphStoreContractStub) GetEdgesToNodes(context.Context, []uint) ([]graph.
 }
 func (graphStoreContractStub) UpsertNodes(context.Context, []graph.Node) error { return nil }
 func (graphStoreContractStub) UpsertEdges(context.Context, []graph.Edge) error { return nil }
-func (graphStoreContractStub) UpsertAnnotation(context.Context, *graph.Annotation) error {
+func (graphStoreContractStub) UpsertAnnotations(context.Context, []*graph.Annotation) error {
 	return nil
 }
-func (graphStoreContractStub) DeleteNodesByFile(context.Context, string) error { return nil }
-func (graphStoreContractStub) DeleteEdgesByFile(context.Context, string) error { return nil }
+func (graphStoreContractStub) DeleteNodesByFiles(context.Context, []string) error { return nil }
+func (graphStoreContractStub) DeleteEdgesByFile(context.Context, string) error    { return nil }
 func (graphStoreContractStub) DeletePackageSemanticEdges(context.Context, []string) error {
 	return nil
 }

@@ -114,12 +114,12 @@ func (b *buildPersistBatch) reset() {
 	b.bytes = 0
 }
 
-// bindAndReleaseNodeBatch binds a parsed file's comments after its nodes have persisted, then releases comment buffers.
-// @intent preserve per-file annotation binding and release behavior after the enclosing flush persists all nodes together.
-// @sideEffect writes annotation rows via the transaction-scoped store.
-// @mutates graph annotations
-func (s *Service) bindAndReleaseNodeBatch(ctx context.Context, txStore ingestapp.GraphStore, storedNodesByFile map[string][]graph.Node, batches []parsedBuildNodeBatch, idx int) error {
+// collectAndReleaseNodeBatch binds a parsed file's comments after its nodes have persisted, then releases comment buffers.
+// @intent collect per-file annotations for one flush-scoped bulk write while preserving eager buffer release.
+// @mutates releases parsed comment and source-line buffers and returns annotations with stored node IDs.
+func (s *Service) collectAndReleaseNodeBatch(storedNodesByFile map[string][]graph.Node, batches []parsedBuildNodeBatch, idx int) []*graph.Annotation {
 	parsed := &batches[idx]
+	var annotations []*graph.Annotation
 
 	if len(parsed.tsComments) > 0 {
 		binderComments := toBinderComments(parsed.tsComments)
@@ -140,9 +140,7 @@ func (s *Service) bindAndReleaseNodeBatch(ctx context.Context, txStore ingestapp
 				continue
 			}
 			b.Annotation.NodeID = stored.ID
-			if err := txStore.UpsertAnnotation(ctx, b.Annotation); err != nil {
-				return trace.Wrap(err, "upsert annotation for "+stored.QualifiedName)
-			}
+			annotations = append(annotations, b.Annotation)
 		}
 	}
 
@@ -151,7 +149,7 @@ func (s *Service) bindAndReleaseNodeBatch(ctx context.Context, txStore ingestapp
 	if s.onBatchRelease != nil {
 		s.onBatchRelease(batches, idx)
 	}
-	return nil
+	return annotations
 }
 
 // Build walks source files, stores parsed graph data, and rebuilds search docs.
@@ -677,13 +675,15 @@ func (s *Service) flushBuildBatch(ctx context.Context, txStore ingestapp.GraphSt
 		storedNodesByFile = stored
 	}
 
+	var annotations []*graph.Annotation
 	for i := range batch.nodeBatches {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := s.bindAndReleaseNodeBatch(ctx, txStore, storedNodesByFile, batch.nodeBatches, i); err != nil {
-			return err
-		}
+		annotations = append(annotations, s.collectAndReleaseNodeBatch(storedNodesByFile, batch.nodeBatches, i)...)
+	}
+	if err := txStore.UpsertAnnotations(ctx, annotations); err != nil {
+		return trace.Wrap(err, "upsert batch annotations")
 	}
 
 	batch.reset()

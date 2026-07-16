@@ -145,8 +145,8 @@ type GraphStore interface {
 	GetEdgesToNodes(ctx context.Context, nodeIDs []uint) ([]graph.Edge, error)
 	UpsertNodes(ctx context.Context, nodes []graph.Node) error
 	UpsertEdges(ctx context.Context, edges []graph.Edge) error
-	UpsertAnnotation(ctx context.Context, annotation *graph.Annotation) error
-	DeleteNodesByFile(ctx context.Context, filePath string) error
+	UpsertAnnotations(ctx context.Context, annotations []*graph.Annotation) error
+	DeleteNodesByFiles(ctx context.Context, filePaths []string) error
 	DeleteEdgesByFile(ctx context.Context, filePath string) error
 	DeletePackageSemanticEdges(ctx context.Context, anchorFiles []string) error
 	DeleteGraph(ctx context.Context) error

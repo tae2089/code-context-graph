@@ -1689,7 +1689,7 @@ func TestDeleteGraph_CleansSearchDocuments(t *testing.T) {
 	})
 	node, _ := s.GetNode(ctx, "pkg.B")
 
-	if err := s.db.Create(&graph.SearchDocument{NodeID: node.ID, Content: "pkg.B content", Language: "go"}).Error; err != nil {
+	if err := s.db.Create(&graph.SearchDocument{Namespace: "ns-x", NodeID: node.ID, Content: "pkg.B content", Language: "go"}).Error; err != nil {
 		t.Fatalf("insert search_document: %v", err)
 	}
 
