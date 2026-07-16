@@ -107,26 +107,19 @@ func (b *buildPersistBatch) reset() {
 	b.bytes = 0
 }
 
-// bindAndReleaseNodeBatch upserts a parsed file's nodes and binds its comment annotations within a transaction-scoped store.
-// @intent persist nodes and their annotation bindings atomically per file before releasing comment buffers.
-// @sideEffect writes graph nodes and annotation rows via the transaction-scoped store.
-// @mutates graph nodes and annotations
-func (s *Service) bindAndReleaseNodeBatch(ctx context.Context, txStore ingestapp.GraphStore, batches []parsedBuildNodeBatch, idx int) error {
+// bindAndReleaseNodeBatch binds a parsed file's comments after its nodes have persisted, then releases comment buffers.
+// @intent preserve per-file annotation binding and release behavior after the enclosing flush persists all nodes together.
+// @sideEffect writes annotation rows via the transaction-scoped store.
+// @mutates graph annotations
+func (s *Service) bindAndReleaseNodeBatch(ctx context.Context, txStore ingestapp.GraphStore, storedNodesByFile map[string][]graph.Node, batches []parsedBuildNodeBatch, idx int) error {
 	parsed := &batches[idx]
-
-	if err := txStore.UpsertNodes(ctx, parsed.nodes); err != nil {
-		return trace.Wrap(err, "upsert nodes for "+parsed.relPath)
-	}
 
 	if len(parsed.tsComments) > 0 {
 		binderComments := toBinderComments(parsed.tsComments)
 		binder := binding.NewBinder()
 		bindings := binder.Bind(binderComments, parsed.nodes, parsed.language, parsed.sourceLines)
 
-		storedNodes, err := txStore.GetNodesByFile(ctx, parsed.relPath)
-		if err != nil {
-			return trace.Wrap(err, "get stored nodes for annotations")
-		}
+		storedNodes := storedNodesByFile[parsed.relPath]
 		storedMap := make(map[string]*graph.Node, len(storedNodes))
 		for i := range storedNodes {
 			key := storedNodes[i].QualifiedName + ":" + strconv.Itoa(storedNodes[i].StartLine)
@@ -602,19 +595,50 @@ func (s *Service) packageSemanticEdgeBatches(batches []parsedBuildNodeBatch) []p
 	return out
 }
 
-// flushBuildBatch persists the buffered nodes for the current batch.
-// @intent persist nodes before all edges so foreign-key style references can resolve.
+// flushBuildBatch persists the buffered nodes for the current bounded batch.
+// @intent persist all batch nodes before annotations and all edges so references can resolve with fewer store operations.
 // @sideEffect upserts graph nodes and annotations through the transaction-scoped store.
 // @mutates graph nodes and annotations
 func (s *Service) flushBuildBatch(ctx context.Context, txStore ingestapp.GraphStore, batch *buildPersistBatch) error {
 	if batch.files == 0 {
 		return nil
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	nodeCount := 0
+	annotationFilePaths := make([]string, 0, len(batch.nodeBatches))
+	for _, parsed := range batch.nodeBatches {
+		nodeCount += len(parsed.nodes)
+		if len(parsed.tsComments) > 0 {
+			annotationFilePaths = append(annotationFilePaths, parsed.relPath)
+		}
+	}
+	nodes := make([]graph.Node, 0, nodeCount)
+	for _, parsed := range batch.nodeBatches {
+		nodes = append(nodes, parsed.nodes...)
+	}
+	if len(nodes) > 0 {
+		if err := txStore.UpsertNodes(ctx, nodes); err != nil {
+			return trace.Wrap(err, "upsert batch nodes")
+		}
+	}
+
+	var storedNodesByFile map[string][]graph.Node
+	if len(annotationFilePaths) > 0 {
+		stored, err := txStore.GetNodesByFiles(ctx, annotationFilePaths)
+		if err != nil {
+			return trace.Wrap(err, "get stored nodes for annotations")
+		}
+		storedNodesByFile = stored
+	}
+
 	for i := range batch.nodeBatches {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := s.bindAndReleaseNodeBatch(ctx, txStore, batch.nodeBatches, i); err != nil {
+		if err := s.bindAndReleaseNodeBatch(ctx, txStore, storedNodesByFile, batch.nodeBatches, i); err != nil {
 			return err
 		}
 	}
