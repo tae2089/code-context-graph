@@ -483,7 +483,6 @@ func (s *Service) applyBuildSpoolInTx(ctx context.Context, tx ingestapp.Transact
 
 	batch := buildPersistBatch{}
 	nodePersistStart := time.Now()
-	var edgeBatches []parsedBuildEdgeBatch
 	var packageNodeBatches []parsedBuildNodeBatch
 	for _, path := range spool.records {
 		record, err := spool.readRecord(path)
@@ -507,10 +506,6 @@ func (s *Service) applyBuildSpoolInTx(ctx context.Context, tx ingestapp.Transact
 			interfaces:  record.Interfaces,
 			language:    record.Language,
 		})
-		edgeBatches = append(edgeBatches, parsedBuildEdgeBatch{
-			relPath: record.RelPath,
-			edges:   record.Edges,
-		})
 		if batch.shouldFlush() {
 			if err := s.flushBuildBatch(ctx, txStore, &batch); err != nil {
 				return err
@@ -523,7 +518,8 @@ func (s *Service) applyBuildSpoolInTx(ctx context.Context, tx ingestapp.Transact
 	if timing != nil {
 		timing.PersistNodesMS = time.Since(nodePersistStart).Milliseconds()
 	}
-	edgeBatches = append(edgeBatches, s.packageSemanticEdgeBatches(packageNodeBatches)...)
+	packageEdgeBatches := s.packageSemanticEdgeBatches(packageNodeBatches)
+	packageNodeBatches = nil
 	if err := upsertPackageContainsEdges(ctx, txStore, spool.packages); err != nil {
 		return trace.Wrap(err, "upsert package file edges")
 	}
@@ -533,7 +529,7 @@ func (s *Service) applyBuildSpoolInTx(ctx context.Context, tx ingestapp.Transact
 	if timing != nil {
 		resolveTiming = &timing.Resolve
 	}
-	if err := s.flushBuildEdgesWithTiming(ctx, txStore, edgeBatches, &spool.stats, resolveOptions, resolveTiming); err != nil {
+	if err := s.flushBuildEdgeSourceWithTiming(ctx, txStore, spool.edgeBatchSource(ctx, packageEdgeBatches), &spool.stats, resolveOptions, resolveTiming); err != nil {
 		return err
 	}
 	if timing != nil {

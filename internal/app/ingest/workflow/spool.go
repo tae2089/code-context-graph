@@ -2,6 +2,7 @@
 package workflow
 
 import (
+	"context"
 	"encoding/gob"
 	"fmt"
 	"log/slog"
@@ -93,6 +94,34 @@ func (b *buildSpool) readRecord(path string) (spooledBuildRecord, error) {
 		return record, trace.Wrap(closeErr, "close build spool record")
 	}
 	return record, nil
+}
+
+// edgeBatchSource replays file edge batches from disk before yielding trailing synthesized batches.
+// @intent let full builds resolve deferred edges in ordered passes without retaining every parsed edge in memory.
+func (b *buildSpool) edgeBatchSource(ctx context.Context, trailing []parsedBuildEdgeBatch) buildEdgeBatchSource {
+	return func(yield func(parsedBuildEdgeBatch) error) error {
+		for _, path := range b.records {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			record, err := b.readRecord(path)
+			if err != nil {
+				return err
+			}
+			if err := yield(parsedBuildEdgeBatch{relPath: record.RelPath, edges: record.Edges}); err != nil {
+				return err
+			}
+		}
+		for _, batch := range trailing {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := yield(batch); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 }
 
 // cleanup removes the spool directory and logs a warning on failure.
