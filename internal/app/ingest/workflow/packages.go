@@ -504,13 +504,13 @@ func affectedPackageImportPaths(packages map[string]languagePackageInfo, affecte
 	return affected
 }
 
-// addUnchangedPeersForAddedFiles marks unchanged persisted peers for reparse when a new file joins their package or directory.
-// @intent let local symbol lookup observe declarations introduced by newly added source files during incremental update.
-// @domainRule discovered packages cover multi-directory language packages; a same-directory fallback preserves local resolution when discovery is unavailable.
+// addUnchangedPeersForAddedFiles marks local unchanged peers and reports whether added files require graph-wide reconciliation.
+// @intent let existing-package additions stay incremental while signaling new package/directory additions that can affect unresolved external callers.
+// @domainRule additions to existing packages reparse package/directory peers; a wholly new package or source directory requires full-graph reconciliation because unresolved external callers are not persisted.
 // @mutates forceFiles
-func addUnchangedPeersForAddedFiles(forceFiles map[string]struct{}, packages map[string]languagePackageInfo, existingNodesByFile map[string][]graph.Node, currentHashes map[string]string) {
-	if forceFiles == nil || len(existingNodesByFile) == 0 || len(currentHashes) == 0 {
-		return
+func addUnchangedPeersForAddedFiles(forceFiles map[string]struct{}, packages map[string]languagePackageInfo, existingNodesByFile map[string][]graph.Node, currentHashes map[string]string) bool {
+	if forceFiles == nil || len(currentHashes) == 0 {
+		return false
 	}
 	addedFiles := make([]string, 0)
 	addedDirs := make(map[string]struct{})
@@ -521,18 +521,34 @@ func addUnchangedPeersForAddedFiles(forceFiles map[string]struct{}, packages map
 		}
 	}
 	if len(addedFiles) == 0 {
-		return
+		return false
 	}
 	peerFiles := make(map[string]struct{})
+	wideReparse := false
 	for _, importPath := range affectedPackageImportPaths(packages, addedFiles) {
-		for _, filePath := range packages[importPath].Files {
+		pkg := packages[importPath]
+		hasPersistedMember := false
+		for _, filePath := range pkg.Files {
+			if len(existingNodesByFile[filepath.ToSlash(filePath)]) > 0 {
+				hasPersistedMember = true
+			}
 			peerFiles[filepath.ToSlash(filePath)] = struct{}{}
 		}
+		if !hasPersistedMember {
+			wideReparse = true
+		}
 	}
+	existingDirs := make(map[string]struct{})
 	for filePath := range existingNodesByFile {
 		filePath = filepath.ToSlash(filePath)
+		existingDirs[path.Dir(filePath)] = struct{}{}
 		if _, sameDir := addedDirs[path.Dir(filePath)]; sameDir {
 			peerFiles[filePath] = struct{}{}
+		}
+	}
+	for dir := range addedDirs {
+		if _, existed := existingDirs[dir]; !existed {
+			wideReparse = true
 		}
 	}
 	for filePath := range peerFiles {
@@ -542,6 +558,20 @@ func addUnchangedPeersForAddedFiles(forceFiles map[string]struct{}, packages map
 			continue
 		}
 		forceFiles[filePath] = struct{}{}
+	}
+	return wideReparse
+}
+
+// addAllUnchangedFiles expands a conservative incremental fallback to every unchanged file in the current scope.
+// @intent preserve graph correctness when full-build fallback is unsafe or unavailable.
+// @mutates forceFiles
+func addAllUnchangedFiles(forceFiles map[string]struct{}, existingNodesByFile map[string][]graph.Node, currentHashes map[string]string) {
+	for filePath, nodes := range existingNodesByFile {
+		currentHash, present := currentHashes[filePath]
+		if len(nodes) == 0 || !present || nodes[0].Hash != currentHash {
+			continue
+		}
+		forceFiles[filepath.ToSlash(filePath)] = struct{}{}
 	}
 }
 

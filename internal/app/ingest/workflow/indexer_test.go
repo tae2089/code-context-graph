@@ -422,6 +422,26 @@ type recordingSyncCall struct {
 	existingFiles []string
 }
 
+type countingIncrementalSyncer struct {
+	delegate *incremental.Syncer
+	calls    int
+}
+
+func (s *countingIncrementalSyncer) SyncWithExisting(ctx context.Context, files map[string]ingest.FileInfo, existingFiles []string) (*ingest.SyncStats, error) {
+	s.calls++
+	return s.delegate.SyncWithExisting(ctx, files, existingFiles)
+}
+
+func (s *countingIncrementalSyncer) SyncWithExistingStore(ctx context.Context, graphStore ingest.GraphStore, files map[string]ingest.FileInfo, existingFiles []string) (*ingest.SyncStats, error) {
+	s.calls++
+	return s.delegate.SyncWithExistingStore(ctx, graphStore, files, existingFiles)
+}
+
+func (s *countingIncrementalSyncer) SyncBatchesWithExistingStore(ctx context.Context, graphStore ingest.GraphStore, source ingest.FileBatchSource, deletedFiles []string) (*ingest.SyncStats, error) {
+	s.calls++
+	return s.delegate.SyncBatchesWithExistingStore(ctx, graphStore, source, deletedFiles)
+}
+
 func (r *recordingIncrementalSyncer) Sync(ctx context.Context, files map[string]incremental.FileInfo) (*incremental.SyncStats, error) {
 	panic("unexpected Sync call")
 }
@@ -1121,13 +1141,17 @@ func TestUpdate_ReconcilesExistingCallerAfterTargetFileAdded(t *testing.T) {
 	}
 	writeFile("target.go", "package sample\n\nfunc Target() {}\n")
 
-	syncer := incremental.NewWithRegistry(st, map[string]incremental.Parser{".go": walker}, incremental.WithLogger(slog.Default()))
+	delegate := incremental.NewWithRegistry(st, map[string]incremental.Parser{".go": walker}, incremental.WithLogger(slog.Default()))
+	syncer := &countingIncrementalSyncer{delegate: delegate}
 	stats, err := svc.Update(ctx, UpdateOptions{BuildOptions: BuildOptions{Dir: tmpDir}, Syncer: syncer})
 	if err != nil {
 		t.Fatalf("Update after target add: %v", err)
 	}
 	if stats.Added != 1 {
 		t.Fatalf("Added = %d, want one newly added target", stats.Added)
+	}
+	if syncer.calls != 1 {
+		t.Fatalf("incremental sync calls = %d, want existing-package update path", syncer.calls)
 	}
 
 	source, err := st.GetNode(ctx, "sample.Source")
@@ -1148,6 +1172,78 @@ func TestUpdate_ReconcilesExistingCallerAfterTargetFileAdded(t *testing.T) {
 		}
 	}
 	t.Fatalf("expected existing caller edge from %d to newly added target %d, got %+v", source.ID, target.ID, edges)
+}
+
+func TestUpdate_ReconcilesExistingCrossPackageCallerAfterTargetPackageAdded(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := graphgorm.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	walker := treesitter.NewWalker(treesitter.GoSpec)
+	svc := &Service{Store: st, UnitOfWork: newTestUnitOfWork(db, nil), Walkers: map[string]Parser{".go": walker}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	writeFile := func(rel, content string) {
+		full := filepath.Join(tmpDir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	writeFile("go.mod", "module github.com/example/project\n\ngo 1.25.0\n")
+	writeFile("app/source.go", `package app
+
+import "github.com/example/project/api"
+
+func Source() { api.Target() }
+`)
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build before target package exists: %v", err)
+	}
+	writeFile("api/target.go", "package api\n\nfunc Target() {}\n")
+
+	delegate := incremental.NewWithRegistry(st, map[string]incremental.Parser{".go": walker}, incremental.WithLogger(slog.Default()))
+	syncer := &countingIncrementalSyncer{delegate: delegate}
+	stats, err := svc.Update(ctx, UpdateOptions{BuildOptions: BuildOptions{Dir: tmpDir}, Syncer: syncer})
+	if err != nil {
+		t.Fatalf("Update after target package add: %v", err)
+	}
+	if stats.Added != 1 {
+		t.Fatalf("Added = %d, want one newly added target file", stats.Added)
+	}
+	if stats.Modified != 0 || stats.Skipped != 1 || stats.Deleted != 0 {
+		t.Fatalf("fallback change counts = %+v, want added=1 modified=0 skipped=1 deleted=0", stats)
+	}
+	if syncer.calls != 0 {
+		t.Fatalf("incremental sync calls = %d, want full-build fallback", syncer.calls)
+	}
+
+	source, err := st.GetNode(ctx, "app.Source")
+	if err != nil || source == nil {
+		t.Fatalf("GetNode source: node=%v err=%v", source, err)
+	}
+	target, err := st.GetNode(ctx, "api.Target")
+	if err != nil || target == nil {
+		t.Fatalf("GetNode target: node=%v err=%v", target, err)
+	}
+	edges, err := st.GetEdgesFrom(ctx, source.ID)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom: %v", err)
+	}
+	for _, edge := range edges {
+		if edge.Kind == graph.EdgeKindCalls && edge.ToNodeID == target.ID {
+			return
+		}
+	}
+	t.Fatalf("expected cross-package caller edge from %d to newly added target %d, got %+v", source.ID, target.ID, edges)
 }
 
 func TestUpdate_RemovesStaleCrossFileGoStructuralImplements(t *testing.T) {
@@ -3392,6 +3488,15 @@ func TestUpdate_IncludePaths_FiltersExistingFilesWhenReplaceFalse(t *testing.T) 
 	}
 	if got, want := deleteCall.existingFiles, []string{filepath.Join("src", "api", "handler.go")}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("delete pass existingFiles mismatch: got=%v want=%v (helper.go outside include path must be scoped out)", got, want)
+	}
+	var outsideCount int64
+	if err := db.Model(&graph.Node{}).
+		Where("namespace = ? AND file_path = ?", requestctx.DefaultNamespace, filepath.Join("src", "other", "helper.go")).
+		Count(&outsideCount).Error; err != nil {
+		t.Fatalf("count out-of-scope node: %v", err)
+	}
+	if outsideCount != 1 {
+		t.Fatalf("out-of-scope node count = %d, want preserved graph state", outsideCount)
 	}
 }
 
