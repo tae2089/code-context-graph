@@ -26,8 +26,8 @@ const (
 type Annotation struct {
 	ID        uint   `gorm:"primaryKey"`
 	NodeID    uint   `gorm:"uniqueIndex;not null"`
-	Summary   string `gorm:"size:1024"`
-	Context   string `gorm:"size:2048"`
+	Summary   string `gorm:"type:text"`
+	Context   string `gorm:"type:text"`
 	RawText   string `gorm:"type:text"`
 	CreatedAt time.Time
 	UpdatedAt time.Time

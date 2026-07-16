@@ -292,98 +292,87 @@ func (s *Store) GetFileNodesByPathSuffix(ctx context.Context, suffix string) ([]
 }
 
 // DeleteNodesByFile removes nodes in a file and their related data.
-// @intent clean out prior nodes, edges, and annotations before reparsing a file.
+// @intent keep the single-file API compatible while delegating cleanup to the bounded batch path.
 // @sideEffect deletes related records from the nodes, edges, annotations, and doc_tags tables.
 // @domainRule connected edges and annotations must also be removed when deleting a file.
 func (s *Store) DeleteNodesByFile(ctx context.Context, filePath string) error {
-	ns := requestctx.FromContext(ctx)
-	if err := s.db.WithContext(ctx).Where("namespace = ? AND file_path = ?", ns, filePath).Delete(&graph.UnresolvedEdgeCandidate{}).Error; err != nil {
-		return trace.Wrap(err, "delete file unresolved edges")
-	}
-	var nodeIDs []uint
-	if err := s.db.WithContext(ctx).
-		Model(&graph.Node{}).
-		Where("namespace = ? AND file_path = ?", ns, filePath).
-		Pluck("id", &nodeIDs).Error; err != nil {
-		return trace.Wrap(err, "pluck node ids")
-	}
-	if len(nodeIDs) == 0 {
+	return s.DeleteNodesByFiles(ctx, []string{filePath})
+}
+
+// DeleteNodesByFiles removes nodes and dependent graph rows for bounded file-path batches.
+// @intent replace per-file deletion round trips with one transaction and a fixed deletion sequence per path chunk.
+// @sideEffect deletes unresolved candidates, edges, annotations/tags, memberships, search documents, and nodes.
+// @domainRule only rows owned by the request namespace and rows connected to its deleted nodes may be removed.
+func (s *Store) DeleteNodesByFiles(ctx context.Context, filePaths []string) error {
+	if len(filePaths) == 0 {
 		return nil
 	}
 
+	ns := requestctx.FromContext(ctx)
+	hasFlowMemberships := s.db.Migrator().HasTable(&graph.FlowMembership{})
+	hasSearchDocuments := s.db.Migrator().HasTable(&graph.SearchDocument{})
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.
-			Where("namespace = ? AND file_path = ?", ns, filePath).
-			Delete(&graph.Edge{}).Error; err != nil {
-			return trace.Wrap(err, "delete file-owned edges")
-		}
-
-		if err := tx.
-			Where("from_node_id IN ? OR to_node_id IN ?", nodeIDs, nodeIDs).
-			Delete(&graph.Edge{}).Error; err != nil {
-			return trace.Wrap(err, "cascade delete edges")
-		}
-
-		if err := tx.
-			Where("annotation_id IN (?)",
-				tx.Model(&graph.Annotation{}).Select("id").Where("node_id IN ?", nodeIDs),
-			).Delete(&graph.DocTag{}).Error; err != nil {
-			return trace.Wrap(err, "cascade delete doc_tags")
-		}
-
-		if err := tx.
-			Where("node_id IN ?", nodeIDs).
-			Delete(&graph.Annotation{}).Error; err != nil {
-			return trace.Wrap(err, "cascade delete annotations")
-		}
-
-		if err := tx.
-			Where("node_id IN ?", nodeIDs).
-			Delete(&graph.CommunityMembership{}).Error; err != nil {
-			return trace.Wrap(err, "cascade delete community memberships")
-		}
-
-		if tx.Migrator().HasTable(&graph.FlowMembership{}) {
-			if err := tx.
-				Where("node_id IN ?", nodeIDs).
-				Delete(&graph.FlowMembership{}).Error; err != nil {
-				return trace.Wrap(err, "cascade delete flow memberships")
+		for start := 0; start < len(filePaths); start += 500 {
+			end := min(start+500, len(filePaths))
+			chunk := filePaths[start:end]
+			if err := tx.Where("namespace = ? AND file_path IN ?", ns, chunk).Delete(&graph.UnresolvedEdgeCandidate{}).Error; err != nil {
+				return trace.Wrap(err, "delete file unresolved edges")
+			}
+			if err := tx.Where("namespace = ? AND file_path IN ?", ns, chunk).Delete(&graph.Edge{}).Error; err != nil {
+				return trace.Wrap(err, "delete file-owned edges")
+			}
+			if err := deleteNodeScope(tx, "namespace = ? AND file_path IN ?", []any{ns, chunk}, hasFlowMemberships, hasSearchDocuments); err != nil {
+				return err
 			}
 		}
-
-		if tx.Migrator().HasTable(&graph.SearchDocument{}) {
-			if err := tx.
-				Where("node_id IN ?", nodeIDs).
-				Delete(&graph.SearchDocument{}).Error; err != nil {
-				return trace.Wrap(err, "cascade delete search_documents")
-			}
-		}
-
-		return tx.Where("id IN ?", nodeIDs).Delete(&graph.Node{}).Error
+		return nil
 	})
+}
+
+// deleteNodeScope removes every dependent row for nodes selected by a reusable WHERE scope.
+// @intent centralize node-dependent cleanup while keeping node IDs inside database subqueries.
+// @sideEffect deletes connected edges, documentation, memberships, search documents, and nodes.
+func deleteNodeScope(tx *gorm.DB, nodeWhere string, nodeArgs []any, hasFlowMemberships, hasSearchDocuments bool) error {
+	nodeIDs := func() *gorm.DB {
+		return tx.Model(&graph.Node{}).Select("id").Where(nodeWhere, nodeArgs...)
+	}
+	if err := tx.Where("from_node_id IN (?) OR to_node_id IN (?)", nodeIDs(), nodeIDs()).Delete(&graph.Edge{}).Error; err != nil {
+		return trace.Wrap(err, "cascade delete edges")
+	}
+	annotationIDs := tx.Model(&graph.Annotation{}).Select("id").Where("node_id IN (?)", nodeIDs())
+	if err := tx.Where("annotation_id IN (?)", annotationIDs).Delete(&graph.DocTag{}).Error; err != nil {
+		return trace.Wrap(err, "cascade delete doc_tags")
+	}
+	if err := tx.Where("node_id IN (?)", nodeIDs()).Delete(&graph.Annotation{}).Error; err != nil {
+		return trace.Wrap(err, "cascade delete annotations")
+	}
+	if err := tx.Where("node_id IN (?)", nodeIDs()).Delete(&graph.CommunityMembership{}).Error; err != nil {
+		return trace.Wrap(err, "cascade delete community memberships")
+	}
+	if hasFlowMemberships {
+		if err := tx.Where("node_id IN (?)", nodeIDs()).Delete(&graph.FlowMembership{}).Error; err != nil {
+			return trace.Wrap(err, "cascade delete flow memberships")
+		}
+	}
+	if hasSearchDocuments {
+		if err := tx.Where("node_id IN (?)", nodeIDs()).Delete(&graph.SearchDocument{}).Error; err != nil {
+			return trace.Wrap(err, "cascade delete search_documents")
+		}
+	}
+	if err := tx.Where(nodeWhere, nodeArgs...).Delete(&graph.Node{}).Error; err != nil {
+		return trace.Wrap(err, "cascade delete nodes")
+	}
+	return nil
 }
 
 // DeleteGraph removes the entire graph state for the current namespace.
 // @intent replace namespace-scoped state before a full rebuild or include_paths rebuild.
 // @sideEffect deletes all nodes, edges, annotations, and doc_tags in the namespace.
+// @domainRule namespace-owned search documents are deleted directly before node-scoped dependent cleanup.
 func (s *Store) DeleteGraph(ctx context.Context) error {
 	ns := requestctx.FromContext(ctx)
-	var nodeIDs []uint
-	var filePaths []string
-	if err := s.db.WithContext(ctx).
-		Model(&graph.Node{}).
-		Where("namespace = ?", ns).
-		Pluck("id", &nodeIDs).Error; err != nil {
-		return trace.Wrap(err, "pluck namespace node ids")
-	}
-	if err := s.db.WithContext(ctx).
-		Model(&graph.Node{}).
-		Where("namespace = ?", ns).
-		Distinct().
-		Pluck("file_path", &filePaths).Error; err != nil {
-		return trace.Wrap(err, "pluck namespace file paths")
-	}
-
+	hasFlowMemberships := s.db.Migrator().HasTable(&graph.FlowMembership{})
+	hasSearchDocuments := s.db.Migrator().HasTable(&graph.SearchDocument{})
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("namespace = ?", ns).Delete(&graph.UnresolvedEdgeCandidate{}).Error; err != nil {
 			return trace.Wrap(err, "delete namespace unresolved edges")
@@ -391,65 +380,21 @@ func (s *Store) DeleteGraph(ctx context.Context) error {
 		if err := tx.Where("namespace = ?", ns).Delete(&graph.UnresolvedIndexState{}).Error; err != nil {
 			return trace.Wrap(err, "delete namespace unresolved index state")
 		}
-		if len(filePaths) > 0 {
-			if err := tx.
-				Where("namespace = ? AND file_path IN ?", ns, filePaths).
-				Delete(&graph.Edge{}).Error; err != nil {
-				return trace.Wrap(err, "delete namespace file-owned edges")
+		if err := tx.Where("namespace = ?", ns).Delete(&graph.Edge{}).Error; err != nil {
+			return trace.Wrap(err, "delete namespace edges")
+		}
+		if hasFlowMemberships {
+			flowIDs := tx.Model(&graph.Flow{}).Select("id").Where("namespace = ?", ns)
+			if err := tx.Where("flow_id IN (?)", flowIDs).Delete(&graph.FlowMembership{}).Error; err != nil {
+				return trace.Wrap(err, "delete namespace flow memberships")
 			}
 		}
-
-		if len(nodeIDs) > 0 {
-			if err := tx.
-				Where("annotation_id IN (?)",
-					tx.Model(&graph.Annotation{}).Select("id").Where("node_id IN ?", nodeIDs),
-				).Delete(&graph.DocTag{}).Error; err != nil {
-				return trace.Wrap(err, "delete namespace doc_tags")
-			}
-
-			if err := tx.
-				Where("node_id IN ?", nodeIDs).
-				Delete(&graph.Annotation{}).Error; err != nil {
-				return trace.Wrap(err, "delete namespace annotations")
-			}
-
-			if err := tx.
-				Where("node_id IN ?", nodeIDs).
-				Delete(&graph.CommunityMembership{}).Error; err != nil {
-				return trace.Wrap(err, "delete namespace community memberships")
-			}
-
-			if tx.Migrator().HasTable(&graph.FlowMembership{}) {
-				flowIDs := tx.Model(&graph.Flow{}).Select("id").Where("namespace = ?", ns)
-				if err := tx.
-					Where("node_id IN ? OR flow_id IN (?)", nodeIDs, flowIDs).
-					Delete(&graph.FlowMembership{}).Error; err != nil {
-					return trace.Wrap(err, "delete namespace flow memberships")
-				}
-			}
-
-			if tx.Migrator().HasTable(&graph.SearchDocument{}) {
-				if err := tx.
-					Where("node_id IN ?", nodeIDs).
-					Delete(&graph.SearchDocument{}).Error; err != nil {
-					return trace.Wrap(err, "delete namespace search_documents")
-				}
-			}
-
-			if err := tx.
-				Where("from_node_id IN ? OR to_node_id IN ?", nodeIDs, nodeIDs).
-				Delete(&graph.Edge{}).Error; err != nil {
-				return trace.Wrap(err, "delete namespace connected edges")
-			}
-
-			if err := tx.
-				Where("id IN ?", nodeIDs).
-				Delete(&graph.Node{}).Error; err != nil {
-				return trace.Wrap(err, "delete namespace nodes")
+		if hasSearchDocuments {
+			if err := tx.Where("namespace = ?", ns).Delete(&graph.SearchDocument{}).Error; err != nil {
+				return trace.Wrap(err, "delete namespace search documents")
 			}
 		}
-
-		return nil
+		return deleteNodeScope(tx, "namespace = ?", []any{ns}, hasFlowMemberships, false)
 	})
 }
 
@@ -578,44 +523,100 @@ func (s *Store) DeletePackageSemanticEdges(ctx context.Context, anchors []string
 }
 
 // UpsertAnnotation stores a node's annotation and tags.
-// @intent replace structured comments for each node with the latest state.
+// @intent keep the single-annotation API compatible while delegating persistence to the batch path.
 // @sideEffect performs inserts, updates, and deletes on the annotations and doc_tags tables.
 // @mutates may overwrite ann.ID with the existing record ID.
 // @domainRule only one annotation must be kept per node_id.
 func (s *Store) UpsertAnnotation(ctx context.Context, ann *graph.Annotation) error {
-	var existing graph.Annotation
-	ns := requestctx.FromContext(ctx)
-	result := s.db.WithContext(ctx).
-		Joins("JOIN nodes ON nodes.id = annotations.node_id").
-		Where("annotations.node_id = ? AND nodes.namespace = ?", ann.NodeID, ns).
-		First(&existing)
+	return s.UpsertAnnotations(ctx, []*graph.Annotation{ann})
+}
 
-	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			// The read path is namespace-scoped; the create path must be too, or a caller
-			// could attach an annotation to another namespace's node (or a missing node).
-			var owned int64
-			if err := tx.Model(&graph.Node{}).
-				Where("id = ? AND namespace = ?", ann.NodeID, ns).
-				Count(&owned).Error; err != nil {
-				return trace.Wrap(err, "verify annotation node namespace")
-			}
-			if owned == 0 {
-				return fmt.Errorf("annotation node %d not found in namespace %q", ann.NodeID, ns)
-			}
-			return tx.Create(ann).Error
-		})
-	}
-	if result.Error != nil {
-		return result.Error
+// UpsertAnnotations replaces annotations and tags for a batch of namespace-owned nodes.
+// @intent collapse per-annotation lookup and write round trips into bounded batch operations.
+// @sideEffect inserts or updates annotations, deletes prior tags, and inserts replacement tags in one transaction.
+// @mutates assigns persisted annotation and annotation-tag foreign IDs to input values.
+// @domainRule every node must belong to the request namespace before any annotation in the batch is mutated.
+func (s *Store) UpsertAnnotations(ctx context.Context, annotations []*graph.Annotation) error {
+	if len(annotations) == 0 {
+		return nil
 	}
 
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("annotation_id = ?", existing.ID).Delete(&graph.DocTag{}).Error; err != nil {
-			return trace.Wrap(err, "delete doc tags")
+	nodeIDs := make([]uint, len(annotations))
+	seen := make(map[uint]struct{}, len(annotations))
+	rows := make([]graph.Annotation, len(annotations))
+	for i, annotation := range annotations {
+		if annotation == nil {
+			return fmt.Errorf("annotation at index %d is nil", i)
 		}
-		ann.ID = existing.ID
-		return tx.Save(ann).Error
+		if _, duplicate := seen[annotation.NodeID]; duplicate {
+			return fmt.Errorf("duplicate annotation node id %d", annotation.NodeID)
+		}
+		seen[annotation.NodeID] = struct{}{}
+		nodeIDs[i] = annotation.NodeID
+		rows[i] = *annotation
+		rows[i].ID = 0
+		rows[i].Tags = nil
+	}
+
+	ns := requestctx.FromContext(ctx)
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var ownedNodeIDs []uint
+		if err := tx.Model(&graph.Node{}).
+			Where("id IN ? AND namespace = ?", nodeIDs, ns).
+			Pluck("id", &ownedNodeIDs).Error; err != nil {
+			return trace.Wrap(err, "verify annotation node namespaces")
+		}
+		if len(ownedNodeIDs) != len(nodeIDs) {
+			return fmt.Errorf("annotation nodes are missing from namespace %q: owned %d of %d", ns, len(ownedNodeIDs), len(nodeIDs))
+		}
+
+		if err := tx.Omit("Tags").
+			Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "node_id"}},
+				DoUpdates: clause.AssignmentColumns([]string{"summary", "context", "raw_text", "updated_at"}),
+			}).
+			CreateInBatches(rows, 100).Error; err != nil {
+			return trace.Wrap(err, "batch upsert annotations")
+		}
+
+		var stored []graph.Annotation
+		if err := tx.Select("id", "node_id").Where("node_id IN ?", nodeIDs).Find(&stored).Error; err != nil {
+			return trace.Wrap(err, "reload batch annotation ids")
+		}
+		if len(stored) != len(annotations) {
+			return fmt.Errorf("reloaded %d annotations, want %d", len(stored), len(annotations))
+		}
+
+		annotationIDByNode := make(map[uint]uint, len(stored))
+		annotationIDs := make([]uint, len(stored))
+		for i := range stored {
+			annotationIDByNode[stored[i].NodeID] = stored[i].ID
+			annotationIDs[i] = stored[i].ID
+		}
+		if err := tx.Where("annotation_id IN ?", annotationIDs).Delete(&graph.DocTag{}).Error; err != nil {
+			return trace.Wrap(err, "delete batch doc tags")
+		}
+
+		tagCount := 0
+		for _, annotation := range annotations {
+			tagCount += len(annotation.Tags)
+		}
+		tags := make([]graph.DocTag, 0, tagCount)
+		for _, annotation := range annotations {
+			annotationID := annotationIDByNode[annotation.NodeID]
+			annotation.ID = annotationID
+			for i := range annotation.Tags {
+				annotation.Tags[i].ID = 0
+				annotation.Tags[i].AnnotationID = annotationID
+				tags = append(tags, annotation.Tags[i])
+			}
+		}
+		if len(tags) > 0 {
+			if err := tx.CreateInBatches(tags, 500).Error; err != nil {
+				return trace.Wrap(err, "batch insert doc tags")
+			}
+		}
+		return nil
 	})
 }
 

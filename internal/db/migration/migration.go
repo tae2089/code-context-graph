@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	RequiredSchemaVersion    = 10
+	RequiredSchemaVersion    = 13
 	SchemaVersionKey         = "schema"
 	LegacySchemaVersionTable = "ccg_schema_versions"
 )
@@ -414,7 +414,9 @@ func ModelNullabilityColumns() []SchemaColumn {
 		{Table: "parse_cache_entries", Column: "payload"},
 		{Table: "unresolved_edge_candidates", Column: "namespace"},
 		{Table: "unresolved_edge_candidates", Column: "lookup_key"},
+		{Table: "unresolved_edge_candidates", Column: "lookup_key_hash"},
 		{Table: "unresolved_edge_candidates", Column: "fingerprint"},
+		{Table: "unresolved_edge_candidates", Column: "fingerprint_hash"},
 		{Table: "unresolved_edge_candidates", Column: "file_path"},
 		{Table: "unresolved_edge_candidates", Column: "kind"},
 		{Table: "unresolved_index_states", Column: "namespace"},
@@ -566,7 +568,12 @@ func validateSQLiteSchemaParity(db *gorm.DB) error {
 			return fmt.Errorf("required column %q.%q is nullable", column.Table, column.Column)
 		}
 	}
-	for _, indexName := range []string{"idx_edges_ns_from_kind_to", "idx_edges_ns_to_kind_from"} {
+	for _, indexName := range []string{
+		"idx_edges_ns_from_kind_to",
+		"idx_edges_ns_to_kind_from",
+		"idx_unresolved_ns_fp_hash",
+		"idx_unresolved_lookup_hash",
+	} {
 		exists, err := sqliteIndexExists(db, indexName)
 		if err != nil {
 			return trace.Wrap(err, "inspect sqlite edge index")
@@ -600,13 +607,30 @@ func validatePostgresSchemaParity(db *gorm.DB) error {
 	} else if !ok {
 		return fmt.Errorf("required trigger %q is missing", "trg_search_documents_tsv")
 	}
-	for _, indexName := range []string{"idx_edges_ns_from_kind_to", "idx_edges_ns_to_kind_from"} {
+	for _, indexName := range []string{
+		"idx_edges_ns_from_kind_to",
+		"idx_edges_ns_to_kind_from",
+		"idx_unresolved_ns_fp_hash",
+		"idx_unresolved_lookup_hash",
+	} {
 		exists, err := postgresIndexExists(db, indexName)
 		if err != nil {
 			return trace.Wrap(err, "inspect postgres edge index")
 		}
 		if !exists {
 			return fmt.Errorf("required index %q is missing", indexName)
+		}
+	}
+	for _, column := range []SchemaColumn{
+		{Table: "annotations", Column: "summary"},
+		{Table: "annotations", Column: "context"},
+	} {
+		dataType, err := postgresColumnDataType(db, column.Table, column.Column)
+		if err != nil {
+			return trace.Wrap(err, "inspect postgres annotation column type")
+		}
+		if dataType != "text" {
+			return fmt.Errorf("required column %q.%q has type %q, want text", column.Table, column.Column, dataType)
 		}
 	}
 	return nil

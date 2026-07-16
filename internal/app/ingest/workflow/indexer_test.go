@@ -117,6 +117,7 @@ type recordingGraphStore struct {
 	nodesByFP             map[string][]graph.Node
 	edges                 []graph.Edge
 	upsertedNodeBatches   [][]graph.Node
+	upsertedAnnotations   [][]*graph.Annotation
 	upsertedEdges         [][]graph.Edge
 	fileSuffixLookupCalls int
 	importFileNodeCalls   int
@@ -155,8 +156,9 @@ func (r *recordingGraphStore) GetNodesByFile(ctx context.Context, filePath strin
 	return out, nil
 }
 
-func (r *recordingGraphStore) UpsertAnnotation(ctx context.Context, ann *graph.Annotation) error {
-	r.record("UpsertAnnotation")
+func (r *recordingGraphStore) UpsertAnnotations(ctx context.Context, annotations []*graph.Annotation) error {
+	r.record("UpsertAnnotations")
+	r.upsertedAnnotations = append(r.upsertedAnnotations, append([]*graph.Annotation(nil), annotations...))
 	return nil
 }
 
@@ -393,7 +395,7 @@ func (r *recordingGraphStore) GetEdgesToNodes(ctx context.Context, nodeIDs []uin
 	return result, nil
 }
 
-func (r *recordingGraphStore) DeleteNodesByFile(ctx context.Context, filePath string) error {
+func (r *recordingGraphStore) DeleteNodesByFiles(ctx context.Context, filePaths []string) error {
 	return nil
 }
 
@@ -2774,7 +2776,7 @@ func Keep() {}
 		t.Fatalf("Build: %v", err)
 	}
 
-	want := []string{"DeleteGraph", "UpsertNodes", "GetNodesByFiles", "UpsertAnnotation", "UpsertEdges"}
+	want := []string{"DeleteGraph", "UpsertNodes", "GetNodesByFiles", "UpsertAnnotations", "UpsertEdges"}
 	for i, op := range want[:4] {
 		if len(fakeStore.ops) <= i {
 			t.Fatalf("ops too short: got %v", fakeStore.ops)
@@ -2786,7 +2788,7 @@ func Keep() {}
 	firstEdge := slices.Index(fakeStore.ops, "UpsertEdges")
 	lastAnn := -1
 	for i := len(fakeStore.ops) - 1; i >= 0; i-- {
-		if fakeStore.ops[i] == "UpsertAnnotation" {
+		if fakeStore.ops[i] == "UpsertAnnotations" {
 			lastAnn = i
 			break
 		}
@@ -2795,7 +2797,7 @@ func Keep() {}
 		t.Fatalf("expected annotations and edges in ops: %v", fakeStore.ops)
 	}
 	if firstEdge <= lastAnn {
-		t.Fatalf("expected UpsertEdges after all UpsertAnnotation calls, got %v", fakeStore.ops)
+		t.Fatalf("expected UpsertEdges after all UpsertAnnotations calls, got %v", fakeStore.ops)
 	}
 }
 
@@ -2863,8 +2865,11 @@ func TestFlushBuildBatch_BatchesNodesAndAnnotationLookups(t *testing.T) {
 	if got := countOperation("GetNodesByFile"); got != 0 {
 		t.Fatalf("per-file annotation node lookups = %d, want 0 (ops=%v)", got, fakeStore.ops)
 	}
-	if got := countOperation("UpsertAnnotation"); got != 2 {
-		t.Fatalf("annotation upserts = %d, want 2 (ops=%v)", got, fakeStore.ops)
+	if got := countOperation("UpsertAnnotations"); got != 1 {
+		t.Fatalf("annotation batch upserts = %d, want 1 (ops=%v)", got, fakeStore.ops)
+	}
+	if got := len(fakeStore.upsertedAnnotations[0]); got != 2 {
+		t.Fatalf("annotations in batch = %d, want 2", got)
 	}
 	if released != 2 {
 		t.Fatalf("released batches = %d, want 2", released)
@@ -2930,7 +2935,7 @@ func Keep` + strconv.Itoa(i) + `() {}
 	firstEdge := slices.Index(fakeStore.ops, "UpsertEdges")
 	lastAnn := -1
 	for i := len(fakeStore.ops) - 1; i >= 0; i-- {
-		if fakeStore.ops[i] == "UpsertAnnotation" {
+		if fakeStore.ops[i] == "UpsertAnnotations" {
 			lastAnn = i
 			break
 		}

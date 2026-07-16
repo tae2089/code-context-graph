@@ -14,13 +14,15 @@ import (
 )
 
 type recordingStore struct {
-	nodes         map[string]*graph.Node
-	upserted      []string
-	deleted       []string
-	upsertedEdges []graph.Edge
-	annotations   []*graph.Annotation
-	nextID        uint
-	operations    []string
+	nodes           map[string]*graph.Node
+	upserted        []string
+	deleted         []string
+	upsertedEdges   []graph.Edge
+	annotations     []*graph.Annotation
+	nextID          uint
+	operations      []string
+	deleteCalls     int
+	annotationCalls int
 }
 
 func (r *recordingStore) GetNodesByFile(_ context.Context, filePath string) ([]graph.Node, error) {
@@ -129,12 +131,17 @@ func (r *recordingStore) UpsertEdges(_ context.Context, edges []graph.Edge) erro
 	return nil
 }
 
-func (r *recordingStore) DeleteNodesByFile(_ context.Context, filePath string) error {
+func (r *recordingStore) DeleteNodesByFiles(_ context.Context, filePaths []string) error {
+	r.deleteCalls++
 	r.operations = append(r.operations, "delete_nodes")
-	r.deleted = append(r.deleted, filePath)
+	r.deleted = append(r.deleted, filePaths...)
+	fileSet := make(map[string]struct{}, len(filePaths))
+	for _, filePath := range filePaths {
+		fileSet[filePath] = struct{}{}
+	}
 	toDelete := []string{}
 	for qn, n := range r.nodes {
-		if n.FilePath == filePath {
+		if _, ok := fileSet[n.FilePath]; ok {
 			toDelete = append(toDelete, qn)
 		}
 	}
@@ -144,8 +151,9 @@ func (r *recordingStore) DeleteNodesByFile(_ context.Context, filePath string) e
 	return nil
 }
 
-func (r *recordingStore) UpsertAnnotation(_ context.Context, ann *graph.Annotation) error {
-	r.annotations = append(r.annotations, ann)
+func (r *recordingStore) UpsertAnnotations(_ context.Context, annotations []*graph.Annotation) error {
+	r.annotationCalls++
+	r.annotations = append(r.annotations, annotations...)
 	return nil
 }
 
@@ -370,6 +378,31 @@ func TestIncremental_ModifiedFile(t *testing.T) {
 	}
 }
 
+func TestIncremental_BatchesModifiedFileDeletion(t *testing.T) {
+	st := newStore()
+	st.nodes["pkg.OldA"] = &graph.Node{QualifiedName: "pkg.OldA", Kind: graph.NodeKindFunction, Name: "OldA", FilePath: "a.go", Hash: "old_a", Language: "go"}
+	st.nodes["pkg.OldB"] = &graph.Node{QualifiedName: "pkg.OldB", Kind: graph.NodeKindFunction, Name: "OldB", FilePath: "b.go", Hash: "old_b", Language: "go"}
+	parser := &staticParser{result: map[string]parseResult{
+		"a.go": {nodes: []graph.Node{{QualifiedName: "pkg.NewA", Kind: graph.NodeKindFunction, Name: "NewA", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"}}},
+		"b.go": {nodes: []graph.Node{{QualifiedName: "pkg.NewB", Kind: graph.NodeKindFunction, Name: "NewB", FilePath: "b.go", StartLine: 1, EndLine: 2, Language: "go"}}},
+	}}
+
+	syncer := New(st, parser)
+	stats, err := syncer.Sync(context.Background(), map[string]FileInfo{
+		"a.go": {Hash: "new_a", Content: []byte("package pkg")},
+		"b.go": {Hash: "new_b", Content: []byte("package pkg")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Modified != 2 {
+		t.Fatalf("expected 2 modified files, got %d", stats.Modified)
+	}
+	if st.deleteCalls != 1 {
+		t.Fatalf("expected one batched deletion call, got %d", st.deleteCalls)
+	}
+}
+
 func TestIncremental_ModifiedFileParseFailurePreservesExistingNodes(t *testing.T) {
 	st := newStore()
 	st.nodes["pkg.Old"] = &graph.Node{QualifiedName: "pkg.Old", Kind: graph.NodeKindFunction, Name: "Old", FilePath: "mod.go", Hash: "old_hash", Language: "go"}
@@ -481,6 +514,43 @@ func TestSyncWithExisting_RestoresAnnotationsForModifiedFile(t *testing.T) {
 	}
 	if len(st.annotations[0].Tags) != 1 || st.annotations[0].Tags[0].Kind != graph.TagIntent {
 		t.Fatalf("expected restored @intent tag, got %#v", st.annotations[0].Tags)
+	}
+}
+
+func TestSyncWithExisting_BatchesAnnotationsAcrossFiles(t *testing.T) {
+	st := newStore()
+	parser := &commentAwareParser{result: map[string]commentParseResult{
+		"a.go": {
+			parseResult: parseResult{nodes: []graph.Node{
+				{QualifiedName: "a.go", Kind: graph.NodeKindFile, Name: "a.go", FilePath: "a.go", StartLine: 1, EndLine: 2, Language: "go"},
+				{QualifiedName: "pkg.A", Kind: graph.NodeKindFunction, Name: "A", FilePath: "a.go", StartLine: 2, EndLine: 2, Language: "go"},
+			}},
+			comments: []treesitter.CommentBlock{{StartLine: 1, EndLine: 1, Text: "// @intent A"}},
+			language: "go",
+		},
+		"b.go": {
+			parseResult: parseResult{nodes: []graph.Node{
+				{QualifiedName: "b.go", Kind: graph.NodeKindFile, Name: "b.go", FilePath: "b.go", StartLine: 1, EndLine: 2, Language: "go"},
+				{QualifiedName: "pkg.B", Kind: graph.NodeKindFunction, Name: "B", FilePath: "b.go", StartLine: 2, EndLine: 2, Language: "go"},
+			}},
+			comments: []treesitter.CommentBlock{{StartLine: 1, EndLine: 1, Text: "// @intent B"}},
+			language: "go",
+		},
+	}}
+
+	syncer := New(st, parser)
+	_, err := syncer.Sync(context.Background(), map[string]FileInfo{
+		"a.go": {Hash: "new_a", Content: []byte("// @intent A\nfunc A() {}")},
+		"b.go": {Hash: "new_b", Content: []byte("// @intent B\nfunc B() {}")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.annotations) < 2 {
+		t.Fatalf("expected annotations from both files, got %d", len(st.annotations))
+	}
+	if st.annotationCalls != 1 {
+		t.Fatalf("expected one batched annotation call, got %d", st.annotationCalls)
 	}
 }
 
@@ -751,6 +821,25 @@ func TestSyncBatchesWithExisting_ResolvesImplementsBeforeEarlierCallBatch(t *tes
 	t.Fatalf("expected earlier call batch to resolve after later implements batch, got %+v", st.upsertedEdges)
 }
 
+func TestSyncBatchesWithExisting_BatchesDeletedFiles(t *testing.T) {
+	st := newStore()
+	st.nodes["pkg.A"] = &graph.Node{QualifiedName: "pkg.A", Kind: graph.NodeKindFunction, FilePath: "a.go"}
+	st.nodes["pkg.B"] = &graph.Node{QualifiedName: "pkg.B", Kind: graph.NodeKindFunction, FilePath: "b.go"}
+	source := ingest.FileBatchSource(func(ingest.FileBatchVisitor) error { return nil })
+
+	syncer := New(st, &staticParser{})
+	stats, err := syncer.SyncBatchesWithExisting(context.Background(), source, []string{"a.go", "b.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Deleted != 2 {
+		t.Fatalf("expected 2 deleted files, got %d", stats.Deleted)
+	}
+	if st.deleteCalls != 1 {
+		t.Fatalf("expected one batched deletion call, got %d", st.deleteCalls)
+	}
+}
+
 func TestIncremental_BatchesNodesBeforeResolvingEdges(t *testing.T) {
 	st := newStore()
 	st.nodes["mcp.FlowTracer"] = &graph.Node{ID: 10, QualifiedName: "mcp.FlowTracer", Kind: graph.NodeKindType, Name: "FlowTracer", FilePath: "mcp/deps.go", StartLine: 1, EndLine: 3, Hash: "iface", Language: "go"}
@@ -787,8 +876,8 @@ func TestIncremental_BatchesNodesBeforeResolvingEdges(t *testing.T) {
 	if firstEdge == -1 {
 		t.Fatalf("expected edge upsert operation, got %v", st.operations)
 	}
-	if nodeOps < 2 {
-		t.Fatalf("expected both files to upsert nodes before edges, got ops %v", st.operations)
+	if nodeOps != 1 {
+		t.Fatalf("expected one batched node upsert before edges, got ops %v", st.operations)
 	}
 	for i := 0; i < firstEdge; i++ {
 		if st.operations[i] == "upsert_edges" {

@@ -3,6 +3,8 @@ package graphgorm
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 
 	"gorm.io/gorm"
@@ -26,9 +28,11 @@ func (s *Store) UpsertUnresolvedEdges(ctx context.Context, candidates []graph.Un
 	ns := requestctx.FromContext(ctx)
 	for i := range candidates {
 		candidates[i].Namespace = ns
+		candidates[i].LookupKeyHash = unresolvedIndexHash(candidates[i].LookupKey)
+		candidates[i].FingerprintHash = unresolvedIndexHash(candidates[i].Fingerprint)
 	}
 	if err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "namespace"}, {Name: "fingerprint"}},
+		Columns:   []clause.Column{{Name: "namespace"}, {Name: "fingerprint_hash"}},
 		DoNothing: true,
 	}).CreateInBatches(candidates, 500).Error; err != nil {
 		return trace.Wrap(err, "upsert unresolved edges")
@@ -43,13 +47,14 @@ func (s *Store) FindUnresolvedEdgesByLookupKeys(ctx context.Context, keys []stri
 		return nil, nil
 	}
 	ns := requestctx.FromContext(ctx)
+	keyHashes := unresolvedIndexHashes(keys)
 	seen := make(map[string]struct{})
 	var out []graph.Edge
 	for start := 0; start < len(keys); start += unresolvedQueryChunkSize {
 		end := min(start+unresolvedQueryChunkSize, len(keys))
 		var rows []graph.UnresolvedEdgeCandidate
 		if err := s.db.WithContext(ctx).
-			Where("namespace = ? AND lookup_key IN ?", ns, keys[start:end]).
+			Where("namespace = ? AND lookup_key_hash IN ? AND lookup_key IN ?", ns, keyHashes[start:end], keys[start:end]).
 			Order("file_path ASC").Order("line ASC").Order("fingerprint ASC").
 			Find(&rows).Error; err != nil {
 			return nil, trace.Wrap(err, "find unresolved edges by lookup keys")
@@ -101,15 +106,31 @@ func (s *Store) DeleteUnresolvedEdgesByFingerprints(ctx context.Context, fingerp
 		return nil
 	}
 	ns := requestctx.FromContext(ctx)
+	fingerprintHashes := unresolvedIndexHashes(fingerprints)
 	for start := 0; start < len(fingerprints); start += unresolvedQueryChunkSize {
 		end := min(start+unresolvedQueryChunkSize, len(fingerprints))
 		if err := s.db.WithContext(ctx).
-			Where("namespace = ? AND fingerprint IN ?", ns, fingerprints[start:end]).
+			Where("namespace = ? AND fingerprint_hash IN ? AND fingerprint IN ?", ns, fingerprintHashes[start:end], fingerprints[start:end]).
 			Delete(&graph.UnresolvedEdgeCandidate{}).Error; err != nil {
 			return trace.Wrap(err, "delete resolved unresolved edges")
 		}
 	}
 	return nil
+}
+
+// unresolvedIndexHashes derives fixed-width database lookup values while preserving caller order.
+// @intent keep arbitrary source-derived text out of PostgreSQL B-tree indexes without weakening exact-match queries.
+func unresolvedIndexHashes(values []string) []string {
+	hashes := make([]string, len(values))
+	for i, value := range values {
+		hashes[i] = unresolvedIndexHash(value)
+	}
+	return hashes
+}
+
+func unresolvedIndexHash(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }
 
 // UnresolvedIndexReady reports whether a compatible full build populated the namespace's reverse index.
