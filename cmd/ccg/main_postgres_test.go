@@ -179,8 +179,8 @@ func TestRunMigrations_PostgresDownRestoresNullableColumns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
 	}
-	if err := migrator.Steps(-6); err != nil {
-		t.Fatalf("run down migration: %v", err)
+	if err := migrator.Migrate(1); err != nil {
+		t.Fatalf("migrate down to version 1: %v", err)
 	}
 
 	var version migration.MigrationSchemaVersion
@@ -212,8 +212,8 @@ func TestRunMigrations_PostgresDownFromVersionThreeDropsPolicyTables(t *testing.
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
 	}
-	if err := migrator.Steps(-5); err != nil {
-		t.Fatalf("run down migration: %v", err)
+	if err := migrator.Migrate(2); err != nil {
+		t.Fatalf("migrate down to version 2: %v", err)
 	}
 
 	var version migration.MigrationSchemaVersion
