@@ -458,8 +458,11 @@ func (s *Syncer) resolveAndUpsertImplements(ctx context.Context, syncStore Store
 		if err != nil {
 			return err
 		}
-		resolved, diagnostics := resolve.FilterResolvedWithDiagnosticsFiltered(resolved, shouldSuppressExternalImportUnresolved)
+		resolved, unresolved, diagnostics := resolve.PartitionResolvedWithDiagnosticsFiltered(resolved, shouldSuppressExternalImportUnresolved)
 		mergeSyncUnresolvedDiagnostics(stats, diagnostics)
+		if err := persistUnresolvedEdges(ctx, syncStore, unresolved); err != nil {
+			return err
+		}
 		if len(resolved) == 0 {
 			continue
 		}
@@ -485,8 +488,11 @@ func (s *Syncer) resolveAndUpsertOtherEdges(ctx context.Context, syncStore Store
 			if err != nil {
 				return err
 			}
-			resolved, diagnostics := resolve.FilterResolvedWithDiagnosticsFiltered(resolved[len(resolveInput)-len(edgeChunk):], shouldSuppressExternalImportUnresolved)
+			resolved, unresolved, diagnostics := resolve.PartitionResolvedWithDiagnosticsFiltered(resolved[len(resolveInput)-len(edgeChunk):], shouldSuppressExternalImportUnresolved)
 			mergeSyncUnresolvedDiagnostics(stats, diagnostics)
+			if err := persistUnresolvedEdges(ctx, syncStore, unresolved); err != nil {
+				return err
+			}
 			if len(resolved) == 0 {
 				continue
 			}
@@ -494,6 +500,23 @@ func (s *Syncer) resolveAndUpsertOtherEdges(ctx context.Context, syncStore Store
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// persistUnresolvedEdges records dropped syntax candidates when the active store supports semi-naive replay.
+// @intent keep incremental candidate maintenance optional for legacy/custom store implementations.
+// @sideEffect writes unresolved candidate rows through ingest.UnresolvedEdgeStore.
+func persistUnresolvedEdges(ctx context.Context, store Store, edges []graph.Edge) error {
+	if len(edges) == 0 {
+		return nil
+	}
+	unresolvedStore, ok := store.(ingest.UnresolvedEdgeStore)
+	if !ok {
+		return nil
+	}
+	if err := unresolvedStore.UpsertUnresolvedEdges(ctx, resolve.BuildUnresolvedCandidates(edges)); err != nil {
+		return trace.Wrap(err, "persist unresolved incremental edges")
 	}
 	return nil
 }

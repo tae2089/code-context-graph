@@ -71,10 +71,12 @@ func (h *handlers) graphService() *workflow.Service {
 	if candidate, ok := h.deps.Build.Store.(ingest.GraphStore); ok {
 		graphStore = candidate
 	}
+	parseCache, _ := h.deps.Build.Store.(ingest.ParseCache)
 	return &workflow.Service{
 		Store:      graphStore,
 		UnitOfWork: h.deps.Build.UnitOfWork,
 		Search:     h.deps.Build.Search,
+		ParseCache: parseCache,
 		Parsers:    walkers,
 		Logger:     h.logger(),
 	}

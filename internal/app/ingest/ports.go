@@ -69,6 +69,41 @@ type Parser interface {
 	ParseWithContext(ctx context.Context, filePath string, content []byte) ([]graph.Node, []graph.Edge, error)
 }
 
+// VersionedParser exposes the semantic parser/query identity used for parse-result cache invalidation.
+// @intent let ingest reuse parsed output only while parser behavior and embedded queries remain compatible.
+type VersionedParser interface {
+	Parser
+	ParseCacheVersion() string
+}
+
+// ParseCacheKey identifies one correctness-equivalent parsed source result.
+// @intent include every input known to affect parser output instead of trusting source content alone.
+type ParseCacheKey struct {
+	FilePath      string
+	SourceHash    string
+	ParserVersion string
+	ContextHash   string
+}
+
+// ParseCache stores opaque serialized parse results outside the graph transaction.
+// @intent make repeated full builds skip Tree-sitter work without coupling ingest to one cache backend.
+// @domainRule cache failures are optimization misses and must not fail graph builds.
+type ParseCache interface {
+	LoadParseResult(ctx context.Context, key ParseCacheKey) ([]byte, bool, error)
+	StoreParseResult(ctx context.Context, key ParseCacheKey, payload []byte) error
+}
+
+// UnresolvedEdgeStore persists and replays unresolved syntax relationships for semi-naive updates.
+// @intent select unchanged source edges affected by newly added symbols without exposing persistence details.
+type UnresolvedEdgeStore interface {
+	UpsertUnresolvedEdges(ctx context.Context, candidates []graph.UnresolvedEdgeCandidate) error
+	FindUnresolvedEdgesByLookupKeys(ctx context.Context, keys []string) ([]graph.Edge, error)
+	FindUnresolvedEdgesByFiles(ctx context.Context, filePaths []string) ([]graph.Edge, error)
+	DeleteUnresolvedEdgesByFingerprints(ctx context.Context, fingerprints []string) error
+	UnresolvedIndexReady(ctx context.Context, version string) (bool, error)
+	MarkUnresolvedIndexReady(ctx context.Context, version string) error
+}
+
 // AnnotatingParser adds comments and language identity for annotation restoration.
 // @intent make comment-aware parsing an optional ingest capability.
 type AnnotatingParser interface {

@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	RequiredSchemaVersion    = 7
+	RequiredSchemaVersion    = 10
 	SchemaVersionKey         = "schema"
 	LegacySchemaVersionTable = "ccg_schema_versions"
 )
@@ -382,6 +382,9 @@ func RequiredSchemaTables() []string {
 		"flows",
 		"flow_memberships",
 		"search_documents",
+		"parse_cache_entries",
+		"unresolved_edge_candidates",
+		"unresolved_index_states",
 	}
 }
 
@@ -403,6 +406,19 @@ func ModelNullabilityColumns() []SchemaColumn {
 		{Table: "flows", Column: "name"},
 		{Table: "flow_memberships", Column: "flow_id"},
 		{Table: "flow_memberships", Column: "node_id"},
+		{Table: "parse_cache_entries", Column: "namespace"},
+		{Table: "parse_cache_entries", Column: "file_path"},
+		{Table: "parse_cache_entries", Column: "source_hash"},
+		{Table: "parse_cache_entries", Column: "parser_version"},
+		{Table: "parse_cache_entries", Column: "context_hash"},
+		{Table: "parse_cache_entries", Column: "payload"},
+		{Table: "unresolved_edge_candidates", Column: "namespace"},
+		{Table: "unresolved_edge_candidates", Column: "lookup_key"},
+		{Table: "unresolved_edge_candidates", Column: "fingerprint"},
+		{Table: "unresolved_edge_candidates", Column: "file_path"},
+		{Table: "unresolved_edge_candidates", Column: "kind"},
+		{Table: "unresolved_index_states", Column: "namespace"},
+		{Table: "unresolved_index_states", Column: "version"},
 	}
 }
 

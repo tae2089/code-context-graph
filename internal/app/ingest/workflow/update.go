@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/tae2089/trace"
@@ -248,13 +249,24 @@ func (s *Service) applyUpdateSpoolInTx(ctx context.Context, tx ingest.Transactio
 		return updateOutcome{}, trace.Wrap(err, "load edge source files for changed graph")
 	}
 	requiresFullBuild := addUnchangedPeersForAddedFiles(forceFiles, spool.packages, existingNodesByFile, spool.currentHashes)
+	useSemiNaiveReplay := false
 	if requiresFullBuild && s.canBuildForUpdate(opts) {
+		version, versioned := s.unresolvedIndexVersion()
+		if unresolvedStore, ok := txStore.(ingest.UnresolvedEdgeStore); ok && versioned {
+			ready, readyErr := unresolvedStore.UnresolvedIndexReady(ctx, version)
+			if readyErr != nil {
+				return updateOutcome{}, trace.Wrap(readyErr, "check unresolved edge index readiness")
+			}
+			useSemiNaiveReplay = ready
+		}
+	}
+	if requiresFullBuild && s.canBuildForUpdate(opts) && !useSemiNaiveReplay {
 		return updateOutcome{
 			stats:     classifyUpdateSnapshot(existingFiles, existingNodesByFile, spool.currentHashes),
 			fullBuild: true,
 		}, nil
 	}
-	if requiresFullBuild {
+	if requiresFullBuild && !useSemiNaiveReplay {
 		addAllUnchangedFiles(forceFiles, existingNodesByFile, spool.currentHashes)
 	}
 	if err := upsertPackageNodes(ctx, txStore, spool.packages); err != nil {
@@ -319,6 +331,12 @@ func (s *Service) applyUpdateSpoolInTx(ctx context.Context, tx ingest.Transactio
 	if err := upsertPackageContainsEdges(ctx, txStore, spool.packages); err != nil {
 		return updateOutcome{}, trace.Wrap(err, "upsert package file edges")
 	}
+	if useSemiNaiveReplay {
+		addedFiles := addedUpdateFiles(existingNodesByFile, spool.currentHashes)
+		if err := replayUnresolvedEdgesForAddedFiles(ctx, txStore, addedFiles, resolve.ResolveOptions{FallbackCalls: opts.FallbackCalls}, stats); err != nil {
+			return updateOutcome{}, err
+		}
+	}
 
 	if !opts.SkipSearchRebuild {
 		nodeIDs, err := affectedNodeIDsForUpdate(ctx, txStore, existingNodesByFile, affectedUpdateFiles(spool.currentHashes, existingNodesByFile, spool.forceFiles), deletedFiles)
@@ -330,6 +348,83 @@ func (s *Service) applyUpdateSpoolInTx(ctx context.Context, tx ingest.Transactio
 		}
 	}
 	return updateOutcome{stats: stats}, nil
+}
+
+// addedUpdateFiles returns current paths that had no persisted nodes before the update.
+// @intent seed semi-naive unresolved lookup from newly introduced source files only.
+func addedUpdateFiles(existingNodesByFile map[string][]graph.Node, currentHashes map[string]string) []string {
+	files := make([]string, 0)
+	for filePath := range currentHashes {
+		if len(existingNodesByFile[filePath]) == 0 {
+			files = append(files, filePath)
+		}
+	}
+	slices.Sort(files)
+	return files
+}
+
+// replayUnresolvedEdgesForAddedFiles resolves only unchanged-source candidates selected by newly added symbols.
+// @intent replace graph-wide reparsing with reverse-index-driven edge reconciliation for new packages.
+// @sideEffect reads unresolved candidates, upserts newly resolved edges, and removes resolved candidate rows.
+func replayUnresolvedEdgesForAddedFiles(ctx context.Context, graphStore ingest.GraphStore, addedFiles []string, options resolve.ResolveOptions, stats *ingest.SyncStats) error {
+	unresolvedStore, ok := graphStore.(ingest.UnresolvedEdgeStore)
+	if !ok || len(addedFiles) == 0 {
+		return nil
+	}
+	nodesByFile, err := graphStore.GetNodesByFiles(ctx, addedFiles)
+	if err != nil {
+		return trace.Wrap(err, "load added nodes for unresolved replay")
+	}
+	var addedNodes []graph.Node
+	for _, filePath := range addedFiles {
+		addedNodes = append(addedNodes, nodesByFile[filePath]...)
+	}
+	matched, err := unresolvedStore.FindUnresolvedEdgesByLookupKeys(ctx, resolve.LookupKeysForNodes(addedNodes))
+	if err != nil {
+		return trace.Wrap(err, "select unresolved edges by added symbols")
+	}
+	if len(matched) == 0 {
+		return nil
+	}
+	fileSet := make(map[string]struct{})
+	for _, edge := range matched {
+		fileSet[edge.FilePath] = struct{}{}
+	}
+	files := make([]string, 0, len(fileSet))
+	for filePath := range fileSet {
+		files = append(files, filePath)
+	}
+	slices.Sort(files)
+	candidates, err := unresolvedStore.FindUnresolvedEdgesByFiles(ctx, files)
+	if err != nil {
+		return trace.Wrap(err, "load affected unresolved source edges")
+	}
+	implementsEdges, otherEdges := splitImplementsEdges(candidates)
+	for _, phase := range [][]graph.Edge{implementsEdges, otherEdges} {
+		if len(phase) == 0 {
+			continue
+		}
+		resolvedEdges, err := resolve.ResolveWithOptions(ctx, graphStore, phase, options)
+		if err != nil {
+			return trace.Wrap(err, "resolve semi-naive edge candidates")
+		}
+		resolvedEdges, _, diagnostics := resolve.PartitionResolvedWithDiagnosticsFiltered(resolvedEdges, shouldSuppressExternalImportUnresolved)
+		mergeFilterResolvedDiagnostics(&stats.Unresolved, diagnostics)
+		if len(resolvedEdges) == 0 {
+			continue
+		}
+		if err := graphStore.UpsertEdges(ctx, resolvedEdges); err != nil {
+			return trace.Wrap(err, "upsert semi-naive resolved edges")
+		}
+		fingerprints := make([]string, 0, len(resolvedEdges))
+		for _, edge := range resolvedEdges {
+			fingerprints = append(fingerprints, edge.Fingerprint)
+		}
+		if err := unresolvedStore.DeleteUnresolvedEdgesByFingerprints(ctx, fingerprints); err != nil {
+			return trace.Wrap(err, "delete resolved semi-naive candidates")
+		}
+	}
+	return nil
 }
 
 // @intent run incremental sync without a shared DB transaction while replaying spooled file batches to bound memory.

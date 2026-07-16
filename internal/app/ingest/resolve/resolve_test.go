@@ -855,6 +855,23 @@ func TestFilterResolvedWithDiagnosticsFilteredSkipsExternalImportUnresolvedEdges
 	}
 }
 
+func TestBuildUnresolvedCandidates_IndexesOnlyResolvedSourcesWithMissingTargets(t *testing.T) {
+	edges := []graph.Edge{
+		{FromNodeID: 10, Kind: graph.EdgeKindCalls, FilePath: "app/source.go", Line: 3, Fingerprint: "calls:app/source.go:api.Target:3"},
+		{Kind: graph.EdgeKindCalls, FilePath: "app/missing.go", Line: 4, Fingerprint: "calls:app/missing.go:api.Other:4"},
+		{FromNodeID: 10, ToNodeID: 20, Kind: graph.EdgeKindCalls, FilePath: "app/source.go", Line: 5, Fingerprint: "calls:app/source.go:api.Ready:5"},
+		{FromNodeID: 10, Kind: graph.EdgeKindContains, FilePath: "app/source.go", Line: 1, Fingerprint: "contains:app/source.go:app.Source"},
+	}
+
+	candidates := BuildUnresolvedCandidates(edges)
+	if len(candidates) != 1 {
+		t.Fatalf("candidate count = %d, want 1: %+v", len(candidates), candidates)
+	}
+	if got := candidates[0]; got.LookupKey != "Target" || got.Fingerprint != edges[0].Fingerprint || got.FilePath != "app/source.go" {
+		t.Fatalf("candidate = %+v, want one target-oriented row for api.Target", got)
+	}
+}
+
 func TestIsLikelyExternalImportPath(t *testing.T) {
 	cases := map[string]bool{
 		"fmt":                   true,

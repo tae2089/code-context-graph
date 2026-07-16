@@ -3,6 +3,7 @@ package flow
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -25,11 +26,21 @@ type mockStore struct {
 	nodes          map[uint]*graph.Node
 	edges          map[uint][]graph.Edge
 	fetchedNodeIDs []uint
+	edgeBatchCalls [][]uint
 }
 
 func (m *mockStore) GetEdgesFrom(_ context.Context, nodeID uint) ([]graph.Edge, error) {
 	m.fetchedNodeIDs = append(m.fetchedNodeIDs, nodeID)
 	return m.edges[nodeID], nil
+}
+
+func (m *mockStore) GetEdgesFromNodes(_ context.Context, nodeIDs []uint) ([]graph.Edge, error) {
+	m.edgeBatchCalls = append(m.edgeBatchCalls, append([]uint(nil), nodeIDs...))
+	var edges []graph.Edge
+	for _, nodeID := range nodeIDs {
+		edges = append(edges, m.edges[nodeID]...)
+	}
+	return edges, nil
 }
 
 func (m *mockStore) GetNodeByID(_ context.Context, id uint) (*graph.Node, error) {
@@ -213,6 +224,29 @@ func TestTraceFlow_Merge(t *testing.T) {
 	}
 }
 
+func TestTraceFlowBounded_ReadsOutgoingEdgesOncePerBFSDepth(t *testing.T) {
+	ms := &mockStore{
+		nodes: map[uint]*graph.Node{
+			1: newNode(1, "A"), 2: newNode(2, "B"), 3: newNode(3, "C"),
+			4: newNode(4, "D"), 5: newNode(5, "E"),
+		},
+		edges: map[uint][]graph.Edge{
+			1: {callEdge(1, 2, 1), callEdge(1, 3, 2)},
+			2: {callEdge(2, 4, 3)},
+			3: {callEdge(3, 5, 4)},
+		},
+	}
+	result, err := New(ms).TraceFlowBounded(context.Background(), 1, TraceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertUintSliceEqual(t, flowMemberIDs(result.Flow), []uint{1, 2, 3, 4, 5})
+	want := [][]uint{{1}, {2, 3}, {4, 5}}
+	if !reflect.DeepEqual(ms.edgeBatchCalls, want) {
+		t.Fatalf("edge batch calls = %v, want %v", ms.edgeBatchCalls, want)
+	}
+}
+
 func TestTraceFlow_NoEdges(t *testing.T) {
 	ms := &mockStore{
 		nodes: map[uint]*graph.Node{1: newNode(1, "A")},
@@ -294,7 +328,9 @@ func TestTraceFlowBounded_DoesNotEnqueueBeyondMaxNodesInHighFanout(t *testing.T)
 	}
 
 	assertUintSliceEqual(t, flowMemberIDs(result.Flow), []uint{1, 2, 3})
-	assertUintSliceEqual(t, ms.fetchedNodeIDs, []uint{1, 2, 3})
+	if want := [][]uint{{1}, {2, 3}}; !reflect.DeepEqual(ms.edgeBatchCalls, want) {
+		t.Fatalf("edge batch calls = %v, want %v", ms.edgeBatchCalls, want)
+	}
 	if !result.Truncated {
 		t.Fatalf("expected high fan-out traversal to report truncation")
 	}

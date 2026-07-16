@@ -343,10 +343,18 @@ func FilterResolvedWithDiagnostics(edges []graph.Edge) ([]graph.Edge, FilterReso
 // callers suppress selected unresolved edges from the reported summary.
 // @intent keep edge filtering behavior stable while controlling noise from known-unresolvable patterns.
 func FilterResolvedWithDiagnosticsFiltered(edges []graph.Edge, filterUnresolved UnresolvedEdgeFilter) ([]graph.Edge, FilterResolvedDiagnostics) {
+	resolved, _, diagnostics := PartitionResolvedWithDiagnosticsFiltered(edges, filterUnresolved)
+	return resolved, diagnostics
+}
+
+// PartitionResolvedWithDiagnosticsFiltered separates traversable edges from durable unresolved candidates.
+// @intent let build and update persist unresolved syntax edges without changing query-visible graph semantics.
+func PartitionResolvedWithDiagnosticsFiltered(edges []graph.Edge, filterUnresolved UnresolvedEdgeFilter) ([]graph.Edge, []graph.Edge, FilterResolvedDiagnostics) {
 	if len(edges) == 0 {
-		return nil, FilterResolvedDiagnostics{}
+		return nil, nil, FilterResolvedDiagnostics{}
 	}
 	out := make([]graph.Edge, 0, len(edges))
+	unresolved := make([]graph.Edge, 0)
 	diagnostics := FilterResolvedDiagnostics{}
 	for _, edge := range edges {
 		reason, dropped := unresolvedReason(edge)
@@ -355,11 +363,110 @@ func FilterResolvedWithDiagnosticsFiltered(edges []graph.Edge, filterUnresolved 
 				continue
 			}
 			diagnostics.add(edge, reason)
+			unresolved = append(unresolved, edge)
 			continue
 		}
 		out = append(out, edge)
 	}
-	return out, diagnostics
+	return out, unresolved, diagnostics
+}
+
+// BuildUnresolvedCandidates expands unresolved fingerprints into conservative reverse lookup keys.
+// @intent prefer extra candidate replay over missing a caller that a newly added symbol can resolve.
+func BuildUnresolvedCandidates(edges []graph.Edge) []graph.UnresolvedEdgeCandidate {
+	var candidates []graph.UnresolvedEdgeCandidate
+	for _, edge := range edges {
+		if edge.FromNodeID == 0 || edge.ToNodeID != 0 || edge.Kind == graph.EdgeKindContains {
+			continue
+		}
+		key := primaryUnresolvedLookupKey(edge)
+		if key == "" {
+			continue
+		}
+		candidates = append(candidates, graph.UnresolvedEdgeCandidate{
+			LookupKey: key, Fingerprint: edge.Fingerprint, FilePath: edge.FilePath, Kind: edge.Kind, Line: edge.Line,
+		})
+	}
+	return candidates
+}
+
+// primaryUnresolvedLookupKey chooses one target-oriented key for an edge whose source already resolved.
+// @intent bound reverse-index rows to one per edge while matching newly added node simple names.
+func primaryUnresolvedLookupKey(edge graph.Edge) string {
+	var target string
+	switch edge.Kind {
+	case graph.EdgeKindCalls:
+		target, _ = callCallee(edge)
+	case graph.EdgeKindImportsFrom:
+		target, _ = importsFromTarget(edge)
+	case graph.EdgeKindInherits:
+		_, target, _ = graph.ParseInheritsFingerprint(edge.FilePath, edge.Fingerprint)
+	default:
+		parts := strings.Split(edge.Fingerprint, ":")
+		if len(parts) > 0 {
+			target = parts[len(parts)-1]
+		}
+	}
+	normalized := strings.ReplaceAll(strings.TrimSpace(target), "::", ".")
+	normalized = strings.Trim(normalized, "<>[]{}()\"'")
+	if idx := strings.LastIndex(normalized, "."); idx >= 0 {
+		normalized = normalized[idx+1:]
+	}
+	trimmedPath := strings.Trim(normalized, "/")
+	if idx := strings.LastIndex(trimmedPath, "/"); idx >= 0 {
+		trimmedPath = trimmedPath[idx+1:]
+	}
+	return trimmedPath
+}
+
+// LookupKeysForNodes creates the key set used to probe unresolved candidates after node additions.
+// @intent match qualified names, simple names, and package/file path suffixes conservatively.
+func LookupKeysForNodes(nodes []graph.Node) []string {
+	var values []string
+	for _, node := range nodes {
+		values = append(values, node.QualifiedName, node.Name)
+		if node.FilePath != "" {
+			values = append(values, path.Dir(node.FilePath))
+		}
+	}
+	return expandLookupValues(values)
+}
+
+// expandLookupValues derives stable qualified-name, simple-name, and path-suffix variants.
+// @intent make added-node lookup keys match the bounded simple target keys stored for unresolved edges.
+func expandLookupValues(values []string) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	add := func(value string) {
+		value = strings.TrimSpace(strings.Trim(value, "<>[]{}()\"'"))
+		if value == "" {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	for _, value := range values {
+		add(value)
+		normalized := strings.ReplaceAll(value, "::", ".")
+		add(normalized)
+		if idx := strings.LastIndex(normalized, "."); idx >= 0 {
+			add(normalized[idx+1:])
+		}
+		trimmedPath := strings.Trim(normalized, "/")
+		for trimmedPath != "" && trimmedPath != "." {
+			add(trimmedPath)
+			idx := strings.Index(trimmedPath, "/")
+			if idx < 0 {
+				break
+			}
+			trimmedPath = trimmedPath[idx+1:]
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // unresolvedReason classifies why an edge will be dropped from the resolved output.
