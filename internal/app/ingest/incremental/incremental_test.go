@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/adapters/outbound/treesitter"
+	"github.com/tae2089/code-context-graph/internal/app/ingest"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 	"github.com/tae2089/code-context-graph/internal/domain/reference"
 )
@@ -699,6 +700,55 @@ func TestIncremental_ResolvesCallEdgesAcrossMultipleFilesInBatch(t *testing.T) {
 	if !foundCall {
 		t.Fatalf("expected resolved call edge in %+v", st.upsertedEdges)
 	}
+}
+
+func TestSyncBatchesWithExisting_ResolvesImplementsBeforeEarlierCallBatch(t *testing.T) {
+	st := newStore()
+	st.nodes["mcp.FlowTracer"] = &graph.Node{ID: 10, QualifiedName: "mcp.FlowTracer", Kind: graph.NodeKindType, Name: "FlowTracer", FilePath: "mcp/deps.go", StartLine: 1, EndLine: 3, Hash: "iface", Language: "go"}
+	st.nodes["mcp/deps.go"] = &graph.Node{ID: 11, QualifiedName: "mcp/deps.go", Kind: graph.NodeKindFile, Name: "mcp/deps.go", FilePath: "mcp/deps.go", StartLine: 1, EndLine: 3, Hash: "iface", Language: "go"}
+	parser := &staticParser{result: map[string]parseResult{
+		"cmd/main.go": {
+			nodes: []graph.Node{
+				{QualifiedName: "cmd/main.go", Kind: graph.NodeKindFile, Name: "cmd/main.go", FilePath: "cmd/main.go", StartLine: 1, EndLine: 20, Hash: "main", Language: "go"},
+				{QualifiedName: "main.Run", Kind: graph.NodeKindFunction, Name: "Run", FilePath: "cmd/main.go", StartLine: 3, EndLine: 8, Hash: "main", Language: "go"},
+			},
+			edges: []graph.Edge{
+				{Kind: graph.EdgeKindImportsFrom, FilePath: "cmd/main.go", Line: 1, Fingerprint: "imports_from:cmd/main.go:github.com/example/project/mcp:1"},
+				{Kind: graph.EdgeKindCalls, FilePath: "cmd/main.go", Line: 4, Fingerprint: "calls:cmd/main.go:h.deps.FlowTracer.TraceFlow:4"},
+			},
+		},
+		"flows/tracer.go": {
+			nodes: []graph.Node{
+				{QualifiedName: "flows/tracer.go", Kind: graph.NodeKindFile, Name: "flows/tracer.go", FilePath: "flows/tracer.go", StartLine: 1, EndLine: 20, Hash: "impl", Language: "go"},
+				{QualifiedName: "flows.Tracer", Kind: graph.NodeKindClass, Name: "Tracer", FilePath: "flows/tracer.go", StartLine: 3, EndLine: 7, Hash: "impl", Language: "go"},
+				{QualifiedName: "flows.Tracer.TraceFlow", Kind: graph.NodeKindFunction, Name: "TraceFlow", FilePath: "flows/tracer.go", StartLine: 5, EndLine: 6, Hash: "impl", Language: "go"},
+			},
+			edges: []graph.Edge{{Kind: graph.EdgeKindImplements, FilePath: "flows/tracer.go", Line: 3, Fingerprint: "implements:flows/tracer.go:flows.Tracer:mcp.FlowTracer"}},
+		},
+	}}
+
+	source := ingest.FileBatchSource(func(visitor ingest.FileBatchVisitor) error {
+		for _, files := range []map[string]ingest.FileInfo{
+			{"cmd/main.go": {Hash: "main", Content: []byte("package main")}},
+			{"flows/tracer.go": {Hash: "impl", Content: []byte("package flows")}},
+		} {
+			if err := visitor(files); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+	syncer := New(st, parser)
+	if _, err := syncer.SyncBatchesWithExisting(context.Background(), source, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, edge := range st.upsertedEdges {
+		if edge.Kind == graph.EdgeKindCalls && edge.FromNodeID != 0 && edge.ToNodeID != 0 {
+			return
+		}
+	}
+	t.Fatalf("expected earlier call batch to resolve after later implements batch, got %+v", st.upsertedEdges)
 }
 
 func TestIncremental_BatchesNodesBeforeResolvingEdges(t *testing.T) {

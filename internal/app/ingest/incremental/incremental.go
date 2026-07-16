@@ -306,6 +306,8 @@ func (s *Syncer) syncBatchesWithExisting(ctx context.Context, syncStore Store, s
 	}
 
 	lookup := newImportIndexedLookup(syncStore)
+	// Resolve every implementation relationship before any call edge. Interface
+	// dispatch may depend on an implements edge stored in a later spool record.
 	for _, path := range edgeSpool.records {
 		record, err := edgeSpool.readRecord(path)
 		if err != nil {
@@ -315,7 +317,20 @@ func (s *Syncer) syncBatchesWithExisting(ctx context.Context, syncStore Store, s
 		for _, file := range record.Files {
 			parsedFiles = append(parsedFiles, parsedSyncFile{filePath: file.FilePath, edges: file.Edges})
 		}
-		if err := s.resolveAndUpsertEdges(ctx, syncStore, lookup, parsedFiles, stats); err != nil {
+		if err := s.resolveAndUpsertImplements(ctx, syncStore, lookup, parsedFiles, stats); err != nil {
+			return nil, err
+		}
+	}
+	for _, path := range edgeSpool.records {
+		record, err := edgeSpool.readRecord(path)
+		if err != nil {
+			return nil, err
+		}
+		parsedFiles := make([]parsedSyncFile, 0, len(record.Files))
+		for _, file := range record.Files {
+			parsedFiles = append(parsedFiles, parsedSyncFile{filePath: file.FilePath, edges: file.Edges})
+		}
+		if err := s.resolveAndUpsertOtherEdges(ctx, syncStore, lookup, parsedFiles, stats); err != nil {
 			return nil, err
 		}
 	}
@@ -419,7 +434,25 @@ func (s *Syncer) stageBatch(ctx context.Context, syncStore Store, files map[stri
 // @sideEffect upserts resolved graph edges through the sync store.
 // @mutates graph edges, stats.Unresolved
 func (s *Syncer) resolveAndUpsertEdges(ctx context.Context, syncStore Store, lookup resolve.NodeLookup, parsedFiles []parsedSyncFile, stats *SyncStats) error {
-	implementsEdges, otherByFile := partitionParsedSyncEdges(parsedFiles)
+	if err := s.resolveAndUpsertImplements(ctx, syncStore, lookup, parsedFiles, stats); err != nil {
+		return err
+	}
+	return s.resolveAndUpsertOtherEdges(ctx, syncStore, lookup, parsedFiles, stats)
+}
+
+// resolveAndUpsertImplements resolves only implementation relationships from one parsed file set.
+// @intent let staged reconciliation finish a global implements pass before resolving interface-dispatch calls.
+// @sideEffect upserts resolved implements edges through the sync store.
+// @mutates graph edges, stats.Unresolved
+func (s *Syncer) resolveAndUpsertImplements(ctx context.Context, syncStore Store, lookup resolve.NodeLookup, parsedFiles []parsedSyncFile, stats *SyncStats) error {
+	var implementsEdges []graph.Edge
+	for _, parsed := range parsedFiles {
+		for _, edge := range parsed.edges {
+			if edge.Kind == graph.EdgeKindImplements {
+				implementsEdges = append(implementsEdges, edge)
+			}
+		}
+	}
 	for _, edgeChunk := range splitEdgeChunks(implementsEdges) {
 		resolved, err := resolve.ResolveWithOptions(ctx, lookup, edgeChunk, s.opts)
 		if err != nil {
@@ -434,6 +467,15 @@ func (s *Syncer) resolveAndUpsertEdges(ctx context.Context, syncStore Store, loo
 			return err
 		}
 	}
+	return nil
+}
+
+// resolveAndUpsertOtherEdges resolves non-implements relationships after implementation state is complete.
+// @intent preserve file-local import warmup while making interface call resolution independent of spool record order.
+// @sideEffect upserts resolved call, import, contains, and related edges through the sync store.
+// @mutates graph edges, stats.Unresolved
+func (s *Syncer) resolveAndUpsertOtherEdges(ctx context.Context, syncStore Store, lookup resolve.NodeLookup, parsedFiles []parsedSyncFile, stats *SyncStats) error {
+	_, otherByFile := partitionParsedSyncEdges(parsedFiles)
 	importsByFile := importEdgesByFile(otherByFile)
 	for _, parsed := range parsedFiles {
 		edges := otherByFile[parsed.filePath]
