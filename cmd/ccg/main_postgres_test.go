@@ -80,6 +80,19 @@ func TestRunMigrations_PostgresSmoke(t *testing.T) {
 			t.Fatalf("expected migration 007 to remove %s at schema version %d", table, migration.RequiredSchemaVersion)
 		}
 	}
+
+	var varcharCount int64
+	if err := db.Raw(`
+		SELECT COUNT(*)
+		FROM information_schema.columns
+		WHERE table_schema = current_schema()
+		AND data_type = 'character varying'
+	`).Scan(&varcharCount).Error; err != nil {
+		t.Fatalf("count varchar columns: %v", err)
+	}
+	if varcharCount != 0 {
+		t.Fatalf("PostgreSQL schema retained %d varchar columns, want 0", varcharCount)
+	}
 }
 
 func TestRunMigrations_PostgresVersionThreePolicyTablesUseJSONB(t *testing.T) {
@@ -116,6 +129,40 @@ func TestRunMigrations_PostgresVersionThreePolicyTablesUseJSONB(t *testing.T) {
 		if got != tc.want {
 			t.Fatalf("expected %s.%s type %q, got %q", tc.Table, tc.Column, tc.want, got)
 		}
+	}
+}
+
+func TestRunMigrations_PostgresVersionFourteenConvertsGraphStringsAndCanMigrateDown(t *testing.T) {
+	db := setupPostgresMigrationDB(t)
+
+	migrator, _, err := migration.NewMigrator(db, "postgres", "")
+	if err != nil {
+		t.Fatalf("create migrator: %v", err)
+	}
+	if err := migrator.Steps(13); err != nil {
+		t.Fatalf("run migrations through version 13: %v", err)
+	}
+	assertPostgresColumnType(t, db, "nodes", "name", "character varying")
+
+	if err := migrator.Steps(1); err != nil {
+		t.Fatalf("migrate to version 14: %v", err)
+	}
+	assertPostgresColumnType(t, db, "nodes", "name", "text")
+
+	if err := migrator.Steps(-1); err != nil {
+		t.Fatalf("migrate down to version 13: %v", err)
+	}
+	assertPostgresColumnType(t, db, "nodes", "name", "character varying")
+}
+
+func assertPostgresColumnType(t *testing.T, db *gorm.DB, table, column, want string) {
+	t.Helper()
+	got, err := migration.PostgresColumnDataType(db, table, column)
+	if err != nil {
+		t.Fatalf("inspect %s.%s type: %v", table, column, err)
+	}
+	if got != want {
+		t.Fatalf("%s.%s type = %q, want %q", table, column, got, want)
 	}
 }
 

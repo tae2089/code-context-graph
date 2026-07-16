@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	RequiredSchemaVersion    = 13
+	RequiredSchemaVersion    = 14
 	SchemaVersionKey         = "schema"
 	LegacySchemaVersionTable = "ccg_schema_versions"
 )
@@ -388,6 +388,57 @@ func RequiredSchemaTables() []string {
 	}
 }
 
+// RequiredTextColumns lists graph string columns that must remain unbounded across database drivers.
+// @intent prevent source-derived graph values from failing persistence because of arbitrary varchar widths.
+func RequiredTextColumns() []SchemaColumn {
+	return []SchemaColumn{
+		{Table: "nodes", Column: "namespace"},
+		{Table: "nodes", Column: "qualified_name"},
+		{Table: "nodes", Column: "kind"},
+		{Table: "nodes", Column: "name"},
+		{Table: "nodes", Column: "file_path"},
+		{Table: "nodes", Column: "hash"},
+		{Table: "nodes", Column: "language"},
+		{Table: "edges", Column: "namespace"},
+		{Table: "edges", Column: "kind"},
+		{Table: "edges", Column: "file_path"},
+		{Table: "edges", Column: "fingerprint"},
+		{Table: "annotations", Column: "summary"},
+		{Table: "annotations", Column: "context"},
+		{Table: "annotations", Column: "raw_text"},
+		{Table: "doc_tags", Column: "kind"},
+		{Table: "doc_tags", Column: "type"},
+		{Table: "doc_tags", Column: "name"},
+		{Table: "doc_tags", Column: "value"},
+		{Table: "communities", Column: "namespace"},
+		{Table: "communities", Column: "key"},
+		{Table: "communities", Column: "label"},
+		{Table: "communities", Column: "strategy"},
+		{Table: "communities", Column: "description"},
+		{Table: "flows", Column: "namespace"},
+		{Table: "flows", Column: "name"},
+		{Table: "flows", Column: "description"},
+		{Table: "flow_memberships", Column: "namespace"},
+		{Table: "search_documents", Column: "namespace"},
+		{Table: "search_documents", Column: "content"},
+		{Table: "search_documents", Column: "language"},
+		{Table: "parse_cache_entries", Column: "namespace"},
+		{Table: "parse_cache_entries", Column: "file_path"},
+		{Table: "parse_cache_entries", Column: "source_hash"},
+		{Table: "parse_cache_entries", Column: "parser_version"},
+		{Table: "parse_cache_entries", Column: "context_hash"},
+		{Table: "unresolved_edge_candidates", Column: "namespace"},
+		{Table: "unresolved_edge_candidates", Column: "lookup_key"},
+		{Table: "unresolved_edge_candidates", Column: "lookup_key_hash"},
+		{Table: "unresolved_edge_candidates", Column: "fingerprint"},
+		{Table: "unresolved_edge_candidates", Column: "fingerprint_hash"},
+		{Table: "unresolved_edge_candidates", Column: "file_path"},
+		{Table: "unresolved_edge_candidates", Column: "kind"},
+		{Table: "unresolved_index_states", Column: "namespace"},
+		{Table: "unresolved_index_states", Column: "version"},
+	}
+}
+
 // ModelNullabilityColumns enumerates columns that must remain NOT NULL for model invariants.
 // @intent 주요 모델 필드의 nullable drift를 런타임 검증에서 감지한다.
 func ModelNullabilityColumns() []SchemaColumn {
@@ -585,7 +636,7 @@ func validateSQLiteSchemaParity(db *gorm.DB) error {
 	return nil
 }
 
-// validatePostgresSchemaParity checks PostgreSQL-only indexes, triggers, and JSONB column types.
+// validatePostgresSchemaParity checks PostgreSQL-only indexes, triggers, and column types.
 // @intent PostgreSQL 검색/후처리 스키마가 운영 계약과 일치하는지 확인한다.
 func validatePostgresSchemaParity(db *gorm.DB) error {
 	for _, column := range ModelNullabilityColumns() {
@@ -621,13 +672,10 @@ func validatePostgresSchemaParity(db *gorm.DB) error {
 			return fmt.Errorf("required index %q is missing", indexName)
 		}
 	}
-	for _, column := range []SchemaColumn{
-		{Table: "annotations", Column: "summary"},
-		{Table: "annotations", Column: "context"},
-	} {
+	for _, column := range RequiredTextColumns() {
 		dataType, err := postgresColumnDataType(db, column.Table, column.Column)
 		if err != nil {
-			return trace.Wrap(err, "inspect postgres annotation column type")
+			return trace.Wrap(err, "inspect postgres text column type")
 		}
 		if dataType != "text" {
 			return fmt.Errorf("required column %q.%q has type %q, want text", column.Table, column.Column, dataType)

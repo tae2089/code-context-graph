@@ -2,15 +2,16 @@ package migration
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
-func TestRequiredSchemaVersion_IncludesUnboundedAnnotationsAndResolverFileLookupIndex(t *testing.T) {
-	if RequiredSchemaVersion != 13 {
-		t.Fatalf("RequiredSchemaVersion = %d, want 13", RequiredSchemaVersion)
+func TestRequiredSchemaVersion_IncludesUnboundedGraphStrings(t *testing.T) {
+	if RequiredSchemaVersion != 14 {
+		t.Fatalf("RequiredSchemaVersion = %d, want 14", RequiredSchemaVersion)
 	}
 }
 
@@ -139,5 +140,41 @@ func TestSQLiteMigrationThirteen_AddsResolverFileLookupIndexAndCanMigrateDown(t 
 	}
 	if exists {
 		t.Fatalf("version 12 retained index %q", indexName)
+	}
+}
+
+func TestSQLiteMigrationFourteen_PreservesTextColumnsAndCanMigrateDown(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "migration.db")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open SQLite: %v", err)
+	}
+	migrator, _, err := NewMigrator(db, "sqlite", "")
+	if err != nil {
+		t.Fatalf("NewMigrator: %v", err)
+	}
+	if err := migrator.Steps(14); err != nil {
+		t.Fatalf("migrate to version 14: %v", err)
+	}
+
+	columns, err := db.Migrator().ColumnTypes("nodes")
+	if err != nil {
+		t.Fatalf("inspect nodes.name: %v", err)
+	}
+	foundName := false
+	for _, column := range columns {
+		if column.Name() != "name" {
+			continue
+		}
+		foundName = true
+		if !strings.EqualFold(column.DatabaseTypeName(), "text") {
+			t.Fatalf("nodes.name type = %q, want TEXT", column.DatabaseTypeName())
+		}
+	}
+	if !foundName {
+		t.Fatal("nodes.name column is missing")
+	}
+	if err := migrator.Steps(-1); err != nil {
+		t.Fatalf("migrate down to version 13: %v", err)
 	}
 }

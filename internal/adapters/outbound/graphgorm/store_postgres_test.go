@@ -51,6 +51,32 @@ func TestWithTxDB_PostgresRollsBackGraphAndSearchDocumentTogether(t *testing.T) 
 	assertGraphAndSearchDocumentCounts(t, db, "txdb.PostgresRollback", "postgres rolled back search document", 0)
 }
 
+func TestUpsertNodes_PostgresAllowsFileNameLongerThan256Characters(t *testing.T) {
+	s, db := setupIsolatedPostgresStore(t)
+	longPath := strings.Repeat("nested-directory/", 20) + "component.tsx"
+	node := graph.Node{
+		QualifiedName: longPath,
+		Kind:          graph.NodeKindFile,
+		Name:          longPath,
+		FilePath:      longPath,
+		StartLine:     1,
+		EndLine:       1,
+		Language:      "typescript",
+	}
+
+	if err := s.UpsertNodes(context.Background(), []graph.Node{node}); err != nil {
+		t.Fatalf("upsert long file node: %v", err)
+	}
+
+	var persisted graph.Node
+	if err := db.Where("qualified_name = ?", longPath).First(&persisted).Error; err != nil {
+		t.Fatalf("load long file node: %v", err)
+	}
+	if persisted.Name != longPath {
+		t.Fatalf("persisted name length = %d, want %d", len(persisted.Name), len(longPath))
+	}
+}
+
 func TestDeleteGraph_PostgresHandlesMoreThanBindParameterLimit(t *testing.T) {
 	s, db := setupIsolatedPostgresStore(t)
 	ctx := context.Background()

@@ -19,15 +19,15 @@ const (
 // @intent 파일 내 선언의 정체성과 위치 정보를 영속화한다.
 type Node struct {
 	ID            uint     `gorm:"primaryKey"`
-	Namespace     string   `gorm:"size:256;not null;default:'default';uniqueIndex:idx_ns_qn_fp_sl;index:idx_nodes_ns_file_path,priority:1"`
-	QualifiedName string   `gorm:"size:512;not null;uniqueIndex:idx_ns_qn_fp_sl"`
-	Kind          NodeKind `gorm:"size:32;not null;index"`
-	Name          string   `gorm:"size:256;not null"`
-	FilePath      string   `gorm:"size:768;not null;index;uniqueIndex:idx_ns_qn_fp_sl;index:idx_nodes_ns_file_path,priority:2"`
+	Namespace     string   `gorm:"type:text;not null;default:'default';uniqueIndex:idx_ns_qn_fp_sl;index:idx_nodes_ns_file_path,priority:1"`
+	QualifiedName string   `gorm:"type:text;not null;uniqueIndex:idx_ns_qn_fp_sl"`
+	Kind          NodeKind `gorm:"type:text;not null;index"`
+	Name          string   `gorm:"type:text;not null"`
+	FilePath      string   `gorm:"type:text;not null;index;uniqueIndex:idx_ns_qn_fp_sl;index:idx_nodes_ns_file_path,priority:2"`
 	StartLine     int      `gorm:"not null;uniqueIndex:idx_ns_qn_fp_sl"`
 	EndLine       int      `gorm:"not null"`
-	Hash          string   `gorm:"size:64"`
-	Language      string   `gorm:"size:32;index"`
+	Hash          string   `gorm:"type:text"`
+	Language      string   `gorm:"type:text;index"`
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 

@@ -44,9 +44,9 @@ type Annotation struct {
 type DocTag struct {
 	ID           uint    `gorm:"primaryKey"`
 	AnnotationID uint    `gorm:"not null;index"`
-	Kind         TagKind `gorm:"size:32;not null;index"`
+	Kind         TagKind `gorm:"type:text;not null;index"`
 	Type         string  `gorm:"type:text"`
-	Name         string  `gorm:"size:128"`
+	Name         string  `gorm:"type:text"`
 	Value        string  `gorm:"type:text;not null"`
 	Ordinal      int     `gorm:"not null"`
 	CreatedAt    time.Time

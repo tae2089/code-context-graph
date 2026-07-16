@@ -6,7 +6,7 @@ import "time"
 // SchemaVersion records the database schema level expected by the binary.
 // @intent let runtime commands fail fast when explicit migrations were not run.
 type SchemaVersion struct {
-	Key       string `gorm:"primaryKey;size:64"`
+	Key       string `gorm:"primaryKey;type:text"`
 	Version   int    `gorm:"not null"`
 	UpdatedAt time.Time
 }
