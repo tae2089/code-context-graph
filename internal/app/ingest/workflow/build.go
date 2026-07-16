@@ -41,6 +41,10 @@ type parsedBuildEdgeBatch struct {
 	edges   []graph.Edge
 }
 
+// buildEdgeBatchSource replays deferred edge batches from the beginning on every invocation.
+// @intent let edge resolution make ordered passes over either in-memory batches or disk-backed build records.
+type buildEdgeBatchSource func(yield func(parsedBuildEdgeBatch) error) error
+
 // buildParseInput is one validated source file assigned to a parse worker.
 // @intent keep deterministic input sequencing separate from concurrent filesystem and parser work.
 type buildParseInput struct {
@@ -762,21 +766,38 @@ func (s *Service) flushBuildEdges(ctx context.Context, txStore ingestapp.GraphSt
 // flushBuildEdgesWithTiming resolves and persists deferred edges while recording each resolver operation when timing is supplied.
 // @intent measure edge-resolution database reads and writes without altering the existing resolution order or transaction.
 func (s *Service) flushBuildEdgesWithTiming(ctx context.Context, txStore ingestapp.GraphStore, edgeBatches []parsedBuildEdgeBatch, stats *BuildStats, resolveOptions resolve.ResolveOptions, timing *BuildResolveTiming) error {
-	implementsEdges, otherBatches := partitionBuildEdges(edgeBatches)
-	importsByPath := importEdgesByFile(otherBatches)
+	source := buildEdgeBatchSource(func(yield func(parsedBuildEdgeBatch) error) error {
+		for _, batch := range edgeBatches {
+			if err := yield(batch); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return s.flushBuildEdgeSourceWithTiming(ctx, txStore, source, stats, resolveOptions, timing)
+}
+
+// flushBuildEdgeSourceWithTiming resolves a re-iterable edge source in implements-first order using bounded buffers.
+// @intent avoid retaining or repartitioning every build edge while preserving resolver ordering and timing contracts.
+// @sideEffect upserts graph edges through the transaction-scoped store.
+// @mutates graph edges
+func (s *Service) flushBuildEdgeSourceWithTiming(ctx context.Context, txStore ingestapp.GraphStore, source buildEdgeBatchSource, stats *BuildStats, resolveOptions resolve.ResolveOptions, timing *BuildResolveTiming) error {
 	lookup := newBuildResolveLookupWithTiming(txStore, timing)
-	for start := 0; start < len(implementsEdges); start += buildEdgeResolveChunkSize {
+	var pendingImplements []graph.Edge
+	flushImplements := func() error {
+		if len(pendingImplements) == 0 {
+			return nil
+		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		end := min(start+buildEdgeResolveChunkSize, len(implementsEdges))
 		resolveStarted := time.Now()
-		resolved, err := s.edgeResolver()(ctx, lookup, implementsEdges[start:end], resolveOptions)
+		resolved, err := s.edgeResolver()(ctx, lookup, pendingImplements, resolveOptions)
 		if timing != nil {
 			timing.Resolver.add(time.Since(resolveStarted))
 		}
 		if err != nil {
-			s.logger().ErrorContext(ctx, "resolve deferred implements edges failed", append(obs.TraceLogArgs(ctx), "start", start, "end", end, "error", err)...)
+			s.logger().ErrorContext(ctx, "resolve deferred implements edges failed", append(obs.TraceLogArgs(ctx), "edges", len(pendingImplements), "error", err)...)
 			return trace.Wrap(err, "resolve deferred implements edges")
 		}
 		resolved, diagnostics := resolve.FilterResolvedWithDiagnosticsFiltered(resolved, shouldSuppressExternalImportUnresolved)
@@ -790,9 +811,33 @@ func (s *Service) flushBuildEdgesWithTiming(ctx context.Context, txStore ingesta
 			timing.UpsertEdges.add(time.Since(upsertStarted))
 		}
 		if err != nil {
-			s.logger().ErrorContext(ctx, "upsert deferred implements edges failed", append(obs.TraceLogArgs(ctx), "start", start, "end", end, "error", err)...)
+			s.logger().ErrorContext(ctx, "upsert deferred implements edges failed", append(obs.TraceLogArgs(ctx), "edges", len(resolved), "error", err)...)
 			return trace.Wrap(err, "upsert deferred implements edges")
 		}
+		pendingImplements = nil
+		return nil
+	}
+	if err := source(func(parsed parsedBuildEdgeBatch) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		for _, edge := range parsed.edges {
+			if edge.Kind != graph.EdgeKindImplements {
+				continue
+			}
+			if len(pendingImplements) == buildEdgeResolveChunkSize {
+				if err := flushImplements(); err != nil {
+					return err
+				}
+			}
+			pendingImplements = append(pendingImplements, edge)
+		}
+		return nil
+	}); err != nil {
+		return trace.Wrap(err, "replay deferred implements edges")
+	}
+	if err := flushImplements(); err != nil {
+		return err
 	}
 
 	// actualEdgeRange identifies parsed edges within a resolver input that also contains import warmup edges.
@@ -840,14 +885,16 @@ func (s *Service) flushBuildEdgesWithTiming(ctx context.Context, txStore ingesta
 		actualRanges = nil
 		return nil
 	}
-	for _, parsed := range otherBatches {
+	if err := source(func(parsed parsedBuildEdgeBatch) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		for start := 0; start < len(parsed.edges); start += buildEdgeResolveChunkSize {
-			end := min(start+buildEdgeResolveChunkSize, len(parsed.edges))
-			chunk := parsed.edges[start:end]
-			resolveInput := chunkWithImportWarmup(chunk, importsByPath[parsed.relPath])
+		_, otherEdges := splitImplementsEdges(parsed.edges)
+		imports := importEdges(otherEdges)
+		for start := 0; start < len(otherEdges); start += buildEdgeResolveChunkSize {
+			end := min(start+buildEdgeResolveChunkSize, len(otherEdges))
+			chunk := otherEdges[start:end]
+			resolveInput := chunkWithImportWarmup(chunk, imports)
 			if len(pending) > 0 && len(pending)+len(resolveInput) > buildEdgeResolveChunkSize {
 				if err := flushPending(); err != nil {
 					return err
@@ -857,11 +904,26 @@ func (s *Service) flushBuildEdgesWithTiming(ctx context.Context, txStore ingesta
 			pending = append(pending, resolveInput...)
 			actualRanges = append(actualRanges, actualEdgeRange{start: actualStart, end: actualStart + len(chunk)})
 		}
+		return nil
+	}); err != nil {
+		return trace.Wrap(err, "replay deferred edges")
 	}
 	if err := flushPending(); err != nil {
 		return err
 	}
 	return nil
+}
+
+// importEdges selects file-local import warmup edges from one streamed edge batch.
+// @intent preserve import-aware call resolution without retaining a build-wide import map.
+func importEdges(edges []graph.Edge) []graph.Edge {
+	var imports []graph.Edge
+	for _, edge := range edges {
+		if edge.Kind == graph.EdgeKindImportsFrom {
+			imports = append(imports, edge)
+		}
+	}
+	return imports
 }
 
 // rewriteImplementsFingerprintScope rewrites an implements fingerprint to use a package anchor file.
@@ -949,27 +1011,6 @@ func shouldSuppressExternalImportUnresolved(edge graph.Edge, _ string) bool {
 	return edge.Kind == graph.EdgeKindImportsFrom && resolve.IsLikelyExternalImportEdge(edge)
 }
 
-// partitionBuildEdges keeps implements edges available before resolving call edges in later bounded chunks.
-// @intent preserve Go interface dispatch resolution after build edge resolution starts streaming by file.
-func partitionBuildEdges(edgeBatches []parsedBuildEdgeBatch) ([]graph.Edge, []parsedBuildEdgeBatch) {
-	var implementsEdges []graph.Edge
-	otherBatches := make([]parsedBuildEdgeBatch, 0, len(edgeBatches))
-	otherByPath := make(map[string][]graph.Edge, len(edgeBatches))
-	var paths []string
-	for _, parsed := range edgeBatches {
-		parsedImplements, otherEdges := splitImplementsEdges(parsed.edges)
-		implementsEdges = append(implementsEdges, parsedImplements...)
-		if len(otherEdges) > 0 {
-			otherByPath[parsed.relPath] = append(otherByPath[parsed.relPath], otherEdges...)
-			paths = append(paths, parsed.relPath)
-		}
-	}
-	for _, path := range paths {
-		otherBatches = append(otherBatches, parsedBuildEdgeBatch{relPath: path, edges: otherByPath[path]})
-	}
-	return implementsEdges, otherBatches
-}
-
 // splitImplementsEdges separates implements edges from other relationship types.
 // @intent ensure interface fulfillment edges are handled before call dispatch resolution.
 func splitImplementsEdges(edges []graph.Edge) ([]graph.Edge, []graph.Edge) {
@@ -983,21 +1024,6 @@ func splitImplementsEdges(edges []graph.Edge) ([]graph.Edge, []graph.Edge) {
 		otherEdges = append(otherEdges, edge)
 	}
 	return implementsEdges, otherEdges
-}
-
-// importEdgesByFile groups import-from edges by their source file path.
-// @intent optimize edge resolution by pre-loading import context for each file.
-func importEdgesByFile(edgeBatches []parsedBuildEdgeBatch) map[string][]graph.Edge {
-	byFile := make(map[string][]graph.Edge, len(edgeBatches))
-	for _, batch := range edgeBatches {
-		for _, edge := range batch.edges {
-			if edge.Kind != graph.EdgeKindImportsFrom {
-				continue
-			}
-			byFile[batch.relPath] = append(byFile[batch.relPath], edge)
-		}
-	}
-	return byFile
 }
 
 // chunkWithImportWarmup combines a chunk of call edges with their file's import edges.

@@ -643,6 +643,90 @@ func TestFlushBuildEdges_ResolvesAndUpsertsBoundedBatches(t *testing.T) {
 	}
 }
 
+func TestFlushBuildEdgeSource_ReplaysTwoPassesInImplementsFirstOrder(t *testing.T) {
+	ctx := context.Background()
+	st := newRecordingGraphStore(t)
+	batches := []parsedBuildEdgeBatch{
+		{
+			relPath: "first.go",
+			edges: []graph.Edge{
+				{Kind: graph.EdgeKindImplements, FilePath: "first.go", FromNodeID: 1, ToNodeID: 2},
+				{Kind: graph.EdgeKindContains, FilePath: "first.go", FromNodeID: 1, ToNodeID: 3},
+			},
+		},
+		{
+			relPath: "second.go",
+			edges: []graph.Edge{
+				{Kind: graph.EdgeKindImplements, FilePath: "second.go", FromNodeID: 4, ToNodeID: 5},
+				{Kind: graph.EdgeKindContains, FilePath: "second.go", FromNodeID: 4, ToNodeID: 6},
+			},
+		},
+	}
+
+	passes := 0
+	source := buildEdgeBatchSource(func(yield func(parsedBuildEdgeBatch) error) error {
+		passes++
+		for _, batch := range batches {
+			if err := yield(batch); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	var resolvedKinds [][]graph.EdgeKind
+	resolver := func(_ context.Context, _ resolve.NodeLookup, edges []graph.Edge, _ resolve.ResolveOptions) ([]graph.Edge, error) {
+		if len(edges) > buildEdgeResolveChunkSize {
+			t.Fatalf("resolve batch exceeded limit: got %d want <= %d", len(edges), buildEdgeResolveChunkSize)
+		}
+		kinds := make([]graph.EdgeKind, len(edges))
+		for i := range edges {
+			kinds[i] = edges[i].Kind
+		}
+		resolvedKinds = append(resolvedKinds, kinds)
+		return edges, nil
+	}
+
+	svc := &Service{resolveEdges: resolver}
+	if err := svc.flushBuildEdgeSourceWithTiming(ctx, st, source, nil, resolve.ResolveOptions{}, nil); err != nil {
+		t.Fatalf("flushBuildEdgeSourceWithTiming: %v", err)
+	}
+	if passes != 2 {
+		t.Fatalf("source passes = %d, want 2", passes)
+	}
+	seenNonImplements := false
+	implementsCount := 0
+	otherCount := 0
+	for _, kinds := range resolvedKinds {
+		for _, kind := range kinds {
+			if kind == graph.EdgeKindImplements {
+				if seenNonImplements {
+					t.Fatal("implements edge resolved after non-implements edge")
+				}
+				implementsCount++
+				continue
+			}
+			seenNonImplements = true
+			otherCount++
+		}
+	}
+	if implementsCount != 2 || otherCount != 2 {
+		t.Fatalf("resolved counts = implements %d, other %d; want 2 and 2", implementsCount, otherCount)
+	}
+}
+
+func TestFlushBuildEdgeSource_PropagatesSourceError(t *testing.T) {
+	wantErr := errors.New("read edge spool")
+	source := buildEdgeBatchSource(func(func(parsedBuildEdgeBatch) error) error {
+		return wantErr
+	})
+
+	svc := &Service{}
+	err := svc.flushBuildEdgeSourceWithTiming(context.Background(), newRecordingGraphStore(t), source, nil, resolve.ResolveOptions{}, nil)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("flush error = %v, want %v", err, wantErr)
+	}
+}
+
 func TestFlushBuildEdges_RecordsResolverAndUpsertTiming(t *testing.T) {
 	ctx := context.Background()
 	st := newRecordingGraphStore(t)
