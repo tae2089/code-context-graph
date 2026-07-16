@@ -727,6 +727,40 @@ func TestFlushBuildEdgeSource_PropagatesSourceError(t *testing.T) {
 	}
 }
 
+func TestBuildSpoolEdgeBatchSource_ReplaysRecordsAndTrailingBatches(t *testing.T) {
+	spool := &buildSpool{dir: t.TempDir()}
+	for seq, record := range []spooledBuildRecord{
+		{RelPath: "first.go", Edges: []graph.Edge{{Kind: graph.EdgeKindContains, Fingerprint: "first"}}},
+		{RelPath: "second.go", Edges: []graph.Edge{{Kind: graph.EdgeKindCalls, Fingerprint: "second"}}},
+	} {
+		if err := spool.writeRecord(seq, record); err != nil {
+			t.Fatalf("write spool record %d: %v", seq, err)
+		}
+	}
+	trailing := []parsedBuildEdgeBatch{{
+		relPath: "package.go",
+		edges:   []graph.Edge{{Kind: graph.EdgeKindImplements, Fingerprint: "package"}},
+	}}
+
+	source := spool.edgeBatchSource(context.Background(), trailing)
+	for pass := 1; pass <= 2; pass++ {
+		var got []string
+		err := source(func(batch parsedBuildEdgeBatch) error {
+			for _, edge := range batch.edges {
+				got = append(got, batch.relPath+":"+edge.Fingerprint)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("source pass %d: %v", pass, err)
+		}
+		want := []string{"first.go:first", "second.go:second", "package.go:package"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("source pass %d = %v, want %v", pass, got, want)
+		}
+	}
+}
+
 func TestFlushBuildEdges_RecordsResolverAndUpsertTiming(t *testing.T) {
 	ctx := context.Background()
 	st := newRecordingGraphStore(t)
