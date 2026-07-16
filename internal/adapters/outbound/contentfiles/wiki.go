@@ -11,6 +11,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/app/wiki"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
+	"github.com/tae2089/code-context-graph/internal/safepath"
 )
 
 // WikiIndexWriter maps namespaces to compatibility snapshot paths and atomically replaces JSON.
@@ -23,23 +24,29 @@ var _ wiki.IndexWriter = (*WikiIndexWriter)(nil)
 // @intent preserve the default .ccg output root while allowing CLI-configured state paths.
 func NewWikiIndexWriter(root string) *WikiIndexWriter { return &WikiIndexWriter{Root: root} }
 
-// @intent map default and named namespaces to their compatibility snapshot location.
-func (w *WikiIndexWriter) indexPath(namespace string) string {
+// @intent map default and validated single-segment namespaces to their compatibility snapshot location.
+func (w *WikiIndexWriter) indexPath(namespace string) (string, error) {
 	root := w.Root
 	if root == "" {
 		root = ".ccg"
 	}
 	if requestctx.Normalize(namespace) == requestctx.DefaultNamespace {
-		return filepath.Join(root, "wiki-index.json")
+		return filepath.Join(root, "wiki-index.json"), nil
 	}
-	return filepath.Join(root, namespace, "wiki-index.json")
+	if err := safepath.ValidateNamespacePath(namespace, ""); err != nil {
+		return "", err
+	}
+	return filepath.Join(root, namespace, "wiki-index.json"), nil
 }
 
 // WriteWikiIndex writes indented JSON through a same-directory temporary file and rename.
 // @intent preserve the versioned built-in Wiki snapshot format at its namespace-specific path.
 // @sideEffect creates the namespace directory and atomically replaces wiki-index.json.
 func (w *WikiIndexWriter) WriteWikiIndex(_ context.Context, namespace string, idx *wiki.Index) error {
-	target := w.indexPath(namespace)
+	target, err := w.indexPath(namespace)
+	if err != nil {
+		return trace.Wrap(err, "validate wiki index namespace")
+	}
 	dir := filepath.Dir(target)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return trace.Wrap(err, "mkdir wiki index dir")

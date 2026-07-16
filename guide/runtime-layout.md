@@ -86,12 +86,13 @@ ccg-server \
 
 Webhook sync:
 
+Set `CCG_WEBHOOK_SECRET` through the deployment secret store before starting this command.
+
 ```bash
 ccg-server \
   --http-addr 0.0.0.0:8080 \
   --http-bearer-token "$CCG_HTTP_BEARER_TOKEN" \
   --allow-repo "org/api:main,develop" \
-  --webhook-secret "$WEBHOOK_SECRET" \
   --repo-clone-base-url https://github.com \
   --repo-root /data/repos
 ```

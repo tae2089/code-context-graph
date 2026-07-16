@@ -2,6 +2,7 @@
 package reposync
 
 import (
+	"fmt"
 	"path"
 	"sort"
 	"strings"
@@ -200,6 +201,17 @@ func AllowRuleOwners(rules []RepoRule) []string {
 func AllowRulesSpanMultipleOwners(rules []RepoRule) (bool, []string) {
 	owners := AllowRuleOwners(rules)
 	return len(owners) > 1 || (len(owners) == 1 && owners[0] == "*"), owners
+}
+
+// ValidateRepoNameNamespaceRules rejects admission surfaces that can map distinct repositories to one repo-name namespace.
+// @intent fail webhook startup before equal repo names from different owners can share checkout and graph state.
+// @domainRule repo-name namespaces are safe only when all positive allow rules are constrained to one non-wildcard owner.
+func ValidateRepoNameNamespaceRules(rules []RepoRule) error {
+	spans, owners := AllowRulesSpanMultipleOwners(rules)
+	if !spans {
+		return nil
+	}
+	return fmt.Errorf("webhook allow-repo owners %v can collide under repo-name namespaces; configure one non-wildcard owner", owners)
 }
 
 // @intent apply one compiled allow or deny pattern to a repository full name during filter evaluation.

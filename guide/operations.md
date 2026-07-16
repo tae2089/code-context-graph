@@ -196,7 +196,7 @@ can cover request intake, queue processing, clone/pull, and graph update work.
 Webhook deployments should be configured with:
 
 - `--allow-repo` for an explicit repository and branch allowlist
-- `--webhook-secret` for HMAC verification
+- `CCG_WEBHOOK_SECRET` (preferred) or `--webhook-secret` for HMAC verification
 - `--repo-clone-base-url` so clone URLs are reconstructed from allowed repo
   names instead of trusted from payloads
 - `--repo-root` on durable local storage
@@ -205,7 +205,7 @@ Webhook deployments should be configured with:
 Webhook namespace extraction uses the final repository name. For example,
 `acme/api` is stored in namespace `api` and checked out under
 `$REPO_ROOT/api`. This is intended for single-owner webhook deployments. If an
-allowlist spans multiple owners, the server logs a warning because `acme/api`
+allowlist spans multiple owners, the server rejects startup because `acme/api`
 and `external/api` would collide in the same namespace and checkout path.
 
 Recommended policy:
@@ -333,7 +333,7 @@ existing schema and migrated explicitly before restarting runtime commands.
 | Symptom | Likely Cause | Check / Fix |
 |---------|--------------|-------------|
 | `401` or MCP initialize fails | Missing or wrong bearer token | Confirm `Authorization: Bearer ...` and `CCG_HTTP_BEARER_TOKEN`. |
-| Webhook returns unauthorized | Missing/invalid HMAC signature | Verify `--webhook-secret` and provider signature header. |
+| Webhook returns unauthorized | Missing/invalid HMAC signature | Verify `CCG_WEBHOOK_SECRET` (or `--webhook-secret`) and the provider signature header. |
 | Webhook returns forbidden | Repo or branch not allowed | Check `--allow-repo` patterns and branch refs. |
 | Webhook returns too many requests | Sync queue is full | Check `/status`, reduce push volume, or increase workers on PostgreSQL. |
 | `/ready` is `not_ready` | DB or queue blocking condition | Inspect `/status` and service logs. |

@@ -141,7 +141,7 @@ HTTP MCP and webhook hosting now live in the dedicated `ccg-server` binary:
 | `ccg-server --wiki-dir <dir>` | Enable the browser Wiki UI at `/wiki` using a built React dist directory; `/wiki/api/*` uses the same bearer token as `/mcp` |
 | `ccg-server --namespace-root <dir>` | Root directory for file namespaces (default `namespaces`) |
 | `ccg-server --allow-repo <pat>` | Allowed repo patterns for webhook sync (e.g. `org/*`, `org/api:main,develop`) |
-| `ccg-server --webhook-secret <s>` | HMAC secret for webhook signature verification |
+| `ccg-server --webhook-secret <s>` | HMAC secret for webhook signature verification (prefer `CCG_WEBHOOK_SECRET` to avoid argv exposure) |
 | `ccg-server --insecure-webhook` | Allow unsigned webhook requests for local testing only |
 | `ccg-server --repo-clone-base-url <url>` | Canonical base URL used to reconstruct webhook clone targets (repeatable) |
 | `ccg-server --repo-root <dir>` | Root directory for cloned repositories |
@@ -156,7 +156,7 @@ HTTP MCP and webhook hosting now live in the dedicated `ccg-server` binary:
 | `ccg-server --max-total-parsed-bytes <bytes>` | Maximum total bytes parsed across source files (`0` disables the limit) |
 
 Webhook-related server flags can also be configured with matching environment
-variables where supported: `CCG_WEBHOOK_WORKERS`,
+variables where supported: `CCG_WEBHOOK_SECRET`, `CCG_WEBHOOK_WORKERS`,
 `CCG_WEBHOOK_MAX_TRACKED_REPOS`, `CCG_WEBHOOK_ATTEMPT_TIMEOUT`,
 `CCG_WEBHOOK_RETRY_ATTEMPTS`, `CCG_WEBHOOK_RETRY_BASE_DELAY`,
 `CCG_WEBHOOK_RETRY_MAX_DELAY`, and `CCG_REPO_ROOT`.

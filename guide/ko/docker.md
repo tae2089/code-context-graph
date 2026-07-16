@@ -47,11 +47,11 @@ docker run -d -p 8080:8080 \
   -e CCG_DB_DRIVER=postgres \
   -e CCG_DB_DSN="$CCG_DB_DSN" \
   -e CCG_REPO_ROOT=/data/repos \
+  -e CCG_WEBHOOK_SECRET \
   -v ccg-repos:/data/repos \
   --entrypoint ccg-server ccg \
   --http-addr :8080 \
     --allow-repo "acme/*" \
-    --webhook-secret "$WEBHOOK_SECRET" \
     --repo-clone-base-url https://github.com
 ```
 

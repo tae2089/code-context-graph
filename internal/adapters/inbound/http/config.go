@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/tae2089/code-context-graph/internal/app/reposync"
 )
 
 // Config holds self-hosted HTTP server runtime options.
@@ -52,6 +54,7 @@ func DefaultConfig() Config {
 		OTELEndpoint:           os.Getenv("CCG_OTEL_ENDPOINT"),
 		WikiDir:                os.Getenv("CCG_WIKI_DIR"),
 		NamespaceRoot:          "namespaces",
+		WebhookSecret:          os.Getenv("CCG_WEBHOOK_SECRET"),
 		WebhookWorkers:         EnvInt("CCG_WEBHOOK_WORKERS", 4),
 		WebhookMaxTrackedRepos: EnvInt("CCG_WEBHOOK_MAX_TRACKED_REPOS", 1024),
 		WebhookAttemptTimeout:  EnvDuration("CCG_WEBHOOK_ATTEMPT_TIMEOUT", 15*time.Minute),
@@ -97,6 +100,13 @@ func ValidateConfig(cfg Config) error {
 	}
 	if len(cfg.AllowRepo) == 0 {
 		return nil
+	}
+	rules := make([]reposync.RepoRule, 0, len(cfg.AllowRepo))
+	for _, raw := range cfg.AllowRepo {
+		rules = append(rules, reposync.ParseRepoRule(raw))
+	}
+	if err := reposync.ValidateRepoNameNamespaceRules(rules); err != nil {
+		return err
 	}
 	if cfg.WebhookSecret != "" && cfg.InsecureWebhook {
 		return fmt.Errorf("--webhook-secret and --insecure-webhook are mutually exclusive")

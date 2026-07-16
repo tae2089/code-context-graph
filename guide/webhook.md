@@ -4,11 +4,12 @@ Receives push events from GitHub or Gitea and automatically performs clone/pull 
 
 ## Setup
 
+Set `CCG_WEBHOOK_SECRET` through your deployment's secret store before starting the server. The environment-backed setting keeps the value out of process arguments.
+
 ```bash
 ccg-server \
   --allow-repo "org/api:main,develop" \
   --allow-repo "org/web:main" \
-  --webhook-secret "your-secret" \
   --repo-clone-base-url https://github.com \
   --repo-root /data/repos
 ```
@@ -89,8 +90,8 @@ repository name portion of `org/repo`. For example, `acme/api` maps to the
 `api` namespace and `/data/repos/api` checkout.
 
 This keeps single-organization deployments short and predictable, which is the
-recommended operating model. If the allowlist spans multiple owners, such as
-`acme/*` plus `external/shared` or `*/*`, CCG logs a startup warning because
+required operating model. If the allowlist spans multiple owners, such as
+`acme/*` plus `external/shared` or `*/*`, CCG rejects startup because
 repositories with the same final name can collide:
 
 | Repo | Derived namespace |
@@ -100,7 +101,7 @@ repositories with the same final name can collide:
 
 Operational policy:
 
-- Prefer one owner/organization per webhook CCG instance.
+- Use one owner/organization per webhook CCG instance; startup rejects multiple or wildcard owners.
 - Do not allow two repositories with the same final repo name in the same
   instance.
 - If multi-owner sync becomes necessary, run separate CCG instances or change
@@ -115,9 +116,9 @@ Verifies webhook payload with HMAC-SHA256.
 | GitHub | `X-Hub-Signature-256` | `sha256=<hex>` |
 | Gitea | `X-Gitea-Signature` | `<hex>` |
 
-By default, webhook requests fail closed unless `--webhook-secret` is configured.
+By default, webhook requests fail closed unless `CCG_WEBHOOK_SECRET` or `--webhook-secret` is configured.
 
-- `--webhook-secret` enables HMAC verification.
+- `CCG_WEBHOOK_SECRET` (preferred) or `--webhook-secret` enables HMAC verification. The environment variable avoids exposing the value in process arguments.
 - `--insecure-webhook` is an explicit testing-only escape hatch and is mutually exclusive with `--webhook-secret`.
 - When running in secure mode, `--repo-clone-base-url` is required and the server reconstructs clone URLs from the allowed repository name instead of trusting `clone_url` from the webhook payload.
 

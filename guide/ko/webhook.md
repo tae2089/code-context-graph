@@ -6,11 +6,12 @@ GitHub 또는 Gitea로부터 push 이벤트를 수신하여 자동으로 복제(
 
 ## 설정 (Setup)
 
+서버 시작 전에 배포 환경의 secret store를 통해 `CCG_WEBHOOK_SECRET`을 설정하십시오. 환경 변수 기반 설정은 값을 프로세스 인자에 노출하지 않습니다.
+
 ```bash
 ccg-server \
   --allow-repo "org/api:main,develop" \
   --allow-repo "org/web:main" \
-  --webhook-secret "your-secret" \
   --repo-clone-base-url https://github.com \
   --repo-root /data/repos
 ```
@@ -80,7 +81,7 @@ ccg-server \
 
 웹훅 동기화는 `org/repo` 중 마지막 저장소 이름을 그래프 네임스페이스와 checkout 디렉터리로 사용합니다. 예를 들어 `acme/api`는 `api` 네임스페이스와 `/data/repos/api` checkout으로 매핑됩니다.
 
-이 방식은 단일 조직 배포에서 짧고 예측 가능한 이름을 유지하기 위한 전략이며, 권장 운영 모델입니다. 허용 목록이 `acme/*`와 `external/shared`처럼 여러 owner를 포함하거나 `*/*`를 사용하면, 같은 마지막 저장소 이름이 충돌할 수 있으므로 CCG는 시작 시 경고 로그를 남깁니다.
+이 방식은 단일 조직 배포에서 짧고 예측 가능한 이름을 유지하기 위한 전략이며, 필수 운영 모델입니다. 허용 목록이 `acme/*`와 `external/shared`처럼 여러 owner를 포함하거나 `*/*`를 사용하면 같은 마지막 저장소 이름이 충돌할 수 있으므로 CCG는 시작을 거부합니다.
 
 | 저장소 | 파생 네임스페이스 |
 |------|-------------------|
@@ -89,7 +90,7 @@ ccg-server \
 
 운영 정책:
 
-- 웹훅 CCG 인스턴스 하나에는 하나의 owner/조직을 사용하는 것을 권장합니다.
+- 웹훅 CCG 인스턴스 하나에는 하나의 owner/조직만 사용하십시오. 여러 owner 또는 wildcard owner는 시작 시 거부됩니다.
 - 같은 인스턴스 안에 마지막 저장소 이름이 같은 저장소를 허용하지 마십시오.
 - 여러 owner의 동기화가 필요하면 별도 CCG 인스턴스를 사용하거나, 네임스페이스 전략을 변경한 뒤 활성화하십시오.
 
@@ -102,9 +103,9 @@ HMAC-SHA256을 사용하여 웹훅 페이로드를 검증합니다.
 | GitHub | `X-Hub-Signature-256` | `sha256=<hex>` |
 | Gitea | `X-Gitea-Signature` | `<hex>` |
 
-기본적으로 `--webhook-secret`이 설정되지 않으면 웹훅 요청은 실패(fail closed) 처리됩니다.
+기본적으로 `CCG_WEBHOOK_SECRET` 또는 `--webhook-secret`이 설정되지 않으면 웹훅 요청은 실패(fail closed) 처리됩니다.
 
-- `--webhook-secret`은 HMAC 검증을 활성화합니다.
+- `CCG_WEBHOOK_SECRET`(권장) 또는 `--webhook-secret`은 HMAC 검증을 활성화합니다. 환경 변수를 사용하면 프로세스 인자에 값이 노출되지 않습니다.
 - `--insecure-webhook`은 명시적인 테스트 전용 옵션이며 `--webhook-secret`과 함께 사용할 수 없습니다.
 - 보안 모드에서 실행할 때는 `--repo-clone-base-url`이 필수이며, 서버는 웹훅 페이로드의 `clone_url`을 신뢰하는 대신 허용된 저장소 이름을 기반으로 복제 URL을 재구성합니다.
 

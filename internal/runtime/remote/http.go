@@ -31,6 +31,13 @@ func RunHTTP(rt *ccgruntime.Runtime, cfg httpin.Config, serviceVersion, ragIndex
 	if cfg.Transport != "streamable-http" {
 		return fmt.Errorf("ccg-server only supports streamable-http transport")
 	}
+	rules := make([]reposync.RepoRule, 0, len(cfg.AllowRepo))
+	for _, raw := range cfg.AllowRepo {
+		rules = append(rules, reposync.ParseRepoRule(raw))
+	}
+	if err := reposync.ValidateRepoNameNamespaceRules(rules); err != nil {
+		return err
+	}
 	inst, err := mcpruntime.New(rt.MCPComponents(), mcpruntime.Options{
 		CacheTTL: cfg.CacheTTL, NoCache: cfg.NoCache, OTELEndpoint: cfg.OTELEndpoint,
 		NamespaceRoot: cfg.NamespaceRoot, RepoRoot: cfg.RepoRoot,
@@ -73,7 +80,7 @@ func RunHTTP(rt *ccgruntime.Runtime, cfg httpin.Config, serviceVersion, ragIndex
 
 	cleanupQueue := func() {}
 	if len(cfg.AllowRepo) > 0 {
-		queue, handler, cleanup := buildRepoSyncHTTP(rt, cfg, inst)
+		queue, handler, cleanup := buildRepoSyncHTTP(rt, cfg, rules, inst)
 		deps.SyncQueue = queue
 		deps.Webhook = handler
 		cleanupQueue = cleanup
@@ -85,14 +92,7 @@ func RunHTTP(rt *ccgruntime.Runtime, cfg httpin.Config, serviceVersion, ragIndex
 
 // buildRepoSyncHTTP assembles the optional webhook handler and its daemonless worker queue.
 // @intent centralize remote repository-sync adapter construction and return one idempotent cleanup hook.
-func buildRepoSyncHTTP(rt *ccgruntime.Runtime, cfg httpin.Config, inst *mcpruntime.Instance) (*reposync.SyncQueue, http.Handler, func()) {
-	rules := make([]reposync.RepoRule, 0, len(cfg.AllowRepo))
-	for _, raw := range cfg.AllowRepo {
-		rules = append(rules, reposync.ParseRepoRule(raw))
-	}
-	if spans, owners := reposync.AllowRulesSpanMultipleOwners(rules); spans {
-		rt.Logger.Warn("webhook allow-repo spans multiple owners; repo-name namespace strategy can collide for equal repo names", "owners", owners, "namespace_strategy", "repo_name")
-	}
+func buildRepoSyncHTTP(rt *ccgruntime.Runtime, cfg httpin.Config, rules []reposync.RepoRule, inst *mcpruntime.Instance) (*reposync.SyncQueue, http.Handler, func()) {
 	filter := reposync.NewRepoFilterFromRules(rules)
 	repoLocker := gitrepo.NewRepoLocker(30 * time.Second)
 	walkers := make(map[string]workflow.Parser, len(rt.Walkers))

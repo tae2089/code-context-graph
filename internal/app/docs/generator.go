@@ -57,7 +57,10 @@ func (g *Generator) Run() error {
 	current := generatedFiles(groups)
 
 	var errs []error
-	previous, _ := g.loadManifest()
+	previous, err := g.loadManifest()
+	if err != nil {
+		return fmt.Errorf("load docs manifest: %w", err)
+	}
 	for _, grp := range groups {
 		if err := g.writeFileDoc(grp); err != nil {
 			errs = append(errs, fmt.Errorf("write file doc %s: %w", grp.FilePath, err))
