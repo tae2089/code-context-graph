@@ -491,7 +491,7 @@ func TestNewSyncQueueWithOptions_NilContextDefaultsToBackground(t *testing.T) {
 }
 
 func TestSyncQueue_AddRejectsWhenMaxTrackedReposExceeded(t *testing.T) {
-	started := make(chan struct{})
+	started := make(chan struct{}, 1)
 	release := make(chan struct{})
 	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
 		select {
@@ -526,7 +526,7 @@ func TestSyncQueue_AddRejectsWhenMaxTrackedReposExceeded(t *testing.T) {
 }
 
 func TestSyncQueue_AddAllowsExistingRepoUpdateWhenAtCapacity(t *testing.T) {
-	started := make(chan struct{})
+	started := make(chan struct{}, 1)
 	release := make(chan struct{})
 	urls := make(chan string, 2)
 	handler := func(_ context.Context, repoFullName, cloneURL, branch string) error {
