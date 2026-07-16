@@ -296,7 +296,7 @@ func (s *Service) collectBuildParseInputs(ctx context.Context, absDir string, op
 			return nil
 		}
 
-		info, err := os.Stat(path)
+		info, err := inspectRegularSourceFile(path)
 		if err != nil {
 			return trace.Wrap(err, "stat build file "+relPath)
 		}
@@ -441,7 +441,7 @@ func (s *Service) parseBuildInput(ctx context.Context, input buildParseInput) bu
 		result.err = err
 		return result
 	}
-	content, err := os.ReadFile(input.path)
+	content, err := readRegularSourceFile(input.path)
 	if err != nil {
 		result.err = trace.Wrap(err, "read build file "+input.relPath)
 		return result

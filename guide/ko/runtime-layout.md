@@ -83,12 +83,13 @@ ccg-server --http-addr 0.0.0.0:8080 --http-bearer-token "$CCG_HTTP_BEARER_TOKEN"
 
 Webhook sync:
 
+이 명령을 시작하기 전에 배포 secret store를 통해 `CCG_WEBHOOK_SECRET`을 설정하십시오.
+
 ```bash
 ccg-server \
   --http-addr 0.0.0.0:8080 \
   --http-bearer-token "$CCG_HTTP_BEARER_TOKEN" \
   --allow-repo "org/api:main,develop" \
-  --webhook-secret "$WEBHOOK_SECRET" \
   --repo-clone-base-url https://github.com \
   --repo-root /data/repos
 ```

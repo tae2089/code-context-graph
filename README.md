@@ -219,7 +219,7 @@ trace_flow(qualified_name: "webhook.WebhookHandler.ServeHTTP")
 ```
 search(query: "authentication")
 → internal/adapters/inbound/webhook/handler.go  (HMAC signature validation)
-→ cmd/ccg-server/main.go       (--webhook-secret flag)
+→ cmd/ccg-server/main.go       (CCG_WEBHOOK_SECRET / --webhook-secret)
 ```
 
 ## MCP Server

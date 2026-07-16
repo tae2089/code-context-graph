@@ -48,12 +48,13 @@ type spooledUpdateRecord struct {
 // updateSpool is the temporary on-disk staging area for an incremental update pass.
 // @intent capture the current file set, hashes, and force-reparse decisions before the update transaction begins.
 type updateSpool struct {
-	dir           string
-	records       []string
-	currentFiles  map[string]struct{}
-	currentHashes map[string]string
-	packages      map[string]languagePackageInfo
-	forceFiles    map[string]struct{}
+	dir             string
+	records         []string
+	currentFiles    map[string]struct{}
+	unreadableFiles map[string]struct{}
+	currentHashes   map[string]string
+	packages        map[string]languagePackageInfo
+	forceFiles      map[string]struct{}
 }
 
 // writeRecord encodes one parsed file as a gob-serialized spool record on disk.

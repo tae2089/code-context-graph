@@ -153,6 +153,27 @@ func TestAllowRulesSpanMultipleOwners(t *testing.T) {
 	}
 }
 
+func TestValidateRepoNameNamespaceRules(t *testing.T) {
+	tests := []struct {
+		name    string
+		rules   []RepoRule
+		wantErr bool
+	}{
+		{name: "single owner", rules: []RepoRule{{Pattern: "org/*"}, {Pattern: "!org/private"}}},
+		{name: "multiple owners", rules: []RepoRule{{Pattern: "org-a/*"}, {Pattern: "org-b/api"}}, wantErr: true},
+		{name: "wildcard owner", rules: []RepoRule{{Pattern: "*/*"}}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateRepoNameNamespaceRules(tt.rules)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ValidateRepoNameNamespaceRules() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestRepoFilter_PerRepoBranch_ExactRepo(t *testing.T) {
 	f := NewRepoFilterFromRules([]RepoRule{
 		{Pattern: "org/api", Branches: []string{"main", "develop"}},

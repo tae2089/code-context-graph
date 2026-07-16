@@ -131,7 +131,7 @@ HTTP MCP와 웹훅 호스팅은 전용 `ccg-server` 바이너리에서 제공합
 | `ccg-server --wiki-dir <dir>` | 빌드된 React dist 디렉터리로 `/wiki` 브라우저 Wiki UI 활성화; `/wiki/api/*`는 `/mcp`와 같은 Bearer 토큰 사용 |
 | `ccg-server --namespace-root <dir>` | 파일 네임스페이스의 루트 디렉토리 (기본값 `namespaces`) |
 | `ccg-server --allow-repo <pat>` | 웹훅 동기화가 허용된 저장소 패턴 (예: `org/*`, `org/api:main,develop`) |
-| `ccg-server --webhook-secret <s>` | 웹훅 서명 검증을 위한 HMAC 비밀키 |
+| `ccg-server --webhook-secret <s>` | 웹훅 서명 검증을 위한 HMAC 비밀키(argv 노출 방지를 위해 `CCG_WEBHOOK_SECRET` 권장) |
 | `ccg-server --insecure-webhook` | 로컬 테스트 전용으로 서명되지 않은 웹훅 요청 허용 |
 | `ccg-server --repo-clone-base-url <url>` | 웹훅 복제 대상을 재구성하는 데 사용되는 정규 베이스 URL (반복 가능) |
 | `ccg-server --repo-root <dir>` | 복제된 저장소의 루트 디렉토리 |
@@ -145,7 +145,7 @@ HTTP MCP와 웹훅 호스팅은 전용 `ccg-server` 바이너리에서 제공합
 | `ccg-server --max-file-bytes <bytes>` | 파싱된 소스 파일당 허용되는 최대 바이트 수 (`0`은 제한 없음) |
 | `ccg-server --max-total-parsed-bytes <bytes>` | 소스 파일 전체에서 파싱된 최대 총 바이트 수 (`0`은 제한 없음) |
 
-웹훅 관련 server 플래그는 지원되는 경우 일치하는 환경 변수로도 설정할 수 있습니다: `CCG_WEBHOOK_WORKERS`, `CCG_WEBHOOK_MAX_TRACKED_REPOS`, `CCG_WEBHOOK_ATTEMPT_TIMEOUT`, `CCG_WEBHOOK_RETRY_ATTEMPTS`, `CCG_WEBHOOK_RETRY_BASE_DELAY`, `CCG_WEBHOOK_RETRY_MAX_DELAY`, `CCG_REPO_ROOT`.
+웹훅 관련 server 플래그는 지원되는 경우 일치하는 환경 변수로도 설정할 수 있습니다: `CCG_WEBHOOK_SECRET`, `CCG_WEBHOOK_WORKERS`, `CCG_WEBHOOK_MAX_TRACKED_REPOS`, `CCG_WEBHOOK_ATTEMPT_TIMEOUT`, `CCG_WEBHOOK_RETRY_ATTEMPTS`, `CCG_WEBHOOK_RETRY_BASE_DELAY`, `CCG_WEBHOOK_RETRY_MAX_DELAY`, `CCG_REPO_ROOT`.
 
 `CCG_HTTP_BEARER_TOKEN`은 `--http-bearer-token`에 대해서도 지원되며, `CCG_OTEL_ENDPOINT`는 `--otel-endpoint`에 대해서도 지원됩니다. 이 토큰은 `/mcp`의 MCP HTTP 엔드포인트를 보호하지만, `/health`, `/ready`, `/status`, `/webhook` 자체를 비공개로 만들지는 않습니다.
 

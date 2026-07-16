@@ -141,7 +141,7 @@ func newRootCmd(rt *ccgruntime.Runtime, serviceVersion string) *cobra.Command {
 	cmd.Flags().DurationVar(&cfg.WebhookRetryBaseDelay, "webhook-retry-base-delay", cfg.WebhookRetryBaseDelay, "Initial webhook sync retry delay")
 	cmd.Flags().DurationVar(&cfg.WebhookRetryMaxDelay, "webhook-retry-max-delay", cfg.WebhookRetryMaxDelay, "Maximum webhook sync retry delay")
 	cmd.Flags().StringSliceVar(&cfg.AllowRepo, "allow-repo", nil, "Allowed repo patterns for webhook sync (repeatable, e.g. org/*, !org/private)")
-	cmd.Flags().StringVar(&cfg.WebhookSecret, "webhook-secret", "", "HMAC secret for GitHub webhook signature verification")
+	cmd.Flags().StringVar(&cfg.WebhookSecret, "webhook-secret", cfg.WebhookSecret, "HMAC secret for GitHub webhook signature verification (env: CCG_WEBHOOK_SECRET)")
 	cmd.Flags().BoolVar(&cfg.InsecureWebhook, "insecure-webhook", false, "Allow unsigned webhook requests (unsafe; testing only)")
 	cmd.Flags().StringArrayVar(&cfg.RepoCloneBaseURLs, "repo-clone-base-url", nil, "Canonical base URL used to reconstruct clone targets for allowed repos (repeatable)")
 	cmd.Flags().StringVar(&cfg.RepoRoot, "repo-root", cfg.RepoRoot, "Root directory for cloned repositories")

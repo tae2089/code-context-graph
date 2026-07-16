@@ -449,3 +449,45 @@ func TestRun_PruneDeletesOnlyGeneratorManagedStaleDocs(t *testing.T) {
 		t.Fatalf("user doc must not be pruned: %v", err)
 	}
 }
+
+func TestRun_MalformedManifestFailsBeforeMutatingOutputs(t *testing.T) {
+	db := newTestDB(t)
+	node := graph.Node{QualifiedName: "pkg.New", Kind: graph.NodeKindFunction, Name: "New", FilePath: "pkg/new.go", StartLine: 1, EndLine: 5, Hash: "h1", Language: "go"}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+
+	gen, outDir := newGenerator(t, db)
+	gen.Prune = true
+	manifestPath := filepath.Join(outDir, ".ccg-docs-manifest.json")
+	malformed := []byte("{not-json")
+	if err := os.WriteFile(manifestPath, malformed, 0o644); err != nil {
+		t.Fatalf("write malformed manifest: %v", err)
+	}
+	indexPath := filepath.Join(outDir, "index.md")
+	indexBefore := []byte("operator-owned sentinel\n")
+	if err := os.WriteFile(indexPath, indexBefore, 0o644); err != nil {
+		t.Fatalf("write sentinel index: %v", err)
+	}
+
+	if err := gen.Run(); err == nil {
+		t.Fatal("Run() = nil, want malformed manifest error")
+	}
+	manifestAfter, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read manifest after failed run: %v", err)
+	}
+	if string(manifestAfter) != string(malformed) {
+		t.Fatalf("manifest changed after failed load: %q", manifestAfter)
+	}
+	indexAfter, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("read index after failed run: %v", err)
+	}
+	if string(indexAfter) != string(indexBefore) {
+		t.Fatalf("index changed after failed manifest load: %q", indexAfter)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "pkg", "new.go.md")); !os.IsNotExist(err) {
+		t.Fatalf("file doc written after failed manifest load: %v", err)
+	}
+}

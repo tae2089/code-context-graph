@@ -159,12 +159,12 @@ CCG가 Ingress, 리버스 프록시 또는 로드 밸런서 뒤에 있는 경우
 웹훅 배포는 다음 사항들을 설정해야 합니다:
 
 - 명시적인 저장소 및 브랜치 허용 목록을 위한 `--allow-repo`
-- HMAC 검증을 위한 `--webhook-secret`
+- HMAC 검증을 위한 `CCG_WEBHOOK_SECRET`(권장) 또는 `--webhook-secret`
 - 복제 URL이 페이로드로부터 신뢰받는 대신 허용된 저장소 이름으로부터 재구성되도록 하는 `--repo-clone-base-url`
 - 지속성 있는 로컬 스토리지를 위한 `--repo-root`
 - 팀용 또는 상시 가동 배포를 위한 `--db-driver postgres`
 
-웹훅 네임스페이스 추출은 마지막 저장소 이름을 사용합니다. 예를 들어 `acme/api`는 `api` 네임스페이스에 저장되고 `$REPO_ROOT/api`에 checkout됩니다. 이 전략은 단일 owner 웹훅 배포를 위한 것입니다. 허용 목록이 여러 owner를 포함하면 서버는 경고를 남깁니다. `acme/api`와 `external/api`가 같은 네임스페이스 및 checkout 경로에서 충돌할 수 있기 때문입니다.
+웹훅 네임스페이스 추출은 마지막 저장소 이름을 사용합니다. 예를 들어 `acme/api`는 `api` 네임스페이스에 저장되고 `$REPO_ROOT/api`에 checkout됩니다. 이 전략은 단일 owner 웹훅 배포를 위한 것입니다. 허용 목록이 여러 owner를 포함하면 `acme/api`와 `external/api`가 같은 네임스페이스 및 checkout 경로에서 충돌할 수 있으므로 서버는 시작을 거부합니다.
 
 권장 정책:
 
@@ -253,7 +253,7 @@ CCG를 업그레이드한 후, 기존의 기본 `ccg.db` 또한 기존 스키마
 | 증상 | 가능성 높은 원인 | 확인 / 해결 방법 |
 |---------|--------------|-------------|
 | `401` 또는 MCP 초기화 실패 | Bearer 토큰 누락 또는 오류 | `Authorization: Bearer ...` 및 `CCG_HTTP_BEARER_TOKEN`을 확인하십시오. |
-| 웹훅이 권한 없음(unauthorized) 반환 | HMAC 서명 누락/유효하지 않음 | `--webhook-secret` 및 제공자의 서명 헤더를 확인하십시오. |
+| 웹훅이 권한 없음(unauthorized) 반환 | HMAC 서명 누락/유효하지 않음 | `CCG_WEBHOOK_SECRET`(또는 `--webhook-secret`) 및 제공자의 서명 헤더를 확인하십시오. |
 | 웹훅이 금지됨(forbidden) 반환 | 허용되지 않은 저장소 또는 브랜치 | `--allow-repo` 패턴 및 브랜치 ref를 확인하십시오. |
 | 웹훅이 너무 많은 요청 반환 | 동기화 큐가 가득 참 | `/status`를 확인하고, push 볼륨을 줄이거나 PostgreSQL에서 워커를 늘리십시오. |
 | `/ready`가 `not_ready`임 | DB 또는 큐 차단 조건 | `/status` 및 서비스 로그를 조사하십시오. |

@@ -4,6 +4,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -14,6 +15,63 @@ import (
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 	"github.com/tae2089/code-context-graph/internal/pathspec"
 )
+
+// inspectRegularSourceFile reads source metadata without following symlinks.
+// @intent reject symlink and non-regular source paths before any parser or package discoverer can read target bytes.
+func inspectRegularSourceFile(path string) (os.FileInfo, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("source symlink is not allowed: %s", path)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("source path is not a regular file: %s", path)
+	}
+	return info, nil
+}
+
+// openRegularSourceFile opens a source only when its no-follow identity remains stable across inspection and open.
+// @intent prevent replacement races from turning a validated regular path into a followed symlink before reading.
+func openRegularSourceFile(path string) (*os.File, os.FileInfo, error) {
+	before, err := inspectRegularSourceFile(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	after, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, err
+	}
+	if !after.Mode().IsRegular() || !os.SameFile(before, after) {
+		_ = file.Close()
+		return nil, nil, fmt.Errorf("source file changed while opening: %s", path)
+	}
+	return file, after, nil
+}
+
+// readRegularSourceFile reads bytes from a verified regular-file descriptor.
+// @intent keep all secondary source reads on the same no-follow path as build and update ingestion.
+func readRegularSourceFile(path string) ([]byte, error) {
+	file, _, err := openRegularSourceFile(path)
+	if err != nil {
+		return nil, err
+	}
+	content, readErr := io.ReadAll(file)
+	closeErr := file.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	return content, nil
+}
 
 // shouldSkipDir reports whether the source walker must skip a directory name.
 // @intent keep default source traversal exclusions local to the ingest workflow.

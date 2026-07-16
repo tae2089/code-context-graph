@@ -44,6 +44,20 @@ func TestValidateConfig_WebhookAllowsSecureModeWithCloneBaseURL(t *testing.T) {
 	}
 }
 
+func TestValidateConfig_RejectsMultiOwnerRepoNameNamespaces(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Transport = "streamable-http"
+	cfg.AllowRepo = []string{"org-a/*", "org-b/api"}
+	cfg.WebhookSecret = "test-placeholder"
+	cfg.RepoRoot = "/var/repos"
+	cfg.RepoCloneBaseURLs = []string{"https://github.com"}
+
+	err := ValidateConfig(cfg)
+	if err == nil || !strings.Contains(err.Error(), "repo-name namespaces") {
+		t.Fatalf("expected repo-name namespace validation error, got %v", err)
+	}
+}
+
 func TestConfiguredCloneBaseURLs_PreservesLegacySingularFirst(t *testing.T) {
 	cfg := Config{
 		RepoCloneBaseURL:  "https://github.com",
@@ -101,5 +115,14 @@ func TestDefaultConfig_UsesWebhookTuningFromEnv(t *testing.T) {
 		cfg.WebhookRetryBaseDelay != 3*time.Second ||
 		cfg.WebhookRetryMaxDelay != 30*time.Second {
 		t.Fatalf("unexpected webhook env config: %+v", cfg)
+	}
+}
+
+func TestDefaultConfig_UsesWebhookSecretFromEnv(t *testing.T) {
+	t.Setenv("CCG_WEBHOOK_SECRET", "configured-for-test")
+
+	cfg := DefaultConfig()
+	if cfg.WebhookSecret != "configured-for-test" {
+		t.Fatal("DefaultConfig did not load CCG_WEBHOOK_SECRET")
 	}
 }

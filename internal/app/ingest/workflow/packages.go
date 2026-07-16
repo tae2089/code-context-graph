@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -32,7 +31,12 @@ func (s *Service) collectLanguagePackages(ctx context.Context, absDir string, op
 		packages, err := discovery.DiscoverPackages(ctx, ingestapp.PackageDiscoveryOptions{
 			RootDir: absDir,
 			WalkFiles: func(fn func(path, relPath string) error) error {
-				return walkMatchingFiles(ctx, absDir, opts, fn)
+				return walkMatchingFiles(ctx, absDir, opts, func(path, relPath string) error {
+					if _, err := inspectRegularSourceFile(path); err != nil {
+						return err
+					}
+					return fn(path, relPath)
+				})
 			},
 			HasParser: func(ext string) bool {
 				_, ok := s.parserForExt(ext)
@@ -214,7 +218,7 @@ func (s *Service) packageSemanticMetadataForFile(ctx context.Context, absDir, re
 	if !ok {
 		return ingestapp.ParseMetadata{}, "", nil
 	}
-	content, err := os.ReadFile(filepath.Join(absDir, relPath))
+	content, err := readRegularSourceFile(filepath.Join(absDir, relPath))
 	if err != nil {
 		return ingestapp.ParseMetadata{}, "", err
 	}

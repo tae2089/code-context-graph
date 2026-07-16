@@ -3346,6 +3346,42 @@ func TestBuild_ReadFailure_PreservesPreviousGraphState(t *testing.T) {
 	assertFunctionNamesByFile(t, st, ctx, "sample.go", []string{"Keep"})
 }
 
+func TestBuild_RejectsLiveSourceSymlinkOutsideRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("source symlink scenario is unix-specific")
+	}
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := graphgorm.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	svc := &Service{
+		Store:      st,
+		UnitOfWork: newTestUnitOfWork(db, nil),
+		Walkers:    map[string]Parser{".go": treesitter.NewWalker(treesitter.GoSpec)},
+		Logger:     slog.Default(),
+	}
+
+	root := t.TempDir()
+	targetDir := t.TempDir()
+	target := filepath.Join(targetDir, "outside.go")
+	if err := os.WriteFile(target, []byte("package outside\n\nfunc Leaked() {}\n"), 0o644); err != nil {
+		t.Fatalf("write outside target: %v", err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "linked.go")); err != nil {
+		t.Fatalf("create live symlink: %v", err)
+	}
+
+	if _, err := svc.Build(context.Background(), BuildOptions{Dir: root}); err == nil {
+		t.Fatal("expected Build to reject a live source symlink")
+	}
+	assertFunctionNamesByFile(t, st, context.Background(), "linked.go", nil)
+}
+
 func TestBuild_MissingRoot_DoesNotDeleteExistingGraph(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {
@@ -3554,6 +3590,56 @@ func TestUpdate_SkipsUnreadableFiles(t *testing.T) {
 	if _, ok := syncer.files["broken.go"]; ok {
 		t.Fatalf("expected unreadable broken.go to be skipped, got files=%v", syncer.files)
 	}
+}
+
+func TestUpdate_SourceSymlinkPreservesPreviouslyIndexedFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("source symlink scenario is unix-specific")
+	}
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := graphgorm.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	walker := treesitter.NewWalker(treesitter.GoSpec)
+	svc := &Service{
+		Store:      st,
+		UnitOfWork: newTestUnitOfWork(db, nil),
+		Walkers:    map[string]Parser{".go": walker},
+		Logger:     slog.Default(),
+	}
+
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "sample.go")
+	if err := os.WriteFile(sourcePath, []byte("package sample\n\nfunc Keep() {}\n"), 0o644); err != nil {
+		t.Fatalf("write initial source: %v", err)
+	}
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: root}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	targetDir := t.TempDir()
+	target := filepath.Join(targetDir, "outside.go")
+	if err := os.WriteFile(target, []byte("package sample\n\nfunc Leaked() {}\n"), 0o644); err != nil {
+		t.Fatalf("write outside target: %v", err)
+	}
+	if err := os.Remove(sourcePath); err != nil {
+		t.Fatalf("remove initial source: %v", err)
+	}
+	if err := os.Symlink(target, sourcePath); err != nil {
+		t.Fatalf("replace source with symlink: %v", err)
+	}
+
+	syncer := incremental.NewWithRegistry(st, map[string]incremental.Parser{".go": walker}, incremental.WithLogger(slog.Default()))
+	if _, err := svc.Update(ctx, UpdateOptions{BuildOptions: BuildOptions{Dir: root}, Syncer: syncer}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	assertFunctionNamesByFile(t, st, ctx, "sample.go", []string{"Keep"})
 }
 
 func TestUpdate_MaxFileBytesRejectsLargeFile(t *testing.T) {

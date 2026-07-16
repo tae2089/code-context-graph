@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -141,9 +142,10 @@ func (s *Service) prepareUpdateSpool(ctx context.Context, absDir string, opts Up
 		return nil, trace.Wrap(err, "create update spool")
 	}
 	spool := &updateSpool{
-		dir:           dir,
-		currentFiles:  make(map[string]struct{}),
-		currentHashes: make(map[string]string),
+		dir:             dir,
+		currentFiles:    make(map[string]struct{}),
+		unreadableFiles: make(map[string]struct{}),
+		currentHashes:   make(map[string]string),
 	}
 	batch := make(map[string]ingest.FileInfo)
 	var batchBytes int64
@@ -170,22 +172,30 @@ func (s *Service) prepareUpdateSpool(ctx context.Context, absDir string, opts Up
 			return nil
 		}
 
-		info, err := os.Stat(path)
+		file, info, err := openRegularSourceFile(path)
 		if err != nil {
 			unreadable.add(relPath)
+			spool.unreadableFiles[relPath] = struct{}{}
 			s.logger().Warn("skip unreadable update file", "file", relPath, "error", err)
 			return nil
 		}
 		if err := CheckParseFileSize(relPath, info.Size(), opts.MaxFileBytes); err != nil {
+			_ = file.Close()
 			return err
 		}
 		if err := CheckTotalParsedBytes(relPath, totalParsedBytes, info.Size(), opts.MaxTotalParsedBytes); err != nil {
+			_ = file.Close()
 			return err
 		}
 
-		content, err := os.ReadFile(path)
+		content, err := io.ReadAll(file)
+		closeErr := file.Close()
+		if err == nil {
+			err = closeErr
+		}
 		if err != nil {
 			unreadable.add(relPath)
+			spool.unreadableFiles[relPath] = struct{}{}
 			s.logger().Warn("skip unreadable update file", "file", relPath, "error", err)
 			return nil
 		}
@@ -260,7 +270,7 @@ func (s *Service) applyUpdateSpoolInTx(ctx context.Context, tx ingest.Transactio
 			useSemiNaiveReplay = ready
 		}
 	}
-	if requiresFullBuild && s.canBuildForUpdate(opts) && !useSemiNaiveReplay {
+	if requiresFullBuild && s.canBuildForUpdate(opts) && !useSemiNaiveReplay && len(spool.unreadableFiles) == 0 {
 		return updateOutcome{
 			stats:     classifyUpdateSnapshot(existingFiles, existingNodesByFile, spool.currentHashes),
 			fullBuild: true,
@@ -273,12 +283,7 @@ func (s *Service) applyUpdateSpoolInTx(ctx context.Context, tx ingest.Transactio
 		return updateOutcome{}, trace.Wrap(err, "upsert package nodes")
 	}
 	spool.forceFiles = forceFiles
-	deletedFiles := make([]string, 0, len(existingFiles))
-	for _, fp := range existingFiles {
-		if _, ok := spool.currentFiles[fp]; !ok {
-			deletedFiles = append(deletedFiles, fp)
-		}
-	}
+	deletedFiles := existingFilesMissingFromSet(spool.currentFiles, spool.unreadableFiles, existingFiles)
 	if stagedSyncer, ok := syncer.(transactionalBatchIncrementalSyncer); ok {
 		stats, err = stagedSyncer.SyncBatchesWithExistingStore(ctx, txStore, newUpdateSpoolBatchSource(ctx, spool), deletedFiles)
 		if err != nil {
@@ -451,7 +456,7 @@ func (s *Service) updateGraphWithoutTx(ctx context.Context, absDir string, opts 
 		}
 	}
 
-	deletedFiles := existingFilesMissingFromSet(spool.currentFiles, existingFiles)
+	deletedFiles := existingFilesMissingFromSet(spool.currentFiles, spool.unreadableFiles, existingFiles)
 	stats := &ingest.SyncStats{}
 	if stagedSyncer, ok := opts.Syncer.(batchIncrementalSyncer); ok {
 		stats, err = stagedSyncer.SyncBatchesWithExisting(ctx, newUpdateSpoolBatchSource(ctx, spool), deletedFiles)
@@ -564,13 +569,18 @@ func affectedUpdateFiles(currentHashes map[string]string, existingNodesByFile ma
 	return files
 }
 
-// @intent detect deleted paths from the spool snapshot without rebuilding a full in-memory FileInfo map.
-func existingFilesMissingFromSet(currentFiles map[string]struct{}, existingFiles []string) []string {
+// @intent detect confirmed deleted paths while preserving unreadable files whose current state is unknown.
+// @domainRule absence from current files means deletion only when the same path was not observed as unreadable.
+func existingFilesMissingFromSet(currentFiles, unreadableFiles map[string]struct{}, existingFiles []string) []string {
 	deleted := make([]string, 0)
 	for _, fp := range existingFiles {
-		if _, ok := currentFiles[fp]; !ok {
-			deleted = append(deleted, fp)
+		if _, current := currentFiles[fp]; current {
+			continue
 		}
+		if _, unreadable := unreadableFiles[fp]; unreadable {
+			continue
+		}
+		deleted = append(deleted, fp)
 	}
 	return deleted
 }
