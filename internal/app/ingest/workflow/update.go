@@ -61,16 +61,67 @@ func (s *Service) Update(ctx context.Context, opts UpdateOptions) (*ingest.SyncS
 	defer spool.cleanup(s.logger())
 	spool.packages = packages
 
-	stats := &ingest.SyncStats{}
+	outcome := updateOutcome{stats: &ingest.SyncStats{}}
 	err = s.withUpdateTx(ctx, func(tx ingest.Transaction) error {
-		var err error
-		stats, err = s.applyUpdateSpoolInTx(ctx, tx, opts, spool)
+		outcome, err = s.applyUpdateSpoolInTx(ctx, tx, opts, spool)
 		return err
 	})
 	if err != nil {
 		return nil, err
 	}
+	if outcome.fullBuild {
+		spool.cleanup(s.logger())
+		return s.buildForUpdate(ctx, opts.BuildOptions, outcome.stats)
+	}
+	return outcome.stats, nil
+}
+
+// @intent carry the transaction-scoped update decision out to the orchestration layer without exposing a public result type.
+type updateOutcome struct {
+	stats     *ingest.SyncStats
+	fullBuild bool
+}
+
+// buildForUpdate executes a safe full-build fallback while preserving incremental change-count semantics.
+// @intent use the faster full-build write path for new packages without changing the Update result contract.
+// @sideEffect rebuilds the graph and search index through Service.Build.
+func (s *Service) buildForUpdate(ctx context.Context, opts BuildOptions, stats *ingest.SyncStats) (*ingest.SyncStats, error) {
+	s.logger().Info("new package or source directory detected; switching update to full build", "dir", opts.Dir)
+	buildStats, err := s.Build(ctx, opts)
+	if err != nil {
+		return nil, trace.Wrap(err, "full build fallback")
+	}
+	stats.Unresolved = buildStats.Unresolved
 	return stats, nil
+}
+
+// canBuildForUpdate reports whether a full rebuild preserves the caller's requested graph scope.
+// @intent prevent partial non-replacing updates from deleting graph data outside their include paths.
+func (s *Service) canBuildForUpdate(opts UpdateOptions) bool {
+	return s.Store != nil && s.UnitOfWork != nil && (opts.Replace || len(opts.IncludePaths) == 0)
+}
+
+// classifyUpdateSnapshot preserves incremental file outcome counts when execution switches to a full build.
+// @intent keep Added/Modified/Skipped/Deleted based on source changes rather than the chosen persistence path.
+func classifyUpdateSnapshot(existingFiles []string, existingNodesByFile map[string][]graph.Node, currentHashes map[string]string) *ingest.SyncStats {
+	stats := &ingest.SyncStats{}
+	for filePath, currentHash := range currentHashes {
+		existing := existingNodesByFile[filePath]
+		switch {
+		case len(existing) == 0:
+			stats.Added++
+		case existing[0].Hash == currentHash:
+			stats.Skipped++
+		default:
+			stats.Modified++
+		}
+	}
+	for _, filePath := range existingFiles {
+		if _, present := currentHashes[filePath]; !present {
+			stats.Deleted++
+		}
+	}
+	return stats
 }
 
 // withUpdateTx selects the right transaction scope for incremental update based on syncer and store capability.
@@ -177,29 +228,38 @@ func (s *Service) prepareUpdateSpool(ctx context.Context, absDir string, opts Up
 // @intent prefer staged reconciliation so every changed or forced file node is current before any cross-file edge is resolved.
 // @sideEffect adds, modifies, and deletes graph nodes/edges/annotations for changed files and refreshes affected search documents.
 // @mutates graph nodes, edges, annotations, and search_documents
-func (s *Service) applyUpdateSpoolInTx(ctx context.Context, tx ingest.Transaction, opts UpdateOptions, spool *updateSpool) (*ingest.SyncStats, error) {
+func (s *Service) applyUpdateSpoolInTx(ctx context.Context, tx ingest.Transaction, opts UpdateOptions, spool *updateSpool) (updateOutcome, error) {
 	txStore := tx.Graph()
 	if txStore == nil {
-		return nil, trace.New("incremental update requires transaction-scoped store")
+		return updateOutcome{}, trace.New("incremental update requires transaction-scoped store")
 	}
 
 	syncer := opts.Syncer
 	stats := &ingest.SyncStats{}
 	existingFiles, existingNodesByFile, err := existingGraphFileState(ctx, txStore)
 	if err != nil {
-		return nil, trace.Wrap(err, "load existing graph files")
+		return updateOutcome{}, trace.Wrap(err, "load existing graph files")
 	}
 	if !opts.Replace && len(opts.IncludePaths) > 0 {
 		existingFiles, existingNodesByFile = filterExistingStateByInclude(existingFiles, existingNodesByFile, opts.IncludePaths)
 	}
-	if err := upsertPackageNodes(ctx, txStore, spool.packages); err != nil {
-		return nil, trace.Wrap(err, "upsert package nodes")
-	}
 	forceFiles, err := forceReparseFiles(ctx, txStore, existingNodesByFile, spool.currentHashes)
 	if err != nil {
-		return nil, trace.Wrap(err, "load edge source files for changed graph")
+		return updateOutcome{}, trace.Wrap(err, "load edge source files for changed graph")
 	}
-	addUnchangedPeersForAddedFiles(forceFiles, spool.packages, existingNodesByFile, spool.currentHashes)
+	requiresFullBuild := addUnchangedPeersForAddedFiles(forceFiles, spool.packages, existingNodesByFile, spool.currentHashes)
+	if requiresFullBuild && s.canBuildForUpdate(opts) {
+		return updateOutcome{
+			stats:     classifyUpdateSnapshot(existingFiles, existingNodesByFile, spool.currentHashes),
+			fullBuild: true,
+		}, nil
+	}
+	if requiresFullBuild {
+		addAllUnchangedFiles(forceFiles, existingNodesByFile, spool.currentHashes)
+	}
+	if err := upsertPackageNodes(ctx, txStore, spool.packages); err != nil {
+		return updateOutcome{}, trace.Wrap(err, "upsert package nodes")
+	}
 	spool.forceFiles = forceFiles
 	deletedFiles := make([]string, 0, len(existingFiles))
 	for _, fp := range existingFiles {
@@ -210,13 +270,13 @@ func (s *Service) applyUpdateSpoolInTx(ctx context.Context, tx ingest.Transactio
 	if stagedSyncer, ok := syncer.(transactionalBatchIncrementalSyncer); ok {
 		stats, err = stagedSyncer.SyncBatchesWithExistingStore(ctx, txStore, newUpdateSpoolBatchSource(ctx, spool), deletedFiles)
 		if err != nil {
-			return nil, trace.Wrap(err, "staged incremental sync")
+			return updateOutcome{}, trace.Wrap(err, "staged incremental sync")
 		}
 	} else {
 		for _, path := range spool.records {
 			record, err := spool.readRecord(path)
 			if err != nil {
-				return nil, err
+				return updateOutcome{}, err
 			}
 			normalFiles, _ := splitForcedFiles(record.Files, spool.forceFiles)
 			if len(normalFiles) == 0 {
@@ -224,14 +284,14 @@ func (s *Service) applyUpdateSpoolInTx(ctx context.Context, tx ingest.Transactio
 			}
 			batchStats, err := syncIncrementalBatch(ctx, syncer, txStore, normalFiles, nil)
 			if err != nil {
-				return nil, trace.Wrap(err, "incremental sync")
+				return updateOutcome{}, trace.Wrap(err, "incremental sync")
 			}
 			addSyncStats(stats, batchStats)
 		}
 		if len(deletedFiles) > 0 {
 			batchStats, err := syncIncrementalBatch(ctx, syncer, txStore, nil, deletedFiles)
 			if err != nil {
-				return nil, trace.Wrap(err, "incremental sync")
+				return updateOutcome{}, trace.Wrap(err, "incremental sync")
 			}
 			addSyncStats(stats, batchStats)
 		}
@@ -239,7 +299,7 @@ func (s *Service) applyUpdateSpoolInTx(ctx context.Context, tx ingest.Transactio
 		for _, path := range spool.records {
 			record, err := spool.readRecord(path)
 			if err != nil {
-				return nil, err
+				return updateOutcome{}, err
 			}
 			_, forcedFiles := splitForcedFiles(record.Files, spool.forceFiles)
 			if len(forcedFiles) == 0 {
@@ -247,29 +307,29 @@ func (s *Service) applyUpdateSpoolInTx(ctx context.Context, tx ingest.Transactio
 			}
 			batchStats, err := syncIncrementalBatch(ctx, syncer, txStore, forcedFiles, nil)
 			if err != nil {
-				return nil, trace.Wrap(err, "incremental force sync")
+				return updateOutcome{}, trace.Wrap(err, "incremental force sync")
 			}
 			addSyncStats(stats, batchStats)
 		}
 	}
 	changedFiles := affectedUpdateFiles(spool.currentHashes, existingNodesByFile, spool.forceFiles)
 	if err := s.refreshPackageSemanticEdges(ctx, txStore, opts.Dir, spool.packages, changedFiles, deletedFiles, resolve.ResolveOptions{FallbackCalls: opts.FallbackCalls}); err != nil {
-		return nil, trace.Wrap(err, "refresh package semantic edges")
+		return updateOutcome{}, trace.Wrap(err, "refresh package semantic edges")
 	}
 	if err := upsertPackageContainsEdges(ctx, txStore, spool.packages); err != nil {
-		return nil, trace.Wrap(err, "upsert package file edges")
+		return updateOutcome{}, trace.Wrap(err, "upsert package file edges")
 	}
 
 	if !opts.SkipSearchRebuild {
 		nodeIDs, err := affectedNodeIDsForUpdate(ctx, txStore, existingNodesByFile, affectedUpdateFiles(spool.currentHashes, existingNodesByFile, spool.forceFiles), deletedFiles)
 		if err != nil {
-			return nil, trace.Wrap(err, "load affected search nodes")
+			return updateOutcome{}, trace.Wrap(err, "load affected search nodes")
 		}
 		if err := tx.Search().RebuildNodes(ctx, nodeIDs); err != nil {
-			return nil, err
+			return updateOutcome{}, err
 		}
 	}
-	return stats, nil
+	return updateOutcome{stats: stats}, nil
 }
 
 // @intent run incremental sync without a shared DB transaction while replaying spooled file batches to bound memory.
@@ -285,7 +345,10 @@ func (s *Service) updateGraphWithoutTx(ctx context.Context, absDir string, opts 
 	if err != nil {
 		return nil, trace.Wrap(err, "load edge source files for changed graph")
 	}
-	addUnchangedPeersForAddedFiles(forceFiles, packages, existingNodesByFile, spool.currentHashes)
+	requiresFullBuild := addUnchangedPeersForAddedFiles(forceFiles, packages, existingNodesByFile, spool.currentHashes)
+	if requiresFullBuild {
+		addAllUnchangedFiles(forceFiles, existingNodesByFile, spool.currentHashes)
+	}
 	spool.forceFiles = forceFiles
 	if s.Store != nil {
 		if err := upsertPackageNodes(ctx, s.Store, packages); err != nil {
