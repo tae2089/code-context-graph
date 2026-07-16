@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/tae2089/trace"
+
 	"github.com/tae2089/code-context-graph/internal/app/ingest"
 	"github.com/tae2089/code-context-graph/internal/app/ingest/binding"
 	"github.com/tae2089/code-context-graph/internal/app/ingest/resolve"
@@ -143,6 +145,25 @@ func (s *Syncer) SyncWithExistingStore(ctx context.Context, syncStore ingest.Gra
 	return s.syncWithExisting(ctx, target, files, existingFiles)
 }
 
+// SyncBatchesWithExisting stages every source batch before resolving any parsed edges.
+// @intent prevent spool-record ordering from removing edges whose endpoints are both replaced in one bulk update.
+// @param source bounded current-source batch replay owned by the workflow layer
+// @param deletedFiles persisted paths absent from source that must be removed before edge replay
+// @ensures edge resolution observes all current nodes after source staging completes
+func (s *Syncer) SyncBatchesWithExisting(ctx context.Context, source ingest.FileBatchSource, deletedFiles []string) (*SyncStats, error) {
+	return s.syncBatchesWithExisting(ctx, s.store, source, deletedFiles)
+}
+
+// SyncBatchesWithExistingStore stages reconciliation using the active transaction-scoped graph store.
+// @intent keep bulk update node, edge, package, and search writes within one transaction.
+func (s *Syncer) SyncBatchesWithExistingStore(ctx context.Context, syncStore ingest.GraphStore, source ingest.FileBatchSource, deletedFiles []string) (*SyncStats, error) {
+	var target Store = syncStore
+	if syncStore == nil {
+		target = s.store
+	}
+	return s.syncBatchesWithExisting(ctx, target, source, deletedFiles)
+}
+
 // syncWithExisting performs the actual diff-and-apply pass against the supplied store.
 // @intent compare hashes for known files, parse new/changed ones, and remove deleted entries in one pass.
 // @sideEffect upserts nodes/edges/annotations and deletes removed files through syncStore.
@@ -221,7 +242,7 @@ func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files ma
 			}
 		}
 	}
-	if err := s.resolveAndUpsertEdges(ctx, syncStore, parsedFiles, stats); err != nil {
+	if err := s.resolveAndUpsertEdges(ctx, syncStore, syncStore, parsedFiles, stats); err != nil {
 		return nil, err
 	}
 	for _, parsed := range parsedFiles {
@@ -253,14 +274,154 @@ func (s *Syncer) syncWithExisting(ctx context.Context, syncStore Store, files ma
 	return stats, nil
 }
 
+// syncBatchesWithExisting performs bounded node staging, deletion, then deferred edge replay.
+// @intent make cross-file edge resolution independent of source batch ordering without retaining all parsed edges in memory.
+// @sideEffect mutates nodes, annotations, edges, and temporary local spool files through syncStore.
+// @domainRule no edge is resolved until every supplied source batch and deletion has completed.
+func (s *Syncer) syncBatchesWithExisting(ctx context.Context, syncStore Store, source ingest.FileBatchSource, deletedFiles []string) (*SyncStats, error) {
+	if source == nil {
+		return nil, trace.New("incremental batch source is required")
+	}
+
+	stats := &SyncStats{}
+	edgeSpool, err := newDeferredEdgeSpool()
+	if err != nil {
+		return nil, err
+	}
+	defer edgeSpool.cleanup(s.logger)
+
+	s.logger.Info("staged sync started", "deleted_count", len(deletedFiles))
+	if err := source(func(files map[string]FileInfo) error {
+		return s.stageBatch(ctx, syncStore, files, edgeSpool, stats)
+	}); err != nil {
+		return nil, err
+	}
+
+	for _, filePath := range deletedFiles {
+		if err := syncStore.DeleteNodesByFile(ctx, filePath); err != nil {
+			return nil, err
+		}
+		s.logger.Debug("file deleted", "file", filePath)
+		stats.Deleted++
+	}
+
+	lookup := newImportIndexedLookup(syncStore)
+	for _, path := range edgeSpool.records {
+		record, err := edgeSpool.readRecord(path)
+		if err != nil {
+			return nil, err
+		}
+		parsedFiles := make([]parsedSyncFile, 0, len(record.Files))
+		for _, file := range record.Files {
+			parsedFiles = append(parsedFiles, parsedSyncFile{filePath: file.FilePath, edges: file.Edges})
+		}
+		if err := s.resolveAndUpsertEdges(ctx, syncStore, lookup, parsedFiles, stats); err != nil {
+			return nil, err
+		}
+	}
+
+	s.logger.Info("staged sync completed",
+		"added", stats.Added,
+		"modified", stats.Modified,
+		"skipped", stats.Skipped,
+		"deleted", stats.Deleted,
+		"unresolved_edges", stats.Unresolved.DroppedCount,
+		"unresolved_by_kind", formatEdgeKindCounts(stats.Unresolved.ByKind),
+		"unresolved_by_file", stats.Unresolved.ByFile,
+		"unresolved_by_reason", stats.Unresolved.ByReason,
+		"unresolved_samples", stats.Unresolved.Samples,
+	)
+	return stats, nil
+}
+
+// stageBatch applies one bounded source batch and spools its parsed edges for the later resolution phase.
+// @intent release source content after node and annotation writes while preserving only edges required for cross-file resolution.
+// @sideEffect deletes and upserts graph nodes and annotations, then writes an invocation-local edge spool record.
+func (s *Syncer) stageBatch(ctx context.Context, syncStore Store, files map[string]FileInfo, edgeSpool *deferredEdgeSpool, stats *SyncStats) error {
+	filePaths := make([]string, 0, len(files))
+	for filePath := range files {
+		filePaths = append(filePaths, filePath)
+	}
+	existingByFile, err := syncStore.GetNodesByFiles(ctx, filePaths)
+	if err != nil {
+		return err
+	}
+
+	orderedPaths := sortedFilePaths(files)
+	parsedFiles := make([]parsedSyncFile, 0, len(files))
+	for _, filePath := range orderedPaths {
+		info := files[filePath]
+		existing := existingByFile[filePath]
+		parser := s.resolveParser(filePath)
+		if parser == nil {
+			s.logger.Debug("file skipped (no parser)", "file", filePath)
+			stats.Skipped++
+			releaseContent(files, filePath)
+			continue
+		}
+		if len(existing) > 0 && existing[0].Hash == info.Hash && !info.Force {
+			s.logger.Debug("file skipped (unchanged)", "file", filePath)
+			stats.Skipped++
+			releaseContent(files, filePath)
+			continue
+		}
+
+		parsed := parsedSyncFile{filePath: filePath, info: info, hadExisting: len(existing) > 0}
+		if annotatingParser, ok := parser.(AnnotatingParser); ok {
+			parsed.nodes, parsed.edges, parsed.comments, err = annotatingParser.ParseWithComments(ctx, filePath, info.Content)
+			parsed.language = annotatingParser.Language()
+		} else {
+			parsed.nodes, parsed.edges, err = parser.Parse(filePath, info.Content)
+		}
+		if err != nil {
+			return err
+		}
+		setNodeHashes(parsed.nodes, info.Hash)
+		parsedFiles = append(parsedFiles, parsed)
+	}
+
+	for _, parsed := range parsedFiles {
+		if !parsed.hadExisting {
+			s.logger.Debug("file added", "file", parsed.filePath)
+			stats.Added++
+			continue
+		}
+		if err := syncStore.DeleteNodesByFile(ctx, parsed.filePath); err != nil {
+			return err
+		}
+		s.logger.Debug("file modified", "file", parsed.filePath)
+		stats.Modified++
+	}
+
+	edgeRecord := deferredEdgeRecord{Files: make([]deferredEdgeFile, 0, len(parsedFiles))}
+	for i := range parsedFiles {
+		parsed := &parsedFiles[i]
+		if len(parsed.nodes) > 0 {
+			if err := syncStore.UpsertNodes(ctx, parsed.nodes); err != nil {
+				return err
+			}
+			if len(parsed.comments) > 0 {
+				if err := s.restoreAnnotations(ctx, syncStore, parsed.filePath, parsed.info.Content, parsed.nodes, parsed.comments, parsed.language); err != nil {
+					return err
+				}
+			}
+		}
+		if len(parsed.edges) > 0 {
+			edgeRecord.Files = append(edgeRecord.Files, deferredEdgeFile{FilePath: parsed.filePath, Edges: parsed.edges})
+		}
+		releaseContent(files, parsed.filePath)
+	}
+	return edgeSpool.writeRecord(edgeRecord)
+}
+
 // resolveAndUpsertEdges resolves parsed edges in dependency-safe phases before persisting them.
 // @intent preserve interface dispatch and import-backed call resolution during incremental sync updates.
 // @sideEffect upserts resolved graph edges through the sync store.
 // @mutates graph edges, stats.Unresolved
-func (s *Syncer) resolveAndUpsertEdges(ctx context.Context, syncStore Store, parsedFiles []parsedSyncFile, stats *SyncStats) error {
+func (s *Syncer) resolveAndUpsertEdges(ctx context.Context, syncStore Store, lookup resolve.NodeLookup, parsedFiles []parsedSyncFile, stats *SyncStats) error {
 	implementsEdges, otherByFile := partitionParsedSyncEdges(parsedFiles)
 	for _, edgeChunk := range splitEdgeChunks(implementsEdges) {
-		resolved, err := resolve.ResolveWithOptions(ctx, syncStore, edgeChunk, s.opts)
+		resolved, err := resolve.ResolveWithOptions(ctx, lookup, edgeChunk, s.opts)
 		if err != nil {
 			return err
 		}
@@ -278,7 +439,7 @@ func (s *Syncer) resolveAndUpsertEdges(ctx context.Context, syncStore Store, par
 		edges := otherByFile[parsed.filePath]
 		for _, edgeChunk := range splitEdgeChunks(edges) {
 			resolveInput := chunkWithImportWarmup(edgeChunk, importsByFile[parsed.filePath])
-			resolved, err := resolve.ResolveWithOptions(ctx, syncStore, resolveInput, s.opts)
+			resolved, err := resolve.ResolveWithOptions(ctx, lookup, resolveInput, s.opts)
 			if err != nil {
 				return err
 			}

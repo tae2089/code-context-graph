@@ -10,6 +10,7 @@
 package workflow
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -903,6 +904,129 @@ func TestUpdate_EmitsCrossFileGoStructuralImplements(t *testing.T) {
 		}
 	}
 	t.Fatalf("expected update-time cross-file implements edge from %d to %d, got %+v", impl.ID, iface.ID, edges)
+}
+
+func TestUpdate_ReconcilesCrossBatchChangedCallEdge(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := graphgorm.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	walker := treesitter.NewWalker(treesitter.GoSpec)
+	svc := &Service{Store: st, UnitOfWork: newTestUnitOfWork(db, nil), Walkers: map[string]Parser{".go": walker}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	mustWrite := func(rel, content string) {
+		full := filepath.Join(tmpDir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mustWrite("a_source.go", "package sample\n\nfunc Source() { Target() }\n")
+	for i := range buildFlushFileBatchSize - 1 {
+		mustWrite(fmt.Sprintf("m_filler_%03d.go", i), fmt.Sprintf("package sample\n\nfunc Filler%03d() {}\n", i))
+	}
+	mustWrite("z_target.go", "package sample\n\nfunc Target() {}\n")
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	mustWrite("a_source.go", "package sample\n\nfunc Source() { Target() }\n\n// source changed\n")
+	mustWrite("z_target.go", "package sample\n\nfunc Target() {}\n\n// target changed\n")
+	syncer := incremental.NewWithRegistry(st, map[string]incremental.Parser{".go": walker}, incremental.WithLogger(slog.Default()))
+	stats, err := svc.Update(ctx, UpdateOptions{BuildOptions: BuildOptions{Dir: tmpDir}, Syncer: syncer})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if stats.Modified != 2 {
+		t.Fatalf("Modified = %d, want 2", stats.Modified)
+	}
+
+	source, err := st.GetNode(ctx, "sample.Source")
+	if err != nil || source == nil {
+		t.Fatalf("GetNode source: node=%v err=%v", source, err)
+	}
+	target, err := st.GetNode(ctx, "sample.Target")
+	if err != nil || target == nil {
+		t.Fatalf("GetNode target: node=%v err=%v", target, err)
+	}
+	edges, err := st.GetEdgesFrom(ctx, source.ID)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom: %v", err)
+	}
+	for _, edge := range edges {
+		if edge.Kind == graph.EdgeKindCalls && edge.ToNodeID == target.ID {
+			return
+		}
+	}
+	t.Fatalf("expected cross-batch call edge from %d to %d, got %+v", source.ID, target.ID, edges)
+}
+
+func TestUpdate_ReconcilesExistingCallerAfterTargetFileAdded(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := graphgorm.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	walker := treesitter.NewWalker(treesitter.GoSpec)
+	svc := &Service{Store: st, UnitOfWork: newTestUnitOfWork(db, nil), Walkers: map[string]Parser{".go": walker}, Logger: slog.Default()}
+
+	tmpDir := t.TempDir()
+	writeFile := func(rel, content string) {
+		full := filepath.Join(tmpDir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	writeFile("source.go", "package sample\n\nfunc Source() { Target() }\n")
+
+	ctx := context.Background()
+	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
+		t.Fatalf("Build before target exists: %v", err)
+	}
+	writeFile("target.go", "package sample\n\nfunc Target() {}\n")
+
+	syncer := incremental.NewWithRegistry(st, map[string]incremental.Parser{".go": walker}, incremental.WithLogger(slog.Default()))
+	stats, err := svc.Update(ctx, UpdateOptions{BuildOptions: BuildOptions{Dir: tmpDir}, Syncer: syncer})
+	if err != nil {
+		t.Fatalf("Update after target add: %v", err)
+	}
+	if stats.Added != 1 {
+		t.Fatalf("Added = %d, want one newly added target", stats.Added)
+	}
+
+	source, err := st.GetNode(ctx, "sample.Source")
+	if err != nil || source == nil {
+		t.Fatalf("GetNode source: node=%v err=%v", source, err)
+	}
+	target, err := st.GetNode(ctx, "sample.Target")
+	if err != nil || target == nil {
+		t.Fatalf("GetNode target: node=%v err=%v", target, err)
+	}
+	edges, err := st.GetEdgesFrom(ctx, source.ID)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom: %v", err)
+	}
+	for _, edge := range edges {
+		if edge.Kind == graph.EdgeKindCalls && edge.ToNodeID == target.ID {
+			return
+		}
+	}
+	t.Fatalf("expected existing caller edge from %d to newly added target %d, got %+v", source.ID, target.ID, edges)
 }
 
 func TestUpdate_RemovesStaleCrossFileGoStructuralImplements(t *testing.T) {
@@ -2301,6 +2425,80 @@ func Keep` + strconv.Itoa(i) + `() {}
 	}
 	if firstEdge <= lastAnn {
 		t.Fatalf("expected deferred edge flush after all annotations, got ops=%v", fakeStore.ops)
+	}
+}
+
+func TestBuildCompletionLogsTimingOnlyAtDebugLevel(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "source.go"), []byte("package sample\n\nfunc Source() {}\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	newService := func(logger *slog.Logger) *Service {
+		store := newRecordingGraphStore(t)
+		return &Service{
+			Store:      store,
+			UnitOfWork: testUnitOfWork{graph: store},
+			Walkers: map[string]Parser{
+				".go": treesitter.NewWalker(treesitter.GoSpec),
+			},
+			Logger: logger,
+		}
+	}
+	timingKeys := []string{
+		"parse_ms=",
+		"persist_nodes_ms=",
+		"resolve_edges_ms=",
+		"resolver_calls=",
+		"resolver_ms=",
+		"resolve_nodes_by_ids_calls=",
+		"resolve_nodes_by_ids_ms=",
+		"resolve_nodes_by_files_calls=",
+		"resolve_nodes_by_files_ms=",
+		"resolve_nodes_by_qn_calls=",
+		"resolve_nodes_by_qn_ms=",
+		"resolve_import_file_nodes_calls=",
+		"resolve_import_file_nodes_ms=",
+		"resolve_edges_to_nodes_calls=",
+		"resolve_edges_to_nodes_ms=",
+		"resolve_edge_upsert_calls=",
+		"resolve_edge_upsert_ms=",
+		"search_rebuild_ms=",
+		"total_ms=",
+	}
+
+	var infoLogs bytes.Buffer
+	if _, err := newService(slog.New(slog.NewTextHandler(&infoLogs, &slog.HandlerOptions{Level: slog.LevelInfo}))).Build(context.Background(), BuildOptions{Dir: dir}); err != nil {
+		t.Fatalf("info Build: %v", err)
+	}
+	infoOutput := infoLogs.String()
+	if !strings.Contains(infoOutput, `msg="build complete"`) || !strings.Contains(infoOutput, "files=1") {
+		t.Fatalf("expected info completion summary, got %q", infoOutput)
+	}
+	if strings.Contains(infoOutput, `msg="build timing"`) {
+		t.Fatalf("info output must not contain debug timing event, got %q", infoOutput)
+	}
+	for _, key := range timingKeys {
+		if strings.Contains(infoOutput, key) {
+			t.Fatalf("info completion log must omit %q, got %q", key, infoOutput)
+		}
+	}
+
+	var debugLogs bytes.Buffer
+	stats, err := newService(slog.New(slog.NewTextHandler(&debugLogs, &slog.HandlerOptions{Level: slog.LevelDebug}))).Build(context.Background(), BuildOptions{Dir: dir})
+	if err != nil {
+		t.Fatalf("debug Build: %v", err)
+	}
+	if stats.Timing.TotalMS < 0 {
+		t.Fatalf("Timing.TotalMS = %d, want non-negative", stats.Timing.TotalMS)
+	}
+	debugOutput := debugLogs.String()
+	if !strings.Contains(debugOutput, `msg="build timing"`) {
+		t.Fatalf("expected debug timing event, got %q", debugOutput)
+	}
+	for _, key := range timingKeys {
+		if !strings.Contains(debugOutput, key) {
+			t.Fatalf("debug timing log must contain %q, got %q", key, debugOutput)
+		}
 	}
 }
 

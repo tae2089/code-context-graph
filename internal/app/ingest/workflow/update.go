@@ -174,7 +174,7 @@ func (s *Service) prepareUpdateSpool(ctx context.Context, absDir string, opts Up
 }
 
 // applyUpdateSpoolInTx replays the update spool through the incremental syncer and refreshes affected search docs.
-// @intent stage normal-changed files first, then deletions, then forced reparses so edge-source files always observe up-to-date nodes.
+// @intent prefer staged reconciliation so every changed or forced file node is current before any cross-file edge is resolved.
 // @sideEffect adds, modifies, and deletes graph nodes/edges/annotations for changed files and refreshes affected search documents.
 // @mutates graph nodes, edges, annotations, and search_documents
 func (s *Service) applyUpdateSpoolInTx(ctx context.Context, tx ingest.Transaction, opts UpdateOptions, spool *updateSpool) (*ingest.SyncStats, error) {
@@ -199,52 +199,58 @@ func (s *Service) applyUpdateSpoolInTx(ctx context.Context, tx ingest.Transactio
 	if err != nil {
 		return nil, trace.Wrap(err, "load edge source files for changed graph")
 	}
+	addUnchangedPeersForAddedFiles(forceFiles, spool.packages, existingNodesByFile, spool.currentHashes)
 	spool.forceFiles = forceFiles
-
-	for _, path := range spool.records {
-		record, err := spool.readRecord(path)
-		if err != nil {
-			return nil, err
-		}
-		normalFiles, _ := splitForcedFiles(record.Files, spool.forceFiles)
-		if len(normalFiles) == 0 {
-			continue
-		}
-		batchStats, err := syncIncrementalBatch(ctx, syncer, txStore, normalFiles, nil)
-		if err != nil {
-			return nil, trace.Wrap(err, "incremental sync")
-		}
-		addSyncStats(stats, batchStats)
-	}
-
 	deletedFiles := make([]string, 0, len(existingFiles))
 	for _, fp := range existingFiles {
 		if _, ok := spool.currentFiles[fp]; !ok {
 			deletedFiles = append(deletedFiles, fp)
 		}
 	}
-	if len(deletedFiles) > 0 {
-		batchStats, err := syncIncrementalBatch(ctx, syncer, txStore, nil, deletedFiles)
+	if stagedSyncer, ok := syncer.(transactionalBatchIncrementalSyncer); ok {
+		stats, err = stagedSyncer.SyncBatchesWithExistingStore(ctx, txStore, newUpdateSpoolBatchSource(ctx, spool), deletedFiles)
 		if err != nil {
-			return nil, trace.Wrap(err, "incremental sync")
+			return nil, trace.Wrap(err, "staged incremental sync")
 		}
-		addSyncStats(stats, batchStats)
-	}
+	} else {
+		for _, path := range spool.records {
+			record, err := spool.readRecord(path)
+			if err != nil {
+				return nil, err
+			}
+			normalFiles, _ := splitForcedFiles(record.Files, spool.forceFiles)
+			if len(normalFiles) == 0 {
+				continue
+			}
+			batchStats, err := syncIncrementalBatch(ctx, syncer, txStore, normalFiles, nil)
+			if err != nil {
+				return nil, trace.Wrap(err, "incremental sync")
+			}
+			addSyncStats(stats, batchStats)
+		}
+		if len(deletedFiles) > 0 {
+			batchStats, err := syncIncrementalBatch(ctx, syncer, txStore, nil, deletedFiles)
+			if err != nil {
+				return nil, trace.Wrap(err, "incremental sync")
+			}
+			addSyncStats(stats, batchStats)
+		}
 
-	for _, path := range spool.records {
-		record, err := spool.readRecord(path)
-		if err != nil {
-			return nil, err
+		for _, path := range spool.records {
+			record, err := spool.readRecord(path)
+			if err != nil {
+				return nil, err
+			}
+			_, forcedFiles := splitForcedFiles(record.Files, spool.forceFiles)
+			if len(forcedFiles) == 0 {
+				continue
+			}
+			batchStats, err := syncIncrementalBatch(ctx, syncer, txStore, forcedFiles, nil)
+			if err != nil {
+				return nil, trace.Wrap(err, "incremental force sync")
+			}
+			addSyncStats(stats, batchStats)
 		}
-		_, forcedFiles := splitForcedFiles(record.Files, spool.forceFiles)
-		if len(forcedFiles) == 0 {
-			continue
-		}
-		batchStats, err := syncIncrementalBatch(ctx, syncer, txStore, forcedFiles, nil)
-		if err != nil {
-			return nil, trace.Wrap(err, "incremental force sync")
-		}
-		addSyncStats(stats, batchStats)
 	}
 	changedFiles := affectedUpdateFiles(spool.currentHashes, existingNodesByFile, spool.forceFiles)
 	if err := s.refreshPackageSemanticEdges(ctx, txStore, opts.Dir, spool.packages, changedFiles, deletedFiles, resolve.ResolveOptions{FallbackCalls: opts.FallbackCalls}); err != nil {
@@ -279,6 +285,7 @@ func (s *Service) updateGraphWithoutTx(ctx context.Context, absDir string, opts 
 	if err != nil {
 		return nil, trace.Wrap(err, "load edge source files for changed graph")
 	}
+	addUnchangedPeersForAddedFiles(forceFiles, packages, existingNodesByFile, spool.currentHashes)
 	spool.forceFiles = forceFiles
 	if s.Store != nil {
 		if err := upsertPackageNodes(ctx, s.Store, packages); err != nil {
@@ -286,48 +293,55 @@ func (s *Service) updateGraphWithoutTx(ctx context.Context, absDir string, opts 
 		}
 	}
 
-	stats := &ingest.SyncStats{}
-	// Normal batches must never carry existingFiles: SyncWithExisting deletes existing files
-	// absent from the batch, so a multi-record spool would delete files belonging to later
-	// batches (then re-add them, churning node IDs and stats). Deletions are handled once,
-	// explicitly, below — mirroring the transactional path (applyUpdateSpoolInTx).
-	for _, path := range spool.records {
-		record, err := spool.readRecord(path)
-		if err != nil {
-			return nil, err
-		}
-		normalFiles, _ := splitForcedFiles(record.Files, spool.forceFiles)
-		if len(normalFiles) == 0 {
-			continue
-		}
-		batchStats, err := opts.Syncer.SyncWithExisting(ctx, normalFiles, nil)
-		if err != nil {
-			return nil, trace.Wrap(err, "incremental sync")
-		}
-		addSyncStats(stats, batchStats)
-	}
 	deletedFiles := existingFilesMissingFromSet(spool.currentFiles, existingFiles)
-	if len(deletedFiles) > 0 {
-		batchStats, err := opts.Syncer.SyncWithExisting(ctx, nil, deletedFiles)
+	stats := &ingest.SyncStats{}
+	if stagedSyncer, ok := opts.Syncer.(batchIncrementalSyncer); ok {
+		stats, err = stagedSyncer.SyncBatchesWithExisting(ctx, newUpdateSpoolBatchSource(ctx, spool), deletedFiles)
 		if err != nil {
-			return nil, trace.Wrap(err, "incremental delete sync")
+			return nil, trace.Wrap(err, "staged incremental sync")
 		}
-		addSyncStats(stats, batchStats)
-	}
-	for _, path := range spool.records {
-		record, err := spool.readRecord(path)
-		if err != nil {
-			return nil, err
+	} else {
+		// Normal batches must never carry existingFiles: SyncWithExisting deletes existing files
+		// absent from the batch, so a multi-record spool would delete files belonging to later
+		// batches (then re-add them, churning node IDs and stats). Deletions are handled once,
+		// explicitly, below — mirroring the transactional path (applyUpdateSpoolInTx).
+		for _, path := range spool.records {
+			record, err := spool.readRecord(path)
+			if err != nil {
+				return nil, err
+			}
+			normalFiles, _ := splitForcedFiles(record.Files, spool.forceFiles)
+			if len(normalFiles) == 0 {
+				continue
+			}
+			batchStats, err := opts.Syncer.SyncWithExisting(ctx, normalFiles, nil)
+			if err != nil {
+				return nil, trace.Wrap(err, "incremental sync")
+			}
+			addSyncStats(stats, batchStats)
 		}
-		_, forcedFiles := splitForcedFiles(record.Files, spool.forceFiles)
-		if len(forcedFiles) == 0 {
-			continue
+		if len(deletedFiles) > 0 {
+			batchStats, err := opts.Syncer.SyncWithExisting(ctx, nil, deletedFiles)
+			if err != nil {
+				return nil, trace.Wrap(err, "incremental delete sync")
+			}
+			addSyncStats(stats, batchStats)
 		}
-		batchStats, err := opts.Syncer.SyncWithExisting(ctx, forcedFiles, nil)
-		if err != nil {
-			return nil, trace.Wrap(err, "incremental force sync")
+		for _, path := range spool.records {
+			record, err := spool.readRecord(path)
+			if err != nil {
+				return nil, err
+			}
+			_, forcedFiles := splitForcedFiles(record.Files, spool.forceFiles)
+			if len(forcedFiles) == 0 {
+				continue
+			}
+			batchStats, err := opts.Syncer.SyncWithExisting(ctx, forcedFiles, nil)
+			if err != nil {
+				return nil, trace.Wrap(err, "incremental force sync")
+			}
+			addSyncStats(stats, batchStats)
 		}
-		addSyncStats(stats, batchStats)
 	}
 	changedFiles := affectedUpdateFiles(spool.currentHashes, existingNodesByFile, spool.forceFiles)
 	if err := s.refreshPackageSemanticEdges(ctx, s.Store, absDir, packages, changedFiles, deletedFiles, resolve.ResolveOptions{FallbackCalls: opts.FallbackCalls}); err != nil {
@@ -350,6 +364,32 @@ func (s *Service) updateGraphWithoutTx(ctx context.Context, absDir string, opts 
 		}
 	}
 	return stats, nil
+}
+
+// newUpdateSpoolBatchSource replays all current update inputs while marking forced reparses in their original batch.
+// @intent let a staged syncer own cross-batch ordering without loading the entire source snapshot into memory.
+func newUpdateSpoolBatchSource(ctx context.Context, spool *updateSpool) ingest.FileBatchSource {
+	return func(visitor ingest.FileBatchVisitor) error {
+		for _, path := range spool.records {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			record, err := spool.readRecord(path)
+			if err != nil {
+				return err
+			}
+			for filePath, info := range record.Files {
+				if _, forced := spool.forceFiles[filePath]; forced {
+					info.Force = true
+					record.Files[filePath] = info
+				}
+			}
+			if err := visitor(record.Files); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 }
 
 // affectedUpdateFiles selects files whose stored hash differs from the current input or that are forced to reparse.

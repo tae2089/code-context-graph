@@ -39,6 +39,12 @@ type IncrementalSyncer = ingestapp.IncrementalSyncer
 // @intent allow incremental sync implementations to participate in the same transaction-scoped store used by Service updates.
 type transactionalIncrementalSyncer = ingestapp.TransactionalIncrementalSyncer
 
+// @intent allow incremental implementations to reconcile all update spool batches before resolving cross-file edges.
+type batchIncrementalSyncer = ingestapp.BatchIncrementalSyncer
+
+// @intent let staged incremental reconciliation use the graph store from the active update transaction.
+type transactionalBatchIncrementalSyncer = ingestapp.TransactionalBatchIncrementalSyncer
+
 // Service orchestrates graph building and search document refresh.
 // @intent 파싱 결과 저장과 검색 인덱스 재구성을 하나의 서비스로 묶는다.
 type Service struct {

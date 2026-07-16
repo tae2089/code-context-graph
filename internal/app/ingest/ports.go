@@ -168,3 +168,24 @@ type IncrementalSyncer interface {
 type TransactionalIncrementalSyncer interface {
 	SyncWithExistingStore(ctx context.Context, graphStore GraphStore, files map[string]FileInfo, existingFiles []string) (*SyncStats, error)
 }
+
+// FileBatchVisitor receives one bounded source batch during staged incremental reconciliation.
+// @intent keep bulk update input streaming while allowing a syncer to own cross-batch ordering.
+type FileBatchVisitor func(files map[string]FileInfo) error
+
+// FileBatchSource replays the current source snapshot in bounded batches.
+// @intent let workflow retain source spooling while incremental reconciliation controls node and edge phases.
+type FileBatchSource func(visitor FileBatchVisitor) error
+
+// BatchIncrementalSyncer supports a single staged reconciliation across multiple input batches.
+// @intent prevent batch order from affecting cross-file edge resolution during large updates.
+// @domainRule deletedFiles must contain only paths absent from the supplied source batches.
+type BatchIncrementalSyncer interface {
+	SyncBatchesWithExisting(ctx context.Context, source FileBatchSource, deletedFiles []string) (*SyncStats, error)
+}
+
+// TransactionalBatchIncrementalSyncer runs staged reconciliation against the active graph transaction.
+// @intent preserve one atomic graph and search transaction while reconciling streamed update batches.
+type TransactionalBatchIncrementalSyncer interface {
+	SyncBatchesWithExistingStore(ctx context.Context, graphStore GraphStore, source FileBatchSource, deletedFiles []string) (*SyncStats, error)
+}

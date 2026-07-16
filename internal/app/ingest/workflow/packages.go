@@ -504,6 +504,47 @@ func affectedPackageImportPaths(packages map[string]languagePackageInfo, affecte
 	return affected
 }
 
+// addUnchangedPeersForAddedFiles marks unchanged persisted peers for reparse when a new file joins their package or directory.
+// @intent let local symbol lookup observe declarations introduced by newly added source files during incremental update.
+// @domainRule discovered packages cover multi-directory language packages; a same-directory fallback preserves local resolution when discovery is unavailable.
+// @mutates forceFiles
+func addUnchangedPeersForAddedFiles(forceFiles map[string]struct{}, packages map[string]languagePackageInfo, existingNodesByFile map[string][]graph.Node, currentHashes map[string]string) {
+	if forceFiles == nil || len(existingNodesByFile) == 0 || len(currentHashes) == 0 {
+		return
+	}
+	addedFiles := make([]string, 0)
+	addedDirs := make(map[string]struct{})
+	for filePath := range currentHashes {
+		if len(existingNodesByFile[filePath]) == 0 {
+			addedFiles = append(addedFiles, filePath)
+			addedDirs[path.Dir(filepath.ToSlash(filePath))] = struct{}{}
+		}
+	}
+	if len(addedFiles) == 0 {
+		return
+	}
+	peerFiles := make(map[string]struct{})
+	for _, importPath := range affectedPackageImportPaths(packages, addedFiles) {
+		for _, filePath := range packages[importPath].Files {
+			peerFiles[filepath.ToSlash(filePath)] = struct{}{}
+		}
+	}
+	for filePath := range existingNodesByFile {
+		filePath = filepath.ToSlash(filePath)
+		if _, sameDir := addedDirs[path.Dir(filePath)]; sameDir {
+			peerFiles[filePath] = struct{}{}
+		}
+	}
+	for filePath := range peerFiles {
+		nodes := existingNodesByFile[filePath]
+		currentHash, present := currentHashes[filePath]
+		if len(nodes) == 0 || !present || nodes[0].Hash != currentHash {
+			continue
+		}
+		forceFiles[filePath] = struct{}{}
+	}
+}
+
 // appendUniqueString appends a string to a slice only if it is not already present.
 // @intent maintain a unique set of strings while preserving insertion order for small sets.
 func appendUniqueString(values []string, value string) []string {
