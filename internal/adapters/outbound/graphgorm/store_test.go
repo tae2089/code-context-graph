@@ -69,6 +69,88 @@ func TestAutoMigrate_SQLite(t *testing.T) {
 	}
 }
 
+func TestParseCache_RequiresCompleteIdentityAndReplacesLatestFileEntry(t *testing.T) {
+	store := setupTestDB(t)
+	ctx := requestctx.WithNamespace(context.Background(), "repo-a")
+	v1 := ingest.ParseCacheKey{FilePath: "src/a.go", SourceHash: "hash-1", ParserVersion: "go-v1", ContextHash: "ctx-1"}
+	if err := store.StoreParseResult(ctx, v1, []byte("first")); err != nil {
+		t.Fatalf("store v1: %v", err)
+	}
+	if got, ok, err := store.LoadParseResult(ctx, v1); err != nil || !ok || string(got) != "first" {
+		t.Fatalf("load v1 = %q, %v, %v", got, ok, err)
+	}
+	if _, ok, err := store.LoadParseResult(ctx, ingest.ParseCacheKey{FilePath: "src/a.go", SourceHash: "hash-2", ParserVersion: "go-v1", ContextHash: "ctx-1"}); err != nil || ok {
+		t.Fatalf("changed source identity should miss, ok=%v err=%v", ok, err)
+	}
+
+	v2 := ingest.ParseCacheKey{FilePath: "src/a.go", SourceHash: "hash-2", ParserVersion: "go-v2", ContextHash: "ctx-2"}
+	if err := store.StoreParseResult(ctx, v2, []byte("second")); err != nil {
+		t.Fatalf("store v2: %v", err)
+	}
+	if _, ok, err := store.LoadParseResult(ctx, v1); err != nil || ok {
+		t.Fatalf("replaced identity should miss, ok=%v err=%v", ok, err)
+	}
+	if got, ok, err := store.LoadParseResult(ctx, v2); err != nil || !ok || string(got) != "second" {
+		t.Fatalf("load v2 = %q, %v, %v", got, ok, err)
+	}
+	otherCtx := requestctx.WithNamespace(context.Background(), "repo-b")
+	if _, ok, err := store.LoadParseResult(otherCtx, v2); err != nil || ok {
+		t.Fatalf("other namespace should miss, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestDeleteNodesByFile_RemovesOnlyMatchingNamespaceUnresolvedCandidates(t *testing.T) {
+	store := setupTestDB(t)
+	ctxA := requestctx.WithNamespace(context.Background(), "ns-a")
+	ctxB := requestctx.WithNamespace(context.Background(), "ns-b")
+
+	for _, ctx := range []context.Context{ctxA, ctxB} {
+		if err := store.UpsertNodes(ctx, []graph.Node{{
+			QualifiedName: "pkg.Source", Kind: graph.NodeKindFunction, Name: "Source", FilePath: "source.go", StartLine: 1,
+		}}); err != nil {
+			t.Fatalf("UpsertNodes: %v", err)
+		}
+		if err := store.UpsertUnresolvedEdges(ctx, []graph.UnresolvedEdgeCandidate{{
+			LookupKey: "Target", Fingerprint: "calls:source.go:Target:1", FilePath: "source.go", Kind: graph.EdgeKindCalls, Line: 1,
+		}}); err != nil {
+			t.Fatalf("UpsertUnresolvedEdges: %v", err)
+		}
+	}
+
+	if err := store.DeleteNodesByFile(ctxA, "source.go"); err != nil {
+		t.Fatalf("DeleteNodesByFile: %v", err)
+	}
+	gotA, err := store.FindUnresolvedEdgesByLookupKeys(ctxA, []string{"Target"})
+	if err != nil || len(gotA) != 0 {
+		t.Fatalf("ns-a candidates = %+v, err=%v; want none", gotA, err)
+	}
+	gotB, err := store.FindUnresolvedEdgesByLookupKeys(ctxB, []string{"Target"})
+	if err != nil || len(gotB) != 1 {
+		t.Fatalf("ns-b candidates = %+v, err=%v; want one preserved", gotB, err)
+	}
+}
+
+func TestUnresolvedIndexReady_RequiresMatchingVersion(t *testing.T) {
+	store := setupTestDB(t)
+	ctx := requestctx.WithNamespace(context.Background(), "repo-a")
+
+	if err := store.MarkUnresolvedIndexReady(ctx, "index-v1"); err != nil {
+		t.Fatalf("MarkUnresolvedIndexReady: %v", err)
+	}
+	ready, err := store.UnresolvedIndexReady(ctx, "index-v1")
+	if err != nil || !ready {
+		t.Fatalf("matching version ready = %v, err=%v; want true", ready, err)
+	}
+	ready, err = store.UnresolvedIndexReady(ctx, "index-v2")
+	if err != nil || ready {
+		t.Fatalf("mismatched version ready = %v, err=%v; want false", ready, err)
+	}
+	ready, err = store.UnresolvedIndexReady(requestctx.WithNamespace(context.Background(), "repo-b"), "index-v1")
+	if err != nil || ready {
+		t.Fatalf("other namespace ready = %v, err=%v; want false", ready, err)
+	}
+}
+
 func TestUpsertNodes_Insert(t *testing.T) {
 	s := setupTestDB(t)
 	ctx := context.Background()

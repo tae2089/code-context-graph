@@ -10,7 +10,7 @@ import (
 // FlowRebuildStore is the transaction-scoped graph and flow persistence surface used by a rebuild.
 // @intent let flow application policy trace and replace flows without importing a database adapter.
 type FlowRebuildStore interface {
-	GetEdgesFrom(ctx context.Context, nodeID uint) ([]graph.Edge, error)
+	GetEdgesFromNodes(ctx context.Context, nodeIDs []uint) ([]graph.Edge, error)
 	GetNodeByID(ctx context.Context, id uint) (*graph.Node, error)
 	DeleteFlows(ctx context.Context) error
 	FindFlowEntrypoints(ctx context.Context) ([]graph.Node, error)

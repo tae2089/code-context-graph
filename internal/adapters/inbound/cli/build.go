@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tae2089/trace"
 
+	"github.com/tae2089/code-context-graph/internal/app/ingest"
 	"github.com/tae2089/code-context-graph/internal/app/ingest/workflow"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 )
@@ -37,10 +38,12 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 			paths := resolveIncludePaths(includePaths)
 			fileLimit := resolveMaxFileBytes(maxFileBytes)
 			totalLimit := resolveMaxTotalParsedBytes(maxTotalParsedBytes)
+			parseCache, _ := deps.Store.(ingest.ParseCache)
 			svc := &workflow.Service{
 				Store:      deps.Store,
 				UnitOfWork: deps.UnitOfWork,
 				Search:     deps.Search,
+				ParseCache: parseCache,
 				Walkers:    deps.Walkers,
 				Logger:     deps.Logger,
 			}

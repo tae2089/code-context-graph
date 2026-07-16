@@ -48,18 +48,21 @@ type buildEdgeBatchSource func(yield func(parsedBuildEdgeBatch) error) error
 // buildParseInput is one validated source file assigned to a parse worker.
 // @intent keep deterministic input sequencing separate from concurrent filesystem and parser work.
 type buildParseInput struct {
-	seq     int
-	path    string
-	relPath string
-	parser  Parser
+	seq         int
+	path        string
+	relPath     string
+	parser      Parser
+	contextHash string
 }
 
 // buildParseResult is one parsed source file returned to the spool coordinator.
 // @intent let workers finish out of order while the coordinator preserves record order.
 type buildParseResult struct {
-	seq    int
-	record spooledBuildRecord
-	err    error
+	seq       int
+	record    spooledBuildRecord
+	err       error
+	cacheHit  bool
+	cacheMiss bool
 }
 
 // newParsedBuildNodeBatch packages parsed nodes plus comment metadata for later persistence.
@@ -209,6 +212,8 @@ func (s *Service) Build(ctx context.Context, opts BuildOptions) (BuildStats, err
 	)
 	s.logger().Debug("build timing",
 		"parse_ms", stats.Timing.ParseMS,
+		"parse_cache_hits", stats.Timing.ParseCacheHits,
+		"parse_cache_misses", stats.Timing.ParseCacheMisses,
 		"persist_nodes_ms", stats.Timing.PersistNodesMS,
 		"resolve_edges_ms", stats.Timing.ResolveEdgesMS,
 		"resolver_calls", stats.Timing.Resolve.Resolver.Calls,
@@ -248,7 +253,7 @@ func (s *Service) prepareBuildSpool(ctx context.Context, absDir string, opts Bui
 		return nil, trace.Wrap(err, "create build spool")
 	}
 	spool := &buildSpool{dir: dir}
-	inputs, err := s.collectBuildParseInputs(ctx, absDir, opts)
+	inputs, err := s.collectBuildParseInputs(ctx, absDir, opts, parseSemanticContextHash(ctx))
 	if err != nil {
 		spool.cleanup(s.logger())
 		return nil, err
@@ -266,6 +271,12 @@ func (s *Service) prepareBuildSpool(ctx context.Context, absDir string, opts Bui
 		spool.stats.TotalFiles++
 		spool.stats.TotalNodes += len(result.record.Nodes)
 		spool.stats.TotalEdges += len(result.record.Edges)
+		if result.cacheHit {
+			spool.stats.Timing.ParseCacheHits++
+		}
+		if result.cacheMiss {
+			spool.stats.Timing.ParseCacheMisses++
+		}
 		return nil
 	})
 	if err != nil {
@@ -278,7 +289,7 @@ func (s *Service) prepareBuildSpool(ctx context.Context, absDir string, opts Bui
 
 // collectBuildParseInputs walks eligible files once and validates their scheduled parse budget.
 // @intent preserve build traversal policy and deterministic file order before concurrent parsing starts.
-func (s *Service) collectBuildParseInputs(ctx context.Context, absDir string, opts BuildOptions) ([]buildParseInput, error) {
+func (s *Service) collectBuildParseInputs(ctx context.Context, absDir string, opts BuildOptions, contextHash string) ([]buildParseInput, error) {
 	var inputs []buildParseInput
 	var scheduledParsedBytes int64
 	if err := walkMatchingFiles(ctx, absDir, opts, func(path, relPath string) error {
@@ -299,10 +310,11 @@ func (s *Service) collectBuildParseInputs(ctx context.Context, absDir string, op
 		}
 		scheduledParsedBytes += info.Size()
 		inputs = append(inputs, buildParseInput{
-			seq:     len(inputs),
-			path:    path,
-			relPath: relPath,
-			parser:  parser,
+			seq:         len(inputs),
+			path:        path,
+			relPath:     relPath,
+			parser:      parser,
+			contextHash: contextHash,
 		})
 		return nil
 	}); err != nil {
@@ -440,16 +452,32 @@ func (s *Service) parseBuildInput(ctx context.Context, input buildParseInput) bu
 		result.err = err
 		return result
 	}
+	hash := sha256.Sum256(content)
+	hashString := hex.EncodeToString(hash[:])
+	cacheKey, cacheable := parseResultCacheKey(input, hashString)
+	if cacheable && s.ParseCache != nil {
+		payload, found, loadErr := s.ParseCache.LoadParseResult(ctx, cacheKey)
+		if loadErr != nil {
+			s.logger().DebugContext(ctx, "parse cache load failed; parsing source", "file", input.relPath, "error", loadErr)
+		}
+		if found && loadErr == nil {
+			cached, decodeErr := decodeCachedParseRecord(payload)
+			if decodeErr == nil {
+				setBuildNodeHashes(cached.Nodes, hashString)
+				result.record = cached.toSpooledRecord(input.relPath, content)
+				result.cacheHit = true
+				return result
+			}
+			s.logger().DebugContext(ctx, "parse cache decode failed; parsing source", "file", input.relPath, "error", decodeErr)
+		}
+		result.cacheMiss = true
+	}
 	nodes, edges, tsComments, meta, language, err := parseForBuild(ctx, input.parser, input.relPath, content)
 	if err != nil {
 		result.err = trace.Wrap(err, "parse build file "+input.relPath)
 		return result
 	}
-	hash := sha256.Sum256(content)
-	hashString := hex.EncodeToString(hash[:])
-	for i := range nodes {
-		nodes[i].Hash = hashString
-	}
+	setBuildNodeHashes(nodes, hashString)
 	nodeBatch := newParsedBuildNodeBatch(input.relPath, content, nodes, meta.Package, meta.Interfaces, tsComments, language)
 	result.record = spooledBuildRecord{
 		RelPath:     input.relPath,
@@ -461,6 +489,14 @@ func (s *Service) parseBuildInput(ctx context.Context, input buildParseInput) bu
 		SourceLines: nodeBatch.sourceLines,
 		Edges:       edges,
 		Bytes:       int64(len(content)),
+	}
+	if cacheable && s.ParseCache != nil {
+		payload, encodeErr := encodeCachedParseRecord(cachedParseRecordFrom(result.record))
+		if encodeErr != nil {
+			s.logger().DebugContext(ctx, "parse cache encode failed", "file", input.relPath, "error", encodeErr)
+		} else if storeErr := s.ParseCache.StoreParseResult(ctx, cacheKey, payload); storeErr != nil {
+			s.logger().DebugContext(ctx, "parse cache store failed", "file", input.relPath, "error", storeErr)
+		}
 	}
 	return result
 }
@@ -531,6 +567,13 @@ func (s *Service) applyBuildSpoolInTx(ctx context.Context, tx ingestapp.Transact
 	}
 	if err := s.flushBuildEdgeSourceWithTiming(ctx, txStore, spool.edgeBatchSource(ctx, packageEdgeBatches), &spool.stats, resolveOptions, resolveTiming); err != nil {
 		return err
+	}
+	if unresolvedStore, ok := txStore.(ingestapp.UnresolvedEdgeStore); ok {
+		if version, versioned := s.unresolvedIndexVersion(); versioned {
+			if err := unresolvedStore.MarkUnresolvedIndexReady(ctx, version); err != nil {
+				return trace.Wrap(err, "mark unresolved edge index ready")
+			}
+		}
 	}
 	if timing != nil {
 		timing.ResolveEdgesMS = time.Since(edgeResolveStart).Milliseconds()
@@ -796,8 +839,11 @@ func (s *Service) flushBuildEdgeSourceWithTiming(ctx context.Context, txStore in
 			s.logger().ErrorContext(ctx, "resolve deferred implements edges failed", append(obs.TraceLogArgs(ctx), "edges", len(pendingImplements), "error", err)...)
 			return trace.Wrap(err, "resolve deferred implements edges")
 		}
-		resolved, diagnostics := resolve.FilterResolvedWithDiagnosticsFiltered(resolved, shouldSuppressExternalImportUnresolved)
+		resolved, unresolved, diagnostics := resolve.PartitionResolvedWithDiagnosticsFiltered(resolved, shouldSuppressExternalImportUnresolved)
 		mergeBuildUnresolvedDiagnostics(stats, diagnostics)
+		if err := persistBuildUnresolvedEdges(ctx, txStore, unresolved); err != nil {
+			return err
+		}
 		if diagnostics.DroppedCount > 0 {
 			s.logger().DebugContext(ctx, "dropped unresolved implements edges", append(obs.TraceLogArgs(ctx), "count", diagnostics.DroppedCount, "by_kind", formatEdgeKindCounts(diagnostics.ByKind), "by_reason", diagnostics.ByReason)...)
 		}
@@ -855,6 +901,7 @@ func (s *Service) flushBuildEdgeSourceWithTiming(ctx context.Context, txStore in
 			return trace.Wrap(err, "resolve deferred edge batch")
 		}
 		resolvedEdges := make([]graph.Edge, 0, len(resolved))
+		var unresolvedEdges []graph.Edge
 		for _, actual := range actualRanges {
 			if actual.end > len(resolved) {
 				actual.end = len(resolved)
@@ -862,9 +909,13 @@ func (s *Service) flushBuildEdgeSourceWithTiming(ctx context.Context, txStore in
 			if actual.start >= actual.end {
 				continue
 			}
-			resolvedChunk, diagnostics := resolve.FilterResolvedWithDiagnosticsFiltered(resolved[actual.start:actual.end], shouldSuppressExternalImportUnresolved)
+			resolvedChunk, unresolvedChunk, diagnostics := resolve.PartitionResolvedWithDiagnosticsFiltered(resolved[actual.start:actual.end], shouldSuppressExternalImportUnresolved)
 			mergeBuildUnresolvedDiagnostics(stats, diagnostics)
 			resolvedEdges = append(resolvedEdges, resolvedChunk...)
+			unresolvedEdges = append(unresolvedEdges, unresolvedChunk...)
+		}
+		if err := persistBuildUnresolvedEdges(ctx, txStore, unresolvedEdges); err != nil {
+			return err
 		}
 		if len(resolvedEdges) > 0 {
 			upsertStarted := time.Now()
@@ -906,6 +957,23 @@ func (s *Service) flushBuildEdgeSourceWithTiming(ctx context.Context, txStore in
 	}
 	if err := flushPending(); err != nil {
 		return err
+	}
+	return nil
+}
+
+// persistBuildUnresolvedEdges records syntax candidates separately from traversable graph edges.
+// @intent populate the reverse index during full builds while keeping stores without the optional capability compatible.
+// @sideEffect writes unresolved candidate rows when supported by the graph store.
+func persistBuildUnresolvedEdges(ctx context.Context, store ingestapp.GraphStore, edges []graph.Edge) error {
+	if len(edges) == 0 {
+		return nil
+	}
+	unresolvedStore, ok := store.(ingestapp.UnresolvedEdgeStore)
+	if !ok {
+		return nil
+	}
+	if err := unresolvedStore.UpsertUnresolvedEdges(ctx, resolve.BuildUnresolvedCandidates(edges)); err != nil {
+		return trace.Wrap(err, "persist unresolved build edges")
 	}
 	return nil
 }

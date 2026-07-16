@@ -12,7 +12,7 @@ import (
 // EdgeReader exposes graph traversal primitives needed for flow tracing.
 // @intent abstract graph reads so flow tracing can follow call edges from any store
 type EdgeReader interface {
-	GetEdgesFrom(ctx context.Context, nodeID uint) ([]graph.Edge, error)
+	GetEdgesFromNodes(ctx context.Context, nodeIDs []uint) ([]graph.Edge, error)
 	GetNodeByID(ctx context.Context, id uint) (*graph.Node, error)
 }
 
@@ -77,7 +77,7 @@ func (t *Tracer) TraceFlow(ctx context.Context, startNodeID uint) (*graph.Flow, 
 // @param startNodeID graph node where traversal begins
 // @param opts traversal limits applied during BFS
 // @return TraceResult with the built flow and truncation metadata
-// @domainRule only calls edges enqueue new BFS nodes
+// @domainRule only calls edges enqueue new BFS nodes; outgoing edges are fetched once per BFS depth
 // @ensures Truncated is true only when MaxNodes stopped traversal
 func (t *Tracer) TraceFlowBounded(ctx context.Context, startNodeID uint, opts TraceOptions) (*TraceResult, error) {
 	opts = defaultTraceOptions(opts)
@@ -89,42 +89,49 @@ func (t *Tracer) TraceFlowBounded(ctx context.Context, startNodeID uint, opts Tr
 	fallbackEdges := 0
 	containsFallbackCalls := false
 
-	queue := []uint{startNodeID}
+	frontier := []uint{startNodeID}
 	visited[startNodeID] = true
 
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
+	for len(frontier) > 0 {
+		for _, current := range frontier {
+			members = append(members, graph.FlowMembership{
+				Namespace: ns,
+				NodeID:    current,
+				Ordinal:   ordinal,
+			})
+			ordinal++
+		}
 
-		members = append(members, graph.FlowMembership{
-			Namespace: ns,
-			NodeID:    current,
-			Ordinal:   ordinal,
-		})
-		ordinal++
-
-		edges, err := t.store.GetEdgesFrom(ctx, current)
+		edges, err := t.store.GetEdgesFromNodes(ctx, frontier)
 		if err != nil {
 			return nil, err
 		}
-		for _, e := range edges {
-			if !graph.IsCallKind(e.Kind) || visited[e.ToNodeID] {
-				continue
-			}
-			if e.Kind == graph.EdgeKindFallbackCalls {
-				if !*opts.IncludeFallbackCalls {
+		edgesBySource := make(map[uint][]graph.Edge, len(frontier))
+		for _, edge := range edges {
+			edgesBySource[edge.FromNodeID] = append(edgesBySource[edge.FromNodeID], edge)
+		}
+		nextFrontier := make([]uint, 0)
+		for _, current := range frontier {
+			for _, e := range edgesBySource[current] {
+				if !graph.IsCallKind(e.Kind) || visited[e.ToNodeID] {
 					continue
 				}
-				fallbackEdges++
-				containsFallbackCalls = true
+				if e.Kind == graph.EdgeKindFallbackCalls {
+					if !*opts.IncludeFallbackCalls {
+						continue
+					}
+					fallbackEdges++
+					containsFallbackCalls = true
+				}
+				if opts.MaxNodes > 0 && len(visited) >= opts.MaxNodes {
+					truncated = true
+					break
+				}
+				visited[e.ToNodeID] = true
+				nextFrontier = append(nextFrontier, e.ToNodeID)
 			}
-			if opts.MaxNodes > 0 && len(visited) >= opts.MaxNodes {
-				truncated = true
-				break
-			}
-			visited[e.ToNodeID] = true
-			queue = append(queue, e.ToNodeID)
 		}
+		frontier = nextFrontier
 	}
 
 	node, _ := t.store.GetNodeByID(ctx, startNodeID)

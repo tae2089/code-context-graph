@@ -51,6 +51,7 @@ type Service struct {
 	Store      ingestapp.GraphStore
 	UnitOfWork ingestapp.UnitOfWork
 	Search     ingestapp.SearchWriter
+	ParseCache ingestapp.ParseCache
 	Walkers    map[string]Parser
 	Parsers    map[string]Parser
 	Logger     *slog.Logger
@@ -116,12 +117,14 @@ type BuildStats struct {
 // BuildTiming reports elapsed milliseconds for the major full-build stages.
 // @intent expose actionable stage-level evidence so large-build regressions can be diagnosed without guessing.
 type BuildTiming struct {
-	ParseMS         int64
-	PersistNodesMS  int64
-	ResolveEdgesMS  int64
-	SearchRebuildMS int64
-	TotalMS         int64
-	Resolve         BuildResolveTiming
+	ParseMS          int64
+	ParseCacheHits   int
+	ParseCacheMisses int
+	PersistNodesMS   int64
+	ResolveEdgesMS   int64
+	SearchRebuildMS  int64
+	TotalMS          int64
+	Resolve          BuildResolveTiming
 }
 
 // BuildResolveOperationTiming reports one resolver operation's call count and elapsed time.

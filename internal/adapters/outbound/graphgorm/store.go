@@ -46,6 +46,9 @@ func (s *Store) AutoMigrate() error {
 		&graph.CommunityMembership{},
 		&graph.Flow{},
 		&graph.FlowMembership{},
+		&graph.ParseCacheEntry{},
+		&graph.UnresolvedEdgeCandidate{},
+		&graph.UnresolvedIndexState{},
 	); err != nil {
 		return err
 	}
@@ -53,6 +56,43 @@ func (s *Store) AutoMigrate() error {
 		if err := s.db.Migrator().DropIndex(&graph.Edge{}, "idx_edges_fingerprint"); err != nil {
 			return trace.Wrap(err, "drop legacy edge fingerprint index")
 		}
+	}
+	return nil
+}
+
+// LoadParseResult returns a cached parser payload only when every identity field matches.
+// @intent prevent stale parser output from being reused across content, path, parser, context, or namespace changes.
+func (s *Store) LoadParseResult(ctx context.Context, key ingest.ParseCacheKey) ([]byte, bool, error) {
+	var entry graph.ParseCacheEntry
+	ns := requestctx.FromContext(ctx)
+	result := s.db.WithContext(ctx).Where(
+		"namespace = ? AND file_path = ? AND source_hash = ? AND parser_version = ? AND context_hash = ?",
+		ns, key.FilePath, key.SourceHash, key.ParserVersion, key.ContextHash,
+	).First(&entry)
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return nil, false, nil
+	}
+	if result.Error != nil {
+		return nil, false, trace.Wrap(result.Error, "load parse cache result")
+	}
+	return entry.Payload, true, nil
+}
+
+// StoreParseResult replaces the latest cached parser payload for one namespace/file path.
+// @intent retain one bounded current cache entry per source path instead of accumulating every historical hash.
+// @sideEffect inserts or updates a parse_cache_entries row.
+func (s *Store) StoreParseResult(ctx context.Context, key ingest.ParseCacheKey, payload []byte) error {
+	entry := graph.ParseCacheEntry{
+		Namespace: requestctx.FromContext(ctx), FilePath: key.FilePath, SourceHash: key.SourceHash,
+		ParserVersion: key.ParserVersion, ContextHash: key.ContextHash, Payload: payload,
+	}
+	if err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "namespace"}, {Name: "file_path"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"source_hash", "parser_version", "context_hash", "payload", "updated_at",
+		}),
+	}).Create(&entry).Error; err != nil {
+		return trace.Wrap(err, "store parse cache result")
 	}
 	return nil
 }
@@ -257,6 +297,9 @@ func (s *Store) GetFileNodesByPathSuffix(ctx context.Context, suffix string) ([]
 // @domainRule connected edges and annotations must also be removed when deleting a file.
 func (s *Store) DeleteNodesByFile(ctx context.Context, filePath string) error {
 	ns := requestctx.FromContext(ctx)
+	if err := s.db.WithContext(ctx).Where("namespace = ? AND file_path = ?", ns, filePath).Delete(&graph.UnresolvedEdgeCandidate{}).Error; err != nil {
+		return trace.Wrap(err, "delete file unresolved edges")
+	}
 	var nodeIDs []uint
 	if err := s.db.WithContext(ctx).
 		Model(&graph.Node{}).
@@ -342,6 +385,12 @@ func (s *Store) DeleteGraph(ctx context.Context) error {
 	}
 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("namespace = ?", ns).Delete(&graph.UnresolvedEdgeCandidate{}).Error; err != nil {
+			return trace.Wrap(err, "delete namespace unresolved edges")
+		}
+		if err := tx.Where("namespace = ?", ns).Delete(&graph.UnresolvedIndexState{}).Error; err != nil {
+			return trace.Wrap(err, "delete namespace unresolved index state")
+		}
 		if len(filePaths) > 0 {
 			if err := tx.
 				Where("namespace = ? AND file_path IN ?", ns, filePaths).

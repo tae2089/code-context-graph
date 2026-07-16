@@ -517,6 +517,56 @@ type blockingBuildParser struct {
 	release <-chan struct{}
 }
 
+type countingVersionedBuildParser struct {
+	calls   int
+	version string
+}
+
+func (p *countingVersionedBuildParser) Parse(filePath string, content []byte) ([]graph.Node, []graph.Edge, error) {
+	return p.ParseWithContext(context.Background(), filePath, content)
+}
+
+func (p *countingVersionedBuildParser) ParseWithContext(ctx context.Context, filePath string, content []byte) ([]graph.Node, []graph.Edge, error) {
+	p.calls++
+	return failingBuildParser{}.ParseWithContext(ctx, filePath, content)
+}
+
+func (p *countingVersionedBuildParser) ParseCacheVersion() string {
+	return p.version
+}
+
+type memoryParseCache struct {
+	entries map[ingest.ParseCacheKey][]byte
+}
+
+type failingParseCache struct {
+	payload  []byte
+	found    bool
+	loadErr  error
+	storeErr error
+}
+
+func (c failingParseCache) LoadParseResult(_ context.Context, _ ingest.ParseCacheKey) ([]byte, bool, error) {
+	return c.payload, c.found, c.loadErr
+}
+
+func (c failingParseCache) StoreParseResult(_ context.Context, _ ingest.ParseCacheKey, _ []byte) error {
+	return c.storeErr
+}
+
+func (c *memoryParseCache) LoadParseResult(_ context.Context, key ingest.ParseCacheKey) ([]byte, bool, error) {
+	payload, ok := c.entries[key]
+	return append([]byte(nil), payload...), ok, nil
+}
+
+func (c *memoryParseCache) StoreParseResult(_ context.Context, key ingest.ParseCacheKey, payload []byte) error {
+	if c.entries == nil {
+		c.entries = make(map[ingest.ParseCacheKey][]byte)
+	}
+	c.entries[key] = append([]byte(nil), payload...)
+	return nil
+}
+
 func (p blockingBuildParser) Parse(filePath string, content []byte) ([]graph.Node, []graph.Edge, error) {
 	return p.ParseWithContext(context.Background(), filePath, content)
 }
@@ -1199,14 +1249,32 @@ func TestUpdate_ReconcilesExistingCrossPackageCallerAfterTargetPackageAdded(t *t
 	writeFile("go.mod", "module github.com/example/project\n\ngo 1.25.0\n")
 	writeFile("app/source.go", `package app
 
-import "github.com/example/project/api"
+import (
+	"github.com/example/project/api"
+	"github.com/example/project/other"
+)
 
-func Source() { api.Target() }
+func Source() {
+	api.Target()
+	other.Second()
+}
 `)
 
 	ctx := context.Background()
 	if _, err := svc.Build(ctx, BuildOptions{Dir: tmpDir}); err != nil {
 		t.Fatalf("Build before target package exists: %v", err)
+	}
+	indexVersion, versioned := svc.unresolvedIndexVersion()
+	if !versioned {
+		t.Fatal("expected Go walker to provide unresolved index version")
+	}
+	ready, err := st.UnresolvedIndexReady(ctx, indexVersion)
+	if err != nil || !ready {
+		t.Fatalf("unresolved index ready = %v, err=%v", ready, err)
+	}
+	indexed, err := st.FindUnresolvedEdgesByLookupKeys(ctx, []string{"api.Target", "Target"})
+	if err != nil || len(indexed) == 0 {
+		t.Fatalf("expected unresolved caller candidate before target add, candidates=%+v err=%v", indexed, err)
 	}
 	writeFile("api/target.go", "package api\n\nfunc Target() {}\n")
 
@@ -1222,8 +1290,8 @@ func Source() { api.Target() }
 	if stats.Modified != 0 || stats.Skipped != 1 || stats.Deleted != 0 {
 		t.Fatalf("fallback change counts = %+v, want added=1 modified=0 skipped=1 deleted=0", stats)
 	}
-	if syncer.calls != 0 {
-		t.Fatalf("incremental sync calls = %d, want full-build fallback", syncer.calls)
+	if syncer.calls != 1 {
+		t.Fatalf("incremental sync calls = %d, want semi-naive update path", syncer.calls)
 	}
 
 	source, err := st.GetNode(ctx, "app.Source")
@@ -1238,12 +1306,57 @@ func Source() { api.Target() }
 	if err != nil {
 		t.Fatalf("GetEdgesFrom: %v", err)
 	}
+	foundTarget := false
 	for _, edge := range edges {
 		if edge.Kind == graph.EdgeKindCalls && edge.ToNodeID == target.ID {
+			remaining, lookupErr := st.FindUnresolvedEdgesByLookupKeys(ctx, []string{"api.Target", "Target"})
+			if lookupErr != nil {
+				t.Fatalf("load remaining candidates: %v", lookupErr)
+			}
+			if len(remaining) != 0 {
+				t.Fatalf("resolved caller candidate remained indexed: %+v", remaining)
+			}
+			foundTarget = true
+			break
+		}
+	}
+	if !foundTarget {
+		t.Fatalf("expected cross-package caller edge from %d to newly added target %d, got %+v", source.ID, target.ID, edges)
+	}
+
+	if err := st.MarkUnresolvedIndexReady(ctx, "stale-index-version"); err != nil {
+		t.Fatalf("mark stale unresolved index: %v", err)
+	}
+	writeFile("other/second.go", "package other\n\nfunc Second() {}\n")
+	staleSyncer := &countingIncrementalSyncer{delegate: delegate}
+	staleStats, err := svc.Update(ctx, UpdateOptions{BuildOptions: BuildOptions{Dir: tmpDir}, Syncer: staleSyncer})
+	if err != nil {
+		t.Fatalf("Update after stale-version target add: %v", err)
+	}
+	if staleSyncer.calls != 0 {
+		t.Fatalf("incremental sync calls = %d, want full-build fallback for stale index", staleSyncer.calls)
+	}
+	if staleStats.Added != 1 || staleStats.Modified != 0 || staleStats.Skipped != 2 || staleStats.Deleted != 0 {
+		t.Fatalf("stale fallback change counts = %+v, want added=1 modified=0 skipped=2 deleted=0", staleStats)
+	}
+	second, err := st.GetNode(ctx, "other.Second")
+	if err != nil || second == nil {
+		t.Fatalf("GetNode second: node=%v err=%v", second, err)
+	}
+	source, err = st.GetNode(ctx, "app.Source")
+	if err != nil || source == nil {
+		t.Fatalf("GetNode source after fallback: node=%v err=%v", source, err)
+	}
+	edges, err = st.GetEdgesFrom(ctx, source.ID)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom after fallback: %v", err)
+	}
+	for _, edge := range edges {
+		if edge.Kind == graph.EdgeKindCalls && edge.ToNodeID == second.ID {
 			return
 		}
 	}
-	t.Fatalf("expected cross-package caller edge from %d to newly added target %d, got %+v", source.ID, target.ID, edges)
+	t.Fatalf("expected full-build fallback edge from %d to newly added second target %d, got %+v", source.ID, second.ID, edges)
 }
 
 func TestUpdate_RemovesStaleCrossFileGoStructuralImplements(t *testing.T) {
@@ -2172,6 +2285,116 @@ func TestPrepareBuildSpool_ParsesFilesConcurrentlyAndKeepsOrder(t *testing.T) {
 		if record.RelPath != want {
 			t.Fatalf("record %d path = %q, want %q", i, record.RelPath, want)
 		}
+	}
+}
+
+func TestBuildParseCache_ReusesParsedRecordOnWarmBuild(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	st := graphgorm.New(db)
+	if err := st.AutoMigrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	parser := &countingVersionedBuildParser{version: "stub-v1"}
+	cache := &memoryParseCache{}
+	svc := &Service{
+		Store:      st,
+		UnitOfWork: newTestUnitOfWork(db, nil),
+		Parsers:    map[string]Parser{".stub": parser},
+		ParseCache: cache,
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "sample.stub"), []byte("same content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cold, err := svc.Build(context.Background(), BuildOptions{Dir: dir, SkipSearchRebuild: true})
+	if err != nil {
+		t.Fatalf("cold build: %v", err)
+	}
+	warm, err := svc.Build(context.Background(), BuildOptions{Dir: dir, SkipSearchRebuild: true})
+	if err != nil {
+		t.Fatalf("warm build: %v", err)
+	}
+
+	if parser.calls != 1 {
+		t.Fatalf("parser calls = %d, want 1 across cold and warm builds", parser.calls)
+	}
+	if cold.Timing.ParseCacheMisses != 1 || cold.Timing.ParseCacheHits != 0 {
+		t.Fatalf("cold cache timing = hits:%d misses:%d, want hits:0 misses:1", cold.Timing.ParseCacheHits, cold.Timing.ParseCacheMisses)
+	}
+	if warm.Timing.ParseCacheHits != 1 || warm.Timing.ParseCacheMisses != 0 {
+		t.Fatalf("warm cache timing = hits:%d misses:%d, want hits:1 misses:0", warm.Timing.ParseCacheHits, warm.Timing.ParseCacheMisses)
+	}
+}
+
+func TestBuildParseCache_FailsOpenOnReadDecodeAndWriteErrors(t *testing.T) {
+	tests := []struct {
+		name  string
+		cache failingParseCache
+	}{
+		{name: "read error", cache: failingParseCache{loadErr: errors.New("cache unavailable"), storeErr: errors.New("cache unavailable")}},
+		{name: "corrupt payload", cache: failingParseCache{payload: []byte("not-gob"), found: true, storeErr: errors.New("cache unavailable")}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: gormlogger.Discard})
+			if err != nil {
+				t.Fatalf("open db: %v", err)
+			}
+			st := graphgorm.New(db)
+			if err := st.AutoMigrate(); err != nil {
+				t.Fatalf("migrate: %v", err)
+			}
+			parser := &countingVersionedBuildParser{version: "stub-v1"}
+			svc := &Service{
+				Store: st, UnitOfWork: newTestUnitOfWork(db, nil),
+				Parsers: map[string]Parser{".stub": parser}, ParseCache: tt.cache,
+			}
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "sample.stub"), []byte("content"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			stats, err := svc.Build(context.Background(), BuildOptions{Dir: dir, SkipSearchRebuild: true})
+			if err != nil {
+				t.Fatalf("build with failed cache: %v", err)
+			}
+			if parser.calls != 1 || stats.Timing.ParseCacheHits != 0 || stats.Timing.ParseCacheMisses != 1 {
+				t.Fatalf("parser calls=%d cache hits=%d misses=%d, want 1/0/1", parser.calls, stats.Timing.ParseCacheHits, stats.Timing.ParseCacheMisses)
+			}
+		})
+	}
+}
+
+func TestUnresolvedIndexVersion_IsDeterministicAndParserVersionScoped(t *testing.T) {
+	goParser := &countingVersionedBuildParser{version: "go-v1"}
+	kotlinParser := &countingVersionedBuildParser{version: "kotlin-v1"}
+	first := &Service{Parsers: map[string]Parser{".go": goParser, ".kt": kotlinParser}}
+	second := &Service{Parsers: map[string]Parser{".kt": kotlinParser, ".go": goParser}}
+
+	firstVersion, ok := first.unresolvedIndexVersion()
+	if !ok || firstVersion == "" {
+		t.Fatal("expected version for versioned parsers")
+	}
+	secondVersion, ok := second.unresolvedIndexVersion()
+	if !ok || secondVersion != firstVersion {
+		t.Fatalf("registration order changed version: first=%q second=%q", firstVersion, secondVersion)
+	}
+
+	kotlinParser.version = "kotlin-v2"
+	changedVersion, ok := first.unresolvedIndexVersion()
+	if !ok || changedVersion == firstVersion {
+		t.Fatalf("parser version change did not invalidate unresolved index: before=%q after=%q", firstVersion, changedVersion)
+	}
+}
+
+func TestUnresolvedIndexVersion_IsUnavailableForUnversionedParser(t *testing.T) {
+	svc := &Service{Parsers: map[string]Parser{".stub": failingBuildParser{}}}
+	if version, ok := svc.unresolvedIndexVersion(); ok || version != "" {
+		t.Fatalf("unversioned parser produced unresolved index version %q, ok=%v", version, ok)
 	}
 }
 

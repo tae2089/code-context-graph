@@ -99,7 +99,7 @@ func buildRepoSyncHTTP(rt *ccgruntime.Runtime, cfg httpin.Config, inst *mcprunti
 	for ext, walker := range rt.Walkers {
 		walkers[ext] = walker
 	}
-	graphSvc := &workflow.Service{Store: rt.Store, UnitOfWork: rt.UnitOfWork, Search: rt.Search, Walkers: walkers, Logger: rt.Logger}
+	graphSvc := &workflow.Service{Store: rt.Store, UnitOfWork: rt.UnitOfWork, Search: rt.Search, ParseCache: rt.Store, Walkers: walkers, Logger: rt.Logger}
 	syncService := &reposync.Service{
 		Checkout: gitrepo.NewCheckout(cfg.RepoRoot, repoLocker, nil), IncludePaths: configfiles.IncludePaths{},
 		Graph:         reposyncgraph.Updater{Service: graphSvc, Syncer: rt.Syncer},

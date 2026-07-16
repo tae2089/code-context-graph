@@ -11,14 +11,18 @@ func CommonSuffixDepth(a, b string) int {
 	if a == "" || b == "" {
 		return 0
 	}
-	aParts := strings.Split(a, "/")
-	bParts := strings.Split(b, "/")
 	depth := 0
-	for i, j := len(aParts)-1, len(bParts)-1; i >= 0 && j >= 0; i, j = i-1, j-1 {
-		if aParts[i] != bParts[j] {
-			break
+	for {
+		aSlash := strings.LastIndexByte(a, '/')
+		bSlash := strings.LastIndexByte(b, '/')
+		if a[aSlash+1:] != b[bSlash+1:] {
+			return depth
 		}
 		depth++
+		if aSlash < 0 || bSlash < 0 {
+			return depth
+		}
+		a = a[:aSlash]
+		b = b[:bSlash]
 	}
-	return depth
 }

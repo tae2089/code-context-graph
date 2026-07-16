@@ -3,6 +3,7 @@ package treesitter
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
 	"fmt"
 	"log/slog"
@@ -38,12 +39,13 @@ var errUnsupportedLanguage = trace.New("unsupported language")
 // @intent turn language-specific ASTs into the project's normalized code graph representation
 // @mutates parser and query during one-time initialization in NewWalker
 type Walker struct {
-	spec   *LangSpec
-	logger *slog.Logger
-	parser *sitter.Parser // tests/debug helpers inspect this prototype parser
-	query  *sitter.Query  // tags.scm 쿼리 1회 컴파일 후 재사용 (nil이면 쿼리 없음)
-	lang   *sitter.Language
-	pool   sync.Pool
+	spec              *LangSpec
+	logger            *slog.Logger
+	parser            *sitter.Parser // tests/debug helpers inspect this prototype parser
+	query             *sitter.Query  // tags.scm 쿼리 1회 컴파일 후 재사용 (nil이면 쿼리 없음)
+	lang              *sitter.Language
+	pool              sync.Pool
+	parseCacheVersion string
 }
 
 // interfaceInfo captures interface method names for later implementation inference.
@@ -101,7 +103,9 @@ func NewWalker(spec *LangSpec, opts ...WalkerOption) *Walker {
 		}
 
 		qPath := fmt.Sprintf("queries/%s/tags.scm", spec.Name)
+		var queryContent []byte
 		if qContent, err := queriesFS.ReadFile(qPath); err == nil {
+			queryContent = qContent
 			if q, err := sitter.NewQuery(qContent, lang); err == nil {
 				w.query = q
 			} else {
@@ -110,9 +114,21 @@ func NewWalker(spec *LangSpec, opts ...WalkerOption) *Walker {
 		} else {
 			w.logger.Debug("no tags.scm found for language", "language", spec.Name)
 		}
+		queryHash := sha256.Sum256(queryContent)
+		w.parseCacheVersion = fmt.Sprintf("walker-v1:%s:%x", spec.Name, queryHash)
 	}
 
 	return w
+}
+
+// ParseCacheVersion returns the parser/query generation used to validate serialized parse results.
+// @intent invalidate full-build parse cache entries when language queries or parser semantics change.
+// @domainRule bump walker-v1 whenever non-query Walker semantics change parsed nodes, edges, comments, or metadata.
+func (w *Walker) ParseCacheVersion() string {
+	if w == nil {
+		return ""
+	}
+	return w.parseCacheVersion
 }
 
 // Spec returns the language specification backing this walker.

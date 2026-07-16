@@ -24,6 +24,25 @@ func wantInheritsFingerprint(filePath, child, parent string) string {
 	return graph.BuildInheritsFingerprintV2(filePath, child, parent)
 }
 
+func TestWalkerParseCacheVersion_IsStableAndLanguageScoped(t *testing.T) {
+	goA := NewWalker(GoSpec)
+	defer goA.Close()
+	goB := NewWalker(GoSpec)
+	defer goB.Close()
+	kotlin := NewWalker(KotlinSpec)
+	defer kotlin.Close()
+
+	if goA.ParseCacheVersion() == "" {
+		t.Fatal("expected non-empty Go parse cache version")
+	}
+	if goA.ParseCacheVersion() != goB.ParseCacheVersion() {
+		t.Fatalf("same language versions differ: %q vs %q", goA.ParseCacheVersion(), goB.ParseCacheVersion())
+	}
+	if goA.ParseCacheVersion() == kotlin.ParseCacheVersion() {
+		t.Fatalf("different languages share parse cache version %q", goA.ParseCacheVersion())
+	}
+}
+
 func TestParseWithContext_RespectsContextCancellation(t *testing.T) {
 	w := NewWalker(GoSpec)
 	ctx, cancel := context.WithCancel(context.Background())

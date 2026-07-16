@@ -347,6 +347,11 @@ func collectKotlinMemberTypes(root *sitter.Node, content []byte, pkgName string,
 	return members
 }
 
+var (
+	jvmMemberOwnerPattern = regexp.MustCompile(`^(?:public\s+|private\s+|protected\s+|abstract\s+|final\s+|open\s+)?(?:class|interface)\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	jvmMemberFieldPattern = regexp.MustCompile(`^(?:public\s+|private\s+|protected\s+|final\s+|open\s+|override\s+|static\s+)?(?:val\s+|var\s+)?([A-Za-z_][A-Za-z0-9_\.]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|;|$)|^(?:public\s+|private\s+|protected\s+|final\s+|open\s+|override\s+)?(?:val|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_\.]*)`)
+)
+
 // collectJVMMembersFromText scans JVM source text for explicitly typed fields and properties.
 // @intent share one conservative member-type extractor across Java and Kotlin receiver rewriting.
 func collectJVMMembersFromText(src string, pkgName string, imports map[string]string, blocked map[string]struct{}, hasWildcard bool) map[string]map[string]string {
@@ -354,19 +359,17 @@ func collectJVMMembersFromText(src string, pkgName string, imports map[string]st
 	members := make(map[string]map[string]string)
 	owner := ""
 	depth := 0
-	ownerPattern := regexp.MustCompile(`^(?:public\s+|private\s+|protected\s+|abstract\s+|final\s+|open\s+)?(?:class|interface)\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
-	fieldPattern := regexp.MustCompile(`^(?:public\s+|private\s+|protected\s+|final\s+|open\s+|override\s+|static\s+)?(?:val\s+|var\s+)?([A-Za-z_][A-Za-z0-9_\.]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|;|$)|^(?:public\s+|private\s+|protected\s+|final\s+|open\s+|override\s+)?(?:val|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_\.]*)`)
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if owner == "" {
-			if match := ownerPattern.FindStringSubmatch(trimmed); len(match) == 2 {
+			if match := jvmMemberOwnerPattern.FindStringSubmatch(trimmed); len(match) == 2 {
 				owner = qualifyTypeName(pkgName, match[1])
 				depth = strings.Count(line, "{") - strings.Count(line, "}")
 				continue
 			}
 		}
 		if owner != "" {
-			if match := fieldPattern.FindStringSubmatch(trimmed); len(match) > 0 {
+			if match := jvmMemberFieldPattern.FindStringSubmatch(trimmed); len(match) > 0 {
 				var name, typeName string
 				if len(match) >= 3 && match[1] != "" && match[2] != "" {
 					typeName = qualifyJVMReceiverTypeName(match[1], pkgName, imports, blocked, hasWildcard)
