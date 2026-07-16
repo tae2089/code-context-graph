@@ -116,6 +116,7 @@ type recordingGraphStore struct {
 	nextID                uint
 	nodesByFP             map[string][]graph.Node
 	edges                 []graph.Edge
+	upsertedNodeBatches   [][]graph.Node
 	upsertedEdges         [][]graph.Edge
 	fileSuffixLookupCalls int
 	importFileNodeCalls   int
@@ -137,6 +138,7 @@ func (r *recordingGraphStore) DeleteGraph(ctx context.Context) error {
 
 func (r *recordingGraphStore) UpsertNodes(ctx context.Context, nodes []graph.Node) error {
 	r.record("UpsertNodes")
+	r.upsertedNodeBatches = append(r.upsertedNodeBatches, append([]graph.Node(nil), nodes...))
 	for i := range nodes {
 		r.nextID++
 		nodes[i].ID = r.nextID
@@ -207,6 +209,7 @@ func (r *recordingGraphStore) GetNodesByQualifiedNames(ctx context.Context, name
 }
 
 func (r *recordingGraphStore) GetNodesByFiles(ctx context.Context, filePaths []string) (map[string][]graph.Node, error) {
+	r.record("GetNodesByFiles")
 	set := make(map[string]bool, len(filePaths))
 	for _, fp := range filePaths {
 		set[fp] = true
@@ -2334,7 +2337,7 @@ func Keep() {}
 		t.Fatalf("Build: %v", err)
 	}
 
-	want := []string{"DeleteGraph", "UpsertNodes", "GetNodesByFile", "UpsertAnnotation", "UpsertEdges"}
+	want := []string{"DeleteGraph", "UpsertNodes", "GetNodesByFiles", "UpsertAnnotation", "UpsertEdges"}
 	for i, op := range want[:4] {
 		if len(fakeStore.ops) <= i {
 			t.Fatalf("ops too short: got %v", fakeStore.ops)
@@ -2356,6 +2359,81 @@ func Keep() {}
 	}
 	if firstEdge <= lastAnn {
 		t.Fatalf("expected UpsertEdges after all UpsertAnnotation calls, got %v", fakeStore.ops)
+	}
+}
+
+func TestFlushBuildBatch_BatchesNodesAndAnnotationLookups(t *testing.T) {
+	fakeStore := newRecordingGraphStore(t)
+	released := 0
+	svc := &Service{
+		onBatchRelease: func([]parsedBuildNodeBatch, int) {
+			released++
+		},
+	}
+	batch := buildPersistBatch{
+		files: 2,
+		nodeBatches: []parsedBuildNodeBatch{
+			{
+				relPath: "first.go",
+				nodes: []graph.Node{{
+					QualifiedName: "sample.First",
+					FilePath:      "first.go",
+					Kind:          graph.NodeKindFunction,
+					StartLine:     2,
+					EndLine:       2,
+				}},
+				tsComments:  []ingest.CommentBlock{{StartLine: 1, EndLine: 1, Text: "@intent first"}},
+				language:    "go",
+				sourceLines: []string{"// @intent first", "func First() {}"},
+			},
+			{
+				relPath: "second.go",
+				nodes: []graph.Node{{
+					QualifiedName: "sample.Second",
+					FilePath:      "second.go",
+					Kind:          graph.NodeKindFunction,
+					StartLine:     2,
+					EndLine:       2,
+				}},
+				tsComments:  []ingest.CommentBlock{{StartLine: 1, EndLine: 1, Text: "@intent second"}},
+				language:    "go",
+				sourceLines: []string{"// @intent second", "func Second() {}"},
+			},
+		},
+	}
+
+	if err := svc.flushBuildBatch(context.Background(), fakeStore, &batch); err != nil {
+		t.Fatalf("flushBuildBatch: %v", err)
+	}
+	if got := len(fakeStore.upsertedNodeBatches); got != 1 {
+		t.Fatalf("node upsert calls = %d, want 1 (ops=%v)", got, fakeStore.ops)
+	}
+	if got := len(fakeStore.upsertedNodeBatches[0]); got != 2 {
+		t.Fatalf("batched node count = %d, want 2", got)
+	}
+	countOperation := func(want string) int {
+		count := 0
+		for _, op := range fakeStore.ops {
+			if op == want {
+				count++
+			}
+		}
+		return count
+	}
+	if got := countOperation("GetNodesByFiles"); got != 1 {
+		t.Fatalf("bulk annotation node lookups = %d, want 1 (ops=%v)", got, fakeStore.ops)
+	}
+	if got := countOperation("GetNodesByFile"); got != 0 {
+		t.Fatalf("per-file annotation node lookups = %d, want 0 (ops=%v)", got, fakeStore.ops)
+	}
+	if got := countOperation("UpsertAnnotation"); got != 2 {
+		t.Fatalf("annotation upserts = %d, want 2 (ops=%v)", got, fakeStore.ops)
+	}
+	if released != 2 {
+		t.Fatalf("released batches = %d, want 2", released)
+	}
+	if batch.files != 0 || len(batch.nodeBatches) != 0 {
+		t.Fatalf("batch was not reset: %+v", batch)
 	}
 }
 
