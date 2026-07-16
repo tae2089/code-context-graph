@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -205,6 +204,13 @@ func (s *Service) Build(ctx context.Context, opts BuildOptions) (BuildStats, err
 		"files", stats.TotalFiles,
 		"nodes", stats.TotalNodes,
 		"edges", stats.TotalEdges,
+		"unresolved_edges", stats.Unresolved.DroppedCount,
+		"unresolved_by_kind", formatEdgeKindCounts(stats.Unresolved.ByKind),
+		"unresolved_by_file", stats.Unresolved.ByFile,
+		"unresolved_by_reason", stats.Unresolved.ByReason,
+		"unresolved_samples", stats.Unresolved.Samples,
+	)
+	s.logger().Debug("build timing",
 		"parse_ms", stats.Timing.ParseMS,
 		"persist_nodes_ms", stats.Timing.PersistNodesMS,
 		"resolve_edges_ms", stats.Timing.ResolveEdgesMS,
@@ -224,11 +230,6 @@ func (s *Service) Build(ctx context.Context, opts BuildOptions) (BuildStats, err
 		"resolve_edge_upsert_ms", stats.Timing.Resolve.UpsertEdges.MS,
 		"search_rebuild_ms", stats.Timing.SearchRebuildMS,
 		"total_ms", stats.Timing.TotalMS,
-		"unresolved_edges", stats.Unresolved.DroppedCount,
-		"unresolved_by_kind", formatEdgeKindCounts(stats.Unresolved.ByKind),
-		"unresolved_by_file", stats.Unresolved.ByFile,
-		"unresolved_by_reason", stats.Unresolved.ByReason,
-		"unresolved_samples", stats.Unresolved.Samples,
 	)
 
 	return stats, nil
@@ -627,62 +628,8 @@ func (s *Service) flushBuildBatch(ctx context.Context, txStore ingestapp.GraphSt
 type buildResolveLookup struct {
 	ingestapp.GraphStore
 	fileNodesBySuffix map[string][]graph.Node
-	importFileIndex   *buildImportFileIndex
+	importFileIndex   *resolve.ImportFileIndex
 	timing            *BuildResolveTiming
-}
-
-// buildImportFileIndex maps exact directories and their suffixes to persisted file nodes.
-// @intent resolve many imports from one immutable build-phase file-node snapshot.
-type buildImportFileIndex struct {
-	byDirectory map[string][]graph.Node
-	bySuffix    map[string][]graph.Node
-}
-
-// newBuildImportFileIndex precomputes directory suffixes for the current build's file nodes.
-// @intent turn repeated longest-suffix scans into bounded map lookups during edge resolution.
-func newBuildImportFileIndex(nodes []graph.Node) *buildImportFileIndex {
-	index := &buildImportFileIndex{
-		byDirectory: make(map[string][]graph.Node),
-		bySuffix:    make(map[string][]graph.Node),
-	}
-	for _, node := range nodes {
-		if node.Kind != graph.NodeKindFile {
-			continue
-		}
-		dir := strings.Trim(path.Dir(node.FilePath), "/")
-		if dir == "" || dir == "." {
-			continue
-		}
-		index.byDirectory[dir] = append(index.byDirectory[dir], node)
-		parts := strings.Split(dir, "/")
-		for start := range parts {
-			suffix := strings.Join(parts[start:], "/")
-			index.bySuffix[suffix] = append(index.bySuffix[suffix], node)
-		}
-	}
-	return index
-}
-
-// find returns exact directory matches first, then all longest suffix matches.
-// @intent preserve GraphStore import resolution precedence while avoiding repeated database scans.
-func (i *buildImportFileIndex) find(importPath string) []graph.Node {
-	if i == nil {
-		return nil
-	}
-	importPath = strings.Trim(path.Clean(strings.TrimSpace(importPath)), "/")
-	if importPath == "" || importPath == "." {
-		return nil
-	}
-	if exact := i.byDirectory[importPath]; len(exact) > 0 {
-		return exact
-	}
-	parts := strings.Split(importPath, "/")
-	for start := range parts {
-		if candidates := i.bySuffix[strings.Join(parts[start:], "/")]; len(candidates) > 0 {
-			return candidates
-		}
-	}
-	return nil
 }
 
 // newBuildResolveLookup creates the build-scoped read-through lookup cache.
@@ -773,9 +720,9 @@ func (l *buildResolveLookup) GetFileNodesByPathSuffix(ctx context.Context, suffi
 		if err != nil {
 			return nil, err
 		}
-		l.importFileIndex = newBuildImportFileIndex(nodes)
+		l.importFileIndex = resolve.NewImportFileIndex(nodes)
 	}
-	nodes := l.importFileIndex.find(suffix)
+	nodes := l.importFileIndex.Find(suffix)
 	l.fileNodesBySuffix[suffix] = nodes
 	return nodes, nil
 }
