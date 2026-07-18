@@ -190,25 +190,30 @@ On clone or build failure, automatically retries with exponential backoff:
 - Exponential growth: 1s → 2s → 4s → ... (capped at MaxDelay)
 - Pending retries are immediately cancelled on context cancellation (server shutdown)
 - Panics are treated as errors and are eligible for retry
-- Invalid repository config, such as malformed `.ccg.yaml` `include_paths`, is treated as non-retryable for the current event
+- Invalid repository build-scope config, such as malformed `.ccg.yaml` `include_paths` or `exclude`, is treated as non-retryable for the current event
 - After exceeding MaxAttempts, logs an `ERROR` and abandons the sync (retryable on next push event)
 
 These defaults can be tuned with `--webhook-attempt-timeout`,
 `--webhook-retry-attempts`, `--webhook-retry-base-delay`, and
 `--webhook-retry-max-delay`.
 
-## `.ccg.yaml` include_paths Auto-Apply
+## `.ccg.yaml` Build Scope Auto-Apply
 
-During webhook builds, the `include_paths` setting from `.ccg.yaml` inside the cloned repo is automatically read to restrict build scope.
+During webhook builds, CCG reads `include_paths` and `exclude` from `.ccg.yaml` at the cloned repository root. `include_paths` narrows the build scope, and `exclude` removes matching files or directories from that scope.
 
 ```yaml
 # .ccg.yaml inside the repo
 include_paths:
   - src/
   - lib/
+
+exclude:
+  - vendor/
+  - "*_generated.go"
 ```
 
-- If `.ccg.yaml` is absent or has no `include_paths` key, the entire directory is built
+- If `.ccg.yaml` is absent, CCG builds the entire directory without additional exclusions
+- Each key is optional: no `include_paths` means the whole repository is eligible, while no `exclude` means no extra path filtering
 - Operates independently of the CLI's `--config` flag (direct YAML parsing, no viper)
 
 ## Parse Size Limits
@@ -216,7 +221,8 @@ include_paths:
 Webhook request bodies are limited separately from repository parsing. The
 webhook payload is capped by the server, but the subsequent clone/build step has
 no default source parse size limit. By default, CCG builds every matching source
-file in the cloned repository unless `include_paths` narrows the scope.
+file in the cloned repository unless `include_paths` narrows the scope or
+`exclude` filters paths out.
 
 If a deployment needs a parse budget for large repositories, configure it
 explicitly with `--max-file-bytes`, `--max-total-parsed-bytes`, or the matching

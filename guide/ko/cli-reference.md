@@ -178,13 +178,26 @@ docs:
 빌드 대상 경로를 제한합니다. 설정된 경우 지정된 디렉토리 하위의 경로만 파싱됩니다.
 
 - CLI: `ccg build` 중에 `.ccg.yaml`의 `include_paths`가 자동으로 적용됩니다.
-- 웹훅: 저장소를 복제한 후 빌드 범위를 제한하기 위해 `.ccg.yaml`의 `include_paths`를 자동으로 로드합니다.
+- 웹훅: 저장소를 복제한 후 빌드 범위를 설정하기 위해 `.ccg.yaml`의 `include_paths`와 `exclude`를 자동으로 로드합니다.
 - 증분 빌드(`ccg update`): 변경된 파일을 수집할 때 `include_paths` 필터가 적용됩니다.
 
 ```yaml
 include_paths:
   - src/backend/
   - src/shared/
+```
+
+### `exclude`
+
+빌드 범위에서 일치하는 파일과 디렉터리를 제외합니다. 경로 접두사, 파일명 glob, 전체 경로 glob, 정규 표현식을 지원합니다.
+
+- CLI와 증분 빌드는 소스 파일 수집 과정에서 `exclude`를 적용합니다.
+- 웹훅 빌드는 복제된 저장소 루트의 `.ccg.yaml`에서 `exclude`를 로드합니다.
+
+```yaml
+exclude:
+  - vendor/
+  - "*_generated.go"
 ```
 
 ### 정규식 패턴 (Regex Patterns)

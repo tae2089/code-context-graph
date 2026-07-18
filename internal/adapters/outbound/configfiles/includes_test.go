@@ -8,7 +8,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/adapters/outbound/configfiles"
 )
 
-func TestIncludePathsLoad(t *testing.T) {
+func TestBuildScopeLoad_IncludePaths(t *testing.T) {
 	tests := []struct {
 		name    string
 		content *string
@@ -30,19 +30,50 @@ func TestIncludePathsLoad(t *testing.T) {
 				}
 			}
 
-			got, err := (configfiles.IncludePaths{}).Load(dir)
+			got, err := (configfiles.BuildScope{}).Load(dir)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Load() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			if len(got) != len(tt.want) {
-				t.Fatalf("Load() = %v, want %v", got, tt.want)
+			if len(got.IncludePaths) != len(tt.want) {
+				t.Fatalf("IncludePaths = %v, want %v", got.IncludePaths, tt.want)
 			}
 			for i := range tt.want {
-				if got[i] != tt.want[i] {
-					t.Fatalf("Load()[%d] = %q, want %q", i, got[i], tt.want[i])
+				if got.IncludePaths[i] != tt.want[i] {
+					t.Fatalf("IncludePaths[%d] = %q, want %q", i, got.IncludePaths[i], tt.want[i])
 				}
 			}
 		})
+	}
+}
+
+func TestBuildScopeLoad_ProvidesExcludePatterns(t *testing.T) {
+	dir := t.TempDir()
+	content := "include_paths:\n  - cmd\n  - internal\nexclude:\n  - vendor\n  - \"*_generated.go\"\n"
+	if err := os.WriteFile(filepath.Join(dir, ".ccg.yaml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	scope, err := (configfiles.BuildScope{}).Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	wantIncludes := []string{"cmd", "internal"}
+	if len(scope.IncludePaths) != len(wantIncludes) {
+		t.Fatalf("IncludePaths = %v, want %v", scope.IncludePaths, wantIncludes)
+	}
+	for i := range wantIncludes {
+		if scope.IncludePaths[i] != wantIncludes[i] {
+			t.Fatalf("IncludePaths[%d] = %q, want %q", i, scope.IncludePaths[i], wantIncludes[i])
+		}
+	}
+	wantExcludes := []string{"vendor", "*_generated.go"}
+	if len(scope.ExcludePatterns) != len(wantExcludes) {
+		t.Fatalf("ExcludePatterns = %v, want %v", scope.ExcludePatterns, wantExcludes)
+	}
+	for i := range wantExcludes {
+		if scope.ExcludePatterns[i] != wantExcludes[i] {
+			t.Fatalf("ExcludePatterns[%d] = %q, want %q", i, scope.ExcludePatterns[i], wantExcludes[i])
+		}
 	}
 }
 

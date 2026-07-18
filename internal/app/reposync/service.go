@@ -11,7 +11,7 @@ import (
 // @intent coordinate admitted repository checkout, config loading, graph replacement, and cache invalidation.
 type Service struct {
 	Checkout            Checkout
-	IncludePaths        IncludePaths
+	BuildScope          BuildScopeLoader
 	Graph               GraphUpdater
 	Cache               CacheInvalidator
 	Observability       Observability
@@ -25,7 +25,7 @@ type Service struct {
 // Sync checks out one admitted repository, updates its graph namespace, and invalidates query cache on success.
 // @intent make repository synchronization ordering reusable outside HTTP server composition.
 func (s *Service) Sync(ctx context.Context, repoFullName, cloneURL, branch string) error {
-	if s.Checkout == nil || s.IncludePaths == nil || s.Graph == nil {
+	if s.Checkout == nil || s.BuildScope == nil || s.Graph == nil {
 		return fmt.Errorf("repository sync dependencies are not configured")
 	}
 	ns := ExtractNamespace(repoFullName)
@@ -53,12 +53,12 @@ func (s *Service) Sync(ctx context.Context, repoFullName, cloneURL, branch strin
 		logger.ErrorContext(ctx, "webhook clone/pull failed", append(baseLogArgs(), "error", err)...)
 		return err
 	}
-	includePaths, err := s.IncludePaths.Load(repoDir)
+	buildScope, err := s.BuildScope.Load(repoDir)
 	if err != nil {
-		logger.ErrorContext(ctx, "webhook include_paths config invalid", append(baseLogArgs(), "error", err)...)
+		logger.ErrorContext(ctx, "webhook build scope config invalid", append(baseLogArgs(), "error", err)...)
 		return NonRetryable(err)
 	}
-	stats, err := s.Graph.Update(ctx, GraphRequest{RepoDir: repoDir, Namespace: ns, IncludePaths: includePaths, MaxFileBytes: s.MaxFileBytes, MaxTotalParsedBytes: s.MaxTotalParsedBytes, FailOnUnreadable: s.FailOnUnreadable})
+	stats, err := s.Graph.Update(ctx, GraphRequest{RepoDir: repoDir, Namespace: ns, IncludePaths: buildScope.IncludePaths, ExcludePatterns: buildScope.ExcludePatterns, MaxFileBytes: s.MaxFileBytes, MaxTotalParsedBytes: s.MaxTotalParsedBytes, FailOnUnreadable: s.FailOnUnreadable})
 	if err != nil {
 		logger.ErrorContext(ctx, "webhook update failed", append(baseLogArgs(), "error", err)...)
 		return err

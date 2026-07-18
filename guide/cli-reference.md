@@ -198,13 +198,26 @@ docs:
 Restricts the build target paths. When set, only paths under the specified directories are parsed.
 
 - CLI: `.ccg.yaml`'s `include_paths` is automatically applied during `ccg build`
-- Webhook: After cloning a repo, `.ccg.yaml`'s `include_paths` is auto-loaded to limit build scope
+- Webhook: After cloning a repo, `.ccg.yaml`'s `include_paths` and `exclude` are auto-loaded to set build scope
 - Incremental build (`ccg update`): `include_paths` filter applied when collecting changed files
 
 ```yaml
 include_paths:
   - src/backend/
   - src/shared/
+```
+
+### `exclude`
+
+Filters matching files and directories from the build scope. It supports path prefixes, filename globs, full-path globs, and regular expressions.
+
+- CLI and incremental builds apply `exclude` while collecting source files.
+- Webhook builds load `exclude` from the cloned repository's root `.ccg.yaml`.
+
+```yaml
+exclude:
+  - vendor/
+  - "*_generated.go"
 ```
 
 ### Regex Patterns

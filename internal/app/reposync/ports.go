@@ -12,17 +12,25 @@ type Checkout interface {
 	Sync(ctx context.Context, request CheckoutRequest) (repoDir string, err error)
 }
 
-// IncludePaths loads repository-local graph include configuration.
+// BuildScope captures the repository-local source selection policy for one webhook sync.
+// @intent carry include and exclude configuration together so every webhook update uses one coherent build scope.
+type BuildScope struct {
+	IncludePaths    []string
+	ExcludePatterns []string
+}
+
+// BuildScopeLoader loads repository-local graph source selection configuration.
 // @intent separate repository config file parsing from repository sync orchestration.
-type IncludePaths interface {
-	Load(repoDir string) ([]string, error)
+type BuildScopeLoader interface {
+	Load(repoDir string) (BuildScope, error)
 }
 
 // GraphRequest carries the exact webhook update contract to the ingest adapter.
-// @intent preserve namespace, replace limits, include paths, and readability policy across the app boundary.
+// @intent preserve namespace, source scope, replace limits, and readability policy across the app boundary.
 type GraphRequest struct {
 	RepoDir, Namespace                string
 	IncludePaths                      []string
+	ExcludePatterns                   []string
 	MaxFileBytes, MaxTotalParsedBytes int64
 	FailOnUnreadable                  bool
 }
@@ -40,6 +48,7 @@ type GraphUpdater interface {
 // CacheInvalidator drops query results only after a successful graph update.
 // @intent keep derived query cache invalidation after successful repository graph commit.
 type CacheInvalidator interface{ Invalidate() }
+
 // CacheInvalidatorFunc adapts a runtime closure to the application port.
 // @intent adapt runtime cache invalidation closures to the app-owned port.
 type CacheInvalidatorFunc func()

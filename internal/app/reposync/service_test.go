@@ -20,13 +20,16 @@ func (s *checkoutStub) Sync(_ context.Context, request CheckoutRequest) (string,
 	return s.dir, s.err
 }
 
-type includesStub struct {
-	paths []string
+type buildScopeStub struct {
+	scope BuildScope
 	err   error
 	calls int
 }
 
-func (s *includesStub) Load(string) ([]string, error) { s.calls++; return s.paths, s.err }
+func (s *buildScopeStub) Load(string) (BuildScope, error) {
+	s.calls++
+	return s.scope, s.err
+}
 
 type graphStub struct {
 	request GraphRequest
@@ -47,19 +50,19 @@ func (s *cacheStub) Invalidate() { s.calls++ }
 func TestService_CheckoutFailureStopsBeforeOtherSideEffects(t *testing.T) {
 	want := errors.New("checkout failed")
 	checkout := &checkoutStub{err: want}
-	includes := &includesStub{}
 	graph := &graphStub{}
 	cache := &cacheStub{}
-	err := (&Service{Checkout: checkout, IncludePaths: includes, Graph: graph, Cache: cache}).Sync(context.Background(), "org/api", "url", "main")
-	if !errors.Is(err, want) || includes.calls != 0 || graph.calls != 0 || cache.calls != 0 {
-		t.Fatalf("err=%v includes=%d graph=%d cache=%d", err, includes.calls, graph.calls, cache.calls)
+	buildScope := &buildScopeStub{}
+	err := (&Service{Checkout: checkout, BuildScope: buildScope, Graph: graph, Cache: cache}).Sync(context.Background(), "org/api", "url", "main")
+	if !errors.Is(err, want) || buildScope.calls != 0 || graph.calls != 0 || cache.calls != 0 {
+		t.Fatalf("err=%v buildScope=%d graph=%d cache=%d", err, buildScope.calls, graph.calls, cache.calls)
 	}
 }
 
 func TestService_CheckoutFailureRetainsStageSpecificOperationalLog(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
-	svc := &Service{Checkout: &checkoutStub{err: errors.New("auth denied")}, IncludePaths: &includesStub{}, Graph: &graphStub{}, Logger: logger}
+	svc := &Service{Checkout: &checkoutStub{err: errors.New("auth denied")}, BuildScope: &buildScopeStub{}, Graph: &graphStub{}, Logger: logger}
 	if err := svc.Sync(context.Background(), "org/api", "trusted-url", "main"); err == nil {
 		t.Fatal("expected checkout error")
 	}
@@ -73,10 +76,10 @@ func TestService_CheckoutFailureRetainsStageSpecificOperationalLog(t *testing.T)
 
 func TestService_IncludeConfigFailureIsNonRetryable(t *testing.T) {
 	want := errors.New("invalid include config")
-	includes := &includesStub{err: want}
+	buildScope := &buildScopeStub{err: want}
 	graph := &graphStub{}
 	cache := &cacheStub{}
-	err := (&Service{Checkout: &checkoutStub{dir: "/repos/api"}, IncludePaths: includes, Graph: graph, Cache: cache}).Sync(context.Background(), "org/api", "url", "main")
+	err := (&Service{Checkout: &checkoutStub{dir: "/repos/api"}, BuildScope: buildScope, Graph: graph, Cache: cache}).Sync(context.Background(), "org/api", "url", "main")
 	if !errors.Is(err, want) || !IsNonRetryable(err) || graph.calls != 0 || cache.calls != 0 {
 		t.Fatalf("err=%v nonretryable=%v graph=%d cache=%d", err, IsNonRetryable(err), graph.calls, cache.calls)
 	}
@@ -84,10 +87,10 @@ func TestService_IncludeConfigFailureIsNonRetryable(t *testing.T) {
 
 func TestService_SuccessPassesGraphContractAndInvalidatesCacheOnce(t *testing.T) {
 	checkout := &checkoutStub{dir: "/repos/api"}
-	includes := &includesStub{paths: []string{"cmd", "internal"}}
+	buildScope := &buildScopeStub{scope: BuildScope{IncludePaths: []string{"cmd", "internal"}}}
 	graph := &graphStub{}
 	cache := &cacheStub{}
-	svc := &Service{Checkout: checkout, IncludePaths: includes, Graph: graph, Cache: cache, MaxFileBytes: 10, MaxTotalParsedBytes: 20, FailOnUnreadable: true}
+	svc := &Service{Checkout: checkout, BuildScope: buildScope, Graph: graph, Cache: cache, MaxFileBytes: 10, MaxTotalParsedBytes: 20, FailOnUnreadable: true}
 	if err := svc.Sync(context.Background(), "org/api", "trusted-url", "develop"); err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +100,38 @@ func TestService_SuccessPassesGraphContractAndInvalidatesCacheOnce(t *testing.T)
 	if graph.calls != 1 || graph.request.RepoDir != "/repos/api" || graph.request.Namespace != "api" || graph.request.MaxFileBytes != 10 || graph.request.MaxTotalParsedBytes != 20 || !graph.request.FailOnUnreadable {
 		t.Fatalf("graph request=%+v calls=%d", graph.request, graph.calls)
 	}
+	if got, want := graph.request.IncludePaths, []string{"cmd", "internal"}; !equalStrings(got, want) {
+		t.Fatalf("IncludePaths = %v, want %v", got, want)
+	}
 	if cache.calls != 1 {
 		t.Fatalf("cache calls=%d", cache.calls)
 	}
+}
+
+func TestService_SuccessPassesRepositoryExcludePatternsToGraph(t *testing.T) {
+	buildScope := &buildScopeStub{scope: BuildScope{IncludePaths: []string{"cmd", "internal"}, ExcludePatterns: []string{"vendor", "*_generated.go"}}}
+	graph := &graphStub{}
+	svc := &Service{Checkout: &checkoutStub{dir: "/repos/api"}, BuildScope: buildScope, Graph: graph}
+
+	if err := svc.Sync(context.Background(), "org/api", "trusted-url", "main"); err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+	if buildScope.calls != 1 {
+		t.Fatalf("build scope loads = %d, want 1", buildScope.calls)
+	}
+	if got, want := graph.request.ExcludePatterns, []string{"vendor", "*_generated.go"}; !equalStrings(got, want) {
+		t.Fatalf("ExcludePatterns = %v, want %v", got, want)
+	}
+}
+
+func equalStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }

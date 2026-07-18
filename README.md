@@ -15,7 +15,7 @@ Inspired by [code-review-graph](https://github.com/tirth8205/code-review-graph) 
 - **Evidence-driven code exploration**: DB-backed retrieval returns small file-level candidates with matched fields, evidence nodes, and optional docs before agents drill into exact graph nodes
 - **Browser Wiki UI**: `ccg-server` can serve generated docs, tree search, DB-backed retrieval, Context Tray copying, and an Obsidian-style graph viewer
 - **Custom annotations**: `@intent`, `@domainRule`, `@sideEffect`, `@mutates`, `@index` — search code by business context ([details](guide/annotations.md))
-- **Webhook sync**: GitHub / Gitea push events → auto clone + build with per-repo branch filtering and `.ccg.yaml` `include_paths` auto-loading ([details](guide/webhook.md))
+- **Webhook sync**: GitHub / Gitea push events → auto clone + build with per-repo branch filtering and `.ccg.yaml` build-scope (`include_paths` / `exclude`) auto-loading ([details](guide/webhook.md))
 - **Multi-DB**: SQLite (local), PostgreSQL
 - **Full-text search**: FTS5 (SQLite), tsvector+GIN (PostgreSQL)
 

@@ -170,28 +170,33 @@ CCG를 Streamable HTTP로 실행하면 exporter가 설정되지 않은 경우에
 - 지수적 증가: 1s → 2s → 4s → ... (MaxDelay에서 캡핑)
 - 대기 중인 재시도는 컨텍스트 취소(서버 종료) 시 즉시 취소됩니다.
 - 패닉(Panic)은 오류로 처리되어 재시도 대상이 됩니다.
-- 잘못된 `.ccg.yaml` `include_paths` 설정과 같이 유효하지 않은 저장소 설정은 현재 이벤트에 대해 재시도 불가능한 오류로 처리됩니다.
+- 잘못된 `.ccg.yaml` `include_paths` 또는 `exclude`처럼 유효하지 않은 저장소 빌드 범위 설정은 현재 이벤트에 대해 재시도 불가능한 오류로 처리됩니다.
 - MaxAttempts를 초과하면 `ERROR` 로그를 남기고 동기화를 포기합니다 (다음 push 이벤트 시 재시도 가능).
 
 이러한 기본값은 `--webhook-attempt-timeout`, `--webhook-retry-attempts`, `--webhook-retry-base-delay`, `--webhook-retry-max-delay`로 조정할 수 있습니다.
 
-## `.ccg.yaml` include_paths 자동 적용
+## `.ccg.yaml` 빌드 범위 자동 적용
 
-웹훅 빌드 중에 복제된 저장소 내부의 `.ccg.yaml`에 있는 `include_paths` 설정을 자동으로 읽어 빌드 범위를 제한합니다.
+웹훅 빌드 중에 복제된 저장소 루트의 `.ccg.yaml`에서 `include_paths`와 `exclude`를 자동으로 읽습니다. `include_paths`는 빌드 범위를 좁히고, `exclude`는 그 범위에서 일치하는 파일 또는 디렉터리를 제외합니다.
 
 ```yaml
 # 저장소 내부의 .ccg.yaml
 include_paths:
   - src/
   - lib/
+
+exclude:
+  - vendor/
+  - "*_generated.go"
 ```
 
-- `.ccg.yaml`이 없거나 `include_paths` 키가 없는 경우 전체 디렉토리가 빌드됩니다.
+- `.ccg.yaml`이 없으면 추가 제외 없이 전체 디렉토리가 빌드됩니다.
+- 두 키는 각각 선택 사항입니다. `include_paths`가 없으면 전체 저장소가 대상이고, `exclude`가 없으면 추가 경로 필터링이 없습니다.
 - CLI의 `--config` 플래그와 무관하게 작동합니다 (YAML 직접 파싱).
 
 ## 파싱 크기 제한 (Parse Size Limits)
 
-웹훅 요청 본문의 크기는 저장소 파싱과는 별도로 제한됩니다. 웹훅 페이로드는 서버에 의해 제한되지만, 이후의 복제/빌드 단계는 기본적으로 소스 파싱 크기 제한이 없습니다. 기본적으로 CCG는 `include_paths`로 범위를 좁히지 않는 한 복제된 저장소의 모든 일치하는 소스 파일을 빌드합니다.
+웹훅 요청 본문의 크기는 저장소 파싱과는 별도로 제한됩니다. 웹훅 페이로드는 서버에 의해 제한되지만, 이후의 복제/빌드 단계는 기본적으로 소스 파싱 크기 제한이 없습니다. 기본적으로 CCG는 `include_paths`로 범위를 좁히거나 `exclude`로 경로를 제외하지 않는 한 복제된 저장소의 모든 일치하는 소스 파일을 빌드합니다.
 
 대규모 저장소에 대해 파싱 예산이 필요한 경우, `--max-file-bytes`, `--max-total-parsed-bytes` 또는 일치하는 `.ccg.yaml` 설정을 명시적으로 구성하십시오. CCG는 기본 웹훅 파싱 제한을 두지 않습니다.
 
@@ -225,7 +230,7 @@ CCG는 현재 웹훅 운영을 위한 `/metrics` 엔드포인트를 제공하지
 `/status`가 degraded 웹훅 동기화를 보고하거나, 큐 대기 시간이 계속 증가하거나, 배포 재시작 중 수락된 이벤트가 중단되었을 수 있을 때는 아래 절차를 사용하십시오.
 
 1. `/status.webhook.recent_repos`와 로그에서 `repo`, `branch`, `last_error`를 확인합니다.
-2. 잘못된 `.ccg.yaml` `include_paths`처럼 재시도 불가능한 저장소 설정 오류를 수정합니다.
+2. 잘못된 `.ccg.yaml` `include_paths` 또는 `exclude`처럼 재시도 불가능한 저장소 빌드 범위 설정 오류를 수정합니다.
 3. upstream provider가 복구를 주도해야 한다면 같은 브랜치에 새 push를 발생시킵니다.
 4. 수동 복구가 필요하면 checkout 디렉터리 기준으로 네임스페이스를 업데이트합니다.
 
