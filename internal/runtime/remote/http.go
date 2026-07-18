@@ -101,7 +101,7 @@ func buildRepoSyncHTTP(rt *ccgruntime.Runtime, cfg httpin.Config, rules []reposy
 	}
 	graphSvc := &workflow.Service{Store: rt.Store, UnitOfWork: rt.UnitOfWork, Search: rt.Search, ParseCache: rt.Store, Walkers: walkers, Logger: rt.Logger}
 	syncService := &reposync.Service{
-		Checkout: gitrepo.NewCheckout(cfg.RepoRoot, repoLocker, nil), IncludePaths: configfiles.IncludePaths{},
+		Checkout: gitrepo.NewCheckout(cfg.RepoRoot, repoLocker, nil), BuildScope: configfiles.BuildScope{},
 		Graph:         reposyncgraph.Updater{Service: graphSvc, Syncer: rt.Syncer},
 		Cache:         reposync.CacheInvalidatorFunc(func() { mcpruntime.FlushQueryCache(inst.Cache) }),
 		Observability: reposyncobs.Hooks{}, AttemptTimeout: cfg.WebhookAttemptTimeout,

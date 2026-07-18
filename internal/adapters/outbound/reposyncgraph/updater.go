@@ -15,10 +15,10 @@ type Updater struct {
 	Syncer  workflow.IncrementalSyncer
 }
 
-// Update preserves replace, size limit, namespace, and unreadable-file semantics.
+// Update preserves replace, source scope, size limit, namespace, and unreadable-file semantics.
 // @intent replace one synchronized repository namespace using the existing incremental ingest contract.
 func (u Updater) Update(ctx context.Context, req reposync.GraphRequest) (reposync.UpdateStats, error) {
-	stats, err := u.Service.Update(requestctx.WithNamespace(ctx, req.Namespace), workflow.UpdateOptions{BuildOptions: workflow.BuildOptions{Dir: req.RepoDir, IncludePaths: req.IncludePaths, MaxFileBytes: req.MaxFileBytes, MaxTotalParsedBytes: req.MaxTotalParsedBytes}, Syncer: u.Syncer, Replace: true, FailOnUnreadable: req.FailOnUnreadable})
+	stats, err := u.Service.Update(requestctx.WithNamespace(ctx, req.Namespace), workflow.UpdateOptions{BuildOptions: workflow.BuildOptions{Dir: req.RepoDir, IncludePaths: req.IncludePaths, ExcludePatterns: req.ExcludePatterns, MaxFileBytes: req.MaxFileBytes, MaxTotalParsedBytes: req.MaxTotalParsedBytes}, Syncer: u.Syncer, Replace: true, FailOnUnreadable: req.FailOnUnreadable})
 	if err != nil {
 		return reposync.UpdateStats{}, err
 	}

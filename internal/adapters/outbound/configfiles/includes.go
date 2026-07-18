@@ -7,32 +7,33 @@ import (
 	"path/filepath"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/tae2089/code-context-graph/internal/app/reposync"
 )
 
-var errIncludePathsConfig = errors.New("invalid include_paths config")
+var errBuildScopeConfig = errors.New("invalid repository build scope config")
 
-// IncludePaths reads the repository-local CCG include path configuration.
-// @intent adapt established repository config parsing to the reposync application port.
-type IncludePaths struct{}
+// BuildScope reads repository-local CCG source selection configuration.
+// @intent adapt repository include and exclude configuration parsing to the reposync application port.
+type BuildScope struct{}
 
-// Load reads include paths from a repository-local .ccg.yaml file.
-// @intent own repository configuration file I/O for the reposync adapter while preserving absent-file and parse-error behavior.
-func (IncludePaths) Load(repoDir string) ([]string, error) {
+// Load reads include paths and exclude patterns from a repository-local .ccg.yaml file.
+// @intent own repository build scope configuration I/O for webhook synchronization.
+// @return returns an empty scope when the repository has no .ccg.yaml file.
+func (BuildScope) Load(repoDir string) (reposync.BuildScope, error) {
 	data, err := os.ReadFile(filepath.Join(repoDir, ".ccg.yaml"))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
+			return reposync.BuildScope{}, nil
 		}
-		return nil, err
+		return reposync.BuildScope{}, err
 	}
 	var cfg struct {
-		IncludePaths []string `yaml:"include_paths"`
+		IncludePaths    []string `yaml:"include_paths"`
+		ExcludePatterns []string `yaml:"exclude"`
 	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("%w: parse .ccg.yaml: %w", errIncludePathsConfig, err)
+		return reposync.BuildScope{}, fmt.Errorf("%w: parse .ccg.yaml: %w", errBuildScopeConfig, err)
 	}
-	if len(cfg.IncludePaths) == 0 {
-		return nil, nil
-	}
-	return cfg.IncludePaths, nil
+	return reposync.BuildScope{IncludePaths: cfg.IncludePaths, ExcludePatterns: cfg.ExcludePatterns}, nil
 }
