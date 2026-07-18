@@ -85,7 +85,8 @@ MCP initialization and tool responses are strict: malformed JSON, top-level JSON
 ### Manual Container Management
 
 ```bash
-docker compose -f docker-compose.integration.yml up -d --build
+make container-artifacts
+CONTAINER_ARCH="$(go env GOARCH)" docker compose -f docker-compose.integration.yml up -d --build
 docker compose -f docker-compose.integration.yml down -v
 ```
 

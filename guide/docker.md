@@ -15,8 +15,14 @@ Each stable release publishes the full semantic version, minor, major, and
 ## Build Image
 
 ```bash
-docker build -t ccg .
+make container-artifacts
+docker build --build-arg TARGETARCH="$(go env GOARCH)" -t ccg .
 ```
+
+`make container-artifacts` compiles the Linux binaries and Wiki UI once, then
+the Dockerfile packages those prepared assets without compiling source. Linux
+hosts use the local Go toolchain; other hosts compile the matching Linux
+architecture inside `golang:1.25-bookworm`.
 
 ## Run as MCP Server
 
@@ -177,6 +183,7 @@ docker compose up -d
 The full-stack pipeline test can also be run with Docker Compose. See the [Development Guide](development.md#integration-test) for details.
 
 ```bash
-docker compose -f docker-compose.integration.yml up -d --build
+make container-artifacts
+CONTAINER_ARCH="$(go env GOARCH)" docker compose -f docker-compose.integration.yml up -d --build
 docker compose -f docker-compose.integration.yml down -v
 ```

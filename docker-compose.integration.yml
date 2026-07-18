@@ -1,5 +1,6 @@
 # Full-stack integration test: Gitea + PostgreSQL + ccg
-# Usage: docker compose -f docker-compose.integration.yml up -d
+# Usage: make container-artifacts
+#        CONTAINER_ARCH=$(go env GOARCH) docker compose -f docker-compose.integration.yml up -d
 #        ./scripts/integration-test.sh
 #        docker compose -f docker-compose.integration.yml down -v
 
@@ -54,6 +55,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        TARGETARCH: ${CONTAINER_ARCH:-amd64}
     environment:
       - CCG_DB_DRIVER=postgres
       - CCG_DB_DSN=host=postgres user=ccg password=ccg dbname=ccg_integration port=5432 sslmode=disable

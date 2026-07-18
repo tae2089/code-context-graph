@@ -5,8 +5,14 @@
 ## 이미지 빌드 (Build Image)
 
 ```bash
-docker build -t ccg .
+make container-artifacts
+docker build --build-arg TARGETARCH="$(go env GOARCH)" -t ccg .
 ```
+
+`make container-artifacts`는 Linux 바이너리와 Wiki UI를 한 번만 빌드하고,
+Dockerfile은 준비된 결과물만 패키징합니다. Linux 호스트에서는 로컬 Go
+도구체인을 사용하며, 그 외 호스트에서는 `golang:1.25-bookworm` 컨테이너에서
+대상 Linux 아키텍처용 바이너리를 컴파일합니다.
 
 ## MCP 서버로 실행 (Run as MCP Server)
 
@@ -151,6 +157,7 @@ docker compose up -d
 전체 파이프라인 테스트 또한 Docker Compose로 실행할 수 있습니다. 자세한 내용은 [개발 가이드](development.md#integration-test)를 참조하십시오.
 
 ```bash
-docker compose -f docker-compose.integration.yml up -d --build
+make container-artifacts
+CONTAINER_ARCH="$(go env GOARCH)" docker compose -f docker-compose.integration.yml up -d --build
 docker compose -f docker-compose.integration.yml down -v
 ```

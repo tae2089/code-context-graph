@@ -7,8 +7,10 @@ WIKI_ADDR   ?= 127.0.0.1:8080
 WIKI_DB     ?= ccg.db
 WIKI_REPO   ?= .
 WIKI_TOKEN  ?=
+HOST_GOOS   := $(shell go env GOOS)
+CONTAINER_ARCH ?= $(shell go env GOARCH)
 
-.PHONY: build release build-debug build-json install vet test test-integration-helpers wiki-build wiki-db wiki-docs wiki-run wiki-run-indexed clean
+.PHONY: build release build-debug build-json install vet test test-integration-helpers wiki-build wiki-db wiki-docs wiki-run wiki-run-indexed container-artifacts clean
 
 build: release
 
@@ -38,6 +40,24 @@ test-integration-helpers:
 
 wiki-build:
 	cd web/wiki && npm ci && npm run build
+
+container-artifacts: wiki-build
+	mkdir -p container-artifacts/$(CONTAINER_ARCH) container-artifacts/wiki
+	if [ "$(HOST_GOOS)" = "linux" ]; then \
+		$(MAKE) release; \
+	else \
+		docker run --rm --platform linux/$(CONTAINER_ARCH) \
+			--user "$$(id -u):$$(id -g)" \
+			-e GOCACHE=/tmp/go-build \
+			-e VERSION="$(VERSION)" \
+			-e COMMIT="$(COMMIT)" \
+			-e DATE="$(DATE)" \
+			-v "$$(pwd):/src" -w /src golang:1.25-bookworm \
+			sh -c 'CGO_ENABLED=1 go build -tags "fts5" -ldflags "-s -w -X main.version=$$VERSION -X main.commit=$$COMMIT -X main.date=$$DATE" -o ccg ./cmd/ccg/ && CGO_ENABLED=1 go build -tags "fts5" -ldflags "-s -w -X main.version=$$VERSION -X main.commit=$$COMMIT -X main.date=$$DATE" -o ccg-server ./cmd/ccg-server/'; \
+	fi
+	cp ccg container-artifacts/$(CONTAINER_ARCH)/ccg
+	cp ccg-server container-artifacts/$(CONTAINER_ARCH)/ccg-server
+	cp -R web/wiki/dist/. container-artifacts/wiki/
 
 wiki-db:
 	CGO_ENABLED=1 go run -tags "fts5" ./cmd/ccg --db-driver sqlite --db-dsn '$(WIKI_DB)' migrate
