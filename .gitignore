@@ -26,5 +26,6 @@ pyproject.toml
 *.db-wal
 /web/wiki/dist/
 /web/wiki/node_modules/
+/container-artifacts/
 search-retrieval.md
 _workspace/

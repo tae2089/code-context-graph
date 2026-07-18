@@ -3,6 +3,8 @@ set -euo pipefail
 
 COMPOSE_FILE="docker-compose.integration.yml"
 COMPOSE_CMD=${COMPOSE_CMD:-"docker compose"}
+CONTAINER_ARCH=${CONTAINER_ARCH:-$(go env GOARCH)}
+export CONTAINER_ARCH
 GITEA_URL="http://localhost:3000"
 CCG_URL="http://localhost:18080"
 ADMIN_USER="testadmin"
@@ -104,6 +106,9 @@ wait_for_postgres() {
 }
 
 start_integration_stack() {
+    info "Preparing ccg container artifacts for linux/${CONTAINER_ARCH}..."
+    make container-artifacts
+
     info "Starting base services..."
     compose up -d postgres gitea
 

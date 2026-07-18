@@ -1,41 +1,19 @@
-# Wiki UI build stage
-FROM node:22-alpine AS wiki-builder
+# Runtime stage packages binaries and Wiki assets prepared by the release workflow.
+FROM ubuntu:24.04
 
-WORKDIR /src/web/wiki
-COPY web/wiki/package.json web/wiki/package-lock.json ./
-RUN npm ci
-COPY web/wiki/ ./
-RUN npm run build
+ARG TARGETARCH=amd64
 
-# Build stage
-FROM golang:1.25-alpine AS builder
-
-RUN apk add --no-cache gcc musl-dev git
-
-ARG VERSION=dev
-ARG COMMIT=unknown
-ARG DATE=unknown
-
-WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
-
-COPY . .
-RUN CGO_ENABLED=1 go build -tags "fts5" -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o /usr/local/bin/ccg ./cmd/ccg/ \
-    && CGO_ENABLED=1 go build -tags "fts5" -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o /usr/local/bin/ccg-server ./cmd/ccg-server/
-
-# Runtime stage
-FROM alpine:3.21
-
-RUN apk add --no-cache ca-certificates git \
-    && addgroup -S ccg \
-    && adduser -S -G ccg -h /home/ccg ccg \
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y ca-certificates git wget \
+    && groupadd --system ccg \
+    && useradd --system --gid ccg --create-home --home-dir /home/ccg ccg \
     && mkdir -p /repo /repos /home/ccg/.cache /home/ccg/.config/ccg \
-    && chown -R ccg:ccg /repo /repos /home/ccg
+    && chown -R ccg:ccg /repo /repos /home/ccg \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /usr/local/bin/ccg /usr/local/bin/ccg
-COPY --from=builder /usr/local/bin/ccg-server /usr/local/bin/ccg-server
-COPY --from=wiki-builder /src/web/wiki/dist /usr/share/ccg/wiki
+COPY container-artifacts/${TARGETARCH}/ccg /usr/local/bin/ccg
+COPY container-artifacts/${TARGETARCH}/ccg-server /usr/local/bin/ccg-server
+COPY container-artifacts/wiki /usr/share/ccg/wiki
 
 WORKDIR /repo
 USER ccg

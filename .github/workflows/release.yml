@@ -21,11 +21,11 @@ jobs:
             goos: darwin
             goarch: amd64
             artifact: ccg-darwin-amd64
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             goos: linux
             goarch: amd64
             artifact: ccg-linux-amd64
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             goos: linux
             goarch: arm64
             artifact: ccg-linux-arm64
@@ -162,6 +162,32 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Download Linux AMD64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ccg-linux-amd64
+          path: artifacts/ccg-linux-amd64
+
+      - name: Download Linux ARM64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ccg-linux-arm64
+          path: artifacts/ccg-linux-arm64
+
+      - name: Download Wiki artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ccg-wiki-dist
+          path: artifacts/ccg-wiki-dist
+
+      - name: Prepare container artifacts
+        shell: bash
+        run: |
+          mkdir -p container-artifacts/amd64 container-artifacts/arm64 container-artifacts/wiki
+          tar xzf artifacts/ccg-linux-amd64/ccg-linux-amd64.tar.gz -C container-artifacts/amd64
+          tar xzf artifacts/ccg-linux-arm64/ccg-linux-arm64.tar.gz -C container-artifacts/arm64
+          tar xzf artifacts/ccg-wiki-dist/ccg-wiki-dist.tar.gz -C container-artifacts/wiki
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
 
@@ -187,14 +213,6 @@ jobs:
             type=semver,pattern={{major}}
             type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
-      - name: Prepare container build metadata
-        id: build-meta
-        shell: bash
-        run: |
-          echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          echo "commit=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-
       - name: Build and publish container image
         uses: docker/build-push-action@v7
         with:
@@ -203,10 +221,6 @@ jobs:
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
-          build-args: |
-            VERSION=${{ steps.build-meta.outputs.version }}
-            COMMIT=${{ steps.build-meta.outputs.commit }}
-            DATE=${{ steps.build-meta.outputs.date }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
