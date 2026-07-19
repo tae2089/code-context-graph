@@ -5,6 +5,8 @@ import (
 	"context"
 	"strings"
 
+	"gorm.io/gorm"
+
 	docsapp "github.com/tae2089/code-context-graph/internal/app/docs"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 	"github.com/tae2089/code-context-graph/internal/domain/reference"
@@ -73,6 +75,15 @@ func (s *Store) QualifiedNameExists(ctx context.Context, namespace, name string)
 
 // @intent validate parsed cross-namespace ccg references against graph path and symbol semantics.
 func (s *Store) CCGRefExists(ctx context.Context, ref reference.Ref) (bool, error) {
+	var count int64
+	err := s.ccgRefNodeQuery(ctx, ref).Count(&count).Error
+	return count > 0, err
+}
+
+// ccgRefNodeQuery builds the node query matching a parsed ccg:// reference target.
+// @intent keep one matcher for every consumer of ccg ref resolution so lint and cross-ref state never disagree.
+// @domainRule a path scope matches the file itself or any file under the path; a symbol scope matches name or qualified-name suffix.
+func (s *Store) ccgRefNodeQuery(ctx context.Context, ref reference.Ref) *gorm.DB {
 	q := s.db.WithContext(ctx).Model(&graph.Node{}).Where("namespace = ?", ref.Namespace)
 	if ref.Path != "" {
 		if ref.Symbol != "" {
@@ -83,7 +94,5 @@ func (s *Store) CCGRefExists(ctx context.Context, ref reference.Ref) (bool, erro
 	} else if ref.Symbol != "" {
 		q = q.Where("name = ? OR qualified_name = ? OR qualified_name LIKE ? OR qualified_name LIKE ?", ref.Symbol, ref.Symbol, "%."+ref.Symbol, "%::"+ref.Symbol)
 	}
-	var count int64
-	err := q.Count(&count).Error
-	return count > 0, err
+	return q
 }
