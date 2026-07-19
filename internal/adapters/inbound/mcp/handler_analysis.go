@@ -39,9 +39,11 @@ type impactRadiusResponse struct {
 
 // traceFlowMember captures one ordered member inside a traced flow.
 // @intent serialize flow member references without exposing the full node record.
+// @domainRule Namespace is set only in cross-namespace mode so single-namespace responses stay unchanged.
 type traceFlowMember struct {
-	NodeID  uint `json:"node_id"`
-	Ordinal int  `json:"ordinal"`
+	NodeID    uint   `json:"node_id"`
+	Ordinal   int    `json:"ordinal"`
+	Namespace string `json:"namespace,omitempty"`
 }
 
 // traceFlowMetadata records bounded trace settings and fallback-edge summary data.
@@ -232,6 +234,9 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 		members := make([]traceFlowMember, len(flow.Members))
 		for i, m := range flow.Members {
 			members[i] = traceFlowMember{NodeID: m.NodeID, Ordinal: m.Ordinal}
+			if crossNamespace {
+				members[i].Namespace = m.Namespace
+			}
 		}
 
 		result, err := marshalJSON(traceFlowResponse{
