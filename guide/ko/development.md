@@ -105,7 +105,7 @@ internal/
   ctx/                — 요청 컨텍스트 값 (namespace 격리)
   docs/               — 문서 생성 로직
   mcpruntime/         — 공용 MCP runtime assembly, stdio runner, cache, telemetry
-  mcp/                — MCP 서버 (17개 도구)
+  mcp/                — MCP 서버 (18개 도구)
   wikiserver/         — ccg-server Wiki 정적 파일 서빙 및 viewer API
   wikiindex/          — Wiki 표시용 인덱스 생성기 (`wiki-index.json`)
   model/              — DB 모델

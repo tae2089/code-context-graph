@@ -60,7 +60,7 @@ CLI / MCP / HTTP / Wiki / webhook -> application capability -> outbound port
 ## 런타임과 전송 계층
 
 `ccg serve`(stdio)와 `ccg-server`(Streamable HTTP)는 동일한 다섯 MCP 의존성
-그룹을 사용하며 정확히 17개 tool과 4개 prompt를 노출합니다. 로컬 바이너리는
+그룹을 사용하며 정확히 18개 tool과 4개 prompt를 노출합니다. 로컬 바이너리는
 원격 HTTP, Wiki, webhook, remote runtime 패키지를 링크하지 않습니다.
 자세한 내용은 [런타임 레이아웃](runtime-layout.md)을 참고하세요.
 
