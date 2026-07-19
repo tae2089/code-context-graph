@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/tae2089/trace"
+
 	"github.com/tae2089/code-context-graph/internal/app/wiki"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 )
@@ -104,12 +106,45 @@ func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) 
 	if h.deps.Docs.Retrieval == nil {
 		return mcp.NewToolResultError("DB is not configured"), nil
 	}
+
+	if namespaces := requestNamespaces(request); len(namespaces) > 0 {
+		return h.searchDocsFederated(ctx, query, limit, namespaces)
+	}
+
 	return finalizeToolResult(h.cachedExecute(ctx, "search_docs:db:", map[string]any{"query": query, "limit": limit, "namespace": namespace}, func() (string, error) {
 		results, err := h.searchDocsFromDB(ctx, namespace, query, limit)
 		if err != nil {
 			return "", newToolResultErr(err.Error())
 		}
 		b, _ := json.Marshal(results)
+		return string(b), nil
+	}))
+}
+
+// federatedDocsEntry labels one namespace's documentation candidates in a federated response.
+// @intent keep doc candidates attributable to their source repository.
+type federatedDocsEntry struct {
+	Namespace string              `json:"namespace"`
+	Results   []wiki.SearchResult `json:"results"`
+}
+
+// searchDocsFederated searches documentation candidates across several namespaces.
+// @intent let one docs query cover multiple repositories with per-namespace grouping.
+func (h *handlers) searchDocsFederated(ctx context.Context, query string, limit int, namespaces []string) (*mcp.CallToolResult, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "search_docs:db:", map[string]any{"query": query, "limit": limit, "namespaces": namespaces}, func() (string, error) {
+		entries := make([]federatedDocsEntry, 0, len(namespaces))
+		for _, ns := range namespaces {
+			nsCtx := requestctx.WithNamespace(ctx, ns)
+			results, err := h.searchDocsFromDB(nsCtx, ns, query, limit)
+			if err != nil {
+				return "", newToolResultErr(err.Error())
+			}
+			entries = append(entries, federatedDocsEntry{Namespace: ns, Results: results})
+		}
+		b, err := json.Marshal(map[string]any{"namespaces": entries})
+		if err != nil {
+			return "", trace.Wrap(err, "marshal result")
+		}
 		return string(b), nil
 	}))
 }

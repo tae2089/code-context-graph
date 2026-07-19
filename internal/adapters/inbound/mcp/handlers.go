@@ -106,6 +106,27 @@ func requestNamespace(request mcp.CallToolRequest) string {
 	return request.GetString("namespace", "")
 }
 
+// requestNamespaces reads the multi-namespace federation argument.
+// @intent let read tools fan out over several namespaces while keeping the single-namespace contract untouched.
+// @domainRule values are normalized and deduplicated; an empty selection means single-namespace mode.
+func requestNamespaces(request mcp.CallToolRequest) []string {
+	raw := request.GetStringSlice("namespaces", nil)
+	if len(raw) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(raw))
+	namespaces := make([]string, 0, len(raw))
+	for _, ns := range raw {
+		normalized := requestctx.Normalize(ns)
+		if seen[normalized] {
+			continue
+		}
+		seen[normalized] = true
+		namespaces = append(namespaces, normalized)
+	}
+	return namespaces
+}
+
 // makeCacheKey builds a cache key from a prefix and JSON-encoded parameters.
 // @intent turn request parameters into a stable string key so tool-result caching can reuse previous responses.
 // @param prefix scopes the cache namespace for a tool family.
@@ -218,12 +239,14 @@ func finalizeToolResult(result string, err error) (*mcp.CallToolResult, error) {
 
 // nodeSummary is a compact node response payload shared by graph handlers.
 // @intent reuse one typed node representation across multiple tool responses.
+// @domainRule Namespace is set only by cross-namespace analysis so existing responses keep their wire format.
 type nodeSummary struct {
 	ID            uint           `json:"id"`
 	QualifiedName string         `json:"qualified_name"`
 	Kind          graph.NodeKind `json:"kind"`
 	Name          string         `json:"name"`
 	FilePath      string         `json:"file_path"`
+	Namespace     string         `json:"namespace,omitempty"`
 }
 
 // nodeToSummary converts a graph node into a compact typed response payload.
