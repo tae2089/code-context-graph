@@ -6,7 +6,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
-// test
+
 // FlowRebuildStore is the transaction-scoped graph and flow persistence surface used by a rebuild.
 // @intent let flow application policy trace and replace flows without importing a database adapter.
 type FlowRebuildStore interface {
