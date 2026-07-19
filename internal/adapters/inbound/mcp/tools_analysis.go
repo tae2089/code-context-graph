@@ -17,6 +17,7 @@ func analysisTools(h *handlers) []server.ServerTool {
 				mcp.WithNumber("depth", mcp.Description("BFS traversal depth"), mcp.DefaultNumber(1)),
 				mcp.WithNumber("max_depth", mcp.Description("Maximum BFS depth returned"), mcp.DefaultNumber(defaultImpactMaxDepth)),
 				mcp.WithNumber("max_nodes", mcp.Description("Maximum nodes returned"), mcp.DefaultNumber(defaultImpactMaxNodes)),
+				mcp.WithBoolean("cross_namespace", mcp.Description("When true, traversal follows resolved ccg:// cross-namespace refs in both directions; results carry a namespace label")),
 			)...),
 			Handler: h.getImpactRadius,
 		},
@@ -26,8 +27,17 @@ func analysisTools(h *handlers) []server.ServerTool {
 				mcp.WithString("qualified_name", mcp.Description("Fully qualified node name"), mcp.Required()),
 				mcp.WithNumber("max_nodes", mcp.Description("Maximum flow members returned"), mcp.DefaultNumber(defaultTraceMaxNodes)),
 				mcp.WithBoolean("include_fallback_calls", mcp.Description("When false, trace_flow excludes fallback_calls edges; defaults to true")),
+				mcp.WithBoolean("cross_namespace", mcp.Description("When true, the trace continues across resolved ccg:// cross-namespace refs")),
 			)...),
 			Handler: h.traceFlow,
+		},
+		{
+			Tool: mcp.NewTool("list_cross_refs", withNamespaceParam(
+				mcp.WithDescription("List materialized ccg:// cross-namespace references for a namespace, as a repository-level dependency map"),
+				mcp.WithString("direction", mcp.Description("outbound (refs this namespace declares), inbound (refs targeting this namespace), or both (default)")),
+				mcp.WithString("status", mcp.Description("Filter by resolution status: resolved or dead")),
+			)...),
+			Handler: h.listCrossRefs,
 		},
 		{
 			Tool: mcp.NewTool("detect_changes", withNamespaceParam(

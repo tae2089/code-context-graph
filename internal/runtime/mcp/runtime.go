@@ -109,6 +109,9 @@ func New(components Components, opts Options) (*Instance, error) {
 		Analysis: mcp.AnalysisToolsDeps{
 			Impact: impact.New(components.Store), Flow: flows.New(components.Store),
 			Changes: changes.New(components.Store, gitexec.NewExecGitClient()), Reader: components.Store,
+			CrossImpact: impact.New(components.Store.CrossNamespaceReader()),
+			CrossFlow:   flows.New(components.Store.CrossNamespaceReader()),
+			CrossRefs:   components.Store,
 		},
 		Docs: mcp.DocsToolsDeps{Retrieval: retrieval.New(components.SearchReader, components.SearchReader)},
 		Runtime: mcp.RuntimeToolsDeps{

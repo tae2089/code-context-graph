@@ -116,14 +116,19 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 	depth := request.GetInt("depth", 1)
 	maxDepth := request.GetInt("max_depth", defaultImpactMaxDepth)
 	maxNodes := request.GetInt("max_nodes", defaultImpactMaxNodes)
+	crossNamespace := request.GetBool("cross_namespace", false)
 
-	log.InfoContext(ctx, "get_impact_radius called", append(obs.TraceLogArgs(ctx), "qualified_name", qn, "depth", depth)...)
+	log.InfoContext(ctx, "get_impact_radius called", append(obs.TraceLogArgs(ctx), "qualified_name", qn, "depth", depth, "cross_namespace", crossNamespace)...)
 
-	if h.deps.Analysis.Impact == nil {
+	analyzer := h.deps.Analysis.Impact
+	if crossNamespace {
+		analyzer = h.deps.Analysis.CrossImpact
+	}
+	if analyzer == nil {
 		return mcp.NewToolResultError("ImpactAnalyzer not configured"), nil
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "get_impact_radius:", map[string]any{"qualified_name": qn, "depth": depth, "max_depth": maxDepth, "max_nodes": maxNodes, "namespace": requestNamespace(request)}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "get_impact_radius:", map[string]any{"qualified_name": qn, "depth": depth, "max_depth": maxDepth, "max_nodes": maxNodes, "namespace": requestNamespace(request), "cross_namespace": crossNamespace}, func() (string, error) {
 		node, err := h.deps.Graph.Store.GetNode(ctx, qn)
 		if err != nil {
 			log.ErrorContext(ctx, "store error", append(obs.TraceLogArgs(ctx), "tool", "get_impact_radius", trace.SlogError(err))...)
@@ -134,7 +139,7 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 			return "", nodeNotFoundErr(qn)
 		}
 
-		res, err := h.deps.Analysis.Impact.ImpactRadiusBounded(ctx, node.ID, depth, impactpkg.RadiusOptions{MaxDepth: maxDepth, MaxNodes: maxNodes})
+		res, err := analyzer.ImpactRadiusBounded(ctx, node.ID, depth, impactpkg.RadiusOptions{MaxDepth: maxDepth, MaxNodes: maxNodes})
 		if err != nil {
 			log.ErrorContext(ctx, "impact analysis error", append(obs.TraceLogArgs(ctx), "node_id", node.ID, trace.SlogError(err))...)
 			return "", trace.Wrap(err, "impact analysis error")
@@ -147,6 +152,9 @@ func (h *handlers) getImpactRadius(ctx context.Context, request mcp.CallToolRequ
 		impactResult := make([]nodeSummary, len(nodes))
 		for i, n := range nodes {
 			impactResult[i] = nodeToSummary(n)
+			if crossNamespace {
+				impactResult[i].Namespace = n.Namespace
+			}
 		}
 		result, err := marshalJSON(impactRadiusResponse{
 			Nodes: impactResult,
@@ -179,9 +187,14 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 		return missingParamResult(err)
 	}
 
-	log.InfoContext(ctx, "trace_flow called", append(obs.TraceLogArgs(ctx), "qualified_name", qn)...)
+	crossNamespace := request.GetBool("cross_namespace", false)
+	log.InfoContext(ctx, "trace_flow called", append(obs.TraceLogArgs(ctx), "qualified_name", qn, "cross_namespace", crossNamespace)...)
 
-	if h.deps.Analysis.Flow == nil {
+	tracer := h.deps.Analysis.Flow
+	if crossNamespace {
+		tracer = h.deps.Analysis.CrossFlow
+	}
+	if tracer == nil {
 		return mcp.NewToolResultError("FlowTracer not configured"), nil
 	}
 
@@ -192,6 +205,7 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 		"max_nodes":              maxNodes,
 		"include_fallback_calls": includeFallbackCalls,
 		"namespace":              requestNamespace(request),
+		"cross_namespace":        crossNamespace,
 	}, func() (string, error) {
 		node, err := h.deps.Graph.Store.GetNode(ctx, qn)
 		if err != nil {
@@ -203,7 +217,7 @@ func (h *handlers) traceFlow(ctx context.Context, request mcp.CallToolRequest) (
 			return "", nodeNotFoundErr(qn)
 		}
 
-		res, err := h.deps.Analysis.Flow.TraceFlowBounded(ctx, node.ID, flowspkg.TraceOptions{MaxNodes: maxNodes, IncludeFallbackCalls: &includeFallbackCalls})
+		res, err := tracer.TraceFlowBounded(ctx, node.ID, flowspkg.TraceOptions{MaxNodes: maxNodes, IncludeFallbackCalls: &includeFallbackCalls})
 		if err != nil {
 			log.ErrorContext(ctx, "trace error", append(obs.TraceLogArgs(ctx), "node_id", node.ID, trace.SlogError(err))...)
 			return "", trace.Wrap(err, "trace error")

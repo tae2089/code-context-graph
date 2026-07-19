@@ -204,9 +204,14 @@ func groupedTestDeps(st *graphgorm.Store, db *gorm.DB, sb search.Backend, parser
 			Statistics: st,
 			Reader:     st,
 		},
-		Analysis: AnalysisToolsDeps{Impact: impact.New(st), Flow: flows.New(st), Reader: st},
-		Docs:     DocsToolsDeps{Retrieval: retrieval.New(reader, reader)},
-		Runtime:  RuntimeToolsDeps{Logger: log, RepoRoot: os.TempDir()},
+		Analysis: AnalysisToolsDeps{
+			Impact: impact.New(st), Flow: flows.New(st), Reader: st,
+			CrossImpact: impact.New(st.CrossNamespaceReader()),
+			CrossFlow:   flows.New(st.CrossNamespaceReader()),
+			CrossRefs:   st,
+		},
+		Docs:    DocsToolsDeps{Retrieval: retrieval.New(reader, reader)},
+		Runtime: RuntimeToolsDeps{Logger: log, RepoRoot: os.TempDir()},
 	}
 }
 

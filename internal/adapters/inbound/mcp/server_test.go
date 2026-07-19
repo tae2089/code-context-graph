@@ -23,6 +23,7 @@ func TestMCPServer_ListTools(t *testing.T) {
 		"search",
 		"get_annotation",
 		"trace_flow",
+		"list_cross_refs",
 		"build_or_update_graph",
 		"run_postprocess",
 		"query_graph",
@@ -63,8 +64,8 @@ func TestMCPServer_ListTools_Count(t *testing.T) {
 	srv := NewServer(deps)
 	tools := srv.ListTools()
 
-	if len(tools) != 17 {
-		t.Fatalf("expected 17 tools, got %d", len(tools))
+	if len(tools) != 18 {
+		t.Fatalf("expected 18 tools, got %d", len(tools))
 	}
 }
 
