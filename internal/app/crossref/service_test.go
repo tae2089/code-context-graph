@@ -12,6 +12,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/app/crossref"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
+	"github.com/tae2089/code-context-graph/internal/domain/reference"
 )
 
 func setupStore(t *testing.T) *graphgorm.Store {
@@ -57,6 +58,67 @@ func syncNamespace(t *testing.T, svc *crossref.Service, namespace string) {
 	ctx := requestctx.WithNamespace(context.Background(), namespace)
 	if err := svc.SyncNamespace(ctx); err != nil {
 		t.Fatalf("sync %s: %v", namespace, err)
+	}
+}
+
+// countingStore counts resolve round-trips so tests can assert per-distinct-target batching.
+type countingStore struct {
+	*graphgorm.Store
+	resolveCalls int
+}
+
+func (c *countingStore) ResolveCCGRef(ctx context.Context, ref reference.Ref) (uint, bool, error) {
+	c.resolveCalls++
+	return c.Store.ResolveCCGRef(ctx, ref)
+}
+
+func TestSyncNamespace_ResolvesEachDistinctTargetOnce(t *testing.T) {
+	s := setupStore(t)
+	counting := &countingStore{Store: s}
+	svc := crossref.New(counting)
+
+	seedNode(t, s, "auth-svc", graph.Node{
+		QualifiedName: "auth.ValidateToken", Kind: graph.NodeKindFunction, Name: "ValidateToken",
+		FilePath: "internal/auth/token.go", StartLine: 10, EndLine: 20,
+	})
+	loginID := seedNode(t, s, "web", graph.Node{
+		QualifiedName: "web.Login", Kind: graph.NodeKindFunction, Name: "Login",
+		FilePath: "internal/web/login.go", StartLine: 5, EndLine: 25,
+	})
+	logoutID := seedNode(t, s, "web", graph.Node{
+		QualifiedName: "web.Logout", Kind: graph.NodeKindFunction, Name: "Logout",
+		FilePath: "internal/web/login.go", StartLine: 30, EndLine: 40,
+	})
+	// Two nodes referencing the same target, one of them also via a second identical tag.
+	annotate(t, s, "web", loginID,
+		"ccg://auth-svc/internal/auth/token.go#ValidateToken",
+		"ccg://auth-svc/internal/auth/token.go#ValidateToken",
+	)
+	annotate(t, s, "web", logoutID, "ccg://auth-svc/internal/auth/token.go#ValidateToken")
+
+	syncNamespace(t, svc, "web")
+
+	if counting.resolveCalls != 1 {
+		t.Fatalf("resolve round-trips = %d, want 1 for a single distinct target", counting.resolveCalls)
+	}
+	rows, err := s.ListOutboundCrossRefs(context.Background(), "web")
+	if err != nil {
+		t.Fatalf("list outbound: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("outbound rows = %d, want 2 (one per declaring node, dedup of identical tag)", len(rows))
+	}
+	for _, row := range rows {
+		if row.Status != graph.CrossRefStatusResolved || row.ResolvedNodeID == nil {
+			t.Fatalf("row = %+v, want resolved", row)
+		}
+	}
+
+	// Inbound re-resolution of auth-svc: 2 rows, same target — one resolve round-trip.
+	counting.resolveCalls = 0
+	syncNamespace(t, svc, "auth-svc")
+	if counting.resolveCalls != 1 {
+		t.Fatalf("inbound resolve round-trips = %d, want 1 for a single distinct target", counting.resolveCalls)
 	}
 }
 

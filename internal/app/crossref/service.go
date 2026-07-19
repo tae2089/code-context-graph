@@ -52,17 +52,49 @@ func (s *Service) SyncNamespace(ctx context.Context) error {
 		return trace.New("cross-ref store is not configured")
 	}
 	ns := requestctx.FromContext(ctx)
-	if err := s.rebuildOutbound(ctx, ns); err != nil {
+	memo := map[targetKey]resolution{}
+	if err := s.rebuildOutbound(ctx, ns, memo); err != nil {
 		return trace.Wrap(err, "rebuild outbound cross refs")
 	}
-	if err := s.reresolveInbound(ctx, ns); err != nil {
+	if err := s.reresolveInbound(ctx, ns, memo); err != nil {
 		return trace.Wrap(err, "re-resolve inbound cross refs")
 	}
 	return nil
 }
 
+// targetKey identifies one distinct symbolic resolution target within a sync pass.
+// @intent resolve every distinct (namespace, path, symbol) target once per sync instead of once per referencing row.
+type targetKey struct {
+	namespace string
+	path      string
+	symbol    string
+}
+
+// resolution caches one matcher outcome for reuse across rows that share a target.
+type resolution struct {
+	id     *uint
+	status graph.CrossRefStatus
+}
+
+// resolveOnce memoizes resolve results per distinct target for the duration of one sync pass.
+// @intent collapse the per-row resolve round-trips (N+1) down to one query per distinct target.
+// @domainRule the memo stays valid across the outbound and inbound phases because a sync pass
+// only rewrites cross_refs rows, never the node tables the matcher reads.
+func (s *Service) resolveOnce(ctx context.Context, ref reference.Ref, memo map[targetKey]resolution) (*uint, graph.CrossRefStatus, error) {
+	key := targetKey{namespace: ref.Namespace, path: ref.Path, symbol: ref.Symbol}
+	if cached, ok := memo[key]; ok {
+		return cached.id, cached.status, nil
+	}
+	id, status, err := s.resolve(ctx, ref)
+	if err != nil {
+		return nil, status, err
+	}
+	memo[key] = resolution{id: id, status: status}
+	return id, status, nil
+}
+
 // @intent replace the namespace's outbound rows with rows derived from its current annotations.
-func (s *Service) rebuildOutbound(ctx context.Context, ns string) error {
+func (s *Service) rebuildOutbound(ctx context.Context, ns string, memo map[targetKey]resolution) error {
 	tags, err := s.Store.ListAnnotationCCGRefs(ctx, ns)
 	if err != nil {
 		return err
@@ -79,7 +111,7 @@ func (s *Service) rebuildOutbound(ctx context.Context, ns string) error {
 			s.logger().Debug("skipping malformed ccg ref", "node_id", tag.NodeID, "value", tag.Value, "error", err)
 			continue
 		}
-		resolvedID, status, err := s.resolve(ctx, *ref)
+		resolvedID, status, err := s.resolveOnce(ctx, *ref, memo)
 		if err != nil {
 			return err
 		}
@@ -99,14 +131,14 @@ func (s *Service) rebuildOutbound(ctx context.Context, ns string) error {
 }
 
 // @intent update inbound rows whose resolution changed after this namespace's nodes were rebuilt.
-func (s *Service) reresolveInbound(ctx context.Context, ns string) error {
+func (s *Service) reresolveInbound(ctx context.Context, ns string, memo map[targetKey]resolution) error {
 	inbound, err := s.Store.ListInboundCrossRefs(ctx, ns)
 	if err != nil {
 		return err
 	}
 	for _, row := range inbound {
 		ref := reference.Ref{Raw: row.Raw, Namespace: row.ToNamespace, Path: row.ToPath, Symbol: row.ToSymbol}
-		resolvedID, status, err := s.resolve(ctx, ref)
+		resolvedID, status, err := s.resolveOnce(ctx, ref, memo)
 		if err != nil {
 			return err
 		}
