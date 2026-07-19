@@ -11,6 +11,7 @@ import (
 	"github.com/tae2089/trace"
 
 	flowspkg "github.com/tae2089/code-context-graph/internal/app/analyze/flow"
+	"github.com/tae2089/code-context-graph/internal/app/crossref"
 	"github.com/tae2089/code-context-graph/internal/app/ingest"
 	"github.com/tae2089/code-context-graph/internal/app/ingest/workflow"
 	"github.com/tae2089/code-context-graph/internal/obs"
@@ -72,7 +73,7 @@ func (h *handlers) graphService() *workflow.Service {
 		graphStore = candidate
 	}
 	parseCache, _ := h.deps.Build.Store.(ingest.ParseCache)
-	return &workflow.Service{
+	svc := &workflow.Service{
 		Store:      graphStore,
 		UnitOfWork: h.deps.Build.UnitOfWork,
 		Search:     h.deps.Build.Search,
@@ -80,6 +81,10 @@ func (h *handlers) graphService() *workflow.Service {
 		Parsers:    walkers,
 		Logger:     h.logger(),
 	}
+	if crossRefStore, ok := h.deps.Build.Store.(crossref.Store); ok {
+		svc.CrossRefs = crossref.New(crossRefStore)
+	}
+	return svc
 }
 
 // parseProject parses a project directory and stores discovered graph elements.

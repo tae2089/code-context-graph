@@ -53,7 +53,14 @@ func (s *Service) Update(ctx context.Context, opts UpdateOptions) (*ingest.SyncS
 		}
 		defer spool.cleanup(s.logger())
 		spool.packages = packages
-		return s.updateGraphWithoutTx(ctx, absDir, opts, packages, spool)
+		stats, err := s.updateGraphWithoutTx(ctx, absDir, opts, packages, spool)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.syncCrossRefs(ctx); err != nil {
+			return nil, err
+		}
+		return stats, nil
 	}
 
 	spool, err := s.prepareUpdateSpool(ctx, absDir, opts)
@@ -74,6 +81,9 @@ func (s *Service) Update(ctx context.Context, opts UpdateOptions) (*ingest.SyncS
 	if outcome.fullBuild {
 		spool.cleanup(s.logger())
 		return s.buildForUpdate(ctx, opts.BuildOptions, outcome.stats)
+	}
+	if err := s.syncCrossRefs(ctx); err != nil {
+		return nil, err
 	}
 	return outcome.stats, nil
 }

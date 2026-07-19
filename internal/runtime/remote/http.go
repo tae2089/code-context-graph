@@ -17,6 +17,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/adapters/outbound/gitrepo"
 	"github.com/tae2089/code-context-graph/internal/adapters/outbound/reposyncgraph"
 	"github.com/tae2089/code-context-graph/internal/adapters/outbound/reposyncobs"
+	"github.com/tae2089/code-context-graph/internal/app/crossref"
 	"github.com/tae2089/code-context-graph/internal/app/ingest/workflow"
 	"github.com/tae2089/code-context-graph/internal/app/reposync"
 	"github.com/tae2089/code-context-graph/internal/app/search/retrieval"
@@ -100,6 +101,9 @@ func buildRepoSyncHTTP(rt *ccgruntime.Runtime, cfg httpin.Config, rules []reposy
 		walkers[ext] = walker
 	}
 	graphSvc := &workflow.Service{Store: rt.Store, UnitOfWork: rt.UnitOfWork, Search: rt.Search, ParseCache: rt.Store, Walkers: walkers, Logger: rt.Logger}
+	if crossRefStore, ok := any(rt.Store).(crossref.Store); ok {
+		graphSvc.CrossRefs = crossref.New(crossRefStore)
+	}
 	syncService := &reposync.Service{
 		Checkout: gitrepo.NewCheckout(cfg.RepoRoot, repoLocker, nil), BuildScope: configfiles.BuildScope{},
 		Graph:         reposyncgraph.Updater{Service: graphSvc, Syncer: rt.Syncer},

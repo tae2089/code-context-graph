@@ -49,6 +49,7 @@ func (s *Store) AutoMigrate() error {
 		&graph.ParseCacheEntry{},
 		&graph.UnresolvedEdgeCandidate{},
 		&graph.UnresolvedIndexState{},
+		&graph.CrossRef{},
 	); err != nil {
 		return err
 	}

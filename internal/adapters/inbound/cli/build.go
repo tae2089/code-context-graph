@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tae2089/trace"
 
+	"github.com/tae2089/code-context-graph/internal/app/crossref"
 	"github.com/tae2089/code-context-graph/internal/app/ingest"
 	"github.com/tae2089/code-context-graph/internal/app/ingest/workflow"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
@@ -46,6 +47,9 @@ func newBuildCmd(deps *Deps) *cobra.Command {
 				ParseCache: parseCache,
 				Walkers:    deps.Walkers,
 				Logger:     deps.Logger,
+			}
+			if crossRefStore, ok := deps.Store.(crossref.Store); ok {
+				svc.CrossRefs = crossref.New(crossRefStore)
 			}
 
 			opts := workflow.BuildOptions{

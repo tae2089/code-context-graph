@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	RequiredSchemaVersion    = 14
+	RequiredSchemaVersion    = 15
 	SchemaVersionKey         = "schema"
 	LegacySchemaVersionTable = "ccg_schema_versions"
 )
@@ -385,6 +385,7 @@ func RequiredSchemaTables() []string {
 		"parse_cache_entries",
 		"unresolved_edge_candidates",
 		"unresolved_index_states",
+		"cross_refs",
 	}
 }
 
@@ -436,6 +437,13 @@ func RequiredTextColumns() []SchemaColumn {
 		{Table: "unresolved_edge_candidates", Column: "kind"},
 		{Table: "unresolved_index_states", Column: "namespace"},
 		{Table: "unresolved_index_states", Column: "version"},
+		{Table: "cross_refs", Column: "from_namespace"},
+		{Table: "cross_refs", Column: "raw"},
+		{Table: "cross_refs", Column: "to_namespace"},
+		{Table: "cross_refs", Column: "to_path"},
+		{Table: "cross_refs", Column: "to_symbol"},
+		{Table: "cross_refs", Column: "status"},
+		{Table: "cross_refs", Column: "source"},
 	}
 }
 
@@ -472,6 +480,12 @@ func ModelNullabilityColumns() []SchemaColumn {
 		{Table: "unresolved_edge_candidates", Column: "kind"},
 		{Table: "unresolved_index_states", Column: "namespace"},
 		{Table: "unresolved_index_states", Column: "version"},
+		{Table: "cross_refs", Column: "from_namespace"},
+		{Table: "cross_refs", Column: "from_node_id"},
+		{Table: "cross_refs", Column: "raw"},
+		{Table: "cross_refs", Column: "to_namespace"},
+		{Table: "cross_refs", Column: "status"},
+		{Table: "cross_refs", Column: "source"},
 	}
 }
 

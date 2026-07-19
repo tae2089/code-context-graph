@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/tae2089/trace"
+
 	ingestapp "github.com/tae2089/code-context-graph/internal/app/ingest"
 	"github.com/tae2089/code-context-graph/internal/app/ingest/resolve"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
@@ -45,6 +47,12 @@ type batchIncrementalSyncer = ingestapp.BatchIncrementalSyncer
 // @intent let staged incremental reconciliation use the graph store from the active update transaction.
 type transactionalBatchIncrementalSyncer = ingestapp.TransactionalBatchIncrementalSyncer
 
+// CrossRefSyncer rebuilds cross-namespace reference state after an ingest commit.
+// @intent let build/update trigger cross-ref materialization without depending on its implementation.
+type CrossRefSyncer interface {
+	SyncNamespace(ctx context.Context) error
+}
+
 // Service orchestrates graph building and search document refresh.
 // @intent 파싱 결과 저장과 검색 인덱스 재구성을 하나의 서비스로 묶는다.
 type Service struct {
@@ -54,6 +62,7 @@ type Service struct {
 	ParseCache ingestapp.ParseCache
 	Walkers    map[string]Parser
 	Parsers    map[string]Parser
+	CrossRefs  CrossRefSyncer
 	Logger     *slog.Logger
 
 	// resolveEdges overrides build-time edge resolution; nil uses resolve.ResolveWithOptions.
@@ -69,6 +78,18 @@ func (s *Service) edgeResolver() resolveBuildEdgesFn {
 		return s.resolveEdges
 	}
 	return resolve.ResolveWithOptions
+}
+
+// syncCrossRefs runs the optional cross-ref sync after a successful ingest commit.
+// @intent keep cross-namespace reference state current without making it a hard build dependency.
+func (s *Service) syncCrossRefs(ctx context.Context) error {
+	if s.CrossRefs == nil {
+		return nil
+	}
+	if err := s.CrossRefs.SyncNamespace(ctx); err != nil {
+		return trace.Wrap(err, "sync cross-namespace refs")
+	}
+	return nil
 }
 
 // logger returns the configured slog.Logger or the process default when none was supplied.

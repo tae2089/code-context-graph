@@ -9,9 +9,9 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestRequiredSchemaVersion_IncludesUnboundedGraphStrings(t *testing.T) {
-	if RequiredSchemaVersion != 14 {
-		t.Fatalf("RequiredSchemaVersion = %d, want 14", RequiredSchemaVersion)
+func TestRequiredSchemaVersion_IncludesCrossRefs(t *testing.T) {
+	if RequiredSchemaVersion != 15 {
+		t.Fatalf("RequiredSchemaVersion = %d, want 15", RequiredSchemaVersion)
 	}
 }
 
@@ -140,6 +140,40 @@ func TestSQLiteMigrationThirteen_AddsResolverFileLookupIndexAndCanMigrateDown(t 
 	}
 	if exists {
 		t.Fatalf("version 12 retained index %q", indexName)
+	}
+}
+
+func TestSQLiteMigrationFifteen_CreatesCrossRefsAndCanMigrateDown(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "migration.db")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open SQLite: %v", err)
+	}
+	migrator, _, err := NewMigrator(db, "sqlite", "")
+	if err != nil {
+		t.Fatalf("NewMigrator: %v", err)
+	}
+	if err := migrator.Steps(15); err != nil {
+		t.Fatalf("migrate to version 15: %v", err)
+	}
+
+	if !db.Migrator().HasTable("cross_refs") {
+		t.Fatal("version 15 missing table cross_refs")
+	}
+	for _, indexName := range []string{"idx_crossref_from_ns", "idx_crossref_to_ns", "idx_crossref_resolved_node"} {
+		exists, err := sqliteIndexExists(db, indexName)
+		if err != nil {
+			t.Fatalf("inspect index %q: %v", indexName, err)
+		}
+		if !exists {
+			t.Fatalf("version 15 missing index %q", indexName)
+		}
+	}
+	if err := migrator.Steps(-1); err != nil {
+		t.Fatalf("migrate down to version 14: %v", err)
+	}
+	if db.Migrator().HasTable("cross_refs") {
+		t.Fatal("version 14 retained table cross_refs")
 	}
 }
 
