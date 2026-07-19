@@ -62,7 +62,7 @@ closure with deterministic `go list -json` checks.
 ## Runtime and transports
 
 Both `ccg serve` (stdio) and `ccg-server` (Streamable HTTP) use the same five
-grouped MCP dependency surfaces and expose exactly 17 tools plus four prompts.
+grouped MCP dependency surfaces and expose exactly 18 tools plus four prompts.
 The local binary does not link remote HTTP, Wiki, webhook, or remote runtime
 packages. See [Runtime Layout](runtime-layout.md).
 
@@ -73,6 +73,16 @@ Application calls propagate it through context; outbound repositories apply the
 filters. SQLite and PostgreSQL share GORM-owned graph operations and backend-
 specific full-text search adapters. Application and inbound packages never issue
 SQL; backend-specific SQL remains encapsulated in outbound adapters and migration code.
+
+The `cross_refs` table is the one deliberate bridge across namespaces: each row
+materializes an `@see ccg://` annotation with a symbolic target
+(`to_namespace`, `to_path`, `to_symbol`) plus derived state
+(`resolved_node_id`, `status`). Rows are rebuilt from annotations after every
+build/update of the source namespace and re-resolved when the target namespace
+rebuilds, because replace-style syncs regenerate node ids. Cross-namespace
+analysis reads go through a dedicated namespace-agnostic reader that merges
+resolved refs into traversal as synthetic `cross_ref` edges; regular
+single-namespace query paths remain strictly namespace-filtered.
 
 ## Reliability and security
 

@@ -26,6 +26,8 @@ Graph-based analysis for **change impact, call flow, and recent-change risk**.
 | "Who calls this function?"           | `query_graph` (callers_of)                       |                                               |
 | "What does this function call?"      | `query_graph` (callees_of)                       |                                               |
 | "Risk of this change"                | `detect_changes` + `get_affected_flows`          | git diff-based                                |
+| "Which repos depend on this one?"    | `list_cross_refs` (direction inbound)            | Annotation `ccg://` refs, materialized        |
+| "Impact across repos?"               | `get_impact_radius` with `cross_namespace: true` | Crosses resolved `ccg://` refs both ways      |
 
 ## Thin `trace_flow` Results
 
@@ -90,11 +92,12 @@ the user specifically needs a bulk export.
 
 | Tool                        | One-liner                    |
 | --------------------------- | ---------------------------- |
-| `get_impact_radius`         | BFS blast radius             |
-| `trace_flow`                | Call chain trace             |
+| `get_impact_radius`         | BFS blast radius; `cross_namespace: true` follows resolved `ccg://` refs |
+| `trace_flow`                | Call chain trace; `cross_namespace: true` continues into referenced namespaces |
 | `detect_changes`            | Git diff risk score          |
 | `get_affected_flows`        | Flows affected by change     |
 | `list_flows`                | Stored flow list, paginated  |
+| `list_cross_refs`           | Repository dependency map from materialized `ccg://` refs (`direction`: outbound/inbound/both, `status` filter) |
 
 For detailed parameters, see MCP schema.
 

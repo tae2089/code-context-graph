@@ -20,7 +20,7 @@ explore graph edges.
 |----------|-------------|
 | [CLI Reference](cli-reference.md) | Full CLI commands, options, and configuration file (`.ccg.yaml`) |
 | [Lint](lint.md) | Detailed `ccg lint` category reference, interpretation guide, and CI usage |
-| [MCP Tools](mcp-tools.md) | 17 MCP tools, agent skills, evidence-first routing, AI-driven annotation |
+| [MCP Tools](mcp-tools.md) | 18 MCP tools, agent skills, evidence-first routing, AI-driven annotation |
 | [Annotations](annotations.md) | Custom annotation system — tags, examples, and search quality |
 | [Webhook](webhook.md) | GitHub / Gitea webhook sync, branch filtering, graceful shutdown |
 | [Docker](docker.md) | Docker image build, MCP server setup, Wiki UI deployment, PostgreSQL integration |

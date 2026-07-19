@@ -62,6 +62,8 @@ Use `ccg://{namespace}/{path}#{symbol}` in `@see` when a behavior depends on cod
 
 The path and symbol are optional, so `ccg://auth-svc/internal/auth` can point at a package/path scope and `ccg://auth-svc/` can point at a whole namespace.
 
+Every `@see ccg://` tag is materialized into the `cross_refs` table after each build or update: the target is resolved against the referenced namespace's current nodes and the row is marked `resolved` or `dead`. When either side rebuilds, refs are re-resolved automatically, so a `dead` ref recovers as soon as the target symbol appears. Materialized refs power `list_cross_refs` (repository dependency map) and the `cross_namespace: true` mode of `get_impact_radius`/`trace_flow`. Namespace-scope refs (`ccg://auth-svc/`) resolve without a node target and never appear in traversal, only in listings.
+
 ## Retrieval Quality
 
 Annotations are retrieval features. `search_docs` and generated docs rank

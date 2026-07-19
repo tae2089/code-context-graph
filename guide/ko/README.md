@@ -23,7 +23,7 @@ DB-backed graph/annotation evidence를 사용하며, 시각적 Graph 탭은
 |------|------|
 | [CLI 레퍼런스](cli-reference.md) | 모든 CLI 명령어, 옵션 및 설정 파일(`.ccg.yaml`) 안내 |
 | [Lint](lint.md) | `ccg lint` 카테고리 상세 레퍼런스, 결과 해석 및 CI 활용법 |
-| [MCP 도구](mcp-tools.md) | 17개의 MCP 도구, 에이전트 스킬, evidence-first 라우팅, AI 기반 어노테이션 |
+| [MCP 도구](mcp-tools.md) | 18개의 MCP 도구, 에이전트 스킬, evidence-first 라우팅, AI 기반 어노테이션 |
 | [어노테이션](annotations.md) | 커스텀 어노테이션 시스템 — 태그, 예시, 검색 품질 |
 | [웹훅(Webhook)](webhook.md) | GitHub / Gitea 웹훅 동기화, 브랜치 필터링, Graceful Shutdown |
 | [Docker](docker.md) | Docker 이미지 빌드, MCP 서버 설정, Wiki UI 배포, PostgreSQL 연동 |
