@@ -113,7 +113,9 @@ func (t *Tracer) TraceFlowBounded(ctx context.Context, startNodeID uint, opts Tr
 		nextFrontier := make([]uint, 0)
 		for _, current := range frontier {
 			for _, e := range edgesBySource[current] {
-				if !graph.IsCallKind(e.Kind) || visited[e.ToNodeID] {
+				// Cross-ref edges only appear when a cross-namespace reader supplies them;
+				// regular stores never return this kind.
+				if (!graph.IsCallKind(e.Kind) && e.Kind != graph.EdgeKindCrossRef) || visited[e.ToNodeID] {
 					continue
 				}
 				if e.Kind == graph.EdgeKindFallbackCalls {

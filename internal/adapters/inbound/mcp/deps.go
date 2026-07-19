@@ -109,13 +109,24 @@ type GraphToolsDeps struct {
 	Reader     analyze.GraphReadRepository
 }
 
+// CrossRefLister exposes materialized cross-namespace references for listing tools.
+// @intent let handlers enumerate repository-level dependencies without a store implementation dependency.
+type CrossRefLister interface {
+	ListOutboundCrossRefs(ctx context.Context, fromNamespace string) ([]graph.CrossRef, error)
+	ListInboundCrossRefs(ctx context.Context, toNamespace string) ([]graph.CrossRef, error)
+}
+
 // AnalysisToolsDeps owns bounded impact, flow, and git-change analysis dependencies.
 // @intent group only configured application analyzers and their read-model port.
+// @domainRule CrossImpact/CrossFlow/CrossRefs are optional; when nil the cross-namespace analysis surface reports itself unconfigured.
 type AnalysisToolsDeps struct {
-	Impact  ImpactAnalyzer
-	Flow    FlowTracer
-	Changes ChangeAnalyzer
-	Reader  analyze.GraphReadRepository
+	Impact      ImpactAnalyzer
+	Flow        FlowTracer
+	Changes     ChangeAnalyzer
+	Reader      analyze.GraphReadRepository
+	CrossImpact ImpactAnalyzer
+	CrossFlow   FlowTracer
+	CrossRefs   CrossRefLister
 }
 
 // DocsToolsDeps owns DB-primary documentation retrieval.

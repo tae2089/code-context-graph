@@ -16,6 +16,11 @@ const (
 	EdgeKindTestedBy      EdgeKind = "tested_by"
 	EdgeKindDependsOn     EdgeKind = "depends_on"
 	EdgeKindReferences    EdgeKind = "references"
+
+	// EdgeKindCrossRef marks a synthetic traversal edge derived from a resolved cross-namespace
+	// annotation reference. It is never persisted in the edges table; cross-namespace readers
+	// materialize it from cross_refs rows at query time.
+	EdgeKindCrossRef EdgeKind = "cross_ref"
 )
 
 // CallEdgeKinds returns edge kinds that represent a callable relationship.
