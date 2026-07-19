@@ -14,6 +14,14 @@ func withNamespaceParam(opts ...mcp.ToolOption) []mcp.ToolOption {
 	)
 }
 
+// withFederatedNamespaceParams appends single- and multi-namespace arguments to a tool definition.
+// @intent let federated read tools accept an explicit namespace set alongside the canonical single namespace.
+func withFederatedNamespaceParams(opts ...mcp.ToolOption) []mcp.ToolOption {
+	return append(withNamespaceParam(opts...),
+		mcp.WithArray("namespaces", mcp.Description("Federate this call across multiple namespaces (overrides 'namespace'); results are labeled per namespace"), mcp.WithStringItems()),
+	)
+}
+
 // queryTools registers lookup and traversal tools over the stored graph.
 // @intent expose reusable graph query primitives that other prompts and agents can compose.
 func queryTools(h *handlers) []server.ServerTool {
@@ -26,7 +34,7 @@ func queryTools(h *handlers) []server.ServerTool {
 			Handler: h.getNode,
 		},
 		{
-			Tool: mcp.NewTool("search", withNamespaceParam(
+			Tool: mcp.NewTool("search", withFederatedNamespaceParams(
 				mcp.WithDescription("Full-text search across code nodes. Use 'path' to scope results to a module for token-efficient queries."),
 				mcp.WithString("query", mcp.Description("Search query string"), mcp.Required()),
 				mcp.WithNumber("limit", mcp.Description("Maximum number of results"), mcp.DefaultNumber(10)),
@@ -42,7 +50,7 @@ func queryTools(h *handlers) []server.ServerTool {
 			Handler: h.getAnnotation,
 		},
 		{
-			Tool: mcp.NewTool("query_graph", withNamespaceParam(
+			Tool: mcp.NewTool("query_graph", withFederatedNamespaceParams(
 				mcp.WithDescription("Run predefined graph queries: callers_of, callees_of, imports_of, importers_of, children_of, tests_for, inheritors_of, file_summary"),
 				mcp.WithString("pattern", mcp.Description("Query pattern"), mcp.Required()),
 				mcp.WithString("target", mcp.Description("Target qualified name or file path"), mcp.Required()),
@@ -53,7 +61,7 @@ func queryTools(h *handlers) []server.ServerTool {
 			Handler: h.queryGraph,
 		},
 		{
-			Tool: mcp.NewTool("list_graph_stats", withNamespaceParam(
+			Tool: mcp.NewTool("list_graph_stats", withFederatedNamespaceParams(
 				mcp.WithDescription("Get graph statistics: total nodes, edges, and breakdowns by kind and language"),
 			)...),
 			Handler: h.listGraphStats,

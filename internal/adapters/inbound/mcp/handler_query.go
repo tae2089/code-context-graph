@@ -3,6 +3,8 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/app/analyze"
 	querypkg "github.com/tae2089/code-context-graph/internal/app/analyze/query"
 	searchrank "github.com/tae2089/code-context-graph/internal/app/search/rank"
+	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 	"github.com/tae2089/code-context-graph/internal/domain/reference"
 	"github.com/tae2089/code-context-graph/internal/pathspec"
@@ -87,12 +90,22 @@ type queryGraphResponse struct {
 
 // searchResultItem summarizes one node hit returned by full-text search.
 // @intent preserve a stable per-item DTO for search responses.
+// @domainRule Namespace is set only in federated (multi-namespace) mode so single-namespace responses stay unchanged.
 type searchResultItem struct {
 	ID            uint           `json:"id"`
 	QualifiedName string         `json:"qualified_name"`
 	Kind          graph.NodeKind `json:"kind"`
 	Name          string         `json:"name"`
 	FilePath      string         `json:"file_path"`
+	Namespace     string         `json:"namespace,omitempty"`
+}
+
+// federatedNamespaceEntry wraps one namespace's result inside a federated tool response.
+// @intent label per-namespace payloads and isolate per-namespace failures in federated reads.
+type federatedNamespaceEntry struct {
+	Namespace string          `json:"namespace"`
+	Response  json.RawMessage `json:"response,omitempty"`
+	Error     string          `json:"error,omitempty"`
 }
 
 // fileSummaryResponse is the typed wire payload for file_summary queryGraph requests.
@@ -201,6 +214,10 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 		return mcp.NewToolResultError("SearchBackend not configured"), nil
 	}
 
+	if namespaces := requestNamespaces(request); len(namespaces) > 0 {
+		return h.searchFederated(ctx, query, limit, pathPrefix, namespaces)
+	}
+
 	return finalizeToolResult(h.cachedExecute(ctx, "search:", map[string]any{"query": query, "limit": limit, "path": pathPrefix, "namespace": requestNamespace(request)}, func() (string, error) {
 		// Over-fetch a wider candidate pool so structural reranking can promote
 		// good matches that FTS ranked below the caller's limit, and so path
@@ -231,6 +248,51 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 			searchResult[i] = searchResultItem{ID: n.ID, QualifiedName: n.QualifiedName, Kind: n.Kind, Name: n.Name, FilePath: n.FilePath}
 		}
 		result, err := marshalJSON(searchResult)
+		if err != nil {
+			return "", trace.Wrap(err, "marshal result")
+		}
+		return result, nil
+	}))
+}
+
+// searchFederated fans full-text search out over an explicit namespace set and merges reranked hits.
+// @intent answer one search across several repositories with per-item namespace labels.
+// @domainRule each namespace is queried in isolation; reranking happens once over the merged candidate pool.
+func (h *handlers) searchFederated(ctx context.Context, query string, limit int, pathPrefix string, namespaces []string) (*mcp.CallToolResult, error) {
+	log := h.logger()
+	return finalizeToolResult(h.cachedExecute(ctx, "search:", map[string]any{"query": query, "limit": limit, "path": pathPrefix, "namespaces": namespaces}, func() (string, error) {
+		var merged []graph.Node
+		for _, ns := range namespaces {
+			nsCtx := requestctx.WithNamespace(ctx, ns)
+			nodes, err := h.deps.Graph.Search.Query(nsCtx, query, searchrank.FetchLimit(limit))
+			if err != nil {
+				log.Error("federated search error", "query", query, "namespace", ns, trace.SlogError(err))
+				return "", trace.Wrap(err, "federated search error")
+			}
+			for i := range nodes {
+				nodes[i].Namespace = ns
+			}
+			merged = append(merged, nodes...)
+		}
+
+		if pathPrefix != "" {
+			filtered := merged[:0]
+			for _, n := range merged {
+				if pathspec.HasPathPrefix(n.FilePath, pathPrefix) {
+					filtered = append(filtered, n)
+				}
+			}
+			merged = filtered
+		}
+
+		merged = searchrank.Rerank(query, merged, limit)
+		log.Info("federated search completed", "query", query, "namespaces", namespaces, "result_count", len(merged))
+
+		items := make([]searchResultItem, len(merged))
+		for i, n := range merged {
+			items[i] = searchResultItem{ID: n.ID, QualifiedName: n.QualifiedName, Kind: n.Kind, Name: n.Name, FilePath: n.FilePath, Namespace: n.Namespace}
+		}
+		result, err := marshalJSON(items)
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}
@@ -338,6 +400,10 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 		return mcp.NewToolResultError(fmt.Sprintf("unknown pattern: %q", pattern)), nil
 	}
 
+	if namespaces := requestNamespaces(request); len(namespaces) > 0 {
+		return h.queryGraphFederated(ctx, pattern, target, limit, offset, includeFallbackCalls, namespaces)
+	}
+
 	return finalizeToolResult(h.cachedExecute(ctx, "query_graph:", map[string]any{
 		"pattern":                pattern,
 		"target":                 target,
@@ -346,171 +412,214 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 		"include_fallback_calls": includeFallbackCalls,
 		"namespace":              requestNamespace(request),
 	}, func() (string, error) {
-		// file_summary does not require node lookup.
-		if pattern == "file_summary" {
-			if h.deps.Graph.Query == nil {
-				return "", newToolResultErr("QueryService not configured")
-			}
-			summary, err := h.deps.Graph.Query.FileSummaryOf(ctx, target)
-			if err != nil {
-				return "", newToolResultErr(fmt.Sprintf("file summary error: %v", err))
-			}
-			result, err := marshalJSON(fileSummaryResponse{Pattern: pattern, Target: target, Results: summary})
-			if err != nil {
-				return "", trace.Wrap(err, "marshal result")
-			}
-			return result, nil
-		}
+		return h.queryGraphInNamespace(ctx, pattern, target, limit, offset, includeFallbackCalls)
+	}))
+}
 
-		// The remaining patterns resolve the target node first.
-		node, err := h.deps.Graph.Store.GetNode(ctx, target)
-		if err != nil {
-			return "", trace.Wrap(err, "store error")
-		}
-		if node == nil {
-			if h.deps.Graph.Query == nil {
-				return "", nodeNotFoundErr(target)
-			}
-			matches, err := h.deps.Graph.Query.FindExactNameMatches(ctx, target, 10)
-			if err != nil {
-				return "", trace.Wrap(err, "query target fallback")
-			}
-			switch len(matches) {
-			case 0:
-				return "", nodeNotFoundErr(target)
-			case 1:
-				node, err = h.deps.Graph.Store.GetNode(ctx, matches[0].QualifiedName)
-				if err != nil {
-					return "", trace.Wrap(err, "store fallback lookup")
-				}
-				if node == nil {
-					return "", nodeNotFoundErr(matches[0].QualifiedName)
-				}
-			default:
-				return "", newToolResultErr(compactQueryTargetAmbiguity(target, matches))
-			}
-		}
+// queryGraphFederatedResponse is the typed wire payload for federated query_graph calls.
+// @intent group per-namespace traversal outcomes under one envelope with per-namespace errors.
+type queryGraphFederatedResponse struct {
+	Pattern    string                    `json:"pattern"`
+	Target     string                    `json:"target"`
+	Namespaces []federatedNamespaceEntry `json:"namespaces"`
+}
 
+// queryGraphFederated runs one predefined query across several namespaces and groups the outcomes.
+// @intent keep federated traversal per-namespace so a missing target in one namespace never fails the rest.
+func (h *handlers) queryGraphFederated(ctx context.Context, pattern, target string, limit, offset int, includeFallbackCalls bool, namespaces []string) (*mcp.CallToolResult, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "query_graph:", map[string]any{
+		"pattern":                pattern,
+		"target":                 target,
+		"limit":                  limit,
+		"offset":                 offset,
+		"include_fallback_calls": includeFallbackCalls,
+		"namespaces":             namespaces,
+	}, func() (string, error) {
+		entries := make([]federatedNamespaceEntry, 0, len(namespaces))
+		for _, ns := range namespaces {
+			nsCtx := requestctx.WithNamespace(ctx, ns)
+			payload, err := h.queryGraphInNamespace(nsCtx, pattern, target, limit, offset, includeFallbackCalls)
+			if err != nil {
+				var resultErr *toolResultErr
+				if errors.As(err, &resultErr) {
+					entries = append(entries, federatedNamespaceEntry{Namespace: ns, Error: err.Error()})
+					continue
+				}
+				return "", trace.Wrap(err, "federated query error")
+			}
+			entries = append(entries, federatedNamespaceEntry{Namespace: ns, Response: json.RawMessage(payload)})
+		}
+		return marshalJSON(queryGraphFederatedResponse{Pattern: pattern, Target: target, Namespaces: entries})
+	}))
+}
+
+// queryGraphInNamespace runs one predefined graph query inside the context namespace.
+// @intent share one traversal implementation between single-namespace and federated query_graph calls.
+func (h *handlers) queryGraphInNamespace(ctx context.Context, pattern, target string, limit, offset int, includeFallbackCalls bool) (string, error) {
+	// file_summary does not require node lookup.
+	if pattern == "file_summary" {
 		if h.deps.Graph.Query == nil {
 			return "", newToolResultErr("QueryService not configured")
 		}
-
-		queryOpts := querypkg.QueryOptions{
-			IncludeFallbackCalls: &includeFallbackCalls,
-			Limit:                limit,
-			Offset:               offset,
-		}
-
-		var nodes []graph.Node
-		var totalCount int
-		var page querypkg.PagedNodes
-		switch pattern {
-		case "callers_of":
-			page, err = h.deps.Graph.Query.CallersOfPage(ctx, node.ID, queryOpts)
-			nodes = page.Nodes
-			totalCount = page.TotalCount
-		case "callees_of":
-			page, err = h.deps.Graph.Query.CalleesOfPage(ctx, node.ID, queryOpts)
-			nodes = page.Nodes
-			totalCount = page.TotalCount
-		case "imports_of":
-			page, err = h.deps.Graph.Query.ImportsOfPage(ctx, node.ID, queryOpts)
-			nodes = page.Nodes
-			totalCount = page.TotalCount
-		case "importers_of":
-			page, err = h.deps.Graph.Query.ImportersOfPage(ctx, node.ID, queryOpts)
-			nodes = page.Nodes
-			totalCount = page.TotalCount
-		case "children_of":
-			page, err = h.deps.Graph.Query.ChildrenOfPage(ctx, node.ID, queryOpts)
-			nodes = page.Nodes
-			totalCount = page.TotalCount
-		case "tests_for":
-			page, err = h.deps.Graph.Query.TestsForPage(ctx, node.ID, queryOpts)
-			nodes = page.Nodes
-			totalCount = page.TotalCount
-		case "inheritors_of":
-			page, err = h.deps.Graph.Query.InheritorsOfPage(ctx, node.ID, queryOpts)
-			nodes = page.Nodes
-			totalCount = page.TotalCount
-		}
-
+		summary, err := h.deps.Graph.Query.FileSummaryOf(ctx, target)
 		if err != nil {
-			return "", trace.Wrap(err, "query error")
+			return "", newToolResultErr(fmt.Sprintf("file summary error: %v", err))
 		}
-
-		neighborEdgeByNodeID := map[uint]graph.Edge{}
-		var strictPage querypkg.PagedNodes
-		if pattern == "callers_of" || pattern == "callees_of" {
-			if includeFallbackCalls {
-				strictOpts := querypkg.QueryOptions{IncludeFallbackCalls: &strictFalse, Limit: 1, Offset: 0}
-				switch pattern {
-				case "callers_of":
-					strictPage, err = h.deps.Graph.Query.CallersOfPage(ctx, node.ID, strictOpts)
-				case "callees_of":
-					strictPage, err = h.deps.Graph.Query.CalleesOfPage(ctx, node.ID, strictOpts)
-				}
-				if err != nil {
-					return "", trace.Wrap(err, "strict query error")
-				}
-			}
-			// Only augment edge evidence for nodes on the current response page.
-			neighborEdgeByNodeID, err = h.callQueryPatternEdges(ctx, node.ID, pattern, nodes)
-			if err != nil {
-				return "", trace.Wrap(err, "query evidence edges")
-			}
-		}
-
-		strictTotal := 0
-		if pattern == "callers_of" || pattern == "callees_of" {
-			if includeFallbackCalls {
-				strictTotal = strictPage.TotalCount
-			} else {
-				strictTotal = totalCount
-			}
-		}
-		truncated := false
-		nextOffset := 0
-		if offset+len(nodes) < totalCount {
-			truncated = true
-			nextOffset = offset + len(nodes)
-		}
-
-		qgResults := make([]queryGraphResultItem, len(nodes))
-		for i, n := range nodes {
-			item := queryGraphResultItem{ID: n.ID, QualifiedName: n.QualifiedName, Kind: n.Kind, Name: n.Name, FilePath: n.FilePath}
-			if pattern == "callers_of" || pattern == "callees_of" {
-				edge, hasEvidence := neighborEdgeByNodeID[n.ID]
-				if hasEvidence && edge.Kind == graph.EdgeKindCalls {
-					item.Confidence = "strict"
-					item.EdgeKind = string(graph.EdgeKindCalls)
-				} else {
-					item.Confidence = "tentative"
-					item.EdgeKind = string(graph.EdgeKindFallbackCalls)
-				}
-				if hasEvidence {
-					item.Evidence = &queryGraphEvidence{FilePath: edge.FilePath, Line: edge.Line, Fingerprint: edge.Fingerprint}
-				}
-			}
-			qgResults[i] = item
-		}
-
-		metadata := queryGraphMetadata{Limit: limit, Offset: offset, ReturnedCount: len(qgResults), TotalCount: totalCount, Truncated: truncated}
-		if truncated {
-			metadata.NextOffset = &nextOffset
-		}
-		if pattern == "callers_of" || pattern == "callees_of" {
-			tentativeCount := totalCount - strictTotal
-			metadata.StrictCount = &strictTotal
-			metadata.TentativeCount = &tentativeCount
-			metadata.IncludeFallbackCalls = &includeFallbackCalls
-		}
-		result, err := marshalJSON(queryGraphResponse{Pattern: pattern, Target: target, Results: qgResults, Metadata: metadata, Evidence: h.namespaceEvidenceFromContext(ctx)})
+		result, err := marshalJSON(fileSummaryResponse{Pattern: pattern, Target: target, Results: summary})
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}
 		return result, nil
-	}))
+	}
+
+	// The remaining patterns resolve the target node first.
+	node, err := h.deps.Graph.Store.GetNode(ctx, target)
+	if err != nil {
+		return "", trace.Wrap(err, "store error")
+	}
+	if node == nil {
+		if h.deps.Graph.Query == nil {
+			return "", nodeNotFoundErr(target)
+		}
+		matches, err := h.deps.Graph.Query.FindExactNameMatches(ctx, target, 10)
+		if err != nil {
+			return "", trace.Wrap(err, "query target fallback")
+		}
+		switch len(matches) {
+		case 0:
+			return "", nodeNotFoundErr(target)
+		case 1:
+			node, err = h.deps.Graph.Store.GetNode(ctx, matches[0].QualifiedName)
+			if err != nil {
+				return "", trace.Wrap(err, "store fallback lookup")
+			}
+			if node == nil {
+				return "", nodeNotFoundErr(matches[0].QualifiedName)
+			}
+		default:
+			return "", newToolResultErr(compactQueryTargetAmbiguity(target, matches))
+		}
+	}
+
+	if h.deps.Graph.Query == nil {
+		return "", newToolResultErr("QueryService not configured")
+	}
+
+	queryOpts := querypkg.QueryOptions{
+		IncludeFallbackCalls: &includeFallbackCalls,
+		Limit:                limit,
+		Offset:               offset,
+	}
+
+	var nodes []graph.Node
+	var totalCount int
+	var page querypkg.PagedNodes
+	switch pattern {
+	case "callers_of":
+		page, err = h.deps.Graph.Query.CallersOfPage(ctx, node.ID, queryOpts)
+		nodes = page.Nodes
+		totalCount = page.TotalCount
+	case "callees_of":
+		page, err = h.deps.Graph.Query.CalleesOfPage(ctx, node.ID, queryOpts)
+		nodes = page.Nodes
+		totalCount = page.TotalCount
+	case "imports_of":
+		page, err = h.deps.Graph.Query.ImportsOfPage(ctx, node.ID, queryOpts)
+		nodes = page.Nodes
+		totalCount = page.TotalCount
+	case "importers_of":
+		page, err = h.deps.Graph.Query.ImportersOfPage(ctx, node.ID, queryOpts)
+		nodes = page.Nodes
+		totalCount = page.TotalCount
+	case "children_of":
+		page, err = h.deps.Graph.Query.ChildrenOfPage(ctx, node.ID, queryOpts)
+		nodes = page.Nodes
+		totalCount = page.TotalCount
+	case "tests_for":
+		page, err = h.deps.Graph.Query.TestsForPage(ctx, node.ID, queryOpts)
+		nodes = page.Nodes
+		totalCount = page.TotalCount
+	case "inheritors_of":
+		page, err = h.deps.Graph.Query.InheritorsOfPage(ctx, node.ID, queryOpts)
+		nodes = page.Nodes
+		totalCount = page.TotalCount
+	}
+
+	if err != nil {
+		return "", trace.Wrap(err, "query error")
+	}
+
+	neighborEdgeByNodeID := map[uint]graph.Edge{}
+	var strictPage querypkg.PagedNodes
+	if pattern == "callers_of" || pattern == "callees_of" {
+		if includeFallbackCalls {
+			strictOpts := querypkg.QueryOptions{IncludeFallbackCalls: &strictFalse, Limit: 1, Offset: 0}
+			switch pattern {
+			case "callers_of":
+				strictPage, err = h.deps.Graph.Query.CallersOfPage(ctx, node.ID, strictOpts)
+			case "callees_of":
+				strictPage, err = h.deps.Graph.Query.CalleesOfPage(ctx, node.ID, strictOpts)
+			}
+			if err != nil {
+				return "", trace.Wrap(err, "strict query error")
+			}
+		}
+		// Only augment edge evidence for nodes on the current response page.
+		neighborEdgeByNodeID, err = h.callQueryPatternEdges(ctx, node.ID, pattern, nodes)
+		if err != nil {
+			return "", trace.Wrap(err, "query evidence edges")
+		}
+	}
+
+	strictTotal := 0
+	if pattern == "callers_of" || pattern == "callees_of" {
+		if includeFallbackCalls {
+			strictTotal = strictPage.TotalCount
+		} else {
+			strictTotal = totalCount
+		}
+	}
+	truncated := false
+	nextOffset := 0
+	if offset+len(nodes) < totalCount {
+		truncated = true
+		nextOffset = offset + len(nodes)
+	}
+
+	qgResults := make([]queryGraphResultItem, len(nodes))
+	for i, n := range nodes {
+		item := queryGraphResultItem{ID: n.ID, QualifiedName: n.QualifiedName, Kind: n.Kind, Name: n.Name, FilePath: n.FilePath}
+		if pattern == "callers_of" || pattern == "callees_of" {
+			edge, hasEvidence := neighborEdgeByNodeID[n.ID]
+			if hasEvidence && edge.Kind == graph.EdgeKindCalls {
+				item.Confidence = "strict"
+				item.EdgeKind = string(graph.EdgeKindCalls)
+			} else {
+				item.Confidence = "tentative"
+				item.EdgeKind = string(graph.EdgeKindFallbackCalls)
+			}
+			if hasEvidence {
+				item.Evidence = &queryGraphEvidence{FilePath: edge.FilePath, Line: edge.Line, Fingerprint: edge.Fingerprint}
+			}
+		}
+		qgResults[i] = item
+	}
+
+	metadata := queryGraphMetadata{Limit: limit, Offset: offset, ReturnedCount: len(qgResults), TotalCount: totalCount, Truncated: truncated}
+	if truncated {
+		metadata.NextOffset = &nextOffset
+	}
+	if pattern == "callers_of" || pattern == "callees_of" {
+		tentativeCount := totalCount - strictTotal
+		metadata.StrictCount = &strictTotal
+		metadata.TentativeCount = &tentativeCount
+		metadata.IncludeFallbackCalls = &includeFallbackCalls
+	}
+	result, err := marshalJSON(queryGraphResponse{Pattern: pattern, Target: target, Results: qgResults, Metadata: metadata, Evidence: h.namespaceEvidenceFromContext(ctx)})
+	if err != nil {
+		return "", trace.Wrap(err, "marshal result")
+	}
+	return result, nil
 }
 
 // callQueryPatternEdges loads only edge evidence for current page nodes.
@@ -552,25 +661,61 @@ func (h *handlers) listGraphStats(ctx context.Context, request mcp.CallToolReque
 	log := h.logger()
 	log.Info("list_graph_stats called")
 
+	if namespaces := requestNamespaces(request); len(namespaces) > 0 {
+		return h.listGraphStatsFederated(ctx, namespaces)
+	}
+
 	return finalizeToolResult(h.cachedExecute(ctx, "list_graph_stats:", map[string]any{"namespace": requestNamespace(request)}, func() (string, error) {
-		stats, err := h.deps.Graph.Statistics.GraphStatistics(ctx)
+		statsData, err := h.graphStatsInNamespace(ctx)
 		if err != nil {
 			return "", err
-		}
-
-		statsData := listGraphStatsResponse{
-			TotalNodes:      stats.NodeCount,
-			TotalEdges:      stats.EdgeCount,
-			NodesByKind:     stats.NodesByKind,
-			NodesByLanguage: stats.NodesByLanguage,
-			EdgesByKind:     stats.EdgesByKind,
-			Evidence:        h.namespaceEvidenceFromContext(ctx),
 		}
 		result, err := marshalJSON(statsData)
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}
 		return result, nil
+	}))
+}
+
+// graphStatsInNamespace loads the statistics payload for the context namespace.
+// @intent share one statistics assembly between single-namespace and federated calls.
+func (h *handlers) graphStatsInNamespace(ctx context.Context) (listGraphStatsResponse, error) {
+	stats, err := h.deps.Graph.Statistics.GraphStatistics(ctx)
+	if err != nil {
+		return listGraphStatsResponse{}, err
+	}
+	return listGraphStatsResponse{
+		TotalNodes:      stats.NodeCount,
+		TotalEdges:      stats.EdgeCount,
+		NodesByKind:     stats.NodesByKind,
+		NodesByLanguage: stats.NodesByLanguage,
+		EdgesByKind:     stats.EdgesByKind,
+		Evidence:        h.namespaceEvidenceFromContext(ctx),
+	}, nil
+}
+
+// federatedGraphStatsEntry labels one namespace's statistics inside a federated response.
+// @intent keep per-namespace statistics separable instead of summing unrelated graphs.
+type federatedGraphStatsEntry struct {
+	Namespace string `json:"namespace"`
+	listGraphStatsResponse
+}
+
+// listGraphStatsFederated returns statistics grouped per namespace.
+// @intent give one call visibility over several repositories without merging their counts.
+func (h *handlers) listGraphStatsFederated(ctx context.Context, namespaces []string) (*mcp.CallToolResult, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "list_graph_stats:", map[string]any{"namespaces": namespaces}, func() (string, error) {
+		entries := make([]federatedGraphStatsEntry, 0, len(namespaces))
+		for _, ns := range namespaces {
+			nsCtx := requestctx.WithNamespace(ctx, ns)
+			statsData, err := h.graphStatsInNamespace(nsCtx)
+			if err != nil {
+				return "", trace.Wrap(err, "federated stats error")
+			}
+			entries = append(entries, federatedGraphStatsEntry{Namespace: ns, listGraphStatsResponse: statsData})
+		}
+		return marshalJSON(map[string]any{"namespaces": entries})
 	}))
 }
 

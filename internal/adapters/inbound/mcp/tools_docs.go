@@ -24,6 +24,7 @@ func docsTools(h *handlers) []server.ServerTool {
 				mcp.WithString("query", mcp.Description("Search keyword (case-insensitive)"), mcp.Required()),
 				mcp.WithNumber("limit", mcp.Description("Maximum number of results (default: 10, max: 500)")),
 				mcp.WithString("namespace", mcp.Description("Namespace. When set, searches that namespace's DB-backed documentation candidates.")),
+				mcp.WithArray("namespaces", mcp.Description("Federate this search across multiple namespaces (overrides 'namespace'); results are grouped per namespace"), mcp.WithStringItems()),
 			),
 			Handler: h.searchDocs,
 		},
