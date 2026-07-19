@@ -680,6 +680,72 @@ else
     warn "MCP session unavailable under local debug override — skipping Phase 12"
 fi
 
+# ── Phase 13: Cross-namespace refs (ccg:// annotations) ──
+if [ -n "$MCP_SESSION" ]; then
+    info "Phase 13: Testing cross-namespace refs..."
+
+    # Declare a cross-namespace dependency from sample-go to sample-calc via a ccg:// annotation.
+    cat > "${TMPDIR_CLONE}/repo/main.go" <<'GOEOF'
+package main
+
+import "fmt"
+
+// @intent greet a user by name
+// @see ccg://sample-calc/math.go#subtract
+func greet(name string) string {
+	return fmt.Sprintf("Hello, %s!", name)
+}
+
+func main() {
+	fmt.Println(greet("world"))
+}
+GOEOF
+    pushd "${TMPDIR_CLONE}/repo" >/dev/null
+    git add -A
+    git commit -q -m "docs: declare cross-namespace ref to sample-calc"
+    info "Pushing cross-ref annotation to Gitea (triggers webhook)..."
+    git push -q origin main
+    popd >/dev/null
+
+    # The namespace already has nodes, so wait_for_webhook_sync would return
+    # immediately; poll until the materialized ref itself becomes visible.
+    info "Waiting for cross-ref materialization (max ${WEBHOOK_WAIT_SECONDS}s)..."
+    CROSSREF_DEADLINE=$((SECONDS + WEBHOOK_WAIT_SECONDS))
+    CROSSREF_RESP=""
+    while [ $SECONDS -lt $CROSSREF_DEADLINE ]; do
+        CROSSREF_RESP=$(mcp_call "list_cross_refs" "{\"namespace\":\"${REPO_NAME}\",\"direction\":\"outbound\"}")
+        CROSSREF_TEXT=""
+        [ -n "$CROSSREF_RESP" ] && CROSSREF_TEXT=$(mcp_text "$CROSSREF_RESP") || CROSSREF_TEXT=""
+        if [[ "$CROSSREF_TEXT" == *'"status":"resolved"'* ]]; then
+            break
+        fi
+        sleep 2
+    done
+    assert_mcp_ok "list_cross_refs(outbound)" "$CROSSREF_RESP"
+    assert_mcp_contains "list_cross_refs(outbound)" "$CROSSREF_RESP" "\"to_namespace\":\"${REPO2_NAME}\""
+    assert_mcp_contains "list_cross_refs(outbound)" "$CROSSREF_RESP" '"status":"resolved"'
+
+    RESP=$(mcp_call "list_cross_refs" "{\"namespace\":\"${REPO2_NAME}\",\"direction\":\"inbound\"}")
+    assert_mcp_contains "list_cross_refs(inbound)" "$RESP" "\"from_namespace\":\"${REPO_NAME}\""
+
+    # Cross-namespace impact: greet -> (ccg ref) -> subtract in sample-calc.
+    RESP=$(mcp_call "get_impact_radius" "{\"qualified_name\":\"main.greet\",\"depth\":1,\"namespace\":\"${REPO_NAME}\",\"cross_namespace\":true}")
+    assert_mcp_contains "get_impact_radius(cross_namespace)" "$RESP" "main.subtract"
+    assert_mcp_contains "get_impact_radius(cross_namespace)" "$RESP" "\"namespace\":\"${REPO2_NAME}\""
+
+    # Default impact stays namespace-scoped.
+    RESP=$(mcp_call "get_impact_radius" "{\"qualified_name\":\"main.greet\",\"depth\":1,\"namespace\":\"${REPO_NAME}\"}")
+    assert_mcp_not_contains "get_impact_radius(default)" "$RESP" "main.subtract"
+
+    # Federated search across both namespaces labels each hit.
+    RESP=$(mcp_call "search" "{\"query\":\"subtract\",\"limit\":5,\"namespaces\":[\"${REPO_NAME}\",\"${REPO2_NAME}\"]}")
+    assert_mcp_contains "search(namespaces)" "$RESP" "\"namespace\":\"${REPO2_NAME}\""
+
+    info "Phase 13 complete ✅"
+else
+    warn "MCP session unavailable under local debug override — skipping Phase 13"
+fi
+
 # ── Phase 14: Documentation discovery tools ──
 if [ -n "$MCP_SESSION" ]; then
     info "Phase 14: Testing documentation discovery tools..."
@@ -703,9 +769,9 @@ fi
 
 # ── Summary ──
 TOOLS_TESTED=0
-TOTAL_MCP_TOOLS=17
+TOTAL_MCP_TOOLS=18
 if [ -n "$MCP_SESSION" ]; then
-    TOOLS_TESTED=15
+    TOOLS_TESTED=16
 fi
 
 echo ""
@@ -718,7 +784,7 @@ fi
 echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
 echo ""
 info "Pipeline: Gitea push → webhook → ccg clone → build → DB ✅"
-info "MCP tools: graph query, analysis, namespace, documentation discovery, postprocess ✅"
+info "MCP tools: graph query, analysis, namespace, cross-namespace refs, documentation discovery, postprocess ✅"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
