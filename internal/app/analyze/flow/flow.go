@@ -22,6 +22,41 @@ type Tracer struct {
 	store EdgeReader
 }
 
+// nodeBatchReader is the optional capability used to resolve members' true namespaces.
+// @intent let cross-namespace readers label foreign members without widening the EdgeReader contract.
+type nodeBatchReader interface {
+	GetNodesByIDs(ctx context.Context, ids []uint) ([]graph.Node, error)
+}
+
+// stampMemberNamespaces replaces the context-namespace default with each member node's stored namespace.
+// @intent make cross-namespace flow members resolvable by callers; single-namespace traces are unchanged
+// because every member already lives in the context namespace.
+// @domainRule stores without batch node reads keep the context-namespace stamp (persisted-flow rebuild path).
+func (t *Tracer) stampMemberNamespaces(ctx context.Context, members []graph.FlowMembership) error {
+	reader, ok := t.store.(nodeBatchReader)
+	if !ok || len(members) == 0 {
+		return nil
+	}
+	ids := make([]uint, len(members))
+	for i, m := range members {
+		ids[i] = m.NodeID
+	}
+	nodes, err := reader.GetNodesByIDs(ctx, ids)
+	if err != nil {
+		return err
+	}
+	namespaceByID := make(map[uint]string, len(nodes))
+	for _, n := range nodes {
+		namespaceByID[n.ID] = n.Namespace
+	}
+	for i := range members {
+		if ns, found := namespaceByID[members[i].NodeID]; found {
+			members[i].Namespace = ns
+		}
+	}
+	return nil
+}
+
 // TraceOptions bounds how far a single flow trace is allowed to expand.
 // @intent let callers cap traversal cost when tracing large call graphs
 type TraceOptions struct {
@@ -134,6 +169,10 @@ func (t *Tracer) TraceFlowBounded(ctx context.Context, startNodeID uint, opts Tr
 			}
 		}
 		frontier = nextFrontier
+	}
+
+	if err := t.stampMemberNamespaces(ctx, members); err != nil {
+		return nil, err
 	}
 
 	node, _ := t.store.GetNodeByID(ctx, startNodeID)

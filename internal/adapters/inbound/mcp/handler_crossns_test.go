@@ -144,18 +144,25 @@ func TestTraceFlow_CrossNamespace(t *testing.T) {
 	})
 	var payload struct {
 		Members []struct {
-			NodeID uint `json:"node_id"`
+			NodeID    uint   `json:"node_id"`
+			Namespace string `json:"namespace"`
 		} `json:"members"`
 	}
 	if err := json.Unmarshal([]byte(resultTextOf(t, result)), &payload); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	got := map[uint]bool{}
+	got := map[uint]string{}
 	for _, m := range payload.Members {
-		got[m.NodeID] = true
+		got[m.NodeID] = m.Namespace
 	}
-	if !got[authValidate] || !got[authAudit] {
-		t.Fatalf("flow members = %+v, want continuation into auth-svc nodes %d and %d", payload.Members, authValidate, authAudit)
+	if _, ok := got[authValidate]; !ok {
+		t.Fatalf("flow members = %+v, want continuation into auth-svc node %d", payload.Members, authValidate)
+	}
+	if _, ok := got[authAudit]; !ok {
+		t.Fatalf("flow members = %+v, want continuation into auth-svc node %d", payload.Members, authAudit)
+	}
+	if got[authValidate] != "auth-svc" || got[authAudit] != "auth-svc" {
+		t.Fatalf("cross members namespaces = %v, want auth-svc labels so clients can resolve foreign node ids", got)
 	}
 }
 
