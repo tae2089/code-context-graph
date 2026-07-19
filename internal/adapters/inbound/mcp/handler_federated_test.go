@@ -2,8 +2,10 @@ package mcp
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -76,6 +78,58 @@ func TestSearch_FederatesAcrossNamespaces(t *testing.T) {
 	}
 	if seen["alpha.PaymentProcess"] != "alpha" || seen["beta.PaymentRefund"] != "beta" {
 		t.Fatalf("federated search items = %v, want hits from both namespaces with labels", seen)
+	}
+}
+
+func TestSearch_FederatedLimitDoesNotStarveNamespaces(t *testing.T) {
+	deps := setupTestDeps(t)
+
+	alphaDir := t.TempDir()
+	betaDir := t.TempDir()
+	var alphaSrc strings.Builder
+	alphaSrc.WriteString("package alpha\n")
+	for i := 1; i <= 5; i++ {
+		fmt.Fprintf(&alphaSrc, "\nfunc Payment%d() string {\n\treturn \"payment\"\n}\n", i)
+	}
+	if err := os.WriteFile(filepath.Join(alphaDir, "pay.go"), []byte(alphaSrc.String()), 0o644); err != nil {
+		t.Fatalf("write alpha: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(betaDir, "refund.go"), []byte("package beta\n\nfunc PaymentZz() string {\n\treturn \"payment\"\n}\n"), 0o644); err != nil {
+		t.Fatalf("write beta: %v", err)
+	}
+	deps.Runtime.RepoRoot = alphaDir
+	if res := callTool(t, deps, "build_or_update_graph", map[string]any{"path": alphaDir, "namespace": "alpha"}); res.IsError {
+		t.Fatalf("parse alpha failed: %+v", res)
+	}
+	deps.Runtime.RepoRoot = betaDir
+	if res := callTool(t, deps, "build_or_update_graph", map[string]any{"path": betaDir, "namespace": "beta"}); res.IsError {
+		t.Fatalf("parse beta failed: %+v", res)
+	}
+
+	result := callTool(t, deps, "search", map[string]any{
+		"query":      "Payment",
+		"limit":      3,
+		"namespaces": []string{"alpha", "beta"},
+	})
+	var items []struct {
+		QualifiedName string `json:"qualified_name"`
+		Namespace     string `json:"namespace"`
+	}
+	if err := json.Unmarshal([]byte(resultTextOf(t, result)), &items); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("result count = %d, want limit 3", len(items))
+	}
+	perNS := map[string]int{}
+	for _, item := range items {
+		perNS[item.Namespace]++
+	}
+	if perNS["beta"] == 0 {
+		t.Fatalf("federated limit starved namespace beta: %v", perNS)
+	}
+	if perNS["alpha"] == 0 {
+		t.Fatalf("federated limit starved namespace alpha: %v", perNS)
 	}
 }
 

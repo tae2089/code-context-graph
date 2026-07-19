@@ -285,7 +285,8 @@ func (h *handlers) searchFederated(ctx context.Context, query string, limit int,
 			merged = filtered
 		}
 
-		merged = searchrank.Rerank(query, merged, limit)
+		merged = searchrank.Rerank(query, merged, 0)
+		merged = selectWithNamespaceQuota(merged, limit, len(namespaces))
 		log.Info("federated search completed", "query", query, "namespaces", namespaces, "result_count", len(merged))
 
 		items := make([]searchResultItem, len(merged))
@@ -298,6 +299,46 @@ func (h *handlers) searchFederated(ctx context.Context, query string, limit int,
 		}
 		return result, nil
 	}))
+}
+
+// selectWithNamespaceQuota bounds globally-ranked federated results while guaranteeing
+// every namespace with hits at least limit/namespaceCount slots (minimum one).
+// @intent keep one high-scoring repository from starving the other namespaces out of a federated result.
+// @domainRule remaining slots after the per-namespace quota pass are filled in global rank order.
+func selectWithNamespaceQuota(ranked []graph.Node, limit, namespaceCount int) []graph.Node {
+	if limit <= 0 || len(ranked) <= limit {
+		return ranked
+	}
+	quota := max(limit/max(namespaceCount, 1), 1)
+	chosen := make([]bool, len(ranked))
+	count := 0
+	perNamespace := map[string]int{}
+	for i, n := range ranked {
+		if count == limit {
+			break
+		}
+		if perNamespace[n.Namespace] < quota {
+			chosen[i] = true
+			perNamespace[n.Namespace]++
+			count++
+		}
+	}
+	for i := range ranked {
+		if count == limit {
+			break
+		}
+		if !chosen[i] {
+			chosen[i] = true
+			count++
+		}
+	}
+	selected := make([]graph.Node, 0, limit)
+	for i, n := range ranked {
+		if chosen[i] {
+			selected = append(selected, n)
+		}
+	}
+	return selected
 }
 
 // getAnnotation returns stored annotation metadata for a graph node.
