@@ -29,3 +29,4 @@ pyproject.toml
 /container-artifacts/
 search-retrieval.md
 _workspace/
+/artifacts/
