@@ -196,6 +196,9 @@ func (s *Service) Build(ctx context.Context, opts BuildOptions) (BuildStats, err
 	if err != nil {
 		return stats, err
 	}
+	if err := s.syncCrossRefs(ctx); err != nil {
+		return stats, err
+	}
 
 	stats.Timing.TotalMS = time.Since(totalStart).Milliseconds()
 	s.logger().Info("build complete",
