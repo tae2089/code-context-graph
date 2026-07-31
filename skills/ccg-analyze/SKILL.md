@@ -1,8 +1,8 @@
 ---
 name: ccg-analyze
-description: "Analyze code relationships with CCG impact radius, flow tracing, callers/callees, git-diff risk, and affected stored flows. Use when a task asks what a change affects, how a call path flows, who calls a symbol, or which flows recent changes touch. Do not use for simple text lookup, documentation generation, or annotation authoring."
+description: "Analyze algorithms, feature pipelines, and code relationships with CCG impact radius, bounded flow tracing, callers/callees, git-diff risk, affected stored flows, and cross-namespace references. Use when a task asks how a feature or algorithm works, how a pipeline flows, what a change affects, who calls a symbol, whether results were truncated, or which flows recent changes touch. Do not use for simple text lookup, documentation generation, or annotation authoring."
 metadata:
-  version: 1.1.0
+  version: 1.3.1
   openclaw:
     category: "code-intelligence"
     domain: "analysis"
@@ -21,13 +21,32 @@ Graph-based analysis for **change impact, call flow, and recent-change risk**.
 
 | User intent                          | Tool                                             | Notes                                         |
 | ------------------------------------ | ------------------------------------------------ | --------------------------------------------- |
-| "Impact of changing this function?"  | `get_impact_radius` (start with depth 3)         | Widen to depth 5 if too narrow                |
+| "Impact of changing this function?"  | `get_impact_radius` (`depth=3`, `max_depth=3`)   | Raise both bounds to widen                    |
+| "How does this algorithm or feature pipeline work?" | Pipeline workflow below | Graph-first, then source-verified |
 | "Trace call flow from this function" | `trace_flow`                                     | If unexpectedly thin, verify the causes below |
 | "Who calls this function?"           | `query_graph` (callers_of)                       |                                               |
 | "What does this function call?"      | `query_graph` (callees_of)                       |                                               |
 | "Risk of this change"                | `detect_changes` + `get_affected_flows`          | git diff-based                                |
 | "Which repos depend on this one?"    | `list_cross_refs` (direction inbound)            | Annotation `ccg://` refs, materialized        |
 | "Impact across repos?"               | `get_impact_radius` with `cross_namespace: true` | Crosses resolved `ccg://` refs both ways      |
+
+## Pipeline Analysis Workflow
+
+1. **Candidate discovery**: use `search_docs` for a broad module question or
+   `search` for focused symbol and annotation candidates.
+2. **Symbol identity**: confirm each entry point or major stage with `get_node`;
+   continue with qualified names rather than display labels.
+3. **Relationship and structure evidence**: use `query_graph` with
+   `callers_of`/`callees_of` for direct call relations, `children_of` for
+   ownership, and `file_summary` for file composition. This evidence does not
+   prove runtime order.
+4. **Call-chain evidence**: use `trace_flow` from a verified entry point and
+   inspect truncation plus fallback-edge metadata. Treat the result as a bounded
+   static chain, not a runtime trace.
+5. **Runtime semantics**: read the narrowed source files to verify branch
+   conditions, loops, callbacks, data transformations, error paths, and actual
+   ordering. If graph and source disagree, report staleness, unresolved dynamic
+   behavior, or the remaining uncertainty instead of silently choosing one.
 
 ## Thin `trace_flow` Results
 
@@ -48,30 +67,27 @@ Verify in this order:
 Report which explanation is supported; do not label a thin trace as an
 interface boundary without source or edge evidence.
 
-## get_impact_radius Tips
+## `get_impact_radius` Bounds
 
-- **depth 1–2**: direct impact (immediate callers/callees)
-- **depth 3**: recommended default — covers most tasks
-- **depth 5+**: large monorepo propagation. Watch for noise.
+- `depth` requests the BFS hop count; its default is 1.
+- `max_depth` caps `depth`; its default is 3. Setting only `depth=5` still
+  returns at most three hops, so raise both values when widening.
+- Start with `depth=3`, `max_depth=3`, and a bounded `max_nodes`.
+- Inspect response metadata `truncated`, `max_depth`, `max_nodes`, and
+  `returned_nodes` before interpreting the radius as complete.
 
 If results are huge, narrow by namespace, starting symbol, depth, or edge mode
 before concluding the implementation change itself is too broad. High-fanout
 entry points can legitimately have a large radius.
 
-## Pagination Defaults
+## Analysis Result Bounds
 
-Use explicit budgets for graph browsing tools when the namespace may be large:
+Use the `ccg` skill's Response Budget Rule for paginated graph tools. Preserve
+per-page namespace labels and errors when accumulating federated results.
 
-| Tool | Parameters | Default starting point |
-| ---- | ---------- | ---------------------- |
-| `query_graph` | `limit`, `offset` | `limit=50`, `offset=0` |
-| `list_flows` | `limit`, `offset` | `limit=50`, `offset=0` |
-| `detect_changes` | `limit`, `offset` | `limit=50`, `offset=0` |
-| `get_affected_flows` | `limit`, `offset` | `limit=50`, `offset=0` |
-
-Paginated responses include `has_more`. If true, call again with `next_offset`.
-Do not request the max page size first for LLM analysis; use 50 or 100 unless
-the user specifically needs a bulk export.
+`get_impact_radius` and `trace_flow` are bounded rather than paginated. Follow
+their `truncated` metadata by narrowing the start/scope or deliberately raising
+`max_nodes`; do not call a truncated response complete.
 
 ## Accuracy Limits (use with awareness)
 
@@ -80,6 +96,9 @@ the user specifically needs a bulk export.
 - Build-tag-split files → both registered (noise)
 - Fallback call edges improve recall but may add false positives; use strict mode when evidence quality matters more than coverage
 - Treat graph results as a static approximation; cross-check important conclusions against source.
+- `repo_root` for `detect_changes` and `get_affected_flows` must be a
+  server-visible, allowed path. If the MCP server cannot see the client path,
+  report that constraint and use local git/source evidence instead.
 
 ## Boundary
 
@@ -87,6 +106,7 @@ the user specifically needs a bulk export.
 - Scope namespace, path, traversal depth, and result limits before widening a query.
 - Separate strict call edges from fallback edges when evidence quality matters.
 - Do not treat missing graph edges as proof that runtime behavior is impossible.
+- Do not hide per-namespace errors or truncation when federated/cross-namespace evidence is partial.
 
 ## Analysis MCP Tools
 
@@ -103,12 +123,14 @@ For detailed parameters, see MCP schema.
 
 ## Prerequisites
 
-Confirm that the selected namespace contains a current graph. Build only when
-the graph is missing or a full rebuild is intentional; after ordinary code
-changes, prefer `ccg update .`. Stored-flow tools also require flow
-postprocessing; an empty flow list is not evidence of no flow until that state
-has been checked. Use the `ccg` skill for freshness and postprocessing guidance.
+Use the `ccg` skill's Graph Freshness workflow before interpreting graph or
+stored-flow results. Stored-flow tools require flow postprocessing; an empty
+flow list is not evidence of no flow until that state has been checked.
 
 ## Completion
 
-Report the analyzed qualified name, namespace, depth/limits, included edge modes, returned impact or flow evidence, and any source-level cross-check used for an important conclusion.
+Report the analyzed qualified names, namespace, discovery query, `query_graph`
+patterns, `trace_flow` bounds and truncation, included edge modes,
+fallback-edge counts, source files used to verify runtime semantics, any
+graph/source disagreement or server-visible path limitation, and the evidence
+supporting important conclusions.

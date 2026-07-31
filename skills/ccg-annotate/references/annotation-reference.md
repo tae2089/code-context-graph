@@ -66,4 +66,8 @@ Text before the first tag becomes the summary and context paragraphs. A tag valu
 // @return the authorization decision and audit identifier
 ```
 
-Unknown tags are reported by the parser and are not stored. Keep annotations truthful and omit tags that merely repeat the declaration name.
+Unknown tags are not stored. Direct parser callers receive their names as
+warnings, but the normal ingestion binding currently discards those warnings,
+and `ccg lint` does not report them. Use the table above as an allowlist, verify
+representative stored tags with `get_annotation`, and omit tags that merely
+repeat the declaration name.

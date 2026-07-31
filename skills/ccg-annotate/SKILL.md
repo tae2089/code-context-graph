@@ -1,8 +1,8 @@
 ---
 name: ccg-annotate
-description: "Author and refine CCG annotations such as @intent, @domainRule, @sideEffect, @mutates, @index, and @see. Use when adding business meaning to code, improving annotation-aware code or documentation retrieval, fixing annotation lint findings, or documenting operational contracts. Do not use for generated Markdown editing or annotations that merely restate symbol names."
+description: "Author, refine, and verify CCG annotations such as @intent, @domainRule, @sideEffect, @mutates, @index, and @see. Use when adding business meaning to code, improving annotation-aware code or documentation retrieval, fixing annotation lint findings, checking supported tag syntax, or documenting operational contracts. Do not use for generated Markdown editing or annotations that merely restate symbol names."
 metadata:
-  version: 1.1.0
+  version: 1.2.1
   openclaw:
     category: "code-intelligence"
     domain: "annotation"
@@ -17,24 +17,6 @@ metadata:
 
 Add structured business metadata to source comments so graph search and
 generated documentation can retrieve intent and operational contracts.
-
-## Why Annotations Matter
-
-- Lets full-text retrieval match domain terms recorded in annotations even when symbol names differ
-- Enriches generated docs and DB-backed documentation evidence
-
-## Core Tags
-
-| Tag           | WHAT vs WHY                         | Example                                  |
-| ------------- | ----------------------------------- | ---------------------------------------- |
-| `@intent`     | **WHY this function exists**        | `verify identity before granting access` |
-| `@domainRule` | Specific business rule              | `lock account after 5 failures`          |
-| `@sideEffect` | Real side effects (DB/network/file) | `writes to audit_log`                    |
-| `@mutates`    | Receiver or argument state changes  | `user.FailedAttempts, session.Token`     |
-| `@requires`   | Precondition                        | `user.IsActive == true`                  |
-| `@ensures`    | Postcondition                       | `returns valid JWT with 24h expiry`      |
-| `@index`      | One-line file/package summary       | `User authentication service`            |
-| `@see`        | Related function or CCG ref         | `SessionManager.Create`, `ccg://auth-svc/internal/auth/token.go#ValidateToken` |
 
 ## Retrieval-Aware Tag Selection
 
@@ -59,8 +41,8 @@ and `node focus` in the appropriate `@index`/`@intent`. Do not add unrelated
 terms just to raise score; broad terms make the wrong files rank higher.
 
 Read [`references/annotation-reference.md`](references/annotation-reference.md)
-when checking the complete tag contract, aliases, multiline behavior, or
-language-specific comment syntax.
+before using less-common tags, aliases, multiline values, typed JSDoc/YARD
+forms, cross-namespace refs, or language-specific comment syntax.
 
 ## Annotation Workflow
 
@@ -105,15 +87,16 @@ For cross-namespace behavior, explain the reason in the semantic tag and put the
 
 ### Step 4: Refresh and verify
 
-```bash
-ccg update .  # ordinary source edits: re-index changed files
-ccg lint      # verify annotation quality and references
-```
+Use the `ccg` skill's Graph Freshness workflow to re-index changed source, then
+run `ccg lint` to verify annotation quality and references.
 
-Use `ccg build .` instead when the graph does not exist, a full rebuild is
-intentional, or incremental recovery is required.
+For representative changed symbols, call `get_annotation` and confirm the
+expected tags and values were actually stored. The parser returns unknown-tag
+warnings to direct callers, but the current ingestion discards that warning
+list and `ccg lint` does not surface it. Treat the reference tag list as an
+allowlist; a green lint result alone does not prove an unknown tag was indexed.
 
-## Quality Rules (this is what really matters)
+## Quality Example
 
 ❌ **Bad annotation**:
 
@@ -164,11 +147,12 @@ expected file is missing, prefer improving the precise `@index`, `@intent`,
 
 | Tool             | Use                                  |
 | ---------------- | ------------------------------------ |
-| `get_annotation` | Fetch annotation/doc tags for a node |
+| `get_annotation` | Verify stored annotation/doc tags for a qualified node |
 
 ## Completion
 
 List annotated files and meaningful tags added or deliberately revised, report
-any existing rationale changed, refresh the graph with update or build as
-appropriate, run retrieval probes for the affected concepts, and report
-`ccg lint` results without claiming unrelated findings were fixed.
+any existing rationale changed, apply the `ccg` Graph Freshness workflow,
+verify representative nodes with `get_annotation`, run retrieval probes for
+affected concepts, and report lint plus any unknown-tag risk or unrelated
+finding without claiming it was fixed.

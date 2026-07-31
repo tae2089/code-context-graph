@@ -1,8 +1,8 @@
 ---
 name: ccg-namespace
-description: "Isolate CCG graph build, search, documentation discovery, and analysis by namespace. Use when working across multiple repositories or services, preventing cross-project graph leakage, listing populated namespaces, or applying one namespace consistently across MCP and CLI operations. Do not use for ordinary single-repository work that fits the default namespace."
+description: "Isolate CCG graph build, search, documentation discovery, and analysis by namespace. Use when working across multiple repositories or services, preventing cross-project graph leakage, choosing safe scoped-update semantics, federating supported reads, or traversing materialized cross-namespace references. Do not use for ordinary single-repository work that fits the default namespace."
 metadata:
-  version: 1.2.0
+  version: 1.3.1
   openclaw:
     category: "code-intelligence"
     domain: "namespace"
@@ -30,7 +30,7 @@ ccg status --namespace users
 Through MCP:
 
 ```text
-build_or_update_graph(path: "/repos/payment", namespace: "payment")
+build_or_update_graph(path: "/repos/payment", namespace: "payment", full_rebuild: true)
 list_namespaces()
 search(namespace: "payment", query: "checkout")
 search_docs(namespace: "payment", query: "payment flow")
@@ -47,14 +47,32 @@ search_docs(namespace: "payment", query: "payment flow")
 | `get_doc_content` | Read a selected generated document, optionally namespace-scoped |
 | `list_cross_refs` | List materialized `ccg://` refs for a namespace (`direction`: outbound/inbound/both) |
 
+## Scoped Update Decision
+
+Classify a partial incremental update as either an authoritative snapshot or a
+maintenance work slice. Use the `ccg` skill's Scoped Update Safety for the
+exact `include_paths` and replacement arguments, then record which behavior was
+chosen for the namespace.
+
 ## Operational Guidance
 
 - Use one namespace per service or repository when graph state must remain isolated.
-- Keep one canonical source root per namespace; reusing a namespace for an unrelated root makes later update/replace behavior ambiguous.
 - Use the default namespace for ordinary single-repository local work.
 - Pass the same namespace consistently to build, search, docs, and analysis tools.
 - Namespace deletion and file upload are not MCP capabilities; manage source directories outside CCG and rebuild graph state as needed.
 - A graph namespace does not generate or copy Markdown files. Generate and place docs separately before expecting namespace-scoped `get_doc_content` reads to succeed.
+
+## Federation Boundaries
+
+Only `search`, `query_graph`, `list_graph_stats`, and `search_docs` accept
+`namespaces: []`. Treat `get_node`, `get_annotation`, `get_doc_content`,
+`list_flows`, and `list_cross_refs` as single-namespace operations.
+
+`get_impact_radius` and `trace_flow` also start in one namespace; enable
+`cross_namespace=true` only when resolved `ccg://` references should extend the
+traversal. Federation runs independent reads and labels them; cross-namespace
+analysis follows materialized reference edges. Do not treat the two modes as
+equivalent.
 
 ## Cross-Namespace Links
 
@@ -69,9 +87,8 @@ queryable cross-namespace references on every build/update:
 - Refs re-resolve automatically after either side rebuilds; `status: dead`
   marks targets that no longer exist (also reported by `ccg lint` as
   `dead-ref`).
-- Federated reads (`namespaces: []` on `search`, `query_graph`,
-  `list_graph_stats`, `search_docs`) fan out per namespace and label every
-  result; they never merge counts across namespaces.
+- Federated reads fan out per namespace and label every result; they never
+  merge counts across namespaces.
 
 ## Boundary
 
@@ -79,7 +96,11 @@ queryable cross-namespace references on every build/update:
 - Never combine evidence from different namespaces without labeling each source; federated and cross-namespace tools label results for you.
 - Keep filesystem source ownership outside CCG; namespaces isolate graph state, not repository permissions.
 - Verify the selected namespace has graph rows before interpreting an empty search as no match.
+- Preserve per-namespace errors; one successful federated branch does not make the whole request complete.
 
 ## Completion
 
-State the namespace used for every build/search/analysis step, confirm it with `list_namespaces` or graph statistics, and report whether any cross-namespace evidence was intentionally included.
+State the namespace used for every build/search/analysis step, confirm it with
+`list_namespaces` or graph statistics, report the `replace` choice for scoped
+updates, label federated errors, and state whether cross-namespace evidence was
+intentionally included.

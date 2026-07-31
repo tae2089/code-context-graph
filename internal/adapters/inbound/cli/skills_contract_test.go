@@ -176,11 +176,17 @@ func TestProjectSkillsAvoidKnownMisleadingContracts(t *testing.T) {
 		"do not overwrite existing annotations",
 		"requires `ccg build .` first",
 		"refresh flows, communities, or fts",
+		"unknown tags are reported by the parser",
 	}
-	paths, err := filepath.Glob(filepath.Join("..", "..", "..", "..", "skills", "*", "SKILL.md"))
+	paths, err := filepath.Glob(filepath.Join("..", "..", "..", "..", "skills", "*", "**", "*.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	topLevelPaths, err := filepath.Glob(filepath.Join("..", "..", "..", "..", "skills", "*", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths = append(paths, topLevelPaths...)
 	for _, path := range paths {
 		raw, err := os.ReadFile(path)
 		if err != nil {
@@ -192,6 +198,135 @@ func TestProjectSkillsAvoidKnownMisleadingContracts(t *testing.T) {
 				t.Errorf("%s contains misleading or contradictory contract %q", path, claim)
 			}
 		}
+	}
+}
+
+func TestProjectSkillsCoverOperationalHazards(t *testing.T) {
+	skillsRoot := filepath.Join("..", "..", "..", "..", "skills")
+	required := map[string][]string{
+		"ccg": {
+			"`replace=false`",
+			"out-of-scope",
+		},
+		"ccg-analyze": {
+			"`max_depth`",
+			"`truncated`",
+			"server-visible",
+		},
+		"ccg-annotate": {
+			"ingestion discards",
+			"unknown-tag",
+		},
+		"ccg-docs": {
+			"`rag.index_dir`",
+			"does not make those files readable",
+		},
+		"ccg-namespace": {
+			"single-namespace",
+		},
+	}
+
+	for name, phrases := range required {
+		t.Run(name, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(skillsRoot, name, "SKILL.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := strings.ToLower(string(raw))
+			for _, phrase := range phrases {
+				if !strings.Contains(text, strings.ToLower(phrase)) {
+					t.Errorf("missing operational contract %q", phrase)
+				}
+			}
+		})
+	}
+}
+
+func TestProjectSkillsCentralizeSharedOperationalGuidance(t *testing.T) {
+	skillsRoot := filepath.Join("..", "..", "..", "..", "skills")
+	required := map[string][]string{
+		"ccg": {
+			"## Task Routing and Entry",
+			"## Graph Freshness",
+			"## Scoped Update Safety",
+			"## Response Budget Rule",
+		},
+		"ccg-analyze": {
+			"`ccg` skill's Response Budget Rule",
+		},
+		"ccg-annotate": {
+			"`ccg` skill's Graph Freshness workflow",
+		},
+		"ccg-docs": {
+			"`ccg` skill's Graph Freshness workflow",
+		},
+		"ccg-namespace": {
+			"`ccg` skill's Scoped Update Safety",
+		},
+	}
+	forbidden := map[string][]string{
+		"ccg-analyze": {
+			"## Pagination Defaults",
+		},
+		"ccg-namespace": {
+			"## Safe Scoped Updates",
+			"`replace=false`",
+		},
+	}
+
+	for name, phrases := range required {
+		t.Run(name, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(skillsRoot, name, "SKILL.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := string(raw)
+			for _, phrase := range phrases {
+				if !strings.Contains(text, phrase) {
+					t.Errorf("missing centralized-guidance contract %q", phrase)
+				}
+			}
+			for _, phrase := range forbidden[name] {
+				if strings.Contains(text, phrase) {
+					t.Errorf("duplicates core-owned guidance %q", phrase)
+				}
+			}
+		})
+	}
+}
+
+func TestProjectSkillsRoutePipelineAnalysisBeforeSourceVerification(t *testing.T) {
+	skillsRoot := filepath.Join("..", "..", "..", "..", "skills")
+	required := map[string][]string{
+		"ccg": {
+			"algorithm",
+			"feature pipeline",
+			"graph-first",
+		},
+		"ccg-analyze": {
+			"pipeline analysis workflow",
+			"candidate discovery",
+			"symbol identity",
+			"relationship and structure evidence",
+			"call-chain evidence",
+			"runtime semantics",
+			"does not prove runtime order",
+		},
+	}
+
+	for name, phrases := range required {
+		t.Run(name, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(skillsRoot, name, "SKILL.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := strings.ToLower(strings.Join(strings.Fields(string(raw)), " "))
+			for _, phrase := range phrases {
+				if !strings.Contains(text, phrase) {
+					t.Errorf("missing pipeline-analysis contract %q", phrase)
+				}
+			}
+		})
 	}
 }
 

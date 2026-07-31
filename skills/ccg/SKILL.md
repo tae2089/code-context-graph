@@ -1,8 +1,8 @@
 ---
 name: ccg
-description: "Build, update, inspect, and search code-context-graph graphs and route to specialized CCG workflows. Use when a task needs CCG setup, graph freshness, exact symbol or relationship lookup, annotation-aware full-text search, MCP graph queries, or selection among CCG analysis, docs, annotation, and namespace skills. Do not use for a simple file or string lookup when grep/read is sufficient."
+description: "Build, update, inspect, and search code-context-graph graphs and route to specialized CCG workflows. Use when a task needs CCG setup, graph freshness, algorithm or feature-pipeline understanding, exact symbol or relationship lookup, annotation-aware full-text search, safe full or scoped synchronization, MCP graph queries, or selection among CCG analysis, docs, annotation, and namespace skills. Do not use for a simple file or string lookup when grep/read is sufficient."
 metadata:
-  version: 1.1.0
+  version: 1.3.1
   openclaw:
     category: "code-intelligence"
     domain: "core"
@@ -14,20 +14,28 @@ metadata:
 
 # ccg — Routing & Search
 
-ccg is a Tree-sitter-based code graph tool. **Complementary to Grep/Read, not a replacement.** Choose based on task type.
+Use CCG for current graph evidence and use grep/read for direct source evidence.
 
-## Task Routing (most important)
+## Task Routing and Entry
 
 | User intent                                | Tool              | Why                               |
 | ------------------------------------------ | ----------------- | --------------------------------- |
-| "Where is X?" — simple location lookup     | Grep + Read       | Faster and cheaper than ccg       |
-| "Find code related to X" — keyword/intent search | `ccg search` | Full-text match over code and annotations |
+| "Where is X?" — simple location lookup     | Grep + Read       | Direct source lookup              |
+| "Find code related to X" — keyword/intent search | `ccg search` | Indexed code and annotations |
+| "How does this algorithm or feature pipeline work?" | `ccg-analyze` skill | Graph-first narrowing, then source verification |
 | "What's affected if I change X?"           | `ccg-analyze` skill   | Graph traversal                       |
 | "Understand a module from generated docs"  | `ccg-docs` skill      | `search_docs`, then `get_doc_content` |
 | "Document intent/rules in code"            | `ccg-annotate` skill  | AI annotation workflow                |
 | "Manage multiple service codebases"        | `ccg-namespace` skill | MSA namespace isolation               |
 
-**Don't use ccg when Grep is enough.** Graph queries add setup and response context that a direct file or string lookup does not need.
+For an unfamiliar MCP task, call `get_minimal_context` once, then confirm the
+selected namespace with `list_graph_stats`. For broad module questions, use
+`search_docs` and `get_doc_content`; switch to `query_graph`, `get_node`, or
+`trace_flow` when the answer needs exact symbols or relationships.
+
+Do not rebuild the graph or regenerate docs merely to start a read-only query.
+Refresh only when the graph is missing, relevant source changed, or requested
+artifacts must be regenerated.
 
 ## Core Commands
 
@@ -67,10 +75,12 @@ infer translations or arbitrary synonyms that are absent from the index.
 ## Graph Freshness
 
 1. Inspect namespace population with `ccg status` or MCP `list_graph_stats`;
-   counts alone do not prove freshness.
+   counts prove population, not freshness.
 2. Use `ccg build .` for first use, an intentional full rebuild, or recovery.
 3. Use `ccg update .` after ordinary source edits.
-4. If a command reports schema drift, or when upgrading PostgreSQL/an existing
+4. Refresh stored flows separately with MCP `run_postprocess(flows=true)` after
+   graph changes when `list_flows` or `get_affected_flows` must be current.
+5. If a command reports schema drift, or when upgrading PostgreSQL/an existing
    database, run `ccg migrate` and retry.
 
 ## Core MCP Tools (commonly used)
@@ -90,22 +100,25 @@ For other tools, use the `ccg-analyze` or `ccg-docs` skill when available.
 
 Prefer `build_or_update_graph` for normal MCP synchronization. Its
 `full_rebuild` default is true, so pass `full_rebuild=false` explicitly for an
-incremental update. Use `parse_project` only when a full graph write without
-search postprocessing is intentional, then call `run_postprocess` if flows or
-FTS must be current. The registered `communities` option is not implemented by
-the current `run_postprocess` handler; do not report community state as rebuilt.
+incremental update.
 
-## Agent Entry Pattern
+## Scoped Update Safety
 
-When MCP is available, call `get_minimal_context` once for an unfamiliar task,
-then confirm the selected namespace with `list_graph_stats`. For broad module
-questions, use `search_docs` to find candidate generated docs and
-`get_doc_content` to read a selected file. Switch to `query_graph`, `get_node`,
-or `trace_flow` when the answer needs exact symbols or relationships.
+For scoped incremental updates, choose replacement semantics deliberately:
 
-Do not rebuild the graph or regenerate docs merely to start a read-only query.
-Refresh only when the graph is missing, the relevant source changed, or the
-requested output must be regenerated.
+- `include_paths` with the default `replace=true` treats the selected scope as
+  authoritative and removes previously indexed out-of-scope files from the
+  namespace.
+- Pass `replace=false` to preserve out-of-scope files while still reconciling
+  deletions inside the selected scope.
+- Omit `include_paths` when the entire source root is authoritative.
+
+Use `parse_project` only when a full graph write without search postprocessing
+is intentional, then call `run_postprocess` if flows or FTS must be current.
+The registered `communities` option is ignored by the current
+`run_postprocess` handler; do not report community state as rebuilt. Inspect
+`failed_steps` and `skipped_steps` before treating any postprocess result as
+current.
 
 ## Response Budget Rule
 
@@ -128,20 +141,16 @@ a narrow question before expanding through graph queries.
 ## Boundary
 
 - Use grep/read for a known filename, exact string, or one obvious location.
-- Use `ccg search` for intent and annotation candidates, not as a substitute for exact graph evidence.
-- Use specialized CCG skills when the task is analysis-, docs-, annotation-, or namespace-specific.
-- Report stale or missing graph state instead of presenting it as current evidence.
-
-## Trade-offs
-
-- Annotation-aware full-text search and graph traversal reduce broad source reading when the graph is current.
-- Single-location lookup is cheaper with grep/read.
-- Annotation search can surface domain rules that plain string matching misses.
-- Frequently changing code requires graph freshness checks or incremental updates.
+- Treat algorithm, feature-flow, and pipeline questions as relationship analysis rather than simple location lookup.
+- Use `ccg search` for intent and annotation candidates, not exact graph proof.
+- Use specialized CCG skills for analysis, docs, annotations, or namespaces.
+- Report stale or missing graph state instead of presenting it as current.
+- Never assume a degraded postprocess result refreshed every requested artifact.
 
 ## Completion
 
-Before finishing a CCG task, state the namespace and freshness evidence used
-(or say freshness was not verified), name the tools or commands that supplied
-evidence, keep result limits bounded, and report any fallback to grep/read or
-verification that was not run.
+Before finishing, state the namespace and freshness evidence used (or say it
+was not verified), name the evidence-producing tools or commands, report result
+limits and truncation, record the chosen `replace` behavior for scoped updates,
+and list any failed/skipped postprocess step, source fallback, or verification
+that was not run.
