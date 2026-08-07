@@ -20,12 +20,13 @@ and nothing else.
 ## Running it
 
 ```sh
-# scoreboard, asserts nothing
-CGO_ENABLED=1 go test -tags fts5 ./internal/app/search/rank/ -run TestGolden_Report -v
-
-# the ratchet, part of the normal suite
-CGO_ENABLED=1 go test -tags fts5 ./internal/app/search/rank/ -count=1
+make search-eval   # scoreboard, asserts nothing
+make test          # includes the ratchet, which is what fails a build
 ```
+
+There is no `ccg eval` command and there should not be one. Measuring the
+ranking is a development concern, so it stays in the test suite rather than
+shipping in the binary.
 
 ## When the ratchet fails
 
@@ -48,9 +49,8 @@ Only when retrieval itself changes — the tokenizer, `SanitizeFTS5`,
 repository root, which is build output and not tracked:
 
 ```sh
-./ccg build .
-CGO_ENABLED=1 go test -tags fts5 ./internal/adapters/outbound/searchsql/ \
-  -run TestCaptureGoldenCandidates -capture-golden -count=1
+make wiki-db              # builds ./ccg.db, which the capture reads
+make search-eval-capture
 ```
 
 A recapture can hide a retrieval regression by baking it into the fixture, so

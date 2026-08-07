@@ -10,7 +10,7 @@ WIKI_TOKEN  ?=
 HOST_GOOS   := $(shell go env GOOS)
 CONTAINER_ARCH ?= $(shell go env GOARCH)
 
-.PHONY: build release build-debug build-json install vet test test-integration-helpers wiki-build wiki-db wiki-docs wiki-run wiki-run-indexed container-artifacts clean
+.PHONY: build release build-debug build-json install vet test test-integration-helpers search-eval search-eval-capture wiki-build wiki-db wiki-docs wiki-run wiki-run-indexed container-artifacts clean
 
 build: release
 
@@ -37,6 +37,17 @@ test: test-integration-helpers
 
 test-integration-helpers:
 	bash ./scripts/integration-test-helpers_test.sh
+
+# Prints the search ranking scoreboard. Asserts nothing — the regression check
+# that fails a build already runs as part of `make test`.
+search-eval:
+	CGO_ENABLED=1 go test -tags "fts5" ./internal/app/search/rank/ -run TestGolden_Report -v -count=1
+
+# Recaptures the candidate fixture from ./ccg.db, which `make wiki-db` builds.
+# Only needed when retrieval itself changes; see
+# internal/app/search/rank/testdata/README.md before committing the result.
+search-eval-capture:
+	CGO_ENABLED=1 go test -tags "fts5" ./internal/adapters/outbound/searchsql/ -run TestCaptureGoldenCandidates -capture-golden -count=1
 
 wiki-build:
 	cd web/wiki && npm ci && npm run build
