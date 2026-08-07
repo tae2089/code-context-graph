@@ -395,6 +395,52 @@ func TestCanReachTypoFloor_NeverSkipsAScoringPair(t *testing.T) {
 	}
 }
 
+// 이름 신호가 약해도 진짜 일치라면, 이름은 전혀 안 맞고 경로 세그먼트만 겹치는
+// 노드보다 위여야 한다. 줄임말이나 아주 긴 이름은 점수가 낮게 나오므로, 경로
+// 가중치가 그보다 크면 이름 일치가 통째로 묻힌다.
+func TestRerank_WeakNameMatchStillOutranksPathOnlyMatch(t *testing.T) {
+	cases := []struct{ query, name string }{
+		{"cfg", "loadConfig"},
+		{"cfg", "configuration"},
+		{"cfg", "ccgConfigFileGlobals"},
+		{"repo", "postgresRepositoryAdapterFactory"},
+		{"node", "graphNodeAnnotationRepositoryPostgres"},
+	}
+	for _, c := range cases {
+		nodes := []graph.Node{
+			// 이름은 무관하고 경로에만 쿼리 토큰이 들어 있다.
+			{ID: 1, Name: "handler", QualifiedName: "http.handler", FilePath: "internal/" + c.query + "/handler.go"},
+			{ID: 2, Name: c.name, QualifiedName: "app." + c.name, FilePath: "internal/app/boot.go"},
+		}
+		if got := Rerank(c.query, nodes, 10); got[0].ID != 2 {
+			t.Errorf("query %q: path-only node beat the name match %q (nameSim=%.4f, path weight=%.2f)",
+				c.query, c.name, nameSim(tokenize(c.query), nodes[1]), pathSignalWeight)
+		}
+	}
+}
+
+// 경로 신호를 낮춰도 이름이 동점일 때는 여전히 순위를 갈라야 한다.
+func TestRerank_PathBreaksTiesBetweenEqualNames(t *testing.T) {
+	t.Run("equal nonzero name scores", func(t *testing.T) {
+		nodes := []graph.Node{
+			{ID: 1, Name: "getUserById", QualifiedName: "a.getUserById", FilePath: "pkg/misc.go"},
+			{ID: 2, Name: "getUserById", QualifiedName: "b.getUserById", FilePath: "internal/user/svc.go"},
+		}
+		if got := Rerank("user", nodes, 10); got[0].ID != 2 {
+			t.Fatalf("expected the path hit to break the name tie, got id=%d", got[0].ID)
+		}
+	})
+	t.Run("both name scores zero", func(t *testing.T) {
+		nodes := []graph.Node{
+			{ID: 1, Name: "helper", QualifiedName: "util.helper", FilePath: "util/helper.go"},
+			{ID: 2, Name: "handler", QualifiedName: "svc.handler", FilePath: "svc/auth/login.go"},
+		}
+		if got := Rerank("auth login", nodes, 10); got[0].ID != 2 {
+			t.Fatalf("expected the path hit to rank first when no name matches, got id=%d", got[0].ID)
+		}
+	})
+}
+
 func TestFetchLimit(t *testing.T) {
 	if got := FetchLimit(10); got <= 10 {
 		t.Fatalf("expected fetch limit wider than 10, got %d", got)
