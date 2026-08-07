@@ -1,0 +1,4993 @@
+{
+  "BuildContent": [
+    {
+      "id": 6639,
+      "name": "BuildContent",
+      "qualified_name": "document.BuildContent",
+      "kind": "function",
+      "file_path": "internal/app/search/document/document.go"
+    },
+    {
+      "id": 6486,
+      "name": "BuildStats",
+      "qualified_name": "workflow.BuildStats",
+      "kind": "class",
+      "file_path": "internal/app/ingest/workflow/indexer.go"
+    },
+    {
+      "id": 5805,
+      "name": "buildSQLiteFTSInsert",
+      "qualified_name": "searchsql.buildSQLiteFTSInsert",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 6433,
+      "name": "packageSemanticEdgeBatches",
+      "qualified_name": "workflow.Service.packageSemanticEdgeBatches",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/build.go"
+    },
+    {
+      "id": 6527,
+      "name": "setBuildNodeHashes",
+      "qualified_name": "workflow.setBuildNodeHashes",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/parsecache.go"
+    },
+    {
+      "id": 6691,
+      "name": "FromDB",
+      "qualified_name": "retrieval.Service.FromDB",
+      "kind": "function",
+      "file_path": "internal/app/search/retrieval/service.go"
+    },
+    {
+      "id": 6690,
+      "name": "internal/app/search/retrieval/service.go",
+      "qualified_name": "internal/app/search/retrieval/service.go",
+      "kind": "file",
+      "file_path": "internal/app/search/retrieval/service.go"
+    },
+    {
+      "id": 5803,
+      "name": "upgradeLegacyFTSTable",
+      "qualified_name": "searchsql.SQLiteBackend.upgradeLegacyFTSTable",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    }
+  ],
+  "RunMigrations": [
+    {
+      "id": 6784,
+      "name": "RunMigrations",
+      "qualified_name": "migration.RunMigrations",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6930,
+      "name": "Migrate",
+      "qualified_name": "runtime.Runtime.Migrate",
+      "kind": "function",
+      "file_path": "internal/runtime/runtime.go"
+    },
+    {
+      "id": 6783,
+      "name": "Run",
+      "qualified_name": "migration.Run",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6872,
+      "name": "SchemaVersion",
+      "qualified_name": "graph.SchemaVersion",
+      "kind": "class",
+      "file_path": "internal/domain/graph/schema_version.go"
+    },
+    {
+      "id": 5771,
+      "name": "Migrate",
+      "qualified_name": "searchsql.PostgresBackend.Migrate",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/postgres.go"
+    },
+    {
+      "id": 6776,
+      "name": "internal/db/migration/embed.go",
+      "qualified_name": "internal/db/migration/embed.go",
+      "kind": "file",
+      "file_path": "internal/db/migration/embed.go"
+    }
+  ],
+  "SanitizeFTS5": [
+    {
+      "id": 5787,
+      "name": "SanitizeFTS5",
+      "qualified_name": "searchsql.SanitizeFTS5",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sanitize.go"
+    },
+    {
+      "id": 5788,
+      "name": "SanitizePostgresTSQuery",
+      "qualified_name": "searchsql.SanitizePostgresTSQuery",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sanitize.go"
+    }
+  ],
+  "UnresolvedEdgeCandidate": [
+    {
+      "id": 6877,
+      "name": "UnresolvedEdgeCandidate",
+      "qualified_name": "graph.UnresolvedEdgeCandidate",
+      "kind": "class",
+      "file_path": "internal/domain/graph/unresolved.go"
+    },
+    {
+      "id": 6878,
+      "name": "Edge",
+      "qualified_name": "graph.UnresolvedEdgeCandidate.Edge",
+      "kind": "function",
+      "file_path": "internal/domain/graph/unresolved.go"
+    },
+    {
+      "id": 5739,
+      "name": "UpsertUnresolvedEdges",
+      "qualified_name": "graphgorm.Store.UpsertUnresolvedEdges",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/unresolved.go"
+    },
+    {
+      "id": 6239,
+      "name": "persistUnresolvedEdges",
+      "qualified_name": "incremental.persistUnresolvedEdges",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6552,
+      "name": "replayUnresolvedEdgesForAddedFiles",
+      "qualified_name": "workflow.replayUnresolvedEdgesForAddedFiles",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/update.go"
+    },
+    {
+      "id": 6448,
+      "name": "persistBuildUnresolvedEdges",
+      "qualified_name": "workflow.persistBuildUnresolvedEdges",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/build.go"
+    },
+    {
+      "id": 6321,
+      "name": "PartitionResolvedWithDiagnosticsFiltered",
+      "qualified_name": "resolve.PartitionResolvedWithDiagnosticsFiltered",
+      "kind": "function",
+      "file_path": "internal/app/ingest/resolve/resolve.go"
+    },
+    {
+      "id": 5741,
+      "name": "FindUnresolvedEdgesByFiles",
+      "qualified_name": "graphgorm.Store.FindUnresolvedEdgesByFiles",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/unresolved.go"
+    },
+    {
+      "id": 6318,
+      "name": "FilterResolved",
+      "qualified_name": "resolve.FilterResolved",
+      "kind": "function",
+      "file_path": "internal/app/ingest/resolve/resolve.go"
+    },
+    {
+      "id": 6300,
+      "name": "FilterResolvedSample",
+      "qualified_name": "resolve.FilterResolvedSample",
+      "kind": "class",
+      "file_path": "internal/app/ingest/resolve/resolve.go"
+    },
+    {
+      "id": 6337,
+      "name": "fallbackCallable",
+      "qualified_name": "resolve.fallbackCallable",
+      "kind": "function",
+      "file_path": "internal/app/ingest/resolve/resolve.go"
+    },
+    {
+      "id": 5715,
+      "name": "DeleteNodesByFiles",
+      "qualified_name": "graphgorm.Store.DeleteNodesByFiles",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/store.go"
+    }
+  ],
+  "annot": [
+    {
+      "id": 6845,
+      "name": "Annotation",
+      "qualified_name": "graph.Annotation",
+      "kind": "class",
+      "file_path": "internal/domain/graph/annotation.go"
+    },
+    {
+      "id": 5430,
+      "name": "annotationTagItem",
+      "qualified_name": "mcp.annotationTagItem",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handler_query.go"
+    },
+    {
+      "id": 6981,
+      "name": "AnnotationDetails",
+      "qualified_name": "AnnotationDetails",
+      "kind": "type",
+      "file_path": "web/wiki/src/api.ts"
+    },
+    {
+      "id": 6744,
+      "name": "AnnotationDetail",
+      "qualified_name": "wiki.AnnotationDetail",
+      "kind": "class",
+      "file_path": "internal/app/wiki/model.go"
+    },
+    {
+      "id": 5754,
+      "name": "Annotations",
+      "qualified_name": "graphgorm.Store.Annotations",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/wiki.go"
+    },
+    {
+      "id": 6982,
+      "name": "AnnotationTag",
+      "qualified_name": "AnnotationTag",
+      "kind": "type",
+      "file_path": "web/wiki/src/api.ts"
+    },
+    {
+      "id": 6276,
+      "name": "AnnotatingParser",
+      "qualified_name": "ingest.AnnotatingParser",
+      "kind": "type",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 5563,
+      "name": "annotationMarkdownBlock",
+      "qualified_name": "wikiserver.annotationMarkdownBlock",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/wikihttp/server.go"
+    },
+    {
+      "id": 6220,
+      "name": "AnnotatingParser",
+      "qualified_name": "incremental.AnnotatingParser",
+      "kind": "type",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 5431,
+      "name": "annotationResponse",
+      "qualified_name": "mcp.annotationResponse",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handler_query.go"
+    },
+    {
+      "id": 5783,
+      "name": "Annotations",
+      "qualified_name": "searchsql.Reader.Annotations",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/retrieval.go"
+    },
+    {
+      "id": 5580,
+      "name": "annotationMarkdownBlocks",
+      "qualified_name": "wikiserver.annotationMarkdownBlocks",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/wikihttp/server.go"
+    },
+    {
+      "id": 5581,
+      "name": "annotationTagMarkdownValue",
+      "qualified_name": "wikiserver.annotationTagMarkdownValue",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/wikihttp/server.go"
+    },
+    {
+      "id": 5573,
+      "name": "annotationDetailFromModel",
+      "qualified_name": "wikiserver.annotationDetailFromModel",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/wikihttp/server.go"
+    },
+    {
+      "id": 6838,
+      "name": "Parser",
+      "qualified_name": "annotation.Parser",
+      "kind": "class",
+      "file_path": "internal/domain/annotation/parser.go"
+    },
+    {
+      "id": 6843,
+      "name": "internal/domain/graph/annotation.go",
+      "qualified_name": "internal/domain/graph/annotation.go",
+      "kind": "file",
+      "file_path": "internal/domain/graph/annotation.go"
+    },
+    {
+      "id": 6829,
+      "name": "NewNormalizer",
+      "qualified_name": "annotation.NewNormalizer",
+      "kind": "function",
+      "file_path": "internal/domain/annotation/normalizer.go"
+    },
+    {
+      "id": 6254,
+      "name": "annotationBindingKey",
+      "qualified_name": "incremental.annotationBindingKey",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6839,
+      "name": "NewParser",
+      "qualified_name": "annotation.NewParser",
+      "kind": "function",
+      "file_path": "internal/domain/annotation/parser.go"
+    },
+    {
+      "id": 6179,
+      "name": "AnnotationRef",
+      "qualified_name": "crossref.AnnotationRef",
+      "kind": "class",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 6827,
+      "name": "internal/domain/annotation/normalizer.go",
+      "qualified_name": "internal/domain/annotation/normalizer.go",
+      "kind": "file",
+      "file_path": "internal/domain/annotation/normalizer.go"
+    },
+    {
+      "id": 6828,
+      "name": "Normalizer",
+      "qualified_name": "annotation.Normalizer",
+      "kind": "class",
+      "file_path": "internal/domain/annotation/normalizer.go"
+    },
+    {
+      "id": 5726,
+      "name": "UpsertAnnotations",
+      "qualified_name": "graphgorm.Store.UpsertAnnotations",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/store.go"
+    },
+    {
+      "id": 6837,
+      "name": "internal/domain/annotation/parser.go",
+      "qualified_name": "internal/domain/annotation/parser.go",
+      "kind": "file",
+      "file_path": "internal/domain/annotation/parser.go"
+    },
+    {
+      "id": 6830,
+      "name": "Normalize",
+      "qualified_name": "annotation.Normalizer.Normalize",
+      "kind": "function",
+      "file_path": "internal/domain/annotation/normalizer.go"
+    },
+    {
+      "id": 5725,
+      "name": "UpsertAnnotation",
+      "qualified_name": "graphgorm.Store.UpsertAnnotation",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/store.go"
+    },
+    {
+      "id": 6831,
+      "name": "isGoDirective",
+      "qualified_name": "annotation.isGoDirective",
+      "kind": "function",
+      "file_path": "internal/domain/annotation/normalizer.go"
+    },
+    {
+      "id": 6715,
+      "name": "loadAnnotations",
+      "qualified_name": "wiki.Builder.loadAnnotations",
+      "kind": "function",
+      "file_path": "internal/app/wiki/builder.go"
+    },
+    {
+      "id": 6674,
+      "name": "dbFieldWeight",
+      "qualified_name": "retrieval.dbFieldWeight",
+      "kind": "function",
+      "file_path": "internal/app/search/retrieval/helpers.go"
+    },
+    {
+      "id": 5727,
+      "name": "GetAnnotation",
+      "qualified_name": "graphgorm.Store.GetAnnotation",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/store.go"
+    },
+    {
+      "id": 5445,
+      "name": "getAnnotation",
+      "qualified_name": "mcp.handlers.getAnnotation",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_query.go"
+    },
+    {
+      "id": 6241,
+      "name": "persistParsedNodesAndAnnotations",
+      "qualified_name": "incremental.Syncer.persistParsedNodesAndAnnotations",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6242,
+      "name": "collectAnnotations",
+      "qualified_name": "incremental.collectAnnotations",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6840,
+      "name": "Parse",
+      "qualified_name": "annotation.Parser.Parse",
+      "kind": "function",
+      "file_path": "internal/domain/annotation/parser.go"
+    },
+    {
+      "id": 6694,
+      "name": "batchAnnotations",
+      "qualified_name": "retrieval.Service.batchAnnotations",
+      "kind": "function",
+      "file_path": "internal/app/search/retrieval/service.go"
+    },
+    {
+      "id": 6836,
+      "name": "stripLinePrefix",
+      "qualified_name": "annotation.stripLinePrefix",
+      "kind": "function",
+      "file_path": "internal/domain/annotation/normalizer.go"
+    },
+    {
+      "id": 6881,
+      "name": "Ref",
+      "qualified_name": "reference.Ref",
+      "kind": "class",
+      "file_path": "internal/domain/reference/ref.go"
+    },
+    {
+      "id": 6200,
+      "name": "hasContent",
+      "qualified_name": "binding.hasContent",
+      "kind": "function",
+      "file_path": "internal/app/ingest/binding/binder.go"
+    },
+    {
+      "id": 6832,
+      "name": "stripBlockDelimiters",
+      "qualified_name": "annotation.stripBlockDelimiters",
+      "kind": "function",
+      "file_path": "internal/domain/annotation/normalizer.go"
+    },
+    {
+      "id": 6434,
+      "name": "flushBuildBatch",
+      "qualified_name": "workflow.Service.flushBuildBatch",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/build.go"
+    },
+    {
+      "id": 6833,
+      "name": "stripPythonDocstringDelimiters",
+      "qualified_name": "annotation.stripPythonDocstringDelimiters",
+      "kind": "function",
+      "file_path": "internal/domain/annotation/normalizer.go"
+    },
+    {
+      "id": 6746,
+      "name": "DocTagDetailFromModel",
+      "qualified_name": "wiki.DocTagDetailFromModel",
+      "kind": "function",
+      "file_path": "internal/app/wiki/model.go"
+    },
+    {
+      "id": 6834,
+      "name": "stripPythonQuotedString",
+      "qualified_name": "annotation.stripPythonQuotedString",
+      "kind": "function",
+      "file_path": "internal/domain/annotation/normalizer.go"
+    },
+    {
+      "id": 6835,
+      "name": "isSupportedPythonDocstringPrefix",
+      "qualified_name": "annotation.isSupportedPythonDocstringPrefix",
+      "kind": "function",
+      "file_path": "internal/domain/annotation/normalizer.go"
+    },
+    {
+      "id": 6748,
+      "name": "SearchTextForAnnotation",
+      "qualified_name": "wiki.SearchTextForAnnotation",
+      "kind": "function",
+      "file_path": "internal/app/wiki/model.go"
+    },
+    {
+      "id": 6731,
+      "name": "nodeIDs",
+      "qualified_name": "wiki.nodeIDs",
+      "kind": "function",
+      "file_path": "internal/app/wiki/builder.go"
+    },
+    {
+      "id": 5673,
+      "name": "Snapshot",
+      "qualified_name": "graphgorm.Store.Snapshot",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/docs.go"
+    },
+    {
+      "id": 6844,
+      "name": "TagKind",
+      "qualified_name": "graph.TagKind",
+      "kind": "type",
+      "file_path": "internal/domain/graph/annotation.go"
+    },
+    {
+      "id": 6983,
+      "name": "CCGRef",
+      "qualified_name": "CCGRef",
+      "kind": "type",
+      "file_path": "web/wiki/src/api.ts"
+    },
+    {
+      "id": 7003,
+      "name": "retrieveDocs",
+      "qualified_name": "retrieveDocs",
+      "kind": "function",
+      "file_path": "web/wiki/src/api.ts"
+    }
+  ],
+  "anotation": [],
+  "cfg": [],
+  "cross ref": [
+    {
+      "id": 5664,
+      "name": "crossRefEdges",
+      "qualified_name": "graphgorm.crossRefEdges",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossnamespace.go"
+    },
+    {
+      "id": 6479,
+      "name": "CrossRefSyncer",
+      "qualified_name": "workflow.CrossRefSyncer",
+      "kind": "type",
+      "file_path": "internal/app/ingest/workflow/indexer.go"
+    },
+    {
+      "id": 6851,
+      "name": "CrossRefStatus",
+      "qualified_name": "graph.CrossRefStatus",
+      "kind": "type",
+      "file_path": "internal/domain/graph/crossref.go"
+    },
+    {
+      "id": 5396,
+      "name": "crossRefItem",
+      "qualified_name": "mcp.crossRefItem",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handler_crossref.go"
+    },
+    {
+      "id": 6852,
+      "name": "CrossRefSource",
+      "qualified_name": "graph.CrossRefSource",
+      "kind": "type",
+      "file_path": "internal/domain/graph/crossref.go"
+    },
+    {
+      "id": 5668,
+      "name": "ReplaceCrossRefsFrom",
+      "qualified_name": "graphgorm.Store.ReplaceCrossRefsFrom",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 5358,
+      "name": "CrossRefLister",
+      "qualified_name": "mcp.CrossRefLister",
+      "kind": "type",
+      "file_path": "internal/adapters/inbound/mcp/deps.go"
+    },
+    {
+      "id": 6178,
+      "name": "internal/app/crossref/service.go",
+      "qualified_name": "internal/app/crossref/service.go",
+      "kind": "file",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 5665,
+      "name": "internal/adapters/outbound/graphgorm/crossref.go",
+      "qualified_name": "internal/adapters/outbound/graphgorm/crossref.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 6181,
+      "name": "Service",
+      "qualified_name": "crossref.Service",
+      "kind": "class",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 6482,
+      "name": "syncCrossRefs",
+      "qualified_name": "workflow.Service.syncCrossRefs",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/indexer.go"
+    },
+    {
+      "id": 6880,
+      "name": "internal/domain/reference/ref.go",
+      "qualified_name": "internal/domain/reference/ref.go",
+      "kind": "file",
+      "file_path": "internal/domain/reference/ref.go"
+    },
+    {
+      "id": 6850,
+      "name": "internal/domain/graph/crossref.go",
+      "qualified_name": "internal/domain/graph/crossref.go",
+      "kind": "file",
+      "file_path": "internal/domain/graph/crossref.go"
+    },
+    {
+      "id": 6881,
+      "name": "Ref",
+      "qualified_name": "reference.Ref",
+      "kind": "class",
+      "file_path": "internal/domain/reference/ref.go"
+    },
+    {
+      "id": 5670,
+      "name": "ListOutboundCrossRefs",
+      "qualified_name": "graphgorm.Store.ListOutboundCrossRefs",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 5671,
+      "name": "UpdateCrossRefResolution",
+      "qualified_name": "graphgorm.Store.UpdateCrossRefResolution",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 6179,
+      "name": "AnnotationRef",
+      "qualified_name": "crossref.AnnotationRef",
+      "kind": "class",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 5656,
+      "name": "CrossNamespaceReader",
+      "qualified_name": "graphgorm.CrossNamespaceReader",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/graphgorm/crossnamespace.go"
+    },
+    {
+      "id": 5655,
+      "name": "internal/adapters/outbound/graphgorm/crossnamespace.go",
+      "qualified_name": "internal/adapters/outbound/graphgorm/crossnamespace.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/graphgorm/crossnamespace.go"
+    },
+    {
+      "id": 6182,
+      "name": "New",
+      "qualified_name": "crossref.New",
+      "kind": "function",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 5398,
+      "name": "listCrossRefs",
+      "qualified_name": "mcp.handlers.listCrossRefs",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_crossref.go"
+    },
+    {
+      "id": 5658,
+      "name": "GetEdgesFrom",
+      "qualified_name": "graphgorm.CrossNamespaceReader.GetEdgesFrom",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossnamespace.go"
+    },
+    {
+      "id": 5660,
+      "name": "GetEdgesTo",
+      "qualified_name": "graphgorm.CrossNamespaceReader.GetEdgesTo",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossnamespace.go"
+    },
+    {
+      "id": 6882,
+      "name": "Is",
+      "qualified_name": "reference.Is",
+      "kind": "function",
+      "file_path": "internal/domain/reference/ref.go"
+    },
+    {
+      "id": 6183,
+      "name": "SyncNamespace",
+      "qualified_name": "crossref.Service.SyncNamespace",
+      "kind": "function",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 5395,
+      "name": "internal/adapters/inbound/mcp/handler_crossref.go",
+      "qualified_name": "internal/adapters/inbound/mcp/handler_crossref.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/handler_crossref.go"
+    },
+    {
+      "id": 6983,
+      "name": "CCGRef",
+      "qualified_name": "CCGRef",
+      "kind": "type",
+      "file_path": "web/wiki/src/api.ts"
+    },
+    {
+      "id": 5397,
+      "name": "listCrossRefsResponse",
+      "qualified_name": "mcp.listCrossRefsResponse",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handler_crossref.go"
+    },
+    {
+      "id": 6180,
+      "name": "Store",
+      "qualified_name": "crossref.Store",
+      "kind": "type",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 5659,
+      "name": "GetEdgesFromNodes",
+      "qualified_name": "graphgorm.CrossNamespaceReader.GetEdgesFromNodes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossnamespace.go"
+    },
+    {
+      "id": 5661,
+      "name": "GetEdgesToNodes",
+      "qualified_name": "graphgorm.CrossNamespaceReader.GetEdgesToNodes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossnamespace.go"
+    },
+    {
+      "id": 5666,
+      "name": "ListAnnotationCCGRefs",
+      "qualified_name": "graphgorm.Store.ListAnnotationCCGRefs",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 5667,
+      "name": "ResolveCCGRef",
+      "qualified_name": "graphgorm.Store.ResolveCCGRef",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 5669,
+      "name": "ListInboundCrossRefs",
+      "qualified_name": "graphgorm.Store.ListInboundCrossRefs",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 5676,
+      "name": "CCGRefExists",
+      "qualified_name": "graphgorm.Store.CCGRefExists",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/docs.go"
+    },
+    {
+      "id": 6853,
+      "name": "CrossRef",
+      "qualified_name": "graph.CrossRef",
+      "kind": "class",
+      "file_path": "internal/domain/graph/crossref.go"
+    },
+    {
+      "id": 6184,
+      "name": "targetKey",
+      "qualified_name": "crossref.targetKey",
+      "kind": "class",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 6475,
+      "name": "forceReparseFiles",
+      "qualified_name": "workflow.forceReparseFiles",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/graphstate.go"
+    },
+    {
+      "id": 5677,
+      "name": "ccgRefNodeQuery",
+      "qualified_name": "graphgorm.Store.ccgRefNodeQuery",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/docs.go"
+    },
+    {
+      "id": 6186,
+      "name": "resolveOnce",
+      "qualified_name": "crossref.Service.resolveOnce",
+      "kind": "function",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 5373,
+      "name": "traceFlowMember",
+      "qualified_name": "mcp.traceFlowMember",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handler_analysis.go"
+    },
+    {
+      "id": 6550,
+      "name": "applyUpdateSpoolInTx",
+      "qualified_name": "workflow.Service.applyUpdateSpoolInTx",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/update.go"
+    }
+  ],
+  "crossref": [
+    {
+      "id": 6853,
+      "name": "CrossRef",
+      "qualified_name": "graph.CrossRef",
+      "kind": "class",
+      "file_path": "internal/domain/graph/crossref.go"
+    },
+    {
+      "id": 6850,
+      "name": "internal/domain/graph/crossref.go",
+      "qualified_name": "internal/domain/graph/crossref.go",
+      "kind": "file",
+      "file_path": "internal/domain/graph/crossref.go"
+    },
+    {
+      "id": 6190,
+      "name": "equalNodeID",
+      "qualified_name": "crossref.equalNodeID",
+      "kind": "function",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 6191,
+      "name": "logger",
+      "qualified_name": "crossref.Service.logger",
+      "kind": "function",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 5396,
+      "name": "crossRefItem",
+      "qualified_name": "mcp.crossRefItem",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handler_crossref.go"
+    },
+    {
+      "id": 6851,
+      "name": "CrossRefStatus",
+      "qualified_name": "graph.CrossRefStatus",
+      "kind": "type",
+      "file_path": "internal/domain/graph/crossref.go"
+    },
+    {
+      "id": 5665,
+      "name": "internal/adapters/outbound/graphgorm/crossref.go",
+      "qualified_name": "internal/adapters/outbound/graphgorm/crossref.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 6852,
+      "name": "CrossRefSource",
+      "qualified_name": "graph.CrossRefSource",
+      "kind": "type",
+      "file_path": "internal/domain/graph/crossref.go"
+    },
+    {
+      "id": 5395,
+      "name": "internal/adapters/inbound/mcp/handler_crossref.go",
+      "qualified_name": "internal/adapters/inbound/mcp/handler_crossref.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/handler_crossref.go"
+    },
+    {
+      "id": 5664,
+      "name": "crossRefEdges",
+      "qualified_name": "graphgorm.crossRefEdges",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossnamespace.go"
+    },
+    {
+      "id": 5358,
+      "name": "CrossRefLister",
+      "qualified_name": "mcp.CrossRefLister",
+      "kind": "type",
+      "file_path": "internal/adapters/inbound/mcp/deps.go"
+    },
+    {
+      "id": 6178,
+      "name": "internal/app/crossref/service.go",
+      "qualified_name": "internal/app/crossref/service.go",
+      "kind": "file",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 6479,
+      "name": "CrossRefSyncer",
+      "qualified_name": "workflow.CrossRefSyncer",
+      "kind": "type",
+      "file_path": "internal/app/ingest/workflow/indexer.go"
+    },
+    {
+      "id": 6185,
+      "name": "resolution",
+      "qualified_name": "crossref.resolution",
+      "kind": "class",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 6182,
+      "name": "New",
+      "qualified_name": "crossref.New",
+      "kind": "function",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 6187,
+      "name": "rebuildOutbound",
+      "qualified_name": "crossref.Service.rebuildOutbound",
+      "kind": "function",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 6188,
+      "name": "reresolveInbound",
+      "qualified_name": "crossref.Service.reresolveInbound",
+      "kind": "function",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 6189,
+      "name": "resolve",
+      "qualified_name": "crossref.Service.resolve",
+      "kind": "function",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 6180,
+      "name": "Store",
+      "qualified_name": "crossref.Store",
+      "kind": "type",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 6181,
+      "name": "Service",
+      "qualified_name": "crossref.Service",
+      "kind": "class",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 6179,
+      "name": "AnnotationRef",
+      "qualified_name": "crossref.AnnotationRef",
+      "kind": "class",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 6184,
+      "name": "targetKey",
+      "qualified_name": "crossref.targetKey",
+      "kind": "class",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 6186,
+      "name": "resolveOnce",
+      "qualified_name": "crossref.Service.resolveOnce",
+      "kind": "function",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 5397,
+      "name": "listCrossRefsResponse",
+      "qualified_name": "mcp.listCrossRefsResponse",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handler_crossref.go"
+    },
+    {
+      "id": 5670,
+      "name": "ListOutboundCrossRefs",
+      "qualified_name": "graphgorm.Store.ListOutboundCrossRefs",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 6183,
+      "name": "SyncNamespace",
+      "qualified_name": "crossref.Service.SyncNamespace",
+      "kind": "function",
+      "file_path": "internal/app/crossref/service.go"
+    },
+    {
+      "id": 5666,
+      "name": "ListAnnotationCCGRefs",
+      "qualified_name": "graphgorm.Store.ListAnnotationCCGRefs",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 5671,
+      "name": "UpdateCrossRefResolution",
+      "qualified_name": "graphgorm.Store.UpdateCrossRefResolution",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 5359,
+      "name": "AnalysisToolsDeps",
+      "qualified_name": "mcp.AnalysisToolsDeps",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/deps.go"
+    },
+    {
+      "id": 5668,
+      "name": "ReplaceCrossRefsFrom",
+      "qualified_name": "graphgorm.Store.ReplaceCrossRefsFrom",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 5669,
+      "name": "ListInboundCrossRefs",
+      "qualified_name": "graphgorm.Store.ListInboundCrossRefs",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 5398,
+      "name": "listCrossRefs",
+      "qualified_name": "mcp.handlers.listCrossRefs",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_crossref.go"
+    },
+    {
+      "id": 5667,
+      "name": "ResolveCCGRef",
+      "qualified_name": "graphgorm.Store.ResolveCCGRef",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    }
+  ],
+  "discovery": [
+    {
+      "id": 5849,
+      "name": "nodePackageDiscoveryConfig",
+      "qualified_name": "treesitter.nodePackageDiscoveryConfig",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 6269,
+      "name": "PackageDiscoveryOptions",
+      "qualified_name": "ingest.PackageDiscoveryOptions",
+      "kind": "class",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 5830,
+      "name": "internal/adapters/outbound/treesitter/package_discovery.go",
+      "qualified_name": "internal/adapters/outbound/treesitter/package_discovery.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5868,
+      "name": "workspacePatternMatchParts",
+      "qualified_name": "treesitter.workspacePatternMatchParts",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 6494,
+      "name": "languagePackageDiscoverer",
+      "qualified_name": "workflow.languagePackageDiscoverer",
+      "kind": "type",
+      "file_path": "internal/app/ingest/workflow/packages.go"
+    },
+    {
+      "id": 5833,
+      "name": "JavaScriptPackageDiscovery",
+      "qualified_name": "treesitter.JavaScriptPackageDiscovery",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5863,
+      "name": "readPNPMWorkspacePatterns",
+      "qualified_name": "treesitter.readPNPMWorkspacePatterns",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 6278,
+      "name": "PackageDiscoverer",
+      "qualified_name": "ingest.PackageDiscoverer",
+      "kind": "type",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 5867,
+      "name": "workspacePatternMatch",
+      "qualified_name": "treesitter.workspacePatternMatch",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5841,
+      "name": "GoPackageDiscovery",
+      "qualified_name": "treesitter.GoPackageDiscovery",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5832,
+      "name": "TypeScriptPackageDiscovery",
+      "qualified_name": "treesitter.TypeScriptPackageDiscovery",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5851,
+      "name": "nodeTSConfig",
+      "qualified_name": "treesitter.nodeTSConfig",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5824,
+      "name": "NoopPackageDiscovery",
+      "qualified_name": "treesitter.NoopPackageDiscovery",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/langspec.go"
+    },
+    {
+      "id": 5842,
+      "name": "DiscoverPackages",
+      "qualified_name": "treesitter.GoPackageDiscovery.DiscoverPackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5826,
+      "name": "DiscoverPackages",
+      "qualified_name": "treesitter.Walker.DiscoverPackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/langspec.go"
+    },
+    {
+      "id": 5834,
+      "name": "JavaPackageDiscovery",
+      "qualified_name": "treesitter.JavaPackageDiscovery",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5835,
+      "name": "KotlinPackageDiscovery",
+      "qualified_name": "treesitter.KotlinPackageDiscovery",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5850,
+      "name": "nodePackageJSON",
+      "qualified_name": "treesitter.nodePackageJSON",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5866,
+      "name": "matchesWorkspacePatterns",
+      "qualified_name": "treesitter.matchesWorkspacePatterns",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5874,
+      "name": "stripJSONComments",
+      "qualified_name": "treesitter.stripJSONComments",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5838,
+      "name": "DiscoverPackages",
+      "qualified_name": "treesitter.JavaScriptPackageDiscovery.DiscoverPackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5825,
+      "name": "DiscoverPackages",
+      "qualified_name": "treesitter.NoopPackageDiscovery.DiscoverPackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/langspec.go"
+    },
+    {
+      "id": 5831,
+      "name": "PythonPackageDiscovery",
+      "qualified_name": "treesitter.PythonPackageDiscovery",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5840,
+      "name": "DiscoverPackages",
+      "qualified_name": "treesitter.KotlinPackageDiscovery.DiscoverPackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5829,
+      "name": "PackageDiscoveryOrDefault",
+      "qualified_name": "treesitter.PackageDiscoveryOrDefault",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/langspec.go"
+    },
+    {
+      "id": 5837,
+      "name": "DiscoverPackages",
+      "qualified_name": "treesitter.TypeScriptPackageDiscovery.DiscoverPackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5854,
+      "name": "discoverNodePackages",
+      "qualified_name": "treesitter.discoverNodePackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5836,
+      "name": "DiscoverPackages",
+      "qualified_name": "treesitter.PythonPackageDiscovery.DiscoverPackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5839,
+      "name": "DiscoverPackages",
+      "qualified_name": "treesitter.JavaPackageDiscovery.DiscoverPackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5542,
+      "name": "handleRetrieve",
+      "qualified_name": "wikiserver.Server.handleRetrieve",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/wikihttp/server.go"
+    },
+    {
+      "id": 5875,
+      "name": "containsString",
+      "qualified_name": "treesitter.containsString",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5748,
+      "name": "Namespaces",
+      "qualified_name": "graphgorm.Store.Namespaces",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/wiki.go"
+    },
+    {
+      "id": 6017,
+      "name": "walkPythonDocstrings",
+      "qualified_name": "treesitter.walkPythonDocstrings",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_python.go"
+    },
+    {
+      "id": 6143,
+      "name": "NamespaceSummary",
+      "qualified_name": "analyze.NamespaceSummary",
+      "kind": "class",
+      "file_path": "internal/app/analyze/ports.go"
+    },
+    {
+      "id": 6472,
+      "name": "ExistingGraphFiles",
+      "qualified_name": "workflow.ExistingGraphFiles",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/graphstate.go"
+    },
+    {
+      "id": 6493,
+      "name": "internal/app/ingest/workflow/packages.go",
+      "qualified_name": "internal/app/ingest/workflow/packages.go",
+      "kind": "file",
+      "file_path": "internal/app/ingest/workflow/packages.go"
+    },
+    {
+      "id": 6503,
+      "name": "mergeLanguagePackages",
+      "qualified_name": "workflow.mergeLanguagePackages",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/packages.go"
+    },
+    {
+      "id": 5865,
+      "name": "splitWorkspacePatterns",
+      "qualified_name": "treesitter.splitWorkspacePatterns",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5507,
+      "name": "internal/adapters/inbound/mcp/tools_context.go",
+      "qualified_name": "internal/adapters/inbound/mcp/tools_context.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/tools_context.go"
+    },
+    {
+      "id": 5856,
+      "name": "readTSConfigAliasPrefixes",
+      "qualified_name": "treesitter.readTSConfigAliasPrefixes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5871,
+      "name": "trimNodeWildcard",
+      "qualified_name": "treesitter.trimNodeWildcard",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5873,
+      "name": "pathMatchesPrefix",
+      "qualified_name": "treesitter.pathMatchesPrefix",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5913,
+      "name": "GoSemantics",
+      "qualified_name": "treesitter.GoSemantics",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_go.go"
+    },
+    {
+      "id": 5821,
+      "name": "internal/adapters/outbound/treesitter/langspec.go",
+      "qualified_name": "internal/adapters/outbound/treesitter/langspec.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/treesitter/langspec.go"
+    },
+    {
+      "id": 5876,
+      "name": "readGoModulePath",
+      "qualified_name": "treesitter.readGoModulePath",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 6268,
+      "name": "PackageInfo",
+      "qualified_name": "ingest.PackageInfo",
+      "kind": "class",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 6496,
+      "name": "packageDiscoverers",
+      "qualified_name": "workflow.Service.packageDiscoverers",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/packages.go"
+    },
+    {
+      "id": 5508,
+      "name": "contextTools",
+      "qualified_name": "mcp.contextTools",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/tools_context.go"
+    },
+    {
+      "id": 5845,
+      "name": "mergeSplitPackageDir",
+      "qualified_name": "treesitter.mergeSplitPackageDir",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5853,
+      "name": "nodeAliasScope",
+      "qualified_name": "treesitter.nodeAliasScope",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    }
+  ],
+  "flow membership": [
+    {
+      "id": 5680,
+      "name": "DeleteFlows",
+      "qualified_name": "graphgorm.Store.DeleteFlows",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/flow.go"
+    },
+    {
+      "id": 6861,
+      "name": "FlowMembership",
+      "qualified_name": "graph.FlowMembership",
+      "kind": "class",
+      "file_path": "internal/domain/graph/flow.go"
+    },
+    {
+      "id": 5682,
+      "name": "CreateFlow",
+      "qualified_name": "graphgorm.Store.CreateFlow",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/flow.go"
+    },
+    {
+      "id": 5694,
+      "name": "TopFlows",
+      "qualified_name": "graphgorm.Store.TopFlows",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/readmodels.go"
+    },
+    {
+      "id": 5412,
+      "name": "derivedStateFlows",
+      "qualified_name": "mcp.derivedStateFlows",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_graph.go"
+    },
+    {
+      "id": 6111,
+      "name": "Rebuild",
+      "qualified_name": "flow.Builder.Rebuild",
+      "kind": "function",
+      "file_path": "internal/app/analyze/flow/builder.go"
+    },
+    {
+      "id": 6146,
+      "name": "NamedCount",
+      "qualified_name": "analyze.NamedCount",
+      "kind": "class",
+      "file_path": "internal/app/analyze/ports.go"
+    }
+  ],
+  "fts": [
+    {
+      "id": 5801,
+      "name": "ftsRow",
+      "qualified_name": "searchsql.ftsRow",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5795,
+      "name": "Migrate",
+      "qualified_name": "searchsql.SQLiteBackend.Migrate",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 6696,
+      "name": "ftsFileRanks",
+      "qualified_name": "retrieval.ftsFileRanks",
+      "kind": "function",
+      "file_path": "internal/app/search/retrieval/service.go"
+    },
+    {
+      "id": 5804,
+      "name": "insertSQLiteFTSBatch",
+      "qualified_name": "searchsql.insertSQLiteFTSBatch",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5796,
+      "name": "Rebuild",
+      "qualified_name": "searchsql.SQLiteBackend.Rebuild",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 6648,
+      "name": "Rerank",
+      "qualified_name": "rank.Rerank",
+      "kind": "function",
+      "file_path": "internal/app/search/rank/rank.go"
+    },
+    {
+      "id": 5802,
+      "name": "Query",
+      "qualified_name": "searchsql.SQLiteBackend.Query",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5797,
+      "name": "RebuildNodes",
+      "qualified_name": "searchsql.SQLiteBackend.RebuildNodes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 6809,
+      "name": "validateSQLiteSchemaParity",
+      "qualified_name": "migration.validateSQLiteSchemaParity",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 5798,
+      "name": "PurgeNamespace",
+      "qualified_name": "searchsql.SQLiteBackend.PurgeNamespace",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5805,
+      "name": "buildSQLiteFTSInsert",
+      "qualified_name": "searchsql.buildSQLiteFTSInsert",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5807,
+      "name": "createSQLiteFTSTable",
+      "qualified_name": "searchsql.createSQLiteFTSTable",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5787,
+      "name": "SanitizeFTS5",
+      "qualified_name": "searchsql.SanitizeFTS5",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sanitize.go"
+    },
+    {
+      "id": 5803,
+      "name": "upgradeLegacyFTSTable",
+      "qualified_name": "searchsql.SQLiteBackend.upgradeLegacyFTSTable",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 6692,
+      "name": "searchCandidates",
+      "qualified_name": "retrieval.Service.searchCandidates",
+      "kind": "function",
+      "file_path": "internal/app/search/retrieval/service.go"
+    },
+    {
+      "id": 6695,
+      "name": "mergeCandidates",
+      "qualified_name": "retrieval.mergeCandidates",
+      "kind": "function",
+      "file_path": "internal/app/search/retrieval/service.go"
+    },
+    {
+      "id": 5799,
+      "name": "rebuildTable",
+      "qualified_name": "searchsql.SQLiteBackend.rebuildTable",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5800,
+      "name": "rebuildTableNodes",
+      "qualified_name": "searchsql.SQLiteBackend.rebuildTableNodes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5809,
+      "name": "internal/adapters/outbound/searchsql/writer.go",
+      "qualified_name": "internal/adapters/outbound/searchsql/writer.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/searchsql/writer.go"
+    },
+    {
+      "id": 5817,
+      "name": "RefreshSearchDocuments",
+      "qualified_name": "searchsql.RefreshSearchDocuments",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/writer.go"
+    },
+    {
+      "id": 5793,
+      "name": "SQLiteBackend",
+      "qualified_name": "searchsql.SQLiteBackend",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5782,
+      "name": "ScanCandidates",
+      "qualified_name": "searchsql.Reader.ScanCandidates",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/retrieval.go"
+    },
+    {
+      "id": 5766,
+      "name": "internal/adapters/outbound/searchsql/backend.go",
+      "qualified_name": "internal/adapters/outbound/searchsql/backend.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/searchsql/backend.go"
+    },
+    {
+      "id": 6693,
+      "name": "scanDBCandidates",
+      "qualified_name": "retrieval.Service.scanDBCandidates",
+      "kind": "function",
+      "file_path": "internal/app/search/retrieval/service.go"
+    },
+    {
+      "id": 5792,
+      "name": "internal/adapters/outbound/searchsql/sqlite.go",
+      "qualified_name": "internal/adapters/outbound/searchsql/sqlite.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5786,
+      "name": "sanitizeTokens",
+      "qualified_name": "searchsql.sanitizeTokens",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sanitize.go"
+    },
+    {
+      "id": 5777,
+      "name": "appendFuzzyMatches",
+      "qualified_name": "searchsql.PostgresBackend.appendFuzzyMatches",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/postgres.go"
+    },
+    {
+      "id": 6662,
+      "name": "DBCandidateLimit",
+      "qualified_name": "retrieval.DBCandidateLimit",
+      "kind": "function",
+      "file_path": "internal/app/search/retrieval/helpers.go"
+    },
+    {
+      "id": 6646,
+      "name": "internal/app/search/rank/rank.go",
+      "qualified_name": "internal/app/search/rank/rank.go",
+      "kind": "file",
+      "file_path": "internal/app/search/rank/rank.go"
+    },
+    {
+      "id": 5819,
+      "name": "refreshSearchDocuments",
+      "qualified_name": "searchsql.refreshSearchDocuments",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/writer.go"
+    },
+    {
+      "id": 6774,
+      "name": "ConfigurePool",
+      "qualified_name": "db.ConfigurePool",
+      "kind": "function",
+      "file_path": "internal/db/db.go"
+    },
+    {
+      "id": 6647,
+      "name": "FetchLimit",
+      "qualified_name": "rank.FetchLimit",
+      "kind": "function",
+      "file_path": "internal/app/search/rank/rank.go"
+    },
+    {
+      "id": 5426,
+      "name": "runPostprocess",
+      "qualified_name": "mcp.handlers.runPostprocess",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_parse.go"
+    },
+    {
+      "id": 5789,
+      "name": "buildPrefixQuery",
+      "qualified_name": "searchsql.buildPrefixQuery",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sanitize.go"
+    }
+  ],
+  "graphgorm crossref": [
+    {
+      "id": 5665,
+      "name": "internal/adapters/outbound/graphgorm/crossref.go",
+      "qualified_name": "internal/adapters/outbound/graphgorm/crossref.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 5664,
+      "name": "crossRefEdges",
+      "qualified_name": "graphgorm.crossRefEdges",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossnamespace.go"
+    },
+    {
+      "id": 5670,
+      "name": "ListOutboundCrossRefs",
+      "qualified_name": "graphgorm.Store.ListOutboundCrossRefs",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 5666,
+      "name": "ListAnnotationCCGRefs",
+      "qualified_name": "graphgorm.Store.ListAnnotationCCGRefs",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 5671,
+      "name": "UpdateCrossRefResolution",
+      "qualified_name": "graphgorm.Store.UpdateCrossRefResolution",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 5668,
+      "name": "ReplaceCrossRefsFrom",
+      "qualified_name": "graphgorm.Store.ReplaceCrossRefsFrom",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 5669,
+      "name": "ListInboundCrossRefs",
+      "qualified_name": "graphgorm.Store.ListInboundCrossRefs",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    },
+    {
+      "id": 5667,
+      "name": "ResolveCCGRef",
+      "qualified_name": "graphgorm.Store.ResolveCCGRef",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossref.go"
+    }
+  ],
+  "impact": [
+    {
+      "id": 6123,
+      "name": "internal/app/analyze/impact/impact.go",
+      "qualified_name": "internal/app/analyze/impact/impact.go",
+      "kind": "file",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 5372,
+      "name": "impactRadiusResponse",
+      "qualified_name": "mcp.impactRadiusResponse",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handler_analysis.go"
+    },
+    {
+      "id": 6128,
+      "name": "New",
+      "qualified_name": "impact.New",
+      "kind": "function",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 6125,
+      "name": "Analyzer",
+      "qualified_name": "impact.Analyzer",
+      "kind": "class",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 6124,
+      "name": "EdgeReader",
+      "qualified_name": "impact.EdgeReader",
+      "kind": "type",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 6126,
+      "name": "RadiusOptions",
+      "qualified_name": "impact.RadiusOptions",
+      "kind": "class",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 5371,
+      "name": "impactRadiusMetadata",
+      "qualified_name": "mcp.impactRadiusMetadata",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handler_analysis.go"
+    },
+    {
+      "id": 6129,
+      "name": "ImpactRadius",
+      "qualified_name": "impact.Analyzer.ImpactRadius",
+      "kind": "function",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 6127,
+      "name": "RadiusResult",
+      "qualified_name": "impact.RadiusResult",
+      "kind": "class",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 6130,
+      "name": "ImpactRadiusBounded",
+      "qualified_name": "impact.Analyzer.ImpactRadiusBounded",
+      "kind": "function",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 5351,
+      "name": "ImpactAnalyzer",
+      "qualified_name": "mcp.ImpactAnalyzer",
+      "kind": "type",
+      "file_path": "internal/adapters/inbound/mcp/deps.go"
+    },
+    {
+      "id": 5380,
+      "name": "getImpactRadius",
+      "qualified_name": "mcp.handlers.getImpactRadius",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_analysis.go"
+    },
+    {
+      "id": 5506,
+      "name": "analysisTools",
+      "qualified_name": "mcp.analysisTools",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/tools_analysis.go"
+    },
+    {
+      "id": 5658,
+      "name": "GetEdgesFrom",
+      "qualified_name": "graphgorm.CrossNamespaceReader.GetEdgesFrom",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossnamespace.go"
+    },
+    {
+      "id": 5660,
+      "name": "GetEdgesTo",
+      "qualified_name": "graphgorm.CrossNamespaceReader.GetEdgesTo",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossnamespace.go"
+    },
+    {
+      "id": 5661,
+      "name": "GetEdgesToNodes",
+      "qualified_name": "graphgorm.CrossNamespaceReader.GetEdgesToNodes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/crossnamespace.go"
+    },
+    {
+      "id": 5370,
+      "name": "internal/adapters/inbound/mcp/handler_analysis.go",
+      "qualified_name": "internal/adapters/inbound/mcp/handler_analysis.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/handler_analysis.go"
+    },
+    {
+      "id": 5359,
+      "name": "AnalysisToolsDeps",
+      "qualified_name": "mcp.AnalysisToolsDeps",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/deps.go"
+    },
+    {
+      "id": 6089,
+      "name": "changedNodeHits",
+      "qualified_name": "changes.Service.changedNodeHits",
+      "kind": "function",
+      "file_path": "internal/app/analyze/changes/service.go"
+    },
+    {
+      "id": 5656,
+      "name": "CrossNamespaceReader",
+      "qualified_name": "graphgorm.CrossNamespaceReader",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/graphgorm/crossnamespace.go"
+    }
+  ],
+  "impact radius": [
+    {
+      "id": 6126,
+      "name": "RadiusOptions",
+      "qualified_name": "impact.RadiusOptions",
+      "kind": "class",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 6127,
+      "name": "RadiusResult",
+      "qualified_name": "impact.RadiusResult",
+      "kind": "class",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 5372,
+      "name": "impactRadiusResponse",
+      "qualified_name": "mcp.impactRadiusResponse",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handler_analysis.go"
+    },
+    {
+      "id": 5371,
+      "name": "impactRadiusMetadata",
+      "qualified_name": "mcp.impactRadiusMetadata",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handler_analysis.go"
+    },
+    {
+      "id": 6129,
+      "name": "ImpactRadius",
+      "qualified_name": "impact.Analyzer.ImpactRadius",
+      "kind": "function",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 6128,
+      "name": "New",
+      "qualified_name": "impact.New",
+      "kind": "function",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 6125,
+      "name": "Analyzer",
+      "qualified_name": "impact.Analyzer",
+      "kind": "class",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 6123,
+      "name": "internal/app/analyze/impact/impact.go",
+      "qualified_name": "internal/app/analyze/impact/impact.go",
+      "kind": "file",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 5351,
+      "name": "ImpactAnalyzer",
+      "qualified_name": "mcp.ImpactAnalyzer",
+      "kind": "type",
+      "file_path": "internal/adapters/inbound/mcp/deps.go"
+    },
+    {
+      "id": 6124,
+      "name": "EdgeReader",
+      "qualified_name": "impact.EdgeReader",
+      "kind": "type",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 6130,
+      "name": "ImpactRadiusBounded",
+      "qualified_name": "impact.Analyzer.ImpactRadiusBounded",
+      "kind": "function",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 5380,
+      "name": "getImpactRadius",
+      "qualified_name": "mcp.handlers.getImpactRadius",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_analysis.go"
+    }
+  ],
+  "incremental syncer": [
+    {
+      "id": 6222,
+      "name": "SyncerOption",
+      "qualified_name": "incremental.SyncerOption",
+      "kind": "type",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6221,
+      "name": "Syncer",
+      "qualified_name": "incremental.Syncer",
+      "kind": "class",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6227,
+      "name": "SetResolveOptions",
+      "qualified_name": "incremental.Syncer.SetResolveOptions",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6228,
+      "name": "Sync",
+      "qualified_name": "incremental.Syncer.Sync",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 5355,
+      "name": "IncrementalSyncer",
+      "qualified_name": "mcp.IncrementalSyncer",
+      "kind": "type",
+      "file_path": "internal/adapters/inbound/mcp/deps.go"
+    },
+    {
+      "id": 6225,
+      "name": "New",
+      "qualified_name": "incremental.New",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6230,
+      "name": "SyncWithExistingStore",
+      "qualified_name": "incremental.Syncer.SyncWithExistingStore",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6232,
+      "name": "SyncBatchesWithExistingStore",
+      "qualified_name": "incremental.Syncer.SyncBatchesWithExistingStore",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6240,
+      "name": "resolveParser",
+      "qualified_name": "incremental.Syncer.resolveParser",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6223,
+      "name": "WithLogger",
+      "qualified_name": "incremental.WithLogger",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6226,
+      "name": "NewWithRegistry",
+      "qualified_name": "incremental.NewWithRegistry",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6236,
+      "name": "resolveAndUpsertEdges",
+      "qualified_name": "incremental.Syncer.resolveAndUpsertEdges",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6286,
+      "name": "IncrementalSyncer",
+      "qualified_name": "ingest.IncrementalSyncer",
+      "kind": "type",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 6237,
+      "name": "resolveAndUpsertImplements",
+      "qualified_name": "incremental.Syncer.resolveAndUpsertImplements",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6241,
+      "name": "persistParsedNodesAndAnnotations",
+      "qualified_name": "incremental.Syncer.persistParsedNodesAndAnnotations",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6559,
+      "name": "syncIncrementalBatch",
+      "qualified_name": "workflow.syncIncrementalBatch",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/update.go"
+    },
+    {
+      "id": 6233,
+      "name": "syncWithExisting",
+      "qualified_name": "incremental.Syncer.syncWithExisting",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6287,
+      "name": "TransactionalIncrementalSyncer",
+      "qualified_name": "ingest.TransactionalIncrementalSyncer",
+      "kind": "type",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 6238,
+      "name": "resolveAndUpsertOtherEdges",
+      "qualified_name": "incremental.Syncer.resolveAndUpsertOtherEdges",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6235,
+      "name": "stageBatch",
+      "qualified_name": "incremental.Syncer.stageBatch",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6234,
+      "name": "syncBatchesWithExisting",
+      "qualified_name": "incremental.Syncer.syncBatchesWithExisting",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6231,
+      "name": "SyncBatchesWithExisting",
+      "qualified_name": "incremental.Syncer.SyncBatchesWithExisting",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6548,
+      "name": "withUpdateTx",
+      "qualified_name": "workflow.Service.withUpdateTx",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/update.go"
+    },
+    {
+      "id": 6291,
+      "name": "TransactionalBatchIncrementalSyncer",
+      "qualified_name": "ingest.TransactionalBatchIncrementalSyncer",
+      "kind": "type",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 6288,
+      "name": "FileBatchVisitor",
+      "qualified_name": "ingest.FileBatchVisitor",
+      "kind": "type",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 6229,
+      "name": "SyncWithExisting",
+      "qualified_name": "incremental.Syncer.SyncWithExisting",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 5308,
+      "name": "newUpdateCmd",
+      "qualified_name": "cli.newUpdateCmd",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/cli/update.go"
+    },
+    {
+      "id": 6290,
+      "name": "BatchIncrementalSyncer",
+      "qualified_name": "ingest.BatchIncrementalSyncer",
+      "kind": "type",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 5307,
+      "name": "internal/adapters/inbound/cli/update.go",
+      "qualified_name": "internal/adapters/inbound/cli/update.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/cli/update.go"
+    },
+    {
+      "id": 6550,
+      "name": "applyUpdateSpoolInTx",
+      "qualified_name": "workflow.Service.applyUpdateSpoolInTx",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/update.go"
+    },
+    {
+      "id": 5425,
+      "name": "buildOrUpdateGraph",
+      "qualified_name": "mcp.handlers.buildOrUpdateGraph",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_parse.go"
+    }
+  ],
+  "mcp": [
+    {
+      "id": 5326,
+      "name": "MCPAuthMiddleware",
+      "qualified_name": "server.MCPAuthMiddleware",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/http/serve.go"
+    },
+    {
+      "id": 6928,
+      "name": "MCPComponents",
+      "qualified_name": "runtime.Runtime.MCPComponents",
+      "kind": "function",
+      "file_path": "internal/runtime/runtime.go"
+    },
+    {
+      "id": 6915,
+      "name": "Components",
+      "qualified_name": "mcpruntime.Components",
+      "kind": "class",
+      "file_path": "internal/runtime/mcp/runtime.go"
+    },
+    {
+      "id": 5362,
+      "name": "Deps",
+      "qualified_name": "mcp.Deps",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/deps.go"
+    },
+    {
+      "id": 5479,
+      "name": "internal/adapters/inbound/mcp/http.go",
+      "qualified_name": "internal/adapters/inbound/mcp/http.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/http.go"
+    },
+    {
+      "id": 6914,
+      "name": "internal/runtime/mcp/runtime.go",
+      "qualified_name": "internal/runtime/mcp/runtime.go",
+      "kind": "file",
+      "file_path": "internal/runtime/mcp/runtime.go"
+    },
+    {
+      "id": 5348,
+      "name": "internal/adapters/inbound/mcp/deps.go",
+      "qualified_name": "internal/adapters/inbound/mcp/deps.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/deps.go"
+    },
+    {
+      "id": 5468,
+      "name": "toolResultErr",
+      "qualified_name": "mcp.toolResultErr",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handlers.go"
+    },
+    {
+      "id": 5457,
+      "name": "internal/adapters/inbound/mcp/handlers.go",
+      "qualified_name": "internal/adapters/inbound/mcp/handlers.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/handlers.go"
+    },
+    {
+      "id": 5459,
+      "name": "handlers",
+      "qualified_name": "mcp.handlers",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handlers.go"
+    },
+    {
+      "id": 5501,
+      "name": "internal/adapters/inbound/mcp/prompts_register.go",
+      "qualified_name": "internal/adapters/inbound/mcp/prompts_register.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/prompts_register.go"
+    },
+    {
+      "id": 5519,
+      "name": "internal/adapters/inbound/mcp/tools_register.go",
+      "qualified_name": "internal/adapters/inbound/mcp/tools_register.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/tools_register.go"
+    },
+    {
+      "id": 6917,
+      "name": "Instance",
+      "qualified_name": "mcpruntime.Instance",
+      "kind": "class",
+      "file_path": "internal/runtime/mcp/runtime.go"
+    },
+    {
+      "id": 5363,
+      "name": "internal/adapters/inbound/mcp/evidence.go",
+      "qualified_name": "internal/adapters/inbound/mcp/evidence.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/evidence.go"
+    },
+    {
+      "id": 5507,
+      "name": "internal/adapters/inbound/mcp/tools_context.go",
+      "qualified_name": "internal/adapters/inbound/mcp/tools_context.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/tools_context.go"
+    },
+    {
+      "id": 5353,
+      "name": "FlowBuilder",
+      "qualified_name": "mcp.FlowBuilder",
+      "kind": "type",
+      "file_path": "internal/adapters/inbound/mcp/deps.go"
+    },
+    {
+      "id": 5354,
+      "name": "QueryService",
+      "qualified_name": "mcp.QueryService",
+      "kind": "type",
+      "file_path": "internal/adapters/inbound/mcp/deps.go"
+    },
+    {
+      "id": 5505,
+      "name": "internal/adapters/inbound/mcp/tools_analysis.go",
+      "qualified_name": "internal/adapters/inbound/mcp/tools_analysis.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/tools_analysis.go"
+    },
+    {
+      "id": 5504,
+      "name": "NewServer",
+      "qualified_name": "mcp.NewServer",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/server.go"
+    },
+    {
+      "id": 5338,
+      "name": "internal/adapters/inbound/mcp/cache.go",
+      "qualified_name": "internal/adapters/inbound/mcp/cache.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/cache.go"
+    },
+    {
+      "id": 5349,
+      "name": "Parser",
+      "qualified_name": "mcp.Parser",
+      "kind": "type",
+      "file_path": "internal/adapters/inbound/mcp/deps.go"
+    },
+    {
+      "id": 5458,
+      "name": "pagination",
+      "qualified_name": "mcp.pagination",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handlers.go"
+    },
+    {
+      "id": 5511,
+      "name": "internal/adapters/inbound/mcp/tools_graph.go",
+      "qualified_name": "internal/adapters/inbound/mcp/tools_graph.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/tools_graph.go"
+    },
+    {
+      "id": 5414,
+      "name": "internal/adapters/inbound/mcp/handler_namespace.go",
+      "qualified_name": "internal/adapters/inbound/mcp/handler_namespace.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/handler_namespace.go"
+    },
+    {
+      "id": 5513,
+      "name": "internal/adapters/inbound/mcp/tools_parse.go",
+      "qualified_name": "internal/adapters/inbound/mcp/tools_parse.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/tools_parse.go"
+    },
+    {
+      "id": 5515,
+      "name": "internal/adapters/inbound/mcp/tools_query.go",
+      "qualified_name": "internal/adapters/inbound/mcp/tools_query.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/tools_query.go"
+    },
+    {
+      "id": 5389,
+      "name": "internal/adapters/inbound/mcp/handler_context.go",
+      "qualified_name": "internal/adapters/inbound/mcp/handler_context.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/handler_context.go"
+    },
+    {
+      "id": 5408,
+      "name": "internal/adapters/inbound/mcp/handler_graph.go",
+      "qualified_name": "internal/adapters/inbound/mcp/handler_graph.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/handler_graph.go"
+    },
+    {
+      "id": 5487,
+      "name": "internal/adapters/inbound/mcp/prompts.go",
+      "qualified_name": "internal/adapters/inbound/mcp/prompts.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/prompts.go"
+    },
+    {
+      "id": 5503,
+      "name": "internal/adapters/inbound/mcp/server.go",
+      "qualified_name": "internal/adapters/inbound/mcp/server.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/server.go"
+    },
+    {
+      "id": 5395,
+      "name": "internal/adapters/inbound/mcp/handler_crossref.go",
+      "qualified_name": "internal/adapters/inbound/mcp/handler_crossref.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/handler_crossref.go"
+    },
+    {
+      "id": 5399,
+      "name": "internal/adapters/inbound/mcp/handler_docs.go",
+      "qualified_name": "internal/adapters/inbound/mcp/handler_docs.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/handler_docs.go"
+    },
+    {
+      "id": 5418,
+      "name": "internal/adapters/inbound/mcp/handler_parse.go",
+      "qualified_name": "internal/adapters/inbound/mcp/handler_parse.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/handler_parse.go"
+    },
+    {
+      "id": 5429,
+      "name": "internal/adapters/inbound/mcp/handler_query.go",
+      "qualified_name": "internal/adapters/inbound/mcp/handler_query.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/handler_query.go"
+    },
+    {
+      "id": 5509,
+      "name": "internal/adapters/inbound/mcp/tools_docs.go",
+      "qualified_name": "internal/adapters/inbound/mcp/tools_docs.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/tools_docs.go"
+    },
+    {
+      "id": 6918,
+      "name": "New",
+      "qualified_name": "mcpruntime.New",
+      "kind": "function",
+      "file_path": "internal/runtime/mcp/runtime.go"
+    },
+    {
+      "id": 6921,
+      "name": "FlushQueryCache",
+      "qualified_name": "mcpruntime.FlushQueryCache",
+      "kind": "function",
+      "file_path": "internal/runtime/mcp/runtime.go"
+    },
+    {
+      "id": 5475,
+      "name": "unwrapToolResultErr",
+      "qualified_name": "mcp.unwrapToolResultErr",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handlers.go"
+    },
+    {
+      "id": 5464,
+      "name": "requestNamespace",
+      "qualified_name": "mcp.requestNamespace",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handlers.go"
+    },
+    {
+      "id": 5367,
+      "name": "namespaceEvidence",
+      "qualified_name": "mcp.handlers.namespaceEvidence",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/evidence.go"
+    },
+    {
+      "id": 5488,
+      "name": "promptHandlers",
+      "qualified_name": "mcp.promptHandlers",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/prompts.go"
+    },
+    {
+      "id": 5423,
+      "name": "graphService",
+      "qualified_name": "mcp.handlers.graphService",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_parse.go"
+    },
+    {
+      "id": 5370,
+      "name": "internal/adapters/inbound/mcp/handler_analysis.go",
+      "qualified_name": "internal/adapters/inbound/mcp/handler_analysis.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/handler_analysis.go"
+    },
+    {
+      "id": 5364,
+      "name": "namespaceEvidenceBlock",
+      "qualified_name": "mcp.namespaceEvidenceBlock",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/evidence.go"
+    },
+    {
+      "id": 5516,
+      "name": "withNamespaceParam",
+      "qualified_name": "mcp.withNamespaceParam",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/tools_query.go"
+    },
+    {
+      "id": 5351,
+      "name": "ImpactAnalyzer",
+      "qualified_name": "mcp.ImpactAnalyzer",
+      "kind": "type",
+      "file_path": "internal/adapters/inbound/mcp/deps.go"
+    },
+    {
+      "id": 5520,
+      "name": "registerTools",
+      "qualified_name": "mcp.registerTools",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/tools_register.go"
+    },
+    {
+      "id": 6920,
+      "name": "RunStdio",
+      "qualified_name": "mcpruntime.RunStdio",
+      "kind": "function",
+      "file_path": "internal/runtime/mcp/runtime.go"
+    },
+    {
+      "id": 5340,
+      "name": "Cache",
+      "qualified_name": "mcp.Cache",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/cache.go"
+    },
+    {
+      "id": 5510,
+      "name": "docsTools",
+      "qualified_name": "mcp.docsTools",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/tools_docs.go"
+    }
+  ],
+  "membership": [
+    {
+      "id": 5680,
+      "name": "DeleteFlows",
+      "qualified_name": "graphgorm.Store.DeleteFlows",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/flow.go"
+    },
+    {
+      "id": 5693,
+      "name": "TopCommunities",
+      "qualified_name": "graphgorm.Store.TopCommunities",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/readmodels.go"
+    },
+    {
+      "id": 5694,
+      "name": "TopFlows",
+      "qualified_name": "graphgorm.Store.TopFlows",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/readmodels.go"
+    },
+    {
+      "id": 6849,
+      "name": "CommunityMembership",
+      "qualified_name": "graph.CommunityMembership",
+      "kind": "class",
+      "file_path": "internal/domain/graph/community.go"
+    },
+    {
+      "id": 5387,
+      "name": "sliceContainsString",
+      "qualified_name": "mcp.sliceContainsString",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_analysis.go"
+    },
+    {
+      "id": 6861,
+      "name": "FlowMembership",
+      "qualified_name": "graph.FlowMembership",
+      "kind": "class",
+      "file_path": "internal/domain/graph/flow.go"
+    },
+    {
+      "id": 5682,
+      "name": "CreateFlow",
+      "qualified_name": "graphgorm.Store.CreateFlow",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/flow.go"
+    },
+    {
+      "id": 5412,
+      "name": "derivedStateFlows",
+      "qualified_name": "mcp.derivedStateFlows",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_graph.go"
+    },
+    {
+      "id": 6146,
+      "name": "NamedCount",
+      "qualified_name": "analyze.NamedCount",
+      "kind": "class",
+      "file_path": "internal/app/analyze/ports.go"
+    },
+    {
+      "id": 6268,
+      "name": "PackageInfo",
+      "qualified_name": "ingest.PackageInfo",
+      "kind": "class",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 6495,
+      "name": "collectLanguagePackages",
+      "qualified_name": "workflow.Service.collectLanguagePackages",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/packages.go"
+    },
+    {
+      "id": 5716,
+      "name": "deleteNodeScope",
+      "qualified_name": "graphgorm.deleteNodeScope",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/store.go"
+    },
+    {
+      "id": 6111,
+      "name": "Rebuild",
+      "qualified_name": "flow.Builder.Rebuild",
+      "kind": "function",
+      "file_path": "internal/app/analyze/flow/builder.go"
+    },
+    {
+      "id": 5715,
+      "name": "DeleteNodesByFiles",
+      "qualified_name": "graphgorm.Store.DeleteNodesByFiles",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/store.go"
+    }
+  ],
+  "migration schema": [
+    {
+      "id": 6782,
+      "name": "SchemaColumn",
+      "qualified_name": "migration.SchemaColumn",
+      "kind": "class",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6781,
+      "name": "MigrationSchemaVersion",
+      "qualified_name": "migration.MigrationSchemaVersion",
+      "kind": "class",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6797,
+      "name": "CheckSchemaVersion",
+      "qualified_name": "migration.CheckSchemaVersion",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6873,
+      "name": "TableName",
+      "qualified_name": "graph.SchemaVersion.TableName",
+      "kind": "function",
+      "file_path": "internal/domain/graph/schema_version.go"
+    },
+    {
+      "id": 6795,
+      "name": "actionableSchemaParityError",
+      "qualified_name": "migration.actionableSchemaParityError",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6796,
+      "name": "ActionableSchemaParityError",
+      "qualified_name": "migration.ActionableSchemaParityError",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6872,
+      "name": "SchemaVersion",
+      "qualified_name": "graph.SchemaVersion",
+      "kind": "class",
+      "file_path": "internal/domain/graph/schema_version.go"
+    },
+    {
+      "id": 6784,
+      "name": "RunMigrations",
+      "qualified_name": "migration.RunMigrations",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6786,
+      "name": "ValidateSchemaForRuntime",
+      "qualified_name": "migration.ValidateSchemaForRuntime",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6777,
+      "name": "internal/db/migration/migration.go",
+      "qualified_name": "internal/db/migration/migration.go",
+      "kind": "file",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6778,
+      "name": "LegacyBaselineFunc",
+      "qualified_name": "migration.LegacyBaselineFunc",
+      "kind": "type",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6783,
+      "name": "Run",
+      "qualified_name": "migration.Run",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6798,
+      "name": "BaselineLegacySchemaVersion",
+      "qualified_name": "migration.BaselineLegacySchemaVersion",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6810,
+      "name": "validatePostgresSchemaParity",
+      "qualified_name": "migration.validatePostgresSchemaParity",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 5771,
+      "name": "Migrate",
+      "qualified_name": "searchsql.PostgresBackend.Migrate",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/postgres.go"
+    },
+    {
+      "id": 6779,
+      "name": "ValidateSchemaParityFunc",
+      "qualified_name": "migration.ValidateSchemaParityFunc",
+      "kind": "type",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6799,
+      "name": "ValidateSchemaParity",
+      "qualified_name": "migration.ValidateSchemaParity",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6819,
+      "name": "postgresColumnNotNull",
+      "qualified_name": "migration.postgresColumnNotNull",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6800,
+      "name": "RequiredSchemaTables",
+      "qualified_name": "migration.RequiredSchemaTables",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6820,
+      "name": "postgresColumnDataType",
+      "qualified_name": "migration.postgresColumnDataType",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6823,
+      "name": "postgresIndexExists",
+      "qualified_name": "migration.postgresIndexExists",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 5281,
+      "name": "MigrateConfig",
+      "qualified_name": "cli.MigrateConfig",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/cli/migrate.go"
+    },
+    {
+      "id": 6930,
+      "name": "Migrate",
+      "qualified_name": "runtime.Runtime.Migrate",
+      "kind": "function",
+      "file_path": "internal/runtime/runtime.go"
+    },
+    {
+      "id": 6785,
+      "name": "EnsureSchemaVersion",
+      "qualified_name": "migration.EnsureSchemaVersion",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6814,
+      "name": "sqliteIndexExists",
+      "qualified_name": "migration.sqliteIndexExists",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6809,
+      "name": "validateSQLiteSchemaParity",
+      "qualified_name": "migration.validateSQLiteSchemaParity",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 5280,
+      "name": "internal/adapters/inbound/cli/migrate.go",
+      "qualified_name": "internal/adapters/inbound/cli/migrate.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/cli/migrate.go"
+    },
+    {
+      "id": 5282,
+      "name": "newMigrateCmd",
+      "qualified_name": "cli.newMigrateCmd",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/cli/migrate.go"
+    },
+    {
+      "id": 5806,
+      "name": "sqliteColumnExists",
+      "qualified_name": "searchsql.sqliteColumnExists",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5807,
+      "name": "createSQLiteFTSTable",
+      "qualified_name": "searchsql.createSQLiteFTSTable",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    }
+  ],
+  "package discovery": [
+    {
+      "id": 6269,
+      "name": "PackageDiscoveryOptions",
+      "qualified_name": "ingest.PackageDiscoveryOptions",
+      "kind": "class",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 5849,
+      "name": "nodePackageDiscoveryConfig",
+      "qualified_name": "treesitter.nodePackageDiscoveryConfig",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5830,
+      "name": "internal/adapters/outbound/treesitter/package_discovery.go",
+      "qualified_name": "internal/adapters/outbound/treesitter/package_discovery.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 6278,
+      "name": "PackageDiscoverer",
+      "qualified_name": "ingest.PackageDiscoverer",
+      "kind": "type",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 5835,
+      "name": "KotlinPackageDiscovery",
+      "qualified_name": "treesitter.KotlinPackageDiscovery",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5834,
+      "name": "JavaPackageDiscovery",
+      "qualified_name": "treesitter.JavaPackageDiscovery",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5841,
+      "name": "GoPackageDiscovery",
+      "qualified_name": "treesitter.GoPackageDiscovery",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5840,
+      "name": "DiscoverPackages",
+      "qualified_name": "treesitter.KotlinPackageDiscovery.DiscoverPackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5842,
+      "name": "DiscoverPackages",
+      "qualified_name": "treesitter.GoPackageDiscovery.DiscoverPackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5838,
+      "name": "DiscoverPackages",
+      "qualified_name": "treesitter.JavaScriptPackageDiscovery.DiscoverPackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5833,
+      "name": "JavaScriptPackageDiscovery",
+      "qualified_name": "treesitter.JavaScriptPackageDiscovery",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5863,
+      "name": "readPNPMWorkspacePatterns",
+      "qualified_name": "treesitter.readPNPMWorkspacePatterns",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5850,
+      "name": "nodePackageJSON",
+      "qualified_name": "treesitter.nodePackageJSON",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5839,
+      "name": "DiscoverPackages",
+      "qualified_name": "treesitter.JavaPackageDiscovery.DiscoverPackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5832,
+      "name": "TypeScriptPackageDiscovery",
+      "qualified_name": "treesitter.TypeScriptPackageDiscovery",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5837,
+      "name": "DiscoverPackages",
+      "qualified_name": "treesitter.TypeScriptPackageDiscovery.DiscoverPackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5854,
+      "name": "discoverNodePackages",
+      "qualified_name": "treesitter.discoverNodePackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5825,
+      "name": "DiscoverPackages",
+      "qualified_name": "treesitter.NoopPackageDiscovery.DiscoverPackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/langspec.go"
+    },
+    {
+      "id": 5831,
+      "name": "PythonPackageDiscovery",
+      "qualified_name": "treesitter.PythonPackageDiscovery",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 6494,
+      "name": "languagePackageDiscoverer",
+      "qualified_name": "workflow.languagePackageDiscoverer",
+      "kind": "type",
+      "file_path": "internal/app/ingest/workflow/packages.go"
+    },
+    {
+      "id": 5836,
+      "name": "DiscoverPackages",
+      "qualified_name": "treesitter.PythonPackageDiscovery.DiscoverPackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5829,
+      "name": "PackageDiscoveryOrDefault",
+      "qualified_name": "treesitter.PackageDiscoveryOrDefault",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/langspec.go"
+    },
+    {
+      "id": 5824,
+      "name": "NoopPackageDiscovery",
+      "qualified_name": "treesitter.NoopPackageDiscovery",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/langspec.go"
+    },
+    {
+      "id": 5826,
+      "name": "DiscoverPackages",
+      "qualified_name": "treesitter.Walker.DiscoverPackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/langspec.go"
+    },
+    {
+      "id": 5868,
+      "name": "workspacePatternMatchParts",
+      "qualified_name": "treesitter.workspacePatternMatchParts",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 6493,
+      "name": "internal/app/ingest/workflow/packages.go",
+      "qualified_name": "internal/app/ingest/workflow/packages.go",
+      "kind": "file",
+      "file_path": "internal/app/ingest/workflow/packages.go"
+    },
+    {
+      "id": 5867,
+      "name": "workspacePatternMatch",
+      "qualified_name": "treesitter.workspacePatternMatch",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5851,
+      "name": "nodeTSConfig",
+      "qualified_name": "treesitter.nodeTSConfig",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 6268,
+      "name": "PackageInfo",
+      "qualified_name": "ingest.PackageInfo",
+      "kind": "class",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 6496,
+      "name": "packageDiscoverers",
+      "qualified_name": "workflow.Service.packageDiscoverers",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/packages.go"
+    },
+    {
+      "id": 5861,
+      "name": "bestNodePackageScope",
+      "qualified_name": "treesitter.bestNodePackageScope",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5864,
+      "name": "workspacePackageRoots",
+      "qualified_name": "treesitter.workspacePackageRoots",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 6503,
+      "name": "mergeLanguagePackages",
+      "qualified_name": "workflow.mergeLanguagePackages",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/packages.go"
+    },
+    {
+      "id": 5823,
+      "name": "PackageDiscovery",
+      "qualified_name": "treesitter.PackageDiscovery",
+      "kind": "type",
+      "file_path": "internal/adapters/outbound/treesitter/langspec.go"
+    },
+    {
+      "id": 5878,
+      "name": "readJavaPackageDeclaration",
+      "qualified_name": "treesitter.readJavaPackageDeclaration",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5879,
+      "name": "readKotlinPackageHeader",
+      "qualified_name": "treesitter.readKotlinPackageHeader",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5845,
+      "name": "mergeSplitPackageDir",
+      "qualified_name": "treesitter.mergeSplitPackageDir",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5877,
+      "name": "readGoPackageClause",
+      "qualified_name": "treesitter.readGoPackageClause",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5852,
+      "name": "nodePackageScope",
+      "qualified_name": "treesitter.nodePackageScope",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5859,
+      "name": "discoverNodePackageScopes",
+      "qualified_name": "treesitter.discoverNodePackageScopes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5855,
+      "name": "readNodePackageManifest",
+      "qualified_name": "treesitter.readNodePackageManifest",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5844,
+      "name": "rememberSplitPackage",
+      "qualified_name": "treesitter.rememberSplitPackage",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5846,
+      "name": "appendUniquePackageFile",
+      "qualified_name": "treesitter.appendUniquePackageFile",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5866,
+      "name": "matchesWorkspacePatterns",
+      "qualified_name": "treesitter.matchesWorkspacePatterns",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5874,
+      "name": "stripJSONComments",
+      "qualified_name": "treesitter.stripJSONComments",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5847,
+      "name": "pythonDirToImportPath",
+      "qualified_name": "treesitter.pythonDirToImportPath",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5865,
+      "name": "splitWorkspacePatterns",
+      "qualified_name": "treesitter.splitWorkspacePatterns",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5843,
+      "name": "rememberPackage",
+      "qualified_name": "treesitter.rememberPackage",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5856,
+      "name": "readTSConfigAliasPrefixes",
+      "qualified_name": "treesitter.readTSConfigAliasPrefixes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    },
+    {
+      "id": 5876,
+      "name": "readGoModulePath",
+      "qualified_name": "treesitter.readGoModulePath",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go"
+    }
+  ],
+  "parsecache": [
+    {
+      "id": 6274,
+      "name": "ParseCache",
+      "qualified_name": "ingest.ParseCache",
+      "kind": "type",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 6519,
+      "name": "internal/app/ingest/workflow/parsecache.go",
+      "qualified_name": "internal/app/ingest/workflow/parsecache.go",
+      "kind": "file",
+      "file_path": "internal/app/ingest/workflow/parsecache.go"
+    },
+    {
+      "id": 6273,
+      "name": "ParseCacheKey",
+      "qualified_name": "ingest.ParseCacheKey",
+      "kind": "class",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 6870,
+      "name": "ParseCacheEntry",
+      "qualified_name": "graph.ParseCacheEntry",
+      "kind": "class",
+      "file_path": "internal/domain/graph/parse_cache.go"
+    },
+    {
+      "id": 6049,
+      "name": "ParseCacheVersion",
+      "qualified_name": "treesitter.Walker.ParseCacheVersion",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/walker.go"
+    },
+    {
+      "id": 6523,
+      "name": "encodeCachedParseRecord",
+      "qualified_name": "workflow.encodeCachedParseRecord",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/parsecache.go"
+    },
+    {
+      "id": 6524,
+      "name": "decodeCachedParseRecord",
+      "qualified_name": "workflow.decodeCachedParseRecord",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/parsecache.go"
+    },
+    {
+      "id": 6526,
+      "name": "parseSemanticContextHash",
+      "qualified_name": "workflow.parseSemanticContextHash",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/parsecache.go"
+    },
+    {
+      "id": 6521,
+      "name": "cachedParseRecordFrom",
+      "qualified_name": "workflow.cachedParseRecordFrom",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/parsecache.go"
+    },
+    {
+      "id": 6520,
+      "name": "cachedParseRecord",
+      "qualified_name": "workflow.cachedParseRecord",
+      "kind": "class",
+      "file_path": "internal/app/ingest/workflow/parsecache.go"
+    },
+    {
+      "id": 6525,
+      "name": "parseResultCacheKey",
+      "qualified_name": "workflow.parseResultCacheKey",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/parsecache.go"
+    },
+    {
+      "id": 6527,
+      "name": "setBuildNodeHashes",
+      "qualified_name": "workflow.setBuildNodeHashes",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/parsecache.go"
+    },
+    {
+      "id": 6522,
+      "name": "toSpooledRecord",
+      "qualified_name": "workflow.cachedParseRecord.toSpooledRecord",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/parsecache.go"
+    }
+  ],
+  "promoteExactNameMatch": [
+    {
+      "id": 5791,
+      "name": "promoteExactNameMatch",
+      "qualified_name": "searchsql.promoteExactNameMatch",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sanitize.go"
+    }
+  ],
+  "radius": [
+    {
+      "id": 6127,
+      "name": "RadiusResult",
+      "qualified_name": "impact.RadiusResult",
+      "kind": "class",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 6126,
+      "name": "RadiusOptions",
+      "qualified_name": "impact.RadiusOptions",
+      "kind": "class",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 5372,
+      "name": "impactRadiusResponse",
+      "qualified_name": "mcp.impactRadiusResponse",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handler_analysis.go"
+    },
+    {
+      "id": 6129,
+      "name": "ImpactRadius",
+      "qualified_name": "impact.Analyzer.ImpactRadius",
+      "kind": "function",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 5371,
+      "name": "impactRadiusMetadata",
+      "qualified_name": "mcp.impactRadiusMetadata",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handler_analysis.go"
+    },
+    {
+      "id": 5351,
+      "name": "ImpactAnalyzer",
+      "qualified_name": "mcp.ImpactAnalyzer",
+      "kind": "type",
+      "file_path": "internal/adapters/inbound/mcp/deps.go"
+    },
+    {
+      "id": 5380,
+      "name": "getImpactRadius",
+      "qualified_name": "mcp.handlers.getImpactRadius",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_analysis.go"
+    },
+    {
+      "id": 6130,
+      "name": "ImpactRadiusBounded",
+      "qualified_name": "impact.Analyzer.ImpactRadiusBounded",
+      "kind": "function",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 6128,
+      "name": "New",
+      "qualified_name": "impact.New",
+      "kind": "function",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 6125,
+      "name": "Analyzer",
+      "qualified_name": "impact.Analyzer",
+      "kind": "class",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 6124,
+      "name": "EdgeReader",
+      "qualified_name": "impact.EdgeReader",
+      "kind": "type",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    },
+    {
+      "id": 6123,
+      "name": "internal/app/analyze/impact/impact.go",
+      "qualified_name": "internal/app/analyze/impact/impact.go",
+      "kind": "file",
+      "file_path": "internal/app/analyze/impact/impact.go"
+    }
+  ],
+  "rerank": [
+    {
+      "id": 6648,
+      "name": "Rerank",
+      "qualified_name": "rank.Rerank",
+      "kind": "function",
+      "file_path": "internal/app/search/rank/rank.go"
+    },
+    {
+      "id": 5443,
+      "name": "searchFederated",
+      "qualified_name": "mcp.handlers.searchFederated",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_query.go"
+    },
+    {
+      "id": 6664,
+      "name": "retrievalTermAliases",
+      "qualified_name": "retrieval.retrievalTermAliases",
+      "kind": "function",
+      "file_path": "internal/app/search/retrieval/helpers.go"
+    },
+    {
+      "id": 6694,
+      "name": "batchAnnotations",
+      "qualified_name": "retrieval.Service.batchAnnotations",
+      "kind": "function",
+      "file_path": "internal/app/search/retrieval/service.go"
+    },
+    {
+      "id": 6649,
+      "name": "applyLimit",
+      "qualified_name": "rank.applyLimit",
+      "kind": "function",
+      "file_path": "internal/app/search/rank/rank.go"
+    },
+    {
+      "id": 6647,
+      "name": "FetchLimit",
+      "qualified_name": "rank.FetchLimit",
+      "kind": "function",
+      "file_path": "internal/app/search/rank/rank.go"
+    },
+    {
+      "id": 6643,
+      "name": "internal/app/search/identtoken/identtoken.go",
+      "qualified_name": "internal/app/search/identtoken/identtoken.go",
+      "kind": "file",
+      "file_path": "internal/app/search/identtoken/identtoken.go"
+    },
+    {
+      "id": 6646,
+      "name": "internal/app/search/rank/rank.go",
+      "qualified_name": "internal/app/search/rank/rank.go",
+      "kind": "file",
+      "file_path": "internal/app/search/rank/rank.go"
+    }
+  ],
+  "retreival": [],
+  "sanit": [
+    {
+      "id": 5784,
+      "name": "internal/adapters/outbound/searchsql/sanitize.go",
+      "qualified_name": "internal/adapters/outbound/searchsql/sanitize.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/searchsql/sanitize.go"
+    },
+    {
+      "id": 5647,
+      "name": "sanitizeURL",
+      "qualified_name": "gitrepo.sanitizeURL",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/gitrepo/checkout.go"
+    },
+    {
+      "id": 5786,
+      "name": "sanitizeTokens",
+      "qualified_name": "searchsql.sanitizeTokens",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sanitize.go"
+    },
+    {
+      "id": 5788,
+      "name": "SanitizePostgresTSQuery",
+      "qualified_name": "searchsql.SanitizePostgresTSQuery",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sanitize.go"
+    },
+    {
+      "id": 5785,
+      "name": "sanitizeRawTokens",
+      "qualified_name": "searchsql.sanitizeRawTokens",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sanitize.go"
+    },
+    {
+      "id": 5787,
+      "name": "SanitizeFTS5",
+      "qualified_name": "searchsql.SanitizeFTS5",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sanitize.go"
+    },
+    {
+      "id": 5790,
+      "name": "extractExactNameToken",
+      "qualified_name": "searchsql.extractExactNameToken",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sanitize.go"
+    },
+    {
+      "id": 5789,
+      "name": "buildPrefixQuery",
+      "qualified_name": "searchsql.buildPrefixQuery",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sanitize.go"
+    },
+    {
+      "id": 5791,
+      "name": "promoteExactNameMatch",
+      "qualified_name": "searchsql.promoteExactNameMatch",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sanitize.go"
+    }
+  ],
+  "sanitze": [],
+  "search document": [
+    {
+      "id": 6637,
+      "name": "internal/app/search/document/document.go",
+      "qualified_name": "internal/app/search/document/document.go",
+      "kind": "file",
+      "file_path": "internal/app/search/document/document.go"
+    },
+    {
+      "id": 5817,
+      "name": "RefreshSearchDocuments",
+      "qualified_name": "searchsql.RefreshSearchDocuments",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/writer.go"
+    },
+    {
+      "id": 5772,
+      "name": "Rebuild",
+      "qualified_name": "searchsql.PostgresBackend.Rebuild",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/postgres.go"
+    },
+    {
+      "id": 6807,
+      "name": "searchDocCollision",
+      "qualified_name": "migration.searchDocCollision",
+      "kind": "class",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 5819,
+      "name": "refreshSearchDocuments",
+      "qualified_name": "searchsql.refreshSearchDocuments",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/writer.go"
+    },
+    {
+      "id": 5818,
+      "name": "RefreshSearchDocumentsFor",
+      "qualified_name": "searchsql.RefreshSearchDocumentsFor",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/writer.go"
+    },
+    {
+      "id": 5796,
+      "name": "Rebuild",
+      "qualified_name": "searchsql.SQLiteBackend.Rebuild",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 6638,
+      "name": "Maintenance",
+      "qualified_name": "document.Maintenance",
+      "kind": "type",
+      "file_path": "internal/app/search/document/document.go"
+    },
+    {
+      "id": 5814,
+      "name": "RefreshDocuments",
+      "qualified_name": "searchsql.Writer.RefreshDocuments",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/writer.go"
+    },
+    {
+      "id": 6875,
+      "name": "SearchDocument",
+      "qualified_name": "graph.SearchDocument",
+      "kind": "class",
+      "file_path": "internal/domain/graph/search.go"
+    },
+    {
+      "id": 5421,
+      "name": "refreshSearchDocuments",
+      "qualified_name": "mcp.handlers.refreshSearchDocuments",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_parse.go"
+    },
+    {
+      "id": 5813,
+      "name": "RebuildAll",
+      "qualified_name": "searchsql.Writer.RebuildAll",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/writer.go"
+    },
+    {
+      "id": 6639,
+      "name": "BuildContent",
+      "qualified_name": "document.BuildContent",
+      "kind": "function",
+      "file_path": "internal/app/search/document/document.go"
+    },
+    {
+      "id": 6641,
+      "name": "pathTokens",
+      "qualified_name": "document.pathTokens",
+      "kind": "function",
+      "file_path": "internal/app/search/document/document.go"
+    },
+    {
+      "id": 6642,
+      "name": "languageAlias",
+      "qualified_name": "document.languageAlias",
+      "kind": "function",
+      "file_path": "internal/app/search/document/document.go"
+    },
+    {
+      "id": 5404,
+      "name": "searchDocsFederated",
+      "qualified_name": "mcp.handlers.searchDocsFederated",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_docs.go"
+    },
+    {
+      "id": 5809,
+      "name": "internal/adapters/outbound/searchsql/writer.go",
+      "qualified_name": "internal/adapters/outbound/searchsql/writer.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/searchsql/writer.go"
+    },
+    {
+      "id": 5402,
+      "name": "searchDocs",
+      "qualified_name": "mcp.handlers.searchDocs",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_docs.go"
+    },
+    {
+      "id": 5510,
+      "name": "docsTools",
+      "qualified_name": "mcp.docsTools",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/tools_docs.go"
+    },
+    {
+      "id": 5810,
+      "name": "Writer",
+      "qualified_name": "searchsql.Writer",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/searchsql/writer.go"
+    },
+    {
+      "id": 5799,
+      "name": "rebuildTable",
+      "qualified_name": "searchsql.SQLiteBackend.rebuildTable",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 6281,
+      "name": "SearchWriter",
+      "qualified_name": "ingest.SearchWriter",
+      "kind": "type",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 5797,
+      "name": "RebuildNodes",
+      "qualified_name": "searchsql.SQLiteBackend.RebuildNodes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 6432,
+      "name": "applyBuildSpoolInTx",
+      "qualified_name": "workflow.Service.applyBuildSpoolInTx",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/build.go"
+    },
+    {
+      "id": 5816,
+      "name": "RebuildNodes",
+      "qualified_name": "searchsql.Writer.RebuildNodes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/writer.go"
+    },
+    {
+      "id": 5774,
+      "name": "PurgeNamespace",
+      "qualified_name": "searchsql.PostgresBackend.PurgeNamespace",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/postgres.go"
+    },
+    {
+      "id": 5815,
+      "name": "RebuildIndex",
+      "qualified_name": "searchsql.Writer.RebuildIndex",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/writer.go"
+    },
+    {
+      "id": 6950,
+      "name": "SelectedDoc",
+      "qualified_name": "SelectedDoc",
+      "kind": "type",
+      "file_path": "web/wiki/src/App.tsx"
+    },
+    {
+      "id": 5399,
+      "name": "internal/adapters/inbound/mcp/handler_docs.go",
+      "qualified_name": "internal/adapters/inbound/mcp/handler_docs.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/handler_docs.go"
+    },
+    {
+      "id": 5509,
+      "name": "internal/adapters/inbound/mcp/tools_docs.go",
+      "qualified_name": "internal/adapters/inbound/mcp/tools_docs.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/mcp/tools_docs.go"
+    },
+    {
+      "id": 6550,
+      "name": "applyUpdateSpoolInTx",
+      "qualified_name": "workflow.Service.applyUpdateSpoolInTx",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/update.go"
+    },
+    {
+      "id": 5804,
+      "name": "insertSQLiteFTSBatch",
+      "qualified_name": "searchsql.insertSQLiteFTSBatch",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 6480,
+      "name": "Service",
+      "qualified_name": "workflow.Service",
+      "kind": "class",
+      "file_path": "internal/app/ingest/workflow/indexer.go"
+    },
+    {
+      "id": 5716,
+      "name": "deleteNodeScope",
+      "qualified_name": "graphgorm.deleteNodeScope",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/store.go"
+    },
+    {
+      "id": 5805,
+      "name": "buildSQLiteFTSInsert",
+      "qualified_name": "searchsql.buildSQLiteFTSInsert",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 6688,
+      "name": "RetrieveResult",
+      "qualified_name": "retrieval.RetrieveResult",
+      "kind": "class",
+      "file_path": "internal/app/search/retrieval/retrieval.go"
+    },
+    {
+      "id": 6557,
+      "name": "affectedNodeIDsForUpdate",
+      "qualified_name": "workflow.affectedNodeIDsForUpdate",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/update.go"
+    },
+    {
+      "id": 6689,
+      "name": "Result",
+      "qualified_name": "retrieval.Result",
+      "kind": "class",
+      "file_path": "internal/app/search/retrieval/retrieval.go"
+    },
+    {
+      "id": 5777,
+      "name": "appendFuzzyMatches",
+      "qualified_name": "searchsql.PostgresBackend.appendFuzzyMatches",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/postgres.go"
+    },
+    {
+      "id": 6803,
+      "name": "MigrateLegacyDefaultNamespace",
+      "qualified_name": "migration.MigrateLegacyDefaultNamespace",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 5800,
+      "name": "rebuildTableNodes",
+      "qualified_name": "searchsql.SQLiteBackend.rebuildTableNodes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5717,
+      "name": "DeleteGraph",
+      "qualified_name": "graphgorm.Store.DeleteGraph",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/store.go"
+    },
+    {
+      "id": 5715,
+      "name": "DeleteNodesByFiles",
+      "qualified_name": "graphgorm.Store.DeleteNodesByFiles",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/store.go"
+    }
+  ],
+  "sqlite": [
+    {
+      "id": 6811,
+      "name": "sqliteColumnExists",
+      "qualified_name": "migration.sqliteColumnExists",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6812,
+      "name": "sqliteColumnNotNull",
+      "qualified_name": "migration.sqliteColumnNotNull",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6815,
+      "name": "sqliteColumnInfo",
+      "qualified_name": "migration.sqliteColumnInfo",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 5793,
+      "name": "SQLiteBackend",
+      "qualified_name": "searchsql.SQLiteBackend",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 6818,
+      "name": "SQLiteColumnInfo",
+      "qualified_name": "migration.SQLiteColumnInfo",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 5808,
+      "name": "sqliteTableExists",
+      "qualified_name": "searchsql.sqliteTableExists",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 6813,
+      "name": "sqliteColumn",
+      "qualified_name": "migration.sqliteColumn",
+      "kind": "class",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 5806,
+      "name": "sqliteColumnExists",
+      "qualified_name": "searchsql.sqliteColumnExists",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 6816,
+      "name": "SQLiteColumnExists",
+      "qualified_name": "migration.SQLiteColumnExists",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6817,
+      "name": "SQLiteColumnNotNull",
+      "qualified_name": "migration.SQLiteColumnNotNull",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6814,
+      "name": "sqliteIndexExists",
+      "qualified_name": "migration.sqliteIndexExists",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 5792,
+      "name": "internal/adapters/outbound/searchsql/sqlite.go",
+      "qualified_name": "internal/adapters/outbound/searchsql/sqlite.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5794,
+      "name": "NewSQLiteBackend",
+      "qualified_name": "searchsql.NewSQLiteBackend",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5795,
+      "name": "Migrate",
+      "qualified_name": "searchsql.SQLiteBackend.Migrate",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5796,
+      "name": "Rebuild",
+      "qualified_name": "searchsql.SQLiteBackend.Rebuild",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 6773,
+      "name": "Open",
+      "qualified_name": "db.Open",
+      "kind": "function",
+      "file_path": "internal/db/db.go"
+    },
+    {
+      "id": 6771,
+      "name": "internal/db/db.go",
+      "qualified_name": "internal/db/db.go",
+      "kind": "file",
+      "file_path": "internal/db/db.go"
+    },
+    {
+      "id": 5802,
+      "name": "Query",
+      "qualified_name": "searchsql.SQLiteBackend.Query",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5797,
+      "name": "RebuildNodes",
+      "qualified_name": "searchsql.SQLiteBackend.RebuildNodes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 6809,
+      "name": "validateSQLiteSchemaParity",
+      "qualified_name": "migration.validateSQLiteSchemaParity",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 5799,
+      "name": "rebuildTable",
+      "qualified_name": "searchsql.SQLiteBackend.rebuildTable",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5800,
+      "name": "rebuildTableNodes",
+      "qualified_name": "searchsql.SQLiteBackend.rebuildTableNodes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5798,
+      "name": "PurgeNamespace",
+      "qualified_name": "searchsql.SQLiteBackend.PurgeNamespace",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 6787,
+      "name": "ShouldAutoMigrateLocalSQLite",
+      "qualified_name": "migration.ShouldAutoMigrateLocalSQLite",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 5803,
+      "name": "upgradeLegacyFTSTable",
+      "qualified_name": "searchsql.SQLiteBackend.upgradeLegacyFTSTable",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5805,
+      "name": "buildSQLiteFTSInsert",
+      "qualified_name": "searchsql.buildSQLiteFTSInsert",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5807,
+      "name": "createSQLiteFTSTable",
+      "qualified_name": "searchsql.createSQLiteFTSTable",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 5801,
+      "name": "ftsRow",
+      "qualified_name": "searchsql.ftsRow",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 6794,
+      "name": "migrateDatabaseDriver",
+      "qualified_name": "migration.migrateDatabaseDriver",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 5766,
+      "name": "internal/adapters/outbound/searchsql/backend.go",
+      "qualified_name": "internal/adapters/outbound/searchsql/backend.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/searchsql/backend.go"
+    },
+    {
+      "id": 5820,
+      "name": "scopedNodeIDsForChunk",
+      "qualified_name": "searchsql.scopedNodeIDsForChunk",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/writer.go"
+    },
+    {
+      "id": 6785,
+      "name": "EnsureSchemaVersion",
+      "qualified_name": "migration.EnsureSchemaVersion",
+      "kind": "function",
+      "file_path": "internal/db/migration/migration.go"
+    },
+    {
+      "id": 6775,
+      "name": "NewSearchBackend",
+      "qualified_name": "db.NewSearchBackend",
+      "kind": "function",
+      "file_path": "internal/db/db.go"
+    },
+    {
+      "id": 6776,
+      "name": "internal/db/migration/embed.go",
+      "qualified_name": "internal/db/migration/embed.go",
+      "kind": "file",
+      "file_path": "internal/db/migration/embed.go"
+    },
+    {
+      "id": 5788,
+      "name": "SanitizePostgresTSQuery",
+      "qualified_name": "searchsql.SanitizePostgresTSQuery",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sanitize.go"
+    },
+    {
+      "id": 5804,
+      "name": "insertSQLiteFTSBatch",
+      "qualified_name": "searchsql.insertSQLiteFTSBatch",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go"
+    },
+    {
+      "id": 6774,
+      "name": "ConfigurePool",
+      "qualified_name": "db.ConfigurePool",
+      "kind": "function",
+      "file_path": "internal/db/db.go"
+    },
+    {
+      "id": 5787,
+      "name": "SanitizeFTS5",
+      "qualified_name": "searchsql.SanitizeFTS5",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sanitize.go"
+    },
+    {
+      "id": 5789,
+      "name": "buildPrefixQuery",
+      "qualified_name": "searchsql.buildPrefixQuery",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sanitize.go"
+    }
+  ],
+  "syncer": [
+    {
+      "id": 6221,
+      "name": "Syncer",
+      "qualified_name": "incremental.Syncer",
+      "kind": "class",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6222,
+      "name": "SyncerOption",
+      "qualified_name": "incremental.SyncerOption",
+      "kind": "type",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6227,
+      "name": "SetResolveOptions",
+      "qualified_name": "incremental.Syncer.SetResolveOptions",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6228,
+      "name": "Sync",
+      "qualified_name": "incremental.Syncer.Sync",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6225,
+      "name": "New",
+      "qualified_name": "incremental.New",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 5355,
+      "name": "IncrementalSyncer",
+      "qualified_name": "mcp.IncrementalSyncer",
+      "kind": "type",
+      "file_path": "internal/adapters/inbound/mcp/deps.go"
+    },
+    {
+      "id": 6230,
+      "name": "SyncWithExistingStore",
+      "qualified_name": "incremental.Syncer.SyncWithExistingStore",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6232,
+      "name": "SyncBatchesWithExistingStore",
+      "qualified_name": "incremental.Syncer.SyncBatchesWithExistingStore",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6240,
+      "name": "resolveParser",
+      "qualified_name": "incremental.Syncer.resolveParser",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6559,
+      "name": "syncIncrementalBatch",
+      "qualified_name": "workflow.syncIncrementalBatch",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/update.go"
+    },
+    {
+      "id": 6548,
+      "name": "withUpdateTx",
+      "qualified_name": "workflow.Service.withUpdateTx",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/update.go"
+    },
+    {
+      "id": 6236,
+      "name": "resolveAndUpsertEdges",
+      "qualified_name": "incremental.Syncer.resolveAndUpsertEdges",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6237,
+      "name": "resolveAndUpsertImplements",
+      "qualified_name": "incremental.Syncer.resolveAndUpsertImplements",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6233,
+      "name": "syncWithExisting",
+      "qualified_name": "incremental.Syncer.syncWithExisting",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6238,
+      "name": "resolveAndUpsertOtherEdges",
+      "qualified_name": "incremental.Syncer.resolveAndUpsertOtherEdges",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6241,
+      "name": "persistParsedNodesAndAnnotations",
+      "qualified_name": "incremental.Syncer.persistParsedNodesAndAnnotations",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6235,
+      "name": "stageBatch",
+      "qualified_name": "incremental.Syncer.stageBatch",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6234,
+      "name": "syncBatchesWithExisting",
+      "qualified_name": "incremental.Syncer.syncBatchesWithExisting",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6223,
+      "name": "WithLogger",
+      "qualified_name": "incremental.WithLogger",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6286,
+      "name": "IncrementalSyncer",
+      "qualified_name": "ingest.IncrementalSyncer",
+      "kind": "type",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 6231,
+      "name": "SyncBatchesWithExisting",
+      "qualified_name": "incremental.Syncer.SyncBatchesWithExisting",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6226,
+      "name": "NewWithRegistry",
+      "qualified_name": "incremental.NewWithRegistry",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 6291,
+      "name": "TransactionalBatchIncrementalSyncer",
+      "qualified_name": "ingest.TransactionalBatchIncrementalSyncer",
+      "kind": "type",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 6479,
+      "name": "CrossRefSyncer",
+      "qualified_name": "workflow.CrossRefSyncer",
+      "kind": "type",
+      "file_path": "internal/app/ingest/workflow/indexer.go"
+    },
+    {
+      "id": 6287,
+      "name": "TransactionalIncrementalSyncer",
+      "qualified_name": "ingest.TransactionalIncrementalSyncer",
+      "kind": "type",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 6288,
+      "name": "FileBatchVisitor",
+      "qualified_name": "ingest.FileBatchVisitor",
+      "kind": "type",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 6476,
+      "name": "splitForcedFiles",
+      "qualified_name": "workflow.splitForcedFiles",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/graphstate.go"
+    },
+    {
+      "id": 5308,
+      "name": "newUpdateCmd",
+      "qualified_name": "cli.newUpdateCmd",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/cli/update.go"
+    },
+    {
+      "id": 6554,
+      "name": "newUpdateSpoolBatchSource",
+      "qualified_name": "workflow.newUpdateSpoolBatchSource",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/update.go"
+    },
+    {
+      "id": 6290,
+      "name": "BatchIncrementalSyncer",
+      "qualified_name": "ingest.BatchIncrementalSyncer",
+      "kind": "type",
+      "file_path": "internal/app/ingest/ports.go"
+    },
+    {
+      "id": 6229,
+      "name": "SyncWithExisting",
+      "qualified_name": "incremental.Syncer.SyncWithExisting",
+      "kind": "function",
+      "file_path": "internal/app/ingest/incremental/incremental.go"
+    },
+    {
+      "id": 5307,
+      "name": "internal/adapters/inbound/cli/update.go",
+      "qualified_name": "internal/adapters/inbound/cli/update.go",
+      "kind": "file",
+      "file_path": "internal/adapters/inbound/cli/update.go"
+    },
+    {
+      "id": 6550,
+      "name": "applyUpdateSpoolInTx",
+      "qualified_name": "workflow.Service.applyUpdateSpoolInTx",
+      "kind": "function",
+      "file_path": "internal/app/ingest/workflow/update.go"
+    },
+    {
+      "id": 5425,
+      "name": "buildOrUpdateGraph",
+      "qualified_name": "mcp.handlers.buildOrUpdateGraph",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_parse.go"
+    }
+  ],
+  "trace flow": [
+    {
+      "id": 6114,
+      "name": "Tracer",
+      "qualified_name": "flow.Tracer",
+      "kind": "class",
+      "file_path": "internal/app/analyze/flow/flow.go"
+    },
+    {
+      "id": 6118,
+      "name": "TraceResult",
+      "qualified_name": "flow.TraceResult",
+      "kind": "class",
+      "file_path": "internal/app/analyze/flow/flow.go"
+    },
+    {
+      "id": 6117,
+      "name": "TraceOptions",
+      "qualified_name": "flow.TraceOptions",
+      "kind": "class",
+      "file_path": "internal/app/analyze/flow/flow.go"
+    },
+    {
+      "id": 6121,
+      "name": "TraceFlow",
+      "qualified_name": "flow.Tracer.TraceFlow",
+      "kind": "function",
+      "file_path": "internal/app/analyze/flow/flow.go"
+    },
+    {
+      "id": 6120,
+      "name": "New",
+      "qualified_name": "flow.New",
+      "kind": "function",
+      "file_path": "internal/app/analyze/flow/flow.go"
+    },
+    {
+      "id": 5375,
+      "name": "traceFlowResponse",
+      "qualified_name": "mcp.traceFlowResponse",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handler_analysis.go"
+    },
+    {
+      "id": 5352,
+      "name": "FlowTracer",
+      "qualified_name": "mcp.FlowTracer",
+      "kind": "type",
+      "file_path": "internal/adapters/inbound/mcp/deps.go"
+    },
+    {
+      "id": 6122,
+      "name": "TraceFlowBounded",
+      "qualified_name": "flow.Tracer.TraceFlowBounded",
+      "kind": "function",
+      "file_path": "internal/app/analyze/flow/flow.go"
+    },
+    {
+      "id": 5373,
+      "name": "traceFlowMember",
+      "qualified_name": "mcp.traceFlowMember",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handler_analysis.go"
+    },
+    {
+      "id": 5381,
+      "name": "traceFlow",
+      "qualified_name": "mcp.handlers.traceFlow",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_analysis.go"
+    },
+    {
+      "id": 6109,
+      "name": "Builder",
+      "qualified_name": "flow.Builder",
+      "kind": "class",
+      "file_path": "internal/app/analyze/flow/builder.go"
+    },
+    {
+      "id": 5374,
+      "name": "traceFlowMetadata",
+      "qualified_name": "mcp.traceFlowMetadata",
+      "kind": "class",
+      "file_path": "internal/adapters/inbound/mcp/handler_analysis.go"
+    },
+    {
+      "id": 6119,
+      "name": "defaultTraceOptions",
+      "qualified_name": "flow.defaultTraceOptions",
+      "kind": "function",
+      "file_path": "internal/app/analyze/flow/flow.go"
+    },
+    {
+      "id": 6116,
+      "name": "stampMemberNamespaces",
+      "qualified_name": "flow.Tracer.stampMemberNamespaces",
+      "kind": "function",
+      "file_path": "internal/app/analyze/flow/flow.go"
+    },
+    {
+      "id": 6132,
+      "name": "FlowRebuildStore",
+      "qualified_name": "analyze.FlowRebuildStore",
+      "kind": "type",
+      "file_path": "internal/app/analyze/ports.go"
+    },
+    {
+      "id": 5682,
+      "name": "CreateFlow",
+      "qualified_name": "graphgorm.Store.CreateFlow",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/graphgorm/flow.go"
+    },
+    {
+      "id": 6111,
+      "name": "Rebuild",
+      "qualified_name": "flow.Builder.Rebuild",
+      "kind": "function",
+      "file_path": "internal/app/analyze/flow/builder.go"
+    },
+    {
+      "id": 5411,
+      "name": "listFlows",
+      "qualified_name": "mcp.handlers.listFlows",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_graph.go"
+    },
+    {
+      "id": 5383,
+      "name": "getAffectedFlows",
+      "qualified_name": "mcp.handlers.getAffectedFlows",
+      "kind": "function",
+      "file_path": "internal/adapters/inbound/mcp/handler_analysis.go"
+    }
+  ],
+  "tracer": [
+    {
+      "id": 6114,
+      "name": "Tracer",
+      "qualified_name": "flow.Tracer",
+      "kind": "class",
+      "file_path": "internal/app/analyze/flow/flow.go"
+    },
+    {
+      "id": 6118,
+      "name": "TraceResult",
+      "qualified_name": "flow.TraceResult",
+      "kind": "class",
+      "file_path": "internal/app/analyze/flow/flow.go"
+    },
+    {
+      "id": 6892,
+      "name": "Telemetry",
+      "qualified_name": "obs.Telemetry",
+      "kind": "class",
+      "file_path": "internal/obs/trace.go"
+    },
+    {
+      "id": 6120,
+      "name": "New",
+      "qualified_name": "flow.New",
+      "kind": "function",
+      "file_path": "internal/app/analyze/flow/flow.go"
+    },
+    {
+      "id": 6894,
+      "name": "Shutdown",
+      "qualified_name": "obs.Telemetry.Shutdown",
+      "kind": "function",
+      "file_path": "internal/obs/trace.go"
+    },
+    {
+      "id": 5352,
+      "name": "FlowTracer",
+      "qualified_name": "mcp.FlowTracer",
+      "kind": "type",
+      "file_path": "internal/adapters/inbound/mcp/deps.go"
+    },
+    {
+      "id": 6122,
+      "name": "TraceFlowBounded",
+      "qualified_name": "flow.Tracer.TraceFlowBounded",
+      "kind": "function",
+      "file_path": "internal/app/analyze/flow/flow.go"
+    },
+    {
+      "id": 6121,
+      "name": "TraceFlow",
+      "qualified_name": "flow.Tracer.TraceFlow",
+      "kind": "function",
+      "file_path": "internal/app/analyze/flow/flow.go"
+    },
+    {
+      "id": 6900,
+      "name": "Global",
+      "qualified_name": "obs.Global",
+      "kind": "function",
+      "file_path": "internal/obs/trace.go"
+    },
+    {
+      "id": 6116,
+      "name": "stampMemberNamespaces",
+      "qualified_name": "flow.Tracer.stampMemberNamespaces",
+      "kind": "function",
+      "file_path": "internal/app/analyze/flow/flow.go"
+    },
+    {
+      "id": 6890,
+      "name": "internal/obs/trace.go",
+      "qualified_name": "internal/obs/trace.go",
+      "kind": "file",
+      "file_path": "internal/obs/trace.go"
+    },
+    {
+      "id": 6896,
+      "name": "StartSpan",
+      "qualified_name": "obs.Telemetry.StartSpan",
+      "kind": "function",
+      "file_path": "internal/obs/trace.go"
+    },
+    {
+      "id": 6897,
+      "name": "StartChildSpan",
+      "qualified_name": "obs.Telemetry.StartChildSpan",
+      "kind": "function",
+      "file_path": "internal/obs/trace.go"
+    },
+    {
+      "id": 6895,
+      "name": "StartServerSpan",
+      "qualified_name": "obs.Telemetry.StartServerSpan",
+      "kind": "function",
+      "file_path": "internal/obs/trace.go"
+    },
+    {
+      "id": 6899,
+      "name": "SetGlobal",
+      "qualified_name": "obs.SetGlobal",
+      "kind": "function",
+      "file_path": "internal/obs/trace.go"
+    },
+    {
+      "id": 6898,
+      "name": "start",
+      "qualified_name": "obs.Telemetry.start",
+      "kind": "function",
+      "file_path": "internal/obs/trace.go"
+    },
+    {
+      "id": 6893,
+      "name": "Setup",
+      "qualified_name": "obs.Setup",
+      "kind": "function",
+      "file_path": "internal/obs/trace.go"
+    }
+  ],
+  "treesitter semantics": [
+    {
+      "id": 5880,
+      "name": "internal/adapters/outbound/treesitter/semantics.go",
+      "qualified_name": "internal/adapters/outbound/treesitter/semantics.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/treesitter/semantics.go"
+    },
+    {
+      "id": 5911,
+      "name": "SemanticsForLanguage",
+      "qualified_name": "treesitter.SemanticsForLanguage",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics.go"
+    },
+    {
+      "id": 5903,
+      "name": "semanticsOrDefault",
+      "qualified_name": "treesitter.semanticsOrDefault",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics.go"
+    },
+    {
+      "id": 5912,
+      "name": "internal/adapters/outbound/treesitter/semantics_go.go",
+      "qualified_name": "internal/adapters/outbound/treesitter/semantics_go.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_go.go"
+    },
+    {
+      "id": 6009,
+      "name": "internal/adapters/outbound/treesitter/semantics_python.go",
+      "qualified_name": "internal/adapters/outbound/treesitter/semantics_python.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_python.go"
+    },
+    {
+      "id": 6021,
+      "name": "internal/adapters/outbound/treesitter/semantics_rust.go",
+      "qualified_name": "internal/adapters/outbound/treesitter/semantics_rust.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_rust.go"
+    },
+    {
+      "id": 5963,
+      "name": "ImplementedTypes",
+      "qualified_name": "treesitter.JavaScriptSemantics.ImplementedTypes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_js_ts.go"
+    },
+    {
+      "id": 5910,
+      "name": "PackageEdgesFor",
+      "qualified_name": "treesitter.PackageEdgesFor",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics.go"
+    },
+    {
+      "id": 5974,
+      "name": "internal/adapters/outbound/treesitter/semantics_jvm.go",
+      "qualified_name": "internal/adapters/outbound/treesitter/semantics_jvm.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_jvm.go"
+    },
+    {
+      "id": 5899,
+      "name": "NoopSemantics",
+      "qualified_name": "treesitter.NoopSemantics",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/semantics.go"
+    },
+    {
+      "id": 5964,
+      "name": "AdditionalEdges",
+      "qualified_name": "treesitter.JavaScriptSemantics.AdditionalEdges",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_js_ts.go"
+    },
+    {
+      "id": 5943,
+      "name": "internal/adapters/outbound/treesitter/semantics_js_ts.go",
+      "qualified_name": "internal/adapters/outbound/treesitter/semantics_js_ts.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_js_ts.go"
+    },
+    {
+      "id": 5977,
+      "name": "AdditionalEdges",
+      "qualified_name": "treesitter.JavaSemantics.AdditionalEdges",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_jvm.go"
+    },
+    {
+      "id": 5883,
+      "name": "DefinitionSemantics",
+      "qualified_name": "treesitter.DefinitionSemantics",
+      "kind": "type",
+      "file_path": "internal/adapters/outbound/treesitter/semantics.go"
+    },
+    {
+      "id": 5945,
+      "name": "AdditionalEdges",
+      "qualified_name": "treesitter.TypeScriptSemantics.AdditionalEdges",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_js_ts.go"
+    },
+    {
+      "id": 5885,
+      "name": "RelationshipSemantics",
+      "qualified_name": "treesitter.RelationshipSemantics",
+      "kind": "type",
+      "file_path": "internal/adapters/outbound/treesitter/semantics.go"
+    },
+    {
+      "id": 5909,
+      "name": "packageEdgesOrDefault",
+      "qualified_name": "treesitter.packageEdgesOrDefault",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics.go"
+    },
+    {
+      "id": 5916,
+      "name": "EnrichDefinition",
+      "qualified_name": "treesitter.GoSemantics.EnrichDefinition",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_go.go"
+    },
+    {
+      "id": 5881,
+      "name": "LanguageSemantics",
+      "qualified_name": "treesitter.LanguageSemantics",
+      "kind": "type",
+      "file_path": "internal/adapters/outbound/treesitter/semantics.go"
+    },
+    {
+      "id": 5882,
+      "name": "CallRewriteSemantics",
+      "qualified_name": "treesitter.CallRewriteSemantics",
+      "kind": "type",
+      "file_path": "internal/adapters/outbound/treesitter/semantics.go"
+    },
+    {
+      "id": 5884,
+      "name": "DefinitionNameSemantics",
+      "qualified_name": "treesitter.DefinitionNameSemantics",
+      "kind": "type",
+      "file_path": "internal/adapters/outbound/treesitter/semantics.go"
+    },
+    {
+      "id": 5887,
+      "name": "CommentSemantics",
+      "qualified_name": "treesitter.CommentSemantics",
+      "kind": "type",
+      "file_path": "internal/adapters/outbound/treesitter/semantics.go"
+    },
+    {
+      "id": 5900,
+      "name": "AdditionalEdges",
+      "qualified_name": "treesitter.NoopSemantics.AdditionalEdges",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics.go"
+    },
+    {
+      "id": 5918,
+      "name": "goAssertionCallRewriter",
+      "qualified_name": "treesitter.goAssertionCallRewriter",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_go.go"
+    },
+    {
+      "id": 5913,
+      "name": "GoSemantics",
+      "qualified_name": "treesitter.GoSemantics",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_go.go"
+    },
+    {
+      "id": 6010,
+      "name": "PythonSemantics",
+      "qualified_name": "treesitter.PythonSemantics",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_python.go"
+    },
+    {
+      "id": 6012,
+      "name": "AdditionalComments",
+      "qualified_name": "treesitter.PythonSemantics.AdditionalComments",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_python.go"
+    },
+    {
+      "id": 5914,
+      "name": "AdditionalEdges",
+      "qualified_name": "treesitter.GoSemantics.AdditionalEdges",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_go.go"
+    },
+    {
+      "id": 5979,
+      "name": "KotlinSemantics",
+      "qualified_name": "treesitter.KotlinSemantics",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_jvm.go"
+    },
+    {
+      "id": 5981,
+      "name": "AdditionalEdges",
+      "qualified_name": "treesitter.KotlinSemantics.AdditionalEdges",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_jvm.go"
+    },
+    {
+      "id": 6022,
+      "name": "RustSemantics",
+      "qualified_name": "treesitter.RustSemantics",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_rust.go"
+    },
+    {
+      "id": 5917,
+      "name": "CallRewriter",
+      "qualified_name": "treesitter.GoSemantics.CallRewriter",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_go.go"
+    },
+    {
+      "id": 5976,
+      "name": "CallRewriter",
+      "qualified_name": "treesitter.JavaSemantics.CallRewriter",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_jvm.go"
+    },
+    {
+      "id": 6026,
+      "name": "ImplementedTypes",
+      "qualified_name": "treesitter.RustSemantics.ImplementedTypes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_rust.go"
+    },
+    {
+      "id": 5944,
+      "name": "TypeScriptSemantics",
+      "qualified_name": "treesitter.TypeScriptSemantics",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_js_ts.go"
+    },
+    {
+      "id": 5947,
+      "name": "CallRewriter",
+      "qualified_name": "treesitter.TypeScriptSemantics.CallRewriter",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_js_ts.go"
+    },
+    {
+      "id": 5980,
+      "name": "CallRewriter",
+      "qualified_name": "treesitter.KotlinSemantics.CallRewriter",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_jvm.go"
+    },
+    {
+      "id": 6023,
+      "name": "AdditionalEdges",
+      "qualified_name": "treesitter.RustSemantics.AdditionalEdges",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_rust.go"
+    },
+    {
+      "id": 5886,
+      "name": "PackageSemantics",
+      "qualified_name": "treesitter.PackageSemantics",
+      "kind": "type",
+      "file_path": "internal/adapters/outbound/treesitter/semantics.go"
+    },
+    {
+      "id": 5962,
+      "name": "JavaScriptSemantics",
+      "qualified_name": "treesitter.JavaScriptSemantics",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_js_ts.go"
+    },
+    {
+      "id": 5975,
+      "name": "JavaSemantics",
+      "qualified_name": "treesitter.JavaSemantics",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_jvm.go"
+    },
+    {
+      "id": 5978,
+      "name": "ImplementedTypes",
+      "qualified_name": "treesitter.JavaSemantics.ImplementedTypes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_jvm.go"
+    },
+    {
+      "id": 6020,
+      "name": "isFirstStringExprStmt",
+      "qualified_name": "treesitter.isFirstStringExprStmt",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_python.go"
+    },
+    {
+      "id": 6025,
+      "name": "DefinitionName",
+      "qualified_name": "treesitter.RustSemantics.DefinitionName",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_rust.go"
+    },
+    {
+      "id": 5982,
+      "name": "ImplementedTypes",
+      "qualified_name": "treesitter.KotlinSemantics.ImplementedTypes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_jvm.go"
+    },
+    {
+      "id": 5946,
+      "name": "ImplementedTypes",
+      "qualified_name": "treesitter.TypeScriptSemantics.ImplementedTypes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_js_ts.go"
+    },
+    {
+      "id": 6011,
+      "name": "AdditionalEdges",
+      "qualified_name": "treesitter.PythonSemantics.AdditionalEdges",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_python.go"
+    },
+    {
+      "id": 6019,
+      "name": "isSupportedPythonDocstringLiteral",
+      "qualified_name": "treesitter.isSupportedPythonDocstringLiteral",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_python.go"
+    },
+    {
+      "id": 6024,
+      "name": "CallRewriter",
+      "qualified_name": "treesitter.RustSemantics.CallRewriter",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_rust.go"
+    },
+    {
+      "id": 5902,
+      "name": "RewriteCall",
+      "qualified_name": "treesitter.NoopCallRewriter.RewriteCall",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/semantics.go"
+    }
+  ],
+  "zzz nonexistent symbol qqq": []
+}
