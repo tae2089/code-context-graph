@@ -4,11 +4,11 @@ A local code analysis tool that parses codebases with Tree-sitter and builds a k
 
 ## MCP Server
 
-The ccg MCP server registered in `.mcp.json` provides 17 tools:
+The ccg MCP server registered in `.mcp.json` provides 18 tools:
 
 - `parse_project`, `build_or_update_graph`, `run_postprocess`
 - `get_node`, `search`, `query_graph`, `list_graph_stats`, `list_namespaces`, `get_minimal_context`
-- `get_impact_radius`, `trace_flow`
+- `get_impact_radius`, `trace_flow`, `list_cross_refs`
 - `detect_changes`, `get_affected_flows`, `list_flows`
 - `get_annotation`
 - `get_doc_content`, `search_docs`
@@ -63,7 +63,7 @@ use ccg MCP tools and Agent Skills first.
 See the `guide/` directory for detailed documentation:
 
 - [CLI Reference](guide/cli-reference.md) - all commands, flags, and config files
-- [MCP Tools](guide/mcp-tools.md) - 17 MCP tools, Agent Skills, AI-Driven Annotation
+- [MCP Tools](guide/mcp-tools.md) - 18 MCP tools, Agent Skills, AI-Driven Annotation
 - [Annotations](guide/annotations.md) - annotation tags, examples, and search
 - [Webhook](guide/webhook.md) - webhook sync, branch filtering, HMAC, graceful shutdown
 - [Docker](guide/docker.md) - Docker builds, MCP server, PostgreSQL deployment
