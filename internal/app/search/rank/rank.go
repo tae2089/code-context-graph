@@ -4,6 +4,7 @@
 package rank
 
 import (
+	"cmp"
 	"math"
 	"sort"
 	"strings"
@@ -152,7 +153,9 @@ func rerankWithRanks(query string, nodes []graph.Node, retrievalRank []int, limi
 	for i := range nodes {
 		structScores[i] = structScore(qTokens, nodes[i])
 	}
-	structRank := rankDesc(structScores)
+	structRank := rankBy(len(nodes), func(a, b int) int {
+		return -cmp.Compare(structScores[a], structScores[b]) // higher score ranks first
+	})
 
 	final := make([]float64, len(nodes))
 	for i := range nodes {
@@ -491,28 +494,33 @@ func lastSegment(s string, sep rune) string {
 	return s
 }
 
-// rankDesc returns each index's rank when scores are ordered descending, sharing
-// one rank across an equal-score group (standard competition ranking: 0,1,1,3).
+// rankBy returns each index's rank when n items are ordered by compare, sharing
+// one rank across a group compare calls equal (standard competition ranking:
+// 0,1,1,3). compare follows the cmp.Compare convention: negative when a ranks
+// ahead of b, zero when they are indistinguishable.
 //
 // Splitting a tie by array position would smuggle position back into the
 // structural signal, and in federated search array position is namespace order —
 // a namespace queried later would lose to identical evidence queried first.
 //
-// @ensures equal scores receive equal ranks; the rank after a tie group of size n
-// skips n-1 values, so rank values stay comparable to a plain ordinal ranking.
-// @intent convert structural scores to deterministic ordinal ranks for reciprocal-rank fusion.
-func rankDesc(scores []float64) []int {
-	order := make([]int, len(scores))
+// @requires compare is a total order: consistent, and equal only for items that
+// should share a rank.
+// @ensures indistinguishable items receive equal ranks; the rank after a tie
+// group of size n skips n-1 values, so rank values stay comparable to a plain
+// ordinal ranking.
+// @intent convert a structural ordering to deterministic ordinal ranks for reciprocal-rank fusion.
+func rankBy(n int, compare func(a, b int) int) []int {
+	order := make([]int, n)
 	for i := range order {
 		order[i] = i
 	}
 	sort.SliceStable(order, func(a, b int) bool {
-		return scores[order[a]] > scores[order[b]]
+		return compare(order[a], order[b]) < 0
 	})
-	rank := make([]int, len(scores))
+	rank := make([]int, n)
 	tieStart := 0
 	for pos, idx := range order {
-		if pos > 0 && scores[idx] != scores[order[pos-1]] {
+		if pos > 0 && compare(idx, order[pos-1]) != 0 {
 			tieStart = pos
 		}
 		rank[idx] = tieStart
