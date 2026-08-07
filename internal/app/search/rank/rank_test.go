@@ -396,8 +396,7 @@ func TestCanReachTypoFloor_NeverSkipsAScoringPair(t *testing.T) {
 }
 
 // 이름 신호가 약해도 진짜 일치라면, 이름은 전혀 안 맞고 경로 세그먼트만 겹치는
-// 노드보다 위여야 한다. 줄임말이나 아주 긴 이름은 점수가 낮게 나오므로, 경로
-// 가중치가 그보다 크면 이름 일치가 통째로 묻힌다.
+// 노드보다 위여야 한다. 줄임말이나 아주 긴 이름은 점수가 낮게 나온다.
 func TestRerank_WeakNameMatchStillOutranksPathOnlyMatch(t *testing.T) {
 	cases := []struct{ query, name string }{
 		{"cfg", "loadConfig"},
@@ -413,8 +412,8 @@ func TestRerank_WeakNameMatchStillOutranksPathOnlyMatch(t *testing.T) {
 			{ID: 2, Name: c.name, QualifiedName: "app." + c.name, FilePath: "internal/app/boot.go"},
 		}
 		if got := Rerank(c.query, nodes, 10); got[0].ID != 2 {
-			t.Errorf("query %q: path-only node beat the name match %q (nameSim=%.4f, path weight=%.2f)",
-				c.query, c.name, nameSim(tokenize(c.query), nodes[1]), pathSignalWeight)
+			t.Errorf("query %q: path-only node beat the name match %q (nameSim=%.4f)",
+				c.query, c.name, nameSim(tokenize(c.query), nodes[1]))
 		}
 	}
 }
@@ -550,5 +549,29 @@ func TestNameSim_AcronymRunDoesNotHideTheNextWordBoundary(t *testing.T) {
 	mixed := nameSim([]string{"server"}, graph.Node{Name: "HttpServer"})
 	if acronym != mixed {
 		t.Errorf("HTTPServer scored %.4f but HttpServer scored %.4f; the word boundary is the same", acronym, mixed)
+	}
+}
+
+// Any name match at all must outrank a node that only shares a path segment,
+// however faint the name evidence is. Adding a weighted path score to the name
+// score cannot promise this: it only pushes the crossover point down, and some
+// real match always lands under it.
+func TestRerank_FaintestNameMatchStillOutranksPathOnlyMatch(t *testing.T) {
+	const query = "adir"
+	// 74 runes; "adir" matches only as a scattered subsequence, scoring 0.0096.
+	const faint = "parseTreeSitterLanguageDefinitionRegistryConfigurationLoaderFactoryGlobals"
+
+	nodes := []graph.Node{
+		// The path-only node is the backend's top hit, so only the structural
+		// signal can move the real name match above it.
+		{ID: 1, Name: "handler", QualifiedName: "http.handler", FilePath: "internal/" + query + "/handler.go"},
+		{ID: 2, Name: faint, QualifiedName: "app." + faint, FilePath: "internal/app/boot.go"},
+	}
+	score := nameSim(tokenize(query), nodes[1])
+	if score <= 0 {
+		t.Fatalf("test premise broken: %q must be a real name match, scored %.5f", query, score)
+	}
+	if got := Rerank(query, nodes, 10); got[0].ID != 2 {
+		t.Errorf("path-only node beat a real name match scoring %.5f", score)
 	}
 }
