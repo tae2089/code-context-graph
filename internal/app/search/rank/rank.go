@@ -56,6 +56,13 @@ const (
 // of a sub-word next, a run continuing the previous match next, and a rune
 // reached only after skipping others least.
 //
+// A sub-word starts after a separator (payment_processor, payment-processor),
+// at an uppercase rune following a lowercase one (paymentProcessor, and every
+// interior boundary of PaymentProcessor), and at the uppercase rune that closes
+// an uppercase run (the S of HTTPServer). That last rule is the one an
+// upper-after-lower test alone misses, and it is the rule identtoken.Split
+// already applies when indexing, so scoring and indexing agree on word starts.
+//
 // On top of that, every rune skipped *between* two matched runes costs
 // gapPenaltyPerRune. Without it a name that merely happens to contain the query
 // scattered across it scores close to one that spells it out: "conn" separated
@@ -323,6 +330,8 @@ func matchBonus(target []rune, i int, consecutive bool) float64 {
 		return bonusWordStart
 	case isIdentSep(target[i-1]):
 		return bonusWordStart
+	case isAcronymTail(target, i):
+		return bonusWordStart
 	case consecutive:
 		return bonusConsecutive
 	default:
@@ -416,6 +425,17 @@ func tokenize(s string) []string {
 // @intent recognize separators that delimit meaningful source-path segments.
 func isPathSep(r rune) bool {
 	return r == '/' || isIdentSep(r)
+}
+
+// isAcronymTail reports whether target[i] opens the word that follows an
+// uppercase run, the way the S does in HTTPServer. An upper-after-lower test
+// cannot see that boundary, because the rune before it is uppercase too. This
+// is the same rule identtoken.Split uses to index HTTPServer as http + server,
+// so scoring and indexing agree on where the word starts.
+// @intent keep acronym-prefixed identifiers scoring like their mixed-case spelling.
+func isAcronymTail(target []rune, i int) bool {
+	return unicode.IsUpper(target[i]) && unicode.IsUpper(target[i-1]) &&
+		i+1 < len(target) && unicode.IsLower(target[i+1])
 }
 
 // @intent recognize separators that delimit words inside a single identifier.

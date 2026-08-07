@@ -516,3 +516,13 @@ func assertNodeIDOrder(t *testing.T, got []graph.Node, wantIDs []uint) {
 		}
 	}
 }
+
+// An acronym run hides the boundary that starts the next word: the S in
+// HTTPServer follows an uppercase P, so an upper-after-lower test misses it.
+func TestNameSim_AcronymRunDoesNotHideTheNextWordBoundary(t *testing.T) {
+	acronym := nameSim([]string{"server"}, graph.Node{Name: "HTTPServer"})
+	mixed := nameSim([]string{"server"}, graph.Node{Name: "HttpServer"})
+	if acronym != mixed {
+		t.Errorf("HTTPServer scored %.4f but HttpServer scored %.4f; the word boundary is the same", acronym, mixed)
+	}
+}
