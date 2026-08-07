@@ -257,11 +257,13 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 
 // searchFederated fans full-text search out over an explicit namespace set and merges reranked hits.
 // @intent answer one search across several repositories with per-item namespace labels.
-// @domainRule each namespace is queried in isolation; reranking happens once over the merged candidate pool.
+// @domainRule each namespace is queried in isolation; every namespace's hits keep their own backend rank when fused.
 func (h *handlers) searchFederated(ctx context.Context, query string, limit int, pathPrefix string, namespaces []string) (*mcp.CallToolResult, error) {
 	log := h.logger()
 	return finalizeToolResult(h.cachedExecute(ctx, "search:", map[string]any{"query": query, "limit": limit, "path": pathPrefix, "namespaces": namespaces}, func() (string, error) {
-		var merged []graph.Node
+		// Each namespace stays its own ranked list so fusion charges a hit the rank
+		// it held in its own namespace, not its offset in a concatenated slice.
+		groups := make([][]graph.Node, 0, len(namespaces))
 		for _, ns := range namespaces {
 			nsCtx := requestctx.WithNamespace(ctx, ns)
 			nodes, err := h.deps.Graph.Search.Query(nsCtx, query, searchrank.FetchLimit(limit))
@@ -272,20 +274,19 @@ func (h *handlers) searchFederated(ctx context.Context, query string, limit int,
 			for i := range nodes {
 				nodes[i].Namespace = ns
 			}
-			merged = append(merged, nodes...)
-		}
-
-		if pathPrefix != "" {
-			filtered := merged[:0]
-			for _, n := range merged {
-				if pathspec.HasPathPrefix(n.FilePath, pathPrefix) {
-					filtered = append(filtered, n)
+			if pathPrefix != "" {
+				filtered := nodes[:0]
+				for _, n := range nodes {
+					if pathspec.HasPathPrefix(n.FilePath, pathPrefix) {
+						filtered = append(filtered, n)
+					}
 				}
+				nodes = filtered
 			}
-			merged = filtered
+			groups = append(groups, nodes)
 		}
 
-		merged = searchrank.Rerank(query, merged, 0)
+		merged := searchrank.RerankGroups(query, groups, 0)
 		merged = selectWithNamespaceQuota(merged, limit, len(namespaces))
 		log.Info("federated search completed", "query", query, "namespaces", namespaces, "result_count", len(merged))
 
