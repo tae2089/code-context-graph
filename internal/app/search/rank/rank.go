@@ -8,7 +8,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/tae2089/code-context-graph/internal/app/search/identtoken"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
@@ -37,6 +36,40 @@ const (
 	fetchFactor = 5
 	fetchFloor  = 50
 	fetchCap    = 500
+)
+
+// Name-similarity tuning.
+//
+// The primary scorer requires the query to appear in the name as an ordered
+// subsequence, the way an editor fuzzy-finder matches. Names that do not
+// contain it score exactly 0, so unrelated identifiers never compete with real
+// hits — no similarity threshold has to be guessed. Where each query rune lands
+// decides how much it is worth: the start of the name is worth most, the start
+// of a sub-word next, a run continuing the previous match next, and a rune
+// reached only after skipping others least.
+//
+// On top of that, every rune skipped *between* two matched runes costs
+// gapPenaltyPerRune. Without it a name that merely happens to contain the query
+// scattered across it scores close to one that spells it out: "conn" separated
+// only canonicalName from connectionPool by 0.03. Runes skipped *before* the
+// first match are free, so a query matching the middle of a name (getUserById
+// for "user") is not punished for the prefix it did not ask for.
+//
+// Subsequence matching cannot see a typo that reorders runes ("reciept" for
+// "receipt"), so Jaro-Winkler runs alongside it and contributes only above
+// jwTypoFloor. Measured on unrelated identifiers Jaro-Winkler peaks around
+// 0.78, so the floor admits typos without admitting noise.
+const (
+	bonusNameStart     = 1.0
+	bonusWordStart     = 0.8
+	bonusConsecutive   = 0.7
+	bonusScattered     = 0.3
+	gapPenaltyPerRune  = 0.2
+	tailPenaltyPerRune = 0.06
+
+	jwTypoFloor   = 0.90
+	jwPrefixMax   = 4
+	jwPrefixScale = 0.1
 )
 
 // FetchLimit widens the candidate pool pulled from FTS so structural reranking
@@ -155,34 +188,159 @@ func structScore(qTokens []string, node graph.Node) float64 {
 
 // nameSim scores fuzzy similarity of the query against the node name and the
 // last segment of its qualified name. For each target it takes the stronger of:
-//   - token-level: every query token's best match against the whole name or any
-//     of its identifier sub-tokens (so "user" or "id" matches getUserById), and
+//   - token-level: the average match of every query token (so "user" or "id"
+//     matches getUserById, and a multi-word query needs most of its words), and
 //   - joined-whole: the run-together query vs the whole name (so a typo like
 //     "getUsrById" still matches getUserById).
 //
+// @ensures an exact identifier match scores 1.0; a partial match scores below
+// that, decreasing as the surrounding identifier grows; an identifier that does
+// not contain the query scores 0.
 // @intent score query tokens against simple and qualified node identifiers with typo tolerance.
 func nameSim(qTokens []string, node graph.Node) float64 {
 	joined := strings.Join(qTokens, "")
-	rawTargets := []string{node.Name, lastSegment(node.QualifiedName, '.')}
+	targets := []string{node.Name, lastSegment(node.QualifiedName, '.')}
 	best := 0.0
-	for _, raw := range rawTargets {
-		if raw == "" {
+	for _, target := range targets {
+		if target == "" {
 			continue
 		}
-		lower := strings.ToLower(raw)
-		subs := identtoken.Split(raw) // original case: camelCase boundaries matter
 		sum := 0.0
 		for _, tok := range qTokens {
-			b := normLevSim(tok, lower)
-			for _, st := range subs {
-				b = max(b, normLevSim(tok, st))
-			}
-			sum += b
+			sum += fuzzySim(tok, target)
 		}
-		cand := max(sum/float64(len(qTokens)), normLevSim(joined, lower))
-		best = max(best, cand)
+		best = max(best, sum/float64(len(qTokens)), fuzzySim(joined, target))
 	}
 	return best
+}
+
+// fuzzySim scores one query token against one identifier, combining ordered
+// subsequence matching with a typo-only Jaro-Winkler contribution.
+// @ensures identical strings score 1.0; a target not containing the query as an
+// ordered subsequence scores 0 unless it is within typo distance.
+// @intent give the name signal a floor of zero for unrelated identifiers while still tolerating typos.
+func fuzzySim(query, target string) float64 {
+	best := subsequenceScore(query, target)
+	if jw := jaroWinkler(strings.ToLower(query), strings.ToLower(target)); jw >= jwTypoFloor {
+		best = max(best, jw)
+	}
+	return best
+}
+
+// subsequenceScore matches the query greedily left to right and rewards each
+// matched rune by where it landed, then divides by query length so the result is
+// comparable across queries, and by a tail penalty so a longer surrounding
+// identifier scores lower. Greedy matching decides containment exactly but may
+// pick a lower-scoring alignment than the best one; the full dynamic-programming
+// alignment editor fuzzy-finders use costs more than the ordering gains here.
+//
+// @ensures returns 0 when the query is not an ordered subsequence of the target.
+// @intent rank identifiers that contain the query by how prominently they contain it.
+func subsequenceScore(query, target string) float64 {
+	q := []rune(strings.ToLower(query))
+	t := []rune(target)
+	if len(q) == 0 || len(t) == 0 || len(q) > len(t) {
+		return 0
+	}
+	lower := []rune(strings.ToLower(target))
+
+	score, qi, skipped := 0.0, 0, 0
+	consecutive := false
+	for ti := range t {
+		if qi >= len(q) {
+			break
+		}
+		if lower[ti] != q[qi] {
+			consecutive = false
+			if qi > 0 {
+				skipped++ // only gaps *between* matches count
+			}
+			continue
+		}
+		score += matchBonus(t, ti, consecutive)
+		qi++
+		consecutive = true
+	}
+	if qi < len(q) {
+		return 0
+	}
+
+	score = max(score-gapPenaltyPerRune*float64(skipped), 0)
+	tail := float64(len(t) - len(q))
+	return score / float64(len(q)) / (1.0 + tailPenaltyPerRune*tail)
+}
+
+// matchBonus weighs one matched rune by its position in the identifier.
+// @intent make a match at a word boundary count for more than one reached by skipping runes.
+func matchBonus(target []rune, i int, consecutive bool) float64 {
+	switch {
+	case i == 0:
+		return bonusNameStart
+	case unicode.IsUpper(target[i]) && !unicode.IsUpper(target[i-1]):
+		return bonusWordStart
+	case isIdentSep(target[i-1]):
+		return bonusWordStart
+	case consecutive:
+		return bonusConsecutive
+	default:
+		return bonusScattered
+	}
+}
+
+// jaroWinkler is the Jaro similarity with the standard Winkler boost for a
+// shared prefix. It is used only to catch typos that reorder or substitute
+// runes, which ordered subsequence matching cannot see.
+// @ensures result is in [0,1]; identical strings score 1.0.
+// @intent measure near-identity between short identifiers independently of rune order.
+func jaroWinkler(a, b string) float64 {
+	ra, rb := []rune(a), []rune(b)
+	if len(ra) == 0 || len(rb) == 0 {
+		return 0
+	}
+	if a == b {
+		return 1
+	}
+
+	window := max(max(len(ra), len(rb))/2-1, 0)
+	matchedA, matchedB := make([]bool, len(ra)), make([]bool, len(rb))
+	matches := 0
+	for i := range ra {
+		for j := max(i-window, 0); j <= min(i+window, len(rb)-1); j++ {
+			if matchedB[j] || ra[i] != rb[j] {
+				continue
+			}
+			matchedA[i], matchedB[j] = true, true
+			matches++
+			break
+		}
+	}
+	if matches == 0 {
+		return 0
+	}
+
+	// Transpositions: matched runes that pair up out of order.
+	transpositions, k := 0, 0
+	for i := range ra {
+		if !matchedA[i] {
+			continue
+		}
+		for !matchedB[k] {
+			k++
+		}
+		if ra[i] != rb[k] {
+			transpositions++
+		}
+		k++
+	}
+
+	m := float64(matches)
+	jaro := (m/float64(len(ra)) + m/float64(len(rb)) + (m-float64(transpositions)/2)/m) / 3
+
+	prefix := 0
+	for prefix < jwPrefixMax && prefix < len(ra) && prefix < len(rb) && ra[prefix] == rb[prefix] {
+		prefix++
+	}
+	return jaro + float64(prefix)*jwPrefixScale*(1-jaro)
 }
 
 // pathScore is the fraction of query tokens that appear as file-path segments.
@@ -214,8 +372,13 @@ func tokenize(s string) []string {
 
 // @intent recognize separators that delimit meaningful source-path segments.
 func isPathSep(r rune) bool {
+	return r == '/' || isIdentSep(r)
+}
+
+// @intent recognize separators that delimit words inside a single identifier.
+func isIdentSep(r rune) bool {
 	switch r {
-	case '/', '.', '_', '-':
+	case '.', '_', '-':
 		return true
 	default:
 		return false
@@ -257,37 +420,4 @@ func rankDesc(scores []float64) []int {
 		rank[idx] = tieStart
 	}
 	return rank
-}
-
-// normLevSim is the Levenshtein distance normalized to a [0,1] similarity.
-// @intent convert edit distance into a comparable bounded relevance score.
-func normLevSim(a, b string) float64 {
-	ra, rb := []rune(a), []rune(b)
-	maxLen := max(len(ra), len(rb))
-	if maxLen == 0 {
-		return 0
-	}
-	return 1.0 - float64(levenshtein(ra, rb))/float64(maxLen)
-}
-
-// levenshtein computes edit distance with a rolling single-row DP.
-// @intent compute Unicode-aware edit distance with memory proportional to the second input.
-func levenshtein(a, b []rune) int {
-	prev := make([]int, len(b)+1)
-	for j := range prev {
-		prev[j] = j
-	}
-	for i := 1; i <= len(a); i++ {
-		curr := make([]int, len(b)+1)
-		curr[0] = i
-		for j := 1; j <= len(b); j++ {
-			cost := 1
-			if a[i-1] == b[j-1] {
-				cost = 0
-			}
-			curr[j] = min(prev[j]+1, curr[j-1]+1, prev[j-1]+cost)
-		}
-		prev = curr
-	}
-	return prev[len(b)]
 }

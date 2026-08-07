@@ -244,6 +244,136 @@ func TestRerankGroups_EmptyGroupsIgnored(t *testing.T) {
 	}
 }
 
+// 서브토큰 일치가 만점으로 포화하면 이름 신호가 변별력을 잃는다. 같은 파일에
+// 있어 path 신호가 동일할 때, 쿼리와 정확히 같은 이름이 그 쿼리를 조각으로만
+// 품은 더 긴 이름보다 위에 와야 한다.
+func TestRerank_ExactNameOutranksLongerNameContainingIt(t *testing.T) {
+	nodes := []graph.Node{
+		{ID: 1, Name: "PaymentProcessHelper", QualifiedName: "billing.PaymentProcessHelper", FilePath: "billing/service.go"},
+		{ID: 2, Name: "Payment", QualifiedName: "billing.Payment", FilePath: "billing/service.go"},
+	}
+	got := Rerank("payment", nodes, 10)
+	assertNodeIDOrder(t, got, []uint{2, 1})
+}
+
+// 이름 신호는 쿼리가 이름의 얼마를 차지하느냐에 따라 단계적으로 낮아져야 한다.
+// 정확 일치 > 짧게 감싼 이름 > 길게 감싼 이름 순으로 줄을 서야, 서브토큰을
+// 가진 후보들 사이에서도 순위가 결정된다.
+func TestNameSim_DecreasesAsNameGrowsAroundQuery(t *testing.T) {
+	qTokens := tokenize("payment")
+	exact := nameSim(qTokens, graph.Node{Name: "Payment"})
+	short := nameSim(qTokens, graph.Node{Name: "paymentProcessor"})
+	long := nameSim(qTokens, graph.Node{Name: "PaymentProcessHelper"})
+
+	if !(exact > short && short > long) {
+		t.Fatalf("expected exact > short > long, got exact=%.4f short=%.4f long=%.4f", exact, short, long)
+	}
+	if exact != 1.0 {
+		t.Fatalf("expected exact name match to score 1.0, got %.4f", exact)
+	}
+}
+
+// 이름이 일치하는 노드는, 이름은 전혀 안 맞고 경로 세그먼트 하나만 겹치는
+// 노드보다 위에 와야 한다. 이름 신호가 긴 이름에서 너무 얕아지면 0.25배로
+// 깎인 경로 신호에조차 진다.
+func TestRerank_NameMatchOutranksPathOnlyMatch(t *testing.T) {
+	nodes := []graph.Node{
+		{ID: 1, Name: "reset", QualifiedName: "repo.reset", FilePath: "internal/user/repo.go"},
+		{ID: 2, Name: "userRepositoryFactory", QualifiedName: "factory.userRepositoryFactory", FilePath: "internal/factory/build.go"},
+	}
+	got := Rerank("user", nodes, 10)
+	if got[0].ID != 2 {
+		t.Fatalf("expected the name match (id=2) above the path-only match, got id=%d", got[0].ID)
+	}
+}
+
+// 이름 신호는 관련 없는 이름과 진짜 일치를 갈라야 한다. 무관한 이름 중 최고
+// 점수가 진짜 일치 중 최저 점수보다 낮아야, 그 사이에 순위 경계가 생긴다.
+func TestNameSim_NoiseScoresBelowEveryRealMatch(t *testing.T) {
+	qTokens := tokenize("user")
+	matches := []string{
+		"user", "userService", "getUserById",
+		"userRepositoryFactory", "UserServiceImplementationFactory",
+		"findUsersByTenantAndStatus",
+	}
+	unrelated := []string{
+		"reset", "serve", "usage", "close",
+		"marshalJSON", "handleRequest", "Error", "Shutdown",
+	}
+
+	worstMatch, worstName := 1.0, ""
+	for _, name := range matches {
+		if s := nameSim(qTokens, graph.Node{Name: name}); s < worstMatch {
+			worstMatch, worstName = s, name
+		}
+	}
+	bestNoise, noiseName := 0.0, ""
+	for _, name := range unrelated {
+		if s := nameSim(qTokens, graph.Node{Name: name}); s > bestNoise {
+			bestNoise, noiseName = s, name
+		}
+	}
+	if bestNoise >= worstMatch {
+		t.Fatalf("noise %q scored %.4f, not below the weakest real match %q at %.4f",
+			noiseName, bestNoise, worstName, worstMatch)
+	}
+}
+
+// 글자가 빠진 오타(usr)와 바뀐 오타(reciept)를 모두 잡아야 한다. 부분 수열
+// 매칭만으로는 순서가 어긋난 오타를 놓친다.
+func TestNameSim_ToleratesTyposThatBreakSubsequenceOrder(t *testing.T) {
+	cases := []struct{ query, name string }{
+		{"usr", "user"},                         // 글자 빠짐
+		{"reciept", "receipt"},                  // 글자 순서 바뀜
+		{"paymnt", "payment"},                   // 글자 빠짐
+		{"paymentProcesor", "paymentProcessor"}, // 긴 이름에서 글자 빠짐
+	}
+	noiseCeiling := nameSim(tokenize("user"), graph.Node{Name: "serve"})
+	for _, c := range cases {
+		got := nameSim(tokenize(c.query), graph.Node{Name: c.name})
+		if got <= noiseCeiling {
+			t.Errorf("nameSim(%q, %q)=%.4f, not above the noise level %.4f", c.query, c.name, got, noiseCeiling)
+		}
+	}
+}
+
+// 글자를 여럿 건너뛰며 겨우 부분 수열이 되는 이름(canonicalName 안의 c-o-n-n)은,
+// 글자가 붙어서 일치하는 이름보다 확실히 낮아야 한다. 건너뛴 글자 수를 세지
+// 않으면 둘이 거의 붙어서 순위가 우연에 좌우된다.
+func TestNameSim_ScatteredMatchFallsWellBelowConsecutiveMatch(t *testing.T) {
+	const wantMargin = 0.15
+	cases := []struct{ query, consecutive, scattered string }{
+		{"conn", "connectionPool", "canonicalName"},
+		{"repo", "repository", "responseWriter"},
+	}
+	for _, c := range cases {
+		qTokens := tokenize(c.query)
+		hit := nameSim(qTokens, graph.Node{Name: c.consecutive})
+		miss := nameSim(qTokens, graph.Node{Name: c.scattered})
+		if hit-miss < wantMargin {
+			t.Errorf("query %q: %s=%.4f vs %s=%.4f, margin %.4f below %.2f",
+				c.query, c.consecutive, hit, c.scattered, miss, hit-miss, wantMargin)
+		}
+	}
+}
+
+// 건너뛴 글자를 벌하더라도 줄임말 검색은 살아 있어야 한다. FTS가 접두 검색을
+// 하므로 이런 후보는 실제로 리랭커까지 올라온다.
+func TestNameSim_AbbreviationsStayAboveZero(t *testing.T) {
+	cases := []struct{ query, name string }{
+		{"cfg", "configuration"},
+		{"ctx", "context"},
+		{"conn", "connectionPool"},
+		{"auth", "authenticate"},
+		{"repo", "repository"},
+	}
+	for _, c := range cases {
+		if got := nameSim(tokenize(c.query), graph.Node{Name: c.name}); got <= 0 {
+			t.Errorf("nameSim(%q, %q)=%.4f, want > 0", c.query, c.name, got)
+		}
+	}
+}
+
 func TestFetchLimit(t *testing.T) {
 	if got := FetchLimit(10); got <= 10 {
 		t.Fatalf("expected fetch limit wider than 10, got %d", got)
@@ -253,21 +383,45 @@ func TestFetchLimit(t *testing.T) {
 	}
 }
 
-func TestLevenshtein(t *testing.T) {
+func TestJaroWinkler(t *testing.T) {
 	cases := []struct {
 		a, b string
-		want int
+		want float64
 	}{
 		{"", "", 0},
-		{"abc", "abc", 0},
-		{"abc", "abd", 1},
-		{"abc", "abxc", 1},
-		{"abc", "ac", 1},
-		{"kitten", "sitting", 3},
+		{"abc", "", 0},
+		{"abc", "abc", 1},
+		{"reciept", "receipt", 0.9667},
+		{"martha", "marhta", 0.9611},
+		{"user", "serve", 0.7833},
+		{"abc", "xyz", 0},
 	}
 	for _, c := range cases {
-		if got := levenshtein([]rune(c.a), []rune(c.b)); got != c.want {
-			t.Errorf("levenshtein(%q,%q)=%d, want %d", c.a, c.b, got, c.want)
+		if got := jaroWinkler(c.a, c.b); got < c.want-0.001 || got > c.want+0.001 {
+			t.Errorf("jaroWinkler(%q,%q)=%.4f, want %.4f", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+// 부분 수열이 아니면 0이어야 한다. 이게 무관한 이름을 문턱값 없이 걸러내는
+// 근거이므로, 0으로 떨어지는 성질 자체를 못박는다.
+func TestSubsequenceScore_ZeroWhenQueryNotContained(t *testing.T) {
+	notContained := [][2]string{
+		{"user", "reset"}, {"user", "usage"}, {"user", "serve"},
+		{"payment", "handler"}, {"user", "usr"}, // 질의가 대상보다 길다
+	}
+	for _, c := range notContained {
+		if got := subsequenceScore(c[0], c[1]); got != 0 {
+			t.Errorf("subsequenceScore(%q,%q)=%.4f, want 0", c[0], c[1], got)
+		}
+	}
+	contained := [][2]string{
+		{"user", "userService"}, {"user", "getUserById"},
+		{"auth", "authenticate"}, {"repo", "responseWriter"},
+	}
+	for _, c := range contained {
+		if got := subsequenceScore(c[0], c[1]); got <= 0 {
+			t.Errorf("subsequenceScore(%q,%q)=%.4f, want > 0", c[0], c[1], got)
 		}
 	}
 }
