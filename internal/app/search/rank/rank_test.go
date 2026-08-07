@@ -122,6 +122,94 @@ func TestRerank_NameOutranksSaturatedPath(t *testing.T) {
 	}
 }
 
+// federated 검색은 namespace별 후보 목록을 이어붙인다. 이어붙인 배열의 위치를
+// 검색 순위로 쓰면 뒤쪽 namespace의 1위가 앞쪽 namespace의 후보 개수만큼
+// 밀린다. 두 번째 그룹의 정확한 이름 일치가 첫 그룹의 무관한 후보에게
+// 져서는 안 된다.
+func TestRerankGroups_LaterGroupTopHitNotPenalizedByPosition(t *testing.T) {
+	filler := make([]graph.Node, 0, fetchFloor)
+	for i := range fetchFloor {
+		filler = append(filler, graph.Node{
+			ID:            uint(i + 1),
+			Namespace:     "alpha",
+			Name:          "unrelated",
+			QualifiedName: "alpha.unrelated",
+			FilePath:      "alpha/misc.go",
+		})
+	}
+	exact := graph.Node{
+		ID:            9001,
+		Namespace:     "beta",
+		Name:          "getUserById",
+		QualifiedName: "beta.getUserById",
+		FilePath:      "beta/user.go",
+	}
+
+	got := RerankGroups("getUserById", [][]graph.Node{filler, {exact}}, 5)
+	if len(got) == 0 || got[0].ID != exact.ID {
+		t.Fatalf("expected exact match from the later group on top, got %v", nodeIDs(got))
+	}
+}
+
+// 구조 점수가 확실히 갈리는 후보라면, 그룹을 넘겨준 순서가 결과 순위를 바꾸면
+// 안 된다. alpha는 무관한 후보만 많고 beta에 정확 일치가 하나 있다.
+func TestRerankGroups_GroupOrderDoesNotChangeRanking(t *testing.T) {
+	alpha := make([]graph.Node, 0, fetchFloor)
+	for i := range fetchFloor {
+		alpha = append(alpha, graph.Node{
+			ID:            uint(i + 1),
+			Namespace:     "alpha",
+			Name:          "unrelated",
+			QualifiedName: "alpha.unrelated",
+			FilePath:      "alpha/misc.go",
+		})
+	}
+	beta := []graph.Node{
+		{ID: 9001, Namespace: "beta", Name: "login", QualifiedName: "beta.login", FilePath: "beta/auth.go"},
+		{ID: 9002, Namespace: "beta", Name: "somethingElse", QualifiedName: "beta.somethingElse", FilePath: "beta/misc.go"},
+	}
+
+	forward := nodeIDs(RerankGroups("login", [][]graph.Node{alpha, beta}, 0))
+	reversed := nodeIDs(RerankGroups("login", [][]graph.Node{beta, alpha}, 0))
+
+	if len(forward) != len(reversed) {
+		t.Fatalf("length mismatch: %d vs %d", len(forward), len(reversed))
+	}
+	if forward[0] != reversed[0] {
+		t.Fatalf("top hit depends on group order: forward=%v reversed=%v", forward[0], reversed[0])
+	}
+	if forward[0] != 9001 {
+		t.Fatalf("expected the exact-name match (id=9001) on top, got %v", forward[0])
+	}
+}
+
+// 그룹이 하나면 기존 Rerank와 결과가 같아야 한다.
+func TestRerankGroups_SingleGroupMatchesRerank(t *testing.T) {
+	nodes := []graph.Node{
+		{ID: 1, Name: "handleRequest", QualifiedName: "http.handleRequest", FilePath: "http/handler.go"},
+		{ID: 2, Name: "getUserById", QualifiedName: "svc.getUserById", FilePath: "svc/user.go"},
+		{ID: 3, Name: "deleteUser", QualifiedName: "svc.deleteUser", FilePath: "svc/user.go"},
+	}
+	want := nodeIDs(Rerank("getUserById", nodes, 0))
+	got := nodeIDs(RerankGroups("getUserById", [][]graph.Node{nodes}, 0))
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("single-group result diverged: got %v, want %v", got, want)
+		}
+	}
+}
+
+// 빈 그룹이 섞여 있어도 나머지 그룹의 지역 순위는 그대로 유지된다.
+func TestRerankGroups_EmptyGroupsIgnored(t *testing.T) {
+	beta := []graph.Node{
+		{ID: 3, Namespace: "beta", Name: "getUserById", QualifiedName: "beta.getUserById", FilePath: "beta/user.go"},
+	}
+	got := RerankGroups("getUserById", [][]graph.Node{nil, {}, beta}, 0)
+	if len(got) != 1 || got[0].ID != 3 {
+		t.Fatalf("expected the only non-empty group's node, got %v", nodeIDs(got))
+	}
+}
+
 func TestFetchLimit(t *testing.T) {
 	if got := FetchLimit(10); got <= 10 {
 		t.Fatalf("expected fetch limit wider than 10, got %d", got)
@@ -148,6 +236,14 @@ func TestLevenshtein(t *testing.T) {
 			t.Errorf("levenshtein(%q,%q)=%d, want %d", c.a, c.b, got, c.want)
 		}
 	}
+}
+
+func nodeIDs(nodes []graph.Node) []uint {
+	ids := make([]uint, len(nodes))
+	for i, n := range nodes {
+		ids[i] = n.ID
+	}
+	return ids
 }
 
 func assertNodeIDOrder(t *testing.T, got []graph.Node, wantIDs []uint) {

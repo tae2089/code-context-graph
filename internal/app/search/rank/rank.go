@@ -65,9 +65,9 @@ func Rerank(query string, nodes []graph.Node, limit int) []graph.Node {
 }
 
 // rerankWithRanks fuses the caller-supplied retrieval rank of each node with the
-// structural signal. Keeping the rank separate from the slice position lets one
-// implementation serve callers whose candidates did not come from a single
-// ranked list: retrievalRank[i] is node i's rank in its own source list.
+// structural signal. Splitting the rank out of the slice position is what lets
+// federated search fuse several ranked lists: retrievalRank[i] is node i's rank
+// *within its own source list*, not its position in the merged slice.
 //
 // @requires len(retrievalRank) == len(nodes); each entry is a 0-based rank.
 // @intent keep one fusion implementation for both single-list and multi-list retrieval.
@@ -106,6 +106,35 @@ func rerankWithRanks(query string, nodes []graph.Node, retrievalRank []int, limi
 		out[pos] = nodes[idx]
 	}
 	return applyLimit(out, limit)
+}
+
+// RerankGroups fuses several independently ranked candidate lists — one per
+// namespace in federated search — into a single ordering.
+//
+// Concatenating the lists and calling Rerank would be wrong: Rerank reads a
+// node's array position as its retrieval rank, so the second list's top hit
+// would be charged the first list's length. With a 50-row pool that alone costs
+// it more than the whole structural signal can repay, and every extra namespace
+// makes it worse. Here each node keeps the rank it held inside its own list.
+//
+// @requires each group is that source's rank-ordered candidate slice.
+// @ensures a node's fused score does not depend on which group it came from or
+// on the order the groups were supplied; empty groups contribute nothing.
+// @intent make federated results comparable across namespaces instead of favouring whichever namespace was queried first.
+func RerankGroups(query string, groups [][]graph.Node, limit int) []graph.Node {
+	total := 0
+	for _, g := range groups {
+		total += len(g)
+	}
+	merged := make([]graph.Node, 0, total)
+	retrievalRank := make([]int, 0, total)
+	for _, g := range groups {
+		for i := range g {
+			merged = append(merged, g[i])
+			retrievalRank = append(retrievalRank, i)
+		}
+	}
+	return rerankWithRanks(query, merged, retrievalRank, limit)
 }
 
 // applyLimit bounds the result slice, treating a non-positive limit as unbounded.
