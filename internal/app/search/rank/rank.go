@@ -56,6 +56,22 @@ func FetchLimit(limit int) int {
 // bounded by limit, preserving FTS order.
 // @intent combine backend relevance with identifier-name and file-path similarity without losing deterministic FTS tie order.
 func Rerank(query string, nodes []graph.Node, limit int) []graph.Node {
+	// A single ranked list: array position is the retrieval rank.
+	retrievalRank := make([]int, len(nodes))
+	for i := range nodes {
+		retrievalRank[i] = i
+	}
+	return rerankWithRanks(query, nodes, retrievalRank, limit)
+}
+
+// rerankWithRanks fuses the caller-supplied retrieval rank of each node with the
+// structural signal. Keeping the rank separate from the slice position lets one
+// implementation serve callers whose candidates did not come from a single
+// ranked list: retrievalRank[i] is node i's rank in its own source list.
+//
+// @requires len(retrievalRank) == len(nodes); each entry is a 0-based rank.
+// @intent keep one fusion implementation for both single-list and multi-list retrieval.
+func rerankWithRanks(query string, nodes []graph.Node, retrievalRank []int, limit int) []graph.Node {
 	if strings.TrimSpace(query) == "" || len(nodes) == 0 {
 		return applyLimit(nodes, limit)
 	}
@@ -72,7 +88,7 @@ func Rerank(query string, nodes []graph.Node, limit int) []graph.Node {
 
 	final := make([]float64, len(nodes))
 	for i := range nodes {
-		final[i] = 1.0/(rrfK+float64(i)) + rrfStructWeight/(rrfK+float64(structRank[i]))
+		final[i] = 1.0/(rrfK+float64(retrievalRank[i])) + rrfStructWeight/(rrfK+float64(structRank[i]))
 	}
 
 	order := make([]int, len(nodes))
