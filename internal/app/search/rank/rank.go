@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
@@ -71,6 +72,20 @@ const (
 	jwPrefixMax   = 4
 	jwPrefixScale = 0.1
 )
+
+// jwMinLengthRatio is the shortest length ratio that can still reach
+// jwTypoFloor, so anything below it can skip Jaro-Winkler entirely.
+//
+// With s and L the shorter and longer lengths and r = s/L, at most s runes can
+// match and at best none of them are transposed, so
+//
+//	jaro <= (s/s + s/L + 1) / 3 = (2 + r) / 3
+//
+// The Winkler prefix boost adds at most jwPrefixMax*jwPrefixScale of the
+// remaining headroom, giving jw <= 0.4 + 0.6*jaro = 0.8 + 0.2*r. That reaches
+// jwTypoFloor only when r >= 0.5, so the bound is exact and skipping below it
+// cannot change a score.
+const jwMinLengthRatio = 0.5
 
 // FetchLimit widens the candidate pool pulled from FTS so structural reranking
 // (and any path filtering) has more than the caller's `limit` rows to reorder;
@@ -209,7 +224,10 @@ func nameSim(qTokens []string, node graph.Node) float64 {
 		for _, tok := range qTokens {
 			sum += fuzzySim(tok, target)
 		}
-		best = max(best, sum/float64(len(qTokens)), fuzzySim(joined, target))
+		best = max(best, sum/float64(len(qTokens)))
+		if len(qTokens) > 1 { // for one token the joined query is that token
+			best = max(best, fuzzySim(joined, target))
+		}
 	}
 	return best
 }
@@ -221,10 +239,28 @@ func nameSim(qTokens []string, node graph.Node) float64 {
 // @intent give the name signal a floor of zero for unrelated identifiers while still tolerating typos.
 func fuzzySim(query, target string) float64 {
 	best := subsequenceScore(query, target)
+	if !canReachTypoFloor(query, target) {
+		return best
+	}
 	if jw := jaroWinkler(strings.ToLower(query), strings.ToLower(target)); jw >= jwTypoFloor {
 		best = max(best, jw)
 	}
 	return best
+}
+
+// canReachTypoFloor reports whether two strings are close enough in length for
+// Jaro-Winkler to possibly reach jwTypoFloor. Counting runes without building
+// slices keeps the check cheaper than the call it guards.
+// @intent avoid scoring Jaro-Winkler for the many candidates it cannot rate highly anyway.
+func canReachTypoFloor(a, b string) bool {
+	shorter, longer := utf8.RuneCountInString(a), utf8.RuneCountInString(b)
+	if shorter > longer {
+		shorter, longer = longer, shorter
+	}
+	if longer == 0 {
+		return false
+	}
+	return float64(shorter)/float64(longer) >= jwMinLengthRatio
 }
 
 // subsequenceScore matches the query greedily left to right and rewards each

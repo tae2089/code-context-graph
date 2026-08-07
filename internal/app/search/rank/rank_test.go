@@ -1,6 +1,7 @@
 package rank
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
@@ -370,6 +371,26 @@ func TestNameSim_AbbreviationsStayAboveZero(t *testing.T) {
 	for _, c := range cases {
 		if got := nameSim(tokenize(c.query), graph.Node{Name: c.name}); got <= 0 {
 			t.Errorf("nameSim(%q, %q)=%.4f, want > 0", c.query, c.name, got)
+		}
+	}
+}
+
+// 길이 비율로 Jaro-Winkler 호출을 건너뛰는 최적화는, 건너뛴 쌍이 실제로도
+// jwTypoFloor에 못 닿을 때만 안전하다. 점수를 바꾸지 않는다는 성질을 못박는다.
+func TestCanReachTypoFloor_NeverSkipsAScoringPair(t *testing.T) {
+	words := []string{
+		"user", "usr", "users", "serve", "reset", "usage", "getUserById",
+		"payment", "paymnt", "paymentProcessor", "paymentProcesor",
+		"receipt", "reciept", "auth", "authenticate", "repo", "repository",
+		"conn", "connectionPool", "cfg", "configuration", "a", "ab", "",
+		"사용자", "사용", "사용자정보",
+	}
+	for _, a := range words {
+		for _, b := range words {
+			jw := jaroWinkler(strings.ToLower(a), strings.ToLower(b))
+			if jw >= jwTypoFloor && !canReachTypoFloor(a, b) {
+				t.Errorf("guard skipped %q vs %q, but jaroWinkler=%.4f >= %.2f", a, b, jw, jwTypoFloor)
+			}
 		}
 	}
 }
