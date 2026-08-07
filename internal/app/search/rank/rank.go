@@ -4,6 +4,7 @@
 package rank
 
 import (
+	"math"
 	"sort"
 	"strings"
 	"unicode"
@@ -30,7 +31,7 @@ const (
 // pathSignalWeight has to sit below the weakest name score worth ranking, or a
 // node that merely shares a directory buries a real name match. Abbreviated and
 // very long identifiers score low — measured, "cfg" against ccgConfigFileGlobals
-// is 0.066 and against loadConfig is 0.188 — so the weight is set under those.
+// is 0.132 and against loadConfig is 0.188 — so the weight is set under those.
 // This is a calibration, not a bound: nameSim has no positive lower limit, so a
 // weak enough real match can still lose. Tests pin the measured cases.
 const (
@@ -100,6 +101,11 @@ const (
 // jwTypoFloor only when r >= 0.5, so the bound is exact and skipping below it
 // cannot change a score.
 const jwMinLengthRatio = 0.5
+
+// noAlignment marks an alignment the scorer cannot reach. It has to lose every
+// max() it takes part in, and stay lost after a bonus is added to it, so -Inf is
+// the only safe choice: any finite sentinel could be climbed back out of.
+var noAlignment = math.Inf(-1)
 
 // FetchLimit widens the candidate pool pulled from FTS so structural reranking
 // (and any path filtering) has more than the caller's `limit` rows to reorder;
@@ -277,12 +283,18 @@ func canReachTypoFloor(a, b string) bool {
 	return float64(shorter)/float64(longer) >= jwMinLengthRatio
 }
 
-// subsequenceScore matches the query greedily left to right and rewards each
-// matched rune by where it landed, then divides by query length so the result is
-// comparable across queries, and by a tail penalty so a longer surrounding
-// identifier scores lower. Greedy matching decides containment exactly but may
-// pick a lower-scoring alignment than the best one; the full dynamic-programming
-// alignment editor fuzzy-finders use costs more than the ordering gains here.
+// subsequenceScore rewards each matched rune by where it landed, then divides by
+// query length so the result is comparable across queries, and by a tail penalty
+// so a longer surrounding identifier scores lower.
+//
+// It scores the *best* alignment, not the first one found scanning left to
+// right. Greedy scanning decides containment correctly but scores it wrong: it
+// binds the query's opening rune to the earliest target rune that matches, so
+// "processor" anchored to the p of paymentProcessor and then paid a seven-rune
+// gap crossing to the word it actually names. That cost real orderings —
+// "server" scored startNewServer 0.24 against serviceProvider 0.34, ranking a
+// scattered match above the name that spells the word out. Taking the best
+// alignment moves that pair to 0.48 against 0.34.
 //
 // @ensures returns 0 when the query is not an ordered subsequence of the target.
 // @intent rank identifiers that contain the query by how prominently they contain it.
@@ -294,28 +306,51 @@ func subsequenceScore(query, target string) float64 {
 	}
 	lower := []rune(strings.ToLower(target))
 
-	score, qi, skipped := 0.0, 0, 0
-	consecutive := false
-	for ti := range t {
-		if qi >= len(q) {
-			break
-		}
-		if lower[ti] != q[qi] {
-			consecutive = false
-			if qi > 0 {
-				skipped++ // only gaps *between* matches count
+	// best[j] holds the score of the best alignment whose last matched query
+	// rune sits at target position j; unreachable positions stay at noAlignment.
+	// Rolling two rows keeps this O(len(q)*len(t)) time and O(len(t)) space.
+	rows := make([]float64, 2*len(t))
+	prev, cur := rows[:len(t)], rows[len(t):]
+	for qi := range q {
+		// carry is the best prev[k] + gapPenaltyPerRune*k over every k that
+		// leaves at least one skipped rune before the current position. Folding
+		// the penalty into the carry is what keeps the inner loop linear: the
+		// gap cost of jumping k -> j splits into a term that depends only on k
+		// and one that depends only on j.
+		carry := noAlignment
+		for tj := range t {
+			if tj >= 2 {
+				carry = max(carry, prev[tj-2]+gapPenaltyPerRune*float64(tj-2))
 			}
-			continue
+			if lower[tj] != q[qi] {
+				cur[tj] = noAlignment
+				continue
+			}
+			if qi == 0 {
+				// Runes skipped before the first match are free, so a query
+				// matching the middle of a name pays nothing for the prefix.
+				cur[tj] = matchBonus(t, tj, false)
+				continue
+			}
+			consecutive := noAlignment
+			if tj > 0 {
+				consecutive = prev[tj-1] + matchBonus(t, tj, true)
+			}
+			gapped := carry - gapPenaltyPerRune*float64(tj-1) + matchBonus(t, tj, false)
+			cur[tj] = max(consecutive, gapped)
 		}
-		score += matchBonus(t, ti, consecutive)
-		qi++
-		consecutive = true
-	}
-	if qi < len(q) {
-		return 0
+		prev, cur = cur, prev
 	}
 
-	score = max(score-gapPenaltyPerRune*float64(skipped), 0)
+	score := noAlignment
+	for tj := range t {
+		score = max(score, prev[tj])
+	}
+	if math.IsInf(score, -1) {
+		return 0 // the query is not an ordered subsequence of the target
+	}
+
+	score = max(score, 0)
 	tail := float64(len(t) - len(q))
 	return score / float64(len(q)) / (1.0 + tailPenaltyPerRune*tail)
 }

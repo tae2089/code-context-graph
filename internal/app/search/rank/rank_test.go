@@ -517,6 +517,32 @@ func assertNodeIDOrder(t *testing.T, got []graph.Node, wantIDs []uint) {
 	}
 }
 
+// A name that spells the query out as a whole word must outscore one that only
+// contains its runes scattered. A left-to-right greedy matcher fails this: it
+// binds the query's first rune to the name's first rune and then pays a gap
+// penalty crossing to the real word.
+func TestNameSim_WholeWordMatchBeatsScatteredMatch(t *testing.T) {
+	cases := []struct {
+		query     string
+		word      string // contains the query as a whole sub-word
+		scattered string // contains the query's runes only in order
+	}{
+		{"processor", "paymentProcessor", "pathResolverCacheSessionStore"},
+		{"server", "startNewServer", "serviceProvider"},
+		{"response", "parseJsonResponse", "resolveNamespace"},
+	}
+	for _, c := range cases {
+		t.Run(c.query, func(t *testing.T) {
+			word := nameSim([]string{c.query}, graph.Node{Name: c.word})
+			scattered := nameSim([]string{c.query}, graph.Node{Name: c.scattered})
+			if word <= scattered {
+				t.Errorf("nameSim(%q, %q)=%.4f must exceed nameSim(%q, %q)=%.4f",
+					c.query, c.word, word, c.query, c.scattered, scattered)
+			}
+		})
+	}
+}
+
 // An acronym run hides the boundary that starts the next word: the S in
 // HTTPServer follows an uppercase P, so an upper-after-lower test misses it.
 func TestNameSim_AcronymRunDoesNotHideTheNextWordBoundary(t *testing.T) {
