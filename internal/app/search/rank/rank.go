@@ -230,8 +230,15 @@ func lastSegment(s string, sep rune) string {
 	return s
 }
 
-// rankDesc returns each index's position when scores are ordered descending;
-// ties resolve by original index so the ranking is deterministic.
+// rankDesc returns each index's rank when scores are ordered descending, sharing
+// one rank across an equal-score group (standard competition ranking: 0,1,1,3).
+//
+// Splitting a tie by array position would smuggle position back into the
+// structural signal, and in federated search array position is namespace order —
+// a namespace queried later would lose to identical evidence queried first.
+//
+// @ensures equal scores receive equal ranks; the rank after a tie group of size n
+// skips n-1 values, so rank values stay comparable to a plain ordinal ranking.
 // @intent convert structural scores to deterministic ordinal ranks for reciprocal-rank fusion.
 func rankDesc(scores []float64) []int {
 	order := make([]int, len(scores))
@@ -242,8 +249,12 @@ func rankDesc(scores []float64) []int {
 		return scores[order[a]] > scores[order[b]]
 	})
 	rank := make([]int, len(scores))
+	tieStart := 0
 	for pos, idx := range order {
-		rank[idx] = pos
+		if pos > 0 && scores[idx] != scores[order[pos-1]] {
+			tieStart = pos
+		}
+		rank[idx] = tieStart
 	}
 	return rank
 }

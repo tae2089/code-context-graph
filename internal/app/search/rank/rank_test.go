@@ -183,6 +183,40 @@ func TestRerankGroups_GroupOrderDoesNotChangeRanking(t *testing.T) {
 	}
 }
 
+// 구조 점수가 완전히 같은 후보들은 구조 순위도 같아야 한다. 배열 위치로
+// 순위를 나누면 뒤쪽 그룹이 동점인데도 앞쪽 그룹 전체 뒤로 밀린다.
+func TestRerankGroups_TiedStructScoreDoesNotSinkLaterGroup(t *testing.T) {
+	alpha := make([]graph.Node, 0, fetchFloor)
+	for i := range fetchFloor {
+		alpha = append(alpha, graph.Node{
+			ID:            uint(i + 1),
+			Namespace:     "alpha",
+			Name:          "getUserById",
+			QualifiedName: "alpha.getUserById",
+			FilePath:      "alpha/user.go",
+		})
+	}
+	// beta의 후보는 alpha 후보들과 구조 신호가 완전히 동일하고, 자기 목록에서 1위다.
+	beta := []graph.Node{
+		{ID: 9001, Namespace: "beta", Name: "getUserById", QualifiedName: "beta.getUserById", FilePath: "beta/user.go"},
+	}
+
+	got := nodeIDs(RerankGroups("getUserById", [][]graph.Node{alpha, beta}, 0))
+	// 동점이므로 alpha의 1위와만 순서 경쟁하면 된다: beta는 2번째 자리여야 한다.
+	if len(got) < 2 || got[1] != 9001 {
+		t.Fatalf("tied later-group hit sank to position %d, want 1 (got %v...)", indexOf(got, 9001), got[:min(5, len(got))])
+	}
+}
+
+func indexOf(ids []uint, want uint) int {
+	for i, id := range ids {
+		if id == want {
+			return i
+		}
+	}
+	return -1
+}
+
 // 그룹이 하나면 기존 Rerank와 결과가 같아야 한다.
 func TestRerankGroups_SingleGroupMatchesRerank(t *testing.T) {
 	nodes := []graph.Node{
