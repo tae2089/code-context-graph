@@ -26,9 +26,16 @@ const (
 // proximity: every node in one file shares the path, so an unweighted max lets
 // a path hit saturate the score and bury the exact-name match. Weighting name
 // above path keeps name the dominant signal with path as a nudge.
+//
+// pathSignalWeight has to sit below the weakest name score worth ranking, or a
+// node that merely shares a directory buries a real name match. Abbreviated and
+// very long identifiers score low — measured, "cfg" against ccgConfigFileGlobals
+// is 0.066 and against loadConfig is 0.188 — so the weight is set under those.
+// This is a calibration, not a bound: nameSim has no positive lower limit, so a
+// weak enough real match can still lose. Tests pin the measured cases.
 const (
 	nameSignalWeight = 1.0
-	pathSignalWeight = 0.25
+	pathSignalWeight = 0.05
 )
 
 // Candidate-pool sizing. Callers over-fetch a wider pool than the requested
