@@ -1,0 +1,241 @@
+[
+  {
+    "query": "SanitizeFTS5",
+    "bucket": "exact",
+    "retrieved": true,
+    "returned": 2,
+    "rank": 1
+  },
+  {
+    "query": "BuildContent",
+    "bucket": "exact",
+    "retrieved": true,
+    "returned": 8,
+    "rank": 1
+  },
+  {
+    "query": "UnresolvedEdgeCandidate",
+    "bucket": "exact",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 1
+  },
+  {
+    "query": "promoteExactNameMatch",
+    "bucket": "exact",
+    "retrieved": true,
+    "returned": 1,
+    "rank": 1
+  },
+  {
+    "query": "RunMigrations",
+    "bucket": "exact",
+    "retrieved": true,
+    "returned": 6,
+    "rank": 1
+  },
+  {
+    "query": "sanit",
+    "bucket": "prefix",
+    "retrieved": true,
+    "returned": 9,
+    "rank": 2
+  },
+  {
+    "query": "rerank",
+    "bucket": "prefix",
+    "retrieved": true,
+    "returned": 8,
+    "rank": 1
+  },
+  {
+    "query": "annot",
+    "bucket": "prefix",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 1
+  },
+  {
+    "query": "crossref",
+    "bucket": "prefix",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 1
+  },
+  {
+    "query": "impact",
+    "bucket": "prefix",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 1
+  },
+  {
+    "query": "discovery",
+    "bucket": "subword",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 2
+  },
+  {
+    "query": "syncer",
+    "bucket": "subword",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 1
+  },
+  {
+    "query": "radius",
+    "bucket": "subword",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 1
+  },
+  {
+    "query": "tracer",
+    "bucket": "subword",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 1
+  },
+  {
+    "query": "membership",
+    "bucket": "subword",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 2
+  },
+  {
+    "query": "fts",
+    "bucket": "acronym",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 1
+  },
+  {
+    "query": "sqlite",
+    "bucket": "acronym",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 1
+  },
+  {
+    "query": "mcp",
+    "bucket": "acronym",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 5
+  },
+  {
+    "query": "cfg",
+    "bucket": "abbreviation",
+    "retrieved": false,
+    "returned": 0,
+    "rank": 0
+  },
+  {
+    "query": "parsecache",
+    "bucket": "abbreviation",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 1
+  },
+  {
+    "query": "sanitze",
+    "bucket": "typo",
+    "retrieved": false,
+    "returned": 0,
+    "rank": 0
+  },
+  {
+    "query": "retreival",
+    "bucket": "typo",
+    "retrieved": false,
+    "returned": 0,
+    "rank": 0
+  },
+  {
+    "query": "anotation",
+    "bucket": "typo",
+    "retrieved": false,
+    "returned": 0,
+    "rank": 0
+  },
+  {
+    "query": "package discovery",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 2
+  },
+  {
+    "query": "impact radius",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 1
+  },
+  {
+    "query": "cross ref",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 9
+  },
+  {
+    "query": "trace flow",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 1
+  },
+  {
+    "query": "search document",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 5
+  },
+  {
+    "query": "flow membership",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 7,
+    "rank": 1
+  },
+  {
+    "query": "incremental syncer",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 2
+  },
+  {
+    "query": "treesitter semantics",
+    "bucket": "path-scoped",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 3
+  },
+  {
+    "query": "graphgorm crossref",
+    "bucket": "path-scoped",
+    "retrieved": true,
+    "returned": 8,
+    "rank": 2
+  },
+  {
+    "query": "migration schema",
+    "bucket": "path-scoped",
+    "retrieved": true,
+    "returned": 10,
+    "rank": 1
+  },
+  {
+    "query": "zzz nonexistent symbol qqq",
+    "bucket": "negative",
+    "negative": true,
+    "retrieved": false,
+    "returned": 0,
+    "rank": 0
+  }
+]

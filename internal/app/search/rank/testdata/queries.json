@@ -1,0 +1,331 @@
+{
+  "corpus": {
+    "source": "CCG's own graph, captured 2026-08-08",
+    "namespace": "ccg",
+    "nodes": 3504,
+    "note": "Candidates in candidates.json were captured by replaying the production FTS path (searchsql.SQLiteBackend.Query with rank.FetchLimit(10)) against that graph. The capture is frozen: it never re-reads a database, so a metric change is attributable to the ranker alone."
+  },
+  "authorship": {
+    "written_by": "assistant, 2026-08-08, before running any measurement",
+    "measures": "regression, not absolute quality",
+    "caveat": "The same author wrote the ranker and these judgments, so the set cannot prove the ranking is good. It can prove a later change made it worse. Expectations are never edited to make a run pass; a failing query is either a real defect or a documented disagreement."
+  },
+  "label_format": "kind:qualified_name@file_path",
+  "queries": [
+    {
+      "query": "SanitizeFTS5",
+      "bucket": "exact",
+      "relevant": ["function:searchsql.SanitizeFTS5@internal/adapters/outbound/searchsql/sanitize.go"],
+      "why": "The full identifier, typed exactly. Nothing else can be meant."
+    },
+    {
+      "query": "BuildContent",
+      "bucket": "exact",
+      "relevant": ["function:document.BuildContent@internal/app/search/document/document.go"],
+      "why": "Only one node carries this name."
+    },
+    {
+      "query": "UnresolvedEdgeCandidate",
+      "bucket": "exact",
+      "relevant": ["class:graph.UnresolvedEdgeCandidate@internal/domain/graph/unresolved.go"],
+      "why": "Long unique type name; an exact hit is the only acceptable answer."
+    },
+    {
+      "query": "promoteExactNameMatch",
+      "bucket": "exact",
+      "relevant": ["function:searchsql.promoteExactNameMatch@internal/adapters/outbound/searchsql/sanitize.go"],
+      "why": "Unexported but uniquely named."
+    },
+    {
+      "query": "RunMigrations",
+      "bucket": "exact",
+      "relevant": ["function:migration.RunMigrations@internal/db/migration/migration.go"],
+      "why": "Unique exported entry point."
+    },
+
+    {
+      "query": "sanit",
+      "bucket": "prefix",
+      "relevant": [
+        "function:searchsql.SanitizeFTS5@internal/adapters/outbound/searchsql/sanitize.go",
+        "function:searchsql.SanitizePostgresTSQuery@internal/adapters/outbound/searchsql/sanitize.go",
+        "function:searchsql.sanitizeRawTokens@internal/adapters/outbound/searchsql/sanitize.go",
+        "function:searchsql.sanitizeTokens@internal/adapters/outbound/searchsql/sanitize.go",
+        "file:internal/adapters/outbound/searchsql/sanitize.go@internal/adapters/outbound/searchsql/sanitize.go"
+      ],
+      "why": "Half-typed prefix. Any of the sanitize functions or their file is a fair first hit; gitrepo.sanitizeURL is a different subject and is deliberately excluded."
+    },
+    {
+      "query": "rerank",
+      "bucket": "prefix",
+      "relevant": ["function:rank.Rerank@internal/app/search/rank/rank.go"],
+      "why": "Exactly one node spells this."
+    },
+    {
+      "query": "annot",
+      "bucket": "prefix",
+      "relevant": [
+        "class:graph.Annotation@internal/domain/graph/annotation.go",
+        "file:internal/domain/graph/annotation.go@internal/domain/graph/annotation.go",
+        "file:internal/domain/annotation/parser.go@internal/domain/annotation/parser.go",
+        "file:internal/domain/annotation/normalizer.go@internal/domain/annotation/normalizer.go"
+      ],
+      "why": "Short prefix over a crowded namespace. The domain type or its own package files are what someone typing five letters wants, not an MCP response DTO."
+    },
+    {
+      "query": "crossref",
+      "bucket": "prefix",
+      "relevant": [
+        "class:graph.CrossRef@internal/domain/graph/crossref.go",
+        "file:internal/domain/graph/crossref.go@internal/domain/graph/crossref.go",
+        "file:internal/app/crossref/service.go@internal/app/crossref/service.go"
+      ],
+      "why": "The domain type and the service that owns the feature outrank the persistence and transport shells."
+    },
+    {
+      "query": "impact",
+      "bucket": "prefix",
+      "relevant": [
+        "function:impact.Analyzer.ImpactRadius@internal/app/analyze/impact/impact.go",
+        "file:internal/app/analyze/impact/impact.go@internal/app/analyze/impact/impact.go",
+        "package:github.com/tae2089/code-context-graph/internal/app/analyze/impact@internal/app/analyze/impact"
+      ],
+      "why": "One word naming a whole feature. The analyzer, its file, or its package all answer it."
+    },
+
+    {
+      "query": "discovery",
+      "bucket": "subword",
+      "relevant": [
+        "type:treesitter.PackageDiscovery@internal/adapters/outbound/treesitter/langspec.go",
+        "file:internal/adapters/outbound/treesitter/package_discovery.go@internal/adapters/outbound/treesitter/package_discovery.go",
+        "class:ingest.PackageDiscoveryOptions@internal/app/ingest/ports.go"
+      ],
+      "why": "Tests the free-prefix rule: the query names the second word of the identifier and must not be charged for the first."
+    },
+    {
+      "query": "syncer",
+      "bucket": "subword",
+      "relevant": [
+        "class:incremental.Syncer@internal/app/ingest/incremental/incremental.go",
+        "type:ingest.IncrementalSyncer@internal/app/ingest/ports.go",
+        "type:ingest.BatchIncrementalSyncer@internal/app/ingest/ports.go"
+      ],
+      "why": "Trailing word shared by one concrete type and several interfaces."
+    },
+    {
+      "query": "radius",
+      "bucket": "subword",
+      "relevant": [
+        "function:impact.Analyzer.ImpactRadius@internal/app/analyze/impact/impact.go",
+        "class:impact.RadiusOptions@internal/app/analyze/impact/impact.go",
+        "class:impact.RadiusResult@internal/app/analyze/impact/impact.go"
+      ],
+      "why": "The word only exists inside the impact feature, so anything in that file is a fair hit."
+    },
+    {
+      "query": "tracer",
+      "bucket": "subword",
+      "relevant": [
+        "class:flow.Tracer@internal/app/analyze/flow/flow.go",
+        "function:flow.Tracer.TraceFlow@internal/app/analyze/flow/flow.go"
+      ],
+      "why": "The flow tracer, not the observability trace file, which spells the word differently."
+    },
+    {
+      "query": "membership",
+      "bucket": "subword",
+      "relevant": ["class:graph.FlowMembership@internal/domain/graph/flow.go"],
+      "why": "Trailing word of exactly one domain type."
+    },
+
+    {
+      "query": "fts",
+      "bucket": "acronym",
+      "relevant": [
+        "function:searchsql.SanitizeFTS5@internal/adapters/outbound/searchsql/sanitize.go",
+        "class:searchsql.ftsRow@internal/adapters/outbound/searchsql/sqlite.go",
+        "file:internal/adapters/outbound/searchsql/sqlite.go@internal/adapters/outbound/searchsql/sqlite.go"
+      ],
+      "why": "Uppercase run inside a longer name. This is the case isAcronymTail was added for."
+    },
+    {
+      "query": "sqlite",
+      "bucket": "acronym",
+      "relevant": [
+        "class:searchsql.SQLiteBackend@internal/adapters/outbound/searchsql/sqlite.go",
+        "file:internal/adapters/outbound/searchsql/sqlite.go@internal/adapters/outbound/searchsql/sqlite.go"
+      ],
+      "why": "Mixed-case acronym followed by a word: the SQLiteBackend spelling."
+    },
+    {
+      "query": "mcp",
+      "bucket": "acronym",
+      "relevant": [
+        "package:github.com/tae2089/code-context-graph/internal/adapters/inbound/mcp@internal/adapters/inbound/mcp",
+        "file:internal/adapters/inbound/mcp/deps.go@internal/adapters/inbound/mcp/deps.go"
+      ],
+      "why": "A three-letter acronym naming a whole adapter. The package itself answers it better than any one handler file."
+    },
+
+    {
+      "query": "cfg",
+      "bucket": "abbreviation",
+      "relevant": [
+        "class:server.Config@internal/adapters/inbound/http/config.go",
+        "class:wikiserver.Config@internal/adapters/inbound/wikihttp/server.go",
+        "class:flow.Config@internal/app/analyze/flow/builder.go",
+        "class:obs.Config@internal/obs/trace.go",
+        "file:internal/config/config.go@internal/config/config.go",
+        "package:github.com/tae2089/code-context-graph/internal/config@internal/config"
+      ],
+      "why": "A habitual abbreviation nobody spells out. It matches 'config' only as a scattered subsequence, so it is the honest stress case for gap penalties."
+    },
+    {
+      "query": "parsecache",
+      "bucket": "abbreviation",
+      "relevant": [
+        "type:ingest.ParseCache@internal/app/ingest/ports.go",
+        "class:graph.ParseCacheEntry@internal/domain/graph/parse_cache.go",
+        "file:internal/app/ingest/workflow/parsecache.go@internal/app/ingest/workflow/parsecache.go",
+        "file:internal/domain/graph/parse_cache.go@internal/domain/graph/parse_cache.go"
+      ],
+      "why": "Written as one word by the user, stored as three spellings in the graph: ParseCache, parsecache.go, parse_cache.go. Tests that case and separator style do not decide the answer."
+    },
+
+    {
+      "query": "sanitze",
+      "bucket": "typo",
+      "relevant": [
+        "function:searchsql.SanitizeFTS5@internal/adapters/outbound/searchsql/sanitize.go",
+        "function:searchsql.SanitizePostgresTSQuery@internal/adapters/outbound/searchsql/sanitize.go",
+        "file:internal/adapters/outbound/searchsql/sanitize.go@internal/adapters/outbound/searchsql/sanitize.go"
+      ],
+      "why": "Dropped an 'i'. Subsequence matching cannot see this, so only Jaro-Winkler can rescue it."
+    },
+    {
+      "query": "retreival",
+      "bucket": "typo",
+      "relevant": [
+        "file:internal/app/search/retrieval/retrieval.go@internal/app/search/retrieval/retrieval.go",
+        "file:internal/app/search/retrieval/service.go@internal/app/search/retrieval/service.go",
+        "package:github.com/tae2089/code-context-graph/internal/app/search/retrieval@internal/app/search/retrieval"
+      ],
+      "why": "Swapped 'ie' for 'ei', the single most common misspelling of this word."
+    },
+    {
+      "query": "anotation",
+      "bucket": "typo",
+      "relevant": [
+        "class:graph.Annotation@internal/domain/graph/annotation.go",
+        "file:internal/domain/graph/annotation.go@internal/domain/graph/annotation.go",
+        "package:github.com/tae2089/code-context-graph/internal/domain/annotation@internal/domain/annotation"
+      ],
+      "why": "One 'n' short. Same length class as the target, so the Jaro-Winkler skip bound must not reject it."
+    },
+
+    {
+      "query": "package discovery",
+      "bucket": "concept",
+      "relevant": [
+        "type:treesitter.PackageDiscovery@internal/adapters/outbound/treesitter/langspec.go",
+        "file:internal/adapters/outbound/treesitter/package_discovery.go@internal/adapters/outbound/treesitter/package_discovery.go",
+        "class:ingest.PackageDiscoveryOptions@internal/app/ingest/ports.go"
+      ],
+      "why": "Two words typed with a space for an identifier written camelCase."
+    },
+    {
+      "query": "impact radius",
+      "bucket": "concept",
+      "relevant": [
+        "function:impact.Analyzer.ImpactRadius@internal/app/analyze/impact/impact.go",
+        "function:impact.Analyzer.ImpactRadiusBounded@internal/app/analyze/impact/impact.go"
+      ],
+      "why": "Names the feature the way the docs do; the analyzer method is the implementation."
+    },
+    {
+      "query": "cross ref",
+      "bucket": "concept",
+      "relevant": [
+        "class:graph.CrossRef@internal/domain/graph/crossref.go",
+        "file:internal/domain/graph/crossref.go@internal/domain/graph/crossref.go",
+        "file:internal/app/crossref/service.go@internal/app/crossref/service.go"
+      ],
+      "why": "Split across two tokens by the user, joined in the code."
+    },
+    {
+      "query": "trace flow",
+      "bucket": "concept",
+      "relevant": [
+        "function:flow.Tracer.TraceFlow@internal/app/analyze/flow/flow.go",
+        "function:flow.Tracer.TraceFlowBounded@internal/app/analyze/flow/flow.go",
+        "class:flow.Tracer@internal/app/analyze/flow/flow.go"
+      ],
+      "why": "This is also the name of an MCP tool, so the DTOs in handler_analysis.go compete with the real implementation."
+    },
+    {
+      "query": "search document",
+      "bucket": "concept",
+      "relevant": [
+        "function:document.BuildContent@internal/app/search/document/document.go",
+        "file:internal/app/search/document/document.go@internal/app/search/document/document.go",
+        "package:github.com/tae2089/code-context-graph/internal/app/search/document@internal/app/search/document"
+      ],
+      "why": "Both words appear in the path as well as the code, so path evidence and name evidence point the same way."
+    },
+    {
+      "query": "flow membership",
+      "bucket": "concept",
+      "relevant": ["class:graph.FlowMembership@internal/domain/graph/flow.go"],
+      "why": "One domain type, spelled as two words."
+    },
+    {
+      "query": "incremental syncer",
+      "bucket": "concept",
+      "relevant": [
+        "class:incremental.Syncer@internal/app/ingest/incremental/incremental.go",
+        "type:ingest.IncrementalSyncer@internal/app/ingest/ports.go",
+        "type:ingest.BatchIncrementalSyncer@internal/app/ingest/ports.go"
+      ],
+      "why": "The concrete Syncer splits its two words across package and type name; the interface joins them."
+    },
+
+    {
+      "query": "treesitter semantics",
+      "bucket": "path-scoped",
+      "relevant": [
+        "file:internal/adapters/outbound/treesitter/semantics.go@internal/adapters/outbound/treesitter/semantics.go",
+        "class:treesitter.GoSemantics@internal/adapters/outbound/treesitter/semantics_go.go",
+        "file:internal/adapters/outbound/treesitter/semantics_go.go@internal/adapters/outbound/treesitter/semantics_go.go"
+      ],
+      "why": "One word is a directory, the other is a name. Path evidence should break ties here, not override the name."
+    },
+    {
+      "query": "graphgorm crossref",
+      "bucket": "path-scoped",
+      "relevant": [
+        "file:internal/adapters/outbound/graphgorm/crossref.go@internal/adapters/outbound/graphgorm/crossref.go",
+        "function:graphgorm.Store.ListInboundCrossRefs@internal/adapters/outbound/graphgorm/crossref.go",
+        "function:graphgorm.Store.ListOutboundCrossRefs@internal/adapters/outbound/graphgorm/crossref.go",
+        "function:graphgorm.Store.ReplaceCrossRefsFrom@internal/adapters/outbound/graphgorm/crossref.go"
+      ],
+      "why": "The package name narrows a feature that exists in four packages. This is the query the lexicographic tie-break is supposed to serve."
+    },
+    {
+      "query": "migration schema",
+      "bucket": "path-scoped",
+      "relevant": [
+        "class:migration.MigrationSchemaVersion@internal/db/migration/migration.go",
+        "file:internal/db/migration/migration.go@internal/db/migration/migration.go"
+      ],
+      "why": "Both words are in the identifier and one is in the path."
+    },
+
+    {
+      "query": "zzz nonexistent symbol qqq",
+      "bucket": "negative",
+      "relevant": [],
+      "why": "Nothing may be returned. Guards against a scorer that always finds something."
+    }
+  ]
+}
