@@ -24,22 +24,6 @@ const (
 	rrfStructWeight = 2.0
 )
 
-// Structural signal weights. Name match is more discriminating than path
-// proximity: every node in one file shares the path, so an unweighted max lets
-// a path hit saturate the score and bury the exact-name match. Weighting name
-// above path keeps name the dominant signal with path as a nudge.
-//
-// pathSignalWeight has to sit below the weakest name score worth ranking, or a
-// node that merely shares a directory buries a real name match. Abbreviated and
-// very long identifiers score low — measured, "cfg" against ccgConfigFileGlobals
-// is 0.132 and against loadConfig is 0.188 — so the weight is set under those.
-// This is a calibration, not a bound: nameSim has no positive lower limit, so a
-// weak enough real match can still lose. Tests pin the measured cases.
-const (
-	nameSignalWeight = 1.0
-	pathSignalWeight = 0.05
-)
-
 // Candidate-pool sizing. Callers over-fetch a wider pool than the requested
 // limit so reranking has more than `limit` rows to reorder before bounding.
 const (
@@ -149,12 +133,27 @@ func rerankWithRanks(query string, nodes []graph.Node, retrievalRank []int, limi
 		return applyLimit(nodes, limit)
 	}
 
-	structScores := make([]float64, len(nodes))
+	// Name evidence orders the candidates; path proximity only separates names
+	// that score the same. Adding a weighted path score to the name score
+	// instead would put two incomparable scales on one number: nameSim is
+	// continuous, while pathScore is the share of query tokens appearing as
+	// path segments and takes only len(qTokens)+1 distinct values — for a
+	// one-word query, exactly 0 or 1. Any weight small enough to stop a path
+	// hit burying a real name match is still large enough to bury a fainter
+	// one, because nameSim has no positive lower bound: at weight 0.05, "adir"
+	// against a 74-rune identifier scored 0.0096 and lost. Ranking name first
+	// removes that crossover instead of relocating it.
+	nameScores := make([]float64, len(nodes))
+	pathScores := make([]float64, len(nodes))
 	for i := range nodes {
-		structScores[i] = structScore(qTokens, nodes[i])
+		nameScores[i] = nameSim(qTokens, nodes[i])
+		pathScores[i] = pathScore(qTokens, nodes[i])
 	}
 	structRank := rankBy(len(nodes), func(a, b int) int {
-		return -cmp.Compare(structScores[a], structScores[b]) // higher score ranks first
+		if by := cmp.Compare(nameScores[b], nameScores[a]); by != 0 {
+			return by // any name evidence outranks none, whatever the path says
+		}
+		return cmp.Compare(pathScores[b], pathScores[a])
 	})
 
 	final := make([]float64, len(nodes))
@@ -215,13 +214,6 @@ func applyLimit(nodes []graph.Node, limit int) []graph.Node {
 		return nodes[:limit]
 	}
 	return nodes
-}
-
-// structScore is a weighted sum of the name and path signals, with name
-// dominant so an exact-name match outranks a mere same-file (path) match.
-// @intent combine identifier and path evidence while keeping identifier similarity dominant.
-func structScore(qTokens []string, node graph.Node) float64 {
-	return nameSignalWeight*nameSim(qTokens, node) + pathSignalWeight*pathScore(qTokens, node)
 }
 
 // nameSim scores fuzzy similarity of the query against the node name and the
