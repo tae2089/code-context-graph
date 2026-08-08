@@ -77,7 +77,8 @@ func TestRerank_PathProximityBoost(t *testing.T) {
 	}
 }
 
-// FTS 1위가 구조 신호 0이어도 RRF의 FTS 항 덕분에 완전히 탈락하지 않는다.
+// 구조 신호가 0인 후보끼리는 FTS 순위가 순서를 정한다. 그래서 FTS 1위는
+// 구조 신호가 없어도 같은 처지의 다른 후보보다는 앞에 남는다.
 func TestRerank_TopFTSHitSurvivesZeroStructSignal(t *testing.T) {
 	nodes := []graph.Node{
 		{ID: 1, Name: "alpha", QualifiedName: "pkg.alpha", FilePath: "pkg/alpha.go"},
