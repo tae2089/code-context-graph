@@ -80,3 +80,15 @@ query that matches nothing exactly is naming something that does not exist.
 Answering it approximately would turn "no such thing" into a confident wrong
 answer. These four are kept, and kept red, so that decision stays visible and so
 anyone who reverses it inherits the measurements in each `why`.
+
+They carry `"out_of_scope": true`, which is why the scoreboard prints two totals:
+
+```
+ALL             33  28/33  25  27  0.793
+ANSWERABLE      29  28/29  25  27  0.902
+```
+
+`ALL` includes the four, so it can never reach 1.0 however good the ranking
+gets. `ANSWERABLE` drops them, and is the number to read when asking how the
+code is doing. The flag changes no assertion — the ratchet still runs query by
+query, and the four stay red in it.

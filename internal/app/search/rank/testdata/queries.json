@@ -181,6 +181,7 @@
     {
       "query": "cfg",
       "bucket": "abbreviation",
+      "out_of_scope": true,
       "relevant": [
         "class:server.Config@internal/adapters/inbound/http/config.go",
         "class:wikiserver.Config@internal/adapters/inbound/wikihttp/server.go",
@@ -205,6 +206,7 @@
     {
       "query": "sanitze",
       "bucket": "typo",
+      "out_of_scope": true,
       "relevant": [
         "function:searchsql.SanitizeFTS5@internal/adapters/outbound/searchsql/sanitize.go",
         "function:searchsql.SanitizePostgresTSQuery@internal/adapters/outbound/searchsql/sanitize.go",
@@ -215,6 +217,7 @@
     {
       "query": "retreival",
       "bucket": "typo",
+      "out_of_scope": true,
       "relevant": [
         "file:internal/app/search/retrieval/retrieval.go@internal/app/search/retrieval/retrieval.go",
         "file:internal/app/search/retrieval/service.go@internal/app/search/retrieval/service.go",
@@ -225,6 +228,7 @@
     {
       "query": "anotation",
       "bucket": "typo",
+      "out_of_scope": true,
       "relevant": [
         "class:graph.Annotation@internal/domain/graph/annotation.go",
         "file:internal/domain/graph/annotation.go@internal/domain/graph/annotation.go",
