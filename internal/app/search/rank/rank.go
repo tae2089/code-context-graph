@@ -1,6 +1,7 @@
 // Package rank reranks FTS-ranked code-search candidates using
-// dependency-free structural signals (name fuzzy similarity, path proximity),
-// so both the CLI `search` command and the MCP `search` tool share one ranking.
+// dependency-free structural signals (name subsequence similarity, path
+// proximity), so both the CLI `search` command and the MCP `search` tool share
+// one ranking.
 package rank
 
 import (
@@ -9,7 +10,6 @@ import (
 	"sort"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
@@ -56,10 +56,12 @@ const (
 // first match are free, so a query matching the middle of a name (getUserById
 // for "user") is not punished for the prefix it did not ask for.
 //
-// Subsequence matching cannot see a typo that reorders runes ("reciept" for
-// "receipt"), so Jaro-Winkler runs alongside it and contributes only above
-// jwTypoFloor. Measured on unrelated identifiers Jaro-Winkler peaks around
-// 0.78, so the floor admits typos without admitting noise.
+// Subsequence matching cannot see a typo that reorders or substitutes runes
+// ("reciept" for "receipt"), and it deliberately does not try. Both callers of
+// this package — the CLI `search` command and the MCP `search` tool — are driven
+// by an agent copying identifiers out of code it has already read, so the query
+// is either spelled correctly or names something that does not exist. Edit
+// tolerance would only turn the second case into a confident wrong answer.
 const (
 	bonusNameStart     = 1.0
 	bonusWordStart     = 0.8
@@ -67,25 +69,7 @@ const (
 	bonusScattered     = 0.3
 	gapPenaltyPerRune  = 0.2
 	tailPenaltyPerRune = 0.06
-
-	jwTypoFloor   = 0.90
-	jwPrefixMax   = 4
-	jwPrefixScale = 0.1
 )
-
-// jwMinLengthRatio is the shortest length ratio that can still reach
-// jwTypoFloor, so anything below it can skip Jaro-Winkler entirely.
-//
-// With s and L the shorter and longer lengths and r = s/L, at most s runes can
-// match and at best none of them are transposed, so
-//
-//	jaro <= (s/s + s/L + 1) / 3 = (2 + r) / 3
-//
-// The Winkler prefix boost adds at most jwPrefixMax*jwPrefixScale of the
-// remaining headroom, giving jw <= 0.4 + 0.6*jaro = 0.8 + 0.2*r. That reaches
-// jwTypoFloor only when r >= 0.5, so the bound is exact and skipping below it
-// cannot change a score.
-const jwMinLengthRatio = 0.5
 
 // noAlignment marks an alignment the scorer cannot reach. It has to lose every
 // max() it takes part in, and stay lost after a bonus is added to it, so -Inf is
@@ -216,17 +200,27 @@ func applyLimit(nodes []graph.Node, limit int) []graph.Node {
 	return nodes
 }
 
-// nameSim scores fuzzy similarity of the query against the node name and the
-// last segment of its qualified name. For each target it takes the stronger of:
+// nameSim scores the query against the node name and the last segment of its
+// qualified name. For each target it takes the stronger of:
 //   - token-level: the average match of every query token (so "user" or "id"
 //     matches getUserById, and a multi-word query needs most of its words), and
-//   - joined-whole: the run-together query vs the whole name (so a typo like
-//     "getUsrById" still matches getUserById).
+//   - joined-whole: the run-together query vs the whole name, which is how a
+//     multi-word query reaches the identifier that spells it without separators
+//     ("search document" against SearchDocument).
 //
-// @ensures an exact identifier match scores 1.0; a partial match scores below
-// that, decreasing as the surrounding identifier grows; an identifier that does
-// not contain the query scores 0.
-// @intent score query tokens against simple and qualified node identifiers with typo tolerance.
+// The scale is ordinal, not absolute: scores compare candidates *within one
+// query* and nothing anchors them to 1.0. An exact match earns the most its
+// query can earn, but how much that is depends on query length and on the
+// target's shape — a word-start bonus outweighs a consecutive one, so
+// CrossRef outscores crossref for "crossref". The old doc promised 1.0 for an
+// exact match, which held only because Jaro-Winkler overwrote the subsequence
+// score with its own 1.0. Nothing reads an absolute threshold, so the ordering
+// is what has to be right.
+//
+// @ensures an exact identifier match scores higher than any longer identifier
+// containing it; an identifier that does not contain the query as an ordered
+// subsequence scores 0.
+// @intent score query tokens against simple and qualified node identifiers.
 func nameSim(qTokens []string, node graph.Node) float64 {
 	joined := strings.Join(qTokens, "")
 	targets := []string{node.Name, lastSegment(node.QualifiedName, '.')}
@@ -237,45 +231,14 @@ func nameSim(qTokens []string, node graph.Node) float64 {
 		}
 		sum := 0.0
 		for _, tok := range qTokens {
-			sum += fuzzySim(tok, target)
+			sum += subsequenceScore(tok, target)
 		}
 		best = max(best, sum/float64(len(qTokens)))
 		if len(qTokens) > 1 { // for one token the joined query is that token
-			best = max(best, fuzzySim(joined, target))
+			best = max(best, subsequenceScore(joined, target))
 		}
 	}
 	return best
-}
-
-// fuzzySim scores one query token against one identifier, combining ordered
-// subsequence matching with a typo-only Jaro-Winkler contribution.
-// @ensures identical strings score 1.0; a target not containing the query as an
-// ordered subsequence scores 0 unless it is within typo distance.
-// @intent give the name signal a floor of zero for unrelated identifiers while still tolerating typos.
-func fuzzySim(query, target string) float64 {
-	best := subsequenceScore(query, target)
-	if !canReachTypoFloor(query, target) {
-		return best
-	}
-	if jw := jaroWinkler(strings.ToLower(query), strings.ToLower(target)); jw >= jwTypoFloor {
-		best = max(best, jw)
-	}
-	return best
-}
-
-// canReachTypoFloor reports whether two strings are close enough in length for
-// Jaro-Winkler to possibly reach jwTypoFloor. Counting runes without building
-// slices keeps the check cheaper than the call it guards.
-// @intent avoid scoring Jaro-Winkler for the many candidates it cannot rate highly anyway.
-func canReachTypoFloor(a, b string) bool {
-	shorter, longer := utf8.RuneCountInString(a), utf8.RuneCountInString(b)
-	if shorter > longer {
-		shorter, longer = longer, shorter
-	}
-	if longer == 0 {
-		return false
-	}
-	return float64(shorter)/float64(longer) >= jwMinLengthRatio
 }
 
 // subsequenceScore rewards each matched rune by where it landed, then divides by
@@ -367,62 +330,6 @@ func matchBonus(target []rune, i int, consecutive bool) float64 {
 	default:
 		return bonusScattered
 	}
-}
-
-// jaroWinkler is the Jaro similarity with the standard Winkler boost for a
-// shared prefix. It is used only to catch typos that reorder or substitute
-// runes, which ordered subsequence matching cannot see.
-// @ensures result is in [0,1]; identical strings score 1.0.
-// @intent measure near-identity between short identifiers independently of rune order.
-func jaroWinkler(a, b string) float64 {
-	ra, rb := []rune(a), []rune(b)
-	if len(ra) == 0 || len(rb) == 0 {
-		return 0
-	}
-	if a == b {
-		return 1
-	}
-
-	window := max(max(len(ra), len(rb))/2-1, 0)
-	matchedA, matchedB := make([]bool, len(ra)), make([]bool, len(rb))
-	matches := 0
-	for i := range ra {
-		for j := max(i-window, 0); j <= min(i+window, len(rb)-1); j++ {
-			if matchedB[j] || ra[i] != rb[j] {
-				continue
-			}
-			matchedA[i], matchedB[j] = true, true
-			matches++
-			break
-		}
-	}
-	if matches == 0 {
-		return 0
-	}
-
-	// Transpositions: matched runes that pair up out of order.
-	transpositions, k := 0, 0
-	for i := range ra {
-		if !matchedA[i] {
-			continue
-		}
-		for !matchedB[k] {
-			k++
-		}
-		if ra[i] != rb[k] {
-			transpositions++
-		}
-		k++
-	}
-
-	m := float64(matches)
-	jaro := (m/float64(len(ra)) + m/float64(len(rb)) + (m-float64(transpositions)/2)/m) / 3
-
-	prefix := 0
-	for prefix < jwPrefixMax && prefix < len(ra) && prefix < len(rb) && ra[prefix] == rb[prefix] {
-		prefix++
-	}
-	return jaro + float64(prefix)*jwPrefixScale*(1-jaro)
 }
 
 // pathScore is the fraction of query tokens that appear as file-path segments.
