@@ -165,7 +165,7 @@
     "bucket": "concept",
     "retrieved": true,
     "returned": 10,
-    "rank": 2
+    "rank": 3
   },
   {
     "query": "impact radius",
@@ -179,7 +179,7 @@
     "bucket": "concept",
     "retrieved": true,
     "returned": 10,
-    "rank": 9
+    "rank": 10
   },
   {
     "query": "trace flow",
@@ -193,7 +193,7 @@
     "bucket": "concept",
     "retrieved": true,
     "returned": 10,
-    "rank": 5
+    "rank": 6
   },
   {
     "query": "flow membership",
@@ -214,7 +214,7 @@
     "bucket": "path-scoped",
     "retrieved": true,
     "returned": 10,
-    "rank": 3
+    "rank": 2
   },
   {
     "query": "graphgorm crossref",

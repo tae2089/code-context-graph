@@ -1,7 +1,6 @@
 package rank
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
@@ -269,9 +268,9 @@ func TestNameSim_DecreasesAsNameGrowsAroundQuery(t *testing.T) {
 	if !(exact > short && short > long) {
 		t.Fatalf("expected exact > short > long, got exact=%.4f short=%.4f long=%.4f", exact, short, long)
 	}
-	if exact != 1.0 {
-		t.Fatalf("expected exact name match to score 1.0, got %.4f", exact)
-	}
+	// No absolute anchor is asserted. nameSim's scale is ordinal within a query;
+	// the 1.0 an exact match used to hit came from Jaro-Winkler, not from the
+	// subsequence scorer, and no caller reads a threshold.
 }
 
 // 이름이 일치하는 노드는, 이름은 전혀 안 맞고 경로 세그먼트 하나만 겹치는
@@ -320,14 +319,13 @@ func TestNameSim_NoiseScoresBelowEveryRealMatch(t *testing.T) {
 	}
 }
 
-// 글자가 빠진 오타(usr)와 바뀐 오타(reciept)를 모두 잡아야 한다. 부분 수열
-// 매칭만으로는 순서가 어긋난 오타를 놓친다.
-func TestNameSim_ToleratesTyposThatBreakSubsequenceOrder(t *testing.T) {
+// 글자가 빠진 오타(usr, paymnt)는 여전히 부분 수열이므로 잡힌다. 이건 오타
+// 관용이 아니라 부분 수열 매칭의 부수 효과이고, 줄임말 검색과 같은 성질이다.
+func TestNameSim_MissingLetterStaysASubsequence(t *testing.T) {
 	cases := []struct{ query, name string }{
-		{"usr", "user"},                         // 글자 빠짐
-		{"reciept", "receipt"},                  // 글자 순서 바뀜
-		{"paymnt", "payment"},                   // 글자 빠짐
-		{"paymentProcesor", "paymentProcessor"}, // 긴 이름에서 글자 빠짐
+		{"usr", "user"},
+		{"paymnt", "payment"},
+		{"paymentProcesor", "paymentProcessor"},
 	}
 	noiseCeiling := nameSim(tokenize("user"), graph.Node{Name: "serve"})
 	for _, c := range cases {
@@ -375,22 +373,17 @@ func TestNameSim_AbbreviationsStayAboveZero(t *testing.T) {
 	}
 }
 
-// 길이 비율로 Jaro-Winkler 호출을 건너뛰는 최적화는, 건너뛴 쌍이 실제로도
-// jwTypoFloor에 못 닿을 때만 안전하다. 점수를 바꾸지 않는다는 성질을 못박는다.
-func TestCanReachTypoFloor_NeverSkipsAScoringPair(t *testing.T) {
-	words := []string{
-		"user", "usr", "users", "serve", "reset", "usage", "getUserById",
-		"payment", "paymnt", "paymentProcessor", "paymentProcesor",
-		"receipt", "reciept", "auth", "authenticate", "repo", "repository",
-		"conn", "connectionPool", "cfg", "configuration", "a", "ab", "",
-		"사용자", "사용", "사용자정보",
+// 순서가 어긋난 오타는 지원하지 않기로 했다. 부분 수열이 깨지므로 0이어야
+// 한다. 그래야 없는 이름을 물어본 호출자가 그럴듯한 오답 대신 빈 결과를 받는다.
+func TestNameSim_TransposedTypoScoresZero(t *testing.T) {
+	cases := []struct{ query, name string }{
+		{"reciept", "receipt"},
+		{"retreival", "retrieval"},
+		{"anotaiton", "annotation"},
 	}
-	for _, a := range words {
-		for _, b := range words {
-			jw := jaroWinkler(strings.ToLower(a), strings.ToLower(b))
-			if jw >= jwTypoFloor && !canReachTypoFloor(a, b) {
-				t.Errorf("guard skipped %q vs %q, but jaroWinkler=%.4f >= %.2f", a, b, jw, jwTypoFloor)
-			}
+	for _, c := range cases {
+		if got := nameSim(tokenize(c.query), graph.Node{Name: c.name}); got != 0 {
+			t.Errorf("nameSim(%q, %q)=%.4f, want 0", c.query, c.name, got)
 		}
 	}
 }
@@ -446,26 +439,6 @@ func TestFetchLimit(t *testing.T) {
 	}
 	if got := FetchLimit(200); got != fetchCap {
 		t.Fatalf("expected fetch limit capped at %d, got %d", fetchCap, got)
-	}
-}
-
-func TestJaroWinkler(t *testing.T) {
-	cases := []struct {
-		a, b string
-		want float64
-	}{
-		{"", "", 0},
-		{"abc", "", 0},
-		{"abc", "abc", 1},
-		{"reciept", "receipt", 0.9667},
-		{"martha", "marhta", 0.9611},
-		{"user", "serve", 0.7833},
-		{"abc", "xyz", 0},
-	}
-	for _, c := range cases {
-		if got := jaroWinkler(c.a, c.b); got < c.want-0.001 || got > c.want+0.001 {
-			t.Errorf("jaroWinkler(%q,%q)=%.4f, want %.4f", c.a, c.b, got, c.want)
-		}
 	}
 }
 
