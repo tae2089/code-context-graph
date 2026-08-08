@@ -60,9 +60,10 @@
         "function:searchsql.SanitizePostgresTSQuery@internal/adapters/outbound/searchsql/sanitize.go",
         "function:searchsql.sanitizeRawTokens@internal/adapters/outbound/searchsql/sanitize.go",
         "function:searchsql.sanitizeTokens@internal/adapters/outbound/searchsql/sanitize.go",
-        "file:internal/adapters/outbound/searchsql/sanitize.go@internal/adapters/outbound/searchsql/sanitize.go"
+        "file:internal/adapters/outbound/searchsql/sanitize.go@internal/adapters/outbound/searchsql/sanitize.go",
+        "function:gitrepo.sanitizeURL@internal/adapters/outbound/gitrepo/checkout.go"
       ],
-      "why": "Half-typed prefix. Any of the sanitize functions or their file is a fair first hit; gitrepo.sanitizeURL is a different subject and is deliberately excluded."
+      "why": "Half-typed prefix. Every sanitize* function in the graph is a fair first hit, including gitrepo.sanitizeURL. An earlier judgment excluded sanitizeURL as 'a different subject', which asked the ranker to know which sanitizer the typist had in mind from five shared letters. Nothing in the query says. A prefix this short names a family, not a member."
     },
     {
       "query": "rerank",
@@ -111,7 +112,7 @@
         "file:internal/adapters/outbound/treesitter/package_discovery.go@internal/adapters/outbound/treesitter/package_discovery.go",
         "class:ingest.PackageDiscoveryOptions@internal/app/ingest/ports.go"
       ],
-      "why": "Tests the free-prefix rule: the query names the second word of the identifier and must not be charged for the first."
+      "why": "Someone asking about discovery wants to learn what package discovery is here: the interface that names the idea, and the file that holds it. The nine language-specific implementations are what that idea expands into, not the answer to the question. An earlier judgment said this query existed to 'test the free-prefix rule', which is a scoring rule and not something a person wants; the list has to answer what the person wanted. Two problems sit behind it. treesitter.PackageDiscovery, the interface, is not in the candidate pool at all, so retrieval loses it before any ranking runs. And the pool holds nine near-identical siblings that fill the top of the result on their own."
     },
     {
       "query": "syncer",
@@ -173,10 +174,9 @@
       "query": "mcp",
       "bucket": "acronym",
       "relevant": [
-        "package:github.com/tae2089/code-context-graph/internal/adapters/inbound/mcp@internal/adapters/inbound/mcp",
-        "file:internal/adapters/inbound/mcp/deps.go@internal/adapters/inbound/mcp/deps.go"
+        "package:github.com/tae2089/code-context-graph/internal/adapters/inbound/mcp@internal/adapters/inbound/mcp"
       ],
-      "why": "A three-letter acronym naming a whole adapter. The package itself answers it better than any one handler file."
+      "why": "A three-letter acronym naming a whole adapter. The package node is the answer; nothing smaller is. An earlier judgment also accepted mcp/deps.go, which cannot be defended: the pool holds about twenty-five files from that same package and deps.go is not distinguished from any of them. Judging one and not its siblings measured nothing. The package node is not in the candidate pool, so this query is now a retrieval finding, not a ranking one: no reordering can answer it while the only correct node never arrives."
     },
     {
       "query": "cfg",
@@ -277,9 +277,10 @@
       "relevant": [
         "function:document.BuildContent@internal/app/search/document/document.go",
         "file:internal/app/search/document/document.go@internal/app/search/document/document.go",
-        "package:github.com/tae2089/code-context-graph/internal/app/search/document@internal/app/search/document"
+        "package:github.com/tae2089/code-context-graph/internal/app/search/document@internal/app/search/document",
+        "class:graph.SearchDocument@internal/domain/graph/search.go"
       ],
-      "why": "Both words appear in the path as well as the code, so path evidence and name evidence point the same way."
+      "why": "Two things in this repository answer to the name and both are correct. graph.SearchDocument is the stored row; internal/app/search/document builds its content. An earlier judgment recognised only the second and called the first wrong, which cannot hold against a type spelled exactly as the query. It also claimed path and name evidence point the same way here, and they do not: BuildContent carries neither word in its name and is reachable only through its path."
     },
     {
       "query": "flow membership",
@@ -316,9 +317,10 @@
         "file:internal/adapters/outbound/graphgorm/crossref.go@internal/adapters/outbound/graphgorm/crossref.go",
         "function:graphgorm.Store.ListInboundCrossRefs@internal/adapters/outbound/graphgorm/crossref.go",
         "function:graphgorm.Store.ListOutboundCrossRefs@internal/adapters/outbound/graphgorm/crossref.go",
-        "function:graphgorm.Store.ReplaceCrossRefsFrom@internal/adapters/outbound/graphgorm/crossref.go"
+        "function:graphgorm.Store.ReplaceCrossRefsFrom@internal/adapters/outbound/graphgorm/crossref.go",
+        "function:graphgorm.crossRefEdges@internal/adapters/outbound/graphgorm/crossnamespace.go"
       ],
-      "why": "The package name narrows a feature that exists in four packages. This is the query the lexicographic tie-break is supposed to serve."
+      "why": "The package name narrows a feature that exists in four packages. An earlier judgment accepted only the contents of crossref.go, which drew the line at a filename the query never mentions: graphgorm.crossRefEdges is in the named package and is about cross-references, so it satisfies both words as well as anything in crossref.go does."
     },
     {
       "query": "migration schema",

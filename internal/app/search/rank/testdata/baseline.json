@@ -39,7 +39,7 @@
     "bucket": "prefix",
     "retrieved": true,
     "returned": 9,
-    "rank": 2
+    "rank": 1
   },
   {
     "query": "rerank",
@@ -121,9 +121,9 @@
   {
     "query": "mcp",
     "bucket": "acronym",
-    "retrieved": true,
+    "retrieved": false,
     "returned": 10,
-    "rank": 5
+    "rank": 0
   },
   {
     "query": "cfg",
@@ -134,7 +134,7 @@
   },
   {
     "query": "parsecache",
-    "bucket": "abbreviation",
+    "bucket": "subword",
     "retrieved": true,
     "returned": 10,
     "rank": 1
@@ -193,7 +193,7 @@
     "bucket": "concept",
     "retrieved": true,
     "returned": 10,
-    "rank": 6
+    "rank": 3
   },
   {
     "query": "flow membership",
@@ -221,7 +221,7 @@
     "bucket": "path-scoped",
     "retrieved": true,
     "returned": 8,
-    "rank": 2
+    "rank": 1
   },
   {
     "query": "migration schema",
