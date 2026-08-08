@@ -20,6 +20,9 @@ exclude:
   - "bin/.*"
   - "docs/.*"
   - "web/wiki/dist/.*"
+  # `make container-artifacts` copies web/wiki/dist into here, so excluding
+  # only the source directory still leaves the minified bundle in the graph.
+  - "container-artifacts/.*"
   - "web/wiki/node_modules/.*"
   - "testdata/.*"
   - ".*\\.gen\\.go$"
