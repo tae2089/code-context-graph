@@ -1,0 +1,1 @@
+-- No-op counterpart to the no-op up migration.

@@ -1,0 +1,1 @@
+-- pg_trgm fuzzy symbol search was PostgreSQL-only, so there is nothing to drop here.

@@ -292,7 +292,11 @@ func TestPostgresFTS_Query(t *testing.T) {
 	}
 }
 
-func TestPostgresFTS_Query_FuzzyTypoFallsBackToTrigram(t *testing.T) {
+// Postgres used to answer a misspelled query approximately via pg_trgm while
+// SQLite returned nothing, so the same query gave two different answers
+// depending on the backend. Both now return nothing, which is the answer that
+// tells an agent the identifier it quoted does not exist.
+func TestPostgresFTS_Query_TypoReturnsNothing(t *testing.T) {
 	db := setupPostgresDB(t)
 	seedPostgresNodes(t, db)
 
@@ -304,20 +308,13 @@ func TestPostgresFTS_Query_FuzzyTypoFallsBackToTrigram(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// "authentcate" is a typo (missing 'i') that exact tsquery cannot match;
-	// the pg_trgm supplement should still surface AuthenticateUser by symbol-name similarity.
+	// "authentcate" is a typo (missing 'i') that exact tsquery cannot match.
 	nodes, err := backend.Query(context.Background(), db, "authentcate", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	found := false
-	for _, n := range nodes {
-		if n.QualifiedName == "pkg.AuthenticateUser" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("expected fuzzy trigram match to surface pkg.AuthenticateUser for typo query, got %+v", nodes)
+	if len(nodes) != 0 {
+		t.Errorf("expected no results for a misspelled query, got %+v", nodes)
 	}
 }
 
