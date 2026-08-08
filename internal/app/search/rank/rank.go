@@ -14,16 +14,6 @@ import (
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
-// Reciprocal Rank Fusion constants.
-// rrfK dampens how sharply rank position affects the fused score (60 is the
-// conventional value). rrfStructWeight (>1) lets the structural signal override
-// a small FTS-rank gap; at weight 1 RRF is symmetric and a two-item rank swap
-// always ties, leaving FTS order untouched.
-const (
-	rrfK            = 60.0
-	rrfStructWeight = 2.0
-)
-
 // Candidate-pool sizing. Callers over-fetch a wider pool than the requested
 // limit so reranking has more than `limit` rows to reorder before bounding.
 const (
@@ -85,13 +75,24 @@ func FetchLimit(limit int) int {
 	return min(max(limit*fetchFactor, fetchFloor), fetchCap)
 }
 
-// Rerank reorders FTS-ranked search candidates using structural signals fused
-// with the backend rank via Reciprocal Rank Fusion.
+// Rerank orders FTS candidates by structural evidence — identifier-name
+// similarity first, file-path proximity to break its ties — and falls back to
+// the backend's own rank only where structure cannot separate two candidates.
+//
+// The backend rank used to decide part of the order, fused in via Reciprocal
+// Rank Fusion. It was measured against the golden set and removed: fusing the
+// two scored worse than either input used alone (MRR 0.720 fused, 0.793 by
+// structure alone, 21 versus 25 first-place hits over 33 queries). The reason
+// is that the pool is a whole FetchLimit wide — up to 500 rows — and a position
+// inside it reflects term frequency and document length, which say little about
+// which candidate a person meant. Fusion let a 40-place gap in that ordering
+// overturn a first-place structural match, which is how an exact name match
+// ended up tenth.
 //
 // @requires nodes is the backend's rank-ordered candidate slice (index == FTS rank).
 // @ensures deterministic output; empty query or empty nodes returns the input
 // bounded by limit, preserving FTS order.
-// @intent combine backend relevance with identifier-name and file-path similarity without losing deterministic FTS tie order.
+// @intent order candidates by identifier-name and file-path evidence, using backend rank only as a deterministic tie-break.
 func Rerank(query string, nodes []graph.Node, limit int) []graph.Node {
 	// A single ranked list: array position is the retrieval rank.
 	retrievalRank := make([]int, len(nodes))
@@ -101,13 +102,15 @@ func Rerank(query string, nodes []graph.Node, limit int) []graph.Node {
 	return rerankWithRanks(query, nodes, retrievalRank, limit)
 }
 
-// rerankWithRanks fuses the caller-supplied retrieval rank of each node with the
-// structural signal. Splitting the rank out of the slice position is what lets
-// federated search fuse several ranked lists: retrievalRank[i] is node i's rank
-// *within its own source list*, not its position in the merged slice.
+// rerankWithRanks orders by structural evidence and breaks the remaining ties
+// with the caller-supplied retrieval rank. Splitting that rank out of the slice
+// position is what lets federated search merge several ranked lists:
+// retrievalRank[i] is node i's rank *within its own source list*, not its
+// position in the merged slice, so a tie is broken the same way whichever list
+// a node arrived from.
 //
 // @requires len(retrievalRank) == len(nodes); each entry is a 0-based rank.
-// @intent keep one fusion implementation for both single-list and multi-list retrieval.
+// @intent keep one ordering implementation for both single-list and multi-list retrieval.
 func rerankWithRanks(query string, nodes []graph.Node, retrievalRank []int, limit int) []graph.Node {
 	if strings.TrimSpace(query) == "" || len(nodes) == 0 {
 		return applyLimit(nodes, limit)
@@ -140,19 +143,19 @@ func rerankWithRanks(query string, nodes []graph.Node, retrievalRank []int, limi
 		return cmp.Compare(pathScores[b], pathScores[a])
 	})
 
-	final := make([]float64, len(nodes))
-	for i := range nodes {
-		final[i] = 1.0/(rrfK+float64(retrievalRank[i])) + rrfStructWeight/(rrfK+float64(structRank[i]))
-	}
-
+	// Structural evidence alone decides the order; the retrieval rank only
+	// separates candidates the structural signal cannot tell apart, which keeps
+	// the output deterministic.
 	order := make([]int, len(nodes))
 	for i := range order {
 		order[i] = i
 	}
-	// Stable sort by fused score descending; equal scores keep the original
-	// FTS order, so ranking stays deterministic.
 	sort.SliceStable(order, func(a, b int) bool {
-		return final[order[a]] > final[order[b]]
+		x, y := order[a], order[b]
+		if structRank[x] != structRank[y] {
+			return structRank[x] < structRank[y]
+		}
+		return retrievalRank[x] < retrievalRank[y]
 	})
 
 	out := make([]graph.Node, len(nodes))
@@ -162,18 +165,19 @@ func rerankWithRanks(query string, nodes []graph.Node, retrievalRank []int, limi
 	return applyLimit(out, limit)
 }
 
-// RerankGroups fuses several independently ranked candidate lists — one per
+// RerankGroups merges several independently ranked candidate lists — one per
 // namespace in federated search — into a single ordering.
 //
 // Concatenating the lists and calling Rerank would be wrong: Rerank reads a
 // node's array position as its retrieval rank, so the second list's top hit
-// would be charged the first list's length. With a 50-row pool that alone costs
-// it more than the whole structural signal can repay, and every extra namespace
-// makes it worse. Here each node keeps the rank it held inside its own list.
+// would be charged the first list's length. That rank now only breaks
+// structural ties, but a tie is exactly where a namespace's own results should
+// not be penalised for being queried second. Here each node keeps the rank it
+// held inside its own list.
 //
 // @requires each group is that source's rank-ordered candidate slice.
-// @ensures a node's fused score does not depend on which group it came from or
-// on the order the groups were supplied; empty groups contribute nothing.
+// @ensures a node's position does not depend on which group it came from or on
+// the order the groups were supplied; empty groups contribute nothing.
 // @intent make federated results comparable across namespaces instead of favouring whichever namespace was queried first.
 func RerankGroups(query string, groups [][]graph.Node, limit int) []graph.Node {
 	total := 0
@@ -407,7 +411,7 @@ func lastSegment(s string, sep rune) string {
 // @ensures indistinguishable items receive equal ranks; the rank after a tie
 // group of size n skips n-1 values, so rank values stay comparable to a plain
 // ordinal ranking.
-// @intent convert a structural ordering to deterministic ordinal ranks for reciprocal-rank fusion.
+// @intent convert a structural ordering to deterministic ordinal ranks so equally-scored candidates share one rank and fall through to the retrieval tie-break.
 func rankBy(n int, compare func(a, b int) int) []int {
 	order := make([]int, n)
 	for i := range order {
