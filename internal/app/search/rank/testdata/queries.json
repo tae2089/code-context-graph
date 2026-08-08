@@ -15,34 +15,43 @@
     {
       "query": "SanitizeFTS5",
       "bucket": "exact",
-      "relevant": ["function:searchsql.SanitizeFTS5@internal/adapters/outbound/searchsql/sanitize.go"],
+      "relevant": [
+        "function:searchsql.SanitizeFTS5@internal/adapters/outbound/searchsql/sanitize.go"
+      ],
       "why": "The full identifier, typed exactly. Nothing else can be meant."
     },
     {
       "query": "BuildContent",
       "bucket": "exact",
-      "relevant": ["function:document.BuildContent@internal/app/search/document/document.go"],
+      "relevant": [
+        "function:document.BuildContent@internal/app/search/document/document.go"
+      ],
       "why": "Only one node carries this name."
     },
     {
       "query": "UnresolvedEdgeCandidate",
       "bucket": "exact",
-      "relevant": ["class:graph.UnresolvedEdgeCandidate@internal/domain/graph/unresolved.go"],
+      "relevant": [
+        "class:graph.UnresolvedEdgeCandidate@internal/domain/graph/unresolved.go"
+      ],
       "why": "Long unique type name; an exact hit is the only acceptable answer."
     },
     {
       "query": "promoteExactNameMatch",
       "bucket": "exact",
-      "relevant": ["function:searchsql.promoteExactNameMatch@internal/adapters/outbound/searchsql/sanitize.go"],
+      "relevant": [
+        "function:searchsql.promoteExactNameMatch@internal/adapters/outbound/searchsql/sanitize.go"
+      ],
       "why": "Unexported but uniquely named."
     },
     {
       "query": "RunMigrations",
       "bucket": "exact",
-      "relevant": ["function:migration.RunMigrations@internal/db/migration/migration.go"],
+      "relevant": [
+        "function:migration.RunMigrations@internal/db/migration/migration.go"
+      ],
       "why": "Unique exported entry point."
     },
-
     {
       "query": "sanit",
       "bucket": "prefix",
@@ -58,7 +67,9 @@
     {
       "query": "rerank",
       "bucket": "prefix",
-      "relevant": ["function:rank.Rerank@internal/app/search/rank/rank.go"],
+      "relevant": [
+        "function:rank.Rerank@internal/app/search/rank/rank.go"
+      ],
       "why": "Exactly one node spells this."
     },
     {
@@ -92,7 +103,6 @@
       ],
       "why": "One word naming a whole feature. The analyzer, its file, or its package all answer it."
     },
-
     {
       "query": "discovery",
       "bucket": "subword",
@@ -135,10 +145,11 @@
     {
       "query": "membership",
       "bucket": "subword",
-      "relevant": ["class:graph.FlowMembership@internal/domain/graph/flow.go"],
+      "relevant": [
+        "class:graph.FlowMembership@internal/domain/graph/flow.go"
+      ],
       "why": "Trailing word of exactly one domain type."
     },
-
     {
       "query": "fts",
       "bucket": "acronym",
@@ -167,7 +178,6 @@
       ],
       "why": "A three-letter acronym naming a whole adapter. The package itself answers it better than any one handler file."
     },
-
     {
       "query": "cfg",
       "bucket": "abbreviation",
@@ -179,20 +189,19 @@
         "file:internal/config/config.go@internal/config/config.go",
         "package:github.com/tae2089/code-context-graph/internal/config@internal/config"
       ],
-      "why": "A habitual abbreviation nobody spells out. It matches 'config' only as a scattered subsequence, so it is the honest stress case for gap penalties."
+      "why": "Deliberately unsupported, kept red on purpose. No node is named cfg — it only ever appears as a local variable, and locals are not indexed — so the query can only be answered by guessing that cfg means config. Measured over the whole graph, cfg scores config 0.28 against a 0.08 ceiling for unrelated junk: a margin too thin to build a gate on."
     },
     {
       "query": "parsecache",
-      "bucket": "abbreviation",
+      "bucket": "subword",
       "relevant": [
         "type:ingest.ParseCache@internal/app/ingest/ports.go",
         "class:graph.ParseCacheEntry@internal/domain/graph/parse_cache.go",
         "file:internal/app/ingest/workflow/parsecache.go@internal/app/ingest/workflow/parsecache.go",
         "file:internal/domain/graph/parse_cache.go@internal/domain/graph/parse_cache.go"
       ],
-      "why": "Written as one word by the user, stored as three spellings in the graph: ParseCache, parsecache.go, parse_cache.go. Tests that case and separator style do not decide the answer."
+      "why": "Written as one word by the user, stored as three spellings in the graph: ParseCache, parsecache.go, parse_cache.go. Tests that case and separator style do not decide the answer. Filed under subword, not abbreviation: nothing is abbreviated, only respelled, and averaging it with cfg made the abbreviation bucket read 0.500 when the two queries measure different things."
     },
-
     {
       "query": "sanitze",
       "bucket": "typo",
@@ -201,7 +210,7 @@
         "function:searchsql.SanitizePostgresTSQuery@internal/adapters/outbound/searchsql/sanitize.go",
         "file:internal/adapters/outbound/searchsql/sanitize.go@internal/adapters/outbound/searchsql/sanitize.go"
       ],
-      "why": "Dropped an 'i'. Subsequence matching cannot see this, so only Jaro-Winkler can rescue it."
+      "why": "Deliberately unsupported, kept red on purpose. Dropped an 'i', which subsequence matching still sees, so this one is reachable — but only through the qualified name; FTS returns no candidate for it at all. See the bucket note."
     },
     {
       "query": "retreival",
@@ -211,7 +220,7 @@
         "file:internal/app/search/retrieval/service.go@internal/app/search/retrieval/service.go",
         "package:github.com/tae2089/code-context-graph/internal/app/search/retrieval@internal/app/search/retrieval"
       ],
-      "why": "Swapped 'ie' for 'ei', the single most common misspelling of this word."
+      "why": "Deliberately unsupported, kept red on purpose. Swapped 'ie' for 'ei'. A transposition breaks the ordered subsequence outright, so no amount of ranking can recover it — only edit-distance matching could, and that was removed."
     },
     {
       "query": "anotation",
@@ -221,9 +230,8 @@
         "file:internal/domain/graph/annotation.go@internal/domain/graph/annotation.go",
         "package:github.com/tae2089/code-context-graph/internal/domain/annotation@internal/domain/annotation"
       ],
-      "why": "One 'n' short. Same length class as the target, so the Jaro-Winkler skip bound must not reject it."
+      "why": "Deliberately unsupported, kept red on purpose. One 'n' short. Still an ordered subsequence of annotation, but FTS never returns the candidate, so the ranker is never given the chance."
     },
-
     {
       "query": "package discovery",
       "bucket": "concept",
@@ -276,7 +284,9 @@
     {
       "query": "flow membership",
       "bucket": "concept",
-      "relevant": ["class:graph.FlowMembership@internal/domain/graph/flow.go"],
+      "relevant": [
+        "class:graph.FlowMembership@internal/domain/graph/flow.go"
+      ],
       "why": "One domain type, spelled as two words."
     },
     {
@@ -289,7 +299,6 @@
       ],
       "why": "The concrete Syncer splits its two words across package and type name; the interface joins them."
     },
-
     {
       "query": "treesitter semantics",
       "bucket": "path-scoped",
@@ -320,7 +329,6 @@
       ],
       "why": "Both words are in the identifier and one is in the path."
     },
-
     {
       "query": "zzz nonexistent symbol qqq",
       "bucket": "negative",

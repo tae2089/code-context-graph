@@ -70,6 +70,13 @@ tests pin the scorer's behaviour, this set pins the resulting order.
 
 `retrieved` and `rank` are kept apart on purpose. `retrieved: false` means
 full-text search never returned a relevant node, so the ranker was never given
-the chance and no ranking change can fix that query. Four queries sit there
-today — `cfg` and the three typos — and they are a retrieval finding, not a
-ranking one.
+the chance and no ranking change can fix that query.
+
+Four queries sit there today — `cfg` and the three typos — and they are neither
+a retrieval finding nor a ranking one. They record a decision: search does not
+correct spelling and does not expand abbreviations. Both callers of `Rerank` are
+driven by an agent quoting identifiers out of code it has already read, so a
+query that matches nothing exactly is naming something that does not exist.
+Answering it approximately would turn "no such thing" into a confident wrong
+answer. These four are kept, and kept red, so that decision stays visible and so
+anyone who reverses it inherits the measurements in each `why`.
