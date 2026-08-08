@@ -26,6 +26,33 @@ func TestRerank_EmptyInputsReturnedUnchanged(t *testing.T) {
 	})
 }
 
+// FTS 순위는 순서를 정하지 않는다. 정확히 일치하는 이름은 후보 목록 어디에
+// 있든 1등이어야 한다. 후보 풀은 50개까지 커질 수 있는데(FetchLimit), 그 안에서
+// FTS가 매긴 3등과 40등의 차이에는 이름 증거를 뒤집을 만한 근거가 없다.
+func TestRerank_ExactNameMatchWinsFromDeepInTheFTSList(t *testing.T) {
+	const buried = 40
+	nodes := make([]graph.Node, 0, buried+1)
+	for i := range buried {
+		nodes = append(nodes, graph.Node{
+			ID:            uint(i + 1),
+			Name:          "unrelated",
+			QualifiedName: "pkg.unrelated",
+			FilePath:      "pkg/other.go",
+		})
+	}
+	nodes = append(nodes, graph.Node{
+		ID:            999,
+		Name:          "getUserById",
+		QualifiedName: "svc.getUserById",
+		FilePath:      "svc/user.go",
+	})
+
+	got := Rerank("getUserById", nodes, 3)
+	if got[0].ID != 999 {
+		t.Fatalf("exact name match ranked %d, want first; got order %d", got[0].ID, got[0].ID)
+	}
+}
+
 // 오타 쿼리라도 이름 fuzzy 신호가 정확한 심볼을 FTS 하위에서 상위로 끌어올린다.
 func TestRerank_TypoPromotesFuzzyNameMatch(t *testing.T) {
 	nodes := []graph.Node{
