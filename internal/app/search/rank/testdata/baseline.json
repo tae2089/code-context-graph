@@ -128,6 +128,7 @@
   {
     "query": "cfg",
     "bucket": "abbreviation",
+    "out_of_scope": true,
     "retrieved": false,
     "returned": 0,
     "rank": 0
@@ -142,6 +143,7 @@
   {
     "query": "sanitze",
     "bucket": "typo",
+    "out_of_scope": true,
     "retrieved": false,
     "returned": 0,
     "rank": 0
@@ -149,6 +151,7 @@
   {
     "query": "retreival",
     "bucket": "typo",
+    "out_of_scope": true,
     "retrieved": false,
     "returned": 0,
     "rank": 0
@@ -156,6 +159,7 @@
   {
     "query": "anotation",
     "bucket": "typo",
+    "out_of_scope": true,
     "retrieved": false,
     "returned": 0,
     "rank": 0

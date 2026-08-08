@@ -23,6 +23,12 @@ type goldenQuery struct {
 	Bucket   string   `json:"bucket"`
 	Relevant []string `json:"relevant"`
 	Why      string   `json:"why"`
+	// OutOfScope marks a query search has decided not to answer, so its zero is
+	// a recorded decision rather than a defect. Without the flag those queries
+	// sink the headline average and nobody reading it can tell how much of the
+	// gap is code and how much is policy. The query stays in the set, and stays
+	// red, so anyone reversing the decision inherits the measurements in `why`.
+	OutOfScope bool `json:"out_of_scope,omitempty"`
 }
 
 type goldenSet struct {
@@ -49,12 +55,13 @@ type goldenCandidate struct {
 // empty result, so Retrieved=false and Rank=0 mean success there, not failure.
 // Returned carries the raw result count so a negative case can still fail.
 type outcome struct {
-	Query     string `json:"query"`
-	Bucket    string `json:"bucket"`
-	Negative  bool   `json:"negative,omitempty"`
-	Retrieved bool   `json:"retrieved"`
-	Returned  int    `json:"returned"`
-	Rank      int    `json:"rank"` // 1-based rank of the first relevant node; 0 means none in the top goldenLimit
+	Query      string `json:"query"`
+	Bucket     string `json:"bucket"`
+	Negative   bool   `json:"negative,omitempty"`
+	OutOfScope bool   `json:"out_of_scope,omitempty"`
+	Retrieved  bool   `json:"retrieved"`
+	Returned   int    `json:"returned"`
+	Rank       int    `json:"rank"` // 1-based rank of the first relevant node; 0 means none in the top goldenLimit
 }
 
 func label(c goldenCandidate) string {
@@ -120,10 +127,11 @@ func runGolden(t *testing.T) []outcome {
 		}
 
 		result := outcome{
-			Query:     q.Query,
-			Bucket:    q.Bucket,
-			Negative:  len(q.Relevant) == 0,
-			Retrieved: retrieved,
+			Query:      q.Query,
+			Bucket:     q.Bucket,
+			Negative:   len(q.Relevant) == 0,
+			OutOfScope: q.OutOfScope,
+			Retrieved:  retrieved,
 		}
 		ranked := Rerank(q.Query, nodes, goldenLimit)
 		result.Returned = len(ranked)
@@ -211,6 +219,7 @@ func TestGolden_Report(t *testing.T) {
 	}
 	buckets := map[string]*tally{}
 	total := &tally{}
+	answerable := &tally{}
 	for _, o := range outcomes {
 		if o.Negative {
 			continue // an empty result is the right answer; averaging it in would be meaningless
@@ -220,7 +229,11 @@ func TestGolden_Report(t *testing.T) {
 			b = &tally{}
 			buckets[o.Bucket] = b
 		}
-		for _, acc := range []*tally{b, total} {
+		accs := []*tally{b, total}
+		if !o.OutOfScope {
+			accs = append(accs, answerable)
+		}
+		for _, acc := range accs {
 			acc.n++
 			if o.Retrieved {
 				acc.retrieved++
@@ -252,10 +265,16 @@ func TestGolden_Report(t *testing.T) {
 		t.Log(line(name, buckets[name]))
 	}
 	t.Log(line("ALL", total))
+	// ALL carries queries search has decided not to answer, so it can never
+	// reach 1.0 however good the ranking gets. ANSWERABLE drops those, and is
+	// the number to read when asking how the code is doing.
+	t.Log(line("ANSWERABLE", answerable))
 
 	for _, o := range outcomes {
 		switch {
 		case o.Negative:
+		case o.OutOfScope:
+			t.Logf("  out of scope:   %-28q (%s) — answering it was decided against, not missed", o.Query, o.Bucket)
 		case !o.Retrieved:
 			t.Logf("  retrieval miss: %-28q (%s) — full-text search returned nothing relevant", o.Query, o.Bucket)
 		case o.Rank == 0:
