@@ -9,9 +9,14 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestRequiredSchemaVersion_IncludesCrossRefs(t *testing.T) {
-	if RequiredSchemaVersion != 15 {
-		t.Fatalf("RequiredSchemaVersion = %d, want 15", RequiredSchemaVersion)
+// Adding a migration file is not enough on its own: a running binary refuses a
+// database older than RequiredSchemaVersion, so the constant has to move with
+// the highest migration. Pinning it to a literal makes forgetting that a test
+// failure rather than a runtime surprise.
+func TestRequiredSchemaVersion_MatchesHighestMigration(t *testing.T) {
+	const highest = 16 // 000016_drop_search_trgm
+	if RequiredSchemaVersion != highest {
+		t.Fatalf("RequiredSchemaVersion = %d, want %d", RequiredSchemaVersion, highest)
 	}
 }
 
