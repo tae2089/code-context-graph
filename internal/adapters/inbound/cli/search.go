@@ -8,10 +8,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tae2089/trace"
 
+	searchapp "github.com/tae2089/code-context-graph/internal/app/search"
 	"github.com/tae2089/code-context-graph/internal/app/search/evidence"
-	searchrank "github.com/tae2089/code-context-graph/internal/app/search/rank"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
-	"github.com/tae2089/code-context-graph/internal/pathspec"
 )
 
 // newSearchCmd creates the full-text search command.
@@ -37,33 +36,14 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 			ns := resolveNamespace(cmd)
 			ctx = requestctx.WithNamespace(ctx, ns)
 
-			// Over-fetch a wider candidate pool so structural reranking can
-			// promote good matches FTS ranked below the limit, and so path
-			// filtering still leaves up to 'limit' results.
-			nodes, err := deps.SearchReader.Query(ctx, query, searchrank.FetchLimit(limit))
+			list, err := searchapp.New(deps.SearchReader).Search(ctx, searchapp.Params{
+				Query: query, Limit: limit, Offset: offset, PathPrefix: pathPrefix, IncludeWeak: includeWeak,
+			})
 			if err != nil {
 				return trace.Wrap(err, "search")
 			}
 
-			out := stdout(cmd)
-
-			if pathPrefix != "" {
-				filtered := nodes[:0]
-				for _, n := range nodes {
-					if pathspec.HasPathPrefix(n.FilePath, pathPrefix) {
-						filtered = append(filtered, n)
-					}
-				}
-				nodes = filtered
-			}
-
-			// Rerank the whole pool, not just 'limit' of it: the evidence cut
-			// below decides membership, so bounding here would spend slots on
-			// candidates that are about to be dropped anyway.
-			ranked := searchrank.Rerank(query, nodes, 0)
-			list := evidence.Build(query, ranked, evidence.Options{Limit: limit, Offset: offset, IncludeWeak: includeWeak})
-
-			printEvidenceList(out, list, offset)
+			printEvidenceList(stdout(cmd), list, offset)
 			return nil
 		},
 	}

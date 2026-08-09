@@ -11,12 +11,11 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/code-context-graph/internal/app/analyze"
 	querypkg "github.com/tae2089/code-context-graph/internal/app/analyze/query"
+	searchapp "github.com/tae2089/code-context-graph/internal/app/search"
 	"github.com/tae2089/code-context-graph/internal/app/search/evidence"
-	searchrank "github.com/tae2089/code-context-graph/internal/app/search/rank"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 	"github.com/tae2089/code-context-graph/internal/domain/reference"
-	"github.com/tae2089/code-context-graph/internal/pathspec"
 	"github.com/tae2089/trace"
 )
 
@@ -352,30 +351,13 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 	}
 
 	return finalizeToolResult(h.cachedExecute(ctx, "search:", map[string]any{"query": query, "limit": limit, "offset": offset, "path": pathPrefix, "include_weak": includeWeak, "namespace": requestNamespace(request)}, func() (string, error) {
-		// Over-fetch a wider candidate pool so structural reranking can promote
-		// good matches that FTS ranked below the caller's limit, and so path
-		// filtering still leaves up to 'limit' results.
-		nodes, err := h.deps.Graph.Search.Query(ctx, query, searchrank.FetchLimit(limit))
+		list, err := searchapp.New(h.deps.Graph.Search).Search(ctx, searchapp.Params{
+			Query: query, Limit: limit, Offset: offset, PathPrefix: pathPrefix, IncludeWeak: includeWeak,
+		})
 		if err != nil {
 			log.Error("search error", "query", query, trace.SlogError(err))
 			return "", trace.Wrap(err, "search error")
 		}
-
-		if pathPrefix != "" {
-			filtered := nodes[:0]
-			for _, n := range nodes {
-				if pathspec.HasPathPrefix(n.FilePath, pathPrefix) {
-					filtered = append(filtered, n)
-				}
-			}
-			nodes = filtered
-		}
-
-		// Rerank the whole pool, not just 'limit' of it: the evidence cut below
-		// decides membership, so bounding here would spend slots on candidates
-		// that are about to be dropped anyway.
-		ranked := searchrank.Rerank(query, nodes, 0)
-		list := evidence.Build(query, ranked, evidence.Options{Limit: limit, Offset: offset, IncludeWeak: includeWeak})
 
 		log.Info("search completed", "query", query, "file_count", len(list.Files), "weak_filtered", list.WeakFiltered)
 
@@ -393,41 +375,13 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 func (h *handlers) searchFederated(ctx context.Context, query string, limit, offset int, pathPrefix string, includeWeak bool, namespaces []string) (*mcp.CallToolResult, error) {
 	log := h.logger()
 	return finalizeToolResult(h.cachedExecute(ctx, "search:", map[string]any{"query": query, "limit": limit, "offset": offset, "path": pathPrefix, "include_weak": includeWeak, "namespaces": namespaces}, func() (string, error) {
-		// Each namespace stays its own ranked list so fusion charges a hit the rank
-		// it held in its own namespace, not its offset in a concatenated slice.
-		groups := make([][]graph.Node, 0, len(namespaces))
-		for _, ns := range namespaces {
-			nsCtx := requestctx.WithNamespace(ctx, ns)
-			nodes, err := h.deps.Graph.Search.Query(nsCtx, query, searchrank.FetchLimit(limit))
-			if err != nil {
-				log.Error("federated search error", "query", query, "namespace", ns, trace.SlogError(err))
-				return "", trace.Wrap(err, "federated search error")
-			}
-			for i := range nodes {
-				nodes[i].Namespace = ns
-			}
-			if pathPrefix != "" {
-				filtered := nodes[:0]
-				for _, n := range nodes {
-					if pathspec.HasPathPrefix(n.FilePath, pathPrefix) {
-						filtered = append(filtered, n)
-					}
-				}
-				nodes = filtered
-			}
-			groups = append(groups, nodes)
+		list, err := searchapp.New(h.deps.Graph.Search).SearchFederated(ctx, namespaces, searchapp.Params{
+			Query: query, Limit: limit, Offset: offset, PathPrefix: pathPrefix, IncludeWeak: includeWeak,
+		})
+		if err != nil {
+			log.Error("federated search error", "query", query, "namespaces", namespaces, trace.SlogError(err))
+			return "", trace.Wrap(err, "federated search error")
 		}
-
-		merged := searchrank.RerankGroups(query, groups, 0)
-		// Cut on evidence before the quota runs, so a namespace's slots go to
-		// hits it can justify rather than to whatever it retrieved first.
-		// Page over the whole grouped answer, then let the quota decide which of
-		// those files each repository gets, so no repository's files are spent
-		// before another repository is heard from.
-		list := evidence.Build(query, merged, evidence.Options{Offset: offset, IncludeWeak: includeWeak})
-		reachable := len(list.Files)
-		list.Files = selectWithNamespaceQuota(list.Files, func(f evidence.File) string { return f.Namespace }, limit, len(namespaces))
-		list.OverflowFiles = reachable - len(list.Files)
 		log.Info("federated search completed", "query", query, "namespaces", namespaces, "file_count", len(list.Files), "weak_filtered", list.WeakFiltered)
 
 		result, err := marshalJSON(newSearchResponse(list, query, limit, offset, true))
@@ -438,46 +392,6 @@ func (h *handlers) searchFederated(ctx context.Context, query string, limit, off
 	}))
 }
 
-// selectWithNamespaceQuota bounds globally-ranked federated results while guaranteeing
-// every namespace with hits at least limit/namespaceCount slots (minimum one).
-// @intent keep one high-scoring repository from starving the other namespaces out of a federated result.
-// @domainRule remaining slots after the per-namespace quota pass are filled in global rank order.
-// @requires namespaceOf returns the namespace an item belongs to.
-func selectWithNamespaceQuota[T any](ranked []T, namespaceOf func(T) string, limit, namespaceCount int) []T {
-	if limit <= 0 || len(ranked) <= limit {
-		return ranked
-	}
-	quota := max(limit/max(namespaceCount, 1), 1)
-	chosen := make([]bool, len(ranked))
-	count := 0
-	perNamespace := map[string]int{}
-	for i, item := range ranked {
-		if count == limit {
-			break
-		}
-		if ns := namespaceOf(item); perNamespace[ns] < quota {
-			chosen[i] = true
-			perNamespace[ns]++
-			count++
-		}
-	}
-	for i := range ranked {
-		if count == limit {
-			break
-		}
-		if !chosen[i] {
-			chosen[i] = true
-			count++
-		}
-	}
-	selected := make([]T, 0, limit)
-	for i, item := range ranked {
-		if chosen[i] {
-			selected = append(selected, item)
-		}
-	}
-	return selected
-}
 
 // getAnnotation returns stored annotation metadata for a graph node.
 // @intent fetch stored annotation tags and summary data so semantic search results can show business context.

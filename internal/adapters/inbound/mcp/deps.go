@@ -13,6 +13,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/app/describe"
 	"github.com/tae2089/code-context-graph/internal/app/ingest"
 	"github.com/tae2089/code-context-graph/internal/app/ingest/incremental"
+	searchapp "github.com/tae2089/code-context-graph/internal/app/search"
 	"github.com/tae2089/code-context-graph/internal/app/search/document"
 	"github.com/tae2089/code-context-graph/internal/app/search/intent"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
@@ -97,18 +98,12 @@ type BuildToolsDeps struct {
 	Incremental IncrementalSyncer
 }
 
-// CandidateSearcher returns relevance-ordered full-text candidates for a query.
-// @intent keep the search fetch port consumer-owned so handlers do not depend on a scoring package.
-type CandidateSearcher interface {
-	Query(ctx context.Context, query string, limit int) ([]graph.Node, error)
-}
-
 // GraphToolsDeps owns graph lookup, query, search, and aggregate dependencies.
 // @intent group only the dependencies required by graph and search read tools.
 type GraphToolsDeps struct {
 	Store  analyze.GraphLookup
 	Query  QueryService
-	Search CandidateSearcher
+	Search searchapp.Searcher
 	// Intent answers plain-language questions from recorded reasons. It sits
 	// beside Search rather than replacing it: one finds a symbol the caller can
 	// already name, the other finds where to start when they cannot.
