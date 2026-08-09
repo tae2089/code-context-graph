@@ -183,7 +183,7 @@ func (s *Service) Find(ctx context.Context, question string, limit int) (Answer,
 	return answer, nil
 }
 
-// recordedReason returns the line that could have earned this node its place in
+// RecordedReason returns the line that could have earned this node its place in
 // the intent index.
 //
 // It mirrors document.BuildIntentContent, which indexes @intent and @domainRule.
@@ -192,7 +192,7 @@ func (s *Service) Find(ctx context.Context, question string, limit int) (Answer,
 // of one. @intent still wins when both are present, because it says why the code
 // exists and a domain rule says what it must hold to.
 // @intent read back the same tags the intent index was built from.
-func recordedReason(node graph.Node) string {
+func RecordedReason(node graph.Node) string {
 	if reason := node.Intent(); reason != "" {
 		return reason
 	}
@@ -220,7 +220,7 @@ func groupByFile(hits []Hit, maxFiles int) []File {
 	indexByPath := make(map[string]int, len(hits))
 	for _, hit := range hits {
 		node := hit.Node
-		reason := recordedReason(node)
+		reason := RecordedReason(node)
 		if reason == "" {
 			continue
 		}
