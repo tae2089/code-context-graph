@@ -3,42 +3,12 @@ package searchsql
 
 import (
 	"strings"
-	"unicode"
 
 	"github.com/tae2089/code-context-graph/internal/app/search/identtoken"
 	"github.com/tae2089/code-context-graph/internal/app/search/intentrank"
 	"github.com/tae2089/code-context-graph/internal/app/search/queryterm"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
-
-// sanitizeRawTokens splits raw search input into identifier-like terms,
-// preserving original case so camelCase boundaries survive for sub-token splitting.
-// @intent expose original-case query terms; lowercasing happens per consumer.
-// @domainRule only letter, digit, and underscore sequences survive tokenization.
-func sanitizeRawTokens(query string) []string {
-	fields := strings.FieldsFunc(query, func(r rune) bool {
-		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_')
-	})
-	tokens := make([]string, 0, len(fields))
-	for _, field := range fields {
-		if field != "" {
-			tokens = append(tokens, field)
-		}
-	}
-	return tokens
-}
-
-// sanitizeTokens extracts lowercase identifier-like terms from raw search input.
-// @intent normalize user queries into backend-safe tokens before they are embedded into FTS syntax.
-// @domainRule only letter, digit, and underscore sequences survive tokenization.
-func sanitizeTokens(query string) []string {
-	raw := sanitizeRawTokens(query)
-	tokens := make([]string, 0, len(raw))
-	for _, field := range raw {
-		tokens = append(tokens, strings.ToLower(field))
-	}
-	return tokens
-}
 
 // SanitizeFTS5 converts raw user input into a safe FTS5 prefix query. A
 // camelCase term also matches its sub-tokens, so `getUser` matches either the
@@ -120,7 +90,7 @@ func intentTerm(prefixFmt, exactFmt string) func(string) string {
 // @intent share one injection-safe term expansion policy across SQLite FTS5 and PostgreSQL tsquery syntax.
 // @domainRule camelCase input matches either its whole token or the conjunction of its identifier sub-tokens.
 func buildPrefixQuery(query string, term func(string) string, and, or, sep string) string {
-	raw := queryterm.DropFunctionWords(sanitizeRawTokens(query))
+	raw := queryterm.DropFunctionWords(identtoken.Fields(query))
 	if len(raw) == 0 {
 		return ""
 	}
@@ -145,7 +115,7 @@ func buildPrefixQuery(query string, term func(string) string, and, or, sep strin
 // @intent treat only single-identifier queries as eligible for exact-name promotion.
 // @domainRule multi-token queries never produce an exact-name promotion target.
 func extractExactNameToken(query string) string {
-	tokens := sanitizeTokens(query)
+	tokens := identtoken.FieldsLower(query)
 	if len(tokens) != 1 {
 		return ""
 	}

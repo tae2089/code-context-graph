@@ -82,7 +82,7 @@ func Rank(question string, docs []Doc, corpusSize, limit int) Result {
 	docsWithTerm := make([]int, len(groups))
 	totalLength := 0
 	for i, doc := range docs {
-		tokens := tokenize(doc.Content)
+		tokens := identtoken.FieldsLower(doc.Content)
 		lengths[i] = len(tokens)
 		totalLength += len(tokens)
 		freq[i] = make([]int, len(groups))
@@ -195,7 +195,7 @@ type group struct {
 // mean ranking one query by another query's evidence.
 // @intent score the same terms the index was asked to match.
 func parseGroups(question string) []group {
-	raw := queryterm.DropFunctionWords(tokenizeKeepingCase(question))
+	raw := queryterm.DropFunctionWords(identtoken.Fields(question))
 	groups := make([]group, 0, len(raw))
 	for _, field := range raw {
 		subs := identtoken.Split(field)
@@ -282,23 +282,3 @@ func MatchesByPrefix(term string) bool {
 // @intent name the boundary the golden set was measured at.
 const minPrefixRunes = 4
 
-// tokenizeKeepingCase splits text into identifier-like terms with their original
-// case, so camelCase boundaries survive for sub-token splitting.
-// @intent expose original-case terms; lowercasing happens per consumer.
-// @domainRule only letter, digit, and underscore sequences survive tokenization.
-func tokenizeKeepingCase(text string) []string {
-	return strings.FieldsFunc(text, func(r rune) bool {
-		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_')
-	})
-}
-
-// tokenize splits an indexed reason into the lowercase tokens it is scored over.
-// @intent read a document the same way the query is read.
-func tokenize(text string) []string {
-	fields := tokenizeKeepingCase(text)
-	tokens := make([]string, 0, len(fields))
-	for _, field := range fields {
-		tokens = append(tokens, strings.ToLower(field))
-	}
-	return tokens
-}

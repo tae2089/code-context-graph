@@ -9,6 +9,7 @@ import (
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/app/search/intentrank"
+	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
@@ -51,6 +52,40 @@ type Backend interface {
 	// @param maxCandidates caps how many candidates come back, guarding memory rather than shaping the answer.
 	// @return returns unordered candidates, and nothing when no recorded reason matches.
 	MatchIntent(ctx context.Context, db *gorm.DB, query string, maxCandidates int) ([]intentrank.Doc, error)
+}
+
+// loadNodesInOrder fetches nodes by id within the request namespace and
+// restores the given ranked order, which the database does not preserve,
+// dropping any id that no longer resolves. The annotation rides along because
+// every consumer of a search result shows the author's @intent beside it, and
+// asking for it afterwards would mean a second round trip per search.
+// @intent keep the ranked order across the round trip that loads the nodes themselves.
+func loadNodesInOrder(ctx context.Context, db *gorm.DB, nodeIDs []uint) ([]graph.Node, error) {
+	var nodes []graph.Node
+	if err := db.WithContext(ctx).
+		Where("id IN ?", nodeIDs).
+		Where("namespace = ?", requestctx.FromContext(ctx)).
+		Preload("Annotation.Tags").
+		Find(&nodes).Error; err != nil {
+		return nil, trace.Wrap(err, "load nodes")
+	}
+	position := make(map[uint]int, len(nodeIDs))
+	for i, id := range nodeIDs {
+		position[id] = i
+	}
+	ordered := make([]graph.Node, len(nodeIDs))
+	for _, node := range nodes {
+		if i, ok := position[node.ID]; ok {
+			ordered[i] = node
+		}
+	}
+	result := ordered[:0]
+	for _, node := range ordered {
+		if node.ID != 0 {
+			result = append(result, node)
+		}
+	}
+	return result, nil
 }
 
 // maxIntentCandidates caps one question's candidate set.

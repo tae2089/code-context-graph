@@ -136,36 +136,11 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 	for i, r := range rows {
 		nodeIDs[i] = r.NodeID
 	}
-
-	var nodes []graph.Node
-	// The annotation rides along because every consumer of a search result shows
-	// the author's @intent beside it, and asking for it afterwards would mean a
-	// second round trip per search.
-	nodesQ := db.WithContext(ctx).Where("id IN ?", nodeIDs).Where("namespace = ?", ns).Preload("Annotation.Tags")
-	if err := nodesQ.Find(&nodes).Error; err != nil {
-		return nil, trace.Wrap(err, "load nodes")
+	nodes, err := loadNodesInOrder(ctx, db, nodeIDs)
+	if err != nil {
+		return nil, err
 	}
-
-	idxMap := make(map[uint]int, len(nodeIDs))
-	for i, id := range nodeIDs {
-		idxMap[id] = i
-	}
-	sorted := make([]graph.Node, len(nodes))
-	for _, n := range nodes {
-		if idx, ok := idxMap[n.ID]; ok {
-			sorted[idx] = n
-		}
-	}
-
-	result := sorted[:0]
-	for _, n := range sorted {
-		if n.ID != 0 {
-			result = append(result, n)
-		}
-	}
-
-	result = promoteExactNameMatch(result, query)
-	return result, nil
+	return promoteExactNameMatch(nodes, query), nil
 }
 
 // MatchIntent finds every recorded reason holding any term of the question.

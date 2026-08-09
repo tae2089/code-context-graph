@@ -7,8 +7,6 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/tae2089/trace"
-
 	intentapp "github.com/tae2089/code-context-graph/internal/app/search/intent"
 	"github.com/tae2089/code-context-graph/internal/app/search/intentrank"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
@@ -84,7 +82,7 @@ func (r *Reader) QueryIntent(ctx context.Context, query string, limit int) (inte
 		nodeIDs = append(nodeIDs, match.NodeID)
 		termsByNode[match.NodeID] = match.Terms
 	}
-	nodes, err := r.loadNodesInOrder(ctx, nodeIDs)
+	nodes, err := loadNodesInOrder(ctx, r.db, nodeIDs)
 	if err != nil {
 		return intentapp.Result{}, err
 	}
@@ -124,37 +122,6 @@ func (r *Reader) intentCorpusSize(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	return int(total), nil
-}
-
-// loadNodesInOrder fetches nodes by id and restores the ranked order the database
-// does not preserve, dropping any id that no longer resolves.
-// @intent keep the ranked order across the round trip that loads the nodes themselves.
-func (r *Reader) loadNodesInOrder(ctx context.Context, nodeIDs []uint) ([]graph.Node, error) {
-	var nodes []graph.Node
-	if err := r.db.WithContext(ctx).
-		Where("id IN ?", nodeIDs).
-		Where("namespace = ?", requestctx.FromContext(ctx)).
-		Preload("Annotation.Tags").
-		Find(&nodes).Error; err != nil {
-		return nil, trace.Wrap(err, "load intent nodes")
-	}
-	position := make(map[uint]int, len(nodeIDs))
-	for i, id := range nodeIDs {
-		position[id] = i
-	}
-	ordered := make([]graph.Node, len(nodeIDs))
-	for _, node := range nodes {
-		if i, ok := position[node.ID]; ok {
-			ordered[i] = node
-		}
-	}
-	result := ordered[:0]
-	for _, node := range ordered {
-		if node.ID != 0 {
-			result = append(result, node)
-		}
-	}
-	return result, nil
 }
 
 // IntentCoverage counts how many searchable declarations carry a recorded reason.

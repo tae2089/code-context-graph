@@ -1,12 +1,43 @@
-// Package identtoken splits source identifiers into lowercased sub-tokens on
-// separators, camelCase boundaries, and letter/digit transitions. It is a leaf
-// utility shared by search indexing (content generation) and search reranking.
+// Package identtoken is the one place search text turns into tokens: Fields
+// cuts free text into identifier-like terms, and Split cuts one identifier
+// into its sub-tokens. It is a leaf utility shared by search indexing,
+// query sanitizing, and both scorers, because two copies of a tokenizer is
+// how a query and the index it searches stop reading text the same way.
 package identtoken
 
 import (
 	"strings"
 	"unicode"
 )
+
+// Fields splits free text into identifier-like terms with their original case,
+// so camelCase boundaries survive for sub-token splitting by Split.
+// @intent expose original-case terms; lowercasing happens per consumer.
+// @domainRule only letter, digit, and underscore sequences survive tokenization.
+func Fields(text string) []string {
+	fields := strings.FieldsFunc(text, func(r rune) bool {
+		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_')
+	})
+	if len(fields) == 0 {
+		return nil
+	}
+	return fields
+}
+
+// FieldsLower splits free text into lowercase identifier-like terms, which is
+// how both indexed documents and the queries aimed at them are read.
+// @intent read a document the same way the query is read.
+func FieldsLower(text string) []string {
+	fields := Fields(text)
+	if len(fields) == 0 {
+		return nil
+	}
+	tokens := make([]string, 0, len(fields))
+	for _, field := range fields {
+		tokens = append(tokens, strings.ToLower(field))
+	}
+	return tokens
+}
 
 // Split breaks an identifier into lowercased sub-tokens on separators, camelCase
 // boundaries, and letter/digit transitions ("getUserById" -> get, user, by, id;
