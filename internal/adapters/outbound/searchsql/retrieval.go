@@ -1,4 +1,4 @@
-// @index Bound SQL search and retrieval persistence adapters.
+// @index Bound SQL search persistence adapters.
 package searchsql
 
 import (
@@ -11,24 +11,21 @@ import (
 
 	intentapp "github.com/tae2089/code-context-graph/internal/app/search/intent"
 	"github.com/tae2089/code-context-graph/internal/app/search/intentrank"
-	retrievalapp "github.com/tae2089/code-context-graph/internal/app/search/retrieval"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
-// Reader binds candidate search and fallback retrieval persistence to one database.
-// @intent adapt raw SQL backend and GORM operations to app/search retrieval ports.
+// Reader binds candidate and intent search persistence to one database.
+// @intent adapt raw SQL backend and GORM operations to app/search read ports.
 type Reader struct {
 	db      *gorm.DB
 	backend Backend
 }
 
-var _ retrievalapp.CandidateSearcher = (*Reader)(nil)
-var _ retrievalapp.Repository = (*Reader)(nil)
 var _ intentapp.Searcher = (*Reader)(nil)
 var _ intentapp.CoverageReader = (*Reader)(nil)
 
-// NewReader constructs bound search and retrieval ports.
+// NewReader constructs bound search read ports.
 // @intent keep database handles out of application service construction.
 func NewReader(db *gorm.DB, backend Backend) *Reader {
 	return &Reader{db: db, backend: backend}
@@ -183,44 +180,4 @@ func (r *Reader) IntentCoverage(ctx context.Context) (intentapp.Coverage, error)
 		return intentapp.Coverage{}, err
 	}
 	return intentapp.Coverage{NodesWithReason: int(withReason), NodesTotal: int(total)}, nil
-}
-
-// ScanCandidates loads a bounded, deterministic namespace snapshot with annotations.
-// @intent provide sparse-FTS fallback inputs while keeping matching and scoring in app policy.
-func (r *Reader) ScanCandidates(ctx context.Context, kinds []graph.NodeKind, limit int) ([]graph.Node, error) {
-	if r == nil || r.db == nil {
-		return nil, gorm.ErrInvalidDB
-	}
-	var nodes []graph.Node
-	if err := r.db.WithContext(ctx).
-		Where("namespace = ?", requestctx.FromContext(ctx)).
-		Where("kind IN ?", kinds).
-		Preload("Annotation.Tags").
-		Order("file_path ASC, qualified_name ASC, id ASC").
-		Limit(limit).
-		Find(&nodes).Error; err != nil {
-		return nil, err
-	}
-	return nodes, nil
-}
-
-// Annotations batch-loads structured annotations for namespace-owned candidate nodes.
-// @intent provide bounded retrieval evidence without leaking joins into app policy.
-func (r *Reader) Annotations(ctx context.Context, nodeIDs []uint) (map[uint]*graph.Annotation, error) {
-	result := make(map[uint]*graph.Annotation, len(nodeIDs))
-	if len(nodeIDs) == 0 {
-		return result, nil
-	}
-	var rows []graph.Annotation
-	if err := r.db.WithContext(ctx).
-		Joins("JOIN nodes ON nodes.id = annotations.node_id").
-		Where("annotations.node_id IN ? AND nodes.namespace = ?", nodeIDs, requestctx.FromContext(ctx)).
-		Preload("Tags").
-		Find(&rows).Error; err != nil {
-		return nil, err
-	}
-	for i := range rows {
-		result[rows[i].NodeID] = &rows[i]
-	}
-	return result, nil
 }

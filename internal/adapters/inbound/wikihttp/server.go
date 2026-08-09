@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tae2089/code-context-graph/internal/app/search/retrieval"
 	"github.com/tae2089/code-context-graph/internal/app/wiki"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
@@ -34,7 +33,6 @@ type Config struct {
 	RagIndexDir   string
 	NamespaceRoot string
 	Repository    wiki.Repository
-	Retrieval     *retrieval.Service
 	Logger        *slog.Logger
 }
 
@@ -45,7 +43,6 @@ type Server struct {
 	ragIndexDir   string
 	namespaceRoot string
 	repository    wiki.Repository
-	retrieval     *retrieval.Service
 	logger        *slog.Logger
 }
 
@@ -79,7 +76,6 @@ func New(cfg Config) (*Server, error) {
 		ragIndexDir:   ragDir,
 		namespaceRoot: nsRoot,
 		repository:    cfg.Repository,
-		retrieval:     cfg.Retrieval,
 		logger:        logger,
 	}, nil
 }
@@ -227,60 +223,18 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "results": results})
 }
 
-// @intent run DB-primary retrieval for LLM context discovery in the Wiki UI.
+// handleRetrieve is a deliberate stub: the retrieval pipeline it served was
+// deleted, and the unified search core takes this route over in a follow-up.
+// @intent answer an explicit 501 so Wiki UI callers can tell "being rebuilt" from "route gone".
 func (s *Server) handleRetrieve(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
-	ns, ok := namespaceParam(w, r)
-	if !ok {
-		return
-	}
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	if query == "" {
-		writeError(w, http.StatusBadRequest, "q must not be empty", nil)
-		return
-	}
-	limit, err := boundedIntParam(r, "limit", 10, 1, 50)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error(), nil)
-		return
-	}
-	contentLimit, err := boundedIntParam(r, "content_limit", 0, 0, 20000)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error(), nil)
-		return
-	}
-	if s.retrieval == nil {
-		writeError(w, http.StatusServiceUnavailable, "graph database is not configured", nil)
-		return
-	}
-	response, err := s.retrieveFromDB(r.Context(), ns, query, limit, contentLimit)
-	if err != nil {
-		writeError(w, statusForReadErr(err), "retrieve from DB", err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "results": response.Results})
-}
-
-// @intent provide Wiki retrieve results from graph DB data.
-// @domainRule DB results are authoritative when the database is configured and queryable.
-// @sideEffect queries the graph DB and may read generated Markdown docs for response snippets.
-func (s *Server) retrieveFromDB(ctx context.Context, namespace, query string, limit, contentLimit int) (retrieval.Response, error) {
-	return s.retrieval.FromDB(ctx, namespace, query, limit, contentLimit, func(_ context.Context, ns, docPath string, limit int) (string, bool, error) {
-		content, _, err := s.readDBFallbackDoc(ns, docPath)
-		if err != nil {
-			return "", false, err
-		}
-		if len(content) <= limit {
-			return content, false, nil
-		}
-		return content[:limit], true, nil
-	})
+	writeError(w, http.StatusNotImplemented, "retrieve is disabled while its search pipeline is rebuilt", nil)
 }
 
 // @intent read DB fallback document content without crossing from a named namespace into shared/global docs roots.
-// @domainRule named namespace retrieve fallback must omit content rather than read another namespace's generated Markdown.
+// @domainRule named namespace doc fallback must omit content rather than read another namespace's generated Markdown.
 // @sideEffect reads a generated Markdown file from disk when it exists under the namespace root.
 func (s *Server) readDBFallbackDoc(namespace, docPath string) (string, string, error) {
 	if requestctx.Normalize(namespace) == requestctx.DefaultNamespace {

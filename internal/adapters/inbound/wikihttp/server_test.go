@@ -19,8 +19,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/tae2089/code-context-graph/internal/adapters/outbound/graphgorm"
-	"github.com/tae2089/code-context-graph/internal/adapters/outbound/searchsql"
-	"github.com/tae2089/code-context-graph/internal/app/search/retrieval"
 	"github.com/tae2089/code-context-graph/internal/app/wiki"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
@@ -40,16 +38,6 @@ var wikiTestDatabases sync.Map
 func testDBFor(srv *Server) *gorm.DB {
 	db, _ := wikiTestDatabases.Load(srv)
 	return db.(*gorm.DB)
-}
-
-func bindWikiTestPorts(t *testing.T, srv *Server, db *gorm.DB) {
-	t.Helper()
-	repository := graphgorm.New(db)
-	reader := searchsql.NewReader(db, nil)
-	srv.repository = repository
-	srv.retrieval = retrieval.New(reader, reader)
-	wikiTestDatabases.Store(srv, db)
-	t.Cleanup(func() { wikiTestDatabases.Delete(srv) })
 }
 
 func newTestServer(t *testing.T) *Server {
@@ -178,8 +166,7 @@ func newTestServer(t *testing.T) *Server {
 	}
 
 	repository := graphgorm.New(db)
-	reader := searchsql.NewReader(db, nil)
-	srv, err := New(Config{StaticDir: staticDir, RagIndexDir: ragDir, NamespaceRoot: filepath.Join(root, "namespaces"), Repository: repository, Retrieval: retrieval.New(reader, reader)})
+	srv, err := New(Config{StaticDir: staticDir, RagIndexDir: ragDir, NamespaceRoot: filepath.Join(root, "namespaces"), Repository: repository})
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
@@ -248,142 +235,24 @@ func TestAPI_SearchAndDoc(t *testing.T) {
 	}
 }
 
-func TestAPI_RetrieveUsesDBWhenAvailable(t *testing.T) {
+func TestAPI_RetrieveReturnsNotImplemented(t *testing.T) {
 	srv := newTestServer(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/wiki/api/retrieve?q=Run&namespace=default&limit=5", nil)
 	rec := httptest.NewRecorder()
 	srv.APIHandler().ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("retrieve status = %d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("retrieve status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusNotImplemented)
 	}
-	if !strings.Contains(rec.Body.String(), "main.go") || !strings.Contains(rec.Body.String(), "matched_terms") {
-		t.Fatalf("expected DB retrieve result with evidence, got %s", rec.Body.String())
-	}
-}
-
-func TestAPI_RetrieveFallsBackToDBWhenDocIndexMissing(t *testing.T) {
-	srv := newDBFallbackTestServer(t)
-	seedWikiRetrieveNode(t, testDBFor(srv), requestctx.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", graph.TagIntent, "payment settlement workflow")
-	writeWikiRetrieveDoc(t, "docs/internal/billing/processor.go.md", "# processor.go\n\npayment settlement workflow docs")
-
-	req := httptest.NewRequest(http.MethodGet, "/wiki/api/retrieve?q=payment+settlement&namespace=default&limit=5&content_limit=2000", nil)
-	rec := httptest.NewRecorder()
-	srv.APIHandler().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("retrieve fallback status = %d body=%s", rec.Code, rec.Body.String())
-	}
-	var got struct {
-		Namespace string             `json:"namespace"`
-		Results   []retrieval.Result `json:"results"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("decode retrieve fallback: %v", err)
-	}
-	if got.Namespace != requestctx.DefaultNamespace {
-		t.Fatalf("namespace = %q", got.Namespace)
-	}
-	if len(got.Results) != 1 {
-		t.Fatalf("results = %d, want 1: %#v", len(got.Results), got.Results)
-	}
-	if got.Results[0].DocPath != "docs/internal/billing/processor.go.md" {
-		t.Fatalf("doc_path = %q", got.Results[0].DocPath)
-	}
-	if !strings.Contains(got.Results[0].Content, "payment settlement workflow docs") {
-		t.Fatalf("content = %q", got.Results[0].Content)
-	}
-}
-
-func TestAPI_RetrieveFallbackReturnsEmptyWhenDBHasNoMatch(t *testing.T) {
-	srv := newDBFallbackTestServer(t)
-	req := httptest.NewRequest(http.MethodGet, "/wiki/api/retrieve?q=absent&namespace=default&limit=5", nil)
-	rec := httptest.NewRecorder()
-	srv.APIHandler().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("retrieve fallback empty status = %d body=%s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), `"results":[]`) {
-		t.Fatalf("expected empty results, got %s", rec.Body.String())
-	}
-}
-
-func TestAPI_RetrieveFallbackTruncatesContent(t *testing.T) {
-	srv := newDBFallbackTestServer(t)
-	seedWikiRetrieveNode(t, testDBFor(srv), requestctx.DefaultNamespace, "docs.Long", "Long", "internal/app/docs/long.go", graph.TagIntent, "longcontent marker")
-	writeWikiRetrieveDoc(t, "docs/internal/app/docs/long.go.md", "0123456789abcdef")
-
-	req := httptest.NewRequest(http.MethodGet, "/wiki/api/retrieve?q=longcontent&namespace=default&limit=5&content_limit=5", nil)
-	rec := httptest.NewRecorder()
-	srv.APIHandler().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("retrieve fallback truncate status = %d body=%s", rec.Code, rec.Body.String())
-	}
-	var got struct {
-		Results []retrieval.Result `json:"results"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("decode truncate response: %v", err)
-	}
-	if len(got.Results) != 1 {
-		t.Fatalf("results = %d, want 1", len(got.Results))
-	}
-	if got.Results[0].Content != "01234" || !got.Results[0].ContentTruncated {
-		t.Fatalf("content/truncated = %q/%v", got.Results[0].Content, got.Results[0].ContentTruncated)
-	}
-}
-
-func TestAPI_RetrieveFallbackIsNamespaceScoped(t *testing.T) {
-	srv := newDBFallbackTestServer(t)
-	seedWikiRetrieveNode(t, testDBFor(srv), "alpha", "alpha.Checkout", "Checkout", "checkout.go", graph.TagIntent, "sharedtenant alpha checkout")
-	seedWikiRetrieveNode(t, testDBFor(srv), "beta", "beta.Checkout", "Checkout", "checkout.go", graph.TagIntent, "sharedtenant beta checkout")
-	writeWikiRetrieveDoc(t, filepath.Join("namespaces", "alpha", "docs", "checkout.go.md"), "# checkout\n\nalpha checkout docs")
-	writeWikiRetrieveDoc(t, filepath.Join("namespaces", "beta", "docs", "checkout.go.md"), "# checkout\n\nbeta checkout docs")
-
-	req := httptest.NewRequest(http.MethodGet, "/wiki/api/retrieve?q=sharedtenant+checkout&namespace=alpha&limit=5&content_limit=2000", nil)
-	rec := httptest.NewRecorder()
-	srv.APIHandler().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("retrieve fallback namespace status = %d body=%s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "alpha checkout docs") || strings.Contains(rec.Body.String(), "beta checkout docs") {
-		t.Fatalf("namespace-scoped response leaked or missed docs: %s", rec.Body.String())
-	}
-}
-
-func TestAPI_RetrieveFallbackNamedNamespaceDoesNotReadSharedDocs(t *testing.T) {
-	srv := newDBFallbackTestServer(t)
-	seedWikiRetrieveNode(t, testDBFor(srv), "alpha", "alpha.Checkout", "Checkout", "checkout.go", graph.TagIntent, "sharedtenant alpha checkout")
-	writeWikiRetrieveDoc(t, filepath.Join("docs", "checkout.go.md"), "# checkout\n\nshared docs must not leak")
-
-	req := httptest.NewRequest(http.MethodGet, "/wiki/api/retrieve?q=sharedtenant+checkout&namespace=alpha&limit=5&content_limit=2000", nil)
-	rec := httptest.NewRecorder()
-	srv.APIHandler().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("retrieve fallback namespace leak status = %d body=%s", rec.Code, rec.Body.String())
-	}
-	var got struct {
-		Results []retrieval.Result `json:"results"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("decode retrieve fallback response: %v", err)
-	}
-	if len(got.Results) != 1 {
-		t.Fatalf("results = %d, want 1: %#v", len(got.Results), got.Results)
-	}
-	if got.Results[0].Content != "" || strings.Contains(rec.Body.String(), "shared docs must not leak") {
-		t.Fatalf("named namespace read shared docs content: %#v body=%s", got.Results[0], rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "rebuilt") {
+		t.Fatalf("expected an explanation the pipeline is being rebuilt, got %s", rec.Body.String())
 	}
 }
 
 func TestAPI_TreeFallsBackToDBWhenWikiIndexMissing(t *testing.T) {
 	srv := newDBFallbackTestServer(t)
-	seedWikiRetrieveNode(t, testDBFor(srv), requestctx.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", graph.TagIntent, "payment settlement workflow")
+	seedWikiDBNode(t, testDBFor(srv), requestctx.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", graph.TagIntent, "payment settlement workflow")
 
 	req := httptest.NewRequest(http.MethodGet, "/wiki/api/tree?namespace=default", nil)
 	rec := httptest.NewRecorder()
@@ -416,7 +285,7 @@ func TestAPI_TreeFallsBackToDBWhenWikiIndexMissing(t *testing.T) {
 
 func TestAPI_TreeFallbackSupportsLazyNodeExpansion(t *testing.T) {
 	srv := newDBFallbackTestServer(t)
-	seedWikiRetrieveNode(t, testDBFor(srv), requestctx.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", graph.TagIntent, "payment settlement workflow")
+	seedWikiDBNode(t, testDBFor(srv), requestctx.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", graph.TagIntent, "payment settlement workflow")
 
 	req := httptest.NewRequest(http.MethodGet, "/wiki/api/tree?namespace=default&depth=1", nil)
 	rec := httptest.NewRecorder()
@@ -453,7 +322,7 @@ func TestAPI_TreeFallbackSupportsLazyNodeExpansion(t *testing.T) {
 
 func TestAPI_TreePrefersDBWhenWikiIndexPresent(t *testing.T) {
 	srv := newTestServer(t)
-	seedWikiRetrieveNode(t, testDBFor(srv), requestctx.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", graph.TagIntent, "payment settlement workflow")
+	seedWikiDBNode(t, testDBFor(srv), requestctx.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", graph.TagIntent, "payment settlement workflow")
 
 	req := httptest.NewRequest(http.MethodGet, "/wiki/api/tree?namespace=default", nil)
 	rec := httptest.NewRecorder()
@@ -472,7 +341,7 @@ func TestAPI_TreePrefersDBWhenWikiIndexPresent(t *testing.T) {
 
 func TestAPI_SearchFallsBackToDBWhenWikiIndexMissing(t *testing.T) {
 	srv := newDBFallbackTestServer(t)
-	seedWikiRetrieveNode(t, testDBFor(srv), requestctx.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", graph.TagIntent, "payment settlement workflow")
+	seedWikiDBNode(t, testDBFor(srv), requestctx.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", graph.TagIntent, "payment settlement workflow")
 
 	req := httptest.NewRequest(http.MethodGet, "/wiki/api/search?q=settlement&namespace=default&limit=5", nil)
 	rec := httptest.NewRecorder()
@@ -494,8 +363,8 @@ func TestAPI_SearchFallsBackToDBWhenWikiIndexMissing(t *testing.T) {
 
 func TestAPI_SearchFallbackIsNamespaceScoped(t *testing.T) {
 	srv := newDBFallbackTestServer(t)
-	seedWikiRetrieveNode(t, testDBFor(srv), "alpha", "alpha.Checkout", "Checkout", "checkout.go", graph.TagIntent, "sharedtenant alpha checkout")
-	seedWikiRetrieveNode(t, testDBFor(srv), "beta", "beta.Checkout", "Checkout", "checkout.go", graph.TagIntent, "sharedtenant beta checkout")
+	seedWikiDBNode(t, testDBFor(srv), "alpha", "alpha.Checkout", "Checkout", "checkout.go", graph.TagIntent, "sharedtenant alpha checkout")
+	seedWikiDBNode(t, testDBFor(srv), "beta", "beta.Checkout", "Checkout", "checkout.go", graph.TagIntent, "sharedtenant beta checkout")
 
 	req := httptest.NewRequest(http.MethodGet, "/wiki/api/search?q=sharedtenant&namespace=alpha&limit=10", nil)
 	rec := httptest.NewRecorder()
@@ -511,7 +380,7 @@ func TestAPI_SearchFallbackIsNamespaceScoped(t *testing.T) {
 
 func TestAPI_DocFallsBackToDBTreeSummaryWhenWikiIndexMissing(t *testing.T) {
 	srv := newDBFallbackTestServer(t)
-	seedWikiRetrieveNode(t, testDBFor(srv), requestctx.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", graph.TagIntent, "payment settlement workflow")
+	seedWikiDBNode(t, testDBFor(srv), requestctx.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", graph.TagIntent, "payment settlement workflow")
 
 	req := httptest.NewRequest(http.MethodGet, "/wiki/api/doc?namespace=default&path=docs/internal/billing/processor.go.md", nil)
 	rec := httptest.NewRecorder()
@@ -530,7 +399,7 @@ func TestAPI_DocFallsBackToDBTreeSummaryWhenWikiIndexMissing(t *testing.T) {
 
 func TestAPI_ContextFallsBackToDBTreeSummaryWhenWikiIndexMissing(t *testing.T) {
 	srv := newDBFallbackTestServer(t)
-	seedWikiRetrieveNode(t, testDBFor(srv), requestctx.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", graph.TagIntent, "payment settlement workflow")
+	seedWikiDBNode(t, testDBFor(srv), requestctx.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", graph.TagIntent, "payment settlement workflow")
 
 	req := httptest.NewRequest(http.MethodPost, "/wiki/api/context", strings.NewReader(`{"namespace":"default","paths":["docs/internal/billing/processor.go.md"]}`))
 	rec := httptest.NewRecorder()
@@ -550,7 +419,7 @@ func TestAPI_ContextFallsBackToDBTreeSummaryWhenWikiIndexMissing(t *testing.T) {
 
 func TestAPI_RefFallsBackToDBTreeWhenWikiIndexMissing(t *testing.T) {
 	srv := newDBFallbackTestServer(t)
-	seedWikiRetrieveNode(t, testDBFor(srv), "billing", "billing.Processor", "Processor", "internal/billing/processor.go", graph.TagIntent, "payment settlement workflow")
+	seedWikiDBNode(t, testDBFor(srv), "billing", "billing.Processor", "Processor", "internal/billing/processor.go", graph.TagIntent, "payment settlement workflow")
 	rawRef := "ccg://billing/internal/billing/processor.go#Processor"
 
 	req := httptest.NewRequest(http.MethodGet, "/wiki/api/ref?ref="+url.QueryEscape(rawRef), nil)
@@ -571,8 +440,8 @@ func TestAPI_RefFallsBackToDBTreeWhenWikiIndexMissing(t *testing.T) {
 
 func TestAPI_TreeFallbackIsNamespaceScoped(t *testing.T) {
 	srv := newDBFallbackTestServer(t)
-	seedWikiRetrieveNode(t, testDBFor(srv), "alpha", "alpha.Checkout", "Checkout", "checkout.go", graph.TagIntent, "sharedtenant alpha checkout")
-	seedWikiRetrieveNode(t, testDBFor(srv), "beta", "beta.Checkout", "Checkout", "checkout.go", graph.TagIntent, "sharedtenant beta checkout")
+	seedWikiDBNode(t, testDBFor(srv), "alpha", "alpha.Checkout", "Checkout", "checkout.go", graph.TagIntent, "sharedtenant alpha checkout")
+	seedWikiDBNode(t, testDBFor(srv), "beta", "beta.Checkout", "Checkout", "checkout.go", graph.TagIntent, "sharedtenant beta checkout")
 
 	req := httptest.NewRequest(http.MethodGet, "/wiki/api/tree?namespace=alpha", nil)
 	rec := httptest.NewRecorder()
@@ -588,7 +457,7 @@ func TestAPI_TreeFallbackIsNamespaceScoped(t *testing.T) {
 
 func TestAPI_CorruptWikiIndexDoesNotBlockDBTree(t *testing.T) {
 	srv := newDBFallbackTestServer(t)
-	seedWikiRetrieveNode(t, testDBFor(srv), requestctx.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", graph.TagIntent, "payment settlement workflow")
+	seedWikiDBNode(t, testDBFor(srv), requestctx.DefaultNamespace, "billing.Processor", "Processor", "internal/billing/processor.go", graph.TagIntent, "payment settlement workflow")
 	if err := os.WriteFile(filepath.Join(srv.ragIndexDir, "wiki-index.json"), []byte("{"), 0o644); err != nil {
 		t.Fatalf("write corrupt index: %v", err)
 	}
@@ -608,7 +477,6 @@ func TestAPI_CorruptWikiIndexDoesNotBlockDBTree(t *testing.T) {
 func TestAPI_ContextReturnsUnavailableWithoutDB(t *testing.T) {
 	srv := newTestServer(t)
 	srv.repository = nil
-	srv.retrieval = nil
 	req := httptest.NewRequest(http.MethodPost, "/wiki/api/context", strings.NewReader(`{"namespace":"default","paths":["docs/core.md","docs/missing.md"]}`))
 	rec := httptest.NewRecorder()
 
@@ -750,7 +618,6 @@ func TestAPI_DocAllowsAbsolutePathUnderRoot(t *testing.T) {
 func TestAPI_DocReturnsNotFoundWithoutDBFallback(t *testing.T) {
 	srv := newTestServer(t)
 	srv.repository = nil
-	srv.retrieval = nil
 	req := httptest.NewRequest(http.MethodGet, "/wiki/api/doc?namespace=default&path=docs/missing.md", nil)
 	rec := httptest.NewRecorder()
 
@@ -858,8 +725,7 @@ func newDBFallbackTestServer(t *testing.T) *Server {
 		t.Fatalf("chdir: %v", err)
 	}
 	repository := graphgorm.New(db)
-	reader := searchsql.NewReader(db, nil)
-	srv, err := New(Config{StaticDir: staticDir, RagIndexDir: ragDir, NamespaceRoot: filepath.Join(root, "namespaces"), Repository: repository, Retrieval: retrieval.New(reader, reader)})
+	srv, err := New(Config{StaticDir: staticDir, RagIndexDir: ragDir, NamespaceRoot: filepath.Join(root, "namespaces"), Repository: repository})
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
@@ -868,7 +734,7 @@ func newDBFallbackTestServer(t *testing.T) *Server {
 	return srv
 }
 
-func seedWikiRetrieveNode(t *testing.T, db *gorm.DB, namespace, qualifiedName, name, filePath string, tagKind graph.TagKind, tagValue string) {
+func seedWikiDBNode(t *testing.T, db *gorm.DB, namespace, qualifiedName, name, filePath string, tagKind graph.TagKind, tagValue string) {
 	t.Helper()
 	node := graph.Node{Namespace: namespace, QualifiedName: qualifiedName, Kind: graph.NodeKindFunction, Name: name, FilePath: filePath, StartLine: 1, EndLine: 10, Language: "go"}
 	if err := db.Create(&node).Error; err != nil {
@@ -880,15 +746,5 @@ func seedWikiRetrieveNode(t *testing.T, db *gorm.DB, namespace, qualifiedName, n
 	}
 	if err := db.Create(&graph.DocTag{AnnotationID: ann.ID, Kind: tagKind, Value: tagValue, Ordinal: 0}).Error; err != nil {
 		t.Fatalf("create retrieve doc tag: %v", err)
-	}
-}
-
-func writeWikiRetrieveDoc(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("create retrieve doc dir: %v", err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write retrieve doc: %v", err)
 	}
 }

@@ -38,18 +38,16 @@ test: test-integration-helpers
 test-integration-helpers:
 	bash ./scripts/integration-test-helpers_test.sh
 
-# Prints both search scoreboards — `search` and `search_docs` — over the same
-# golden queries. Asserts nothing; the regression checks that fail a build
-# already run as part of `make test`.
+# Prints the `search` scoreboard over the golden queries. Asserts nothing; the
+# regression checks that fail a build already run as part of `make test`.
 search-eval:
-	CGO_ENABLED=1 go test -tags "fts5" ./internal/app/search/rank/ -run 'TestGolden_Report|TestGoldenDocs_Report' -v -count=1
+	CGO_ENABLED=1 go test -tags "fts5" ./internal/app/search/rank/ -run TestGolden_Report -v -count=1
 
-# Recaptures the candidate fixtures from ./ccg.db, which `make wiki-db` builds.
-# Only needed when retrieval itself changes; see
+# Recaptures the candidate fixture from ./ccg.db, which `make wiki-db` builds.
+# Only needed when candidate retrieval itself changes; see
 # internal/app/search/rank/testdata/README.md before committing the result.
 search-eval-capture:
 	CGO_ENABLED=1 go test -tags "fts5" ./internal/adapters/outbound/searchsql/ -run TestCaptureGoldenCandidates -capture-golden -count=1
-	CGO_ENABLED=1 go test -tags "fts5" ./internal/adapters/outbound/searchsql/ -run TestCaptureDocsGoldenCandidates -capture-docs -count=1
 
 # Prints the find_by_intent scoreboard: how often a plain-language question came
 # back with somewhere worth starting, and how much of the code had a recorded

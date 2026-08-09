@@ -20,7 +20,6 @@ import (
 	"github.com/tae2089/code-context-graph/internal/app/crossref"
 	"github.com/tae2089/code-context-graph/internal/app/ingest/workflow"
 	"github.com/tae2089/code-context-graph/internal/app/reposync"
-	"github.com/tae2089/code-context-graph/internal/app/search/retrieval"
 	ccgruntime "github.com/tae2089/code-context-graph/internal/runtime"
 	mcpruntime "github.com/tae2089/code-context-graph/internal/runtime/mcp"
 )
@@ -70,7 +69,7 @@ func RunHTTP(rt *ccgruntime.Runtime, cfg httpin.Config, serviceVersion, ragIndex
 		wiki, err := wikihttp.New(wikihttp.Config{
 			StaticDir: cfg.WikiDir, RagIndexDir: cfg.RagIndexDir,
 			NamespaceRoot: cfg.NamespaceRoot, Repository: rt.Store,
-			Retrieval: retrieval.New(rt.SearchReader, rt.SearchReader), Logger: rt.Logger,
+			Logger: rt.Logger,
 		})
 		if err != nil {
 			return err

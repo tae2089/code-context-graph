@@ -1,29 +1,23 @@
 # Search golden set
 
-A frozen record of what the two search paths return for real queries, so a later
-change has to justify every result it moves.
+A frozen record of what `search` returns for real queries, so a later change has
+to justify every result it moves.
 
-There are two harnesses over one set of queries:
+`golden_test.go` replays the MCP `search` tool — `rank.Rerank` over full-text
+candidates — and scores where each query's first relevant **node** landed.
 
-| Harness | What it replays | What a result is |
-| --- | --- | --- |
-| `golden_test.go` | the MCP `search` tool — `rank.Rerank` over full-text candidates | a **node** |
-| `golden_docs_test.go` | `wiki_search` — the Wiki web UI's search box, `retrieval.FromDB`, full-text plus the namespace scan | a **file** |
-
-A third harness scores `find_by_intent` and lives somewhere else, because it
+A second harness scores `find_by_intent` and lives somewhere else, because it
 needs a live index rather than a frozen result list — see [The intent golden
 set](#the-intent-golden-set) at the bottom.
 
-`wiki_search` is a name for the second path, not a tool anyone can call. The MCP
-`search_docs` tool that used to sit on top of it was removed; `retrieval.FromDB`
-stayed because the Wiki server still serves it at
-`internal/adapters/inbound/wikihttp/server.go`.
-
-They exist as a pair because the two paths have different jobs. `search` needs
-every term of the query inside one indexed node, so it answers "name the symbol"
-queries. `wiki_search` also scans namespace text and ORs its terms, so it answers
-questions written as sentences. Scoring only one of them made the other's
-behaviour invisible.
+There used to be a third path here. `wiki_search` named the Wiki web UI's search
+box — `retrieval.FromDB`, full-text plus a namespace scan — and had its own
+frozen pool and baseline. That pipeline was deleted along with
+`internal/app/search/retrieval`; the Wiki `/api/retrieve` route answers 501
+until the unified search core takes it over. Entries in `queries.json` that name
+`wiki_search` — the `label_format` note and two `out_of_scope` lists — are
+dormant judgment data, kept because the judgments themselves are still true and
+the unified service will be scored against them.
 
 ## What each file is
 
@@ -31,33 +25,25 @@ behaviour invisible.
 | --- | --- | --- |
 | `queries.json` | a human | 44 queries with the answers a developer typing them would accept, and why |
 | `candidates.json` | `TestCaptureGoldenCandidates` | the full-text candidates for `search`, in retrieval order, at `rank.FetchLimit(10)` = 50 |
-| `docs_candidates.json` | `TestCaptureDocsGoldenCandidates` | the scan pool plus the full-text candidates for `wiki_search`, at `retrieval.DBCandidateLimit(10)` = 100 |
 | `baseline.json` | `-update-golden` | where `search` put the first relevant node on the last accepted run |
-| `baseline_docs.json` | `-update-docs-golden` | where `wiki_search` put the first relevant file, and how many files it returned |
 
-Both fixtures are captured through the production query path, so each tool is
-scored on exactly the pool it gets in production. Once captured they are never
-re-read from a database, which is what makes a metric change attributable to the
-code and nothing else.
-
-`docs_candidates.json` is a separate file rather than a reuse of
-`candidates.json` because the two limits differ. Five queries — `treesitter
-semantics`, `package discovery`, `mcp`, `discovery`, `annot` — fill
-`candidates.json` to its ceiling of 50, so replaying `wiki_search` from it would
-score the tool on a truncated pool.
+The fixture is captured through the production query path, so the tool is scored
+on exactly the pool it gets in production. Once captured it is never re-read
+from a database, which is what makes a metric change attributable to the code
+and nothing else.
 
 ## Running it
 
 ```sh
-make search-eval   # both scoreboards, asserts nothing
-make test          # includes both ratchets, which is what fails a build
+make search-eval   # the scoreboard, asserts nothing
+make test          # includes the ratchet, which is what fails a build
 ```
 
 There is no `ccg eval` command and there should not be one. Measuring search is a
 development concern, so it stays in the test suite rather than shipping in the
 binary.
 
-## When a ratchet fails
+## When the ratchet fails
 
 It reports one line per query that got worse. For each one, open its entry in
 `queries.json` and read the `why`.
@@ -65,69 +51,54 @@ It reports one line per query that got worse. For each one, open its entry in
 - **The judgment is right and the ranking is wrong** — fix the ranking.
 - **The ranking is right and the judgment was wrong** — change the judgment and
   say so in the commit. Do not delete the query.
-- **The new order is a deliberate trade** — record it with `-update-golden` or
-  `-update-docs-golden` and name the trade in the commit message.
+- **The new order is a deliberate trade** — record it with `-update-golden` and
+  name the trade in the commit message.
 
 Never widen a `relevant` list to make a run pass. The list answers "what did the
 person want", which does not change because the code did.
 
-The `wiki_search` ratchet asserts the negative query's result count did not
-**grow**, rather than asserting it is zero. It is zero today, and the assertion
-is written the looser way on purpose: the scan matches on substrings, so a
-future recapture or a new annotation can put a file back on that page, and the
-useful thing to catch is the direction, not the exact number.
+## Rebuilding the candidate fixture
 
-## Rebuilding the candidate fixtures
-
-Only when retrieval itself changes — the tokenizer, `SanitizeFTS5`,
-`promoteExactNameMatch`, the scan's kind filter, the indexed document content. It
-needs a graph at the repository root, which is build output and not tracked:
+Only when candidate retrieval itself changes — the tokenizer, `SanitizeFTS5`,
+`promoteExactNameMatch`, the indexed document content. It needs a graph at the
+repository root, which is build output and not tracked:
 
 ```sh
-make wiki-db              # builds ./ccg.db, which both captures read
-make search-eval-capture  # rewrites candidates.json and docs_candidates.json
+make wiki-db              # builds ./ccg.db, which the capture reads
+make search-eval-capture  # rewrites candidates.json
 ```
 
 A recapture can hide a retrieval regression by baking it into the fixture, so
-diff both files and re-read every judgment they touch before committing.
+diff the file and re-read every judgment it touches before committing.
 
 ## Labels
 
 `relevant` entries are written `path/to/file.go@pkg.Symbol`. `search` is scored
-on the symbol after the `@`; `wiki_search` is scored on the path before it.
+on the symbol after the `@`.
 
-`out_of_scope` is a list of the tools that decline the query, not a boolean. A
-query can be answerable by one tool and out of scope for the other:
+`out_of_scope` is a list of the tools that decline the query, not a boolean, so
+one judgment file can score more than one tool. Today only `search` is scored
+from it; the lists that also name `wiki_search` are dormant, as above.
 
-```json
-"out_of_scope": ["search"]            // the five question queries
-"out_of_scope": ["search", "wiki_search"]  // cfg and the three typos
-```
-
-`retrieved` (in `search`) and `reachable` (in `wiki_search`) are kept apart from
-`rank` on purpose. False means the candidate pool never held a relevant answer,
-so the ranking was never given the chance and no ranking change can fix that
-query.
+`retrieved` is kept apart from `rank` on purpose. False means the candidate pool
+never held a relevant answer, so the ranking was never given the chance and no
+ranking change can fix that query.
 
 ## The two totals
 
 ```
 search       ALL  43   34/43  0.745  top1 32  top3 34  MRR 0.767
 search       ANSWERABLE  34   33/34  0.900  top1 31  top3 33  MRR 0.941
-
-wiki_search  ALL  43   39/43  0.778  top1 30  top3 37  MRR 0.780
-wiki_search  ANSWERABLE  39   38/39  0.917  top1 30  top3 36  MRR 0.847
 ```
 
-`queries.json` holds 44 entries and both scoreboards count 43. The missing one is
+`queries.json` holds 44 entries and the scoreboard counts 43. The missing one is
 `zzz nonexistent symbol qqq`, whose `relevant` list is empty; a query with no
 right answer has no rank to average, so the report skips it and lists it
 separately. Nothing is silently dropped.
 
 `ALL` includes the out-of-scope queries, so it can never reach 1.0 however good
-the code gets. `ANSWERABLE` drops the ones that tool declines, and is the number
-to read when asking how the code is doing. The two columns differ because the
-declined sets differ: `search` declines nine, `wiki_search` four.
+the code gets. `ANSWERABLE` drops the nine queries `search` declines, and is the
+number to read when asking how the code is doing.
 
 `search`'s 0.941 is not comparable to the number this file used to print. Until
 the five question queries were reclassified, they were scored against `search`
@@ -135,151 +106,16 @@ and dragged it down. Moving them is bookkeeping, not a code improvement — with
 the same judgments as before, `search` scores 0.846, unchanged by any code in
 this round.
 
-## What else came back
-
-Every number above answers "where did the right answer land". None of them
-answers "how much else came with it", which is what every complaint about this
-tool has actually been about. `TestGoldenDocs_Report` prints a second table for
-that:
-
-```
-bucket           n  returned  found  unvouched  precision  ceiling
-question         5     50       4      46        0.080     0.100
-ALL             43    288      56     232        0.194     0.219
-ANSWERABLE      39    285      55     230        0.193     0.211
-```
-
-`precision` is `found / returned`. Read its **movement**, never its value: the
-`relevant` lists name the files a developer would accept, not every file that
-could reasonably appear, so an unvouched file is not proven junk.
-
-`ceiling` is what precision would be with a perfect ranking and the same page
-length. It is the honest reading of this table, and it says something the older
-metrics could not:
-
-**precision 0.194, ceiling 0.219 — the gap is 0.025.** Ordering is close to
-exhausted. Of the 232 unvouched files, a perfect ranker removes 7. The rest are
-there because the tool fills the page to `limit` whenever it can, and 21 of the
-43 queries come back with exactly 10 files. The noise is page length, not order.
-
-That is the number to judge the next change by. A change that returns fewer
-files while `found` holds is a win this table shows immediately; a change that
-only reorders cannot move it far enough to matter.
-
-`TestGoldenDocs_HasNotRegressed` enforces the same thing per query: if
-`returned` grows while `found` does not, the run fails. Until now only the
-negative query was watched for growth, which is why two rounds of noise work
-could land without any number moving.
-
 ## The four kept-red queries
 
-`cfg` and the three typos — `sanitze`, `retreival`, `anotation` — are declined by
-both tools. They are neither a retrieval finding nor a ranking one. They record a
-decision: search does not correct spelling and does not expand abbreviations.
-Both tools are driven by an agent quoting identifiers out of code it has already
-read, so a query that matches nothing exactly is naming something that does not
-exist. Answering it approximately would turn "no such thing" into a confident
-wrong answer. They are kept, and kept red, so the decision stays visible and
-anyone who reverses it inherits the measurements in each `why`.
-
-## The eyeball record
-
-Metrics say where the right answer landed. They say nothing about what sat above
-it. This is a one-time manual read of the top ten files `wiki_search` returned
-for the five question queries, taken before and after function words stopped
-counting as matched terms.
-
-**Before.** The scan ORs its terms and the score adds 10 per matched term, so
-words like `how`, `do`, `the`, `a`, and `i` bought real points:
-
-- `how does the graph get built` — `handler_query.go` first on
-  `terms=[get graph how the the_graph]`; `build.go` sixth.
-- `where do search results get ranked` — all ten files carried `do`, and
-  `rank.go` was not among them.
-- `how do i follow a call chain` — `flow.go` first, but on
-  `terms=[a a_call call call_chain chain do follow how i]`.
-- `zzz nonexistent symbol qqq` — ten files, all on the substring `symbol`.
-
-**After** `MatchedTerms` drops function words before building adjacency aliases
-(`internal/app/search/retrieval/helpers.go`):
-
-- `how does the graph get built` — `terms=[get graph]`, `build.go` second.
-- `what happens when a webhook arrives` — `terms=[webhook]`, `handler.go` first.
-- `how do i follow a call chain` — `terms=[call call_chain chain follow follow_call]`,
-  `flow.go` second behind `semantics_js_ts.go`, which matches `call chain` on its
-  own surface.
-- `zzz nonexistent symbol qqq` — still ten files, all on `symbol`.
-
-The headline is a wash, and that is the honest reading: question Recall@10 stayed
-0.800, question MRR moved 0.633 to 0.600 (ranks `[6,1,0,1,1]` to `[2,1,0,2,1]`),
-top1 3 to 2, top3 3 to 4, ANSWERABLE MRR 0.851 to 0.847. One big win, one loss,
-and much less noise in what the caller reads.
-
-## Saying "nothing here"
-
-The eyeball above left the negative query untouched: ten files, all on the single
-word `symbol`. Cleaning up which words count could not fix that, because the
-scan keeps a node that matched **one** term, so one common word carries a whole
-page on its own.
-
-The fix is `mostlyNamesNothing` in `retrieval/service.go`: if more than half the
-words the caller wrote appear nowhere in the namespace, the scan contributes
-nothing. Full-text results are untouched, so this can only remove scan-only
-noise.
-
-The rule counts dead words rather than demanding each file match more of the
-query, and the measurement is why. Counting per file kills real answers:
-`what happens when a webhook arrives` is answered by `webhook/handler.go`, which
-matches one word of three, because `happens` and `arrives` are prose that no
-identifier here spells. Counting dead words separates the two cases with room to
-spare — how often each word of a question appears in this namespace:
-
-| query | words, and how many of the 158 files hold each |
-| --- | --- |
-| how does the graph get built | graph 91, get 55, built 15 — **0 dead** |
-| what happens when a webhook arrives | webhook 16, happens 3, arrives 0 — **1 of 3 dead** |
-| where do search results get ranked | get 55, search 39, results 29, ranked 4 — **0 dead** |
-| how do i follow a call chain | call 67, follow 8, chain 5 — **0 dead** |
-| what stops the server accepting new work | new 61, work 40, server 25, stops 3, accepting 1 — **0 dead** |
-| zzz nonexistent symbol qqq | symbol 27, zzz 0, nonexistent 0, qqq 0 — **3 of 4 dead** |
-
-Only the invented query has more than one dead word. Note also that a share-based
-rule would not have worked: `symbol` covers 17% of files and `webhook` 10%, which
-is too close to draw a line between.
-
-Counting alone was not enough, and the second half of the rule is what keeps it
-from refusing real questions. Run against thirty plausible questions about this
-codebase, counting alone refused one: **`why is the queue draining slowly`**,
-where `draining` and `slowly` are dead and only `queue` survives. That question
-has an answer. Denying a real answer is worse for an agent than handing it a
-noisy page, so one refusal in thirty was not acceptable.
-
-The valve is the file path. `wiki_search` returns files, so a surviving word that
-appears in a path is pointing at a result, and the query goes through. The two
-cases separate cleanly on exactly this:
-
-| word | files it appears in | in a **path** | in a **name** | only in annotation prose |
-| --- | --- | --- | --- | --- |
-| `queue` | 5 | 31 nodes | 8 | 6 |
-| `symbol` | 27 | **0** | 9 | 62 |
-
-Matching a node *name* is not enough — `symbol` matches nine names and a
-name-based valve reopens the hole. Path only.
-
-With the valve: `why is the queue draining slowly` is answered, all thirty prose
-questions are answered, and `zzz nonexistent symbol qqq` still returns nothing.
-
-Result: the negative query went from 10 files to 0, and **no other number moved**
-— every bucket, both totals, and every per-query rank are identical.
-
-`prose_test.go` keeps the thirty questions as a standing check, because this is
-the failure mode that hides: an empty answer looks the same whether the thing is
-missing or the rule misjudged. The golden set's five question-shaped queries were
-too few to catch it — counting alone passed the whole golden set while refusing a
-real question.
-
-Queries under two words are exempt: one word either exists or it does not, and
-the per-node filter already decides that.
+`cfg` and the three typos — `sanitze`, `retreival`, `anotation` — are declined.
+They are neither a retrieval finding nor a ranking one. They record a decision:
+search does not correct spelling and does not expand abbreviations. The tool is
+driven by an agent quoting identifiers out of code it has already read, so a
+query that matches nothing exactly is naming something that does not exist.
+Answering it approximately would turn "no such thing" into a confident wrong
+answer. They are kept, and kept red, so the decision stays visible and anyone
+who reverses it inherits the measurements in each `why`.
 
 ## What this measures, and what it does not
 
@@ -303,9 +139,9 @@ here.
 
 ### Why it freezes something different
 
-The two harnesses above freeze the **result** of a query, because what is under
-test runs after retrieval: `rank.Rerank` reorders a candidate pool, so freezing
-the pool leaves the reordering free to move.
+The harness above freezes the **result** of a query, because what is under test
+runs after retrieval: `rank.Rerank` reorders a candidate pool, so freezing the
+pool leaves the reordering free to move.
 
 `find_by_intent` has no reranker. The order comes straight out of the FTS index,
 so freezing the query output would freeze the only thing being measured. The

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -14,9 +15,9 @@ import (
 	"github.com/tae2089/code-context-graph/internal/app/analyze"
 	"github.com/tae2089/code-context-graph/internal/app/docs"
 	"github.com/tae2089/code-context-graph/internal/app/ingest"
-	"github.com/tae2089/code-context-graph/internal/app/search/retrieval"
 	"github.com/tae2089/code-context-graph/internal/app/wiki"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
+	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
 // errDBNotInitialized is returned when a subcommand requires a database
@@ -36,6 +37,12 @@ func shouldSkipDBInit(cmd *cobra.Command) bool {
 	return false
 }
 
+// CandidateSearcher returns relevance-ordered full-text candidates for a query.
+// @intent keep the search fetch port consumer-owned so the CLI does not depend on a scoring package.
+type CandidateSearcher interface {
+	Query(ctx context.Context, query string, limit int) ([]graph.Node, error)
+}
+
 // Deps holds shared dependencies injected into all subcommands.
 // @intent 중앙 CLI 초기화 단계에서 만든 런타임 의존성을 하위 명령에 전달한다.
 type Deps struct {
@@ -43,7 +50,7 @@ type Deps struct {
 	Store        ingest.GraphStore
 	UnitOfWork   ingest.UnitOfWork
 	Search       ingest.SearchWriter
-	SearchReader retrieval.CandidateSearcher
+	SearchReader CandidateSearcher
 	Statistics   analyze.StatisticsReader
 	Docs         docs.Repository
 	Wiki         wiki.Repository
