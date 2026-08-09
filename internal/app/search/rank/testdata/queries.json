@@ -336,6 +336,98 @@
       "why": "Both words are in the identifier and one is in the path."
     },
     {
+      "query": "worker pool",
+      "bucket": "description",
+      "relevant": [
+        "class:reposync.SyncQueue@internal/app/reposync/queue.go",
+        "function:workflow.Service.parseBuildInputs@internal/app/ingest/workflow/build.go"
+      ],
+      "why": "Two words describing a shape rather than naming a symbol. Both answers were read in the source, not taken from their summaries: queue.go:206-208 starts `workers` goroutines running q.worker(), and build.go:335-362 spawns workerCount goroutines draining a jobs channel. Neither node carries the words in its name or its path, so today both score zero on name and zero on path and the retrieval order alone decides. The pool holds two candidates and both are relevant, so this query records the shape; it cannot discriminate between rankings."
+    },
+    {
+      "query": "bounded traversal",
+      "bucket": "description",
+      "relevant": [
+        "function:flow.Tracer.TraceFlowBounded@internal/app/analyze/flow/flow.go",
+        "function:impact.Analyzer.ImpactRadiusBounded@internal/app/analyze/impact/impact.go"
+      ],
+      "why": "Describes what the code does. These two are the graph walks that take explicit caps; the other three candidates in the pool report or configure a bounded walk rather than performing one. Both answers spell Bounded in their names, so name evidence already reaches them."
+    },
+    {
+      "query": "how does the graph get built",
+      "bucket": "question",
+      "relevant": [
+        "function:workflow.Service.Build@internal/app/ingest/workflow/build.go"
+      ],
+      "why": "A whole question, the shape a person or an agent types when it does not know the symbol name. Build is the full-build entry point (build.go:155: walks source files, stores parsed graph data, rebuilds search docs). Retrieval returns nothing for it today and the cause is measured, not guessed: SanitizeFTS5 joins its terms with a space (sanitize.go:47), and a space is FTS5's implicit AND, so all six words must appear in one document. Every query of five words or more tested against this graph returned zero candidates. No ranking change can move this query; it goes red until retrieval changes."
+    },
+    {
+      "query": "what happens when a webhook arrives",
+      "bucket": "question",
+      "relevant": [
+        "function:webhook.WebhookHandler.ServeHTTP@internal/adapters/inbound/webhook/handler.go"
+      ],
+      "why": "ServeHTTP is the entry point a push event lands on: it validates the event and dispatches repository sync. Zero candidates today for the same reason as the other question queries."
+    },
+    {
+      "query": "where do search results get ranked",
+      "bucket": "question",
+      "relevant": [
+        "function:rank.Rerank@internal/app/search/rank/rank.go"
+      ],
+      "why": "Rerank is the single ordering entry point; every search path funnels into it. Zero candidates today."
+    },
+    {
+      "query": "how do i follow a call chain",
+      "bucket": "question",
+      "relevant": [
+        "function:flow.Tracer.TraceFlow@internal/app/analyze/flow/flow.go"
+      ],
+      "why": "Describes call-flow tracing without using the words trace or flow, which is the point: the searcher does not know the name. Zero candidates today."
+    },
+    {
+      "query": "what stops the server accepting new work",
+      "bucket": "question",
+      "relevant": [
+        "function:reposync.SyncQueue.Shutdown@internal/app/reposync/queue.go"
+      ],
+      "why": "Shutdown stops accepting new work and waits for workers to finish or time out (queue.go:259-262). Zero candidates today."
+    },
+    {
+      "query": "syncqueue",
+      "bucket": "receiver",
+      "relevant": [
+        "class:reposync.SyncQueue@internal/app/reposync/queue.go",
+        "function:reposync.SyncQueue.Add@internal/app/reposync/queue.go",
+        "function:reposync.SyncQueue.Shutdown@internal/app/reposync/queue.go",
+        "function:reposync.SyncQueue.Stats@internal/app/reposync/queue.go"
+      ],
+      "why": "A type name typed on its own. The type itself is the obvious answer, and its exported methods are what the type is for: naming a type is how a searcher asks what it can do. Written before measuring, and expected red today: the ranker scores a node's own name and the last segment of its qualified name, both of which are the method name, so the receiver type never enters the score and SyncQueue.Add looks unrelated to the word syncqueue."
+    },
+    {
+      "query": "webhookhandler",
+      "bucket": "receiver",
+      "relevant": [
+        "class:webhook.WebhookHandler@internal/adapters/inbound/webhook/handler.go",
+        "function:webhook.WebhookHandler.ServeHTTP@internal/adapters/inbound/webhook/handler.go",
+        "function:webhook.WebhookHandler.verifySignature@internal/adapters/inbound/webhook/handler.go"
+      ],
+      "why": "The type has exactly two methods and both are the substance of it: ServeHTTP is where a push event lands, verifySignature is the check that runs before anything is trusted. verifySignature is unexported and still relevant — the query names the type, and a reader asking what this handler does needs the check as much as the entry point."
+    },
+    {
+      "query": "sqlitebackend",
+      "bucket": "receiver",
+      "relevant": [
+        "class:searchsql.SQLiteBackend@internal/adapters/outbound/searchsql/sqlite.go",
+        "function:searchsql.SQLiteBackend.Query@internal/adapters/outbound/searchsql/sqlite.go",
+        "function:searchsql.SQLiteBackend.Rebuild@internal/adapters/outbound/searchsql/sqlite.go",
+        "function:searchsql.SQLiteBackend.RebuildNodes@internal/adapters/outbound/searchsql/sqlite.go",
+        "function:searchsql.SQLiteBackend.Migrate@internal/adapters/outbound/searchsql/sqlite.go",
+        "function:searchsql.SQLiteBackend.PurgeNamespace@internal/adapters/outbound/searchsql/sqlite.go"
+      ],
+      "why": "Same shape with a larger method set, so it also measures whether fixing the receiver gap floods the list: this type has nine methods and only these five are its interface. The four unexported ones (rebuildTable, rebuildTableNodes, upgradeLegacyFTSTable, and the rest) are implementation detail of Rebuild and are not counted as answers."
+    },
+    {
       "query": "zzz nonexistent symbol qqq",
       "bucket": "negative",
       "relevant": [],

@@ -83,7 +83,27 @@ type resultRow struct {
 	NodeID uint
 }
 
+// matchRows runs one tsquery and returns the matching node ids in rank order.
+// @intent let Query run the same retrieval twice with a different expression.
+func (p *PostgresBackend) matchRows(ctx context.Context, db *gorm.DB, tsQuery, ns string, limit int) ([]resultRow, error) {
+	var rows []resultRow
+	if err := db.WithContext(ctx).Raw(`
+		SELECT sd.node_id
+		FROM search_documents sd
+		WHERE sd.tsv @@ to_tsquery('simple', ?)
+		AND sd.namespace = ?
+		ORDER BY ts_rank(sd.tsv, to_tsquery('simple', ?)) DESC
+		LIMIT ?`, tsQuery, ns, tsQuery, limit).Scan(&rows).Error; err != nil {
+		return nil, trace.Wrap(err, "ts_query")
+	}
+	return rows, nil
+}
+
 // Query searches for related nodes using PostgreSQL tsquery.
+//
+// Every term is required, mirroring the SQLite backend. See SQLiteBackend.Query
+// for why widening to any-term was measured and rejected.
+//
 // @intent Converts the user's search term into a prefix tsquery to find related nodes.
 // @requires limit must be greater than 0 to get meaningful results.
 // @return Returns a list of nodes sorted by ts_rank.
@@ -97,19 +117,9 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 	}
 	ns := requestctx.FromContext(ctx)
 
-	var rows []resultRow
-	querySQL := `
-		SELECT sd.node_id
-		FROM search_documents sd
-		WHERE sd.tsv @@ to_tsquery('simple', ?)
-		AND sd.namespace = ?`
-	args := []any{tsQuery, ns}
-	querySQL += `
-		ORDER BY ts_rank(sd.tsv, to_tsquery('simple', ?)) DESC
-		LIMIT ?`
-	args = append(args, tsQuery, limit)
-	if err := db.WithContext(ctx).Raw(querySQL, args...).Scan(&rows).Error; err != nil {
-		return nil, trace.Wrap(err, "ts_query")
+	rows, err := p.matchRows(ctx, db, tsQuery, ns, limit)
+	if err != nil {
+		return nil, err
 	}
 
 	// A zero-hit tsquery is terminal. A pg_trgm supplement used to fire here and
@@ -127,7 +137,10 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 	}
 
 	var nodes []graph.Node
-	nodesQ := db.WithContext(ctx).Where("id IN ?", nodeIDs).Where("namespace = ?", ns)
+	// The annotation rides along because every consumer of a search result shows
+	// the author's @intent beside it, and asking for it afterwards would mean a
+	// second round trip per search.
+	nodesQ := db.WithContext(ctx).Where("id IN ?", nodeIDs).Where("namespace = ?", ns).Preload("Annotation.Tags")
 	if err := nodesQ.Find(&nodes).Error; err != nil {
 		return nil, trace.Wrap(err, "load nodes")
 	}

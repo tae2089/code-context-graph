@@ -3,126 +3,178 @@
     "query": "SanitizeFTS5",
     "bucket": "exact",
     "retrieved": true,
-    "returned": 2,
-    "rank": 1
+    "returned": 1,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1,
+    "weak_filtered": 1
   },
   {
     "query": "BuildContent",
     "bucket": "exact",
     "retrieved": true,
-    "returned": 8,
-    "rank": 1
+    "returned": 2,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1,
+    "weak_filtered": 6
   },
   {
     "query": "UnresolvedEdgeCandidate",
     "bucket": "exact",
     "retrieved": true,
-    "returned": 10,
-    "rank": 1
+    "returned": 8,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1,
+    "weak_filtered": 4
   },
   {
     "query": "promoteExactNameMatch",
     "bucket": "exact",
     "retrieved": true,
     "returned": 1,
+    "relevant": 1,
+    "found": 1,
     "rank": 1
   },
   {
     "query": "RunMigrations",
     "bucket": "exact",
     "retrieved": true,
-    "returned": 6,
-    "rank": 1
+    "returned": 3,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1,
+    "weak_filtered": 3
   },
   {
     "query": "sanit",
     "bucket": "prefix",
     "retrieved": true,
-    "returned": 9,
-    "rank": 1
+    "returned": 6,
+    "relevant": 6,
+    "found": 6,
+    "rank": 1,
+    "weak_filtered": 3
   },
   {
     "query": "rerank",
     "bucket": "prefix",
     "retrieved": true,
-    "returned": 8,
-    "rank": 1
+    "returned": 2,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1,
+    "weak_filtered": 6
   },
   {
     "query": "annot",
     "bucket": "prefix",
     "retrieved": true,
-    "returned": 10,
-    "rank": 1
+    "returned": 20,
+    "relevant": 4,
+    "found": 2,
+    "rank": 1,
+    "weak_filtered": 22
   },
   {
     "query": "crossref",
     "bucket": "prefix",
     "retrieved": true,
-    "returned": 10,
-    "rank": 1
+    "returned": 32,
+    "relevant": 3,
+    "found": 3,
+    "rank": 1,
+    "weak_filtered": 1
   },
   {
     "query": "impact",
     "bucket": "prefix",
     "retrieved": true,
-    "returned": 10,
-    "rank": 1
+    "returned": 17,
+    "relevant": 3,
+    "found": 2,
+    "rank": 1,
+    "weak_filtered": 3
   },
   {
     "query": "discovery",
     "bucket": "subword",
     "retrieved": true,
-    "returned": 10,
-    "rank": 6
+    "returned": 45,
+    "relevant": 3,
+    "found": 2,
+    "rank": 1,
+    "weak_filtered": 5
   },
   {
     "query": "syncer",
     "bucket": "subword",
     "retrieved": true,
-    "returned": 10,
-    "rank": 1
+    "returned": 27,
+    "relevant": 3,
+    "found": 3,
+    "rank": 1,
+    "weak_filtered": 7
   },
   {
     "query": "radius",
     "bucket": "subword",
     "retrieved": true,
     "returned": 10,
-    "rank": 1
+    "relevant": 3,
+    "found": 3,
+    "rank": 1,
+    "weak_filtered": 2
   },
   {
     "query": "tracer",
     "bucket": "subword",
     "retrieved": true,
-    "returned": 10,
-    "rank": 1
+    "returned": 9,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1,
+    "weak_filtered": 8
   },
   {
     "query": "membership",
     "bucket": "subword",
     "retrieved": true,
-    "returned": 10,
-    "rank": 1
+    "returned": 8,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1,
+    "weak_filtered": 6
   },
   {
     "query": "fts",
     "bucket": "acronym",
     "retrieved": true,
-    "returned": 10,
-    "rank": 1
+    "returned": 23,
+    "relevant": 3,
+    "found": 2,
+    "rank": 1,
+    "weak_filtered": 11
   },
   {
     "query": "sqlite",
     "bucket": "acronym",
     "retrieved": true,
-    "returned": 10,
-    "rank": 2
+    "returned": 28,
+    "relevant": 2,
+    "found": 2,
+    "rank": 2,
+    "weak_filtered": 11
   },
   {
     "query": "mcp",
     "bucket": "acronym",
     "retrieved": false,
-    "returned": 10,
+    "returned": 30,
+    "relevant": 1,
+    "found": 0,
     "rank": 0
   },
   {
@@ -131,13 +183,17 @@
     "out_of_scope": true,
     "retrieved": false,
     "returned": 0,
+    "relevant": 6,
+    "found": 0,
     "rank": 0
   },
   {
     "query": "parsecache",
     "bucket": "subword",
     "retrieved": true,
-    "returned": 10,
+    "returned": 13,
+    "relevant": 4,
+    "found": 3,
     "rank": 1
   },
   {
@@ -146,6 +202,8 @@
     "out_of_scope": true,
     "retrieved": false,
     "returned": 0,
+    "relevant": 3,
+    "found": 0,
     "rank": 0
   },
   {
@@ -154,6 +212,8 @@
     "out_of_scope": true,
     "retrieved": false,
     "returned": 0,
+    "relevant": 3,
+    "found": 0,
     "rank": 0
   },
   {
@@ -162,62 +222,83 @@
     "out_of_scope": true,
     "retrieved": false,
     "returned": 0,
+    "relevant": 3,
+    "found": 0,
     "rank": 0
   },
   {
     "query": "package discovery",
     "bucket": "concept",
     "retrieved": true,
-    "returned": 10,
+    "returned": 50,
+    "relevant": 3,
+    "found": 3,
     "rank": 1
   },
   {
     "query": "impact radius",
     "bucket": "concept",
     "retrieved": true,
-    "returned": 10,
+    "returned": 12,
+    "relevant": 2,
+    "found": 2,
     "rank": 1
   },
   {
     "query": "cross ref",
     "bucket": "concept",
     "retrieved": true,
-    "returned": 10,
-    "rank": 1
+    "returned": 35,
+    "relevant": 3,
+    "found": 3,
+    "rank": 1,
+    "weak_filtered": 4
   },
   {
     "query": "trace flow",
     "bucket": "concept",
     "retrieved": true,
-    "returned": 10,
+    "returned": 19,
+    "relevant": 3,
+    "found": 3,
     "rank": 1
   },
   {
     "query": "search document",
     "bucket": "concept",
     "retrieved": true,
-    "returned": 10,
-    "rank": 1
+    "returned": 25,
+    "relevant": 4,
+    "found": 3,
+    "rank": 1,
+    "weak_filtered": 16
   },
   {
     "query": "flow membership",
     "bucket": "concept",
     "retrieved": true,
     "returned": 7,
+    "relevant": 1,
+    "found": 1,
     "rank": 1
   },
   {
     "query": "incremental syncer",
     "bucket": "concept",
     "retrieved": true,
-    "returned": 10,
-    "rank": 2
+    "returned": 27,
+    "relevant": 3,
+    "found": 3,
+    "rank": 2,
+    "weak_filtered": 4
   },
   {
     "query": "treesitter semantics",
     "bucket": "path-scoped",
     "retrieved": true,
-    "returned": 10,
+    "returned": 50,
+    "relevant": 3,
+    "found": 3,
     "rank": 1
   },
   {
@@ -225,13 +306,110 @@
     "bucket": "path-scoped",
     "retrieved": true,
     "returned": 8,
+    "relevant": 5,
+    "found": 5,
     "rank": 1
   },
   {
     "query": "migration schema",
     "bucket": "path-scoped",
     "retrieved": true,
-    "returned": 10,
+    "returned": 30,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "worker pool",
+    "bucket": "description",
+    "retrieved": true,
+    "returned": 1,
+    "relevant": 2,
+    "found": 1,
+    "rank": 1,
+    "weak_filtered": 1
+  },
+  {
+    "query": "bounded traversal",
+    "bucket": "description",
+    "retrieved": true,
+    "returned": 4,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1,
+    "weak_filtered": 1
+  },
+  {
+    "query": "how does the graph get built",
+    "bucket": "question",
+    "retrieved": false,
+    "returned": 0,
+    "relevant": 1,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "what happens when a webhook arrives",
+    "bucket": "question",
+    "retrieved": false,
+    "returned": 0,
+    "relevant": 1,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "where do search results get ranked",
+    "bucket": "question",
+    "retrieved": false,
+    "returned": 0,
+    "relevant": 1,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "how do i follow a call chain",
+    "bucket": "question",
+    "retrieved": false,
+    "returned": 0,
+    "relevant": 1,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "what stops the server accepting new work",
+    "bucket": "question",
+    "retrieved": true,
+    "returned": 1,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "syncqueue",
+    "bucket": "receiver",
+    "retrieved": true,
+    "returned": 16,
+    "relevant": 4,
+    "found": 4,
+    "rank": 1,
+    "weak_filtered": 1
+  },
+  {
+    "query": "webhookhandler",
+    "bucket": "receiver",
+    "retrieved": true,
+    "returned": 4,
+    "relevant": 3,
+    "found": 3,
+    "rank": 1
+  },
+  {
+    "query": "sqlitebackend",
+    "bucket": "receiver",
+    "retrieved": true,
+    "returned": 9,
+    "relevant": 6,
+    "found": 6,
     "rank": 1
   },
   {
@@ -240,6 +418,8 @@
     "negative": true,
     "retrieved": false,
     "returned": 0,
+    "relevant": 0,
+    "found": 0,
     "rank": 0
   }
 ]

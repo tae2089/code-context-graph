@@ -226,8 +226,48 @@ func applyLimit(nodes []graph.Node, limit int) []graph.Node {
 // subsequence scores 0.
 // @intent score query tokens against simple and qualified node identifiers.
 func nameSim(qTokens []string, node graph.Node) float64 {
+	best := scoreTargets(qTokens, node.Name, lastSegment(node.QualifiedName, '.'))
+	if receiver := receiverSegment(node.QualifiedName); receiver != "" {
+		best = max(best, receiverWeight*scoreTargets(qTokens, receiver))
+	}
+	return best
+}
+
+// receiverWeight discounts the score a method earns from the type it hangs on,
+// so that evidence can never equal evidence from the node's own name.
+//
+// Without a discount every method of SyncQueue ties the SyncQueue type itself on
+// the query "syncqueue", and a type with fourteen methods buries itself: the
+// reader who typed the type name gets the type somewhere inside a list of its
+// own internals. Halving keeps the whole family in the list — which is the
+// point, since a method is where the type actually does anything — while
+// keeping anything that spells the query in its own name above all of it.
+const receiverWeight = 0.5
+
+// receiverSegment returns the type a method hangs on, or "" when the qualified
+// name does not describe a method.
+//
+// It requires three segments, because that is what separates package.Type.Method
+// from package.Function. Reading the second-to-last segment unconditionally would
+// hand every top-level function its package name as a name target, and then
+// typing a package name would score every function in it as a name match. Path
+// proximity already measures package closeness, on its own scale.
+//
+// @ensures a qualified name with fewer than three dot-separated segments has no receiver.
+// @intent let a method be found by the type it belongs to, without turning a package name into an identifier match.
+func receiverSegment(qualifiedName string) string {
+	segments := strings.Split(qualifiedName, ".")
+	if len(segments) < 3 {
+		return ""
+	}
+	return segments[len(segments)-2]
+}
+
+// scoreTargets returns the best score any of the given identifiers earns for the
+// query, using the token-level and joined-whole readings described on nameSim.
+// @intent score one query against several spellings of the same node.
+func scoreTargets(qTokens []string, targets ...string) float64 {
 	joined := strings.Join(qTokens, "")
-	targets := []string{node.Name, lastSegment(node.QualifiedName, '.')}
 	best := 0.0
 	for _, target := range targets {
 		if target == "" {

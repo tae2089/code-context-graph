@@ -397,11 +397,7 @@ func DeleteAllExpiredSessions() error {
 	if searchResult.IsError {
 		t.Fatalf("search error: %s", getTextContent(searchResult))
 	}
-	searchText := getTextContent(searchResult)
-	var results []map[string]any
-	if err := json.Unmarshal([]byte(searchText), &results); err != nil {
-		t.Fatalf("search result not JSON array: %s", searchText)
-	}
+	results := decodeSearchResults(t, getTextContent(searchResult))
 	if len(results) < 2 {
 		t.Errorf("expected at least 2 search results for 'FindUser', got %d", len(results))
 	}

@@ -381,6 +381,28 @@ func callToolWithContext(t *testing.T, ctx context.Context, deps *Deps, toolName
 	return &result
 }
 
+// decodeSearchResults unwraps the search response envelope and hands back the
+// hits. Search answers with an object rather than a bare array so an empty list
+// can say why it is empty; tests that only care about the hits go through here.
+func decodeSearchResults(t *testing.T, text string) []map[string]any {
+	t.Helper()
+	var payload struct {
+		Files []struct {
+			Hits []map[string]any `json:"hits"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal([]byte(text), &payload); err != nil {
+		t.Fatalf("expected a search response object, got: %s", text)
+	}
+	// A search answer is a list of files; the assertions below are about the
+	// hits inside them, so flatten in the order they arrived.
+	out := []map[string]any{}
+	for _, f := range payload.Files {
+		out = append(out, f.Hits...)
+	}
+	return out
+}
+
 func getTextContent(result *mcp.CallToolResult) string {
 	if len(result.Content) == 0 {
 		return ""

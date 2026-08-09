@@ -60,7 +60,10 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&graph.Node{}, &graph.SearchDocument{}); err != nil {
+	// Annotation and DocTag are here because search loads them with every node;
+	// production always has both tables, so a fixture without them would only
+	// exercise a database shape that cannot occur.
+	if err := db.AutoMigrate(&graph.Node{}, &graph.SearchDocument{}, &graph.Annotation{}, &graph.DocTag{}); err != nil {
 		t.Fatal(err)
 	}
 	return db
@@ -245,7 +248,10 @@ func TestSQLiteFTS_RebuildNodes_ChunksLargeNodeScopes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&graph.Node{}, &graph.SearchDocument{}); err != nil {
+	// Annotation and DocTag are here because search loads them with every node;
+	// production always has both tables, so a fixture without them would only
+	// exercise a database shape that cannot occur.
+	if err := db.AutoMigrate(&graph.Node{}, &graph.SearchDocument{}, &graph.Annotation{}, &graph.DocTag{}); err != nil {
 		t.Fatal(err)
 	}
 	backend := NewSQLiteBackend()
@@ -325,6 +331,103 @@ func TestSQLiteFTS_Query_SplitsCamelCaseQuery(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected pkg.AuthenticateUser matched via camelCase sub-tokens, got %d nodes", len(nodes))
+	}
+}
+
+// Every term of a query has to appear in the same document, so one ordinary
+// English word the searcher typed to make a sentence used to make the whole
+// query match nothing. Dropping those words before the query is built is what
+// lets a question reach the node it describes.
+func TestSQLiteFTS_Query_IgnoresFunctionWordsInAQuestion(t *testing.T) {
+	db := setupTestDB(t)
+	seedNodes(t, db)
+
+	backend := NewSQLiteBackend()
+	backend.Migrate(db)
+	backend.Rebuild(context.Background(), db)
+
+	// "creates", "session" and "user" all sit on CreateSession's document.
+	// "how", "does", "the", "a", "for" appear on none of them.
+	nodes, err := backend.Query(context.Background(), db, "how does it create a session for the user", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 1 || nodes[0].QualifiedName != "pkg.CreateSession" {
+		got := make([]string, len(nodes))
+		for i, n := range nodes {
+			got[i] = n.QualifiedName
+		}
+		t.Errorf("expected only pkg.CreateSession, got %v", got)
+	}
+}
+
+// Search results carry the author's @intent so a reader can judge a hit without
+// opening the file, which means the backend has to load the annotation and its
+// tags along with the node.
+func TestSQLiteFTS_Query_LoadsIntent(t *testing.T) {
+	db := setupTestDB(t)
+	if err := db.AutoMigrate(&graph.Annotation{}, &graph.DocTag{}); err != nil {
+		t.Fatal(err)
+	}
+	seedNodes(t, db)
+
+	var node graph.Node
+	if err := db.Where("qualified_name = ?", "pkg.AuthenticateUser").First(&node).Error; err != nil {
+		t.Fatal(err)
+	}
+	annotation := graph.Annotation{NodeID: node.ID, Summary: "AuthenticateUser authenticates user credentials."}
+	if err := db.Create(&annotation).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&graph.DocTag{
+		AnnotationID: annotation.ID,
+		Kind:         graph.TagIntent,
+		Value:        "prove a caller is who they claim before issuing a token",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	backend := NewSQLiteBackend()
+	backend.Migrate(db)
+	backend.Rebuild(context.Background(), db)
+
+	nodes, err := backend.Query(context.Background(), db, "authenticate", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, n := range nodes {
+		if n.QualifiedName != "pkg.AuthenticateUser" {
+			continue
+		}
+		found = true
+		if got := n.Intent(); got != "prove a caller is who they claim before issuing a token" {
+			t.Errorf("Intent() = %q, want the seeded intent", got)
+		}
+	}
+	if !found {
+		t.Fatal("expected pkg.AuthenticateUser in results")
+	}
+}
+
+// The widening pass that used to run here was measured and removed: it answered
+// no query the narrow expression missed, and it filled a nonsense query with
+// fifty unrelated hits. A query whose terms share no document stays empty.
+func TestSQLiteFTS_Query_StaysEmptyWhenTermsShareNoDocument(t *testing.T) {
+	db := setupTestDB(t)
+	seedNodes(t, db)
+
+	backend := NewSQLiteBackend()
+	backend.Migrate(db)
+	backend.Rebuild(context.Background(), db)
+
+	// Both words are indexed, on different documents.
+	nodes, err := backend.Query(context.Background(), db, "session credentials", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 0 {
+		t.Errorf("expected no results, got %d", len(nodes))
 	}
 }
 

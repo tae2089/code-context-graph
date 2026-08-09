@@ -74,6 +74,7 @@ func TestCaptureGoldenCandidates(t *testing.T) {
 				QualifiedName: n.QualifiedName,
 				Kind:          string(n.Kind),
 				FilePath:      n.FilePath,
+				Intent:        n.Intent(),
 			})
 		}
 		out[q.Query] = captured
@@ -90,7 +91,94 @@ func TestCaptureGoldenCandidates(t *testing.T) {
 	t.Log("candidates.json rewritten; re-run the rank golden report and review every change")
 }
 
-var captureGolden = flag.Bool("capture-golden", false, "rewrite the ranking golden candidate fixture from a local graph")
+// TestCaptureMissingGoldenCandidates captures only the queries candidates.json
+// does not already hold, and merges them in.
+//
+// Adding a query should not force a full recapture. A full recapture rereads
+// every existing query against whatever graph is on disk today, which is how a
+// retrieval regression gets baked into the fixture and stops being visible.
+// This mode cannot do that: it never rewrites an entry that already exists, so
+// a new query costs exactly its own candidate list and nothing else moves.
+//
+//	go test -tags fts5 ./internal/adapters/outbound/searchsql/ \
+//	  -run TestCaptureMissingGoldenCandidates -capture-missing -count=1 -v
+func TestCaptureMissingGoldenCandidates(t *testing.T) {
+	if !*captureMissing {
+		t.Skip("pass -capture-missing to add newly written golden queries")
+	}
+	var set struct {
+		Corpus struct {
+			Namespace string `json:"namespace"`
+		} `json:"corpus"`
+		Queries []struct {
+			Query string `json:"query"`
+		} `json:"queries"`
+	}
+	raw, err := os.ReadFile(goldenDir + "queries.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &set); err != nil {
+		t.Fatal(err)
+	}
+	existing := map[string][]goldenCandidate{}
+	blob, err := os.ReadFile(goldenDir + "candidates.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(blob, &existing); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := gorm.Open(sqlite.Open("file:"+goldenGraphPath+"?immutable=1&mode=ro"), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatalf("open %s: %v", goldenGraphPath, err)
+	}
+	backend := &SQLiteBackend{}
+	ctx := requestctx.WithNamespace(context.Background(), set.Corpus.Namespace)
+
+	added := 0
+	for _, q := range set.Queries {
+		if _, ok := existing[q.Query]; ok {
+			continue
+		}
+		nodes, err := backend.Query(ctx, db, q.Query, rank.FetchLimit(goldenLimit))
+		if err != nil {
+			t.Fatalf("%q: %v", q.Query, err)
+		}
+		captured := make([]goldenCandidate, 0, len(nodes))
+		for _, n := range nodes {
+			captured = append(captured, goldenCandidate{
+				ID:            n.ID,
+				Name:          n.Name,
+				QualifiedName: n.QualifiedName,
+				Kind:          string(n.Kind),
+				FilePath:      n.FilePath,
+				Intent:        n.Intent(),
+			})
+		}
+		existing[q.Query] = captured
+		added++
+		t.Logf("added %-40q -> %2d candidates", q.Query, len(captured))
+	}
+	if added == 0 {
+		t.Log("every query already has captured candidates; nothing written")
+		return
+	}
+	out, err := json.MarshalIndent(existing, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(goldenDir+"candidates.json", append(out, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("candidates.json: %d queries added, existing entries untouched", added)
+}
+
+var (
+	captureGolden  = flag.Bool("capture-golden", false, "rewrite the ranking golden candidate fixture from a local graph")
+	captureMissing = flag.Bool("capture-missing", false, "capture only golden queries missing from the fixture and merge them in")
+)
 
 const (
 	goldenDir = "../../../app/search/rank/testdata/"
@@ -103,10 +191,16 @@ const (
 )
 
 // goldenCandidate mirrors the fixture record the rank golden set reads back.
+//
+// Intent is captured because search now shows a node's @intent as evidence and
+// treats a word shared with the query as a reason to keep the node. A fixture
+// without it would replay a search that has no annotations at all, and would
+// score annotation-matched hits as if they had been dropped.
 type goldenCandidate struct {
 	ID            uint   `json:"id"`
 	Name          string `json:"name"`
 	QualifiedName string `json:"qualified_name"`
 	Kind          string `json:"kind"`
 	FilePath      string `json:"file_path"`
+	Intent        string `json:"intent,omitempty"`
 }

@@ -41,6 +41,44 @@ func TestSanitizePostgresTSQuery_SplitsCamelCaseTokens(t *testing.T) {
 	}
 }
 
+func TestSanitize_DropsFunctionWords(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+		fts5  string
+		pg    string
+	}{
+		{
+			name:  "a question keeps only its content words",
+			query: "what stops the server",
+			fts5:  `"stops"* "server"*`,
+			pg:    "stops:* & server:*",
+		},
+		{
+			name:  "a query made only of function words keeps them",
+			query: "how does the",
+			fts5:  `"how"* "does"* "the"*`,
+			pg:    "how:* & does:* & the:*",
+		},
+		{
+			name:  "code words that read like function words survive",
+			query: "get set list new",
+			fts5:  `"get"* "set"* "list"* "new"*`,
+			pg:    "get:* & set:* & list:* & new:*",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := SanitizeFTS5(tt.query); got != tt.fts5 {
+				t.Errorf("SanitizeFTS5(%q) = %q, want %q", tt.query, got, tt.fts5)
+			}
+			if got := SanitizePostgresTSQuery(tt.query); got != tt.pg {
+				t.Errorf("SanitizePostgresTSQuery(%q) = %q, want %q", tt.query, got, tt.pg)
+			}
+		})
+	}
+}
+
 func TestExtractExactNameToken(t *testing.T) {
 	tests := []struct {
 		query string

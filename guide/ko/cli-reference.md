@@ -44,8 +44,11 @@ ccg update ./backend --namespace backend
 | `ccg update [dir]` | 증분 동기화(Incremental sync) |
 | `ccg update --fallback-calls` | 증분 동기화에서 best-effort fallback 호출 해상도 활성화 |
 | `ccg status` | 그래프 통계 출력 |
-| `ccg search <query>` | 전체 텍스트 검색 |
+| `ccg search <query>` | 전체 텍스트 검색, 파일별로 묶어서 출력. 각 결과 아래 들여쓴 줄에 `@intent`와 매칭된 신호를 출력 |
 | `ccg search --path <prefix> <query>` | 경로 접두사로 검색 범위 제한 |
+| `ccg search --limit <n> <query>` | 최대 `n`개 파일만 출력. 출력된 파일 안의 hit은 전부 출력 (기본 10) |
+| `ccg search --offset <n> <query>` | 앞의 `n`개 파일을 건너뜀. 파일 단위라 이어 읽어도 파일이 잘리지 않고, 마지막 줄이 다음에 쓸 offset을 알려 줌 |
+| `ccg search --include-weak <query>` | 이름·경로·`@intent` 어디에도 근거가 없는 후보까지 함께 출력 |
 | `ccg docs [--out dir]` | 마크다운 문서와 `wiki-index.json` 호환 snapshot 생성 (기본적으로 그래프에 없는 generator-managed 문서를 prune) |
 | `ccg docs --rag-index-dir <dir>` | legacy 이름을 유지한 Wiki index 출력 디렉터리 지정 (기본 `.ccg` 또는 `rag.index_dir`) |
 | `ccg docs --prune=false` | 기존 generator-managed 문서를 삭제하지 않고 문서만 다시 생성 |

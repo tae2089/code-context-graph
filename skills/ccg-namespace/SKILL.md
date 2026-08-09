@@ -42,7 +42,7 @@ search_docs(namespace: "payment", query: "payment flow")
 | ---- | --- |
 | `list_namespaces` | List namespaces containing graph data and their node counts |
 | `build_or_update_graph` | Build or incrementally update one namespace from a filesystem path |
-| `search` | Search code nodes inside a namespace; `namespaces: []` federates across several with per-item labels |
+| `search` | Search code nodes inside a namespace; `namespaces: []` federates across several with per-item labels. Candidates with no evidence are cut before the per-namespace quota runs, so a namespace's slots go to hits it can justify |
 | `search_docs` | Find documentation candidates inside a namespace; `namespaces: []` groups results per namespace |
 | `get_doc_content` | Read a selected generated document, optionally namespace-scoped |
 | `list_cross_refs` | List materialized `ccg://` refs for a namespace (`direction`: outbound/inbound/both) |

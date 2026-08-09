@@ -11,6 +11,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/code-context-graph/internal/app/analyze"
 	querypkg "github.com/tae2089/code-context-graph/internal/app/analyze/query"
+	"github.com/tae2089/code-context-graph/internal/app/search/evidence"
 	searchrank "github.com/tae2089/code-context-graph/internal/app/search/rank"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
@@ -97,7 +98,129 @@ type searchResultItem struct {
 	Kind          graph.NodeKind `json:"kind"`
 	Name          string         `json:"name"`
 	FilePath      string         `json:"file_path"`
-	Namespace     string         `json:"namespace,omitempty"`
+	StartLine     int            `json:"start_line"`
+	EndLine       int            `json:"end_line"`
+	// Intent is the node's own @intent tag, empty when nobody wrote one.
+	Intent string `json:"intent,omitempty"`
+	// Matched names the signals this query touched — name, path, intent — so a
+	// caller can tell an exact identifier hit from a hit on a written purpose.
+	Matched   []evidence.Match `json:"matched"`
+	Namespace string           `json:"namespace,omitempty"`
+}
+
+// searchFileGroup is one file and every hit it answered the query with.
+//
+// The file is the unit of a search answer because it is the unit of reading: a
+// caller picks a file first and a declaration inside it second. Grouping is also
+// what let the old per-file cap go — ten hits in one file cost the reader one
+// decision, not ten — so a file that appears here appears whole.
+//
+// @intent let a caller choose between files, then read inside the one it chose.
+type searchFileGroup struct {
+	FilePath  string             `json:"file_path"`
+	Namespace string             `json:"namespace,omitempty"`
+	HitCount  int                `json:"hit_count"`
+	Hits      []searchResultItem `json:"hits"`
+}
+
+// searchResponse wraps the file list so an empty answer can still say why.
+//
+// It replaced a bare JSON array. An array has nowhere to put the reason a list
+// came back short, and a caller that reads `[]` cannot tell "nothing was
+// indexed under those words" from "everything found was unjustifiable".
+//
+// @intent make a search answer self-describing, including when it is empty.
+type searchResponse struct {
+	Files        []searchFileGroup `json:"files"`
+	FileCount    int               `json:"file_count"`
+	WeakFiltered int               `json:"weak_filtered"`
+	// Truncated is true when this answer did not reach every file the query
+	// answered with. It is never about hits: a shown file is shown whole.
+	Truncated bool         `json:"truncated"`
+	Limits    searchLimits `json:"limits"`
+	Next      []nextAction `json:"next,omitempty"`
+	Note      string       `json:"note,omitempty"`
+}
+
+// searchLimits states the bounds that shaped this page, all counted in files
+// except the budget, which only decides whether one more file joins.
+// @intent let a caller tell a short answer from the first page of a long one.
+type searchLimits struct {
+	Files     int `json:"files"`
+	Offset    int `json:"offset"`
+	HitBudget int `json:"hit_budget"`
+}
+
+// nextAction is one call that widens this answer, written out so an agent can
+// make it verbatim.
+//
+// Before this existed a response could say it withheld things and leave the
+// caller with no way to reach them. Naming the tool and its arguments turns a
+// dead-end count into a step.
+//
+// @intent turn what a search withheld into a call the caller can actually make.
+type nextAction struct {
+	Reason string         `json:"reason"`
+	Tool   string         `json:"tool"`
+	Args   map[string]any `json:"args"`
+}
+
+// newSearchResponse converts an evidence list into the wire payload.
+// @requires withNamespace is true only for federated searches, where a caller needs to know which repository a hit came from.
+// @requires query, limit and offset are the ones this list was built with, so the suggested calls repeat the caller's own request.
+// @ensures Next is empty exactly when nothing was held back.
+// @intent keep one conversion so single-namespace and federated search cannot drift apart.
+func newSearchResponse(list evidence.List, query string, limit, offset int, withNamespace bool) searchResponse {
+	files := make([]searchFileGroup, len(list.Files))
+	for i, f := range list.Files {
+		hits := make([]searchResultItem, len(f.Hits))
+		for j, r := range f.Hits {
+			n := r.Node
+			hits[j] = searchResultItem{
+				ID: n.ID, QualifiedName: n.QualifiedName, Kind: n.Kind, Name: n.Name,
+				FilePath: n.FilePath, StartLine: n.StartLine, EndLine: n.EndLine,
+				Intent: r.Intent, Matched: r.Matched,
+			}
+			if withNamespace {
+				hits[j].Namespace = n.Namespace
+			}
+		}
+		files[i] = searchFileGroup{FilePath: f.FilePath, HitCount: f.HitCount(), Hits: hits}
+		if withNamespace {
+			files[i].Namespace = f.Namespace
+		}
+	}
+	return searchResponse{
+		Files:        files,
+		FileCount:    len(files),
+		WeakFiltered: list.WeakFiltered,
+		Truncated:    list.OverflowFiles > 0,
+		Limits:       searchLimits{Files: limit, Offset: offset, HitBudget: evidence.PageHitBudget},
+		Next:         nextActions(list, query, limit, offset),
+		Note:         list.Note,
+	}
+}
+
+// nextActions writes one call per thing this answer withheld.
+// @ensures every returned action names a tool this server registers, with arguments that need no editing.
+// @intent make the follow-up call obvious enough that an agent does not have to invent one.
+func nextActions(list evidence.List, query string, limit, offset int) []nextAction {
+	actions := make([]nextAction, 0, 2)
+	if list.OverflowFiles > 0 {
+		actions = append(actions, nextAction{
+			Reason: fmt.Sprintf("%d more files answered this query and are not on this page", list.OverflowFiles),
+			Tool:   "search",
+			Args:   map[string]any{"query": query, "limit": limit, "offset": offset + len(list.Files)},
+		})
+	}
+	if list.WeakFiltered > 0 {
+		actions = append(actions, nextAction{
+			Reason: fmt.Sprintf("%d candidates had nothing in their name, path, or @intent to justify them", list.WeakFiltered),
+			Tool:   "search",
+			Args:   map[string]any{"query": query, "include_weak": true},
+		})
+	}
+	return actions
 }
 
 // federatedNamespaceEntry wraps one namespace's result inside a federated tool response.
@@ -203,22 +326,27 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 		return missingParamResult(err)
 	}
 	limit := request.GetInt("limit", 10)
+	offset := request.GetInt("offset", 0)
 	pathPrefix := request.GetString("path", "")
+	includeWeak := request.GetBool("include_weak", false)
 	if err := validateQueryGraphLimit(limit); err != nil {
 		return finalizeToolResult("", err)
 	}
+	if offset < 0 {
+		return finalizeToolResult("", trace.New("offset must not be negative"))
+	}
 
-	log.Info("search called", "query", query, "limit", limit, "path", pathPrefix)
+	log.Info("search called", "query", query, "limit", limit, "offset", offset, "path", pathPrefix)
 
 	if h.deps.Graph.Search == nil {
 		return mcp.NewToolResultError("SearchBackend not configured"), nil
 	}
 
 	if namespaces := requestNamespaces(request); len(namespaces) > 0 {
-		return h.searchFederated(ctx, query, limit, pathPrefix, namespaces)
+		return h.searchFederated(ctx, query, limit, offset, pathPrefix, includeWeak, namespaces)
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "search:", map[string]any{"query": query, "limit": limit, "path": pathPrefix, "namespace": requestNamespace(request)}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "search:", map[string]any{"query": query, "limit": limit, "offset": offset, "path": pathPrefix, "include_weak": includeWeak, "namespace": requestNamespace(request)}, func() (string, error) {
 		// Over-fetch a wider candidate pool so structural reranking can promote
 		// good matches that FTS ranked below the caller's limit, and so path
 		// filtering still leaves up to 'limit' results.
@@ -238,16 +366,15 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 			nodes = filtered
 		}
 
-		// Rerank FTS candidates with structural signals, then bound to limit.
-		nodes = searchrank.Rerank(query, nodes, limit)
+		// Rerank the whole pool, not just 'limit' of it: the evidence cut below
+		// decides membership, so bounding here would spend slots on candidates
+		// that are about to be dropped anyway.
+		ranked := searchrank.Rerank(query, nodes, 0)
+		list := evidence.Build(query, ranked, evidence.Options{Limit: limit, Offset: offset, IncludeWeak: includeWeak})
 
-		log.Info("search completed", "query", query, "result_count", len(nodes))
+		log.Info("search completed", "query", query, "file_count", len(list.Files), "weak_filtered", list.WeakFiltered)
 
-		searchResult := make([]searchResultItem, len(nodes))
-		for i, n := range nodes {
-			searchResult[i] = searchResultItem{ID: n.ID, QualifiedName: n.QualifiedName, Kind: n.Kind, Name: n.Name, FilePath: n.FilePath}
-		}
-		result, err := marshalJSON(searchResult)
+		result, err := marshalJSON(newSearchResponse(list, query, limit, offset, false))
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}
@@ -258,9 +385,9 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 // searchFederated fans full-text search out over an explicit namespace set and merges reranked hits.
 // @intent answer one search across several repositories with per-item namespace labels.
 // @domainRule each namespace is queried in isolation; every namespace's hits keep their own backend rank when fused.
-func (h *handlers) searchFederated(ctx context.Context, query string, limit int, pathPrefix string, namespaces []string) (*mcp.CallToolResult, error) {
+func (h *handlers) searchFederated(ctx context.Context, query string, limit, offset int, pathPrefix string, includeWeak bool, namespaces []string) (*mcp.CallToolResult, error) {
 	log := h.logger()
-	return finalizeToolResult(h.cachedExecute(ctx, "search:", map[string]any{"query": query, "limit": limit, "path": pathPrefix, "namespaces": namespaces}, func() (string, error) {
+	return finalizeToolResult(h.cachedExecute(ctx, "search:", map[string]any{"query": query, "limit": limit, "offset": offset, "path": pathPrefix, "include_weak": includeWeak, "namespaces": namespaces}, func() (string, error) {
 		// Each namespace stays its own ranked list so fusion charges a hit the rank
 		// it held in its own namespace, not its offset in a concatenated slice.
 		groups := make([][]graph.Node, 0, len(namespaces))
@@ -287,14 +414,18 @@ func (h *handlers) searchFederated(ctx context.Context, query string, limit int,
 		}
 
 		merged := searchrank.RerankGroups(query, groups, 0)
-		merged = selectWithNamespaceQuota(merged, limit, len(namespaces))
-		log.Info("federated search completed", "query", query, "namespaces", namespaces, "result_count", len(merged))
+		// Cut on evidence before the quota runs, so a namespace's slots go to
+		// hits it can justify rather than to whatever it retrieved first.
+		// Page over the whole grouped answer, then let the quota decide which of
+		// those files each repository gets, so no repository's files are spent
+		// before another repository is heard from.
+		list := evidence.Build(query, merged, evidence.Options{Offset: offset, IncludeWeak: includeWeak})
+		reachable := len(list.Files)
+		list.Files = selectWithNamespaceQuota(list.Files, func(f evidence.File) string { return f.Namespace }, limit, len(namespaces))
+		list.OverflowFiles = reachable - len(list.Files)
+		log.Info("federated search completed", "query", query, "namespaces", namespaces, "file_count", len(list.Files), "weak_filtered", list.WeakFiltered)
 
-		items := make([]searchResultItem, len(merged))
-		for i, n := range merged {
-			items[i] = searchResultItem{ID: n.ID, QualifiedName: n.QualifiedName, Kind: n.Kind, Name: n.Name, FilePath: n.FilePath, Namespace: n.Namespace}
-		}
-		result, err := marshalJSON(items)
+		result, err := marshalJSON(newSearchResponse(list, query, limit, offset, true))
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}
@@ -306,7 +437,8 @@ func (h *handlers) searchFederated(ctx context.Context, query string, limit int,
 // every namespace with hits at least limit/namespaceCount slots (minimum one).
 // @intent keep one high-scoring repository from starving the other namespaces out of a federated result.
 // @domainRule remaining slots after the per-namespace quota pass are filled in global rank order.
-func selectWithNamespaceQuota(ranked []graph.Node, limit, namespaceCount int) []graph.Node {
+// @requires namespaceOf returns the namespace an item belongs to.
+func selectWithNamespaceQuota[T any](ranked []T, namespaceOf func(T) string, limit, namespaceCount int) []T {
 	if limit <= 0 || len(ranked) <= limit {
 		return ranked
 	}
@@ -314,13 +446,13 @@ func selectWithNamespaceQuota(ranked []graph.Node, limit, namespaceCount int) []
 	chosen := make([]bool, len(ranked))
 	count := 0
 	perNamespace := map[string]int{}
-	for i, n := range ranked {
+	for i, item := range ranked {
 		if count == limit {
 			break
 		}
-		if perNamespace[n.Namespace] < quota {
+		if ns := namespaceOf(item); perNamespace[ns] < quota {
 			chosen[i] = true
-			perNamespace[n.Namespace]++
+			perNamespace[ns]++
 			count++
 		}
 	}
@@ -333,10 +465,10 @@ func selectWithNamespaceQuota(ranked []graph.Node, limit, namespaceCount int) []
 			count++
 		}
 	}
-	selected := make([]graph.Node, 0, limit)
-	for i, n := range ranked {
+	selected := make([]T, 0, limit)
+	for i, item := range ranked {
 		if chosen[i] {
-			selected = append(selected, n)
+			selected = append(selected, item)
 		}
 	}
 	return selected

@@ -65,12 +65,49 @@ Search by code, domain, or annotation keywords. Annotation tags (`@intent`,
 ccg search "결제"               # Candidates containing the term in code/annotations
 ccg search "authentication"     # Auth-related
 ccg search --path internal/auth "login"  # Path-scoped
+ccg search --include-weak "retry"        # Also show candidates with no visible evidence
 ```
+
+**Read the result list as evidence, then decide.** Each hit prints on one
+unindented line, with its `@intent` and the signals the query matched on an
+indented line below it:
+
+```text
+webhook.WebhookHandler.verifySignature	function	internal/adapters/inbound/webhook/handler.go:177
+    authenticate webhook payloads before the sync pipeline trusts their repository metadata. [name path intent]
+```
+
+`[name path intent]` names where the query landed: the node name, a whole
+segment of the file path, or the node's own `@intent`. A candidate that matches
+none of the three is dropped and only counted, so the list never pads itself to
+`limit` with hits it cannot justify; `--include-weak` (MCP `include_weak: true`)
+brings them back. Hits arrive grouped by file, and a file that appears appears
+whole — every hit it answered with is printed, however many that is. `limit`
+counts files, not hits, and `--offset` (MCP `offset`) moves to the next files,
+so paging never splits a file. An empty result says which kind of empty it is —
+nothing retrieved, nothing justifiable, or an offset past the last file.
+
+Order comes from name similarity, then path overlap. `@intent` is shown for the
+reader to judge; it does not move a result up.
+
+Over MCP the answer also says what it withheld. Results come back as
+`files[] {file_path, hit_count, hits[]}`. `truncated` is true when more files
+answered the query than this page reached — never about hits, since a shown file
+is shown whole. `limits` gives `files` (the page size), `offset` (where it
+started), and `hit_budget` (the point past which a page stops taking on *more*
+files; it never trims one, and the first file of a page is always included).
+`next` lists ready-to-make calls: more files become
+`search(query: <same query>, limit: <same>, offset: <next>)`, and cut candidates
+become `search(query: <same query>, include_weak: true)`. Make the call in
+`next` rather than inventing one.
 
 **Difference from Grep**: Grep scans source text directly. CCG full-text search
 queries indexed symbol fields and annotations together. Searching "결제" can find
 a `payment` function when its annotation contains "결제 처리"; search does not
-infer translations or arbitrary synonyms that are absent from the index.
+infer translations or arbitrary synonyms that are absent from the index. Every
+query word must appear in the same node, so a long sentence usually returns
+nothing — common English function words (`the`, `how`, `what`, …) are stripped
+first, but a short, rare query is still the reliable form.
 
 ## Graph Freshness
 

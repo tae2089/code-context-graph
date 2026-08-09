@@ -33,7 +33,15 @@ Graph-based analysis for **change impact, call flow, and recent-change risk**.
 ## Pipeline Analysis Workflow
 
 1. **Candidate discovery**: use `search_docs` for a broad module question or
-   `search` for focused symbol and annotation candidates.
+   `search` for focused symbol and annotation candidates. A `search` hit carries
+   its own evidence — the `matched` signals and the node's `@intent` — so pick
+   entry points from that rather than from position in the list; a short list
+   means few justifiable files, and `weak_filtered` counts what was cut. Hits
+   come grouped by file and a shown file is shown whole, so `limit` counts
+   files. When `truncated` is true more files answered than this page reached,
+   and the response's `next` field holds the exact calls — usually the same
+   search at a higher `offset`; make those instead of re-searching with a
+   larger `limit`.
 2. **Symbol identity**: confirm each entry point or major stage with `get_node`;
    continue with qualified names rather than display labels.
 3. **Relationship and structure evidence**: use `query_graph` with

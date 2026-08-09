@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -268,13 +269,87 @@ func TestHandler_Search(t *testing.T) {
 		t.Fatalf("search returned error: %s", getTextContent(result))
 	}
 
-	text := getTextContent(result)
-	var nodes []map[string]any
-	if err := json.Unmarshal([]byte(text), &nodes); err != nil {
-		t.Fatalf("expected JSON array, got: %s", text)
-	}
+	nodes := decodeSearchResults(t, getTextContent(result))
 	if len(nodes) == 0 {
 		t.Fatal("expected at least 1 search result")
+	}
+}
+
+// A caller that gets a result has to be able to open it and see why it is here,
+// without a second round trip.
+func TestHandler_Search_CarriesLineNumbersAndEvidence(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+
+	testGraphStoreFor(deps).UpsertNodes(ctx, []graph.Node{
+		{QualifiedName: "pkg.AuthenticateUser", Kind: graph.NodeKindFunction, Name: "AuthenticateUser", FilePath: "auth.go", StartLine: 1, EndLine: 10, Language: "go"},
+	})
+	node, _ := testGraphStoreFor(deps).GetNode(ctx, "pkg.AuthenticateUser")
+	testGraphStoreFor(deps).UpsertAnnotation(ctx, &graph.Annotation{
+		NodeID: node.ID,
+		Tags:   []graph.DocTag{{Kind: graph.TagIntent, Value: "check a caller's credentials before any handler runs"}},
+	})
+	testDBFor(deps).Create(&graph.SearchDocument{
+		NodeID: node.ID, Content: "AuthenticateUser authenticates user credentials", Language: "go",
+	})
+	testSearchBackendFor(deps).Rebuild(ctx, testDBFor(deps))
+
+	result := callTool(t, deps, "search", map[string]any{"query": "credentials", "limit": 10})
+	nodes := decodeSearchResults(t, getTextContent(result))
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(nodes))
+	}
+	if nodes[0]["start_line"] != float64(1) || nodes[0]["end_line"] != float64(10) {
+		t.Errorf("result lost its line range: %v", nodes[0])
+	}
+	if !strings.Contains(nodes[0]["intent"].(string), "credentials") {
+		t.Errorf("result did not carry the node's @intent: %v", nodes[0])
+	}
+	matched, _ := nodes[0]["matched"].([]any)
+	if len(matched) == 0 || matched[0] != "intent" {
+		t.Errorf("matched = %v, want the intent signal named", nodes[0]["matched"])
+	}
+}
+
+// An empty answer has to distinguish "nothing indexed under those words" from
+// "everything found was unjustifiable", because a caller acts differently.
+func TestHandler_Search_ExplainsWhatItFilteredOut(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+
+	testGraphStoreFor(deps).UpsertNodes(ctx, []graph.Node{
+		{QualifiedName: "pkg.helper", Kind: graph.NodeKindFunction, Name: "helper", FilePath: "misc.go", StartLine: 1, EndLine: 4, Language: "go"},
+	})
+	node, _ := testGraphStoreFor(deps).GetNode(ctx, "pkg.helper")
+	testDBFor(deps).Create(&graph.SearchDocument{
+		NodeID: node.ID, Content: "helper mentions webhook only in passing", Language: "go",
+	})
+	testSearchBackendFor(deps).Rebuild(ctx, testDBFor(deps))
+
+	var payload struct {
+		Results      []map[string]any `json:"results"`
+		WeakFiltered int              `json:"weak_filtered"`
+		Note         string           `json:"note"`
+	}
+	text := getTextContent(callTool(t, deps, "search", map[string]any{"query": "webhook"}))
+	if err := json.Unmarshal([]byte(text), &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(payload.Results) != 0 {
+		t.Fatalf("a candidate with no name, path, or intent match was returned: %s", text)
+	}
+	if payload.WeakFiltered != 1 {
+		t.Errorf("weak_filtered = %d, want 1", payload.WeakFiltered)
+	}
+	if payload.Note == "" {
+		t.Error("an empty result set came back with no explanation")
+	}
+
+	// Asking for them brings them back.
+	withWeak := decodeSearchResults(t, getTextContent(
+		callTool(t, deps, "search", map[string]any{"query": "webhook", "include_weak": true})))
+	if len(withWeak) != 1 {
+		t.Fatalf("include_weak returned %d results, want 1", len(withWeak))
 	}
 }
 
@@ -282,12 +357,14 @@ func TestHandler_Search_PathFilter(t *testing.T) {
 	deps := setupTestDeps(t)
 	ctx := context.Background()
 
+	// Both names carry the query word, so the path filter is the only thing that
+	// can separate them — the evidence cut leaves both standing.
 	testGraphStoreFor(deps).UpsertNodes(ctx, []graph.Node{
-		{QualifiedName: "internal/auth/login.go::Login", Kind: graph.NodeKindFunction, Name: "Login", FilePath: "internal/auth/login.go", StartLine: 1, EndLine: 10, Language: "go"},
-		{QualifiedName: "internal/payment/pay.go::Pay", Kind: graph.NodeKindFunction, Name: "Pay", FilePath: "internal/payment/pay.go", StartLine: 1, EndLine: 10, Language: "go"},
+		{QualifiedName: "internal/auth/login.go::HandleLogin", Kind: graph.NodeKindFunction, Name: "HandleLogin", FilePath: "internal/auth/login.go", StartLine: 1, EndLine: 10, Language: "go"},
+		{QualifiedName: "internal/payment/pay.go::HandlePay", Kind: graph.NodeKindFunction, Name: "HandlePay", FilePath: "internal/payment/pay.go", StartLine: 1, EndLine: 10, Language: "go"},
 	})
-	loginNode, _ := testGraphStoreFor(deps).GetNode(ctx, "internal/auth/login.go::Login")
-	payNode, _ := testGraphStoreFor(deps).GetNode(ctx, "internal/payment/pay.go::Pay")
+	loginNode, _ := testGraphStoreFor(deps).GetNode(ctx, "internal/auth/login.go::HandleLogin")
+	payNode, _ := testGraphStoreFor(deps).GetNode(ctx, "internal/payment/pay.go::HandlePay")
 
 	testDBFor(deps).Create(&graph.SearchDocument{NodeID: loginNode.ID, Content: "handle user request", Language: "go"})
 	testDBFor(deps).Create(&graph.SearchDocument{NodeID: payNode.ID, Content: "handle payment request", Language: "go"})
@@ -299,11 +376,7 @@ func TestHandler_Search_PathFilter(t *testing.T) {
 		t.Fatalf("search returned error: %s", getTextContent(result))
 	}
 
-	text := getTextContent(result)
-	var nodes []map[string]any
-	if err := json.Unmarshal([]byte(text), &nodes); err != nil {
-		t.Fatalf("expected JSON array, got: %s", text)
-	}
+	nodes := decodeSearchResults(t, getTextContent(result))
 
 	for _, n := range nodes {
 		fp, _ := n["file_path"].(string)
@@ -336,10 +409,7 @@ func TestHandler_Search_PathFilter_RespectsPathBoundary(t *testing.T) {
 		t.Fatalf("search returned error: %s", getTextContent(result))
 	}
 
-	var nodes []map[string]any
-	if err := json.Unmarshal([]byte(getTextContent(result)), &nodes); err != nil {
-		t.Fatalf("expected JSON array, got: %s", getTextContent(result))
-	}
+	nodes := decodeSearchResults(t, getTextContent(result))
 	if len(nodes) != 1 {
 		t.Fatalf("expected 1 boundary-safe result, got %d", len(nodes))
 	}
@@ -2502,10 +2572,7 @@ func FreshSearch() {}
 	if searchResult.IsError {
 		t.Fatalf("search returned error: %s", getTextContent(searchResult))
 	}
-	var nodes []map[string]any
-	if err := json.Unmarshal([]byte(getTextContent(searchResult)), &nodes); err != nil {
-		t.Fatalf("expected JSON array, got: %s", getTextContent(searchResult))
-	}
+	nodes := decodeSearchResults(t, getTextContent(searchResult))
 	if len(nodes) == 0 {
 		t.Fatal("expected at least 1 search result after run_postprocess refreshed search documents")
 	}
@@ -2604,10 +2671,7 @@ func MyService() {}
 	if searchResult.IsError {
 		t.Fatalf("search returned error: %s", getTextContent(searchResult))
 	}
-	var nodes []map[string]any
-	if err := json.Unmarshal([]byte(getTextContent(searchResult)), &nodes); err != nil {
-		t.Fatalf("expected JSON array, got: %s", getTextContent(searchResult))
-	}
+	nodes := decodeSearchResults(t, getTextContent(searchResult))
 	if len(nodes) == 0 {
 		t.Fatal("expected at least 1 search result after build_or_update_graph refreshed search documents")
 	}
@@ -2763,5 +2827,200 @@ func DoWork() {}
 	}
 	if !found {
 		t.Errorf("expected @intent tag to be bound after full rebuild, got annotation: %v", ann)
+	}
+}
+
+// searchPayload is the whole search envelope, including the parts a caller acts
+// on rather than reads.
+type searchPayload struct {
+	Files []struct {
+		FilePath string           `json:"file_path"`
+		HitCount int              `json:"hit_count"`
+		Hits     []map[string]any `json:"hits"`
+	} `json:"files"`
+	FileCount    int  `json:"file_count"`
+	WeakFiltered int  `json:"weak_filtered"`
+	Truncated    bool `json:"truncated"`
+	Limits       struct {
+		Files     int `json:"files"`
+		Offset    int `json:"offset"`
+		HitBudget int `json:"hit_budget"`
+	} `json:"limits"`
+	Next []struct {
+		Reason string         `json:"reason"`
+		Tool   string         `json:"tool"`
+		Args   map[string]any `json:"args"`
+	} `json:"next"`
+	Note string `json:"note"`
+}
+
+func decodeSearchPayload(t *testing.T, text string) searchPayload {
+	t.Helper()
+	var payload searchPayload
+	if err := json.Unmarshal([]byte(text), &payload); err != nil {
+		t.Fatalf("unmarshal: %v — raw: %s", err, text)
+	}
+	return payload
+}
+
+// denseFileDeps indexes n declarations that all live in one file.
+func denseFileDeps(t *testing.T, n int, path string) *Deps {
+	t.Helper()
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+
+	nodes := make([]graph.Node, 0, n)
+	for i := range n {
+		nodes = append(nodes, graph.Node{
+			QualifiedName: fmt.Sprintf("reposync.SyncQueue.step%d", i),
+			Kind:          graph.NodeKindFunction,
+			Name:          fmt.Sprintf("syncQueueStep%d", i),
+			FilePath:      path, StartLine: i*10 + 1, EndLine: i*10 + 5, Language: "go",
+		})
+	}
+	testGraphStoreFor(deps).UpsertNodes(ctx, nodes)
+	for i := range n {
+		node, _ := testGraphStoreFor(deps).GetNode(ctx, fmt.Sprintf("reposync.SyncQueue.step%d", i))
+		testDBFor(deps).Create(&graph.SearchDocument{
+			NodeID: node.ID, Content: "syncqueue worker step", Language: "go",
+		})
+	}
+	testSearchBackendFor(deps).Rebuild(ctx, testDBFor(deps))
+	return deps
+}
+
+// A file that answers the query seventeen times is a file the reader wants to
+// see seventeen times. Nothing inside a shown file is held back.
+func TestHandler_Search_ShowsEveryHitOfAShownFile(t *testing.T) {
+	const dense = "internal/app/reposync/queue.go"
+	deps := denseFileDeps(t, 17, dense)
+
+	payload := decodeSearchPayload(t, getTextContent(
+		callTool(t, deps, "search", map[string]any{"query": "syncqueue"})))
+
+	if len(payload.Files) != 1 {
+		t.Fatalf("files = %d, want 1", len(payload.Files))
+	}
+	if payload.Files[0].FilePath != dense {
+		t.Errorf("file_path = %q, want %q", payload.Files[0].FilePath, dense)
+	}
+	if got := len(payload.Files[0].Hits); got != 17 {
+		t.Errorf("showed %d of 17 hits in the file", got)
+	}
+	if payload.Files[0].HitCount != 17 {
+		t.Errorf("hit_count = %d, want 17", payload.Files[0].HitCount)
+	}
+	if payload.Truncated {
+		t.Error("truncated = true, but every file and every hit was shown")
+	}
+}
+
+// Paging moves a whole file at a time, and the answer writes the next call out.
+func TestHandler_Search_PagesByWholeFiles(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+
+	for f := range 3 {
+		path := fmt.Sprintf("internal/app/reposync/queue%d.go", f)
+		for i := range 2 {
+			qn := fmt.Sprintf("reposync.SyncQueue%d.step%d", f, i)
+			testGraphStoreFor(deps).UpsertNodes(ctx, []graph.Node{{
+				QualifiedName: qn, Kind: graph.NodeKindFunction,
+				Name:     fmt.Sprintf("step%d", i),
+				FilePath: path, StartLine: 1, EndLine: 5, Language: "go",
+			}})
+			node, _ := testGraphStoreFor(deps).GetNode(ctx, qn)
+			testDBFor(deps).Create(&graph.SearchDocument{NodeID: node.ID, Content: "syncqueue step", Language: "go"})
+		}
+	}
+	testSearchBackendFor(deps).Rebuild(ctx, testDBFor(deps))
+
+	payload := decodeSearchPayload(t, getTextContent(
+		callTool(t, deps, "search", map[string]any{"query": "syncqueue", "limit": 1})))
+
+	if len(payload.Files) != 1 {
+		t.Fatalf("files = %d, want 1 — limit counts files", len(payload.Files))
+	}
+	if len(payload.Files[0].Hits) != 2 {
+		t.Errorf("the shown file lost hits to the file limit: %d of 2", len(payload.Files[0].Hits))
+	}
+	if !payload.Truncated {
+		t.Error("truncated = false with two files left unread")
+	}
+	if payload.Limits.Files != 1 {
+		t.Errorf("limits.files = %d, want 1", payload.Limits.Files)
+	}
+	var found bool
+	for _, n := range payload.Next {
+		if n.Tool == "search" && n.Args["offset"] == float64(1) && n.Args["query"] == "syncqueue" {
+			found = true
+			if n.Reason == "" {
+				t.Error("a suggested call came with no reason")
+			}
+		}
+	}
+	if !found {
+		t.Errorf("nothing told the caller how to read the next files: %+v", payload.Next)
+	}
+
+	// Making that call lands on the next file, never mid-file.
+	second := decodeSearchPayload(t, getTextContent(
+		callTool(t, deps, "search", map[string]any{"query": "syncqueue", "limit": 1, "offset": 1})))
+	if len(second.Files) != 1 || second.Files[0].FilePath == payload.Files[0].FilePath {
+		t.Errorf("offset 1 did not move to a new file: %+v", second.Files)
+	}
+	if len(second.Files[0].Hits) != 2 {
+		t.Errorf("page two arrived mid-file: %d hits", len(second.Files[0].Hits))
+	}
+}
+
+// The weak candidates are reachable, so the answer says with which argument.
+func TestHandler_Search_PointsAtTheArgumentThatShowsWeakCandidates(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+
+	testGraphStoreFor(deps).UpsertNodes(ctx, []graph.Node{
+		{QualifiedName: "pkg.helper", Kind: graph.NodeKindFunction, Name: "helper", FilePath: "misc.go", StartLine: 1, EndLine: 4, Language: "go"},
+	})
+	node, _ := testGraphStoreFor(deps).GetNode(ctx, "pkg.helper")
+	testDBFor(deps).Create(&graph.SearchDocument{NodeID: node.ID, Content: "helper mentions webhook only in passing", Language: "go"})
+	testSearchBackendFor(deps).Rebuild(ctx, testDBFor(deps))
+
+	payload := decodeSearchPayload(t, getTextContent(
+		callTool(t, deps, "search", map[string]any{"query": "webhook"})))
+
+	var found bool
+	for _, n := range payload.Next {
+		if n.Tool == "search" && n.Args["include_weak"] == true && n.Args["query"] == "webhook" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("weak_filtered = %d but nothing told the caller how to see them: %+v", payload.WeakFiltered, payload.Next)
+	}
+}
+
+// A page that reached every file claims nothing was held back.
+func TestHandler_Search_ClaimsNoTruncationWhenNothingWasHeldBack(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+
+	testGraphStoreFor(deps).UpsertNodes(ctx, []graph.Node{
+		{QualifiedName: "auth.Login", Kind: graph.NodeKindFunction, Name: "Login", FilePath: "internal/auth/login.go", StartLine: 1, EndLine: 10, Language: "go"},
+	})
+	node, _ := testGraphStoreFor(deps).GetNode(ctx, "auth.Login")
+	testDBFor(deps).Create(&graph.SearchDocument{NodeID: node.ID, Content: "login a caller", Language: "go"})
+	testSearchBackendFor(deps).Rebuild(ctx, testDBFor(deps))
+
+	payload := decodeSearchPayload(t, getTextContent(
+		callTool(t, deps, "search", map[string]any{"query": "login"})))
+	if payload.Truncated {
+		t.Errorf("truncated = true on a complete answer: %+v", payload)
+	}
+	if len(payload.Next) != 0 {
+		t.Errorf("a complete answer suggested follow-up calls: %+v", payload.Next)
+	}
+	if payload.FileCount != 1 {
+		t.Errorf("file_count = %d, want 1", payload.FileCount)
 	}
 }
