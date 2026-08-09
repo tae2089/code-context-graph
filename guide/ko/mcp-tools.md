@@ -15,7 +15,7 @@ code-context-graph는 로컬 `ccg serve`와 셀프호스트 `ccg-server` 런타�
 | 도구 | 용도 |
 | ---- | ---- |
 | `get_node` | qualified name으로 node 하나 조회 |
-| `search` | path scope를 선택적으로 적용하는 code node full-text search; `namespaces: []`로 여러 namespace 연합 검색 (결과에 namespace 라벨) |
+| `search` | code node full-text search, 파일별로 묶여서 반환됩니다: `files[] {file_path, hit_count, hits[]}` 형태이고 나온 파일은 통째로 나옵니다. `limit`은 파일 수를 세고 `offset`도 파일 단위라 페이지가 파일 중간을 자르지 않습니다. 각 hit이 근거(`matched` 신호와 node의 `@intent`)를 함께 반환하고, 근거 없는 후보는 잘라내 `weak_filtered`로 개수만 보고합니다. `path`로 범위 제한, `include_weak: true`로 잘린 후보 조회, `namespaces: []`로 여러 namespace 연합 검색 (결과에 namespace 라벨). `truncated`는 이 페이지가 못 읽은 파일이 남았는지를 알려 주고, `next`는 그걸 가져오는 호출을 그대로 적어 줍니다 |
 | `get_annotation` | node의 annotation과 문서 tag 조회 |
 | `query_graph` | callers, callees, imports, children, tests, inheritors, file summary 조회; `namespaces: []`는 namespace별 그룹 응답 |
 | `list_graph_stats` | node와 edge를 kind 및 language별로 집계; `namespaces: []`는 namespace별 그룹 응답 |

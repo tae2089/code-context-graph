@@ -576,3 +576,53 @@ func TestRerank_FaintestNameMatchStillOutranksPathOnlyMatch(t *testing.T) {
 		t.Errorf("path-only node beat a real name match scoring %.5f", score)
 	}
 }
+
+// 타입 이름으로 검색하면 그 타입의 메서드도 근거를 가져야 한다. 메서드는
+// 자기 이름과 qualified name의 마지막 조각이 똑같아서, 수신자 타입을 안 보면
+// 두 자리 모두 같은 문자열을 재는 데 쓰인다.
+func TestNameSim_MethodScoresItsReceiverType(t *testing.T) {
+	qTokens := tokenize("syncqueue")
+	method := graph.Node{Name: "Add", QualifiedName: "reposync.SyncQueue.Add"}
+	if got := nameSim(qTokens, method); got <= 0 {
+		t.Fatalf("nameSim(%q, %s) = %.4f, want > 0: the receiver type spells the query", "syncqueue", method.QualifiedName, got)
+	}
+}
+
+// 수신자로 얻은 점수는 자기 이름으로 얻은 점수 아래여야 한다. 같으면 메서드
+// 수십 개가 그 타입 노드와 동점이 되어, 정작 타입을 찾던 사람이 메서드 목록에
+// 파묻힌다.
+func TestNameSim_ReceiverMatchScoresBelowOwnNameMatch(t *testing.T) {
+	qTokens := tokenize("syncqueue")
+	own := nameSim(qTokens, graph.Node{Name: "SyncQueue", QualifiedName: "reposync.SyncQueue"})
+	viaReceiver := nameSim(qTokens, graph.Node{Name: "Add", QualifiedName: "reposync.SyncQueue.Add"})
+	if !(own > viaReceiver && viaReceiver > 0) {
+		t.Fatalf("expected own > receiver > 0, got own=%.4f receiver=%.4f", own, viaReceiver)
+	}
+}
+
+// 패키지 이름은 수신자가 아니다. 조각이 둘뿐인 최상위 함수에서 앞 조각을
+// 수신자로 읽으면, 패키지 이름을 친 질의가 그 패키지의 함수 전부를 이름 일치로
+// 끌어올린다. 패키지 근접성은 경로 점수가 이미 재고 있다.
+func TestNameSim_PackageSegmentIsNotAReceiver(t *testing.T) {
+	qTokens := tokenize("reposync")
+	fn := graph.Node{Name: "NewQueue", QualifiedName: "reposync.NewQueue"}
+	if got := nameSim(qTokens, fn); got != 0 {
+		t.Errorf("nameSim(%q, %s) = %.4f, want 0: reposync is the package, not a receiver type", "reposync", fn.QualifiedName, got)
+	}
+}
+
+// 타입 이름 질의에서 타입 노드가 자기 메서드들 위에 있어야 한다.
+func TestRerank_TypeQueryKeepsTheTypeAboveItsMethods(t *testing.T) {
+	nodes := []graph.Node{
+		{ID: 1, Name: "Add", QualifiedName: "reposync.SyncQueue.Add", FilePath: "internal/app/reposync/queue.go"},
+		{ID: 2, Name: "Shutdown", QualifiedName: "reposync.SyncQueue.Shutdown", FilePath: "internal/app/reposync/queue.go"},
+		{ID: 3, Name: "SyncQueue", QualifiedName: "reposync.SyncQueue", FilePath: "internal/app/reposync/queue.go"},
+	}
+	got := Rerank("syncqueue", nodes, 10)
+	if got[0].ID != 3 {
+		t.Fatalf("expected the type itself first, got %s", got[0].QualifiedName)
+	}
+	if got[1].ID != 1 || got[2].ID != 2 {
+		t.Errorf("methods should follow in retrieval order, got %s then %s", got[1].QualifiedName, got[2].QualifiedName)
+	}
+}

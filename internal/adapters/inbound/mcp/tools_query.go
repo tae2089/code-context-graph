@@ -35,10 +35,12 @@ func queryTools(h *handlers) []server.ServerTool {
 		},
 		{
 			Tool: mcp.NewTool("search", withFederatedNamespaceParams(
-				mcp.WithDescription("Full-text search across code nodes. Use 'path' to scope results to a module for token-efficient queries."),
+				mcp.WithDescription("Full-text search across code nodes, grouped by file. The answer is a list of files, and every file it shows it shows whole: all of that file's hits are in its 'hits' array. Every hit carries the evidence for it — the signals the query matched (name, path, intent) and the node's own @intent tag. Candidates nothing can justify are left out and counted in weak_filtered. 'truncated' is true when more files answered the query than this page reached, and 'next' lists the exact calls that read on. Use 'path' to scope results to a module for token-efficient queries."),
 				mcp.WithString("query", mcp.Description("Search query string"), mcp.Required()),
-				mcp.WithNumber("limit", mcp.Description("Maximum number of results"), mcp.DefaultNumber(10)),
+				mcp.WithNumber("limit", mcp.Description("Maximum number of files to return; every hit inside a returned file is included"), mcp.DefaultNumber(10)),
+				mcp.WithNumber("offset", mcp.Description("Skip this many files before the page starts, so paging never splits a file"), mcp.DefaultNumber(0)),
 				mcp.WithString("path", mcp.Description("Filter results to file paths starting with this prefix (e.g. internal/auth)")),
+				mcp.WithBoolean("include_weak", mcp.Description("Also return candidates whose name, path, and @intent say nothing about the query; they are appended after the justified results")),
 			)...),
 			Handler: h.search,
 		},

@@ -122,21 +122,58 @@ func TestSearchCommand_NoResults(t *testing.T) {
 	}
 }
 
-func TestSearchCommand_LimitFlag(t *testing.T) {
+// --limit counts files, and the footer says how to read the rest.
+func TestSearchCommand_LimitFlagCountsFiles(t *testing.T) {
 	deps, stdout, stderr, db := setupSearchTest(t)
 	seedSearchData(t, db)
 
 	stdout.Reset()
 
-	err := executeCmd(deps, stdout, stderr, "search", "--limit", "1", "function")
+	// "function" appears in every seeded document but in no name, path, or
+	// @intent, so all three hits are weak. This test is about --limit, so it
+	// asks for the weak candidates instead of losing them to the evidence cut.
+	err := executeCmd(deps, stdout, stderr, "search", "--limit", "1", "--include-weak", "function")
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
 
 	out := stdout.String()
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) != 1 {
-		t.Fatalf("expected 1 result with --limit 1, got %d: %s", len(lines), out)
+	var results int
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if !strings.HasPrefix(line, " ") {
+			results++
+		}
+	}
+	if results != 1 {
+		t.Fatalf("expected the single file's 1 hit with --limit 1, got %d: %s", results, out)
+	}
+	if !strings.Contains(out, "--offset 1") {
+		t.Errorf("nothing told the reader how to reach the other files: %s", out)
+	}
+}
+
+// A second page starts at a new file; no file is ever split across pages.
+func TestSearchCommand_OffsetMovesToTheNextFile(t *testing.T) {
+	deps, stdout, stderr, db := setupSearchTest(t)
+	seedSearchData(t, db)
+
+	stdout.Reset()
+	if err := executeCmd(deps, stdout, stderr, "search", "--limit", "1", "--include-weak", "function"); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	first := stdout.String()
+
+	stdout.Reset()
+	if err := executeCmd(deps, stdout, stderr, "search", "--limit", "1", "--offset", "1", "--include-weak", "function"); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	second := stdout.String()
+
+	if second == first {
+		t.Fatalf("--offset 1 returned the same page: %s", second)
+	}
+	if strings.Contains(second, "No results") {
+		t.Fatalf("--offset 1 fell off the end: %s", second)
 	}
 }
 
@@ -144,9 +181,11 @@ func TestSearchCommand_PathFilter_IncludesMatch(t *testing.T) {
 	deps, stdout, stderr, db := setupSearchTest(t)
 
 	ctx := context.Background()
+	// Both names carry the query word, so the path filter is the only thing
+	// that can separate them — the evidence cut leaves both standing.
 	nodes := []graph.Node{
-		{Name: "AuthLogin", QualifiedName: "internal/auth/login.go::AuthLogin", Kind: graph.NodeKindFunction, FilePath: "internal/auth/login.go", StartLine: 1, EndLine: 5, Language: "go"},
-		{Name: "PayPay", QualifiedName: "internal/payment/pay.go::PayPay", Kind: graph.NodeKindFunction, FilePath: "internal/payment/pay.go", StartLine: 1, EndLine: 5, Language: "go"},
+		{Name: "HandleLogin", QualifiedName: "internal/auth/login.go::HandleLogin", Kind: graph.NodeKindFunction, FilePath: "internal/auth/login.go", StartLine: 1, EndLine: 5, Language: "go"},
+		{Name: "HandlePay", QualifiedName: "internal/payment/pay.go::HandlePay", Kind: graph.NodeKindFunction, FilePath: "internal/payment/pay.go", StartLine: 1, EndLine: 5, Language: "go"},
 	}
 	db.WithContext(ctx).Create(&nodes)
 
@@ -162,11 +201,11 @@ func TestSearchCommand_PathFilter_IncludesMatch(t *testing.T) {
 	}
 
 	out := stdout.String()
-	if !strings.Contains(out, "AuthLogin") {
-		t.Errorf("expected AuthLogin in output, got:\n%s", out)
+	if !strings.Contains(out, "HandleLogin") {
+		t.Errorf("expected HandleLogin in output, got:\n%s", out)
 	}
-	if strings.Contains(out, "PayPay") {
-		t.Errorf("PayPay should be excluded by --path filter, got:\n%s", out)
+	if strings.Contains(out, "HandlePay\t") {
+		t.Errorf("HandlePay should be excluded by --path filter, got:\n%s", out)
 	}
 }
 
@@ -202,6 +241,127 @@ func TestSearchCommand_PathFilter_RespectsPathBoundary(t *testing.T) {
 	}
 	if strings.Contains(out, "internal/api2/handler.go::Handle2") {
 		t.Fatalf("did not expect sibling path match, got:\n%s", out)
+	}
+}
+
+// seedEvidenceData plants one node the query can be justified against and one
+// it cannot, so the evidence cut has something to keep and something to drop.
+func seedEvidenceData(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	ctx := context.Background()
+
+	nodes := []graph.Node{
+		{Name: "SyncQueue", QualifiedName: "reposync.SyncQueue", Kind: graph.NodeKindType, FilePath: "internal/app/reposync/queue.go", StartLine: 12, EndLine: 40, Language: "go"},
+		{Name: "helper", QualifiedName: "misc.helper", Kind: graph.NodeKindFunction, FilePath: "internal/misc/misc.go", StartLine: 1, EndLine: 4, Language: "go"},
+	}
+	if err := db.WithContext(ctx).Create(&nodes).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.WithContext(ctx).Create(&graph.Annotation{
+		NodeID: nodes[0].ID,
+		Tags:   []graph.DocTag{{Kind: graph.TagIntent, Value: "hand webhook pushes to a bounded worker pool"}},
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	docs := []graph.SearchDocument{
+		{Namespace: nodes[0].Namespace, NodeID: nodes[0].ID, Content: "SyncQueue hand webhook pushes to a bounded worker pool", Language: "go"},
+		{Namespace: nodes[1].Namespace, NodeID: nodes[1].ID, Content: "helper mentions webhook only in passing", Language: "go"},
+	}
+	if err := db.WithContext(ctx).Create(&docs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := search.NewSQLiteBackend().Rebuild(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The whole point of the change: a reader should be able to see why a result is
+// in the list without opening the file.
+func TestSearchCommand_PrintsIntentUnderTheResult(t *testing.T) {
+	deps, stdout, stderr, db := setupSearchTest(t)
+	seedEvidenceData(t, db)
+	stdout.Reset()
+
+	if err := executeCmd(deps, stdout, stderr, "search", "webhook"); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+
+	out := stdout.String()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected a result line and an evidence line, got:\n%s", out)
+	}
+	if strings.HasPrefix(lines[0], " ") {
+		t.Errorf("the result line must stay unindented so scripts can still read it: %q", lines[0])
+	}
+	if !strings.Contains(lines[0], "internal/app/reposync/queue.go:12") {
+		t.Errorf("result line lost its path:line, got %q", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], " ") {
+		t.Errorf("the evidence line must be indented so `grep -v '^ '` still yields plain results: %q", lines[1])
+	}
+	if !strings.Contains(lines[1], "bounded worker pool") {
+		t.Errorf("evidence line missing the @intent text, got %q", lines[1])
+	}
+	if !strings.Contains(lines[1], "[intent]") {
+		t.Errorf("evidence line missing the matched-signal labels, got %q", lines[1])
+	}
+}
+
+func TestSearchCommand_HidesCandidatesWithNoEvidence(t *testing.T) {
+	deps, stdout, stderr, db := setupSearchTest(t)
+	seedEvidenceData(t, db)
+	stdout.Reset()
+
+	if err := executeCmd(deps, stdout, stderr, "search", "webhook"); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+
+	out := stdout.String()
+	if strings.Contains(out, "misc.helper") {
+		t.Errorf("a candidate with no name, path, or intent match was shown:\n%s", out)
+	}
+	if !strings.Contains(out, "--include-weak") {
+		t.Errorf("the hidden candidate was never mentioned, so the reader cannot ask for it:\n%s", out)
+	}
+}
+
+func TestSearchCommand_IncludeWeakShowsTheHiddenCandidates(t *testing.T) {
+	deps, stdout, stderr, db := setupSearchTest(t)
+	seedEvidenceData(t, db)
+	stdout.Reset()
+
+	if err := executeCmd(deps, stdout, stderr, "search", "--include-weak", "webhook"); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "misc.helper") {
+		t.Errorf("--include-weak did not bring the weak candidate back:\n%s", out)
+	}
+	if strings.Index(out, "reposync.SyncQueue") > strings.Index(out, "misc.helper") {
+		t.Errorf("weak candidates must come last:\n%s", out)
+	}
+}
+
+// An empty answer has to say which kind of empty it is, or the caller cannot
+// tell "rephrase the query" from "ask again including the weak candidates".
+func TestSearchCommand_ExplainsAnEmptyResult(t *testing.T) {
+	deps, stdout, stderr, db := setupSearchTest(t)
+	seedEvidenceData(t, db)
+	stdout.Reset()
+
+	if err := executeCmd(deps, stdout, stderr, "search", "zzzznotfound"); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "No results") {
+		t.Fatalf("expected 'No results', got:\n%s", out)
+	}
+	if len(strings.Split(strings.TrimRight(out, "\n"), "\n")) < 2 {
+		t.Errorf("an empty result printed no explanation:\n%s", out)
 	}
 }
 

@@ -171,7 +171,32 @@ type ftsRow struct {
 	NodeID uint
 }
 
+// matchRows runs one FTS expression and returns the matching node ids in rank order.
+// @intent let Query run the same retrieval twice with a different expression.
+func (s *SQLiteBackend) matchRows(ctx context.Context, db *gorm.DB, ftsQuery, ns string, limit int) ([]ftsRow, error) {
+	var rows []ftsRow
+	if err := db.WithContext(ctx).Raw(
+		`SELECT CAST(node_id AS INTEGER) AS node_id
+		 FROM search_fts
+		 WHERE search_fts MATCH ? AND namespace = ?
+		 ORDER BY rank LIMIT ?`, ftsQuery, ns, limit).Scan(&rows).Error; err != nil {
+		return nil, trace.Wrap(err, "fts query")
+	}
+	return rows, nil
+}
+
 // Query searches for related nodes using FTS5 MATCH queries.
+//
+// Every term is required, and SanitizeFTS5 decides what counts as a term. That
+// pairing is the whole retrieval policy: requiring all terms is right when the
+// searcher typed identifiers, and it only became wrong for sentences because
+// ordinary English words were being required too.
+//
+// Widening to any-term when all-terms matches nothing was measured and
+// rejected. It answered no query the narrow expression missed — the two extra
+// nodes it retrieved never reached the top ten — and it filled the deliberate
+// nonsense query in the golden set with fifty unrelated hits.
+//
 // @intent Converts the user's search term into a SQLite FTS prefix query to find nodes.
 // @requires limit must be greater than 0 to get meaningful results.
 // @return Returns a list of nodes sorted by FTS rank.
@@ -185,17 +210,10 @@ func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, li
 	}
 	ns := requestctx.FromContext(ctx)
 
-	var rows []ftsRow
-	querySQL := `SELECT CAST(node_id AS INTEGER) AS node_id
-		 FROM search_fts
-		 WHERE search_fts MATCH ? AND namespace = ?`
-	args := []any{ftsQuery, ns}
-	querySQL += ` ORDER BY rank LIMIT ?`
-	args = append(args, limit)
-	if err := db.WithContext(ctx).Raw(querySQL, args...).Scan(&rows).Error; err != nil {
-		return nil, trace.Wrap(err, "fts query")
+	rows, err := s.matchRows(ctx, db, ftsQuery, ns, limit)
+	if err != nil {
+		return nil, err
 	}
-
 	if len(rows) == 0 {
 		return nil, nil
 	}
@@ -206,7 +224,10 @@ func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, li
 	}
 
 	var nodes []graph.Node
-	nodesQ := db.WithContext(ctx).Where("id IN ?", nodeIDs).Where("namespace = ?", ns)
+	// The annotation rides along because every consumer of a search result shows
+	// the author's @intent beside it, and asking for it afterwards would mean a
+	// second round trip per search.
+	nodesQ := db.WithContext(ctx).Where("id IN ?", nodeIDs).Where("namespace = ?", ns).Preload("Annotation.Tags")
 	if err := nodesQ.Find(&nodes).Error; err != nil {
 		return nil, trace.Wrap(err, "load nodes")
 	}

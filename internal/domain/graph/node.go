@@ -33,3 +33,26 @@ type Node struct {
 
 	Annotation *Annotation `gorm:"foreignKey:NodeID"`
 }
+
+// Intent returns what the author said this declaration is for, or an empty
+// string when nobody wrote it down.
+//
+// It is the one annotation field search puts in front of a reader, because it
+// carries what the identifier cannot. `Shutdown` already says it stops
+// something; its intent says it exists to give in-flight webhook syncs a
+// bounded way out. The summary field mostly restates the name.
+//
+// @requires the node's Annotation and its Tags are loaded; an unloaded association reads as absent.
+// @ensures returns the first intent tag's value, so repeated calls agree.
+// @intent give search one line of author-written purpose to show beside a result.
+func (n Node) Intent() string {
+	if n.Annotation == nil {
+		return ""
+	}
+	for _, tag := range n.Annotation.Tags {
+		if tag.Kind == TagIntent {
+			return tag.Value
+		}
+	}
+	return ""
+}

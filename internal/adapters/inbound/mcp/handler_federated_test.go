@@ -57,6 +57,32 @@ func resultTextOf(t *testing.T, result *mcp.CallToolResult) string {
 	return ""
 }
 
+// federatedSearchItems pulls the qualified name and namespace out of a search
+// response, which groups its hits by file so a caller can choose a file first.
+func federatedSearchItems(t *testing.T, text string) []struct {
+	QualifiedName string `json:"qualified_name"`
+	Namespace     string `json:"namespace"`
+} {
+	t.Helper()
+	type item = struct {
+		QualifiedName string `json:"qualified_name"`
+		Namespace     string `json:"namespace"`
+	}
+	var payload struct {
+		Files []struct {
+			Hits []item `json:"hits"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal([]byte(text), &payload); err != nil {
+		t.Fatalf("unmarshal: %v — raw: %s", err, text)
+	}
+	out := []item{}
+	for _, f := range payload.Files {
+		out = append(out, f.Hits...)
+	}
+	return out
+}
+
 func TestSearch_FederatesAcrossNamespaces(t *testing.T) {
 	deps := setupTestDeps(t)
 	seedFederatedNamespaces(t, deps)
@@ -65,13 +91,7 @@ func TestSearch_FederatesAcrossNamespaces(t *testing.T) {
 		"query":      "Payment",
 		"namespaces": []string{"alpha", "beta"},
 	})
-	var items []struct {
-		QualifiedName string `json:"qualified_name"`
-		Namespace     string `json:"namespace"`
-	}
-	if err := json.Unmarshal([]byte(resultTextOf(t, result)), &items); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	items := federatedSearchItems(t, resultTextOf(t, result))
 	seen := map[string]string{}
 	for _, item := range items {
 		seen[item.QualifiedName] = item.Namespace
@@ -111,15 +131,11 @@ func TestSearch_FederatedLimitDoesNotStarveNamespaces(t *testing.T) {
 		"limit":      3,
 		"namespaces": []string{"alpha", "beta"},
 	})
-	var items []struct {
-		QualifiedName string `json:"qualified_name"`
-		Namespace     string `json:"namespace"`
-	}
-	if err := json.Unmarshal([]byte(resultTextOf(t, result)), &items); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(items) != 3 {
-		t.Fatalf("result count = %d, want limit 3", len(items))
+	// limit counts files: alpha's five hits live in one file, beta's in another,
+	// so a limit of 3 reaches both files and every hit inside them.
+	items := federatedSearchItems(t, resultTextOf(t, result))
+	if len(items) != 6 {
+		t.Fatalf("hit count = %d, want all 6 hits of the two files", len(items))
 	}
 	perNS := map[string]int{}
 	for _, item := range items {
@@ -138,11 +154,7 @@ func TestSearch_SingleNamespaceResponseUnchanged(t *testing.T) {
 	seedFederatedNamespaces(t, deps)
 
 	result := callTool(t, deps, "search", map[string]any{"query": "Payment", "namespace": "alpha"})
-	text := resultTextOf(t, result)
-	var raw []map[string]any
-	if err := json.Unmarshal([]byte(text), &raw); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	raw := decodeSearchResults(t, resultTextOf(t, result))
 	if len(raw) == 0 {
 		t.Fatal("single-namespace search returned no results")
 	}

@@ -42,8 +42,11 @@ ccg update ./backend --namespace backend
 | `ccg update [dir]` | Incremental sync |
 | `ccg update --fallback-calls` | Enable best-effort fallback call resolution for incremental sync |
 | `ccg status` | Graph statistics |
-| `ccg search <query>` | Full-text search |
+| `ccg search <query>` | Full-text search, grouped by file; each hit prints its `@intent` and matched signals on an indented second line |
 | `ccg search --path <prefix> <query>` | Scoped search by path prefix |
+| `ccg search --limit <n> <query>` | Show at most `n` files; every hit inside a shown file is printed (default 10) |
+| `ccg search --offset <n> <query>` | Skip the first `n` files, so reading on never splits a file; the last line names the offset to use next |
+| `ccg search --include-weak <query>` | Also show candidates whose name, path, and `@intent` say nothing about the query |
 | `ccg docs [--out dir]` | Generate Markdown documentation and the `wiki-index.json` compatibility snapshot (prunes stale generator-managed docs by default) |
 | `ccg docs --rag-index-dir <dir>` | Override the legacy-named Wiki index output directory (default `.ccg` or `rag.index_dir`) |
 | `ccg docs --prune=false` | Regenerate docs without deleting older generator-managed files |

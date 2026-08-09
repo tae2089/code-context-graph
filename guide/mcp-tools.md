@@ -15,7 +15,7 @@ code-context-graph exposes 18 MCP tools through both local `ccg serve` and the s
 | Tool | Purpose |
 | ---- | ------- |
 | `get_node` | Read one node by qualified name |
-| `search` | Full-text search across code nodes, optionally scoped by path; `namespaces: []` federates across namespaces with per-item labels |
+| `search` | Full-text search across code nodes, grouped by file: results arrive as `files[] {file_path, hit_count, hits[]}` and a file that appears appears whole. `limit` counts files and `offset` pages by files, so a page never splits one. Every hit carries its evidence (`matched` signals plus the node's `@intent`); unjustifiable candidates are cut and counted in `weak_filtered`. Optionally scoped by `path`; `include_weak: true` returns the cut ones; `namespaces: []` federates across namespaces with per-item labels. `truncated` says whether more files answered than this page reached, and `next` names the calls that retrieve them |
 | `get_annotation` | Read annotations and documentation tags for one node |
 | `query_graph` | Run callers, callees, imports, children, tests, inheritors, or file-summary queries; `namespaces: []` groups results per namespace |
 | `list_graph_stats` | Report node and edge counts by kind and language; `namespaces: []` returns per-namespace groups |
