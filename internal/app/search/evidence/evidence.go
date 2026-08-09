@@ -36,6 +36,31 @@ type Result struct {
 	// Matched lists every signal the query touched, in a fixed order: name,
 	// path, intent. It is empty only for a weak result kept by IncludeWeak.
 	Matched []Match
+	// Reason is the recorded reason the intent index matched — the node's
+	// @intent, or its @domainRule when no @intent exists. It is set only for
+	// hits the intent query returned, so an empty Reason means the hit earned
+	// its place on name, path, or token overlap alone.
+	Reason string
+	// MatchedTerms are the terms of the query written in Reason, as the intent
+	// scorer counted them. They are the proof behind MatchIntent when token
+	// overlap alone cannot see the match.
+	MatchedTerms []string
+}
+
+// NodeRef names one node across repositories. Node ids are unique only within
+// a namespace, so a federated answer needs both to address a node.
+// @intent key per-node intent evidence so it cannot leak onto another repository's node.
+type NodeRef struct {
+	Namespace string
+	ID        uint
+}
+
+// IntentHit is what the intent index said about one candidate: the recorded
+// reason it matched and the query terms written in it.
+// @intent carry the intent query's evidence into the list without the list depending on the intent packages.
+type IntentHit struct {
+	Reason string
+	Terms  []string
 }
 
 // File is every hit one file answered the query with.
@@ -93,6 +118,10 @@ type Options struct {
 	// ones. Off by default, because a list padded with unexplainable results
 	// reads as "here are ten answers" when there were two.
 	IncludeWeak bool
+	// Intent is what the intent query said about each node it returned. A node
+	// with an entry here is justified by it — the terms are the proof — even
+	// when its name, path, and @intent share no token with the query.
+	Intent map[NodeRef]IntentHit
 }
 
 const (
@@ -120,8 +149,9 @@ func Build(query string, nodes []graph.Node, opts Options) List {
 	weak := make([]Result, 0)
 	for _, node := range nodes {
 		intent := node.Intent()
-		matched := matchedSignals(query, qTokens, node, intent)
-		result := Result{Node: node, Intent: intent, Matched: matched}
+		fromIntent, viaIntent := opts.Intent[NodeRef{Namespace: node.Namespace, ID: node.ID}]
+		matched := matchedSignals(query, qTokens, node, intent, viaIntent)
+		result := Result{Node: node, Intent: intent, Matched: matched, Reason: fromIntent.Reason, MatchedTerms: fromIntent.Terms}
 		if len(matched) > 0 {
 			kept = append(kept, result)
 			continue
@@ -152,8 +182,13 @@ func Build(query string, nodes []graph.Node, opts Options) List {
 
 // matchedSignals collects every reason this node is worth showing, in a fixed
 // order so two results are comparable at a glance.
+//
+// viaIntent marks a node the intent query returned. It counts as the intent
+// signal even when token overlap sees nothing, because the intent scorer
+// matches ways overlap cannot — a non-ASCII prefix, or a @domainRule reason
+// that is not the node's @intent.
 // @intent state a candidate's evidence in the same terms the ranker ordered it by.
-func matchedSignals(query string, qTokens []string, node graph.Node, intent string) []Match {
+func matchedSignals(query string, qTokens []string, node graph.Node, intent string, viaIntent bool) []Match {
 	signals := rank.Signals(query, node)
 	matched := make([]Match, 0, 3)
 	if signals.Name > 0 {
@@ -162,7 +197,7 @@ func matchedSignals(query string, qTokens []string, node graph.Node, intent stri
 	if signals.Path > 0 {
 		matched = append(matched, MatchPath)
 	}
-	if intentOverlaps(qTokens, intent) {
+	if viaIntent || intentOverlaps(qTokens, intent) {
 		matched = append(matched, MatchIntent)
 	}
 	return matched

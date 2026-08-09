@@ -266,6 +266,89 @@ func TestBuild_IncludeWeakKeepsUnexplainableCandidatesLast(t *testing.T) {
 	}
 }
 
+// A hit the intent index returned is justified by the terms of the question
+// written in its recorded reason, even when its name, path, and @intent share
+// no token with the query — a prefix match like "네임스페이스가" or a
+// @domainRule-only reason is exactly the case token overlap cannot see.
+func TestBuild_IntentEvidenceJustifiesACandidateOnItsOwn(t *testing.T) {
+	nodes := []graph.Node{
+		{ID: 1, Name: "admitRepo", QualifiedName: "webhook.admitRepo", FilePath: "internal/adapters/inbound/webhook/admission.go"},
+	}
+	got := Build("which repositories are allowed to sync", nodes, Options{
+		Limit: 10,
+		Intent: map[NodeRef]IntentHit{
+			{ID: 1}: {Reason: "decide which repository and branch a push may build", Terms: []string{"repositories", "sync"}},
+		},
+	})
+
+	if want := []uint{1}; !slices.Equal(ids(got), want) {
+		t.Fatalf("kept %v, want %v — an intent hit must never be filtered as weak", ids(got), want)
+	}
+	hit := got.Hits()[0]
+	if !slices.Contains(hit.Matched, MatchIntent) {
+		t.Errorf("Matched = %v, want it to include %q", hit.Matched, MatchIntent)
+	}
+	if hit.Reason != "decide which repository and branch a push may build" {
+		t.Errorf("Reason = %q, want the recorded reason the index matched", hit.Reason)
+	}
+	if want := []string{"repositories", "sync"}; !slices.Equal(hit.MatchedTerms, want) {
+		t.Errorf("MatchedTerms = %v, want %v", hit.MatchedTerms, want)
+	}
+	if got.WeakFiltered != 0 {
+		t.Errorf("WeakFiltered = %d, want 0", got.WeakFiltered)
+	}
+}
+
+// A name hit that the intent index also returned carries both kinds of
+// evidence on one result, so the reader sees why it ranked and what the
+// author said in one line.
+func TestBuild_IntentEvidenceRidesOnANameHit(t *testing.T) {
+	nodes := []graph.Node{
+		{ID: 1, Name: "SyncQueue", QualifiedName: "reposync.SyncQueue", FilePath: "internal/app/reposync/queue.go"},
+	}
+	got := Build("syncqueue", nodes, Options{
+		Limit: 10,
+		Intent: map[NodeRef]IntentHit{
+			{ID: 1}: {Reason: "hand webhook pushes to a bounded worker pool", Terms: []string{"syncqueue"}},
+		},
+	})
+
+	hit := got.Hits()[0]
+	want := []Match{MatchName, MatchIntent}
+	if !slices.Equal(hit.Matched, want) {
+		t.Errorf("Matched = %v, want %v", hit.Matched, want)
+	}
+	if hit.Reason == "" || len(hit.MatchedTerms) == 0 {
+		t.Errorf("intent evidence lost on a name hit: Reason=%q MatchedTerms=%v", hit.Reason, hit.MatchedTerms)
+	}
+}
+
+// Node ids are unique per repository, not across them: a federated answer can
+// hold two nodes with the same id, and intent evidence must reach only the one
+// it was measured on.
+func TestBuild_IntentEvidenceKeysOnNamespaceAndID(t *testing.T) {
+	nodes := []graph.Node{
+		{ID: 1, Namespace: "repo-a", Name: "admit", QualifiedName: "a.admit", FilePath: "a/admission.go"},
+		{ID: 1, Namespace: "repo-b", Name: "admit", QualifiedName: "b.admit", FilePath: "b/admission.go"},
+	}
+	got := Build("which repositories are allowed to sync", nodes, Options{
+		Limit: 10,
+		Intent: map[NodeRef]IntentHit{
+			{Namespace: "repo-a", ID: 1}: {Reason: "decide which repository may sync", Terms: []string{"sync"}},
+		},
+	})
+
+	if want := []uint{1}; !slices.Equal(ids(got), want) {
+		t.Fatalf("kept %v, want %v — only repo-a's node", ids(got), want)
+	}
+	if got.Hits()[0].Node.Namespace != "repo-a" {
+		t.Errorf("kept namespace %q, want repo-a", got.Hits()[0].Node.Namespace)
+	}
+	if got.WeakFiltered != 1 {
+		t.Errorf("WeakFiltered = %d, want 1 — repo-b's node has no evidence of its own", got.WeakFiltered)
+	}
+}
+
 // The answer has to say how many files it did not reach, or a reader has no way
 // to tell a short answer from the first page of a long one.
 func TestBuild_CountsTheFilesItDidNotReach(t *testing.T) {
