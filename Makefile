@@ -10,7 +10,7 @@ WIKI_TOKEN  ?=
 HOST_GOOS   := $(shell go env GOOS)
 CONTAINER_ARCH ?= $(shell go env GOARCH)
 
-.PHONY: build release build-debug build-json install vet test test-integration-helpers search-eval search-eval-capture wiki-build wiki-db wiki-docs wiki-run wiki-run-indexed container-artifacts clean
+.PHONY: build release build-debug build-json install vet test test-integration-helpers search-eval search-eval-capture intent-eval intent-eval-postgres intent-eval-capture wiki-build wiki-db wiki-docs wiki-run wiki-run-indexed container-artifacts clean
 
 build: release
 
@@ -38,16 +38,41 @@ test: test-integration-helpers
 test-integration-helpers:
 	bash ./scripts/integration-test-helpers_test.sh
 
-# Prints the search ranking scoreboard. Asserts nothing — the regression check
-# that fails a build already runs as part of `make test`.
+# Prints both search scoreboards — `search` and `search_docs` — over the same
+# golden queries. Asserts nothing; the regression checks that fail a build
+# already run as part of `make test`.
 search-eval:
-	CGO_ENABLED=1 go test -tags "fts5" ./internal/app/search/rank/ -run TestGolden_Report -v -count=1
+	CGO_ENABLED=1 go test -tags "fts5" ./internal/app/search/rank/ -run 'TestGolden_Report|TestGoldenDocs_Report' -v -count=1
 
-# Recaptures the candidate fixture from ./ccg.db, which `make wiki-db` builds.
+# Recaptures the candidate fixtures from ./ccg.db, which `make wiki-db` builds.
 # Only needed when retrieval itself changes; see
 # internal/app/search/rank/testdata/README.md before committing the result.
 search-eval-capture:
 	CGO_ENABLED=1 go test -tags "fts5" ./internal/adapters/outbound/searchsql/ -run TestCaptureGoldenCandidates -capture-golden -count=1
+	CGO_ENABLED=1 go test -tags "fts5" ./internal/adapters/outbound/searchsql/ -run TestCaptureDocsGoldenCandidates -capture-docs -count=1
+
+# Prints the find_by_intent scoreboard: how often a plain-language question came
+# back with somewhere worth starting, and how much of the code had a recorded
+# reason at all. Asserts nothing; TestGoldenIntent_HasNotRegressed is what fails
+# a build, and it runs as part of `make test`.
+intent-eval:
+	CGO_ENABLED=1 go test -tags "fts5" ./internal/adapters/outbound/searchsql/ -run TestGoldenIntent_Report -v -count=1
+
+# Recaptures the annotated corpus from ./ccg.db, which `make wiki-db` builds, and
+# re-records the baseline against it. Both steps together: a corpus that moved
+# without a re-recorded baseline fails the ratchet for reasons that have nothing
+# to do with the code. See internal/app/search/rank/testdata/README.md.
+# The same scoreboard on PostgreSQL, which is what a deployed server runs.
+# SQLite orders by bm25 and PostgreSQL by ts_rank, so the two scores differ for
+# reasons that have nothing to do with the intent code; this is how that gap is
+# read rather than guessed at. Needs a throwaway database — TEST_POSTGRES_DSN
+# defaults to localhost:5432/ccg_test and the run drops its `public` schema.
+intent-eval-postgres:
+	CGO_ENABLED=1 go test -tags "fts5,postgres" ./internal/adapters/outbound/searchsql/ -run TestGoldenIntentPostgres_Report -v -count=1
+
+intent-eval-capture:
+	CGO_ENABLED=1 go test -tags "fts5" ./internal/adapters/outbound/searchsql/ -run TestCaptureIntentCorpus -capture-intent -count=1
+	CGO_ENABLED=1 go test -tags "fts5" ./internal/adapters/outbound/searchsql/ -run TestGoldenIntent_HasNotRegressed -update-intent -count=1
 
 wiki-build:
 	cd web/wiki && npm ci && npm run build

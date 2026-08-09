@@ -63,6 +63,36 @@ func TestMatchedTerms_referenceAliases(t *testing.T) {
 	}
 }
 
+// The scan matches a node if any single term appears in it, and every matched
+// term adds ten points. So `the` on its own is enough to put a file on the page
+// and to outscore a file that matched only what the searcher meant. Measured on
+// the golden set: for "where do search results get ranked", every one of the
+// ten files shown carried `do`, and rank.go — the answer — was not among them.
+func TestMatchedTerms_dropsFunctionWords(t *testing.T) {
+	terms := retrieval.MatchedTerms("how does the graph get built")
+	for _, notWant := range []string{"how", "does", "the", "the_graph", "thegraph"} {
+		if slices.Contains(terms, notWant) {
+			t.Fatalf("terms should not include the meaningless word %q: %v", notWant, terms)
+		}
+	}
+	for _, want := range []string{"graph", "get", "built"} {
+		if !slices.Contains(terms, want) {
+			t.Fatalf("terms missing %q: %v", want, terms)
+		}
+	}
+}
+
+// A query with nothing else in it keeps its words, because an empty term list
+// matches nothing and would turn a poor answer into no answer.
+func TestMatchedTerms_keepsFunctionWordsWhenTheyAreTheWholeQuery(t *testing.T) {
+	terms := retrieval.MatchedTerms("what is it")
+	for _, want := range []string{"what", "is", "it"} {
+		if !slices.Contains(terms, want) {
+			t.Fatalf("terms missing %q: %v", want, terms)
+		}
+	}
+}
+
 func TestTextContainsAnyTerm_collapsesIdentifierSeparators(t *testing.T) {
 	terms := retrieval.MatchedTerms("cross namespace")
 	if !retrieval.TextContainsAnyTerm("cross-namespace annotation links", terms) {

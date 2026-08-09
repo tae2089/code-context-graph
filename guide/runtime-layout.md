@@ -31,7 +31,7 @@ runtime. This keeps local MCP use independent of remote hosting policy.
 - `/webhook` — optional GitHub/Gitea repository sync
 
 Both transports call `Runtime.MCPComponents()` and therefore register the same
-18 tools and four prompts.
+19 tools and four prompts.
 
 ## Resource ownership
 

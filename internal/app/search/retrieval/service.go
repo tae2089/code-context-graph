@@ -115,6 +115,11 @@ func (s *Service) scanDBCandidates(ctx context.Context, query string) ([]graph.N
 		return nil, nil
 	}
 
+	base := BaseTerms(query)
+	if mostlyNamesNothing(nodes, base) {
+		return nil, nil
+	}
+
 	filtered := make([]graph.Node, 0, len(nodes))
 	for _, node := range nodes {
 		if NodeMatchesTerms(node, terms) {
@@ -122,6 +127,59 @@ func (s *Service) scanDBCandidates(ctx context.Context, query string) ([]graph.N
 		}
 	}
 	return filtered, nil
+}
+
+// mostlyNamesNothing reports whether the caller named mostly things that are not
+// here, and nothing that points at a file.
+//
+// The scan keeps a node that matched a single term, so one word appearing in
+// someone's prose carries a whole page of files answering only that word.
+// Measured on this repository, `zzz nonexistent symbol qqq` returned ten files,
+// every one of them on `symbol` alone. A caller cannot tell that page from a
+// real answer, and an agent reads all ten before finding out.
+//
+// Counting dead words is the first half of telling that apart. Demanding each
+// file match more of the query does not work: `what happens when a webhook
+// arrives` is answered by a file matching one word of three, because `happens`
+// and `arrives` are prose that no identifier here spells.
+//
+// Counting alone is not enough either, and the second half is what stops this
+// rule from refusing real questions. Across thirty plausible questions about
+// this codebase, counting alone refused one — `why is the queue draining
+// slowly`, where `draining` and `slowly` are dead and only `queue` survives.
+// That question has an answer, and refusing it is worse than answering it
+// noisily. So a surviving word that appears in a file path lets the query
+// through. Files are what this tool returns, so a word inside a path is
+// pointing at a result; `queue` is in thirty-one paths here, while `symbol`
+// is in none and lives only in annotation prose. Matching a node *name* is not
+// enough — `symbol` matches nine of those and would have reopened the hole.
+//
+// @intent let the scan answer "nothing here" without refusing a question whose surviving word names a file.
+// @domainRule a query survives when at least half the words the caller wrote exist in the namespace, or when any surviving word appears in a file path.
+func mostlyNamesNothing(nodes []graph.Node, base []string) bool {
+	if len(base) < 2 {
+		// One word is either found or not; the per-node filter already decides that.
+		return false
+	}
+	alive := make([]string, 0, len(base))
+	for _, term := range base {
+		single := []string{term}
+		for _, node := range nodes {
+			if NodeMatchesTerms(node, single) {
+				alive = append(alive, term)
+				break
+			}
+		}
+	}
+	if len(alive)*2 >= len(base) {
+		return false
+	}
+	for _, node := range nodes {
+		if TextContainsAnyTerm(node.FilePath, alive) {
+			return false
+		}
+	}
+	return true
 }
 
 // @intent load structured annotations for candidate nodes in one namespace-scoped query so reranking evidence stays bounded.

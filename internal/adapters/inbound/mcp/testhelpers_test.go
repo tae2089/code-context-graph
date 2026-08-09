@@ -25,7 +25,8 @@ import (
 	flows "github.com/tae2089/code-context-graph/internal/app/analyze/flow"
 	"github.com/tae2089/code-context-graph/internal/app/analyze/impact"
 	"github.com/tae2089/code-context-graph/internal/app/analyze/query"
-	"github.com/tae2089/code-context-graph/internal/app/search/retrieval"
+	"github.com/tae2089/code-context-graph/internal/app/describe"
+	"github.com/tae2089/code-context-graph/internal/app/search/intent"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
@@ -176,7 +177,7 @@ func setTestSearchBackend(deps *Deps, backend search.Backend) {
 	reader := search.NewReader(current.db, backend)
 	writer := search.NewSearchWriter(current.db, backend, deps.Runtime.Logger)
 	deps.Graph.Search = reader
-	deps.Docs.Retrieval = retrieval.New(reader, reader)
+	deps.Graph.Intent = intent.New(reader, reader)
 	deps.Build.Search = writer
 	deps.Build.Maintenance = writer
 }
@@ -201,6 +202,8 @@ func groupedTestDeps(st *graphgorm.Store, db *gorm.DB, sb search.Backend, parser
 			Store:      st,
 			Query:      query.New(st),
 			Search:     reader,
+			Intent:     intent.New(reader, reader),
+			Describe:   describe.New(st),
 			Statistics: st,
 			Reader:     st,
 		},
@@ -210,7 +213,6 @@ func groupedTestDeps(st *graphgorm.Store, db *gorm.DB, sb search.Backend, parser
 			CrossFlow:   flows.New(st.CrossNamespaceReader()),
 			CrossRefs:   st,
 		},
-		Docs:    DocsToolsDeps{Retrieval: retrieval.New(reader, reader)},
 		Runtime: RuntimeToolsDeps{Logger: log, RepoRoot: os.TempDir()},
 	}
 }

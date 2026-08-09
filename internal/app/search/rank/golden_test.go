@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -34,12 +35,23 @@ type goldenQuery struct {
 	Bucket   string   `json:"bucket"`
 	Relevant []string `json:"relevant"`
 	Why      string   `json:"why"`
-	// OutOfScope marks a query search has decided not to answer, so its zero is
-	// a recorded decision rather than a defect. Without the flag those queries
-	// sink the headline average and nobody reading it can tell how much of the
-	// gap is code and how much is policy. The query stays in the set, and stays
-	// red, so anyone reversing the decision inherits the measurements in `why`.
-	OutOfScope bool `json:"out_of_scope,omitempty"`
+	// OutOfScope names the tools that have decided not to answer this query, so
+	// their zero is a recorded decision rather than a defect. Without it those
+	// queries sink the headline average and nobody reading it can tell how much
+	// of the gap is code and how much is policy. The query stays in the set, and
+	// stays red for the tools listed, so anyone reversing the decision inherits
+	// the measurements in `why`.
+	//
+	// It is a list because the two tools decline different things. `search`
+	// declines whole questions — measured at 0.200 MRR against `wiki_search`'s
+	// 0.600 on the same five — while `wiki_search` answers them and is scored on
+	// them. Both decline typos and abbreviations.
+	OutOfScope []string `json:"out_of_scope,omitempty"`
+}
+
+// declinedBy reports whether the named tool has decided not to answer.
+func (q goldenQuery) declinedBy(tool string) bool {
+	return slices.Contains(q.OutOfScope, tool)
 }
 
 type goldenSet struct {
@@ -171,7 +183,7 @@ func runGolden(t *testing.T) []outcome {
 			Query:      q.Query,
 			Bucket:     q.Bucket,
 			Negative:   len(q.Relevant) == 0,
-			OutOfScope: q.OutOfScope,
+			OutOfScope: q.declinedBy("search"),
 			Retrieved:  retrieved,
 			Relevant:   len(q.Relevant),
 		}
@@ -323,7 +335,7 @@ func TestGolden_EvidenceCutHidesNoRelevantNode(t *testing.T) {
 // into a silent excuse.
 var knownHiddenRelevant = map[string]string{
 	"fts | file:internal/adapters/outbound/searchsql/sqlite.go@internal/adapters/outbound/searchsql/sqlite.go": "a file node's only surface is its path, and 'fts' is nowhere in internal/adapters/outbound/searchsql/sqlite.go — the acronym lives in the declarations inside it. The reader loses nothing: searchsql.ftsRow is shown and carries this exact file, so the file is on the page under a hit that can explain itself. This entry only became visible when paging moved to files and the with-weak run started reaching this far.",
-	"worker pool | function:workflow.Service.parseBuildInputs@internal/app/ingest/workflow/build.go": "the judgment for this query says outright that the node was chosen by reading build.go, not from anything on its surface: nothing in its name, path, or @intent says 'worker pool'. The cut is doing what it was built to do, and the sibling answer reposync.SyncQueue — whose @intent does say it — is still shown.",
+	"worker pool | function:workflow.Service.parseBuildInputs@internal/app/ingest/workflow/build.go":           "the judgment for this query says outright that the node was chosen by reading build.go, not from anything on its surface: nothing in its name, path, or @intent says 'worker pool'. The cut is doing what it was built to do, and the sibling answer reposync.SyncQueue — whose @intent does say it — is still shown.",
 }
 
 func shownRelevant(list evidence.List, relevant map[string]bool, byID map[uint]goldenCandidate) map[string]bool {

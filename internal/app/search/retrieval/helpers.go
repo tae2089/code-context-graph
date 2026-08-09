@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/tae2089/code-context-graph/internal/app/search/queryterm"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
@@ -37,8 +38,48 @@ func DBCandidateLimit(limit int) int {
 	return min(max(limit*10, dbCandidateFloor), dbCandidateCap)
 }
 
+// BaseTerms는 쿼리에서 검색어로 쓸 소문자 단어만 남긴다. alias는 붙이지 않는다.
+//
+// The scan needs these on their own, not folded into MatchedTerms: it asks how
+// much of what the caller named exists at all, and an alias that nothing
+// matches is an artifact of pairing two words, not something the caller asked
+// for. Counting aliases would make every multi-word query look mostly dead.
+//
+// @intent give the scan the words the caller actually wrote, separate from the identifier aliases derived from them.
+// @domainRule meaningless English words are dropped, unless dropping them would leave nothing.
+func BaseTerms(query string) []string {
+	raw := make([]string, 0)
+	for term := range strings.FieldsSeq(strings.ToLower(query)) {
+		term = strings.Trim(term, `"'()[]{}.,:;!?`)
+		if term != "" {
+			raw = append(raw, term)
+		}
+	}
+	kept := queryterm.DropFunctionWords(raw)
+	seen := make(map[string]struct{}, len(kept))
+	out := make([]string, 0, len(kept))
+	for _, term := range kept {
+		if _, ok := seen[term]; ok {
+			continue
+		}
+		seen[term] = struct{}{}
+		out = append(out, term)
+	}
+	return out
+}
+
 // MatchedTerms는 쿼리 문자열을 소문자 토큰으로 분리하고 중복을 제거한다.
+//
+// Meaningless English words are dropped before the aliases are built, for two
+// reasons. The scan ORs these terms and scores ten points per term matched, so
+// keeping `the` puts most of the corpus on the page and outscores the files
+// that matched what was asked. And the full-text path drops the same words in
+// the same place (queryterm.DropFunctionWords, called from SanitizeFTS5), so
+// dropping them here is what keeps the two halves of one search agreeing about
+// which words the searcher meant.
+//
 // @intent DB-backed 응답 증거를 위해 검색 쿼리를 결정론적 소문자 용어로 토큰화하고 코드 식별자 alias를 보강한다.
+// @domainRule adjacency aliases are formed from the meaningful terms, so a dropped word does not leave a gap that pairs two words the searcher never wrote next to each other.
 func MatchedTerms(query string) []string {
 	seen := map[string]struct{}{}
 	terms := make([]string, 0)
@@ -53,8 +94,7 @@ func MatchedTerms(query string) []string {
 		seen[term] = struct{}{}
 		terms = append(terms, term)
 	}
-	for term := range strings.FieldsSeq(strings.ToLower(query)) {
-		term = strings.Trim(term, `"'()[]{}.,:;!?`)
+	for _, term := range BaseTerms(query) {
 		addTerm(term)
 	}
 	baseLen := len(terms)

@@ -37,11 +37,6 @@ type mockQueryService struct {
 	importersOfPageCalls    int
 	importsOfPageOpts       query.QueryOptions
 	importersOfPageOpts     query.QueryOptions
-	childrenOfCalled        bool
-	childrenOfPageCalled    bool
-	childrenOfCalls         int
-	childrenOfPageCalls     int
-	childrenOfPageOpts      query.QueryOptions
 	testsForCalled          bool
 	testsForPageCalled      bool
 	testsForCalls           int
@@ -52,10 +47,8 @@ type mockQueryService struct {
 	inheritorsOfCalls       int
 	inheritorsOfPageCalls   int
 	inheritorsOfPageOpts    query.QueryOptions
-	fileSummaryCalled       bool
 	findMatchesCalled       bool
 	result                  []graph.Node
-	fileSummaryResult       *query.FileSummary
 	matchResult             []query.CandidateMatch
 	err                     error
 }
@@ -136,17 +129,6 @@ func (m *mockQueryService) ImportersOfPage(ctx context.Context, nodeID uint, opt
 	m.importersOfPageOpts = opts
 	return applyQueryPage(m.result, opts), m.err
 }
-func (m *mockQueryService) ChildrenOf(ctx context.Context, nodeID uint) ([]graph.Node, error) {
-	m.childrenOfCalled = true
-	m.childrenOfCalls++
-	return m.result, m.err
-}
-func (m *mockQueryService) ChildrenOfPage(ctx context.Context, nodeID uint, opts query.QueryOptions) (query.PagedNodes, error) {
-	m.childrenOfPageCalled = true
-	m.childrenOfPageCalls++
-	m.childrenOfPageOpts = opts
-	return applyQueryPage(m.result, opts), m.err
-}
 func (m *mockQueryService) TestsFor(ctx context.Context, nodeID uint) ([]graph.Node, error) {
 	m.testsForCalled = true
 	m.testsForCalls++
@@ -169,11 +151,6 @@ func (m *mockQueryService) InheritorsOfPage(ctx context.Context, nodeID uint, op
 	m.inheritorsOfPageOpts = opts
 	return applyQueryPage(m.result, opts), m.err
 }
-func (m *mockQueryService) FileSummaryOf(ctx context.Context, filePath string) (*query.FileSummary, error) {
-	m.fileSummaryCalled = true
-	return m.fileSummaryResult, m.err
-}
-
 func (m *mockQueryService) FindExactNameMatches(ctx context.Context, target string, limit int) ([]query.CandidateMatch, error) {
 	m.findMatchesCalled = true
 	return m.matchResult, m.err

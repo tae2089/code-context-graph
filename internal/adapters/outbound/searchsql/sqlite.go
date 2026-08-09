@@ -12,12 +12,14 @@ import (
 
 	"github.com/tae2089/trace"
 
+	"github.com/tae2089/code-context-graph/internal/app/search/intentrank"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
 const (
 	sqliteFTSTable            = "search_fts"
+	sqliteIntentFTSTable      = "intent_fts"
 	sqliteFTSUpgradeTable     = "search_fts_upgrade"
 	sqliteFTSLegacyBackup     = "search_fts_legacy_backup"
 	sqliteFTSRebuildBatchSize = 500
@@ -66,16 +68,42 @@ func (s *SQLiteBackend) Migrate(db *gorm.DB) error {
 				return trace.Wrap(err, "seed new fts")
 			}
 		}
-		return nil
+		return s.migrateIntentTable(tx)
 	})
+}
+
+// migrateIntentTable prepares the intent-only FTS5 table beside the name index.
+// @intent give recorded reasons their own index so an intent question is never scored against identifier text.
+// @sideEffect may create the intent_fts virtual table.
+func (s *SQLiteBackend) migrateIntentTable(tx *gorm.DB) error {
+	existed, err := sqliteTableExists(tx, sqliteIntentFTSTable)
+	if err != nil {
+		return trace.Wrap(err, "check intent fts table")
+	}
+	if err := createSQLiteIntentFTSTable(tx); err != nil {
+		if strings.Contains(err.Error(), "no such module: fts5") {
+			return trace.Wrap(ErrFTS5NotAvailable, err.Error())
+		}
+		return err
+	}
+	if existed {
+		return nil
+	}
+	if err := s.rebuildTable(context.Background(), tx, sqliteIntentFTSTable); err != nil {
+		return trace.Wrap(err, "seed new intent fts")
+	}
+	return nil
 }
 
 // Rebuild reloads search_documents content into the FTS index.
 // @intent Synchronizes stored search documents with the SQLite FTS index.
-// @sideEffect Deletes and re-inserts search_fts content.
+// @sideEffect Deletes and re-inserts search_fts and intent_fts content.
 // @domainRule Index content must match the current snapshot of search_documents.
 func (s *SQLiteBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
-	return s.rebuildTable(ctx, db, sqliteFTSTable)
+	if err := s.rebuildTable(ctx, db, sqliteFTSTable); err != nil {
+		return err
+	}
+	return s.rebuildTable(ctx, db, sqliteIntentFTSTable)
 }
 
 // RebuildNodes synchronizes only the FTS rows of specified nodes with search_documents.
@@ -84,7 +112,10 @@ func (s *SQLiteBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs [
 	if len(nodeIDs) == 0 {
 		return nil
 	}
-	return s.rebuildTableNodes(ctx, db, sqliteFTSTable, nodeIDs)
+	if err := s.rebuildTableNodes(ctx, db, sqliteFTSTable, nodeIDs); err != nil {
+		return err
+	}
+	return s.rebuildTableNodes(ctx, db, sqliteIntentFTSTable, nodeIDs)
 }
 
 // PurgeNamespace removes the physical FTS index for a specific namespace.
@@ -97,7 +128,18 @@ func (s *SQLiteBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) error {
 	if !exists {
 		return nil
 	}
-	return db.WithContext(ctx).Exec("DELETE FROM "+sqliteFTSTable+" WHERE namespace = ?", requestctx.FromContext(ctx)).Error
+	ns := requestctx.FromContext(ctx)
+	if err := db.WithContext(ctx).Exec("DELETE FROM "+sqliteFTSTable+" WHERE namespace = ?", ns).Error; err != nil {
+		return err
+	}
+	intentExists, err := sqliteTableExists(db, sqliteIntentFTSTable)
+	if err != nil {
+		return trace.Wrap(err, "check intent fts table before purge")
+	}
+	if !intentExists {
+		return nil
+	}
+	return db.WithContext(ctx).Exec("DELETE FROM "+sqliteIntentFTSTable+" WHERE namespace = ?", ns).Error
 }
 
 // rebuildTable clears all FTS rows for the current namespace in tableName and
@@ -254,6 +296,35 @@ func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, li
 	return result, nil
 }
 
+// MatchIntent finds every recorded reason holding any term of the question.
+//
+// FTS5 could order these by bm25 and used to, but the ordering moved to
+// intentrank so that this backend and the PostgreSQL one answer the same
+// question the same way. What is left here is retrieval, which is what the index
+// is for.
+// @intent hand every candidate reason to shared scoring, in whatever order the index produced.
+// @requires maxCandidates must be greater than 0.
+// @return returns unordered candidates with the exact text that was indexed for each.
+func (s *SQLiteBackend) MatchIntent(ctx context.Context, db *gorm.DB, query string, maxCandidates int) ([]intentrank.Doc, error) {
+	if maxCandidates <= 0 {
+		return nil, fmt.Errorf("maxCandidates must be > 0, got %d", maxCandidates)
+	}
+	ftsQuery := SanitizeIntentFTS5(query)
+	if ftsQuery == "" {
+		return nil, nil
+	}
+
+	var docs []intentrank.Doc
+	if err := db.WithContext(ctx).Raw(
+		`SELECT CAST(node_id AS INTEGER) AS node_id, content
+		 FROM intent_fts
+		 WHERE intent_fts MATCH ? AND namespace = ?
+		 LIMIT ?`, ftsQuery, requestctx.FromContext(ctx), maxCandidates).Scan(&docs).Error; err != nil {
+		return nil, trace.Wrap(err, "intent fts query")
+	}
+	return docs, nil
+}
+
 // upgradeLegacyFTSTable migrates a pre-namespace search_fts schema to the
 // current four-column layout (node_id, content, language, namespace). It builds
 // a shadow table, populates it via rebuildTable, then swaps it into place using
@@ -295,8 +366,57 @@ func insertSQLiteFTSBatch(ctx context.Context, tx *gorm.DB, tableName string, do
 	if len(docs) == 0 {
 		return nil
 	}
+	if tableName == sqliteIntentFTSTable {
+		insertSQL, args := buildSQLiteIntentInsert(docs)
+		if insertSQL == "" {
+			return nil
+		}
+		return tx.WithContext(ctx).Exec(insertSQL, args...).Error
+	}
 	insertSQL, args := buildSQLiteFTSInsert(tableName, docs)
 	return tx.WithContext(ctx).Exec(insertSQL, args...).Error
+}
+
+// buildSQLiteIntentInsert constructs the bulk INSERT for the intent index,
+// skipping every document with no recorded reason.
+//
+// Those skips are the feature. A node with an empty intent would otherwise
+// occupy a row that can never match anything useful, and it would make the index
+// a mirror of the node table rather than a record of what somebody explained.
+// @intent keep the intent index limited to nodes whose reason was actually written down.
+func buildSQLiteIntentInsert(docs []graph.SearchDocument) (string, []any) {
+	placeholders := make([]string, 0, len(docs))
+	args := make([]any, 0, len(docs)*3)
+	for _, doc := range docs {
+		if strings.TrimSpace(doc.IntentContent) == "" {
+			continue
+		}
+		placeholders = append(placeholders, "(?, ?, ?)")
+		args = append(args, doc.NodeID, doc.IntentContent, doc.Namespace)
+	}
+	if len(placeholders) == 0 {
+		return "", nil
+	}
+	insertSQL := fmt.Sprintf(
+		"INSERT INTO %s(node_id, content, namespace) VALUES %s",
+		sqliteIntentFTSTable,
+		strings.Join(placeholders, ", "),
+	)
+	return insertSQL, args
+}
+
+// createSQLiteIntentFTSTable issues the CREATE VIRTUAL TABLE DDL for the intent index.
+//
+// It carries no `language` column. Language is a fact about the file, and adding
+// it here would let a query word match something other than the recorded reason,
+// which is exactly what this table exists to prevent.
+// @intent create an FTS5 table whose only indexed text is the reason a node exists.
+func createSQLiteIntentFTSTable(db *gorm.DB) error {
+	stmt := fmt.Sprintf(`
+		CREATE VIRTUAL TABLE IF NOT EXISTS %s
+		USING fts5(node_id UNINDEXED, content, namespace UNINDEXED)
+	`, sqliteIntentFTSTable)
+	return db.Exec(stmt).Error
 }
 
 // buildSQLiteFTSInsert constructs a bulk INSERT statement for the FTS virtual

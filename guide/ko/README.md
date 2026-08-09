@@ -6,10 +6,11 @@ code-context-graph의 문서 인덱스입니다. 한국어 문서는 영어 가�
 
 CCG는 GPT, Claude, Codex 같은 LLM 기반 코딩 에이전트가 개발 중 코드베이스 맥락을 정확하고 작게 가져오도록 만든 로컬/셀프호스트 context infrastructure입니다. 일반 SaaS 관리자용 제품이 아니라, CLI, MCP, 로그, 문서를 이해하는 개발자와 코딩 에이전트가 코드 검색, 영향 분석, 호출 그래프, 생성 문서, bounded response를 활용하도록 설계되었습니다.
 
-LLM 에이전트 워크플로우에서는 자연어 기반 코드 탐색을 생성 문서 경로에서
-시작하십시오. `search_docs`로 관련 문서를 찾은 뒤 `get_doc_content`로 하나를
-읽습니다. Top1 정답을 강제하기보다 작은 파일 후보로 빠르게 경로를 좁힌 뒤
-graph/search 도구로 정확한 위치와 관계를 확인하는 흐름을 권장합니다.
+LLM 에이전트 워크플로우에서는 자연어 기반 코드 탐색을 `find_by_intent`로
+시작하십시오. "왜 이렇게 만들었는가"를 평문으로 묻고, 반환된 `node_id`에서
+그래프를 이어 걷습니다. 생성 문서는 `get_doc_content`로 읽습니다. Top1 정답을
+강제하기보다 작은 파일 후보로 빠르게 경로를 좁힌 뒤 graph/search 도구로 정확한
+위치와 관계를 확인하는 흐름을 권장합니다.
 
 브라우저 Wiki는 `ccg-server`에서 `--wiki-dir`가 빌드된 React asset을
 가리킬 때 제공됩니다. 표시는 graph database를 우선 사용하고,
@@ -23,7 +24,7 @@ DB-backed graph/annotation evidence를 사용하며, 시각적 Graph 탭은
 |------|------|
 | [CLI 레퍼런스](cli-reference.md) | 모든 CLI 명령어, 옵션 및 설정 파일(`.ccg.yaml`) 안내 |
 | [Lint](lint.md) | `ccg lint` 카테고리 상세 레퍼런스, 결과 해석 및 CI 활용법 |
-| [MCP 도구](mcp-tools.md) | 18개의 MCP 도구, 에이전트 스킬, evidence-first 라우팅, AI 기반 어노테이션 |
+| [MCP 도구](mcp-tools.md) | 19개의 MCP 도구, 에이전트 스킬, evidence-first 라우팅, AI 기반 어노테이션 |
 | [어노테이션](annotations.md) | 커스텀 어노테이션 시스템 — 태그, 예시, 검색 품질 |
 | [웹훅(Webhook)](webhook.md) | GitHub / Gitea 웹훅 동기화, 브랜치 필터링, Graceful Shutdown |
 | [Docker](docker.md) | Docker 이미지 빌드, MCP 서버 설정, Wiki UI 배포, PostgreSQL 연동 |

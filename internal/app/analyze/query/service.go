@@ -142,12 +142,6 @@ func (s *Service) ChildrenOf(ctx context.Context, nodeID uint) ([]graph.Node, er
 	return s.nodesByEdge(ctx, nodeID, graph.EdgeKindContains, "outgoing")
 }
 
-// ChildrenOfPage returns child nodes with pagination metadata.
-// @intent support paginated query_graph response pagination and cache metadata.
-func (s *Service) ChildrenOfPage(ctx context.Context, nodeID uint, opts QueryOptions) (PagedNodes, error) {
-	return s.nodesByEdgePageWithOptions(ctx, nodeID, graph.EdgeKindContains, "outgoing", opts)
-}
-
 // TestsFor returns tests that exercise the target node.
 // @intent find test nodes linked to the target via tested_by edges
 func (s *Service) TestsFor(ctx context.Context, nodeID uint) ([]graph.Node, error) {
@@ -172,32 +166,6 @@ func (s *Service) InheritorsOfPage(ctx context.Context, nodeID uint, opts QueryO
 	return s.nodesByEdgePageWithOptions(ctx, nodeID, graph.EdgeKindInherits, "incoming", opts)
 }
 
-// FileSummaryOf returns node counts grouped by kind for one file.
-// @intent summarize how much graph structure exists within a specific file
-// @param filePath repository-relative source file path to summarize
-// @return per-kind node counts and total node count for the file
-func (s *Service) FileSummaryOf(ctx context.Context, filePath string) (*FileSummary, error) {
-	nodes, err := s.repository.NodesByFile(ctx, filePath)
-	if err != nil {
-		return nil, err
-	}
-
-	summary := &FileSummary{FilePath: filePath, Total: len(nodes)}
-	for _, n := range nodes {
-		switch n.Kind {
-		case graph.NodeKindFunction:
-			summary.Functions++
-		case graph.NodeKindClass:
-			summary.Classes++
-		case graph.NodeKindType:
-			summary.Types++
-		case graph.NodeKindTest:
-			summary.Tests++
-		}
-	}
-	return summary, nil
-}
-
 // FindExactNameMatches returns nodes whose short name exactly matches target.
 // @intent support MCP fallback from short symbol names to fully qualified graph nodes.
 func (s *Service) FindExactNameMatches(ctx context.Context, target string, limit int) ([]CandidateMatch, error) {
@@ -219,17 +187,6 @@ func (s *Service) FindExactNameMatches(ctx context.Context, target string, limit
 		}
 	}
 	return matches, nil
-}
-
-// FileSummary aggregates node counts for one file.
-// @intent summarize the kinds of graph nodes stored for a source file
-type FileSummary struct {
-	FilePath  string
-	Functions int
-	Classes   int
-	Types     int
-	Tests     int
-	Total     int
 }
 
 // @intent carry paginated graph query rows together with the total match count for MCP responses.

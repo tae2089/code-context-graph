@@ -79,6 +79,68 @@ func TestSanitize_DropsFunctionWords(t *testing.T) {
 	}
 }
 
+// A short term is the one place prefix expansion turns against the intent index.
+// "why does an invoice get a loyalty discount" matched three recorded reasons
+// because `get*` reached the identifiers getAnnotation, getImpactRadius, and
+// getAffectedFlows written inside the prose. The term is not common — `get*`
+// reaches 3 of 1702 reasons — so no stopword list or frequency cut would have
+// caught it. Only the prefix did.
+//
+// The rule stops at ASCII because scripts differ in where they put a word
+// boundary. English puts a space there, so the indexed token already is the
+// word and a prefix only adds inflections. Korean glues the particle on, so
+// "네임스페이스가" is one token and a prefix is the only way a question asking
+// about "네임스페이스" can reach it.
+func TestSanitizeIntent_KeepsShortLatinTermsExact(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+		fts5  string
+		pg    string
+	}{
+		{
+			name:  "three letters match exactly, four or more match by prefix",
+			query: "lock get keeps",
+			fts5:  `"lock"* OR "get" OR "keeps"*`,
+			pg:    "lock:* | get | keeps:*",
+		},
+		{
+			name:  "a camelCase sub-token follows the same rule as a typed term",
+			query: "getUser",
+			fts5:  `("getuser"* OR ("get" AND "user"*))`,
+			pg:    "(getuser:* | (get & user:*))",
+		},
+		{
+			name:  "a short Korean term still matches by prefix, because its particle is in the token",
+			query: "락이 무엇",
+			fts5:  `"락이"* OR "무엇"*`,
+			pg:    "락이:* | 무엇:*",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := SanitizeIntentFTS5(tt.query); got != tt.fts5 {
+				t.Errorf("SanitizeIntentFTS5(%q) = %q, want %q", tt.query, got, tt.fts5)
+			}
+			if got := SanitizePostgresIntentTSQuery(tt.query); got != tt.pg {
+				t.Errorf("SanitizePostgresIntentTSQuery(%q) = %q, want %q", tt.query, got, tt.pg)
+			}
+		})
+	}
+}
+
+// The shared index keeps prefix expansion for every term. A caller there typed a
+// symbol out of code it already read, so `get` reaching getAnnotation is the
+// answer rather than the mistake.
+func TestSanitizeSearch_KeepsShortTermsAsPrefixes(t *testing.T) {
+	if got, want := SanitizeFTS5("lock get keeps"), `"lock"* "get"* "keeps"*`; got != want {
+		t.Errorf("SanitizeFTS5 = %q, want %q", got, want)
+	}
+	if got, want := SanitizePostgresTSQuery("lock get keeps"), "lock:* & get:* & keeps:*"; got != want {
+		t.Errorf("SanitizePostgresTSQuery = %q, want %q", got, want)
+	}
+}
+
 func TestExtractExactNameToken(t *testing.T) {
 	tests := []struct {
 		query string

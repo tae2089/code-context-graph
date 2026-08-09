@@ -14,7 +14,7 @@ import (
 // the highest migration. Pinning it to a literal makes forgetting that a test
 // failure rather than a runtime surprise.
 func TestRequiredSchemaVersion_MatchesHighestMigration(t *testing.T) {
-	const highest = 16 // 000016_drop_search_trgm
+	const highest = 18 // 000018_intent_fts
 	if RequiredSchemaVersion != highest {
 		t.Fatalf("RequiredSchemaVersion = %d, want %d", RequiredSchemaVersion, highest)
 	}
@@ -180,6 +180,85 @@ func TestSQLiteMigrationFifteen_CreatesCrossRefsAndCanMigrateDown(t *testing.T) 
 	if db.Migrator().HasTable("cross_refs") {
 		t.Fatal("version 14 retained table cross_refs")
 	}
+}
+
+// The recorded reason for a node lives beside its name text rather than in a
+// table of its own. Both are derived from the same node in the same refresh, so
+// one row cannot drift from the other; two tables could. The separation callers
+// asked for is between the two *indexes*, and that happens above this column —
+// the name index reads `content`, the intent index reads `intent_content`, and
+// neither sees the other's text.
+func TestSQLiteMigrationSeventeen_AddsIntentContentAndCanMigrateDown(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "migration.db")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open SQLite: %v", err)
+	}
+	migrator, _, err := NewMigrator(db, "sqlite", "")
+	if err != nil {
+		t.Fatalf("NewMigrator: %v", err)
+	}
+	if err := migrator.Steps(17); err != nil {
+		t.Fatalf("migrate to version 17: %v", err)
+	}
+
+	if !sqliteHasColumn(t, db, "search_documents", "intent_content") {
+		t.Fatal("version 17 missing column search_documents.intent_content")
+	}
+	if err := migrator.Steps(-1); err != nil {
+		t.Fatalf("migrate down to version 16: %v", err)
+	}
+	if sqliteHasColumn(t, db, "search_documents", "intent_content") {
+		t.Fatal("version 16 retained column search_documents.intent_content")
+	}
+}
+
+// The intent index is only reachable through the numbered migrations. Nothing
+// in the CLI calls SQLiteBackend.Migrate, so a table that only that method
+// creates does not exist by the time `ccg build` rebuilds the search index, and
+// the build dies with "no such table: intent_fts".
+func TestSQLiteMigrationEighteen_AddsIntentFTSAndCanMigrateDown(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "migration.db")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open SQLite: %v", err)
+	}
+	migrator, _, err := NewMigrator(db, "sqlite", "")
+	if err != nil {
+		t.Fatalf("NewMigrator: %v", err)
+	}
+	if err := migrator.Steps(18); err != nil {
+		t.Fatalf("migrate to version 18: %v", err)
+	}
+
+	if !sqliteHasTable(t, db, "intent_fts") {
+		t.Fatal("version 18 missing table intent_fts")
+	}
+	if err := migrator.Steps(-1); err != nil {
+		t.Fatalf("migrate down to version 17: %v", err)
+	}
+	if sqliteHasTable(t, db, "intent_fts") {
+		t.Fatal("version 17 retained table intent_fts")
+	}
+}
+
+func sqliteHasTable(t *testing.T, db *gorm.DB, table string) bool {
+	t.Helper()
+	return db.Migrator().HasTable(table)
+}
+
+func sqliteHasColumn(t *testing.T, db *gorm.DB, table, column string) bool {
+	t.Helper()
+	columns, err := db.Migrator().ColumnTypes(table)
+	if err != nil {
+		t.Fatalf("inspect %s: %v", table, err)
+	}
+	for _, candidate := range columns {
+		if strings.EqualFold(candidate.Name(), column) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestSQLiteMigrationFourteen_PreservesTextColumnsAndCanMigrateDown(t *testing.T) {

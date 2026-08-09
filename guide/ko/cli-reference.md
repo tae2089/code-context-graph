@@ -67,7 +67,7 @@ CCG에는 역할이 다른 두 검색 표면이 있습니다.
 
 | 사용 사례 | 우선 진입점 |
 |----------|-------------|
-| 자연어 기반 코드 이해와 모듈 탐색 | `ccg docs`, 이후 MCP `search_docs`, `get_doc_content` |
+| 자연어 기반 코드 이해와 모듈 탐색 | MCP `find_by_intent`, 이후 `ccg docs`와 `get_doc_content` |
 | 정확한 심볼 조회, caller/callee, import, bounded graph traversal | MCP `get_node`, `query_graph`, `get_minimal_context` |
 | 영향 분석, flow 추적 | `get_impact_radius`, `trace_flow` 같은 MCP 분석 도구 |
 | 어노테이션/키워드 기반 후보 검색 | `ccg search` 또는 MCP `search` |
@@ -92,7 +92,7 @@ payload에는 이 숨겨진 text를 반환하지 않습니다.
 브라우저 Wiki는 `/wiki/api/graph` 기반 Graph 탭도 제공합니다. 이 탭은 설정된
 데이터베이스에서 해당 네임스페이스의 graph node와 edge를 직접 읽고, 클릭한
 file/symbol node를 같은 문서 viewer로 엽니다.
-그 다음 MCP `search_docs`로 관련 문서를 찾고 `get_doc_content`로 하나를 직접 읽습니다. `ccg search`는 빠른 키워드 또는 심볼 어노테이션 매칭에는 유용하지만, 넓은 자연어 질문의 기본 응답 표면으로 보기는 어렵습니다.
+그 다음 MCP `find_by_intent`로 평문 질문을 던지고 `get_doc_content`로 생성 문서를 직접 읽습니다. `ccg search`는 빠른 키워드 또는 심볼 어노테이션 매칭에는 유용하지만, 넓은 자연어 질문의 기본 응답 표면으로 보기는 어렵습니다.
 
 ### 데이터베이스 선택 (Database Choice)
 
@@ -206,6 +206,10 @@ exclude:
 ### 정규식 패턴 (Regex Patterns)
 
 `exclude` 및 `rules` 패턴 필드는 정규 표현식을 지원합니다. `$`, `^`, `+`, `{}`, `|`, `\.`, `.*`를 포함하는 패턴은 자동으로 정규식으로 감지됩니다.
+
+> **정규식 패턴은 경로 어느 위치에서든 매칭됩니다.** 경로 접두사 형식과 갈리는 지점이 여기입니다. `docs/`는 프로젝트 루트의 `docs/` 디렉터리를 제외하지만, `docs/.*`는 `docs` 조각이 들어간 **모든** 경로를 제외합니다 — `internal/app/docs/`, `pkg/mydocs/` 전부. 제외된 파일은 노드도 경고도 오류도 남기지 않으므로, 그 코드에 대한 질문에 답이 없다는 것만이 유일한 증상입니다.
+>
+> 프로젝트 루트를 뜻하려면 `^`로 고정하고(`^docs/.*`), 깊이에 상관없이 지우려면 `.*`를 앞에 둡니다(`(^|.*/)testdata/.*`).
 
 ```yaml
 rules:

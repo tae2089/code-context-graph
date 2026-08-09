@@ -7,5 +7,9 @@ type SearchDocument struct {
 	Namespace string `gorm:"type:text;not null;default:'default';index;uniqueIndex:idx_searchdoc_ns_node"`
 	NodeID    uint   `gorm:"not null;uniqueIndex:idx_searchdoc_ns_node"`
 	Content   string `gorm:"type:text;not null"`
-	Language  string `gorm:"type:text;index"`
+	// IntentContent holds only the reason the node exists (@intent, @domainRule).
+	// It is indexed separately from Content so an intent question is scored on the
+	// reason rather than on whatever the node happens to be called.
+	IntentContent string `gorm:"type:text;not null;default:''"`
+	Language      string `gorm:"type:text;index"`
 }

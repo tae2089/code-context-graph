@@ -1,6 +1,6 @@
 ---
 name: ccg-docs
-description: "Generate, discover, read, and lint CCG documentation. Use when producing Markdown and Wiki snapshots, narrowing broad module questions with search_docs, reading generated docs from configured content roots with get_doc_content, or diagnosing orphan, missing, stale, incomplete, contradiction, dead-ref, and drift findings. Do not use for direct source annotation authoring or exact call-graph analysis."
+description: "Generate, discover, read, and lint CCG documentation. Use when producing Markdown and Wiki snapshots, narrowing broad module questions with find_by_intent, reading generated docs from configured content roots with get_doc_content, or diagnosing orphan, missing, stale, incomplete, contradiction, dead-ref, and drift findings. Do not use for direct source annotation authoring or exact call-graph analysis."
 metadata:
   version: 1.2.1
   openclaw:
@@ -23,22 +23,22 @@ selected evidence and documentation quality.
 
 | Task | Tool |
 | ---- | ---- |
-| Broad question about a module | `search_docs`, then `get_doc_content` |
+| Broad question about a module | `find_by_intent`, then `get_doc_content` |
 | Focused annotation or symbol keyword | `ccg search` or MCP `search` |
 | Exact generated Markdown body | `get_doc_content` |
 | Exact signature or relationship | `get_node` or `query_graph` |
 | Regenerate Markdown and Wiki snapshot | `ccg docs --out docs` |
 | Audit generated docs | `ccg lint` |
 
-`search_docs` is a DB-backed narrowing layer. It returns candidate files and graph evidence; it does not read a separately generated retrieval index. Read the selected Markdown with `get_doc_content`, then use graph tools for exact symbols and relationships.
+`find_by_intent` is a DB-backed narrowing layer. It answers from recorded `@intent`/`@domainRule` only and returns candidate files with a `node_id` per entry; it does not read a separately generated retrieval index. Read a file's Markdown with `get_doc_content`, then use graph tools for exact symbols and relationships.
 
 ## Discovery Pipeline
 
 Use the `ccg` skill's Graph Freshness workflow before relying on graph evidence.
-`search_docs` can narrow candidates without generated Markdown:
+`find_by_intent` can narrow candidates without generated Markdown:
 
 ```text
-search_docs(query: "auth flow", limit: 5)
+find_by_intent(question: "how does a caller get authenticated", limit: 5)
 ```
 
 Generate files only when the task needs current Markdown, Wiki output, or
@@ -51,9 +51,9 @@ ccg lint
 
 ## Content-Root Contract
 
-`search_docs` returns DB-backed candidates and `doc_path` evidence; it does not
-prove that the corresponding Markdown exists in the filesystem root used by
-`get_doc_content`.
+`find_by_intent` returns DB-backed candidates with source `file_path` values; it
+does not prove that a corresponding generated Markdown file exists in the
+filesystem root used by `get_doc_content`.
 
 - For the default namespace, `get_doc_content` resolves `file_path` beneath the
   MCP server's configured `rag.index_dir` (default `.ccg`).
@@ -66,7 +66,7 @@ prove that the corresponding Markdown exists in the filesystem root used by
 - For a named namespace, place generated docs beneath that namespace directory
   before calling `get_doc_content`.
 
-Pass the selected result's relative `doc_path` to `get_doc_content`. If the read
+Pass the selected result's relative generated-doc path to `get_doc_content`. If the read
 fails, report the configured-root mismatch; do not guess paths outside the
 allowed root.
 
@@ -95,26 +95,26 @@ allowed root.
 
 1. Sparse results: add accurate `@intent` or `@index` annotations with the `ccg-annotate` skill.
 2. Stale generated docs: use the core Graph Freshness workflow, then rerun `ccg docs --out docs`.
-3. Empty `search_docs` results: confirm namespace statistics and refresh only when the graph is missing or stale.
-4. Missing `get_doc_content` file: compare `doc_path` with the configured content root before regenerating.
+3. Empty `find_by_intent` results: read its `coverage` field first — an empty answer with low coverage means nobody recorded a reason, not that the graph is stale. Confirm namespace statistics and refresh only when the graph is missing or stale.
+4. Missing `get_doc_content` file: compare the generated-doc path with the configured content root before regenerating.
 5. Exact-answer needs: switch from documentation discovery to `get_node`, `query_graph`, or `trace_flow`.
 
 ## MCP Tools
 
 | Tool | Use |
 | ---- | --- |
-| `search_docs` | Search DB-backed documentation candidates and evidence |
+| `find_by_intent` | Ask in plain language why something was built; answers from recorded reasons and returns a `node_id` per entry |
 | `get_doc_content` | Safely read a selected generated Markdown file |
 
-`search_docs` reads graph evidence without a separately generated retrieval
+`find_by_intent` reads graph evidence without a separately generated retrieval
 index. `get_doc_content` still requires the selected Markdown beneath its
 configured root. Local MCP clients use `ccg serve`; self-hosted clients connect
 to `ccg-server` over Streamable HTTP.
 
 ## Boundary
 
-- Treat `search_docs` as a narrowing layer, not a guaranteed Top-1 answer.
-- Confirm the selected `doc_path` is readable before treating its body as evidence.
+- Treat `find_by_intent` as a narrowing layer, not a guaranteed Top-1 answer.
+- Confirm the selected generated-doc path is readable before treating its body as evidence.
 - Do not hand-edit generator-managed Markdown when the source annotation or generator owns the content.
 - Separate current lint results from pre-existing unrelated findings.
 - Never infer that successful generation to an arbitrary `--out` directory made the file MCP-readable.
@@ -122,7 +122,7 @@ to `ccg-server` over Streamable HTTP.
 ## Completion
 
 Report generated Markdown and Wiki-index paths when generation was requested,
-the configured content root and selected `doc_path` for each document read,
+the configured content root and selected generated-doc path for each document read,
 namespace and graph freshness, and the exact lint summary or why lint was not
 run. Record any discovery/read mismatch rather than claiming a candidate body
 was inspected.

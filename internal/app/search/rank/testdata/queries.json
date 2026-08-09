@@ -10,7 +10,7 @@
     "measures": "regression, not absolute quality",
     "caveat": "The same author wrote the ranker and these judgments, so the set cannot prove the ranking is good. It can prove a later change made it worse. Expectations are never edited to make a run pass; a failing query is either a real defect or a documented disagreement."
   },
-  "label_format": "kind:qualified_name@file_path",
+  "label_format": "kind:qualified_name@file_path — `search` is scored on the node, `wiki_search` on the file after the @",
   "queries": [
     {
       "query": "SanitizeFTS5",
@@ -181,7 +181,10 @@
     {
       "query": "cfg",
       "bucket": "abbreviation",
-      "out_of_scope": true,
+      "out_of_scope": [
+        "search",
+        "wiki_search"
+      ],
       "relevant": [
         "class:server.Config@internal/adapters/inbound/http/config.go",
         "class:wikiserver.Config@internal/adapters/inbound/wikihttp/server.go",
@@ -206,7 +209,10 @@
     {
       "query": "sanitze",
       "bucket": "typo",
-      "out_of_scope": true,
+      "out_of_scope": [
+        "search",
+        "wiki_search"
+      ],
       "relevant": [
         "function:searchsql.SanitizeFTS5@internal/adapters/outbound/searchsql/sanitize.go",
         "function:searchsql.SanitizePostgresTSQuery@internal/adapters/outbound/searchsql/sanitize.go",
@@ -217,7 +223,10 @@
     {
       "query": "retreival",
       "bucket": "typo",
-      "out_of_scope": true,
+      "out_of_scope": [
+        "search",
+        "wiki_search"
+      ],
       "relevant": [
         "file:internal/app/search/retrieval/retrieval.go@internal/app/search/retrieval/retrieval.go",
         "file:internal/app/search/retrieval/service.go@internal/app/search/retrieval/service.go",
@@ -228,7 +237,10 @@
     {
       "query": "anotation",
       "bucket": "typo",
-      "out_of_scope": true,
+      "out_of_scope": [
+        "search",
+        "wiki_search"
+      ],
       "relevant": [
         "class:graph.Annotation@internal/domain/graph/annotation.go",
         "file:internal/domain/graph/annotation.go@internal/domain/graph/annotation.go",
@@ -356,42 +368,57 @@
     {
       "query": "how does the graph get built",
       "bucket": "question",
+      "out_of_scope": [
+        "search"
+      ],
       "relevant": [
         "function:workflow.Service.Build@internal/app/ingest/workflow/build.go"
       ],
-      "why": "A whole question, the shape a person or an agent types when it does not know the symbol name. Build is the full-build entry point (build.go:155: walks source files, stores parsed graph data, rebuilds search docs). Retrieval returns nothing for it today and the cause is measured, not guessed: SanitizeFTS5 joins its terms with a space (sanitize.go:47), and a space is FTS5's implicit AND, so all six words must appear in one document. Every query of five words or more tested against this graph returned zero candidates. No ranking change can move this query; it goes red until retrieval changes."
+      "why": "A whole question, the shape a person or an agent types when it does not know the symbol name. Build is the full-build entry point (build.go:155: walks source files, stores parsed graph data, rebuilds search docs). `search` returns nothing for it and the cause is measured, not guessed: SanitizeFTS5 joins its terms with a space (sanitize.go:47), and a space is FTS5's implicit AND, so every remaining word must appear in one document. Every query of five words or more tested against this graph returned zero candidates there. That is why `search` declines the whole bucket. `wiki_search` answers it from the namespace scan, and is scored on it: build.go was 6th, and 2nd once the scan stopped counting `the` as evidence."
     },
     {
       "query": "what happens when a webhook arrives",
       "bucket": "question",
+      "out_of_scope": [
+        "search"
+      ],
       "relevant": [
         "function:webhook.WebhookHandler.ServeHTTP@internal/adapters/inbound/webhook/handler.go"
       ],
-      "why": "ServeHTTP is the entry point a push event lands on: it validates the event and dispatches repository sync. Zero candidates today for the same reason as the other question queries."
+      "why": "ServeHTTP is the entry point a push event lands on: it validates the event and dispatches repository sync. Zero candidates in `search`, for the same reason as the rest of the bucket. `wiki_search` shows handler.go first."
     },
     {
       "query": "where do search results get ranked",
       "bucket": "question",
+      "out_of_scope": [
+        "search"
+      ],
       "relevant": [
         "function:rank.Rerank@internal/app/search/rank/rank.go"
       ],
-      "why": "Rerank is the single ordering entry point; every search path funnels into it. Zero candidates today."
+      "why": "Rerank is the single ordering entry point; every search path funnels into it. Zero candidates in `search`. `wiki_search` reaches rank.go but does not fit it on a page of ten: the query's own words — search, results, get — are spread across every file that has a search API, and rank.go's surface says `Rerank`, not `ranked`. This is the hardest question in the set and the one left open."
     },
     {
       "query": "how do i follow a call chain",
       "bucket": "question",
+      "out_of_scope": [
+        "search"
+      ],
       "relevant": [
         "function:flow.Tracer.TraceFlow@internal/app/analyze/flow/flow.go"
       ],
-      "why": "Describes call-flow tracing without using the words trace or flow, which is the point: the searcher does not know the name. Zero candidates today."
+      "why": "Describes call-flow tracing without using the words trace or flow, which is the point: the searcher does not know the name. Zero candidates in `search`. In `wiki_search` flow.go was 1st and is now 2nd: it used to win partly on `a`, `do`, `i` and `how`, and once those stopped being evidence it lost the top spot to semantics_js_ts.go, which matches `call chain` on its own surface. The trade was accepted — the words it lost were not about this question."
     },
     {
       "query": "what stops the server accepting new work",
       "bucket": "question",
+      "out_of_scope": [
+        "search"
+      ],
       "relevant": [
         "function:reposync.SyncQueue.Shutdown@internal/app/reposync/queue.go"
       ],
-      "why": "Shutdown stops accepting new work and waits for workers to finish or time out (queue.go:259-262). Zero candidates today."
+      "why": "Shutdown stops accepting new work and waits for workers to finish or time out (queue.go:259-262). Zero candidates in `search`. `wiki_search` shows queue.go first, on the strength of its @intent line."
     },
     {
       "query": "syncqueue",
@@ -431,7 +458,15 @@
       "query": "zzz nonexistent symbol qqq",
       "bucket": "negative",
       "relevant": [],
-      "why": "Nothing may be returned. Guards against a scorer that always finds something."
+      "why": "Nothing may be returned. Guards against a scorer that always finds something. Under wiki_search this used to return ten files, every one of them matching `symbol` alone while `zzz`, `nonexistent`, and `qqq` matched nothing anywhere; it returns none since the scan learned to decline a query whose words mostly name nothing."
     }
-  ]
+  ],
+  "scoring": {
+    "tools": [
+      "search",
+      "wiki_search"
+    ],
+    "note": "One question set, two tools. `search` is replayed by golden_test.go against candidates.json; `wiki_search` by golden_docs_test.go against docs_candidates.json. Sharing the questions is the point: a number is only comparable if both tools were asked the same thing.",
+    "out_of_scope": "Names the tools that have decided not to answer a query, so their zero is a recorded decision rather than a defect. A query stays in the set, and stays red, for every tool that lists itself here."
+  }
 }

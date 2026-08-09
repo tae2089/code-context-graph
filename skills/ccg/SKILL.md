@@ -22,15 +22,17 @@ Use CCG for current graph evidence and use grep/read for direct source evidence.
 | ------------------------------------------ | ----------------- | --------------------------------- |
 | "Where is X?" — simple location lookup     | Grep + Read       | Direct source lookup              |
 | "Find code related to X" — keyword/intent search | `ccg search` | Indexed code and annotations |
+| "Why was this built?" / "where do I start?" — you cannot name the symbol | MCP `find_by_intent` | Matches the reasons authors recorded, then hands back node IDs to walk from |
+| "What is in this folder/file?" — you already have a path | MCP `describe` | Lists what the graph holds there, exactly, with no ranking to second-guess |
 | "How does this algorithm or feature pipeline work?" | `ccg-analyze` skill | Graph-first narrowing, then source verification |
 | "What's affected if I change X?"           | `ccg-analyze` skill   | Graph traversal                       |
-| "Understand a module from generated docs"  | `ccg-docs` skill      | `search_docs`, then `get_doc_content` |
+| "Understand a module from generated docs"  | `ccg-docs` skill      | `find_by_intent`, then `get_doc_content` |
 | "Document intent/rules in code"            | `ccg-annotate` skill  | AI annotation workflow                |
 | "Manage multiple service codebases"        | `ccg-namespace` skill | MSA namespace isolation               |
 
 For an unfamiliar MCP task, call `get_minimal_context` once, then confirm the
 selected namespace with `list_graph_stats`. For broad module questions, use
-`search_docs` and `get_doc_content`; switch to `query_graph`, `get_node`, or
+`find_by_intent` and `get_doc_content`; switch to `query_graph`, `get_node`, or
 `trace_flow` when the answer needs exact symbols or relationships.
 
 Do not rebuild the graph or regenerate docs merely to start a read-only query.
@@ -109,6 +111,59 @@ query word must appear in the same node, so a long sentence usually returns
 nothing — common English function words (`the`, `how`, `what`, …) are stripped
 first, but a short, rare query is still the reliable form.
 
+## Finding an Entry Point by Intent
+
+Use MCP `find_by_intent` when you are looking at an incident or unfamiliar code
+and cannot name the symbol yet. Ask the question in plain words:
+
+```text
+find_by_intent(question: "why do we verify the signature on a push")
+```
+
+It is scored **only** against the reasons authors recorded — `@intent` and
+`@domainRule` — never against names or paths. A declaration whose name happens
+to contain one of your words does not come back. That is the point: it answers
+"why does this exist", which a name cannot.
+
+The answer is `files[] {file_path, entries[]}`, and every entry carries a
+`node_id`. Hand that ID straight to `get_node`, `query_graph`,
+`get_impact_radius`, or `trace_flow` — the tool exists to start a graph walk,
+not to finish the investigation.
+
+There is no fallback to name search. An empty answer means no recorded reason
+matched, and `coverage` says how many of the searchable declarations have a
+recorded reason at all, so you can tell that apart from code nobody annotated.
+When coverage is low, `ccg annotate <file|dir>` on the area under investigation
+is what makes the tool answer.
+
+Use `search` instead when you already know the identifier.
+
+## Reading a Path You Already Have
+
+`search` and `find_by_intent` rank; they can be wrong about what matters.
+`describe` does not rank, so it cannot be. Once either tool hands back a path —
+or a stack frame or a diff does — read it with `describe`:
+
+```text
+describe(target: "internal/app/search")        # folders and files one level down
+describe(target: "internal/app/search/intent/intent.go")  # every declaration in it
+```
+
+A folder answer collapses to its immediate children, each with how many files
+and declarations sit under it, so you descend one step at a time. A file answer
+lists every declaration in written order with its line range, its `node_id`, and
+its recorded `@intent`. There is no limit and no relevance: what comes back is
+what is stored.
+
+A target the graph does not hold comes back as `scope: "unknown"` with the
+places that name is actually declared, plus the calls that find it — not as an
+error and not as an empty result you have to interpret.
+
+`describe` replaced the `children_of` and `file_summary` patterns of
+`query_graph`. Both only ever reported a file's own declarations: the graph
+records a contains edge from a file to each declaration in it and nowhere else,
+so `children_of` on a type always came back empty.
+
 ## Graph Freshness
 
 1. Inspect namespace population with `ccg status` or MCP `list_graph_stats`;
@@ -130,6 +185,8 @@ first, but a short, rare query is still the reliable form.
 | `build_or_update_graph` | Build or incrementally synchronize through MCP        |
 | `run_postprocess`       | Refresh stored flows and/or FTS without reparsing      |
 | `search`                | Annotation-aware full-text candidate search           |
+| `find_by_intent`        | Ask in plain language why something exists, when no symbol is known yet |
+| `describe`              | List what a folder or file holds, once you have the path |
 | `query_graph`           | Structured queries (callers/callees/imports)          |
 | `get_node`              | Lookup by qualified name                              |
 

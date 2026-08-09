@@ -189,10 +189,11 @@ func refreshSearchDocuments(ctx context.Context, db *gorm.DB, nodeIDs []uint, sc
 				docs := make([]graph.SearchDocument, 0, len(batchNodes))
 				for _, n := range batchNodes {
 					docs = append(docs, graph.SearchDocument{
-						Namespace: n.Namespace,
-						NodeID:    n.ID,
-						Content:   document.BuildContent(n, annByNode),
-						Language:  n.Language,
+						Namespace:     n.Namespace,
+						NodeID:        n.ID,
+						Content:       document.BuildContent(n, annByNode),
+						IntentContent: document.BuildIntentContent(n, annByNode),
+						Language:      n.Language,
 					})
 				}
 				if len(docs) > 0 {

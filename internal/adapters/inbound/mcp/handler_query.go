@@ -168,7 +168,7 @@ type nextAction struct {
 // newSearchResponse converts an evidence list into the wire payload.
 // @requires withNamespace is true only for federated searches, where a caller needs to know which repository a hit came from.
 // @requires query, limit and offset are the ones this list was built with, so the suggested calls repeat the caller's own request.
-// @ensures Next is empty exactly when nothing was held back.
+// @ensures Next is empty exactly when the answer is both complete and non-empty.
 // @intent keep one conversion so single-namespace and federated search cannot drift apart.
 func newSearchResponse(list evidence.List, query string, limit, offset int, withNamespace bool) searchResponse {
 	files := make([]searchFileGroup, len(list.Files))
@@ -201,11 +201,24 @@ func newSearchResponse(list evidence.List, query string, limit, offset int, with
 	}
 }
 
-// nextActions writes one call per thing this answer withheld.
+// nextActions writes one call per thing this answer withheld, plus the one
+// call that helps when the answer withheld nothing because it found nothing.
 // @ensures every returned action names a tool this server registers, with arguments that need no editing.
 // @intent make the follow-up call obvious enough that an agent does not have to invent one.
 func nextActions(list evidence.List, query string, limit, offset int) []nextAction {
-	actions := make([]nextAction, 0, 2)
+	actions := make([]nextAction, 0, 3)
+	// Full-text search needs every term inside one document, so a question
+	// written as a sentence usually matches nothing here. find_by_intent takes
+	// that shape of input on purpose and scores it against recorded reasons
+	// rather than against the identifier text that just failed, so it is the
+	// only hand-off that can answer where this one could not.
+	if len(list.Files) == 0 {
+		actions = append(actions, nextAction{
+			Reason: "no indexed node contained every term; find_by_intent reads a sentence as a question and matches it against recorded @intent/@domainRule instead of names",
+			Tool:   "find_by_intent",
+			Args:   map[string]any{"question": query},
+		})
+	}
 	if list.OverflowFiles > 0 {
 		actions = append(actions, nextAction{
 			Reason: fmt.Sprintf("%d more files answered this query and are not on this page", list.OverflowFiles),
@@ -229,14 +242,6 @@ type federatedNamespaceEntry struct {
 	Namespace string          `json:"namespace"`
 	Response  json.RawMessage `json:"response,omitempty"`
 	Error     string          `json:"error,omitempty"`
-}
-
-// fileSummaryResponse is the typed wire payload for file_summary queryGraph requests.
-// @intent preserve a stable response envelope for file-summary graph queries.
-type fileSummaryResponse struct {
-	Pattern string                `json:"pattern"`
-	Target  string                `json:"target"`
-	Results *querypkg.FileSummary `json:"results"`
 }
 
 // nodeResponse is the typed wire payload for getNode.
@@ -567,10 +572,12 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 	// Validate pattern against the allowlisted query set.
 	validPatterns := map[string]bool{
 		"callers_of": true, "callees_of": true, "imports_of": true,
-		"importers_of": true, "children_of": true, "tests_for": true,
-		"inheritors_of": true, "file_summary": true,
+		"importers_of": true, "tests_for": true, "inheritors_of": true,
 	}
 	if !validPatterns[pattern] {
+		if replacement, moved := describeReplacedPatterns[pattern]; moved {
+			return mcp.NewToolResultError(fmt.Sprintf("%q was replaced by the describe tool: %s", pattern, replacement)), nil
+		}
 		return mcp.NewToolResultError(fmt.Sprintf("unknown pattern: %q", pattern)), nil
 	}
 
@@ -630,23 +637,7 @@ func (h *handlers) queryGraphFederated(ctx context.Context, pattern, target stri
 // queryGraphInNamespace runs one predefined graph query inside the context namespace.
 // @intent share one traversal implementation between single-namespace and federated query_graph calls.
 func (h *handlers) queryGraphInNamespace(ctx context.Context, pattern, target string, limit, offset int, includeFallbackCalls bool) (string, error) {
-	// file_summary does not require node lookup.
-	if pattern == "file_summary" {
-		if h.deps.Graph.Query == nil {
-			return "", newToolResultErr("QueryService not configured")
-		}
-		summary, err := h.deps.Graph.Query.FileSummaryOf(ctx, target)
-		if err != nil {
-			return "", newToolResultErr(fmt.Sprintf("file summary error: %v", err))
-		}
-		result, err := marshalJSON(fileSummaryResponse{Pattern: pattern, Target: target, Results: summary})
-		if err != nil {
-			return "", trace.Wrap(err, "marshal result")
-		}
-		return result, nil
-	}
-
-	// The remaining patterns resolve the target node first.
+	// Every remaining pattern walks an edge, so each resolves the target node first.
 	node, err := h.deps.Graph.Store.GetNode(ctx, target)
 	if err != nil {
 		return "", trace.Wrap(err, "store error")
@@ -703,10 +694,6 @@ func (h *handlers) queryGraphInNamespace(ctx context.Context, pattern, target st
 		totalCount = page.TotalCount
 	case "importers_of":
 		page, err = h.deps.Graph.Query.ImportersOfPage(ctx, node.ID, queryOpts)
-		nodes = page.Nodes
-		totalCount = page.TotalCount
-	case "children_of":
-		page, err = h.deps.Graph.Query.ChildrenOfPage(ctx, node.ID, queryOpts)
 		nodes = page.Nodes
 		totalCount = page.TotalCount
 	case "tests_for":

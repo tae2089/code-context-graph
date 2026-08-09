@@ -1,18 +1,15 @@
-// @index MCP handlers for DB-backed documentation search and safe generated-document reads.
+// @index MCP handler for safe generated-document reads.
 package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/tae2089/trace"
 
-	"github.com/tae2089/code-context-graph/internal/app/wiki"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 )
 
@@ -79,109 +76,6 @@ func (h *handlers) getDocContent(ctx context.Context, request mcp.CallToolReques
 		}
 		return string(content), nil
 	}))
-}
-
-// searchDocs searches DB-backed documentation candidates by keyword.
-// @intent Narrows broad documentation questions to relevant generated files using graph and annotation evidence.
-// @param request query is the required search term, and limit is the maximum number of results.
-// @requires query must not consist only of whitespace.
-// @ensures Returns an array of search results including breadcrumbs on success.
-func (h *handlers) searchDocs(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	query, err := request.RequireString("query")
-	if err != nil {
-		return missingParamResult(err)
-	}
-	if strings.TrimSpace(query) == "" {
-		return mcp.NewToolResultError("query must not be empty"), nil
-	}
-	limit := int(request.GetFloat("limit", 10))
-	if limit <= 0 {
-		limit = 10
-	}
-	if limit > maxPaginationLimit {
-		return finalizeToolResult("", newToolResultErr(fmt.Sprintf("limit must be <= %d, got %d", maxPaginationLimit, limit)))
-	}
-	namespace := resolveNamespace(ctx, requestNamespace(request))
-	ctx = requestctx.WithNamespace(ctx, namespace)
-	if h.deps.Docs.Retrieval == nil {
-		return mcp.NewToolResultError("DB is not configured"), nil
-	}
-
-	if namespaces := requestNamespaces(request); len(namespaces) > 0 {
-		return h.searchDocsFederated(ctx, query, limit, namespaces)
-	}
-
-	return finalizeToolResult(h.cachedExecute(ctx, "search_docs:db:", map[string]any{"query": query, "limit": limit, "namespace": namespace}, func() (string, error) {
-		results, err := h.searchDocsFromDB(ctx, namespace, query, limit)
-		if err != nil {
-			return "", newToolResultErr(err.Error())
-		}
-		b, _ := json.Marshal(results)
-		return string(b), nil
-	}))
-}
-
-// federatedDocsEntry labels one namespace's documentation candidates in a federated response.
-// @intent keep doc candidates attributable to their source repository.
-type federatedDocsEntry struct {
-	Namespace string              `json:"namespace"`
-	Results   []wiki.SearchResult `json:"results"`
-}
-
-// searchDocsFederated searches documentation candidates across several namespaces.
-// @intent let one docs query cover multiple repositories with per-namespace grouping.
-func (h *handlers) searchDocsFederated(ctx context.Context, query string, limit int, namespaces []string) (*mcp.CallToolResult, error) {
-	return finalizeToolResult(h.cachedExecute(ctx, "search_docs:db:", map[string]any{"query": query, "limit": limit, "namespaces": namespaces}, func() (string, error) {
-		entries := make([]federatedDocsEntry, 0, len(namespaces))
-		for _, ns := range namespaces {
-			nsCtx := requestctx.WithNamespace(ctx, ns)
-			results, err := h.searchDocsFromDB(nsCtx, ns, query, limit)
-			if err != nil {
-				return "", newToolResultErr(err.Error())
-			}
-			entries = append(entries, federatedDocsEntry{Namespace: ns, Results: results})
-		}
-		b, err := json.Marshal(map[string]any{"namespaces": entries})
-		if err != nil {
-			return "", trace.Wrap(err, "marshal result")
-		}
-		return string(b), nil
-	}))
-}
-
-// @intent search persisted graph nodes directly from DB and search backend.
-// @requires ctx must carry the selected namespace for SearchBackend.Query.
-// @ensures returns SearchResult-compatible JSON items without requiring generated index files.
-// @sideEffect queries the search backend and may scan graph annotations as a fallback.
-func (h *handlers) searchDocsFromDB(ctx context.Context, namespace, query string, limit int) ([]wiki.SearchResult, error) {
-	if h.deps.Docs.Retrieval == nil {
-		return nil, fmt.Errorf("DB not configured")
-	}
-	if limit <= 0 {
-		return []wiki.SearchResult{}, nil
-	}
-	retrieved, err := h.deps.Docs.Retrieval.FromDB(ctx, namespace, query, limit, 0, nil)
-	if err != nil {
-		return nil, err
-	}
-	results := make([]wiki.SearchResult, 0, min(limit, len(retrieved.Results)))
-	for _, result := range retrieved.Results {
-		if len(results) >= limit {
-			break
-		}
-		results = append(results, wiki.SearchResult{
-			ID:      result.ID,
-			Label:   result.Label,
-			Kind:    result.Kind,
-			Summary: result.Summary,
-			DocPath: result.DocPath,
-			Path:    result.Path,
-		})
-	}
-	if results == nil {
-		results = []wiki.SearchResult{}
-	}
-	return results, nil
 }
 
 // @intent normalize a docs/index root to an absolute, symlink-evaluated path before path checks.

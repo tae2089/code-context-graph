@@ -51,6 +51,41 @@ func BuildContent(node graph.Node, annotations map[uint]*graph.Annotation) strin
 	return builder.String()
 }
 
+// BuildIntentContent assembles the text indexed for one node's recorded reason.
+//
+// This is deliberately not BuildContent with a filter. BuildContent answers "what
+// is this called", so it mixes the identifier, its split subtokens, and the path
+// into the same text as the annotation prose. A question like "why do we verify
+// the webhook signature" then competes against every node whose *name* happens to
+// contain a query word. Keeping the reason in its own index is what lets that
+// question be scored on the reason alone.
+//
+// Only @intent and @domainRule are taken. Both answer why the code exists; the
+// remaining tags describe what it does or what it takes, which is the name
+// index's job.
+// @intent index the reason a node exists separately from what the node is called.
+func BuildIntentContent(node graph.Node, annotations map[uint]*graph.Annotation) string {
+	annotation := annotations[node.ID]
+	if annotation == nil {
+		return ""
+	}
+	var builder strings.Builder
+	for _, tag := range annotation.Tags {
+		if tag.Kind != graph.TagIntent && tag.Kind != graph.TagDomainRule {
+			continue
+		}
+		value := strings.TrimSpace(tag.Value)
+		if value == "" {
+			continue
+		}
+		if builder.Len() > 0 {
+			builder.WriteByte(' ')
+		}
+		builder.WriteString(value)
+	}
+	return builder.String()
+}
+
 // identifierSubtokens returns deduplicated camelCase/separator tokens from node identities.
 // @intent improve inner-word recall without inflating term frequency for repeated identity tokens.
 func identifierSubtokens(name, qualifiedName string) []string {

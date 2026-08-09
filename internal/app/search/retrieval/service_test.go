@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"github.com/tae2089/code-context-graph/internal/adapters/outbound/searchsql"
+	"github.com/tae2089/code-context-graph/internal/app/search/intentrank"
 	"github.com/tae2089/code-context-graph/internal/app/search/retrieval"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
@@ -31,6 +32,9 @@ func (s *stubSearchBackend) Query(_ context.Context, _ *gorm.DB, _ string, limit
 	s.calls++
 	s.limit = limit
 	return s.nodes, s.err
+}
+func (s *stubSearchBackend) MatchIntent(_ context.Context, _ *gorm.DB, _ string, _ int) ([]intentrank.Doc, error) {
+	return nil, nil
 }
 
 func newRetrievalService(db *gorm.DB, backend searchsql.Backend) *retrieval.Service {
@@ -146,6 +150,62 @@ func TestServiceFromDB_scanFallbackSkipsPackageNodes(t *testing.T) {
 	}
 	if response.Results[0].DocPath == "docs/internal/mcp.md" {
 		t.Fatalf("package path should not be converted into fake doc path")
+	}
+}
+
+// The scan keeps any node that matched one term, so a query naming three things
+// that do not exist and one word that appears in someone's prose used to come
+// back full of files answering only that word. A caller cannot tell that page
+// from a real answer, so "nothing here" has to be sayable.
+func TestServiceFromDB_saysNothingWhenMostOfTheQueryNamesNothing(t *testing.T) {
+	db := newRetrievalDB(t)
+	node := createNode(t, db, graph.Node{Namespace: "default", QualifiedName: "pkg.Handler", Kind: graph.NodeKindFunction, Name: "Handler", FilePath: "pkg/handler.go", StartLine: 1, EndLine: 2, Language: "go"})
+	createAnnotation(t, db, node.ID, "reads the symbol table")
+	service := newRetrievalService(db, nil)
+
+	response, err := service.FromDB(context.Background(), "default", "zzz nonexistent symbol qqq", 5, 0, nil)
+	if err != nil {
+		t.Fatalf("FromDB returned error: %v", err)
+	}
+	if len(response.Results) != 0 {
+		t.Fatalf("three of four words name nothing and the fourth is only prose, yet the scan answered: %+v", response.Results)
+	}
+}
+
+// A word that appears in a file path is pointing at a file, and files are what
+// this tool returns. `why is the queue draining slowly` has two words this
+// codebase never spells, but `queue` is in a path, so the question has a place
+// to land and must be answered.
+func TestServiceFromDB_answersWhenTheSurvivingWordNamesAPath(t *testing.T) {
+	db := newRetrievalDB(t)
+	node := createNode(t, db, graph.Node{Namespace: "default", QualifiedName: "reposync.SyncQueue", Kind: graph.NodeKindFunction, Name: "SyncQueue", FilePath: "internal/reposync/queue.go", StartLine: 1, EndLine: 2, Language: "go"})
+	createAnnotation(t, db, node.ID, "holds pending repository work")
+	service := newRetrievalService(db, nil)
+
+	response, err := service.FromDB(context.Background(), "default", "why is the queue draining slowly", 5, 0, nil)
+	if err != nil {
+		t.Fatalf("FromDB returned error: %v", err)
+	}
+	if len(response.Results) != 1 || response.Results[0].ID != "file:internal/reposync/queue.go" {
+		t.Fatalf("a real question lost its answer because its prose words are not identifiers: %+v", response.Results)
+	}
+}
+
+// One dead word is normal. A question asks in prose, and prose uses words no
+// identifier spells. The rule has to fire on a query that is mostly nothing, not
+// on any query carrying a word the codebase happens not to use.
+func TestServiceFromDB_stillAnswersWhenOneWordOfThreeNamesNothing(t *testing.T) {
+	db := newRetrievalDB(t)
+	node := createNode(t, db, graph.Node{Namespace: "default", QualifiedName: "pkg.Payment", Kind: graph.NodeKindFunction, Name: "Payment", FilePath: "pkg/payment.go", StartLine: 1, EndLine: 2, Language: "go"})
+	createAnnotation(t, db, node.ID, "handles billing")
+	service := newRetrievalService(db, nil)
+
+	response, err := service.FromDB(context.Background(), "default", "payment billing zzz", 5, 0, nil)
+	if err != nil {
+		t.Fatalf("FromDB returned error: %v", err)
+	}
+	if len(response.Results) != 1 || response.Results[0].ID != "file:pkg/payment.go" {
+		t.Fatalf("a query with one unused word lost its answer: %+v", response.Results)
 	}
 }
 

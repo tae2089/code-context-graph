@@ -225,32 +225,3 @@ func TestQueryGraph_FederatesAcrossNamespaces(t *testing.T) {
 		t.Fatalf("beta should report a per-namespace error for missing file, got %+v", payload)
 	}
 }
-
-func TestSearchDocs_FederatesAcrossNamespaces(t *testing.T) {
-	deps := setupTestDeps(t)
-	seedFederatedNamespaces(t, deps)
-
-	result := callTool(t, deps, "search_docs", map[string]any{
-		"query":      "Payment",
-		"namespaces": []string{"alpha", "beta"},
-	})
-	var payload struct {
-		Namespaces []struct {
-			Namespace string `json:"namespace"`
-			Results   []struct {
-				Label string `json:"label"`
-			} `json:"results"`
-		} `json:"namespaces"`
-	}
-	if err := json.Unmarshal([]byte(resultTextOf(t, result)), &payload); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(payload.Namespaces) != 2 {
-		t.Fatalf("docs groups = %d, want 2", len(payload.Namespaces))
-	}
-	for _, group := range payload.Namespaces {
-		if len(group.Results) == 0 {
-			t.Fatalf("namespace %q returned no doc candidates", group.Namespace)
-		}
-	}
-}

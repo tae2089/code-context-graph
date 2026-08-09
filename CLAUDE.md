@@ -5,14 +5,15 @@
 Follow the global prompt rules first. This file adds project-specific skill routing for a project that uses the `agent-team` CLI (github.com/tae2089/agent-team) as its durable work ledger.
 
 ## MCP 서버
-`.mcp.json`에 등록된 ccg MCP 서버가 18개 도구를 제공합니다:
+
+`.mcp.json`에 등록된 ccg MCP 서버가 19개 도구를 제공합니다:
 
 - `parse_project`, `build_or_update_graph`, `run_postprocess`
-- `get_node`, `search`, `query_graph`, `list_graph_stats`, `list_namespaces`, `get_minimal_context`
+- `get_node`, `search`, `find_by_intent`, `describe`, `query_graph`, `list_graph_stats`, `list_namespaces`, `get_minimal_context`
 - `get_impact_radius`, `trace_flow`, `list_cross_refs`
 - `detect_changes`, `get_affected_flows`, `list_flows`
 - `get_annotation`
-- `get_doc_content`, `search_docs`
+- `get_doc_content`
 
 HTTP 모드 (`--transport streamable-http`)에서는 `/health` 및 `/webhook` 엔드포인트도 제공합니다.
 Webhook은 `--allow-repo` 플래그로 허용 리포지토리를 설정하면 활성화됩니다.
@@ -45,7 +46,7 @@ Graceful shutdown: SIGINT/SIGTERM 시 진행 중인 clone/build에 context cance
 상세 문서는 `guide/` 디렉토리를 참조하세요:
 
 - [CLI Reference](guide/cli-reference.md) — 전체 명령어, 플래그, 설정 파일
-- [MCP Tools](guide/mcp-tools.md) — 18개 MCP 도구, Skills, AI-Driven Annotation
+- [MCP Tools](guide/mcp-tools.md) — 19개 MCP 도구, Skills, AI-Driven Annotation
 - [Annotations](guide/annotations.md) — 어노테이션 태그, 예시, 검색
 - [Webhook](guide/webhook.md) — Webhook sync, 브랜치 필터링, HMAC, graceful shutdown
 - [Docker](guide/docker.md) — Docker 빌드, MCP 서버, PostgreSQL 배포
@@ -72,12 +73,3 @@ Graceful shutdown: SIGINT/SIGTERM 시 진행 중인 clone/build에 context cance
 - For multi-step or multi-agent work, use `decompose-and-dispatch` to split the work into bounded units. Use `execute-dispatch-unit` only for a clearly assigned unit with scope, dependencies, and verification.
 - When preparing context for human or AI code review, use `ready-code-review`; do not use it to perform the review itself.
 - To record a session, distill completed work into a replayable recipe, or replay a `recipe.yaml`, use `session-recipe`.
-
-## agent-team Routing
-
-agent-team bundles its own skills; restrict them as follows so methodology stays single-sourced:
-
-- Use only agent-team's CLI operation skills (the `agent-team-*` prefix: run/task/message/inbox/sync/event commands), and load `agent-team-shared` before any command-specific one — it defines the state directory, global flags, and error handling they all assume. Never use its `recipe-*` and `persona-*` skills — the skills routed above own all methodology, even where an excluded skill looks like a closer match (worker checkpoints → `execute-dispatch-unit`'s Ledger Checkpoints; plan sharpening / `recipe-agent-team-planning-grill` → `planning-grill`; decomposition → `decompose-and-dispatch`; architecture → `codebase-design`; terminology → `domain-modeling`).
-- When executing an assigned unit, follow `execute-dispatch-unit` for scope, verification, and reporting; its Ledger Checkpoints section defines which `agent-team-*` calls to make.
-- When planning, `decompose-and-dispatch` owns decomposition and executor mapping, and its Durable Ledger section defines the run/task registration calls.
-- Do not route by the word "recipe": here it means a replayable session recipe (`session-recipe`, `recipe.yaml`); agent-team's `recipe-*` skills are excluded above.

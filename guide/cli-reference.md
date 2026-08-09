@@ -65,7 +65,7 @@ CCG has two search surfaces with different jobs:
 
 | Use case | Preferred entrypoint |
 |----------|----------------------|
-| Natural-language code understanding and module exploration | `ccg docs`, then MCP `search_docs`, `get_doc_content` |
+| Natural-language code understanding and module exploration | MCP `find_by_intent`, then `ccg docs` and `get_doc_content` |
 | Exact symbol lookup, callers/callees, imports, bounded graph traversal | MCP `get_node`, `query_graph`, `get_minimal_context` |
 | Impact analysis, flow tracing | MCP analysis tools such as `get_impact_radius`, `trace_flow` |
 | Focused annotation/keyword candidate search | `ccg search` or MCP `search` |
@@ -90,10 +90,10 @@ normal tree payloads.
 The browser Wiki also provides a Graph tab backed by `/wiki/api/graph`; it reads
 the namespace's graph nodes and edges directly from the configured database and
 opens clicked file/symbol nodes through the same document viewer.
-Then use MCP `search_docs` to find relevant docs and `get_doc_content` to read
-one directly. `ccg search` remains useful for quick
-keyword or annotation matches over symbols, but it should not be treated as the
-primary answering surface for broad natural-language questions.
+Then use MCP `find_by_intent` for a plain-language question and
+`get_doc_content` to read a generated doc directly. `ccg search` remains useful
+for quick keyword or annotation matches over symbols, but it should not be
+treated as the primary answering surface for broad natural-language questions.
 
 ### Database Choice
 
@@ -226,6 +226,10 @@ exclude:
 ### Regex Patterns
 
 The `exclude` and `rules` pattern fields support regular expressions. Patterns containing `$`, `^`, `+`, `{}`, `|`, `\.`, `.*` are automatically detected as regex:
+
+> **A regex pattern matches anywhere in the path.** This is the one place where the regex form and the path-prefix form differ: `docs/` excludes the project root's `docs/` directory, while `docs/.*` excludes *every* path with a `docs` segment in it — `internal/app/docs/`, `pkg/mydocs/`, all of them. An excluded file produces no node, no error, and no warning, so the only symptom is that questions about that code have no answer.
+>
+> Anchor with `^` to mean the project root (`^docs/.*`), and lead with `.*` to mean any depth (`(^|.*/)testdata/.*`).
 
 ```yaml
 rules:

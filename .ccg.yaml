@@ -11,22 +11,27 @@ output:
   index: true
 
 # exclude: regex 패턴 목록. 파일 경로가 매칭되면 파싱에서 제외된다.
+#
+# 정규식은 경로 어디서든 매칭된다. 프로젝트 루트의 특정 디렉터리를 뜻하려면
+# 반드시 `^`로 고정할 것. `docs/.*`는 `./docs` 출력 디렉터리만 지우려던
+# 패턴이었지만 앵커가 없어서 `internal/app/docs/`까지 지웠고, 제외된 파일은
+# 경고도 오류도 남기지 않아 질문에 답이 없다는 증상으로만 드러났다.
+# 깊이에 상관없이 지우려면 `.*`를 앞에 붙인다 (`.*/testdata/.*`).
 exclude:
   - ".*_test\\.go$"
   - ".*\\.sh$"
-  - "vendor/.*"
-  - "node_modules/.*"
+  - "^vendor/.*"
+  - "(^|.*/)node_modules/.*"
   - ".*\\.pb\\.go$"
-  - "bin/.*"
-  - "docs/.*"
-  - "web/wiki/dist/.*"
+  - "(^|.*/)bin/.*"
+  - "^docs/.*"
+  - "^web/wiki/dist/.*"
   # `make container-artifacts` copies web/wiki/dist into here, so excluding
   # only the source directory still leaves the minified bundle in the graph.
-  - "container-artifacts/.*"
-  - "web/wiki/node_modules/.*"
-  - "testdata/.*"
+  - "^container-artifacts/.*"
+  - "(^|.*/)testdata/.*"
   - ".*\\.gen\\.go$"
-  - "scripts/.*"
+  - "^scripts/.*"
 
 comment_tags:
   standard:
@@ -48,24 +53,24 @@ rules:
   - pattern: ".*\\.sh(::.*)?$"
     category: orphan
     action: ignore
-  - pattern: "archive/.*"
+  - pattern: "^archive/.*"
     category: orphan
     action: ignore
-  - pattern: "docs/.*"
+  - pattern: "^docs/.*"
     category: orphan
     action: ignore
-  - pattern: "web/wiki/dist/.*"
+  - pattern: "^web/wiki/dist/.*"
     category: orphan
     action: ignore
-  - pattern: "testdata/.*"
+  - pattern: "(^|.*/)testdata/.*"
     category: orphan
     action: ignore
-  - pattern: npm/.*
+  - pattern: "^npm/.*"
     category: orphan
     action: ignore
-  - pattern: "cmd/.*"
+  - pattern: "^cmd/.*"
     category: missing
     action: ignore
-  - pattern: "cmd/.*"
+  - pattern: "^cmd/.*"
     category: unannotated
     action: ignore

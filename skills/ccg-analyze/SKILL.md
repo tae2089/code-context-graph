@@ -32,8 +32,11 @@ Graph-based analysis for **change impact, call flow, and recent-change risk**.
 
 ## Pipeline Analysis Workflow
 
-1. **Candidate discovery**: use `search_docs` for a broad module question or
-   `search` for focused symbol and annotation candidates. A `search` hit carries
+1. **Candidate discovery**: use `find_by_intent` when you cannot name the symbol
+   yet and need somewhere to start — it answers a plain-language question from
+   recorded `@intent`/`@domainRule` only, and every entry carries a `node_id` to
+   walk from. Use `search` for focused symbol and annotation candidates once
+   you can name what you are after. A `search` hit carries
    its own evidence — the `matched` signals and the node's `@intent` — so pick
    entry points from that rather than from position in the list; a short list
    means few justifiable files, and `weak_filtered` counts what was cut. Hits
@@ -45,9 +48,9 @@ Graph-based analysis for **change impact, call flow, and recent-change risk**.
 2. **Symbol identity**: confirm each entry point or major stage with `get_node`;
    continue with qualified names rather than display labels.
 3. **Relationship and structure evidence**: use `query_graph` with
-   `callers_of`/`callees_of` for direct call relations, `children_of` for
-   ownership, and `file_summary` for file composition. This evidence does not
-   prove runtime order.
+   `callers_of`/`callees_of` for direct call relations, and `describe` on a file
+   or folder path for what is written there. This evidence does not prove
+   runtime order.
 4. **Call-chain evidence**: use `trace_flow` from a verified entry point and
    inspect truncation plus fallback-edge metadata. Treat the result as a bounded
    static chain, not a runtime trace.

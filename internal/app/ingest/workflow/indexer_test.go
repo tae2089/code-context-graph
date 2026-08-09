@@ -41,6 +41,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/app/ingest"
 	"github.com/tae2089/code-context-graph/internal/app/ingest/incremental"
 	"github.com/tae2089/code-context-graph/internal/app/ingest/resolve"
+	"github.com/tae2089/code-context-graph/internal/app/search/intentrank"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
@@ -486,6 +487,9 @@ func (s *scopedSearchBackendSpy) RebuildNodes(ctx context.Context, db *gorm.DB, 
 }
 func (s *scopedSearchBackendSpy) PurgeNamespace(ctx context.Context, db *gorm.DB) error { return nil }
 func (s *scopedSearchBackendSpy) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]graph.Node, error) {
+	return nil, nil
+}
+func (s *scopedSearchBackendSpy) MatchIntent(ctx context.Context, db *gorm.DB, query string, maxCandidates int) ([]intentrank.Doc, error) {
 	return nil, nil
 }
 
@@ -4458,6 +4462,9 @@ func (f *failSearchBackend) PurgeNamespace(ctx context.Context, db *gorm.DB) err
 }
 func (f *failSearchBackend) Migrate(db *gorm.DB) error { return nil }
 func (f *failSearchBackend) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]graph.Node, error) {
+	return nil, nil
+}
+func (f *failSearchBackend) MatchIntent(ctx context.Context, db *gorm.DB, query string, maxCandidates int) ([]intentrank.Doc, error) {
 	return nil, nil
 }
 

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/tae2089/code-context-graph/internal/adapters/outbound/graphgorm"
+	"github.com/tae2089/code-context-graph/internal/app/search/intentrank"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"gorm.io/gorm"
 
@@ -1833,23 +1834,20 @@ func TestQueryGraph_ImportersOf(t *testing.T) {
 	}
 }
 
-func TestQueryGraph_ChildrenOf(t *testing.T) {
-	deps := setupTestDeps(t)
-	ctx := context.Background()
+func TestQueryGraph_PointsMovedPatternsAtDescribeRatherThanCallingThemUnknown(t *testing.T) {
+	for _, pattern := range []string{"children_of", "file_summary"} {
+		t.Run(pattern, func(t *testing.T) {
+			deps := setupTestDeps(t)
 
-	mockQ := &mockQueryService{result: []graph.Node{}}
-	deps.Graph.Query = mockQ
-
-	testGraphStoreFor(deps).UpsertNodes(ctx, []graph.Node{
-		{QualifiedName: "pkg.Class", Kind: graph.NodeKindClass, Name: "Class", FilePath: "class.go", StartLine: 1, EndLine: 50, Language: "go"},
-	})
-
-	result := callTool(t, deps, "query_graph", map[string]any{"pattern": "children_of", "target": "pkg.Class"})
-	if result.IsError {
-		t.Fatalf("query_graph error: %s", getTextContent(result))
-	}
-	if !mockQ.childrenOfPageCalled {
-		t.Error("expected ChildrenOfPage to be called")
+			result := callTool(t, deps, "query_graph", map[string]any{"pattern": pattern, "target": "path/file.go"})
+			if !result.IsError {
+				t.Fatalf("expected %q to be rejected, got: %s", pattern, getTextContent(result))
+			}
+			text := getTextContent(result)
+			if !strings.Contains(text, "describe") {
+				t.Errorf("expected the caller to be sent to describe, got: %s", text)
+			}
+		})
 	}
 }
 
@@ -1890,34 +1888,6 @@ func TestQueryGraph_InheritorsOf(t *testing.T) {
 	}
 	if !mockQ.inheritorsOfPageCalled {
 		t.Error("expected InheritorsOfPage to be called")
-	}
-}
-
-func TestQueryGraph_FileSummary(t *testing.T) {
-	deps := setupTestDeps(t)
-
-	mockQ := &mockQueryService{
-		fileSummaryResult: &query.FileSummary{
-			FilePath: "path/file.go", Functions: 3, Classes: 1, Total: 4,
-		},
-	}
-	deps.Graph.Query = mockQ
-
-	result := callTool(t, deps, "query_graph", map[string]any{"pattern": "file_summary", "target": "path/file.go"})
-	if result.IsError {
-		t.Fatalf("query_graph error: %s", getTextContent(result))
-	}
-	if !mockQ.fileSummaryCalled {
-		t.Error("expected FileSummaryOf to be called")
-	}
-
-	text := getTextContent(result)
-	var resp map[string]any
-	if err := json.Unmarshal([]byte(text), &resp); err != nil {
-		t.Fatalf("expected JSON, got: %s", text)
-	}
-	if resp["pattern"] != "file_summary" {
-		t.Errorf("expected pattern=file_summary, got %v", resp["pattern"])
 	}
 }
 
@@ -2505,6 +2475,10 @@ func (f *failSearchBackend) Query(ctx context.Context, db *gorm.DB, query string
 	return nil, nil
 }
 
+func (f *failSearchBackend) MatchIntent(ctx context.Context, db *gorm.DB, query string, maxCandidates int) ([]intentrank.Doc, error) {
+	return nil, nil
+}
+
 func TestRunPostprocess_DegradedOnSearchFailure(t *testing.T) {
 	deps := setupTestDeps(t)
 	setTestSearchBackend(deps, &failSearchBackend{err: errors.New("fts rebuild boom")})
@@ -2997,6 +2971,44 @@ func TestHandler_Search_PointsAtTheArgumentThatShowsWeakCandidates(t *testing.T)
 	}
 	if !found {
 		t.Errorf("weak_filtered = %d but nothing told the caller how to see them: %+v", payload.WeakFiltered, payload.Next)
+	}
+}
+
+// An empty answer is the one place a caller most needs somewhere else to go.
+// `search` needs every term in the same document, so a question phrased as a
+// sentence usually comes back with nothing. `find_by_intent` takes exactly that
+// shape of input and scores it against recorded reasons instead of names, so it
+// is the hand-off — and unlike the old one it never re-scores the question
+// against the same identifier text that just failed.
+func TestHandler_Search_HandsAnEmptyAnswerToFindByIntent(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+
+	testGraphStoreFor(deps).UpsertNodes(ctx, []graph.Node{
+		{QualifiedName: "auth.Login", Kind: graph.NodeKindFunction, Name: "Login", FilePath: "internal/auth/login.go", StartLine: 1, EndLine: 10, Language: "go"},
+	})
+	node, _ := testGraphStoreFor(deps).GetNode(ctx, "auth.Login")
+	testDBFor(deps).Create(&graph.SearchDocument{NodeID: node.ID, Content: "login a caller", Language: "go"})
+	testSearchBackendFor(deps).Rebuild(ctx, testDBFor(deps))
+
+	const query = "how does a caller sign in"
+	payload := decodeSearchPayload(t, getTextContent(
+		callTool(t, deps, "search", map[string]any{"query": query})))
+	if len(payload.Files) != 0 {
+		t.Fatalf("the query was meant to match nothing, got %d files", len(payload.Files))
+	}
+
+	var found bool
+	for _, n := range payload.Next {
+		if n.Tool == "find_by_intent" && n.Args["question"] == query {
+			found = true
+			if n.Reason == "" {
+				t.Error("a suggested call came with no reason")
+			}
+		}
+	}
+	if !found {
+		t.Errorf("an empty answer left the caller with nowhere to go: %+v", payload.Next)
 	}
 }
 

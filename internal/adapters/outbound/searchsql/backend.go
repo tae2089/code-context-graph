@@ -8,6 +8,7 @@ import (
 
 	"github.com/tae2089/trace"
 
+	"github.com/tae2089/code-context-graph/internal/app/search/intentrank"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
@@ -36,4 +37,27 @@ type Backend interface {
 	// @param limit is the maximum number of results to return.
 	// @return returns nodes ordered by relevance.
 	Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]graph.Node, error)
+	// MatchIntent finds every recorded reason a question could be answered from,
+	// in no particular order, and hands back the exact text that was indexed for
+	// each one.
+	//
+	// Ordering is deliberately not the backend's job. SQLite would order by
+	// bm25 and PostgreSQL by ts_rank, which never learns that a word is common,
+	// so the same question ranks differently on the database that was measured
+	// and the database that is deployed. Both backends retrieve here and
+	// intentrank scores, so there is one answer to be judged by.
+	// @intent find every candidate reason and leave the ranking to shared scoring.
+	// @param query is a natural-language question, not an identifier.
+	// @param maxCandidates caps how many candidates come back, guarding memory rather than shaping the answer.
+	// @return returns unordered candidates, and nothing when no recorded reason matches.
+	MatchIntent(ctx context.Context, db *gorm.DB, query string, maxCandidates int) ([]intentrank.Doc, error)
 }
+
+// maxIntentCandidates caps one question's candidate set.
+//
+// It is a runaway guard, not a page size. Scoring needs every document holding
+// any query term, because that set is what makes a word common: cut it short and
+// a term looks rarer than it is, and the ranking silently changes. A corpus
+// where a question can match more than this many reasons would be ranked on a
+// biased sample.
+const maxIntentCandidates = 10000

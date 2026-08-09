@@ -29,7 +29,7 @@ HTTP host, Wiki HTTP, webhook adapter, remote runtime은 링크하지 않습니�
 - `/wiki`, `/wiki/api/*` — 선택적인 CCG 내장 Wiki
 - `/webhook` — 선택적인 GitHub/Gitea repository sync
 
-두 transport 모두 `Runtime.MCPComponents()`를 사용하므로 동일한 18개 tool과
+두 transport 모두 `Runtime.MCPComponents()`를 사용하므로 동일한 19개 tool과
 4개 prompt를 등록합니다.
 
 ## 리소스 소유권

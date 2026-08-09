@@ -342,6 +342,7 @@
   {
     "query": "how does the graph get built",
     "bucket": "question",
+    "out_of_scope": true,
     "retrieved": false,
     "returned": 0,
     "relevant": 1,
@@ -351,6 +352,7 @@
   {
     "query": "what happens when a webhook arrives",
     "bucket": "question",
+    "out_of_scope": true,
     "retrieved": false,
     "returned": 0,
     "relevant": 1,
@@ -360,6 +362,7 @@
   {
     "query": "where do search results get ranked",
     "bucket": "question",
+    "out_of_scope": true,
     "retrieved": false,
     "returned": 0,
     "relevant": 1,
@@ -369,6 +372,7 @@
   {
     "query": "how do i follow a call chain",
     "bucket": "question",
+    "out_of_scope": true,
     "retrieved": false,
     "returned": 0,
     "relevant": 1,
@@ -378,6 +382,7 @@
   {
     "query": "what stops the server accepting new work",
     "bucket": "question",
+    "out_of_scope": true,
     "retrieved": true,
     "returned": 1,
     "relevant": 1,

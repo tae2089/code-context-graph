@@ -139,7 +139,7 @@ retrieve/search probes that match how an LLM or engineer would ask:
 ccg search "graph viewer ccg ref node focus"
 ```
 
-For MCP/Web UI retrieval, use `search_docs` + `get_doc_content` or Wiki search. If the
+For MCP/Web UI retrieval, use `find_by_intent` + `get_doc_content` or Wiki search. If the
 expected file is missing, prefer improving the precise `@index`, `@intent`,
 `@domainRule`, or `@see` evidence on that file over changing global scoring.
 

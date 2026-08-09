@@ -4,10 +4,11 @@ Add structured metadata to your code so that AI, generated docs, and focused
 search can leverage business context. Annotations are indexed for `ccg search`
 and are also rendered into generated Markdown.
 
-For LLM-agent natural-language exploration, prefer the generated-docs path first:
-`ccg docs`, then use MCP `search_docs` to find relevant docs and `get_doc_content`
-to read one. Use `ccg search` when you
-need a focused list of annotation/keyword-matched symbol candidates.
+For LLM-agent natural-language exploration, start with MCP `find_by_intent`: it
+answers a plain-language question from `@intent` and `@domainRule` alone and
+returns a `node_id` to walk from. Read a generated doc with `get_doc_content`
+after `ccg docs`. Use `ccg search` when you need a focused list of
+annotation/keyword-matched symbol candidates.
 
 Annotation quality is validated by `ccg lint`. For category meanings such as `unannotated`, `incomplete`, `dead-ref`, `contradiction`, and `drifted`, see [Lint Guide](lint.md).
 
@@ -66,7 +67,7 @@ Every `@see ccg://` tag is materialized into the `cross_refs` table after each b
 
 ## Retrieval Quality
 
-Annotations are retrieval features. `search_docs` and generated docs rank
+Annotations are retrieval features. `find_by_intent`, the browser Wiki's search, and generated docs rank
 file-level evidence from structured buckets such as `@index`, `@intent`,
 `@domainRule`, `@sideEffect`, `@requires`, `@ensures`, and `@see`. Better
 annotations make natural-language retrieval more precise, but only when the

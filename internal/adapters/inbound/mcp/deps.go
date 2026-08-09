@@ -10,9 +10,11 @@ import (
 	flowspkg "github.com/tae2089/code-context-graph/internal/app/analyze/flow"
 	impactpkg "github.com/tae2089/code-context-graph/internal/app/analyze/impact"
 	"github.com/tae2089/code-context-graph/internal/app/analyze/query"
+	"github.com/tae2089/code-context-graph/internal/app/describe"
 	"github.com/tae2089/code-context-graph/internal/app/ingest"
 	"github.com/tae2089/code-context-graph/internal/app/ingest/incremental"
 	"github.com/tae2089/code-context-graph/internal/app/search/document"
+	"github.com/tae2089/code-context-graph/internal/app/search/intent"
 	"github.com/tae2089/code-context-graph/internal/app/search/retrieval"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
@@ -69,13 +71,10 @@ type QueryService interface {
 	ImportersOf(ctx context.Context, nodeID uint) ([]graph.Node, error)
 	ImportsOfPage(ctx context.Context, nodeID uint, opts query.QueryOptions) (query.PagedNodes, error)
 	ImportersOfPage(ctx context.Context, nodeID uint, opts query.QueryOptions) (query.PagedNodes, error)
-	ChildrenOf(ctx context.Context, nodeID uint) ([]graph.Node, error)
-	ChildrenOfPage(ctx context.Context, nodeID uint, opts query.QueryOptions) (query.PagedNodes, error)
 	TestsFor(ctx context.Context, nodeID uint) ([]graph.Node, error)
 	TestsForPage(ctx context.Context, nodeID uint, opts query.QueryOptions) (query.PagedNodes, error)
 	InheritorsOf(ctx context.Context, nodeID uint) ([]graph.Node, error)
 	InheritorsOfPage(ctx context.Context, nodeID uint, opts query.QueryOptions) (query.PagedNodes, error)
-	FileSummaryOf(ctx context.Context, filePath string) (*query.FileSummary, error)
 	FindExactNameMatches(ctx context.Context, target string, limit int) ([]query.CandidateMatch, error)
 }
 
@@ -102,9 +101,17 @@ type BuildToolsDeps struct {
 // GraphToolsDeps owns graph lookup, query, search, and aggregate dependencies.
 // @intent group only the dependencies required by graph and search read tools.
 type GraphToolsDeps struct {
-	Store      analyze.GraphLookup
-	Query      QueryService
-	Search     retrieval.CandidateSearcher
+	Store  analyze.GraphLookup
+	Query  QueryService
+	Search retrieval.CandidateSearcher
+	// Intent answers plain-language questions from recorded reasons. It sits
+	// beside Search rather than replacing it: one finds a symbol the caller can
+	// already name, the other finds where to start when they cannot.
+	Intent *intent.Service
+	// Describe reports what the graph holds under a path, without ranking it.
+	// It is what Search and Intent hand off to: those two guess which
+	// declarations matter, and this one only reports which exist.
+	Describe   *describe.Service
 	Statistics analyze.StatisticsReader
 	Reader     analyze.GraphReadRepository
 }
@@ -129,12 +136,6 @@ type AnalysisToolsDeps struct {
 	CrossRefs   CrossRefLister
 }
 
-// DocsToolsDeps owns DB-primary documentation retrieval.
-// @intent group the configured application retrieval service used by documentation tools.
-type DocsToolsDeps struct {
-	Retrieval *retrieval.Service
-}
-
 // RuntimeToolsDeps owns cross-cutting cache, logging, paths, and request limits.
 // @intent group transport runtime configuration separately from capability dependencies.
 type RuntimeToolsDeps struct {
@@ -154,6 +155,5 @@ type Deps struct {
 	Build    BuildToolsDeps
 	Graph    GraphToolsDeps
 	Analysis AnalysisToolsDeps
-	Docs     DocsToolsDeps
 	Runtime  RuntimeToolsDeps
 }

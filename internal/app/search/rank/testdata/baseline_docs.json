@@ -1,0 +1,403 @@
+[
+  {
+    "query": "SanitizeFTS5",
+    "bucket": "exact",
+    "reachable": true,
+    "returned": 1,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "BuildContent",
+    "bucket": "exact",
+    "reachable": true,
+    "returned": 6,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "UnresolvedEdgeCandidate",
+    "bucket": "exact",
+    "reachable": true,
+    "returned": 7,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "promoteExactNameMatch",
+    "bucket": "exact",
+    "reachable": true,
+    "returned": 1,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "RunMigrations",
+    "bucket": "exact",
+    "reachable": true,
+    "returned": 5,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "sanit",
+    "bucket": "prefix",
+    "reachable": true,
+    "returned": 2,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "rerank",
+    "bucket": "prefix",
+    "reachable": true,
+    "returned": 5,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "annot",
+    "bucket": "prefix",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 3,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "crossref",
+    "bucket": "prefix",
+    "reachable": true,
+    "returned": 7,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "impact",
+    "bucket": "prefix",
+    "reachable": true,
+    "returned": 6,
+    "relevant": 2,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "discovery",
+    "bucket": "subword",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 3,
+    "found": 3,
+    "rank": 1
+  },
+  {
+    "query": "syncer",
+    "bucket": "subword",
+    "reachable": true,
+    "returned": 8,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "radius",
+    "bucket": "subword",
+    "reachable": true,
+    "returned": 3,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "tracer",
+    "bucket": "subword",
+    "reachable": true,
+    "returned": 4,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "membership",
+    "bucket": "subword",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 1,
+    "found": 1,
+    "rank": 5
+  },
+  {
+    "query": "fts",
+    "bucket": "acronym",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "sqlite",
+    "bucket": "acronym",
+    "reachable": true,
+    "returned": 7,
+    "relevant": 1,
+    "found": 1,
+    "rank": 2
+  },
+  {
+    "query": "mcp",
+    "bucket": "acronym",
+    "reachable": false,
+    "returned": 10,
+    "relevant": 1,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "cfg",
+    "bucket": "abbreviation",
+    "out_of_scope": true,
+    "reachable": true,
+    "returned": 3,
+    "relevant": 6,
+    "found": 1,
+    "rank": 2
+  },
+  {
+    "query": "parsecache",
+    "bucket": "subword",
+    "reachable": true,
+    "returned": 4,
+    "relevant": 3,
+    "found": 3,
+    "rank": 1
+  },
+  {
+    "query": "sanitze",
+    "bucket": "typo",
+    "out_of_scope": true,
+    "reachable": false,
+    "returned": 0,
+    "relevant": 1,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "retreival",
+    "bucket": "typo",
+    "out_of_scope": true,
+    "reachable": false,
+    "returned": 0,
+    "relevant": 3,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "anotation",
+    "bucket": "typo",
+    "out_of_scope": true,
+    "reachable": false,
+    "returned": 0,
+    "relevant": 2,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "package discovery",
+    "bucket": "concept",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 3,
+    "found": 3,
+    "rank": 1
+  },
+  {
+    "query": "impact radius",
+    "bucket": "concept",
+    "reachable": true,
+    "returned": 6,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "cross ref",
+    "bucket": "concept",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 2,
+    "found": 2,
+    "rank": 3
+  },
+  {
+    "query": "trace flow",
+    "bucket": "concept",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "search document",
+    "bucket": "concept",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 3,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "flow membership",
+    "bucket": "concept",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 1,
+    "found": 1,
+    "rank": 2
+  },
+  {
+    "query": "incremental syncer",
+    "bucket": "concept",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "treesitter semantics",
+    "bucket": "path-scoped",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "graphgorm crossref",
+    "bucket": "path-scoped",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "migration schema",
+    "bucket": "path-scoped",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "worker pool",
+    "bucket": "description",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "bounded traversal",
+    "bucket": "description",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 2,
+    "found": 2,
+    "rank": 2
+  },
+  {
+    "query": "how does the graph get built",
+    "bucket": "question",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 1,
+    "found": 1,
+    "rank": 2
+  },
+  {
+    "query": "what happens when a webhook arrives",
+    "bucket": "question",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "where do search results get ranked",
+    "bucket": "question",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 1,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "how do i follow a call chain",
+    "bucket": "question",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 1,
+    "found": 1,
+    "rank": 2
+  },
+  {
+    "query": "what stops the server accepting new work",
+    "bucket": "question",
+    "reachable": true,
+    "returned": 10,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "syncqueue",
+    "bucket": "receiver",
+    "reachable": true,
+    "returned": 1,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "webhookhandler",
+    "bucket": "receiver",
+    "reachable": true,
+    "returned": 1,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "sqlitebackend",
+    "bucket": "receiver",
+    "reachable": true,
+    "returned": 1,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "zzz nonexistent symbol qqq",
+    "bucket": "negative",
+    "negative": true,
+    "reachable": false,
+    "returned": 0,
+    "relevant": 0,
+    "found": 0,
+    "rank": 0
+  }
+]

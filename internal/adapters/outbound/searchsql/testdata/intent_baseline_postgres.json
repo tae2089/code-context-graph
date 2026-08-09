@@ -1,0 +1,429 @@
+[
+  {
+    "question": "what stops two pushes for the same repository from building at the same time",
+    "bucket": "incident",
+    "answered": true,
+    "files": 20,
+    "entries": 34,
+    "rank": 1,
+    "dead_ends": 0
+  },
+  {
+    "question": "who checks that a push really came from the forge before we trust it",
+    "bucket": "incident",
+    "answered": true,
+    "files": 20,
+    "entries": 38,
+    "rank": 5,
+    "dead_ends": 0
+  },
+  {
+    "question": "why did a failing sync stop retrying instead of backing off again",
+    "bucket": "incident",
+    "answered": true,
+    "files": 20,
+    "entries": 36,
+    "rank": 1,
+    "dead_ends": 0
+  },
+  {
+    "question": "how does a sync that is already running end when the server is told to stop",
+    "bucket": "incident",
+    "answered": true,
+    "files": 20,
+    "entries": 32,
+    "rank": 1,
+    "dead_ends": 0
+  },
+  {
+    "question": "what refuses to read a file that sits outside the documentation directory",
+    "bucket": "policy",
+    "answered": true,
+    "files": 20,
+    "entries": 38,
+    "rank": 1,
+    "dead_ends": 0
+  },
+  {
+    "question": "what keeps a parser result from being reused after the file it came from changed",
+    "bucket": "behavior",
+    "answered": true,
+    "files": 20,
+    "entries": 40,
+    "rank": 1,
+    "dead_ends": 0
+  },
+  {
+    "question": "why does a result say it was cut short instead of returning everything",
+    "bucket": "behavior",
+    "answered": true,
+    "files": 20,
+    "entries": 37,
+    "rank": 1,
+    "dead_ends": 0
+  },
+  {
+    "question": "what stops one repository from filling a result that covers several",
+    "bucket": "behavior",
+    "answered": true,
+    "files": 20,
+    "entries": 41,
+    "rank": 2,
+    "dead_ends": 0
+  },
+  {
+    "question": "why was a push that only deleted a branch ignored",
+    "bucket": "incident",
+    "answered": true,
+    "files": 20,
+    "entries": 44,
+    "rank": 1,
+    "dead_ends": 0
+  },
+  {
+    "question": "what decides which repositories and branches are allowed to sync",
+    "bucket": "policy",
+    "answered": true,
+    "files": 20,
+    "entries": 38,
+    "rank": 7,
+    "dead_ends": 0
+  },
+  {
+    "question": "why is a lock file left behind by a crashed run eventually cleaned up",
+    "bucket": "incident",
+    "answered": true,
+    "files": 20,
+    "entries": 38,
+    "rank": 1,
+    "dead_ends": 0
+  },
+  {
+    "question": "what keeps the same relationship from being stored twice",
+    "bucket": "behavior",
+    "answered": true,
+    "files": 20,
+    "entries": 43,
+    "rank": 3,
+    "dead_ends": 0
+  },
+  {
+    "question": "what makes the order files are parsed the same on every build",
+    "bucket": "behavior",
+    "answered": true,
+    "files": 20,
+    "entries": 41,
+    "rank": 2,
+    "dead_ends": 0
+  },
+  {
+    "question": "why does an answer with nothing in it still suggest another call",
+    "bucket": "behavior",
+    "answered": true,
+    "files": 20,
+    "entries": 31,
+    "rank": 6,
+    "dead_ends": 0
+  },
+  {
+    "question": "why must the database schema be migrated before the server will run",
+    "bucket": "policy",
+    "answered": true,
+    "files": 20,
+    "entries": 45,
+    "rank": 1,
+    "dead_ends": 0
+  },
+  {
+    "question": "네임스페이스 설정이 플래그 기본값에 가려지지 않게 하는 곳은 어디야",
+    "bucket": "korean",
+    "answered": true,
+    "files": 4,
+    "entries": 6,
+    "rank": 1,
+    "dead_ends": 0
+  },
+  {
+    "question": "why does an invoice get a loyalty discount",
+    "bucket": "negative",
+    "negative": true,
+    "answered": false,
+    "files": 0,
+    "entries": 0,
+    "rank": 0,
+    "dead_ends": 0
+  },
+  {
+    "question": "why did the build refuse a source file that changed while it was being opened",
+    "bucket": "incident",
+    "answered": true,
+    "files": 20,
+    "entries": 43,
+    "rank": 3,
+    "dead_ends": 0
+  },
+  {
+    "question": "why did one oversized file abort indexing before it was read",
+    "bucket": "incident",
+    "answered": true,
+    "files": 20,
+    "entries": 37,
+    "rank": 11,
+    "dead_ends": 0
+  },
+  {
+    "question": "why did an update merely warn about unreadable files instead of failing",
+    "bucket": "incident",
+    "answered": true,
+    "files": 20,
+    "entries": 36,
+    "rank": 1,
+    "dead_ends": 0
+  },
+  {
+    "question": "why did change analysis fail after a huge diff exhausted the command output limit",
+    "bucket": "incident",
+    "answered": true,
+    "files": 20,
+    "entries": 36,
+    "rank": 1,
+    "dead_ends": 0
+  },
+  {
+    "question": "why was the wiki index never left half-written after the process died",
+    "bucket": "incident",
+    "answered": true,
+    "files": 20,
+    "entries": 41,
+    "rank": 8,
+    "dead_ends": 0
+  },
+  {
+    "question": "why is a cross-project link still dead after the target project was rebuilt",
+    "bucket": "incident",
+    "answered": true,
+    "files": 20,
+    "entries": 38,
+    "rank": 8,
+    "dead_ends": 0
+  },
+  {
+    "question": "what made readiness fail while webhook work kept piling up",
+    "bucket": "incident",
+    "answered": true,
+    "files": 20,
+    "entries": 40,
+    "rank": 1,
+    "dead_ends": 0
+  },
+  {
+    "question": "why does status stay degraded after the latest repository sync failed",
+    "bucket": "incident",
+    "answered": true,
+    "files": 20,
+    "entries": 43,
+    "rank": 6,
+    "dead_ends": 0
+  },
+  {
+    "question": "why did an incremental update lose relationships between files read in different batches",
+    "bucket": "incident",
+    "answered": true,
+    "files": 20,
+    "entries": 44,
+    "rank": 1,
+    "dead_ends": 0
+  },
+  {
+    "question": "why are unchanged files skipped without calling a parser again",
+    "bucket": "behavior",
+    "answered": true,
+    "files": 20,
+    "entries": 40,
+    "rank": 1,
+    "dead_ends": 0
+  },
+  {
+    "question": "why do uncertain call targets appear in a flow unless I opt out",
+    "bucket": "behavior",
+    "answered": true,
+    "files": 20,
+    "entries": 47,
+    "rank": 2,
+    "dead_ends": 0
+  },
+  {
+    "question": "why does impact include code on both sides of a relationship",
+    "bucket": "behavior",
+    "answered": true,
+    "files": 20,
+    "entries": 39,
+    "rank": 3,
+    "dead_ends": 0
+  },
+  {
+    "question": "why does editing a function with many outgoing links rank as riskier",
+    "bucket": "behavior",
+    "answered": true,
+    "files": 20,
+    "entries": 36,
+    "rank": 0,
+    "dead_ends": 0
+  },
+  {
+    "question": "why does the wiki tree fetch only the requested number of levels",
+    "bucket": "behavior",
+    "answered": true,
+    "files": 20,
+    "entries": 32,
+    "rank": 2,
+    "dead_ends": 0
+  },
+  {
+    "question": "why does a configured clone host take precedence over the address in a webhook",
+    "bucket": "behavior",
+    "answered": true,
+    "files": 20,
+    "entries": 45,
+    "rank": 1,
+    "dead_ends": 0
+  },
+  {
+    "question": "why does an exact short name jump ahead of stronger text matches",
+    "bucket": "behavior",
+    "answered": true,
+    "files": 20,
+    "entries": 37,
+    "rank": 5,
+    "dead_ends": 0
+  },
+  {
+    "question": "why can searching for a language name find files that only carry an extension",
+    "bucket": "behavior",
+    "answered": true,
+    "files": 20,
+    "entries": 40,
+    "rank": 1,
+    "dead_ends": 0
+  },
+  {
+    "question": "why are only reasons and rules searchable in the intent index",
+    "bucket": "behavior",
+    "answered": true,
+    "files": 20,
+    "entries": 42,
+    "rank": 4,
+    "dead_ends": 0
+  },
+  {
+    "question": "what decides whether an HTTP server may listen outside the local machine without authentication",
+    "bucket": "policy",
+    "answered": true,
+    "files": 20,
+    "entries": 41,
+    "rank": 3,
+    "dead_ends": 0
+  },
+  {
+    "question": "what prevents a user supplied revision from being treated as a command option",
+    "bucket": "policy",
+    "answered": true,
+    "files": 20,
+    "entries": 31,
+    "rank": 3,
+    "dead_ends": 0
+  },
+  {
+    "question": "what limits how much source code a single indexing pass may read",
+    "bucket": "policy",
+    "answered": true,
+    "files": 20,
+    "entries": 41,
+    "rank": 16,
+    "dead_ends": 0
+  },
+  {
+    "question": "읽지 못한 파일을 업데이트에서 삭제된 것으로 보지 않는 기준은 어디야",
+    "bucket": "korean",
+    "answered": true,
+    "files": 3,
+    "entries": 5,
+    "rank": 0,
+    "dead_ends": 0
+  },
+  {
+    "question": "여러 묶음으로 읽은 파일 사이의 호출 관계는 왜 마지막에 한꺼번에 연결하지",
+    "bucket": "korean",
+    "answered": true,
+    "files": 15,
+    "entries": 27,
+    "rank": 0,
+    "dead_ends": 0
+  },
+  {
+    "question": "which team owns the changed code and should review it",
+    "bucket": "negative",
+    "negative": true,
+    "answered": true,
+    "files": 20,
+    "entries": 30,
+    "rank": 0,
+    "dead_ends": 0
+  },
+  {
+    "question": "which functions consume the most CPU in a live process",
+    "bucket": "negative",
+    "negative": true,
+    "answered": true,
+    "files": 20,
+    "entries": 29,
+    "rank": 0,
+    "dead_ends": 0
+  },
+  {
+    "question": "which dependencies have known vulnerabilities or forbidden licenses",
+    "bucket": "negative",
+    "negative": true,
+    "answered": true,
+    "files": 20,
+    "entries": 28,
+    "rank": 0,
+    "dead_ends": 0
+  },
+  {
+    "question": "why are old generated pages still present after their source files were removed",
+    "bucket": "incident",
+    "answered": true,
+    "files": 20,
+    "entries": 40,
+    "rank": 12,
+    "dead_ends": 0
+  },
+  {
+    "question": "why are handwritten pages kept when obsolete generated docs are pruned",
+    "bucket": "behavior",
+    "answered": true,
+    "files": 20,
+    "entries": 41,
+    "rank": 3,
+    "dead_ends": 0
+  },
+  {
+    "question": "what decides whether generated documentation may delete an existing page",
+    "bucket": "policy",
+    "answered": true,
+    "files": 20,
+    "entries": 41,
+    "rank": 0,
+    "dead_ends": 0
+  },
+  {
+    "question": "코드가 바뀐 뒤 어떤 주석을 다시 확인해야 하는지는 어디서 판단해",
+    "bucket": "korean",
+    "answered": true,
+    "files": 5,
+    "entries": 8,
+    "rank": 0,
+    "dead_ends": 0
+  }
+]

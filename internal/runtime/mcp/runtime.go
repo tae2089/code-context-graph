@@ -21,10 +21,11 @@ import (
 	flows "github.com/tae2089/code-context-graph/internal/app/analyze/flow"
 	"github.com/tae2089/code-context-graph/internal/app/analyze/impact"
 	"github.com/tae2089/code-context-graph/internal/app/analyze/query"
+	"github.com/tae2089/code-context-graph/internal/app/describe"
 	"github.com/tae2089/code-context-graph/internal/app/ingest"
 	"github.com/tae2089/code-context-graph/internal/app/ingest/incremental"
 	"github.com/tae2089/code-context-graph/internal/app/search/document"
-	"github.com/tae2089/code-context-graph/internal/app/search/retrieval"
+	"github.com/tae2089/code-context-graph/internal/app/search/intent"
 	ccgobs "github.com/tae2089/code-context-graph/internal/obs"
 )
 
@@ -104,6 +105,8 @@ func New(components Components, opts Options) (*Instance, error) {
 		},
 		Graph: mcp.GraphToolsDeps{
 			Store: components.Store, Query: query.New(components.Store), Search: components.SearchReader,
+			Intent:     intent.New(components.SearchReader, components.SearchReader),
+			Describe:   describe.New(components.Store),
 			Statistics: components.Store, Reader: components.Store,
 		},
 		Analysis: mcp.AnalysisToolsDeps{
@@ -113,7 +116,6 @@ func New(components Components, opts Options) (*Instance, error) {
 			CrossFlow:   flows.New(components.Store.CrossNamespaceReader()),
 			CrossRefs:   components.Store,
 		},
-		Docs: mcp.DocsToolsDeps{Retrieval: retrieval.New(components.SearchReader, components.SearchReader)},
 		Runtime: mcp.RuntimeToolsDeps{
 			Logger: components.Logger, Cache: cache, RagIndexDir: opts.RagIndexDir,
 			RagProjectDesc: opts.RagProjectDesc, NamespaceRoot: opts.NamespaceRoot,

@@ -62,7 +62,7 @@ closure with deterministic `go list -json` checks.
 ## Runtime and transports
 
 Both `ccg serve` (stdio) and `ccg-server` (Streamable HTTP) use the same five
-grouped MCP dependency surfaces and expose exactly 18 tools plus four prompts.
+grouped MCP dependency surfaces and expose exactly 19 tools plus four prompts.
 The local binary does not link remote HTTP, Wiki, webhook, or remote runtime
 packages. See [Runtime Layout](runtime-layout.md).
 

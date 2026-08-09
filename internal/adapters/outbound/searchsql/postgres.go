@@ -9,6 +9,7 @@ import (
 
 	"github.com/tae2089/trace"
 
+	"github.com/tae2089/code-context-graph/internal/app/search/intentrank"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/db/migration"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
@@ -165,4 +166,35 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 
 	result = promoteExactNameMatch(result, query)
 	return result, nil
+}
+
+// MatchIntent finds every recorded reason holding any term of the question.
+//
+// It used to order by ts_rank, which is where the deployment gap lived: ts_rank
+// reads one document at a time and never learns that a word appears in most of
+// them, so it could not tell a distinctive word from a filler one. Retrieval is
+// what the GIN index is genuinely good at; scoring moved to intentrank, which
+// counts the corpus and gives both backends the same answer.
+// @intent hand every candidate reason to shared scoring, in whatever order the index produced.
+// @requires maxCandidates must be greater than 0.
+// @return returns unordered candidates with the exact text that was indexed for each.
+func (p *PostgresBackend) MatchIntent(ctx context.Context, db *gorm.DB, query string, maxCandidates int) ([]intentrank.Doc, error) {
+	if maxCandidates <= 0 {
+		return nil, fmt.Errorf("maxCandidates must be > 0, got %d", maxCandidates)
+	}
+	tsQuery := SanitizePostgresIntentTSQuery(query)
+	if tsQuery == "" {
+		return nil, nil
+	}
+
+	var docs []intentrank.Doc
+	if err := db.WithContext(ctx).Raw(`
+		SELECT sd.node_id, sd.intent_content AS content
+		FROM search_documents sd
+		WHERE sd.intent_tsv @@ to_tsquery('simple', ?)
+		AND sd.namespace = ?
+		LIMIT ?`, tsQuery, requestctx.FromContext(ctx), maxCandidates).Scan(&docs).Error; err != nil {
+		return nil, trace.Wrap(err, "intent ts_query")
+	}
+	return docs, nil
 }

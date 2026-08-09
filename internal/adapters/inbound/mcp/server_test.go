@@ -21,6 +21,8 @@ func TestMCPServer_ListTools(t *testing.T) {
 		"get_node",
 		"get_impact_radius",
 		"search",
+		"find_by_intent",
+		"describe",
 		"get_annotation",
 		"trace_flow",
 		"list_cross_refs",
@@ -33,7 +35,6 @@ func TestMCPServer_ListTools(t *testing.T) {
 		"get_affected_flows",
 		"list_flows",
 		"get_doc_content",
-		"search_docs",
 		"get_minimal_context",
 	}
 
@@ -64,8 +65,8 @@ func TestMCPServer_ListTools_Count(t *testing.T) {
 	srv := NewServer(deps)
 	tools := srv.ListTools()
 
-	if len(tools) != 18 {
-		t.Fatalf("expected 18 tools, got %d", len(tools))
+	if len(tools) != 19 {
+		t.Fatalf("expected 19 tools, got %d", len(tools))
 	}
 }
 
@@ -165,7 +166,6 @@ func TestMCPServer_ToolRequiredFlags(t *testing.T) {
 		"get_affected_flows":    {"repo_root"},
 		"list_flows":            nil,
 		"get_doc_content":       {"file_path"},
-		"search_docs":           {"query"},
 		"get_minimal_context":   nil,
 	}
 

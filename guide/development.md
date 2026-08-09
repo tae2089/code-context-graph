@@ -103,7 +103,7 @@ internal/
   ctx/                — Request-context values (namespace isolation)
   docs/               — Documentation generation
   mcpruntime/         — Shared MCP runtime assembly, stdio runner, cache, telemetry
-  mcp/                — MCP server (18 tools)
+  mcp/                — MCP server (19 tools)
   wikiserver/         — ccg-server Wiki static serving and viewer API
   wikiindex/          — Wiki presentation index builder (`wiki-index.json`)
   model/              — DB models
