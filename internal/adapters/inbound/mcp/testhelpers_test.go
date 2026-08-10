@@ -214,13 +214,25 @@ func groupedTestDeps(st *graphgorm.Store, db *gorm.DB, sb search.Backend, parser
 	}
 }
 
-func setupTestDeps(t *testing.T) *Deps {
+// openSharedMemoryTestDB opens one test's own in-memory database.
+//
+// The name carries a counter because the cache is shared: two databases opened
+// under the same name in one process are one database, and every test here
+// counts rows, so a name reused across tests would have them counting each
+// other's.
+func openSharedMemoryTestDB(t *testing.T, name string) *gorm.DB {
 	t.Helper()
-	dsn := fmt.Sprintf("file:handlertest%d?mode=memory&cache=shared", handlerTestDBSeq.Add(1))
+	dsn := fmt.Sprintf("file:%s%d?mode=memory&cache=shared", name, handlerTestDBSeq.Add(1))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
 	if err != nil {
 		t.Fatal(err)
 	}
+	return db
+}
+
+func setupTestDeps(t *testing.T) *Deps {
+	t.Helper()
+	db := openSharedMemoryTestDB(t, "handlertest")
 	st := graphgorm.New(db)
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatal(err)
@@ -245,11 +257,7 @@ func setupTestDeps(t *testing.T) *Deps {
 // Used to test backward compatibility - that old tools work even when new interfaces are nil.
 func setupTestDepsMinimal(t *testing.T) *Deps {
 	t.Helper()
-	dsn := fmt.Sprintf("file:handlertest-minimal%d?mode=memory&cache=shared", handlerTestDBSeq.Add(1))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := openSharedMemoryTestDB(t, "handlertest-minimal")
 	st := graphgorm.New(db)
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatal(err)
@@ -275,11 +283,7 @@ func setupTestDepsMinimal(t *testing.T) *Deps {
 
 func setupGraphOnlyTestDeps(t *testing.T) *Deps {
 	t.Helper()
-	dsn := fmt.Sprintf("file:handlertest-graph-only%d?mode=memory&cache=shared", handlerTestDBSeq.Add(1))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := openSharedMemoryTestDB(t, "handlertest-graph-only")
 	st := graphgorm.New(db)
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatal(err)
