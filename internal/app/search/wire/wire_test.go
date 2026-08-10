@@ -1,6 +1,10 @@
 package wire
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -182,6 +186,132 @@ func TestNewResponse_SuggestsAnnotatingWhenTheAnswerIsEmpty(t *testing.T) {
 	}
 	if !strings.Contains(action.Reason, "1900") {
 		t.Errorf("Reason = %q, want the coverage that justifies the suggestion", action.Reason)
+	}
+}
+
+// NextAction's @domainRule says a step names either a tool with its arguments
+// or a skill, never both — and nothing held it to that. A step with both filled
+// leaves the caller choosing which half to act on; a step with neither is a
+// reason with nothing behind it. Both would ship silently.
+//
+// Every branch of nextActions is driven here, so a branch added later that
+// fills in the wrong pair is caught by the case it is added to.
+func TestNewResponse_EveryStepNamesEitherAToolOrASkill(t *testing.T) {
+	cases := map[string]evidence.List{
+		"files went unreached": {
+			Files:         []evidence.File{file("a.go", 1)},
+			OverflowFiles: 7,
+			NextOffset:    1,
+		},
+		"the candidate pool was cut": {
+			Files:         []evidence.File{file("crowded.go", 50)},
+			PoolTruncated: true,
+			NextOffset:    1,
+		},
+		"candidates were dropped as weak": {
+			Files:        []evidence.File{file("a.go", 1)},
+			WeakFiltered: 4,
+		},
+		"the answer was empty": {
+			Coverage: evidence.Coverage{WithReason: 0, Declarations: 1900},
+			Note:     "nothing matched",
+		},
+		"every shown hit was weak, with more pages behind it": {
+			Files:         []evidence.File{weakFile("a.go", 2)},
+			OverflowFiles: 3,
+			WeakFiltered:  2,
+			Coverage:      evidence.Coverage{WithReason: 4, Declarations: 900},
+		},
+	}
+
+	for name, list := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := NewResponse(list, "why does checkout retry", 10, 0, false)
+			if len(got.Next) == 0 {
+				t.Fatalf("Next is empty, so this case checked nothing: %+v", list)
+			}
+			for _, a := range got.Next {
+				switch {
+				case a.Tool == "" && a.Skill == "":
+					t.Errorf("a step names neither a tool nor a skill, so there is nothing to act on: %+v", a)
+				case a.Tool != "" && a.Skill != "":
+					t.Errorf("a step names both tool %q and skill %q, so a caller has to guess which one: %+v", a.Tool, a.Skill, a)
+				case a.Tool != "" && len(a.Args) == 0:
+					t.Errorf("tool step %q carries no arguments, so the caller has to invent them: %+v", a.Tool, a)
+				case a.Skill != "" && len(a.Args) != 0:
+					t.Errorf("skill step %q carries tool arguments, which nothing will read: %+v", a.Skill, a)
+				}
+				if a.Reason == "" {
+					t.Errorf("a step gives no reason it is worth taking: %+v", a)
+				}
+			}
+		})
+	}
+}
+
+// shippedSkills lists the packaged workflows this repository installs, read off
+// the directory that holds them.
+//
+// Read rather than listed here on purpose. A list written into the test would
+// only ever prove that two strings in this repository agree with each other,
+// which is what the missing guard already did; and it would have to be edited
+// every time a skill is added or renamed. A skill is a directory under skills/
+// holding a SKILL.md, because that file is what makes the directory runnable —
+// a directory without one is not somewhere a caller can be sent.
+func shippedSkills(t *testing.T) []string {
+	t.Helper()
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve this test file's own path")
+	}
+	// internal/app/search/wire -> repository root.
+	root := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", "..", "..", ".."))
+	dir := filepath.Join(root, "skills")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+	var skills []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, e.Name(), "SKILL.md")); err != nil {
+			continue
+		}
+		skills = append(skills, e.Name())
+	}
+	if len(skills) == 0 {
+		t.Fatalf("no skill found under %s, so this lookup is broken rather than the repository", dir)
+	}
+	slices.Sort(skills)
+	return skills
+}
+
+// A step that names a skill is only a step if the skill is there to run. The
+// tool form is checked against the server's own tool list; the skill form had
+// nothing checking it, so renaming skills/ccg-annotate — or mistyping the
+// constant that names it — let an empty answer point the caller at a workflow
+// that does not exist.
+func TestNewResponse_NamesOnlySkillsThisRepositoryShips(t *testing.T) {
+	got := NewResponse(evidence.List{
+		Coverage: evidence.Coverage{WithReason: 0, Declarations: 1900},
+		Note:     "nothing matched",
+	}, "why is this repository isolated", 10, 0, false)
+
+	shipped := shippedSkills(t)
+	named := 0
+	for _, a := range got.Next {
+		if a.Skill == "" {
+			continue
+		}
+		named++
+		if !slices.Contains(shipped, a.Skill) {
+			t.Errorf("a next step names skill %q, which this repository does not ship; it has %v", a.Skill, shipped)
+		}
+	}
+	if named == 0 {
+		t.Fatalf("Next = %+v, want at least one step naming a skill — otherwise this guard checked nothing", got.Next)
 	}
 }
 
