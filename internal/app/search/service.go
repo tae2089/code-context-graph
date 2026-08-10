@@ -43,6 +43,22 @@ type Params struct {
 	IncludeWeak bool
 }
 
+// ValidateOffset turns away the one page position no answer exists for, in the
+// words every search surface says it in.
+//
+// MCP and the CLI both call it before the pipeline runs. The sentence lives
+// here rather than at either entry point so the two cannot end up describing
+// the same rejected request differently — a reader who learns what the tool
+// says has also learned what the flag says.
+//
+// @intent keep the search entry points agreeing about which requests are askable.
+func ValidateOffset(offset int) error {
+	if offset < 0 {
+		return trace.New("offset must not be negative")
+	}
+	return nil
+}
+
 // Service runs the shared search pipeline over one candidate searcher.
 // @intent hold the fetch→filter→rerank→evidence chain in one place instead of one copy per inbound adapter.
 type Service struct {

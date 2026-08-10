@@ -189,8 +189,8 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 	if err := validateQueryGraphLimit(limit); err != nil {
 		return finalizeToolResult("", err)
 	}
-	if offset < 0 {
-		return finalizeToolResult("", trace.New("offset must not be negative"))
+	if err := searchapp.ValidateOffset(offset); err != nil {
+		return finalizeToolResult("", err)
 	}
 
 	log.Info("search called", "query", query, "limit", limit, "offset", offset, "path", pathPrefix)
