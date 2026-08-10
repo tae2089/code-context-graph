@@ -75,6 +75,7 @@ func TestNewResponse_OffersTheNextPageWhenOnlyThePoolRanOut(t *testing.T) {
 	got := NewResponse(evidence.List{
 		Files:         []evidence.File{file("crowded.go", 50)},
 		PoolTruncated: true,
+		NextOffset:    1,
 	}, "alpha", 10, 0, false)
 
 	if len(got.Next) != 1 {

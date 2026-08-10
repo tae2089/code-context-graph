@@ -104,6 +104,14 @@ type List struct {
 	// while OverflowFiles == 0 with PoolTruncated true is only the end of the
 	// candidates that were fetched.
 	PoolTruncated bool
+	// NextOffset is the offset the page after this one starts at. It is set
+	// whether or not another page exists; OverflowFiles and PoolTruncated are
+	// what say whether asking for it is worth anything.
+	//
+	// It is carried rather than recomputed by the caller because "offset plus
+	// the files on this page" is only right when the page is one contiguous run
+	// of the answer. Whoever cut the page is the only one who knows that.
+	NextOffset int
 	// Note is set only when Files is empty, and says which kind of empty it is:
 	// nothing retrieved, nothing explainable, or a page past the end.
 	Note string
@@ -180,6 +188,7 @@ func Build(query string, nodes []graph.Node, opts Options) List {
 
 	files := groupByFile(kept)
 	list.Files, list.OverflowFiles = page(files, opts)
+	list.NextOffset = opts.Offset + len(list.Files)
 	if len(list.Files) == 0 {
 		list.Note = noteNothingRetrieved
 		switch {
