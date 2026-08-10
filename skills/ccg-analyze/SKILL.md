@@ -46,7 +46,11 @@ Graph-based analysis for **change impact, call flow, and recent-change risk**.
    larger `limit`. `pool_truncated` is a second, separate signal: true means the
    page ended at the edge of the candidates that were fetched, so page on even
    when `truncated` is false. Only `truncated: false` together with
-   `pool_truncated: false` means the search is complete.
+   `pool_truncated: false` means the search is complete. When a question-shaped
+   query comes back empty, read `annotation_coverage` before concluding
+   anything: `with_reason: 0` means nobody recorded a reason in what you
+   searched, so the empty answer says nothing about whether the code exists —
+   annotate the area and ask again rather than rephrasing.
 2. **Symbol identity**: confirm each entry point or major stage with `get_node`;
    continue with qualified names rather than display labels.
 3. **Relationship and structure evidence**: use `query_graph` with

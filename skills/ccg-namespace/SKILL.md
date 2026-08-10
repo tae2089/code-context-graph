@@ -70,7 +70,8 @@ are hits it can justify rather than padding.
 over three namespaces means up to five files from each, and every namespace
 with a hit appears however small the limit is — a limit below the namespace
 count no longer silences the ones at the back. `truncated` counts the files
-left off across all of them. Page with the `offset` the response's `next` gives
+left off across all of them, and `annotation_coverage` adds up across all of
+them too — one fraction over every namespace searched, not one namespace's. Page with the `offset` the response's `next` gives
 you: it moves every namespace through its own list at once, so it is not this
 page's offset plus the file count you were handed.
 

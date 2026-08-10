@@ -111,7 +111,8 @@ so paging never splits a file. Across several repositories (MCP `namespaces:
 []`) both are per repository: `limit: 5` over three repositories is five files
 from each, and every repository with a hit is on the page whatever the limit is.
 An empty result says which kind of empty it is — nothing retrieved, nothing
-justifiable, or an offset past the last file.
+justifiable, an offset past the last file, or a repository where nobody has ever
+recorded a reason to search.
 
 Order comes from name similarity, then path overlap. `@intent` is shown for the
 reader to judge; it does not move a result up.
@@ -139,10 +140,24 @@ waiting to be fetched.
 `limits` gives `files` (the page size), `offset` (where it
 started), and `hit_budget` (the point past which a page stops taking on *more*
 files; it never trims one, and the first file of a page is always included).
+`annotation_coverage` says how much of what was searched has ever recorded a
+reason: `with_reason` counts declarations carrying an `@intent` or a
+`@domainRule`, out of `declarations` indexed. It counts declarations, not tags —
+a node with three tags counts once. Read it before you read the answer's size.
+Two files out of a repository where four hundred declarations recorded a reason
+is a thin answer; two out of a repository where six did is most of what there was
+to find. `with_reason: 0` means a why-question was put to an index nobody has
+written anything into yet, so the empty answer is a fact about the annotations
+and not about the code — do not report it as "the code does not exist".
+
 `next` lists ready-to-make calls: whichever of the two signals is up, the next
 page becomes `search(query: <same query>, limit: <same>, offset: <next>)`, and
 cut candidates become `search(query: <same query>, include_weak: true)`. Make
-the call in `next` rather than inventing one. Over several repositories that
+the call in `next` rather than inventing one. One entry is not a call: when
+nothing on the page could justify itself, `next` also
+names a `skill` instead of a `tool` — `ccg-annotate` — meaning annotate the area,
+rebuild the graph, and ask again. It appears only for an answer whose every shown hit matched nothing, so a
+working answer never carries it. Over several repositories that
 matters more than usual: `offset` moves every repository through its own list,
 so it is not this page's offset plus the files you were shown, and computing it
 that way skips files in one repository while repeating them in another.
