@@ -41,6 +41,30 @@ cut. They already earned their keep: the `levenshtein` query on cobra showed
 that a docstring-retrieved hit dies at the evidence cut on any corpus without
 `@intent` tags (recorded in `knownHiddenRelevant`, not tuned away).
 
+## Backend parity
+
+The corpora do double duty. `TestBackendParity_SearchAnswersAreIdentical`
+(in `internal/adapters/outbound/searchsql/`, `-tags "fts5 postgres"`, needs
+`TEST_POSTGRES_DSN`) rebuilds each corpus from the frozen candidate pools,
+seeds it into a SQLite FTS5 database and a PostgreSQL database through the
+production document builders, replays every query through the full search
+service on both, and requires the two answers to be identical — same files,
+same order, same hits, same withheld counts.
+
+The promise holds only where the candidate pool is complete. When more rows
+match than `rank.FetchLimit` fetches, each backend keeps its own top slice,
+ordered by bm25 or `ts_rank` — scores with no shared definition — so
+membership itself becomes backend-specific. The test probes the pool per
+query and skips truncated ones with a log line instead of asserting on them.
+Everything the reranker can reach is asserted; what retrieval relevance alone
+decides is documented here as backend-specific by design.
+
+Two production pieces exist because of this test: migration
+`000019_tokenize_identifier_separators` (PostgreSQL translates `/`, `.`, `_`
+to spaces before `to_tsvector`, matching FTS5's unicode61 splitting) and the
+identity tie-break in `rank.go` (structural ties order by file path and
+qualified name, not by the backend's own retrieval rank).
+
 There used to be a third path here. `wiki_search` named the Wiki web UI's search
 box — `retrieval.FromDB`, full-text plus a namespace scan — and had its own
 frozen pool and baseline. That pipeline was deleted along with
