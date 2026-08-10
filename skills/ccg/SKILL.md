@@ -2,7 +2,7 @@
 name: ccg
 description: "Build, update, inspect, and search code-context-graph graphs and route to specialized CCG workflows. Use when a task needs CCG setup, graph freshness, algorithm or feature-pipeline understanding, exact symbol or relationship lookup, annotation-aware full-text search, safe full or scoped synchronization, MCP graph queries, or selection among CCG analysis, docs, annotation, and namespace skills. Do not use for a simple file or string lookup when grep/read is sufficient."
 metadata:
-  version: 1.3.1
+  version: 1.4.0
   openclaw:
     category: "code-intelligence"
     domain: "core"
@@ -58,17 +58,38 @@ For detailed flags, use `ccg <command> --help` or refer to MCP schema.
 When the task asks which languages or file extensions CCG supports, read
 [`references/supported-languages.md`](references/supported-languages.md).
 
-## ccg search Patterns
+## Searching
 
-Search by code, domain, or annotation keywords. Annotation tags (`@intent`,
-`@domainRule`) are indexed alongside code.
+One tool, two query shapes. `ccg search` on the CLI and MCP `search` answer
+from the same index: node names, file paths, and the reasons authors recorded
+as `@intent`/`@domainRule` annotations.
+
+**Shape 1 — you can name the thing.** Quote the identifier or keyword:
 
 ```bash
 ccg search "결제"               # Candidates containing the term in code/annotations
 ccg search "authentication"     # Auth-related
 ccg search --path internal/auth "login"  # Path-scoped
 ccg search --include-weak "retry"        # Also show candidates with no visible evidence
+ccg search --json "login"       # Answer as JSON, same shape the MCP tool returns
 ```
+
+`--json` is the stable form for scripts and pipelines; the text form is for
+reading. Every query word must appear in the same node, so a long sentence of
+identifiers usually returns nothing — a short, rare query is the reliable form.
+
+**Shape 2 — you cannot name the symbol yet.** Ask the question in plain words,
+as when looking at an incident or unfamiliar code:
+
+```text
+search(query: "why do we verify the signature on a push")
+```
+
+A question is scored against the recorded reasons as well as names, and the
+files those reasons justify are appended after any name matches. A
+reason-matched hit carries the recorded `reason` and `matched_terms`, so you
+can see whether it answered your question or merely shared a common word with
+it. Common English function words (`the`, `how`, `what`, …) are stripped first.
 
 **Read the result list as evidence, then decide.** Each hit prints on one
 unindented line, with its `@intent` and the signals the query matched on an
@@ -103,36 +124,20 @@ files; it never trims one, and the first file of a page is always included).
 become `search(query: <same query>, include_weak: true)`. Make the call in
 `next` rather than inventing one.
 
-**Difference from Grep**: Grep scans source text directly. CCG full-text search
-queries indexed symbol fields and annotations together. Searching "결제" can find
-a `payment` function when its annotation contains "결제 처리"; search does not
-infer translations or arbitrary synonyms that are absent from the index. Every
-query word must appear in the same node, so a long sentence usually returns
-nothing — common English function words (`the`, `how`, `what`, …) are stripped
-first, but a short, rare query is still the reliable form.
-
-## Finding an Entry Point by Intent
-
-Ask `search` the question in plain words when you are looking at an incident or
-unfamiliar code and cannot name the symbol yet:
-
-```text
-search(query: "why do we verify the signature on a push")
-```
-
-A question is scored against the reasons authors recorded — `@intent` and
-`@domainRule` — as well as names, and the files those reasons justify are
-appended after any name matches. A reason-matched hit carries the recorded
-`reason` and `matched_terms`, so you can see whether it answered your question
-or merely shared a common word with it.
-
 Every hit carries a `node_id`. Hand that ID straight to `get_node`,
 `query_graph`, `get_impact_radius`, or `trace_flow` — the answer exists to
 start a graph walk, not to finish the investigation.
 
-A question mostly made of words nobody ever wrote down gets no intent hits at
-all. When that happens, `ccg annotate <file|dir>` on the area under
-investigation is what makes questions answerable.
+**When a question comes back empty or weak, the search is not broken — the
+reasons were never written down.** A question mostly made of words nobody
+recorded gets no intent hits by design. Hand off to the `ccg-annotate` skill:
+annotate the area under investigation, rebuild the graph, then re-ask the same
+question. That loop, not query rephrasing, is what makes questions answerable.
+
+**Difference from Grep**: Grep scans source text directly. CCG full-text search
+queries indexed symbol fields and annotations together. Searching "결제" can find
+a `payment` function when its annotation contains "결제 처리"; search does not
+infer translations or arbitrary synonyms that are absent from the index.
 
 ## Reading a Path You Already Have
 
@@ -155,11 +160,6 @@ A target the graph does not hold comes back as `scope: "unknown"` with the
 places that name is actually declared, plus the calls that find it — not as an
 error and not as an empty result you have to interpret.
 
-`describe` replaced the `children_of` and `file_summary` patterns of
-`query_graph`. Both only ever reported a file's own declarations: the graph
-records a contains edge from a file to each declaration in it and nowhere else,
-so `children_of` on a type always came back empty.
-
 ## Graph Freshness
 
 1. Inspect namespace population with `ccg status` or MCP `list_graph_stats`;
@@ -171,23 +171,7 @@ so `children_of` on a type always came back empty.
 5. If a command reports schema drift, or when upgrading PostgreSQL/an existing
    database, run `ccg migrate` and retry.
 
-## Core MCP Tools (commonly used)
-
-| Tool                    | When                                                  |
-| ----------------------- | ----------------------------------------------------- |
-| `get_minimal_context`   | Choose a bounded next tool for an unfamiliar task     |
-| `list_graph_stats`      | Confirm namespace population before interpreting data |
-| `parse_project`         | Full parse/write that skips search postprocessing      |
-| `build_or_update_graph` | Build or incrementally synchronize through MCP        |
-| `run_postprocess`       | Refresh stored flows and/or FTS without reparsing      |
-| `search`                | Annotation-aware full-text candidate search; also answers plain-language questions from recorded reasons |
-| `describe`              | List what a folder or file holds, once you have the path |
-| `query_graph`           | Structured queries (callers/callees/imports)          |
-| `get_node`              | Lookup by qualified name                              |
-
-For other tools, use the `ccg-analyze` or `ccg-docs` skill when available.
-
-Prefer `build_or_update_graph` for normal MCP synchronization. Its
+Over MCP, prefer `build_or_update_graph` for normal synchronization. Its
 `full_rebuild` default is true, so pass `full_rebuild=false` explicitly for an
 incremental update.
 
@@ -213,16 +197,8 @@ current.
 
 For LLM-agent use, prefer bounded graph queries. Start with `limit=50` or
 `limit=100` and follow `has_more` / `next_offset` rather than asking for a bulk
-result first.
-
-Tools with explicit pagination:
-
-| Tool | Parameters |
-| ---- | ---------- |
-| `query_graph` | `limit`, `offset` |
-| `list_flows` | `limit`, `offset` |
-| `detect_changes` | `limit`, `offset` |
-| `get_affected_flows` | `limit`, `offset` |
+result first. `query_graph`, `list_flows`, `detect_changes`, and
+`get_affected_flows` all take `limit` and `offset`.
 
 Broad architecture/onboarding prompts should start with a namespace or path and
 a narrow question before expanding through graph queries.
