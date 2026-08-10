@@ -35,7 +35,7 @@ func setupUpdateTest(t *testing.T) (*Deps, *bytes.Buffer, *bytes.Buffer, *gorm.D
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatal(err)
 	}
 	sb := storesearch.NewSQLiteBackend()

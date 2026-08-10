@@ -89,21 +89,23 @@ func (s *SQLiteBackend) migrateIntentTable(tx *gorm.DB) error {
 	if existed {
 		return nil
 	}
-	if err := s.rebuildTable(context.Background(), tx, sqliteIntentFTSTable); err != nil {
+	if err := s.rebuildIntentTable(context.Background(), tx); err != nil {
 		return trace.Wrap(err, "seed new intent fts")
 	}
 	return nil
 }
 
-// Rebuild reloads search_documents content into the FTS index.
-// @intent Synchronizes stored search documents with the SQLite FTS index.
+// Rebuild reloads the persisted documents into the two FTS indexes: search_fts
+// from search_documents, and intent_fts from search_reasons, which holds one row
+// per recorded reason.
+// @intent Synchronizes stored search documents and recorded reasons with the SQLite FTS indexes.
 // @sideEffect Deletes and re-inserts search_fts and intent_fts content.
-// @domainRule Index content must match the current snapshot of search_documents.
+// @domainRule Index content must match the current snapshot of search_documents and search_reasons.
 func (s *SQLiteBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 	if err := s.rebuildTable(ctx, db, sqliteFTSTable); err != nil {
 		return err
 	}
-	return s.rebuildTable(ctx, db, sqliteIntentFTSTable)
+	return s.rebuildIntentTable(ctx, db)
 }
 
 // RebuildNodes synchronizes only the FTS rows of specified nodes with search_documents.
@@ -115,7 +117,7 @@ func (s *SQLiteBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs [
 	if err := s.rebuildTableNodes(ctx, db, sqliteFTSTable, nodeIDs); err != nil {
 		return err
 	}
-	return s.rebuildTableNodes(ctx, db, sqliteIntentFTSTable, nodeIDs)
+	return s.rebuildIntentTableNodes(ctx, db, nodeIDs)
 }
 
 // PurgeNamespace removes the physical FTS index for a specific namespace.
@@ -201,6 +203,69 @@ func (s *SQLiteBackend) rebuildTableNodes(ctx context.Context, db *gorm.DB, tabl
 			})
 			if result.Error != nil {
 				return trace.Wrap(result.Error, "load scoped docs")
+			}
+		}
+		return nil
+	})
+}
+
+// rebuildIntentTable clears the intent index for the current namespace and
+// reloads it from search_reasons, one row per recorded reason.
+//
+// It is a separate walk from rebuildTable because the two indexes now read
+// different tables: search_fts follows search_documents, one row per node, and
+// intent_fts follows search_reasons, which can hold several rows for one node.
+// @intent resynchronize the namespace-scoped intent index from the recorded reasons without disturbing other namespaces.
+func (s *SQLiteBackend) rebuildIntentTable(ctx context.Context, db *gorm.DB) error {
+	ns := requestctx.FromContext(ctx)
+	return db.WithContext(ctx).Transaction(func(outerTx *gorm.DB) error {
+		if err := outerTx.Exec("DELETE FROM "+sqliteIntentFTSTable+" WHERE namespace = ?", ns).Error; err != nil {
+			return trace.Wrap(err, "clear intent fts")
+		}
+		reasonsQ := outerTx.WithContext(ctx).Model(&graph.SearchReason{}).Where("namespace = ?", ns).Order("id")
+		var batch []graph.SearchReason
+		result := reasonsQ.FindInBatches(&batch, sqliteFTSRebuildBatchSize, func(batchTx *gorm.DB, index int) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := insertSQLiteIntentBatch(ctx, batchTx, batch); err != nil {
+				return trace.Wrap(err, "insert intent fts batch "+strconv.Itoa(index))
+			}
+			return nil
+		})
+		if result.Error != nil {
+			return trace.Wrap(result.Error, "load reasons")
+		}
+		return nil
+	})
+}
+
+// rebuildIntentTableNodes reloads the intent index rows of the given nodes only,
+// in chunks of scopedRebuildChunkSize so the IN clause stays within limits.
+// @intent refresh only the requested nodes' reasons so incremental updates can avoid a full namespace rebuild.
+func (s *SQLiteBackend) rebuildIntentTableNodes(ctx context.Context, db *gorm.DB, nodeIDs []uint) error {
+	ns := requestctx.FromContext(ctx)
+	return db.WithContext(ctx).Transaction(func(outerTx *gorm.DB) error {
+		for start := 0; start < len(nodeIDs); start += scopedRebuildChunkSize {
+			end := min(start+scopedRebuildChunkSize, len(nodeIDs))
+			chunk := nodeIDs[start:end]
+			if err := outerTx.Exec("DELETE FROM "+sqliteIntentFTSTable+" WHERE namespace = ? AND node_id IN ?", ns, chunk).Error; err != nil {
+				return trace.Wrap(err, "clear scoped intent fts")
+			}
+			reasonsQ := outerTx.WithContext(ctx).Model(&graph.SearchReason{}).
+				Where("namespace = ? AND node_id IN ?", ns, chunk).Order("id")
+			var batch []graph.SearchReason
+			result := reasonsQ.FindInBatches(&batch, sqliteFTSRebuildBatchSize, func(batchTx *gorm.DB, index int) error {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				if err := insertSQLiteIntentBatch(ctx, batchTx, batch); err != nil {
+					return trace.Wrap(err, "insert scoped intent fts batch "+strconv.Itoa(index))
+				}
+				return nil
+			})
+			if result.Error != nil {
+				return trace.Wrap(result.Error, "load scoped reasons")
 			}
 		}
 		return nil
@@ -341,33 +406,38 @@ func insertSQLiteFTSBatch(ctx context.Context, tx *gorm.DB, tableName string, do
 	if len(docs) == 0 {
 		return nil
 	}
-	if tableName == sqliteIntentFTSTable {
-		insertSQL, args := buildSQLiteIntentInsert(docs)
-		if insertSQL == "" {
-			return nil
-		}
-		return tx.WithContext(ctx).Exec(insertSQL, args...).Error
-	}
 	insertSQL, args := buildSQLiteFTSInsert(tableName, docs)
 	return tx.WithContext(ctx).Exec(insertSQL, args...).Error
 }
 
-// buildSQLiteIntentInsert constructs the bulk INSERT for the intent index,
-// skipping every document with no recorded reason.
+// insertSQLiteIntentBatch executes one bulk INSERT for a batch of recorded reasons.
+// @intent push many reasons in a single statement so rebuild paths avoid per-row round trips.
+// @sideEffect inserts rows into the intent_fts virtual table.
+// @mutates intent_fts virtual table contents
+func insertSQLiteIntentBatch(ctx context.Context, tx *gorm.DB, reasons []graph.SearchReason) error {
+	insertSQL, args := buildSQLiteIntentInsert(reasons)
+	if insertSQL == "" {
+		return nil
+	}
+	return tx.WithContext(ctx).Exec(insertSQL, args...).Error
+}
+
+// buildSQLiteIntentInsert constructs the bulk INSERT for the intent index, one
+// row per recorded reason, skipping any whose text is blank.
 //
-// Those skips are the feature. A node with an empty intent would otherwise
-// occupy a row that can never match anything useful, and it would make the index
-// a mirror of the node table rather than a record of what somebody explained.
-// @intent keep the intent index limited to nodes whose reason was actually written down.
-func buildSQLiteIntentInsert(docs []graph.SearchDocument) (string, []any) {
-	placeholders := make([]string, 0, len(docs))
-	args := make([]any, 0, len(docs)*3)
-	for _, doc := range docs {
-		if strings.TrimSpace(doc.IntentContent) == "" {
+// Those skips are the feature. A reason with no text would otherwise occupy a
+// row that can never match anything useful, and it would also lengthen the
+// average document, quietly making every real reason score lower.
+// @intent keep the intent index limited to reasons that were actually written down.
+func buildSQLiteIntentInsert(reasons []graph.SearchReason) (string, []any) {
+	placeholders := make([]string, 0, len(reasons))
+	args := make([]any, 0, len(reasons)*3)
+	for _, reason := range reasons {
+		if strings.TrimSpace(reason.Content) == "" {
 			continue
 		}
 		placeholders = append(placeholders, "(?, ?, ?)")
-		args = append(args, doc.NodeID, doc.IntentContent, doc.Namespace)
+		args = append(args, reason.NodeID, reason.Content, reason.Namespace)
 	}
 	if len(placeholders) == 0 {
 		return "", nil

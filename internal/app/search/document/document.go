@@ -51,7 +51,8 @@ func BuildContent(node graph.Node, annotations map[uint]*graph.Annotation) strin
 	return builder.String()
 }
 
-// BuildIntentContent assembles the text indexed for one node's recorded reason.
+// BuildReasons lists the texts indexed for one node's recorded reasons, one
+// entry per reason.
 //
 // This is deliberately not BuildContent with a filter. BuildContent answers "what
 // is this called", so it mixes the identifier, its split subtokens, and the path
@@ -60,30 +61,55 @@ func BuildContent(node graph.Node, annotations map[uint]*graph.Annotation) strin
 // contain a query word. Keeping the reason in its own index is what lets that
 // question be scored on the reason alone.
 //
-// Only @intent and @domainRule are taken. Both answer why the code exists; the
-// remaining tags describe what it does or what it takes, which is the name
-// index's job.
-// @intent index the reason a node exists separately from what the node is called.
-func BuildIntentContent(node graph.Node, annotations map[uint]*graph.Annotation) string {
+// One entry per reason rather than one joined string per node, because scoring
+// gives a long document less credit per word. Joined, a node's @intent was
+// scored on its own length plus the length of every @domainRule beside it, so
+// rules the question never touched cost the intent that answered it much of its
+// score. Separated, a question that matches one reason is scored on that
+// reason's length and nothing else.
+//
+// Which tag kinds count as a reason is now a list rather than a trade. Adding a
+// kind used to lengthen every existing document on that node and cost it score;
+// now it only adds documents beside them. reasonKinds is where that decision
+// lives.
+// @intent index each reason a node exists as its own document, so writing one reason down never costs another its score.
+// @return returns one entry per recorded reason in tag order, and nothing when no reason was recorded.
+func BuildReasons(node graph.Node, annotations map[uint]*graph.Annotation) []string {
 	annotation := annotations[node.ID]
 	if annotation == nil {
-		return ""
+		return nil
 	}
-	var builder strings.Builder
+	var reasons []string
+	intentTaken := false
 	for _, tag := range annotation.Tags {
-		if tag.Kind != graph.TagIntent && tag.Kind != graph.TagDomainRule {
+		if !reasonKinds[tag.Kind] {
 			continue
+		}
+		// A declaration states one purpose, so a second @intent is a writing
+		// mistake rather than a list. graph.Node.Intent shows the first one, and
+		// indexing the rest would make text findable that can never be shown as
+		// the reason it was found by.
+		if tag.Kind == graph.TagIntent {
+			if intentTaken {
+				continue
+			}
+			intentTaken = true
 		}
 		value := strings.TrimSpace(tag.Value)
 		if value == "" {
 			continue
 		}
-		if builder.Len() > 0 {
-			builder.WriteByte(' ')
-		}
-		builder.WriteString(value)
+		reasons = append(reasons, value)
 	}
-	return builder.String()
+	return reasons
+}
+
+// reasonKinds are the tag kinds that answer why the code exists. The remaining
+// kinds describe what it does or what it takes, which is the name index's job.
+// @intent keep the choice of what counts as a reason in one editable place.
+var reasonKinds = map[graph.TagKind]bool{
+	graph.TagIntent:     true,
+	graph.TagDomainRule: true,
 }
 
 // identifierSubtokens returns deduplicated camelCase/separator tokens from node identities.

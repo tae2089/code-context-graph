@@ -160,7 +160,7 @@ func setupIsolatedPostgresStore(t *testing.T) (*Store, *gorm.DB) {
 	if err := s.AutoMigrate(); err != nil {
 		t.Fatalf("migrate graph schema: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatalf("migrate search documents: %v", err)
 	}
 	return s, db

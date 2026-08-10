@@ -66,7 +66,7 @@ func (r Result) CanAnswer() bool {
 // RecordedReason returns the line that could have earned this node its place in
 // the intent index.
 //
-// It mirrors document.BuildIntentContent, which indexes @intent and @domainRule.
+// It mirrors document.BuildReasons, which indexes @intent and @domainRule.
 // Reading back only @intent would drop a node indexed on a domain rule alone,
 // and that node did not fail to record a reason — it recorded a different kind
 // of one. @intent still wins when both are present, because it says why the code

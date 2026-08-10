@@ -44,8 +44,8 @@ func (p *PostgresBackend) Migrate(db *gorm.DB) error {
 // qualified name as one host-like token and cannot answer a query naming one
 // of its segments. The trigger in migration 000019 applies the same
 // expression on every write.
-// @intent Batch regenerates the full-text search index for existing search_documents rows.
-// @sideEffect Updates search_documents.tsv values.
+// @intent Batch regenerates the full-text search index for existing search_documents and search_reasons rows.
+// @sideEffect Updates search_documents.tsv and search_reasons.reason_tsv values.
 func (p *PostgresBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 	ns := requestctx.FromContext(ctx)
 	query := `
@@ -53,10 +53,16 @@ func (p *PostgresBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 		SET tsv = to_tsvector('simple', translate(COALESCE(content, ''), '/._', '   '))
 		WHERE namespace = ?`
 	args := []any{ns}
-	return db.WithContext(ctx).Exec(query, args...).Error
+	if err := db.WithContext(ctx).Exec(query, args...).Error; err != nil {
+		return err
+	}
+	return db.WithContext(ctx).Exec(`
+		UPDATE search_reasons
+		SET reason_tsv = to_tsvector('simple', translate(COALESCE(content, ''), '/._', '   '))
+		WHERE namespace = ?`, ns).Error
 }
 
-// RebuildNodes recalculates the tsvector only for specified nodes.
+// RebuildNodes recalculates both tsvectors only for specified nodes.
 // @intent Avoids full namespace tsv updates during incremental update paths.
 func (p *PostgresBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs []uint) error {
 	if len(nodeIDs) == 0 {
@@ -72,6 +78,12 @@ func (p *PostgresBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs
 			end := min(start+scopedRebuildChunkSize, len(nodeIDs))
 			chunk := nodeIDs[start:end]
 			if err := tx.Exec(query, ns, chunk).Error; err != nil {
+				return err
+			}
+			if err := tx.Exec(`
+				UPDATE search_reasons
+				SET reason_tsv = to_tsvector('simple', translate(COALESCE(content, ''), '/._', '   '))
+				WHERE namespace = ? AND node_id IN ?`, ns, chunk).Error; err != nil {
 				return err
 			}
 		}
@@ -171,10 +183,10 @@ func (p *PostgresBackend) MatchIntent(ctx context.Context, db *gorm.DB, query st
 
 	var docs []intentrank.Doc
 	if err := db.WithContext(ctx).Raw(`
-		SELECT sd.node_id, sd.intent_content AS content
-		FROM search_documents sd
-		WHERE sd.intent_tsv @@ to_tsquery('simple', ?)
-		AND sd.namespace = ?
+		SELECT sr.node_id, sr.content
+		FROM search_reasons sr
+		WHERE sr.reason_tsv @@ to_tsquery('simple', ?)
+		AND sr.namespace = ?
 		LIMIT ?`, tsQuery, requestctx.FromContext(ctx), maxCandidates).Scan(&docs).Error; err != nil {
 		return nil, trace.Wrap(err, "intent ts_query")
 	}

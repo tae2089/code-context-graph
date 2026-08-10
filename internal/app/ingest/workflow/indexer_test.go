@@ -4228,7 +4228,7 @@ func TestUpdate_SearchRefreshIsScopedToAffectedNodes(t *testing.T) {
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate store: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatalf("migrate search docs: %v", err)
 	}
 
@@ -4313,7 +4313,7 @@ func TestUpdate_SearchRefreshEmptyScopeIsNoOp(t *testing.T) {
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate store: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatalf("migrate search docs: %v", err)
 	}
 	node := graph.Node{Namespace: requestctx.DefaultNamespace, QualifiedName: "pkg.Keep", Kind: graph.NodeKindFunction, Name: "Keep", FilePath: "keep.stub", StartLine: 1, EndLine: 1, Hash: "same", Language: "stub"}
@@ -4404,7 +4404,7 @@ func TestBuild_DoesNotWipeOtherNamespaceSearchDocuments(t *testing.T) {
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatalf("migrate search docs: %v", err)
 	}
 	backend := searchsql.NewSQLiteBackend()
@@ -4477,7 +4477,7 @@ func TestBuild_PropagatesSearchBackendRebuildError(t *testing.T) {
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatalf("migrate search docs: %v", err)
 	}
 
@@ -4538,7 +4538,7 @@ func TestBuild_SearchDocumentRefreshFailureRollsBackGraphAndDocs(t *testing.T) {
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatalf("migrate search docs: %v", err)
 	}
 
@@ -4602,7 +4602,7 @@ func TestRefreshSearchDocuments_EmptyNamespace_DoesNotTouchOtherNamespaces(t *te
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate store: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatalf("migrate search docs: %v", err)
 	}
 
@@ -4655,7 +4655,7 @@ func TestRefreshSearchDocuments_TransactionRollsBackOnInsertFailure(t *testing.T
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate store: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -4712,7 +4712,7 @@ func TestRefreshSearchDocumentsFor_RefreshesOnlyScopedNodes(t *testing.T) {
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate store: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatalf("migrate search docs: %v", err)
 	}
 
@@ -4772,7 +4772,7 @@ func TestRefreshSearchDocumentsFor_EmptyScopeIsNoOp(t *testing.T) {
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate store: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatalf("migrate search docs: %v", err)
 	}
 	node := graph.Node{Namespace: requestctx.DefaultNamespace, QualifiedName: "pkg.Keep", Kind: graph.NodeKindFunction, Name: "Keep", FilePath: "keep.go", StartLine: 1, EndLine: 2, Language: "go"}
@@ -4810,7 +4810,7 @@ func TestRefreshSearchDocumentsFor_ChunksLargeNodeScopes(t *testing.T) {
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate store: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatalf("migrate search docs: %v", err)
 	}
 
@@ -4850,7 +4850,7 @@ func TestRefreshSearchDocuments_RebuildsPerBatchWithoutAccumulatingGlobalSlice(t
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate store: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 

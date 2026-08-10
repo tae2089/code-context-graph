@@ -56,7 +56,7 @@ func setupNamespaceMigrationDB(t *testing.T) *gorm.DB {
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate store: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.Flow{}, &graph.FlowMembership{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}, &graph.Flow{}, &graph.FlowMembership{}); err != nil {
 		t.Fatalf("migrate extra models: %v", err)
 	}
 	return db
@@ -447,7 +447,7 @@ func TestRunMigrations_WrapsParityFailureWithRemediation(t *testing.T) {
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate store: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.Flow{}, &graph.FlowMembership{}, &graph.SchemaVersion{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}, &graph.Flow{}, &graph.FlowMembership{}, &graph.SchemaVersion{}); err != nil {
 		t.Fatalf("migrate extra models: %v", err)
 	}
 	if err := db.Create(&graph.SchemaVersion{Key: migration.SchemaVersionKey, Version: migration.RequiredSchemaVersion}).Error; err != nil {
@@ -622,7 +622,7 @@ func TestRunMigrations_FailsLegacyBaselineWithSchemaDrift(t *testing.T) {
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate store: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.Flow{}, &graph.FlowMembership{}, &graph.SchemaVersion{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}, &graph.Flow{}, &graph.FlowMembership{}, &graph.SchemaVersion{}); err != nil {
 		t.Fatalf("migrate extra models: %v", err)
 	}
 	if err := db.Create(&graph.SchemaVersion{Key: migration.SchemaVersionKey, Version: migration.RequiredSchemaVersion}).Error; err != nil {

@@ -1,6 +1,7 @@
 package document
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -56,7 +57,7 @@ func TestBuildSearchContent_EmitsIdentifierSubtokens(t *testing.T) {
 // answer it: `newRootCmd main.newRootCmd function new root cmd main main go` sits
 // in the same bag as the sentence a person actually wrote, so a query word
 // matching a name scores the same as one matching the reason.
-func TestBuildIntentContent_KeepsOnlyTheRecordedReason(t *testing.T) {
+func TestBuildReasons_KeepsOnlyTheRecordedReasons(t *testing.T) {
 	node := graph.Node{
 		ID:            7,
 		Name:          "newRootCmd",
@@ -78,25 +79,75 @@ func TestBuildIntentContent_KeepsOnlyTheRecordedReason(t *testing.T) {
 		},
 	}
 
-	content := BuildIntentContent(node, annotations)
+	reasons := BuildReasons(node, annotations)
 
-	for _, want := range []string{"keep self-hosted server flags separate", "a server build never reads the local config file"} {
-		if !strings.Contains(content, want) {
-			t.Errorf("intent content %q is missing the recorded reason %q", content, want)
-		}
+	want := []string{
+		"keep self-hosted server flags separate from the local CLI",
+		"a server build never reads the local config file",
+	}
+	if !slices.Equal(reasons, want) {
+		t.Errorf("reasons are %q, want %q", reasons, want)
 	}
 	// Every one of these is why the shared index cannot answer an intent question.
+	joined := strings.Join(reasons, " ")
 	for _, unwanted := range []string{"newRootCmd", "main.newRootCmd", "function", "main.go", "opens the DB", "server options"} {
-		if strings.Contains(content, unwanted) {
-			t.Errorf("intent content %q carries %q, which belongs to the name index", content, unwanted)
+		if strings.Contains(joined, unwanted) {
+			t.Errorf("the reasons carry %q, which belongs to the name index", unwanted)
 		}
+	}
+}
+
+// The whole point of the split: a reason is a document, so three domain rules
+// are three documents and not one long one. Joined, the intent that answers a
+// question would be scored on the length of two rules that answer nothing.
+func TestBuildReasons_GivesEveryReasonTagItsOwnDocument(t *testing.T) {
+	node := graph.Node{ID: 9, Name: "deliver", QualifiedName: "webhook.deliver", Kind: graph.NodeKindFunction, FilePath: "webhook/deliver.go"}
+	annotations := map[uint]*graph.Annotation{
+		9: {NodeID: 9, Tags: []graph.DocTag{
+			{Kind: graph.TagIntent, Value: "verify the signature so a push from anywhere else is rejected", Ordinal: 0},
+			{Kind: graph.TagDomainRule, Value: "a rejected delivery is retried at most five times", Ordinal: 1},
+			{Kind: graph.TagDomainRule, Value: "the retry delay doubles each attempt", Ordinal: 2},
+			{Kind: graph.TagDomainRule, Value: "a dropped delivery is written to the audit log", Ordinal: 3},
+		}},
+	}
+
+	reasons := BuildReasons(node, annotations)
+
+	want := []string{
+		"verify the signature so a push from anywhere else is rejected",
+		"a rejected delivery is retried at most five times",
+		"the retry delay doubles each attempt",
+		"a dropped delivery is written to the audit log",
+	}
+	if !slices.Equal(reasons, want) {
+		t.Errorf("reasons are %q, want one document per reason tag: %q", reasons, want)
+	}
+}
+
+// A declaration states one purpose, so a second @intent is a writing mistake
+// rather than a list, and graph.Node.Intent has always shown the first one.
+// Indexing both would make the second one findable and then impossible to
+// display, which is a search result whose stated reason does not contain the
+// words that found it.
+func TestBuildReasons_IndexesTheSameIntentTheReaderIsShown(t *testing.T) {
+	node := graph.Node{ID: 4, Name: "Build", QualifiedName: "pkg.Build", Kind: graph.NodeKindFunction, FilePath: "pkg/build.go"}
+	node.Annotation = &graph.Annotation{NodeID: 4, Tags: []graph.DocTag{
+		{Kind: graph.TagIntent, Value: "perform a full graph build", Ordinal: 0},
+		{Kind: graph.TagIntent, Value: "also refresh the search index", Ordinal: 1},
+	}}
+	annotations := map[uint]*graph.Annotation{4: node.Annotation}
+
+	reasons := BuildReasons(node, annotations)
+
+	if !slices.Equal(reasons, []string{node.Intent()}) {
+		t.Errorf("indexed %q, want exactly the one reason the reader is shown: %q", reasons, node.Intent())
 	}
 }
 
 // A node with nothing recorded must produce nothing, not an empty-ish row. The
 // tool promises to say "no reason was written down here" rather than guess, and
 // it can only keep that promise if these nodes stay out of the index.
-func TestBuildIntentContent_EmptyWhenNoReasonWasRecorded(t *testing.T) {
+func TestBuildReasons_EmptyWhenNoReasonWasRecorded(t *testing.T) {
 	node := graph.Node{ID: 3, Name: "helper", QualifiedName: "pkg.helper", Kind: graph.NodeKindFunction, FilePath: "pkg/helper.go"}
 	cases := map[string]map[uint]*graph.Annotation{
 		"no annotation at all": nil,
@@ -105,11 +156,14 @@ func TestBuildIntentContent_EmptyWhenNoReasonWasRecorded(t *testing.T) {
 				{Kind: graph.TagSideEffect, Value: "writes a file"},
 			}},
 		},
+		"a reason tag holding only whitespace": {
+			3: {NodeID: 3, Tags: []graph.DocTag{{Kind: graph.TagIntent, Value: "   "}}},
+		},
 	}
 	for name, annotations := range cases {
 		t.Run(name, func(t *testing.T) {
-			if content := BuildIntentContent(node, annotations); content != "" {
-				t.Errorf("expected no intent content, got %q", content)
+			if reasons := BuildReasons(node, annotations); len(reasons) != 0 {
+				t.Errorf("expected no reasons, got %q", reasons)
 			}
 		})
 	}

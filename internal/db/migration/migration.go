@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	RequiredSchemaVersion    = 19
+	RequiredSchemaVersion    = 20
 	SchemaVersionKey         = "schema"
 	LegacySchemaVersionTable = "ccg_schema_versions"
 )
@@ -382,6 +382,7 @@ func RequiredSchemaTables() []string {
 		"flows",
 		"flow_memberships",
 		"search_documents",
+		"search_reasons",
 		"parse_cache_entries",
 		"unresolved_edge_candidates",
 		"unresolved_index_states",
@@ -422,8 +423,9 @@ func RequiredTextColumns() []SchemaColumn {
 		{Table: "flow_memberships", Column: "namespace"},
 		{Table: "search_documents", Column: "namespace"},
 		{Table: "search_documents", Column: "content"},
-		{Table: "search_documents", Column: "intent_content"},
 		{Table: "search_documents", Column: "language"},
+		{Table: "search_reasons", Column: "namespace"},
+		{Table: "search_reasons", Column: "content"},
 		{Table: "parse_cache_entries", Column: "namespace"},
 		{Table: "parse_cache_entries", Column: "file_path"},
 		{Table: "parse_cache_entries", Column: "source_hash"},
