@@ -143,9 +143,12 @@ func rerankWithRanks(query string, nodes []graph.Node, retrievalRank []int, limi
 		return cmp.Compare(pathScores[b], pathScores[a])
 	})
 
-	// Structural evidence alone decides the order; the retrieval rank only
-	// separates candidates the structural signal cannot tell apart, which keeps
-	// the output deterministic.
+	// Structural evidence alone decides the order. Candidates it cannot tell
+	// apart are ordered by who they are — file path, then qualified name —
+	// rather than by the backend's rank, because SQLite's bm25 and PostgreSQL's
+	// ts_rank stand equal candidates differently and the same query must give
+	// the same answer on both. The retrieval rank remains only for candidates
+	// with the same identity, where it keeps the output deterministic.
 	order := make([]int, len(nodes))
 	for i := range order {
 		order[i] = i
@@ -154,6 +157,9 @@ func rerankWithRanks(query string, nodes []graph.Node, retrievalRank []int, limi
 		x, y := order[a], order[b]
 		if structRank[x] != structRank[y] {
 			return structRank[x] < structRank[y]
+		}
+		if by := compareIdentity(nodes[x], nodes[y]); by != 0 {
+			return by < 0
 		}
 		return retrievalRank[x] < retrievalRank[y]
 	})
@@ -193,6 +199,24 @@ func RerankGroups(query string, groups [][]graph.Node, limit int) []graph.Node {
 		}
 	}
 	return rerankWithRanks(query, merged, retrievalRank, limit)
+}
+
+// compareIdentity orders two structurally tied candidates by who they are.
+// File path comes first so a tie group reads as whole files, matching how the
+// evidence list will group it anyway; namespace is included because federated
+// search can hold the same file in two repositories.
+// @intent break structural ties by node identity so the order never depends on which backend retrieved the pool.
+func compareIdentity(a, b graph.Node) int {
+	if by := cmp.Compare(a.FilePath, b.FilePath); by != 0 {
+		return by
+	}
+	if by := cmp.Compare(a.QualifiedName, b.QualifiedName); by != 0 {
+		return by
+	}
+	if by := cmp.Compare(a.Kind, b.Kind); by != 0 {
+		return by
+	}
+	return cmp.Compare(a.Namespace, b.Namespace)
 }
 
 // applyLimit bounds the result slice, treating a non-positive limit as unbounded.

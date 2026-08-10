@@ -103,6 +103,23 @@ func TestRerank_TiePreservesFTSOrder(t *testing.T) {
 	assertNodeIDOrder(t, got, []uint{1, 2, 3})
 }
 
+// 구조 신호가 동점인 서로 다른 노드는 어느 백엔드가 어떤 순서로 넘겨줬든
+// 같은 순서로 나와야 한다. SQLite의 bm25와 PostgreSQL의 ts_rank는 동점
+// 후보를 서로 다르게 세우므로, 동점 구간을 검색 순위로 깨면 같은 질의가
+// 백엔드마다 다른 답을 낸다.
+func TestRerank_TieOrderIsBackendIndependent(t *testing.T) {
+	a := graph.Node{ID: 1, Name: "same", QualifiedName: "pkg.Widget.same", FilePath: "pkg/widget.go"}
+	b := graph.Node{ID: 2, Name: "same", QualifiedName: "pkg.Gadget.same", FilePath: "pkg/gadget.go"}
+
+	sqliteOrder := Rerank("anything", []graph.Node{a, b}, 10)
+	postgresOrder := Rerank("anything", []graph.Node{b, a}, 10)
+
+	if sqliteOrder[0].ID != postgresOrder[0].ID || sqliteOrder[1].ID != postgresOrder[1].ID {
+		t.Fatalf("tie order depends on retrieval order: %d,%d vs %d,%d",
+			sqliteOrder[0].ID, sqliteOrder[1].ID, postgresOrder[0].ID, postgresOrder[1].ID)
+	}
+}
+
 // limit은 리랭크 후에 적용된다: 승격된 노드가 잘려나가면 안 된다.
 func TestRerank_LimitAppliedAfterRerank(t *testing.T) {
 	nodes := []graph.Node{
@@ -213,7 +230,13 @@ func TestRerankGroups_GroupOrderDoesNotChangeRanking(t *testing.T) {
 
 // 구조 점수가 완전히 같은 후보들은 구조 순위도 같아야 한다. 배열 위치로
 // 순위를 나누면 뒤쪽 그룹이 동점인데도 앞쪽 그룹 전체 뒤로 밀린다.
-func TestRerankGroups_TiedStructScoreDoesNotSinkLaterGroup(t *testing.T) {
+// 동점 구간의 순서는 그룹이 어떤 순서로 공급됐는지와 무관해야 한다. 예전에는
+// "자기 목록에서의 순위"로 동점을 깼는데, 그 순위는 백엔드마다 다르게 매겨지므로
+// 같은 질의가 백엔드마다 다른 답을 냈다. 지금은 노드 정체성(파일 경로, 정규화
+// 이름)으로 깨기 때문에, 나중에 질의된 네임스페이스가 불리해지지 않는다는 원래
+// 보장이 더 강한 형태로 성립한다: 위치가 공급 순서에 전혀 의존하지 않는다.
+// 네임스페이스별 노출 보장은 서비스 계층의 파일 쿼터가 담당한다.
+func TestRerankGroups_TieOrderIgnoresGroupSupplyOrder(t *testing.T) {
 	alpha := make([]graph.Node, 0, fetchFloor)
 	for i := range fetchFloor {
 		alpha = append(alpha, graph.Node{
@@ -224,15 +247,23 @@ func TestRerankGroups_TiedStructScoreDoesNotSinkLaterGroup(t *testing.T) {
 			FilePath:      "alpha/user.go",
 		})
 	}
-	// beta의 후보는 alpha 후보들과 구조 신호가 완전히 동일하고, 자기 목록에서 1위다.
 	beta := []graph.Node{
 		{ID: 9001, Namespace: "beta", Name: "getUserById", QualifiedName: "beta.getUserById", FilePath: "beta/user.go"},
 	}
 
-	got := nodeIDs(RerankGroups("getUserById", [][]graph.Node{alpha, beta}, 0))
-	// 동점이므로 alpha의 1위와만 순서 경쟁하면 된다: beta는 2번째 자리여야 한다.
-	if len(got) < 2 || got[1] != 9001 {
-		t.Fatalf("tied later-group hit sank to position %d, want 1 (got %v...)", indexOf(got, 9001), got[:min(5, len(got))])
+	alphaFirst := nodeIDs(RerankGroups("getUserById", [][]graph.Node{alpha, beta}, 0))
+	betaFirst := nodeIDs(RerankGroups("getUserById", [][]graph.Node{beta, alpha}, 0))
+
+	if len(alphaFirst) != len(betaFirst) {
+		t.Fatalf("group supply order changed the result size: %d vs %d", len(alphaFirst), len(betaFirst))
+	}
+	for i := range alphaFirst {
+		if alphaFirst[i] != betaFirst[i] {
+			t.Fatalf("position %d depends on group supply order: %d vs %d", i, alphaFirst[i], betaFirst[i])
+		}
+	}
+	if indexOf(alphaFirst, 9001) < 0 {
+		t.Fatal("the tied single-candidate group was dropped")
 	}
 }
 
