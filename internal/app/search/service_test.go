@@ -593,6 +593,28 @@ func walkFederated(t *testing.T, svc *Service, namespaces []string, p Params, ma
 	return nil, nil
 }
 
+// Federated paging is cut from one pool per repository, so it comes apart the
+// same way a single repository's does when the pool it is cut from is reordered
+// as a whole. Each repository here hands over the order that runs against
+// structural scoring, and there are enough files in each that the pool has to
+// grow past its first block to reach the end.
+func TestSearchFederated_PagesToTheEndWhenEveryBackendOrderRunsAgainstTheStructuralOne(t *testing.T) {
+	namespaces := []string{"repo-a", "repo-b"}
+	const filesEach = 120
+	svc := New(&fakeSearcher{byNamespace: map[string][]graph.Node{
+		"repo-a": reversedCorpus(filesEach, 1),
+		"repo-b": reversedCorpus(filesEach, 1),
+	}})
+
+	seen, repeats := walkFederated(t, svc, namespaces, Params{Query: "alpha", Limit: 10}, filesEach)
+	if len(repeats) > 0 {
+		t.Errorf("%d files came back on more than one page: %v", len(repeats), repeats)
+	}
+	if want := filesEach * len(namespaces); len(seen) != want {
+		t.Errorf("paging reached %d files, want all %d", len(seen), want)
+	}
+}
+
 func TestSearchFederated_PagingWithTheSuggestedOffsetSkipsAndRepeatsNothing(t *testing.T) {
 	namespaces := []string{"repo-a", "repo-b"}
 	const filesEach = 10
