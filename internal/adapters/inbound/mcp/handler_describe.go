@@ -9,6 +9,7 @@ import (
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/app/describe"
+	searchwire "github.com/tae2089/code-context-graph/internal/app/search/wire"
 )
 
 // describeReplacedPatterns are the query_graph patterns describe took over.
@@ -69,12 +70,12 @@ type describeSuggestion struct {
 //
 // @intent answer "what is in here" exactly, so the ranked tools never have to guess.
 type describeResponse struct {
-	Target       string               `json:"target"`
-	Scope        string               `json:"scope"`
-	Children     []describeChild      `json:"children,omitempty"`
-	Declarations []describeDecl       `json:"declarations,omitempty"`
-	Suggestions  []describeSuggestion `json:"suggestions,omitempty"`
-	Next         []nextAction         `json:"next,omitempty"`
+	Target       string                  `json:"target"`
+	Scope        string                  `json:"scope"`
+	Children     []describeChild         `json:"children,omitempty"`
+	Declarations []describeDecl          `json:"declarations,omitempty"`
+	Suggestions  []describeSuggestion    `json:"suggestions,omitempty"`
+	Next         []searchwire.NextAction `json:"next,omitempty"`
 }
 
 // describe lists what the graph holds under one path.
@@ -152,18 +153,18 @@ func newDescribeResponse(outline describe.Outline) describeResponse {
 // call per row would be longer than the answer.
 //
 // @ensures every returned action names a real tool with arguments that need no editing.
-func describeNextActions(outline describe.Outline) []nextAction {
+func describeNextActions(outline describe.Outline) []searchwire.NextAction {
 	if outline.Scope != describe.ScopeUnknown {
 		return nil
 	}
 	if len(outline.Suggestions) > 0 {
-		return []nextAction{{
+		return []searchwire.NextAction{{
 			Reason: fmt.Sprintf("%q is not a path in this graph, but that name is declared in %s", outline.Target, outline.Suggestions[0].FilePath),
 			Tool:   "describe",
 			Args:   map[string]any{"target": outline.Suggestions[0].FilePath},
 		}}
 	}
-	return []nextAction{
+	return []searchwire.NextAction{
 		{
 			Reason: fmt.Sprintf("nothing is stored under %q; search matches it as an identifier and as a question against recorded reasons", outline.Target),
 			Tool:   "search",
