@@ -5,9 +5,11 @@
   "SuggestionsFor": {},
   "active help": {},
   "database connection pool": {},
+  "flag error": {},
   "flag groups": {},
   "levenshtein": {},
   "persistent flags": {},
   "shell completion": {},
-  "usage template": {}
+  "usage template": {},
+  "valid args": {}
 }

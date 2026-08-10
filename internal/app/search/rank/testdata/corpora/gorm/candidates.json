@@ -269,6 +269,267 @@
       "file_path": "internal/stmt_store/stmt_store.go"
     }
   ],
+  "association": [
+    {
+      "id": 141,
+      "name": "Association",
+      "qualified_name": "clause.Association",
+      "kind": "class",
+      "file_path": "clause/association.go"
+    },
+    {
+      "id": 144,
+      "name": "AssociationAssignments",
+      "qualified_name": "clause.Association.AssociationAssignments",
+      "kind": "function",
+      "file_path": "clause/association.go"
+    },
+    {
+      "id": 140,
+      "name": "AssociationOpType",
+      "qualified_name": "clause.AssociationOpType",
+      "kind": "type",
+      "file_path": "clause/association.go"
+    },
+    {
+      "id": 139,
+      "name": "clause/association.go",
+      "qualified_name": "clause/association.go",
+      "kind": "file",
+      "file_path": "clause/association.go"
+    },
+    {
+      "id": 142,
+      "name": "AssociationAssigner",
+      "qualified_name": "clause.AssociationAssigner",
+      "kind": "type",
+      "file_path": "clause/association.go"
+    },
+    {
+      "id": 12,
+      "name": "Association",
+      "qualified_name": "gorm.DB.Association",
+      "kind": "function",
+      "file_path": "association.go"
+    },
+    {
+      "id": 24,
+      "name": "callbacks/associations.go",
+      "qualified_name": "callbacks/associations.go",
+      "kind": "file",
+      "file_path": "callbacks/associations.go"
+    },
+    {
+      "id": 11,
+      "name": "Association",
+      "qualified_name": "gorm.Association",
+      "kind": "class",
+      "file_path": "association.go"
+    },
+    {
+      "id": 10,
+      "name": "association.go",
+      "qualified_name": "association.go",
+      "kind": "file",
+      "file_path": "association.go"
+    },
+    {
+      "id": 13,
+      "name": "Unscoped",
+      "qualified_name": "gorm.Association.Unscoped",
+      "kind": "function",
+      "file_path": "association.go"
+    },
+    {
+      "id": 14,
+      "name": "Find",
+      "qualified_name": "gorm.Association.Find",
+      "kind": "function",
+      "file_path": "association.go"
+    },
+    {
+      "id": 15,
+      "name": "Append",
+      "qualified_name": "gorm.Association.Append",
+      "kind": "function",
+      "file_path": "association.go"
+    },
+    {
+      "id": 16,
+      "name": "Replace",
+      "qualified_name": "gorm.Association.Replace",
+      "kind": "function",
+      "file_path": "association.go"
+    },
+    {
+      "id": 17,
+      "name": "Delete",
+      "qualified_name": "gorm.Association.Delete",
+      "kind": "function",
+      "file_path": "association.go"
+    },
+    {
+      "id": 18,
+      "name": "Clear",
+      "qualified_name": "gorm.Association.Clear",
+      "kind": "function",
+      "file_path": "association.go"
+    },
+    {
+      "id": 19,
+      "name": "Count",
+      "qualified_name": "gorm.Association.Count",
+      "kind": "function",
+      "file_path": "association.go"
+    },
+    {
+      "id": 21,
+      "name": "saveAssociation",
+      "qualified_name": "gorm.Association.saveAssociation",
+      "kind": "function",
+      "file_path": "association.go"
+    },
+    {
+      "id": 22,
+      "name": "buildCondition",
+      "qualified_name": "gorm.Association.buildCondition",
+      "kind": "function",
+      "file_path": "association.go"
+    },
+    {
+      "id": 211,
+      "name": "Association",
+      "qualified_name": "clause.JoinType.Association",
+      "kind": "function",
+      "file_path": "clause/joins.go"
+    },
+    {
+      "id": 212,
+      "name": "AssociationFrom",
+      "qualified_name": "clause.JoinType.AssociationFrom",
+      "kind": "function",
+      "file_path": "clause/joins.go"
+    },
+    {
+      "id": 143,
+      "name": "Assignments",
+      "qualified_name": "clause.Association.Assignments",
+      "kind": "function",
+      "file_path": "clause/association.go"
+    },
+    {
+      "id": 28,
+      "name": "saveAssociations",
+      "qualified_name": "callbacks.saveAssociations",
+      "kind": "function",
+      "file_path": "callbacks/associations.go"
+    },
+    {
+      "id": 25,
+      "name": "SaveBeforeAssociations",
+      "qualified_name": "callbacks.SaveBeforeAssociations",
+      "kind": "function",
+      "file_path": "callbacks/associations.go"
+    },
+    {
+      "id": 26,
+      "name": "SaveAfterAssociations",
+      "qualified_name": "callbacks.SaveAfterAssociations",
+      "kind": "function",
+      "file_path": "callbacks/associations.go"
+    },
+    {
+      "id": 29,
+      "name": "checkAssociationsSaved",
+      "qualified_name": "callbacks.checkAssociationsSaved",
+      "kind": "function",
+      "file_path": "callbacks/associations.go"
+    },
+    {
+      "id": 400,
+      "name": "executeAssociationOperation",
+      "qualified_name": "gorm.setCreateOrUpdateG[T].executeAssociationOperation",
+      "kind": "function",
+      "file_path": "generics.go"
+    },
+    {
+      "id": 20,
+      "name": "assignBack",
+      "qualified_name": "gorm.assignBack",
+      "kind": "class",
+      "file_path": "association.go"
+    },
+    {
+      "id": 23,
+      "name": "expandValues",
+      "qualified_name": "gorm.expandValues",
+      "kind": "function",
+      "file_path": "association.go"
+    },
+    {
+      "id": 27,
+      "name": "onConflictOption",
+      "qualified_name": "callbacks.onConflictOption",
+      "kind": "function",
+      "file_path": "callbacks/associations.go"
+    },
+    {
+      "id": 42,
+      "name": "DeleteBeforeAssociations",
+      "qualified_name": "callbacks.DeleteBeforeAssociations",
+      "kind": "function",
+      "file_path": "callbacks/delete.go"
+    },
+    {
+      "id": 402,
+      "name": "handleAssociationForOwners",
+      "qualified_name": "gorm.setCreateOrUpdateG[T].handleAssociationForOwners",
+      "kind": "function",
+      "file_path": "generics.go"
+    },
+    {
+      "id": 401,
+      "name": "handleAssociationCreate",
+      "qualified_name": "gorm.setCreateOrUpdateG[T].handleAssociationCreate",
+      "kind": "function",
+      "file_path": "generics.go"
+    },
+    {
+      "id": 403,
+      "name": "handleAssociation",
+      "qualified_name": "gorm.setCreateOrUpdateG[T].handleAssociation",
+      "kind": "function",
+      "file_path": "generics.go"
+    },
+    {
+      "id": 397,
+      "name": "setCreateOrUpdateG",
+      "qualified_name": "gorm.setCreateOrUpdateG",
+      "kind": "class",
+      "file_path": "generics.go"
+    },
+    {
+      "id": 134,
+      "name": "Preload",
+      "qualified_name": "gorm.DB.Preload",
+      "kind": "function",
+      "file_path": "chainable_api.go"
+    },
+    {
+      "id": 62,
+      "name": "parsePreloadMap",
+      "qualified_name": "callbacks.parsePreloadMap",
+      "kind": "function",
+      "file_path": "callbacks/preload.go"
+    },
+    {
+      "id": 61,
+      "name": "callbacks/preload.go",
+      "qualified_name": "callbacks/preload.go",
+      "kind": "file",
+      "file_path": "callbacks/preload.go"
+    }
+  ],
   "create in batches": [
     {
       "id": 291,
@@ -607,6 +868,85 @@
       "qualified_name": "gorm.DB.Unscoped",
       "kind": "function",
       "file_path": "chainable_api.go"
+    }
+  ],
+  "table name": [
+    {
+      "id": 593,
+      "name": "Name",
+      "qualified_name": "migrator.TableType.Name",
+      "kind": "function",
+      "file_path": "migrator/table_type.go"
+    },
+    {
+      "id": 667,
+      "name": "TableName",
+      "qualified_name": "schema.NamingStrategy.TableName",
+      "kind": "function",
+      "file_path": "schema/naming.go"
+    },
+    {
+      "id": 153,
+      "name": "Table",
+      "qualified_name": "clause.Table",
+      "kind": "class",
+      "file_path": "clause/clause.go"
+    },
+    {
+      "id": 707,
+      "name": "TablerWithNamer",
+      "qualified_name": "schema.TablerWithNamer",
+      "kind": "type",
+      "file_path": "schema/schema.go"
+    },
+    {
+      "id": 540,
+      "name": "Table",
+      "qualified_name": "migrator.Index.Table",
+      "kind": "function",
+      "file_path": "migrator/index.go"
+    },
+    {
+      "id": 670,
+      "name": "JoinTableName",
+      "qualified_name": "schema.NamingStrategy.JoinTableName",
+      "kind": "function",
+      "file_path": "schema/naming.go"
+    },
+    {
+      "id": 668,
+      "name": "SchemaName",
+      "qualified_name": "schema.NamingStrategy.SchemaName",
+      "kind": "function",
+      "file_path": "schema/naming.go"
+    },
+    {
+      "id": 709,
+      "name": "ParseWithSpecialTableName",
+      "qualified_name": "schema.ParseWithSpecialTableName",
+      "kind": "function",
+      "file_path": "schema/schema.go"
+    },
+    {
+      "id": 779,
+      "name": "ParseWithSpecialTableName",
+      "qualified_name": "gorm.Statement.ParseWithSpecialTableName",
+      "kind": "function",
+      "file_path": "statement.go"
+    },
+    {
+      "id": 573,
+      "name": "GuessConstraintInterfaceAndTable",
+      "qualified_name": "migrator.Migrator.GuessConstraintInterfaceAndTable",
+      "kind": "function",
+      "file_path": "migrator/migrator.go"
+    },
+    {
+      "id": 572,
+      "name": "GuessConstraintAndTable",
+      "qualified_name": "migrator.Migrator.GuessConstraintAndTable",
+      "kind": "function",
+      "file_path": "migrator/migrator.go"
     }
   ]
 }

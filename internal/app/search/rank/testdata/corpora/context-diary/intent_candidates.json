@@ -247,6 +247,77 @@
       }
     ]
   },
+  "explain": {
+    "corpus": 61,
+    "terms": [
+      {
+        "text": "explain",
+        "in_reasons": 5
+      }
+    ],
+    "hits": [
+      {
+        "id": 1278,
+        "name": "ByHashes",
+        "qualified_name": "store.Store.ByHashes",
+        "kind": "function",
+        "file_path": "internal/store/store.go",
+        "intent": "hydrate index entries for a set of commit hashes, oldest first — the join step behind explain_function",
+        "reason": "hydrate index entries for a set of commit hashes, oldest first — the join step behind explain_function",
+        "terms": [
+          "explain"
+        ]
+      },
+      {
+        "id": 1135,
+        "name": "run",
+        "qualified_name": "main.run",
+        "kind": "function",
+        "file_path": "cmd/context-diary/main.go",
+        "intent": "single entry point that routes the CLI subcommand (init/hook/lint/index/serve/backfill/explain/scopes/instructions)",
+        "reason": "single entry point that routes the CLI subcommand (init/hook/lint/index/serve/backfill/explain/scopes/instructions)",
+        "terms": [
+          "explain"
+        ]
+      },
+      {
+        "id": 1125,
+        "name": "cmd/context-diary/explain.go",
+        "qualified_name": "cmd/context-diary/explain.go",
+        "kind": "file",
+        "file_path": "cmd/context-diary/explain.go",
+        "intent": "implement `context-diary explain \u003cfile\u003e \u003cfunction\u003e`: print a function why-timeline by joining git line history with the index",
+        "reason": "implement `context-diary explain \u003cfile\u003e \u003cfunction\u003e`: print a function why-timeline by joining git line history with the index",
+        "terms": [
+          "explain"
+        ]
+      },
+      {
+        "id": 1126,
+        "name": "cmdExplain",
+        "qualified_name": "main.cmdExplain",
+        "kind": "function",
+        "file_path": "cmd/context-diary/explain.go",
+        "intent": "implement `context-diary explain \u003cfile\u003e \u003cfunction\u003e`: print a function why-timeline by joining git line history with the index",
+        "reason": "implement `context-diary explain \u003cfile\u003e \u003cfunction\u003e`: print a function why-timeline by joining git line history with the index",
+        "terms": [
+          "explain"
+        ]
+      },
+      {
+        "id": 1246,
+        "name": "NewServer",
+        "qualified_name": "mcptool.NewServer",
+        "kind": "function",
+        "file_path": "internal/mcptool/mcptool.go",
+        "intent": "expose the context index to AI assistants as MCP tools so anyone can ask why code is the way it is",
+        "reason": "expose the context index to AI assistants as MCP tools so anyone can ask why code is the way it is",
+        "terms": [
+          "explain"
+        ]
+      }
+    ]
+  },
   "explain function": {
     "corpus": 61,
     "terms": [
@@ -866,6 +937,144 @@
         "reason": "expose the context index to AI assistants as MCP tools so anyone can ask why code is the way it is",
         "terms": [
           "mirror"
+        ]
+      }
+    ]
+  },
+  "rescan commits": {
+    "corpus": 61,
+    "terms": [
+      {
+        "text": "rescan",
+        "in_reasons": 5
+      },
+      {
+        "text": "commits",
+        "in_reasons": 8
+      }
+    ],
+    "hits": [
+      {
+        "id": 1275,
+        "name": "SaveEntries",
+        "qualified_name": "store.Store.SaveEntries",
+        "kind": "function",
+        "file_path": "internal/store/store.go",
+        "intent": "atomically persist a batch of context entries and advance the repo cursor so a crash never skips or duplicates commits",
+        "reason": "atomically persist a batch of context entries and advance the repo cursor so a crash never skips or duplicates commits",
+        "terms": [
+          "rescan",
+          "commits"
+        ]
+      },
+      {
+        "id": 1221,
+        "name": "Run",
+        "qualified_name": "ingest.Run",
+        "kind": "function",
+        "file_path": "internal/ingest/ingest.go",
+        "intent": "walk history since the cursor, map commits to entries, and save them — the shared path behind the index CLI and the serve merge webhook",
+        "reason": "walk history since the cursor, map commits to entries, and save them — the shared path behind the index CLI and the serve merge webhook",
+        "terms": [
+          "rescan",
+          "commits"
+        ]
+      },
+      {
+        "id": 1187,
+        "name": "WalkFull",
+        "qualified_name": "gitlog.WalkFull",
+        "kind": "function",
+        "file_path": "internal/gitlog/gitlog.go",
+        "intent": "index every branch commit of a merge-commit workflow, not just the first-parent line, so per-commit context is preserved",
+        "reason": "index every branch commit of a merge-commit workflow, not just the first-parent line, so per-commit context is preserved",
+        "terms": [
+          "rescan",
+          "commits"
+        ]
+      },
+      {
+        "id": 1146,
+        "name": "rescanHandler",
+        "qualified_name": "main.rescanHandler",
+        "kind": "function",
+        "file_path": "cmd/context-diary/serve.go",
+        "intent": "serve POST /admin/rescan?repo=owner/repo[\u0026branch=name]: re-sync the mirror and rewalk full history into the index",
+        "reason": "serve POST /admin/rescan?repo=owner/repo[\u0026branch=name]: re-sync the mirror and rewalk full history into the index",
+        "terms": [
+          "rescan"
+        ]
+      },
+      {
+        "id": 1181,
+        "name": "ListPRCommits",
+        "qualified_name": "github.Client.ListPRCommits",
+        "kind": "function",
+        "file_path": "internal/forge/github/github.go",
+        "intent": "fetch a PR's branch commits so the bot can validate the commit-path context carrier for merge/rebase teams",
+        "reason": "fetch a PR's branch commits so the bot can validate the commit-path context carrier for merge/rebase teams",
+        "terms": [
+          "commits"
+        ]
+      },
+      {
+        "id": 1129,
+        "name": "cmdIndex",
+        "qualified_name": "main.cmdIndex",
+        "kind": "function",
+        "file_path": "cmd/context-diary/index.go",
+        "intent": "implement `context-diary index`: scan default-branch history and upsert context entries into Postgres",
+        "reason": "implement `context-diary index`: scan default-branch history and upsert context entries into Postgres",
+        "terms": [
+          "rescan"
+        ]
+      },
+      {
+        "id": 1122,
+        "name": "cmd/context-diary/backfill.go",
+        "qualified_name": "cmd/context-diary/backfill.go",
+        "kind": "file",
+        "file_path": "cmd/context-diary/backfill.go",
+        "intent": "implement `context-diary backfill`: list commits still lacking context as the worklist an AI agent annotates via git notes",
+        "reason": "implement `context-diary backfill`: list commits still lacking context as the worklist an AI agent annotates via git notes",
+        "terms": [
+          "commits"
+        ]
+      },
+      {
+        "id": 1123,
+        "name": "cmdBackfill",
+        "qualified_name": "main.cmdBackfill",
+        "kind": "function",
+        "file_path": "cmd/context-diary/backfill.go",
+        "intent": "implement `context-diary backfill`: list commits still lacking context as the worklist an AI agent annotates via git notes",
+        "reason": "implement `context-diary backfill`: list commits still lacking context as the worklist an AI agent annotates via git notes",
+        "terms": [
+          "commits"
+        ]
+      },
+      {
+        "id": 1185,
+        "name": "CommitsTouching",
+        "qualified_name": "funclog.CommitsTouching",
+        "kind": "function",
+        "file_path": "internal/funclog/funclog.go",
+        "intent": "list the commits that changed one function, so their context can be joined into a per-function why-timeline",
+        "reason": "list the commits that changed one function, so their context can be joined into a per-function why-timeline",
+        "terms": [
+          "commits"
+        ]
+      },
+      {
+        "id": 1255,
+        "name": "Evaluate",
+        "qualified_name": "preview.Evaluate",
+        "kind": "function",
+        "file_path": "internal/preview/preview.go",
+        "intent": "decide whether a PR carries enough context to merge, and render the bot comment, status description, and check page",
+        "reason": "decide whether a PR carries enough context to merge, and render the bot comment, status description, and check page",
+        "terms": [
+          "commits"
         ]
       }
     ]

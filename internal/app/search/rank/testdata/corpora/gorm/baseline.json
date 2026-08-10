@@ -93,6 +93,25 @@
     "rank": 1
   },
   {
+    "query": "table name",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 11,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "association",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 32,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1,
+    "weak_filtered": 5
+  },
+  {
     "query": "kubernetes ingress controller",
     "bucket": "negative",
     "negative": true,

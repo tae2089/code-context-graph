@@ -88,6 +88,26 @@
       "why": "The did-you-mean lookup, named exactly."
     },
     {
+      "query": "valid args",
+      "bucket": "concept",
+      "relevant": [
+        "function:cobra.OnlyValidArgs@args.go",
+        "function:cobra.ExactValidArgs@args.go"
+      ],
+      "discriminates": "ranking",
+      "why": "The phrase names Command.ValidArgs, and the two validators that check an argument against that list live in args.go. Command.ValidateArgs — which full-text search ranks first — never reads ValidArgs at all; it calls whatever validator the Args field happens to hold, so it answers \"validate args\", not \"valid args\"."
+    },
+    {
+      "query": "flag error",
+      "bucket": "concept",
+      "relevant": [
+        "function:cobra.Command.FlagErrorFunc@command.go",
+        "function:cobra.Command.SetFlagErrorFunc@command.go"
+      ],
+      "discriminates": "ranking",
+      "why": "SetFlagErrorFunc installs the hook that turns a flag-parsing failure into an error, and FlagErrorFunc is the lookup that walks up to the parent command. flagCompError in completions.go, which full-text search ranks first, is an error raised while computing completions for a flag — the same two words about a different subject."
+    },
+    {
       "query": "database connection pool",
       "bucket": "negative",
       "relevant": [],

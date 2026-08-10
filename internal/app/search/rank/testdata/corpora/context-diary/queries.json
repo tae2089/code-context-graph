@@ -175,6 +175,27 @@
       "why": "AppAuth's intent: provide a valid installation token to every call, hiding the JWT exchange and hourly rotation."
     },
     {
+      "query": "rescan commits",
+      "bucket": "concept",
+      "relevant": [],
+      "relevant_files": [
+        "internal/gitlog/gitlog.go",
+        "cmd/context-diary/serve.go"
+      ],
+      "discriminates": "ranking",
+      "why": "gitlog.WalkFull is the full-DAG walk a rescan performs, and its own domain rule says so: an unreachable cursor falls back to a full rescan. serve.go holds rescanHandler, the POST /admin/rescan entry point. store.SaveEntries and ingest.Run — which full-text search ranks above both — run on every indexing pass and say nothing about rescanning."
+    },
+    {
+      "query": "explain",
+      "bucket": "concept",
+      "relevant": [],
+      "relevant_files": [
+        "cmd/context-diary/explain.go"
+      ],
+      "discriminates": "ranking",
+      "why": "The one-word name of the command: cmdExplain implements `context-diary explain <file> <function>`. mcptool.go, which full-text search ranks first on the strength of three explain-prefixed argument structs, exposes the same feature over MCP and is reachable from the command — the same judgment the sibling \"explain function\" query already makes."
+    },
+    {
       "query": "kubernetes deployment rollout strategy",
       "bucket": "negative",
       "relevant": [],
