@@ -63,8 +63,16 @@ Treat `get_node`, `get_annotation`, `get_doc_content`,
 `list_flows`, and `list_cross_refs` as single-namespace operations.
 
 A federated `search` labels every hit with its namespace, and candidates with
-no visible evidence are cut before the per-namespace quota runs — a
-namespace's slots go to hits it can justify, not to padding.
+no visible evidence are cut before the page is bounded, so a namespace's files
+are hits it can justify rather than padding.
+
+`limit` and `offset` are per namespace here, not shared across them. `limit: 5`
+over three namespaces means up to five files from each, and every namespace
+with a hit appears however small the limit is — a limit below the namespace
+count no longer silences the ones at the back. `truncated` counts the files
+left off across all of them. Page with the `offset` the response's `next` gives
+you: it moves every namespace through its own list at once, so it is not this
+page's offset plus the file count you were handed.
 
 `get_impact_radius` and `trace_flow` also start in one namespace; enable
 `cross_namespace=true` only when resolved `ccg://` references should extend the
