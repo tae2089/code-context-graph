@@ -522,7 +522,7 @@ func (q queryTokens) empty() bool { return len(q.parts) == 0 && len(q.whole) == 
 // capital standing as a sub-token of its own, and one rune is a rune most
 // identifiers hold somewhere. Cobra's tmplFunc shares the c of ExecuteC and
 // nothing else; that scored 0.1056, and any score above zero is all the evidence
-// cut asks for, so the query answered with eight files instead of three.
+// cut asks for, so the query answered with eight declarations instead of three.
 //
 // One rune is not a threshold picked for these numbers. It is the point below
 // which there is nothing to pick: a sub-token has to be at least one rune to
