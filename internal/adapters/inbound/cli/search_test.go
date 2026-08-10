@@ -671,6 +671,41 @@ func TestSearchCommand_RejectsNonPositiveLimit(t *testing.T) {
 	}
 }
 
+// The MCP search tool has always turned a negative offset away; the flag used
+// to take the process down with it instead. A reader who mistypes an argument
+// gets the same sentence from either surface now.
+func TestSearchCommand_RejectsNegativeOffset(t *testing.T) {
+	for _, offset := range []string{"-1", "-42"} {
+		deps, stdout, stderr, _ := setupSearchTest(t)
+		called := false
+		deps.SearchReader = &spySearchBackend{queryFn: func(ctx context.Context, query string, queryLimit int) ([]graph.Node, error) {
+			called = true
+			return nil, nil
+		}}
+
+		err := executeCmd(deps, stdout, stderr, "search", "--offset", offset, "hello")
+
+		if err == nil || !strings.Contains(err.Error(), "offset must not be negative") {
+			t.Fatalf("expected offset validation error for %s, got %v", offset, err)
+		}
+		if called {
+			t.Fatalf("search backend should not be called for invalid offset %s", offset)
+		}
+	}
+}
+
+// An empty answer is where the old panic bit hardest: nothing had been indexed,
+// so there was no result the bad offset could even have skipped past.
+func TestSearchCommand_RejectsNegativeOffsetOnAnEmptyIndex(t *testing.T) {
+	deps, stdout, stderr, _ := setupSearchTest(t)
+
+	err := executeCmd(deps, stdout, stderr, "search", "--offset", "-1", "nothing-matches-this")
+
+	if err == nil || !strings.Contains(err.Error(), "offset must not be negative") {
+		t.Fatalf("expected offset validation error, got %v", err)
+	}
+}
+
 func TestSearchCommand_NamespaceFromConfig(t *testing.T) {
 	viper.Reset()
 	defer viper.Reset()

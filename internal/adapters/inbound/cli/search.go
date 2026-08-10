@@ -35,6 +35,12 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 			if limit <= 0 {
 				return fmt.Errorf("limit must be > 0, got %d", limit)
 			}
+			// The same sentence the MCP search tool answers with, from the same
+			// place, so a mistyped flag and a mistyped tool argument are one
+			// thing to learn rather than two.
+			if err := searchapp.ValidateOffset(offset); err != nil {
+				return err
+			}
 			ctx := cmd.Context()
 			ns := resolveNamespace(cmd)
 			ctx = requestctx.WithNamespace(ctx, ns)
