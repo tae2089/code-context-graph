@@ -105,6 +105,32 @@ func TestBackendParity_SearchAnswersAreIdentical(t *testing.T) {
 	}
 }
 
+// TestBackendParity_RankOrderIsIdentical seeds the rank-order ladder into both
+// databases and requires the same sequence out of each.
+//
+// TestBackendParity_SearchAnswersAreIdentical deliberately skips a query whose
+// candidate pool overflows the fetch limit, because each backend then keeps its
+// own top slice and membership is legitimately backend-specific. That skip is
+// what leaves ordering unchecked across backends: the queries where order
+// decides the result set are exactly the ones it walks away from. This fixture
+// closes that gap by making the pool overflow on purpose while keeping one
+// correct order — see rankorder_fixture_test.go — so the two backends can be
+// held to the same answer where it matters most.
+func TestBackendParity_RankOrderIsIdentical(t *testing.T) {
+	liteCtx, lite, liteBackend := setupSQLiteRankOrder(t)
+	pgCtx, pg, pgBackend := setupPostgresRankOrder(t)
+
+	liteOrder := queryRankOrder(t, liteCtx, lite, liteBackend, rankOrderDocs)
+	pgOrder := queryRankOrder(t, pgCtx, pg, pgBackend, rankOrderDocs)
+
+	if !reflect.DeepEqual(liteOrder, pgOrder) {
+		t.Errorf("the two backends ordered the same corpus differently\n  sqlite:   %s\n  postgres: %s",
+			strings.Join(liteOrder, " "), strings.Join(pgOrder, " "))
+	}
+	requireRankOrder(t, liteOrder, rankOrderExpected(rankOrderDocs))
+	requireRankOrder(t, pgOrder, rankOrderExpected(rankOrderDocs))
+}
+
 // parityPoolTruncated reports whether the backend's candidate pool for the
 // query hit the fetch ceiling, meaning rows beyond it were cut by
 // backend-specific relevance order.
