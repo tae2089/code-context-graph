@@ -207,11 +207,14 @@ func TestProjectSkillsCoverOperationalHazards(t *testing.T) {
 		"ccg": {
 			"`replace=false`",
 			"out-of-scope",
+			"`annotation_coverage`",
+			"names a `skill` instead of a `tool`",
 		},
 		"ccg-analyze": {
 			"`max_depth`",
 			"`truncated`",
 			"server-visible",
+			"`annotation_coverage`",
 		},
 		"ccg-annotate": {
 			"ingestion discards",
@@ -223,6 +226,7 @@ func TestProjectSkillsCoverOperationalHazards(t *testing.T) {
 		},
 		"ccg-namespace": {
 			"single-namespace",
+			"`annotation_coverage`",
 		},
 	}
 

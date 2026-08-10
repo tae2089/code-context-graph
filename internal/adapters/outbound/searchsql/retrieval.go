@@ -7,6 +7,8 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/tae2089/trace"
+
 	intentapp "github.com/tae2089/code-context-graph/internal/app/search/intent"
 	"github.com/tae2089/code-context-graph/internal/app/search/intentrank"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
@@ -57,12 +59,21 @@ func (r *Reader) QueryIntent(ctx context.Context, query string, limit int) (inte
 	if limit <= 0 {
 		return intentapp.Result{}, fmt.Errorf("limit must be > 0, got %d", limit)
 	}
+	// Coverage is measured before the candidates are looked at, because the answer
+	// it explains is the one with no candidates: a question nothing matched in a
+	// repository nobody annotated has to come back saying so, and returning early
+	// here is exactly what used to leave that answer talking about the full-text
+	// index instead.
+	coverage, err := r.annotationCoverage(ctx)
+	if err != nil {
+		return intentapp.Result{}, err
+	}
 	candidates, err := r.backend.MatchIntent(ctx, r.db, query, maxIntentCandidates)
 	if err != nil {
 		return intentapp.Result{}, err
 	}
 	if len(candidates) == 0 {
-		return intentapp.Result{}, nil
+		return intentapp.Result{Coverage: coverage}, nil
 	}
 	corpusSize, err := r.intentCorpusSize(ctx)
 	if err != nil {
@@ -70,7 +81,7 @@ func (r *Reader) QueryIntent(ctx context.Context, query string, limit int) (inte
 	}
 
 	ranked := intentrank.Rank(query, candidates, corpusSize, limit)
-	result := intentapp.Result{Terms: intentTerms(ranked.Terms), Corpus: ranked.Corpus}
+	result := intentapp.Result{Terms: intentTerms(ranked.Terms), Corpus: ranked.Corpus, Coverage: coverage}
 	if len(ranked.Matches) == 0 {
 		return result, nil
 	}
@@ -103,6 +114,37 @@ func intentTerms(terms []intentrank.Term) []intentapp.Term {
 		out[i] = intentapp.Term{Text: term.Text, InReasons: term.InReasons}
 	}
 	return out
+}
+
+// annotationCoverage counts how many declarations recorded a reason, out of how
+// many were indexed at all.
+//
+// The numerator counts distinct node ids rather than rows: one reason is one row,
+// so a declaration whose author wrote three would otherwise be counted three
+// times and the fraction would report better coverage than the repository has.
+// The denominator is the derived document table rather than the node table
+// because both numbers then come from the same refresh pass, which is what makes
+// the numerator a subset of the denominator — one row per indexed declaration,
+// and a declaration too coarse to index records no reason either.
+//
+// @ensures the returned count of annotated declarations never exceeds the count of declarations.
+// @intent give an answer the two numbers that separate "nobody wrote a reason" from "no reason matched".
+func (r *Reader) annotationCoverage(ctx context.Context) (intentapp.Coverage, error) {
+	ns := requestctx.FromContext(ctx)
+	var withReason int64
+	if err := r.db.WithContext(ctx).Model(&graph.SearchReason{}).
+		Where("namespace = ?", ns).
+		Distinct("node_id").
+		Count(&withReason).Error; err != nil {
+		return intentapp.Coverage{}, trace.Wrap(err, "count declarations carrying a reason")
+	}
+	var declarations int64
+	if err := r.db.WithContext(ctx).Model(&graph.SearchDocument{}).
+		Where("namespace = ?", ns).
+		Count(&declarations).Error; err != nil {
+		return intentapp.Coverage{}, trace.Wrap(err, "count indexed declarations")
+	}
+	return intentapp.Coverage{WithReason: int(withReason), Declarations: int(declarations)}, nil
 }
 
 // intentCorpusSize counts the recorded reasons, which is how many documents the

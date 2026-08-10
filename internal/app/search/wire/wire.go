@@ -77,10 +77,19 @@ type Response struct {
 	// stopped at the edge of what was fetched. `truncated: false` with
 	// `pool_truncated: true` is the case that used to read as "that is
 	// everything" when it was not: ask for the next page anyway.
-	PoolTruncated bool         `json:"pool_truncated"`
-	Limits        Limits       `json:"limits"`
-	Next          []NextAction `json:"next,omitempty"`
-	Note          string       `json:"note,omitempty"`
+	PoolTruncated bool   `json:"pool_truncated"`
+	Limits        Limits `json:"limits"`
+	// AnnotationCoverage is how many of the searched declarations recorded a
+	// reason — an @intent or a @domainRule — out of how many were indexed.
+	//
+	// It is on every answer, not only the empty ones, because it is what makes an
+	// answer's size readable: two files out of a repository where four hundred
+	// declarations recorded a reason is a thin answer, and two out of a repository
+	// where six did is most of what there was to find. `with_reason: 0` says the
+	// question was put to an index nobody has written anything into yet.
+	AnnotationCoverage evidence.Coverage `json:"annotation_coverage"`
+	Next               []NextAction      `json:"next,omitempty"`
+	Note               string            `json:"note,omitempty"`
 }
 
 // Limits states the bounds that shaped this page, all counted in files
@@ -92,24 +101,33 @@ type Limits struct {
 	HitBudget int `json:"hit_budget"`
 }
 
-// NextAction is one call that widens this answer, written out so an agent can
-// make it verbatim.
+// NextAction is one step that widens this answer, written out so an agent can
+// take it without inventing anything.
 //
 // Before this existed a response could say it withheld things and leave the
 // caller with no way to reach them. Naming the tool and its arguments turns a
 // dead-end count into a step.
 //
-// @intent turn what a search withheld into a call the caller can actually make.
+// Most steps are a call: Tool and Args. One is not, and cannot be — when the
+// answer was empty because nobody ever recorded a reason, the fix is to write
+// those reasons, which is reading and judgement rather than a query. That step
+// names a Skill instead, and exactly one of the two forms is ever filled in.
+//
+// @domainRule an action names either a Tool with its Args or a Skill, never both, so a caller never has to guess which one to act on.
+// @intent turn what a search withheld into a step the caller can actually take.
 type NextAction struct {
 	Reason string         `json:"reason"`
-	Tool   string         `json:"tool"`
-	Args   map[string]any `json:"args"`
+	Tool   string         `json:"tool,omitempty"`
+	Args   map[string]any `json:"args,omitempty"`
+	// Skill names a packaged workflow to run rather than a tool to call. It is
+	// set only for the step no tool can perform.
+	Skill string `json:"skill,omitempty"`
 }
 
 // NewResponse converts an evidence list into the wire payload.
 // @requires withNamespace is true only for federated searches, where a caller needs to know which repository a hit came from.
 // @requires query, limit and offset are the ones this list was built with, so the suggested calls repeat the caller's own request.
-// @ensures Next is empty exactly when the answer withheld nothing.
+// @ensures Next is empty exactly when the answer withheld nothing and had nothing to explain about coming back empty.
 // @intent keep one conversion so no two search surfaces can drift apart.
 func NewResponse(list evidence.List, query string, limit, offset int, withNamespace bool) Response {
 	files := make([]FileGroup, len(list.Files))
@@ -139,14 +157,36 @@ func NewResponse(list evidence.List, query string, limit, offset int, withNamesp
 		Truncated:     list.OverflowFiles > 0,
 		PoolTruncated: list.PoolTruncated,
 		Limits:        Limits{Files: limit, Offset: offset, HitBudget: evidence.PageHitBudget},
-		Next:          nextActions(list, query, limit),
-		Note:          list.Note,
+
+		AnnotationCoverage: list.Coverage,
+		Next:               nextActions(list, query, limit),
+		Note:               list.Note,
 	}
 }
 
-// nextActions writes one call per thing this answer withheld. An empty answer
-// gets none: search already scored the query against names and recorded
-// reasons both, so there is no second index left to hand the query to.
+// annotateSkill is the workflow that writes the reasons a why-question is
+// answered from. Named as a constant because the empty-answer step and the tests
+// that guard it must agree on the string.
+const annotateSkill = "ccg-annotate"
+
+// noteWriteTheReasons is why the annotate step is offered, with the coverage that
+// justifies offering it. The fraction is in the reason on purpose: "go annotate"
+// with no number behind it reads like generic advice, and the caller has no way
+// to judge whether it would help.
+const noteWriteTheReasons = "nothing on this page could say why it is here, and only %d of %d indexed declarations have ever recorded a reason; annotate the area you are asking about, rebuild the graph, then ask this question again"
+
+// nextActions writes one step per thing this answer withheld.
+//
+// An empty answer used to get none. That was wrong in the one case that matters
+// most: a question about why code exists is answered out of recorded reasons, so
+// where nobody wrote any, the empty answer was reported as a fact about the
+// codebase and the caller concluded the code was not there. It now gets the step
+// that fixes the cause. A page whose every shown hit justified nothing gets the
+// same step, for the same reason.
+//
+// The step is withheld when coverage was never measured. A surface that did not
+// reach the recorded-reason index leaves the fraction at zero, and "0 of 0" would
+// state a measurement that was never taken.
 //
 // A cut candidate pool earns the same next-page call as unreached files, and
 // only one of the two is ever written: they are the same call, and the reason
@@ -158,11 +198,12 @@ func NewResponse(list evidence.List, query string, limit, offset int, withNamesp
 // plus the files on it. The two agree whenever a page is one contiguous run of
 // the answer, and only the code that cut the page knows whether it was.
 //
-// @ensures every returned action names a tool every search surface offers, with arguments that need no editing.
+// @ensures every returned action names either a tool every search surface offers, with arguments that need no editing, or a skill every surface ships.
 // @ensures at most one next-page action is returned, however many bounds stopped this page.
-// @intent make the follow-up call obvious enough that an agent does not have to invent one.
+// @ensures the annotate step is returned only when no shown hit justified itself and coverage was actually measured.
+// @intent make the follow-up step obvious enough that an agent does not have to invent one.
 func nextActions(list evidence.List, query string, limit int) []NextAction {
-	actions := make([]NextAction, 0, 2)
+	actions := make([]NextAction, 0, 3)
 	switch {
 	case list.OverflowFiles > 0:
 		actions = append(actions, NextAction{
@@ -182,6 +223,15 @@ func nextActions(list evidence.List, query string, limit int) []NextAction {
 			Reason: fmt.Sprintf("%d candidates had nothing in their name, path, or @intent to justify them", list.WeakFiltered),
 			Tool:   "search",
 			Args:   map[string]any{"query": query, "include_weak": true},
+		})
+	}
+	// Last, because it is the slowest move and the only one that changes the
+	// codebase. The cheap retries above are worth trying first, and a caller
+	// reading top to bottom meets them in that order.
+	if !list.Justified() && list.Coverage.Known() {
+		actions = append(actions, NextAction{
+			Reason: fmt.Sprintf(noteWriteTheReasons, list.Coverage.WithReason, list.Coverage.Declarations),
+			Skill:  annotateSkill,
 		})
 	}
 	return actions

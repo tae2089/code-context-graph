@@ -23,12 +23,15 @@ type fakeSearcher struct {
 	intentByNamespace map[string][]intent.Hit
 	// intentTerms is what the fake's whole intent index "knows": every scored
 	// term of the question with its reason count, as the real backend reports.
-	intentTerms    []intent.Term
-	intentErr      error
-	gotQuery       string
-	gotLimit       int
-	gotIntentQuery string
-	gotIntentLimit int
+	intentTerms []intent.Term
+	// coverageByNamespace is what the fake's recorded-reason index reports about
+	// each repository as a whole, whatever the query was.
+	coverageByNamespace map[string]intent.Coverage
+	intentErr           error
+	gotQuery            string
+	gotLimit            int
+	gotIntentQuery      string
+	gotIntentLimit      int
 }
 
 func (f *fakeSearcher) Query(ctx context.Context, query string, limit int) ([]graph.Node, error) {
@@ -43,8 +46,9 @@ func (f *fakeSearcher) QueryIntent(ctx context.Context, query string, limit int)
 	if f.intentErr != nil {
 		return intent.Result{}, f.intentErr
 	}
-	hits := capped(f.intentByNamespace[requestctx.FromContext(ctx)], limit)
-	return intent.Result{Hits: hits, Terms: f.intentTerms}, nil
+	ns := requestctx.FromContext(ctx)
+	hits := capped(f.intentByNamespace[ns], limit)
+	return intent.Result{Hits: hits, Terms: f.intentTerms, Coverage: f.coverageByNamespace[ns]}, nil
 }
 
 // capped answers with at most limit rows, the way a real backend's LIMIT does.
@@ -698,5 +702,44 @@ func TestSearch_NilServiceOrSearcherFailsLoudly(t *testing.T) {
 	}
 	if _, err := New(nil).Search(context.Background(), Params{Query: "q", Limit: 1}); err == nil {
 		t.Error("nil searcher answered instead of failing")
+	}
+}
+
+// How much of a repository ever recorded a reason is a fact about the repository,
+// not about the query, and the answer that needs it most is the one with no files.
+func TestSearch_CarriesTheRepositoryAnnotationCoverage(t *testing.T) {
+	searcher := &fakeSearcher{
+		coverageByNamespace: map[string]intent.Coverage{
+			requestctx.DefaultNamespace: {WithReason: 0, Declarations: 1900},
+		},
+	}
+	ctx := requestctx.WithNamespace(context.Background(), requestctx.DefaultNamespace)
+
+	list, err := New(searcher).Search(ctx, Params{Query: "why is this repository isolated", Limit: 10})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if list.Coverage.Declarations != 1900 || list.Coverage.WithReason != 0 {
+		t.Errorf("Coverage = %+v, want 0 of 1900", list.Coverage)
+	}
+}
+
+// Several repositories answered at once have one coverage between them, so both
+// numbers add. Keeping only the last namespace's would describe one repository
+// and label it the answer.
+func TestSearchFederated_AddsUpTheCoverageOfEveryRepository(t *testing.T) {
+	searcher := &fakeSearcher{
+		coverageByNamespace: map[string]intent.Coverage{
+			"repo-a": {WithReason: 0, Declarations: 40},
+			"repo-b": {WithReason: 30, Declarations: 60},
+		},
+	}
+
+	list, err := New(searcher).SearchFederated(context.Background(), []string{"repo-a", "repo-b"}, Params{Query: "alpha", Limit: 10})
+	if err != nil {
+		t.Fatalf("SearchFederated: %v", err)
+	}
+	if list.Coverage.WithReason != 30 || list.Coverage.Declarations != 100 {
+		t.Errorf("Coverage = %+v, want 30 of 100", list.Coverage)
 	}
 }

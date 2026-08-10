@@ -2,6 +2,7 @@
 package evidence
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/tae2089/code-context-graph/internal/app/search/identtoken"
@@ -63,6 +64,39 @@ type IntentHit struct {
 	Terms  []string
 }
 
+// Coverage is how much of the searched repositories ever recorded a reason: how
+// many declarations carry at least one @intent or @domainRule, out of how many
+// declarations were indexed at all.
+//
+// It is a fact about the index rather than about this query, and it is what
+// separates the two empty answers that used to read alike. An empty answer in a
+// repository with 1900 recorded reasons means the reasons do not cover this
+// question; an empty answer in a repository with none means nobody has written
+// anything down yet, and only the second one is answered by annotating.
+//
+// WithReason counts declarations, never reasons. One reason is one indexed
+// document, so counting documents would report a declaration whose author wrote
+// three of them three times.
+//
+// This is declared here, rather than reused from the intent package, for the same
+// reason IntentHit is: a list has to be describable without the retrieval ports
+// that filled it.
+//
+// @domainRule WithReason never exceeds Declarations.
+// @intent let an empty answer say whether anyone ever recorded a reason to search.
+type Coverage struct {
+	WithReason   int `json:"with_reason"`
+	Declarations int `json:"declarations"`
+}
+
+// Known reports whether these numbers were measured at all.
+//
+// A surface that never reached the recorded-reason index leaves the zero value
+// here, and "0 of 0 declarations recorded a reason" reads as a finding when it is
+// the absence of one. Nothing may state the fraction without asking this first.
+// @intent keep an unmeasured coverage from being reported as a measured zero.
+func (c Coverage) Known() bool { return c.Declarations > 0 }
+
 // File is every hit one file answered the query with.
 //
 // The file is the unit of a search answer because it is the unit of reading: a
@@ -112,8 +146,14 @@ type List struct {
 	// the files on this page" is only right when the page is one contiguous run
 	// of the answer. Whoever cut the page is the only one who knows that.
 	NextOffset int
+	// Coverage is how much of the searched repositories recorded a reason at all.
+	// Build does not measure it — it is a fact about the index, which is read
+	// before this package sees anything — so it arrives on Options and is carried
+	// through unchanged.
+	Coverage Coverage
 	// Note is set only when Files is empty, and says which kind of empty it is:
-	// nothing retrieved, nothing explainable, or a page past the end.
+	// nothing retrieved, nothing explainable, a page past the end, or a
+	// repository where nobody ever recorded a reason to search.
 	Note string
 }
 
@@ -126,6 +166,28 @@ func (l List) Hits() []Result {
 		out = append(out, f.Hits...)
 	}
 	return out
+}
+
+// Justified reports whether any hit on this page named a signal the query
+// touched. It is false for an empty answer, and also for a page IncludeWeak
+// filled with candidates that matched nothing nameable — to a caller those are
+// the same situation: the answer holds nothing that can say why it is here.
+//
+// The two are one method rather than two checks at the call site because a
+// caller acts on them identically, and keeping them apart invited the reading
+// that a page with rows on it must have answered something.
+//
+// @ensures true only when at least one shown hit carries at least one Match.
+// @intent tell a page that answered something apart from one that merely has rows on it.
+func (l List) Justified() bool {
+	for _, f := range l.Files {
+		for _, h := range f.Hits {
+			if len(h.Matched) > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Options are the caller's choices about how wide the list may be.
@@ -152,12 +214,24 @@ type Options struct {
 	// with an entry here is justified by it — the terms are the proof — even
 	// when its name, path, and @intent share no token with the query.
 	Intent map[NodeRef]IntentHit
+	// Coverage is how much of the searched repositories recorded a reason at all.
+	// It is an input rather than something set on the returned list afterwards
+	// because the note depends on it: which kind of empty an empty answer is
+	// cannot be decided without knowing whether anybody wrote a reason down.
+	Coverage Coverage
 }
 
 const (
 	noteNothingRetrieved = "Full-text search matched no indexed node. Every term of the query has to appear in the same document, so a rarer or shorter query usually helps."
 	noteAllWeak          = "Every candidate matched the query only inside indexed text, with nothing in its name, file path, or @intent to justify it. Ask again with weak candidates included to see them anyway."
 	notePastTheEnd       = "The offset is past the last file this query answered with. Ask again from a lower offset."
+	// noteNoRecordedReasons takes the declaration count. It replaces the
+	// full-text advice rather than joining it: advising a rarer or shorter query
+	// is advice about the index, and in a repository nobody has annotated the
+	// index is not what came up short. A caller who follows that advice rephrases
+	// a question no rephrasing can answer, and then reports that the behaviour
+	// does not exist in the codebase.
+	noteNoRecordedReasons = "Nobody has recorded a reason in this repository: 0 of %d indexed declarations carry an @intent or a @domainRule. A question about why code exists is answered from those reasons, so this one had nothing to match — rephrasing will not help. Annotate the area, rebuild the graph, then ask again."
 )
 
 // Build turns the reranked candidate pool into a list whose every entry can be
@@ -197,7 +271,7 @@ func Build(query string, nodes []graph.Node, opts Options) List {
 		weak = append(weak, result)
 	}
 
-	list := List{WeakFiltered: len(weak)}
+	list := List{WeakFiltered: len(weak), Coverage: opts.Coverage}
 	if opts.IncludeWeak {
 		kept = append(kept, weak...)
 		list.WeakFiltered = 0
@@ -211,15 +285,38 @@ func Build(query string, nodes []graph.Node, opts Options) List {
 		list.NextOffset = opts.Offset + len(list.Files)
 	}
 	if len(list.Files) == 0 {
-		list.Note = noteNothingRetrieved
-		switch {
-		case len(files) > 0:
-			list.Note = notePastTheEnd
-		case len(nodes) > 0:
-			list.Note = noteAllWeak
-		}
+		list.Note = emptyNote(len(files), len(nodes), opts.Coverage)
 	}
 	return list
+}
+
+// emptyNote says which kind of empty this answer is, given how many files the
+// query answered with anywhere, how many candidates were retrieved, and how much
+// of the repository ever recorded a reason.
+//
+// The order matters. A page past the end is checked first because files did
+// answer this query — coverage explains nothing there. Then, when nothing was
+// retrieved at all and nobody has recorded a reason, the coverage fact replaces
+// the full-text advice.
+//
+// Partial coverage keeps the ordinary notes. "12 of 1900 recorded a reason" does
+// not say this question is unanswerable, only that most of the repository is
+// silent, and the numbers ride on the answer for the caller to read. Zero is the
+// one level that turns "no reason matched" into "there were no reasons".
+//
+// @ensures the returned note is never empty, since it is only asked for when the answer is.
+// @intent name the cause of an empty answer, rather than guessing at a remedy for it.
+func emptyNote(answeredFiles, retrieved int, coverage Coverage) string {
+	switch {
+	case answeredFiles > 0:
+		return notePastTheEnd
+	case retrieved > 0:
+		return noteAllWeak
+	case coverage.Known() && coverage.WithReason == 0:
+		return fmt.Sprintf(noteNoRecordedReasons, coverage.Declarations)
+	default:
+		return noteNothingRetrieved
+	}
 }
 
 // matchedSignals collects every reason this node is worth showing, in a fixed
