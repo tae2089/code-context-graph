@@ -76,6 +76,33 @@ func FetchLimit(limit int) int {
 	return min(max(limit*fetchFactor, fetchFloor), fetchCap)
 }
 
+// PoolWidth is how many of the backend's rows the page at offset is cut from, for
+// a caller asking for limit files a page.
+//
+// It is FetchLimit of the whole span the page needs — the offset as well as the
+// limit, because no fetch carries a skip — rounded up to a whole number of
+// blocks. A block is FetchLimit(limit): the pool one page would need on its own.
+//
+// Rounding up is what makes paging repeatable. The pool is ordered a block at a
+// time (see the search service), so a pool that stops in the middle of a block
+// holds a block the backend has more rows for. The next, wider page fills that
+// block in and reorders it, and the files the earlier page cut out of the
+// half-filled block come back on the later one. Rounding up costs at most one
+// block of rows the answer never shows.
+//
+// The cap is applied in whole blocks too, so the widest pool is as many blocks as
+// fit in fetchCap rows — never a full pool with a part of a block on the end.
+//
+// @requires limit is the same on every page of one walk; a walk that changes it re-cuts the blocks and starts a different answer.
+// @ensures the result is a whole number of FetchLimit(limit) blocks, and never narrows as offset grows.
+// @intent size a paging caller's pool so the page it already delivered cannot be reshuffled by the next one.
+func PoolWidth(offset, limit int) int {
+	block := FetchLimit(limit)
+	wanted := FetchLimit(max(offset, 0) + limit)
+	blocks := min((wanted+block-1)/block, fetchCap/block)
+	return max(blocks, 1) * block
+}
+
 // Rerank orders FTS candidates by structural evidence — identifier-name
 // similarity first, file-path proximity to break its ties — and falls back to
 // the backend's own rank only where structure cannot separate two candidates.

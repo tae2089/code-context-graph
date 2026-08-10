@@ -175,6 +175,9 @@ type pool struct {
 // Pushing the skip into the backend instead was considered and dropped — it
 // keeps the pool small but pays for the skipped rows on every deep page.
 //
+// The width is a whole number of blocks, which is what lets orderPool leave the
+// blocks a page was already cut from alone. See rank.PoolWidth.
+//
 // @ensures the returned pool is marked truncated when either index answered with as many rows as the fetch had room for.
 // @intent give both search shapes the same candidate pool for the same request, wide enough to reach the page that was asked for.
 func (s *Service) fetch(ctx context.Context, p Params) (pool, error) {
@@ -182,7 +185,7 @@ func (s *Service) fetch(ctx context.Context, p Params) (pool, error) {
 		result intentapp.Result
 		err    error
 	}
-	fetchLimit := searchrank.FetchLimit(p.Offset + p.Limit)
+	fetchLimit := searchrank.PoolWidth(p.Offset, p.Limit)
 	intentCh := make(chan intentAnswer, 1)
 	go func() {
 		result, err := s.searcher.QueryIntent(ctx, p.Query, fetchLimit)

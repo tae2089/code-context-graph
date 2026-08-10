@@ -104,7 +104,7 @@ func answerableCorpus(n int) []graph.Node {
 	return out
 }
 
-// reversedCorpus is n files that each hold one declaration the query names,
+// reversedCorpus is files files of hitsPerFile declarations the query names,
 // handed over in the order a backend whose own relevance order runs exactly
 // against the structural one would hand them: the row it puts first is the row
 // structural scoring puts last.
@@ -119,11 +119,21 @@ func answerableCorpus(n int) []graph.Node {
 // same and the pool's own order survives reranking, so a pool that grows only
 // ever grows at the end. Here reranking turns the pool around, and every row a
 // wider pool adds belongs in front of the ones already delivered.
-func reversedCorpus(n int) []graph.Node {
-	out := make([]graph.Node, 0, n)
-	for i := range n {
-		padded := "alpha" + strings.Repeat("x", n-1-i)
-		out = append(out, node(uint(i+1), padded, fmt.Sprintf("pkg/f%03d.go", i)))
+//
+// hitsPerFile is how many rows one file spends of the pool. It is 1 for the
+// plainest reading of the shape, and more where a test needs the page to sit at
+// the far end of its own pool: the pool is five rows wide for every file asked
+// for, so files of five hits put the last file of a page on the pool's last row.
+func reversedCorpus(files, hitsPerFile int) []graph.Node {
+	out := make([]graph.Node, 0, files*hitsPerFile)
+	id := uint(1)
+	for i := range files {
+		padded := "alpha" + strings.Repeat("x", files-1-i)
+		path := fmt.Sprintf("pkg/f%03d.go", i)
+		for range hitsPerFile {
+			out = append(out, node(id, padded, path))
+			id++
+		}
 	}
 	return out
 }
@@ -255,7 +265,7 @@ func walkAnswer(t *testing.T, svc *Service, p Params, maxPages int) (seen map[st
 func TestSearch_PagesToTheEndWhenTheBackendOrderRunsAgainstTheStructuralOne(t *testing.T) {
 	const total = 300
 	svc := New(&fakeSearcher{byNamespace: map[string][]graph.Node{
-		requestctx.DefaultNamespace: reversedCorpus(total),
+		requestctx.DefaultNamespace: reversedCorpus(total, 1),
 	}})
 
 	seen, repeats := walkAnswer(t, svc, Params{Query: "alpha", Limit: 10}, total)
@@ -264,6 +274,34 @@ func TestSearch_PagesToTheEndWhenTheBackendOrderRunsAgainstTheStructuralOne(t *t
 	}
 	if len(seen) != total {
 		t.Errorf("paging reached %d files, want all %d", len(seen), total)
+	}
+}
+
+// A page of files that each answer with several hits sits at the far end of its
+// own candidate pool: the pool is five rows wide for every file asked for, so
+// files of five hits put the last file of the page on the pool's last row. That
+// is where the block the pool ends in starts to matter. A pool that stops in the
+// middle of a block holds a block the backend has more rows for, so the next,
+// wider page fills that block in and reorders it — and the files the earlier page
+// cut out of the half-filled block come back on the later one.
+//
+// Limit 7 is a limit whose pool is not a whole number of blocks: the pool for its
+// second page is 5×(7+7) = 70 rows, and the block is 50.
+func TestSearch_PagesToTheEndWhenThePageReachesThePoolsLastBlock(t *testing.T) {
+	const (
+		files = 60
+		hits  = 5
+	)
+	svc := New(&fakeSearcher{byNamespace: map[string][]graph.Node{
+		requestctx.DefaultNamespace: reversedCorpus(files, hits),
+	}})
+
+	seen, repeats := walkAnswer(t, svc, Params{Query: "alpha", Limit: 7}, files)
+	if len(repeats) > 0 {
+		t.Errorf("%d files came back on more than one page: %v", len(repeats), repeats)
+	}
+	if len(seen) != files {
+		t.Errorf("paging reached %d files, want all %d", len(seen), files)
 	}
 }
 
