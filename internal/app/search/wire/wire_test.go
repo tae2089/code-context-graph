@@ -189,6 +189,66 @@ func TestNewResponse_SuggestsAnnotatingWhenTheAnswerIsEmpty(t *testing.T) {
 	}
 }
 
+// NextAction's @domainRule says a step names either a tool with its arguments
+// or a skill, never both — and nothing held it to that. A step with both filled
+// leaves the caller choosing which half to act on; a step with neither is a
+// reason with nothing behind it. Both would ship silently.
+//
+// Every branch of nextActions is driven here, so a branch added later that
+// fills in the wrong pair is caught by the case it is added to.
+func TestNewResponse_EveryStepNamesEitherAToolOrASkill(t *testing.T) {
+	cases := map[string]evidence.List{
+		"files went unreached": {
+			Files:         []evidence.File{file("a.go", 1)},
+			OverflowFiles: 7,
+			NextOffset:    1,
+		},
+		"the candidate pool was cut": {
+			Files:         []evidence.File{file("crowded.go", 50)},
+			PoolTruncated: true,
+			NextOffset:    1,
+		},
+		"candidates were dropped as weak": {
+			Files:        []evidence.File{file("a.go", 1)},
+			WeakFiltered: 4,
+		},
+		"the answer was empty": {
+			Coverage: evidence.Coverage{WithReason: 0, Declarations: 1900},
+			Note:     "nothing matched",
+		},
+		"every shown hit was weak, with more pages behind it": {
+			Files:         []evidence.File{weakFile("a.go", 2)},
+			OverflowFiles: 3,
+			WeakFiltered:  2,
+			Coverage:      evidence.Coverage{WithReason: 4, Declarations: 900},
+		},
+	}
+
+	for name, list := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := NewResponse(list, "why does checkout retry", 10, 0, false)
+			if len(got.Next) == 0 {
+				t.Fatalf("Next is empty, so this case checked nothing: %+v", list)
+			}
+			for _, a := range got.Next {
+				switch {
+				case a.Tool == "" && a.Skill == "":
+					t.Errorf("a step names neither a tool nor a skill, so there is nothing to act on: %+v", a)
+				case a.Tool != "" && a.Skill != "":
+					t.Errorf("a step names both tool %q and skill %q, so a caller has to guess which one: %+v", a.Tool, a.Skill, a)
+				case a.Tool != "" && len(a.Args) == 0:
+					t.Errorf("tool step %q carries no arguments, so the caller has to invent them: %+v", a.Tool, a)
+				case a.Skill != "" && len(a.Args) != 0:
+					t.Errorf("skill step %q carries tool arguments, which nothing will read: %+v", a.Skill, a)
+				}
+				if a.Reason == "" {
+					t.Errorf("a step gives no reason it is worth taking: %+v", a)
+				}
+			}
+		})
+	}
+}
+
 // shippedSkills lists the packaged workflows this repository installs, read off
 // the directory that holds them.
 //
