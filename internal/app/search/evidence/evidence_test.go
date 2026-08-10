@@ -528,3 +528,49 @@ func TestBuild_CoverageDoesNotSwallowTheOffsetPastTheEnd(t *testing.T) {
 		t.Errorf("Note = %q, want the past-the-end note", got.Note)
 	}
 }
+
+// The recorded-reason index is built from @intent and @domainRule, so a node
+// whose only reason is a domain rule is a node the index can answer with. The
+// cut used to read @intent alone, which dropped exactly that node — the index
+// found it and the cut said nothing explained it.
+func TestBuild_ADomainRuleIsARecordedReasonToo(t *testing.T) {
+	node := graph.Node{
+		ID: 1, Name: "apply", QualifiedName: "billing.apply",
+		FilePath: "internal/app/billing/apply.go",
+		Annotation: &graph.Annotation{Tags: []graph.DocTag{
+			{Kind: graph.TagDomainRule, Value: "a refund never exceeds the original charge"},
+		}},
+	}
+
+	got := Build("refund", []graph.Node{node}, Options{Limit: 10})
+
+	if want := []uint{1}; !slices.Equal(ids(got), want) {
+		t.Fatalf("kept %v, want %v (WeakFiltered=%d, Note=%q)", ids(got), want, got.WeakFiltered, got.Note)
+	}
+	if hits := got.Hits(); !slices.Contains(hits[0].Matched, MatchIntent) {
+		t.Errorf("Matched = %v, want it to name the recorded reason", hits[0].Matched)
+	}
+}
+
+// @intent still wins when both are written, because it says why the code
+// exists. A query that touches only the domain rule beside it still matches,
+// since both are indexed, but the reason the reader is shown is the @intent.
+func TestBuild_AnIntentOutranksADomainRuleAsTheShownReason(t *testing.T) {
+	node := graph.Node{
+		ID: 1, Name: "apply", QualifiedName: "billing.apply",
+		FilePath: "internal/app/billing/apply.go",
+		Annotation: &graph.Annotation{Tags: []graph.DocTag{
+			{Kind: graph.TagDomainRule, Value: "a refund never exceeds the original charge"},
+			{Kind: graph.TagIntent, Value: "collect payment exactly once"},
+		}},
+	}
+
+	got := Build("payment", []graph.Node{node}, Options{Limit: 10})
+
+	if want := []uint{1}; !slices.Equal(ids(got), want) {
+		t.Fatalf("kept %v, want %v (WeakFiltered=%d, Note=%q)", ids(got), want, got.WeakFiltered, got.Note)
+	}
+	if got.Hits()[0].Intent != "collect payment exactly once" {
+		t.Errorf("Intent = %q, want the @intent line", got.Hits()[0].Intent)
+	}
+}

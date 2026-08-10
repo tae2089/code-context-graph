@@ -1,6 +1,9 @@
 package graph
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // NodeKind는 그래프 노드의 선언 분류를 나타낸다.
 // @intent 파싱된 선언을 검색과 분석에 필요한 종류로 구분한다.
@@ -51,6 +54,38 @@ func (n Node) Intent() string {
 	}
 	for _, tag := range n.Annotation.Tags {
 		if tag.Kind == TagIntent {
+			return tag.Value
+		}
+	}
+	return ""
+}
+
+// RecordedReason returns the line that could have earned this node its place in
+// the recorded-reason index.
+//
+// It mirrors what that index is built from — @intent and @domainRule. Reading
+// back only @intent would drop a node indexed on a domain rule alone, and that
+// node did not fail to record a reason; it recorded a different kind of one.
+// @intent still wins when both are present, because it says why the code exists
+// and a domain rule says what it must hold to.
+//
+// It lives beside Intent so the text a search *matches* and the text it *shows*
+// are read by one function. Two copies is how they diverged: the matching side
+// read Intent alone and dropped the domain-rule-only nodes the index had
+// already admitted.
+//
+// @requires the node's Annotation and its Tags are loaded; an unloaded association reads as absent.
+// @ensures a node carrying both tags reads back its @intent.
+// @intent read back the same tags the recorded-reason index was built from.
+func (n Node) RecordedReason() string {
+	if reason := n.Intent(); reason != "" {
+		return reason
+	}
+	if n.Annotation == nil {
+		return ""
+	}
+	for _, tag := range n.Annotation.Tags {
+		if tag.Kind == TagDomainRule && strings.TrimSpace(tag.Value) != "" {
 			return tag.Value
 		}
 	}

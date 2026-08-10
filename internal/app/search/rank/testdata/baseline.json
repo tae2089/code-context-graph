@@ -12,21 +12,21 @@
     "query": "BuildContent",
     "bucket": "exact",
     "retrieved": true,
-    "returned": 5,
+    "returned": 6,
     "relevant": 1,
     "found": 1,
     "rank": 1,
-    "weak_filtered": 2
+    "weak_filtered": 1
   },
   {
     "query": "UnresolvedEdgeCandidate",
     "bucket": "exact",
     "retrieved": true,
-    "returned": 10,
+    "returned": 11,
     "relevant": 1,
     "found": 1,
     "rank": 1,
-    "weak_filtered": 2
+    "weak_filtered": 1
   },
   {
     "query": "promoteExactNameMatch",
@@ -75,7 +75,7 @@
     "relevant": 4,
     "found": 2,
     "rank": 1,
-    "weak_filtered": 10
+    "weak_filtered": 9
   },
   {
     "query": "crossref",
@@ -270,7 +270,7 @@
     "relevant": 4,
     "found": 3,
     "rank": 1,
-    "weak_filtered": 15
+    "weak_filtered": 14
   },
   {
     "query": "flow membership",

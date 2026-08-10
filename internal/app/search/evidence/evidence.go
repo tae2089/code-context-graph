@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/tae2089/code-context-graph/internal/app/search/identtoken"
+	"github.com/tae2089/code-context-graph/internal/app/search/intentrank"
 	"github.com/tae2089/code-context-graph/internal/app/search/rank"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
@@ -259,9 +260,14 @@ func Build(query string, nodes []graph.Node, opts Options) List {
 	kept := make([]Result, 0, len(nodes))
 	weak := make([]Result, 0)
 	for _, node := range nodes {
+		// Two readings of one annotation, and they are not the same question.
+		// Intent is the @intent line, shown verbatim as the node's own purpose.
+		// RecordedReason is what the reason index was built from, which is what
+		// the query has to be checked against — the same readback the shown
+		// Reason comes from, so matching and display cannot drift apart again.
 		intent := node.Intent()
 		fromIntent, viaIntent := opts.Intent[NodeRef{Namespace: node.Namespace, ID: node.ID}]
-		matched := matchedSignals(query, qTokens, node, intent, viaIntent)
+		matched := matchedSignals(query, qTokens, node, node.RecordedReason(), viaIntent)
 		result := Result{Node: node, Intent: intent, Matched: matched, Reason: fromIntent.Reason, MatchedTerms: fromIntent.Terms}
 		if len(matched) > 0 {
 			kept = append(kept, result)
@@ -322,12 +328,14 @@ func emptyNote(answeredFiles, retrieved int, coverage Coverage) string {
 // matchedSignals collects every reason this node is worth showing, in a fixed
 // order so two results are comparable at a glance.
 //
-// viaIntent marks a node the intent query returned. It counts as the intent
-// signal even when token overlap sees nothing, because the intent scorer
-// matches ways overlap cannot — a non-ASCII prefix, or a @domainRule reason
-// that is not the node's @intent.
+// viaIntent marks a node the intent query returned, and still counts as the
+// intent signal on its own. What it catches that the overlap check cannot is a
+// node with several recorded reasons: the index holds every one of them as its
+// own document, while the readback hands back one — the @intent, or the first
+// domain rule when there is no @intent. A question answered by a node's second
+// domain rule is matched by the index and invisible here.
 // @intent state a candidate's evidence in the same terms the ranker ordered it by.
-func matchedSignals(query string, qTokens []string, node graph.Node, intent string, viaIntent bool) []Match {
+func matchedSignals(query string, qTokens []string, node graph.Node, reason string, viaIntent bool) []Match {
 	signals := rank.Signals(query, node)
 	matched := make([]Match, 0, 3)
 	if signals.Name > 0 {
@@ -336,14 +344,21 @@ func matchedSignals(query string, qTokens []string, node graph.Node, intent stri
 	if signals.Path > 0 {
 		matched = append(matched, MatchPath)
 	}
-	if viaIntent || intentOverlaps(qTokens, intent) {
+	if viaIntent || reasonOverlaps(qTokens, reason) {
 		matched = append(matched, MatchIntent)
 	}
 	return matched
 }
 
-// intentOverlaps reports whether the author's stated purpose shares a word with
-// the query.
+// reasonOverlaps reports whether the reason the author recorded shares a word
+// with the query.
+//
+// The reason, not the @intent. graph.Node.RecordedReason is what the
+// recorded-reason index was built from — @intent, or the domain rule when that
+// is all there is — and it is also the line a hit is shown with. Checking the
+// @intent alone was the other half of the same divergence Korean exposed: a
+// node whose only reason is a @domainRule was found by the index and then
+// dropped here as unexplainable.
 //
 // Plain word overlap, not a weighted score. Three ways of scoring this were
 // measured against the golden set — overlap, rarity-weighted, and BM25 — and
@@ -353,19 +368,33 @@ func matchedSignals(query string, qTokens []string, node graph.Node, intent stri
 // described. Here the question is only whether there is a reason at all, so the
 // simplest answer is also the whole answer.
 //
-// @domainRule a single shared word is evidence; the query and the intent are compared as identifier tokens, so camelCase splits the same way on both sides.
-// @intent treat an author-written purpose as a reason to show a result even when the name and path say nothing.
-func intentOverlaps(qTokens []string, intent string) bool {
-	if intent == "" || len(qTokens) == 0 {
+// A word counts as shared under intentrank.MatchesByPrefix, the same rule the
+// index matched the question with and the scorer counted it by. This is the one
+// place that used to apply its own rule — equality on lowercased text — and
+// Korean is where the two answers come apart. Korean glues the particle onto the
+// noun, so a reason about 네임스페이스 is written 네임스페이스를; the index asks
+// for 네임스페이스* and finds it, and then equality dropped it again. Reasons
+// written in Korean and asked for in Korean is what this tool is for, so that
+// was the first path cut. Sharing the rule is also what keeps a short Latin
+// term from widening: `run` stays three runes and still does not reach
+// `runtime`.
+//
+// @domainRule a single shared word is evidence; the query and the reason are compared as identifier tokens, so camelCase splits the same way on both sides.
+// @intent treat an author-written reason as grounds to show a result even when the name and path say nothing.
+func reasonOverlaps(qTokens []string, reason string) bool {
+	if reason == "" || len(qTokens) == 0 {
 		return false
 	}
-	words := map[string]bool{}
-	for _, w := range identtoken.Split(intent) {
-		words[strings.ToLower(w)] = true
-	}
+	// identtoken.Split lowercases what it returns, so the reason's words arrive
+	// in the case the query's terms are compared in.
+	words := identtoken.Split(reason)
 	for _, tok := range qTokens {
-		if words[strings.ToLower(tok)] {
-			return true
+		term := strings.ToLower(tok)
+		prefix := intentrank.MatchesByPrefix(term)
+		for _, word := range words {
+			if word == term || (prefix && strings.HasPrefix(word, term)) {
+				return true
+			}
 		}
 	}
 	return false
