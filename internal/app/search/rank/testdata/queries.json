@@ -1,12 +1,12 @@
 {
   "corpus": {
-    "source": "CCG's own graph, captured 2026-08-08",
+    "source": "CCG's own graph, captured 2026-08-10",
     "namespace": "ccg",
-    "nodes": 3504,
-    "note": "Candidates in candidates.json were captured by replaying the production FTS path (searchsql.SQLiteBackend.Query with rank.FetchLimit(10)) against that graph. The capture is frozen: it never re-reads a database, so a metric change is attributable to the ranker alone."
+    "nodes": 1929,
+    "note": "Candidates in candidates.json were captured by replaying the production FTS path (searchsql.SQLiteBackend.Query with rank.FetchLimit(10)) against that graph; intent_candidates.json was captured the same way through Reader.QueryIntent. Both captures are frozen: they never re-read a database, so a metric change is attributable to the search service alone."
   },
   "authorship": {
-    "written_by": "assistant, 2026-08-08, before running any measurement",
+    "written_by": "assistant, 2026-08-08, before running any measurement; 47 intent questions merged in 2026-08-10 from the retired intent golden set, keeping their original file-level judgments as relevant_files",
     "measures": "regression, not absolute quality",
     "caveat": "The same author wrote the ranker and these judgments, so the set cannot prove the ranking is good. It can prove a later change made it worse. Expectations are never edited to make a run pass; a failing query is either a real defect or a documented disagreement."
   },
@@ -57,13 +57,13 @@
       "bucket": "prefix",
       "relevant": [
         "function:searchsql.SanitizeFTS5@internal/adapters/outbound/searchsql/sanitize.go",
+        "function:searchsql.SanitizeIntentFTS5@internal/adapters/outbound/searchsql/sanitize.go",
         "function:searchsql.SanitizePostgresTSQuery@internal/adapters/outbound/searchsql/sanitize.go",
-        "function:searchsql.sanitizeRawTokens@internal/adapters/outbound/searchsql/sanitize.go",
-        "function:searchsql.sanitizeTokens@internal/adapters/outbound/searchsql/sanitize.go",
+        "function:searchsql.SanitizePostgresIntentTSQuery@internal/adapters/outbound/searchsql/sanitize.go",
         "file:internal/adapters/outbound/searchsql/sanitize.go@internal/adapters/outbound/searchsql/sanitize.go",
         "function:gitrepo.sanitizeURL@internal/adapters/outbound/gitrepo/checkout.go"
       ],
-      "why": "Half-typed prefix. Every sanitize* function in the graph is a fair first hit, including gitrepo.sanitizeURL. An earlier judgment excluded sanitizeURL as 'a different subject', which asked the ranker to know which sanitizer the typist had in mind from five shared letters. Nothing in the query says. A prefix this short names a family, not a member."
+      "why": "Half-typed prefix. Every sanitize* function in the graph is a fair first hit, including gitrepo.sanitizeURL. An earlier judgment excluded sanitizeURL as 'a different subject', which asked the ranker to know which sanitizer the typist had in mind from five shared letters. Nothing in the query says. A prefix this short names a family, not a member. Membership updated 2026-08-10: sanitizeTokens and sanitizeRawTokens were deleted when token normalization was unified, and the intent-index sanitizers (SanitizeIntentFTS5, SanitizePostgresIntentTSQuery) joined the family."
     },
     {
       "query": "rerank",
@@ -368,9 +368,6 @@
     {
       "query": "how does the graph get built",
       "bucket": "question",
-      "out_of_scope": [
-        "search"
-      ],
       "relevant": [
         "function:workflow.Service.Build@internal/app/ingest/workflow/build.go"
       ],
@@ -379,9 +376,6 @@
     {
       "query": "what happens when a webhook arrives",
       "bucket": "question",
-      "out_of_scope": [
-        "search"
-      ],
       "relevant": [
         "function:webhook.WebhookHandler.ServeHTTP@internal/adapters/inbound/webhook/handler.go"
       ],
@@ -390,9 +384,6 @@
     {
       "query": "where do search results get ranked",
       "bucket": "question",
-      "out_of_scope": [
-        "search"
-      ],
       "relevant": [
         "function:rank.Rerank@internal/app/search/rank/rank.go"
       ],
@@ -401,9 +392,6 @@
     {
       "query": "how do i follow a call chain",
       "bucket": "question",
-      "out_of_scope": [
-        "search"
-      ],
       "relevant": [
         "function:flow.Tracer.TraceFlow@internal/app/analyze/flow/flow.go"
       ],
@@ -412,9 +400,6 @@
     {
       "query": "what stops the server accepting new work",
       "bucket": "question",
-      "out_of_scope": [
-        "search"
-      ],
       "relevant": [
         "function:reposync.SyncQueue.Shutdown@internal/app/reposync/queue.go"
       ],
@@ -459,6 +444,436 @@
       "bucket": "negative",
       "relevant": [],
       "why": "Nothing may be returned. Guards against a scorer that always finds something. Under wiki_search this used to return ten files, every one of them matching `symbol` alone while `zzz`, `nonexistent`, and `qqq` matched nothing anywhere; it returns none since the scan learned to decline a query whose words mostly name nothing."
+    },
+    {
+      "query": "what stops two pushes for the same repository from building at the same time",
+      "bucket": "incident",
+      "relevant": [],
+      "relevant_files": [
+        "internal/adapters/outbound/gitrepo/checkout.go",
+        "internal/app/reposync/queue.go"
+      ],
+      "why": "checkout.go records that git work is serialized per repository across concurrent webhook deliveries, and queue.go records that bursty pushes for one repository are coalesced. Either file is a place the reader can start walking."
+    },
+    {
+      "query": "who checks that a push really came from the forge before we trust it",
+      "bucket": "incident",
+      "relevant": [],
+      "relevant_files": [
+        "internal/adapters/inbound/webhook/handler.go"
+      ],
+      "why": "handler.go records authenticating webhook payloads before the sync pipeline trusts their repository metadata. Nothing else records a reason about proving where a delivery came from."
+    },
+    {
+      "query": "why did a failing sync stop retrying instead of backing off again",
+      "bucket": "incident",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/reposync/queue.go"
+      ],
+      "why": "queue.go records wrapping permanent failures so retry backoff short-circuits. The wrapper and the retry loop live in the same file, so one hit is enough to walk both."
+    },
+    {
+      "query": "how does a sync that is already running end when the server is told to stop",
+      "bucket": "incident",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/reposync/queue.go"
+      ],
+      "why": "queue.go records both cancelling retries and worker waits and giving in-flight webhook sync a bounded graceful exit."
+    },
+    {
+      "query": "what refuses to read a file that sits outside the documentation directory",
+      "bucket": "policy",
+      "relevant": [],
+      "relevant_files": [
+        "internal/adapters/inbound/mcp/handler_docs.go",
+        "internal/adapters/inbound/mcp/namespace_paths.go",
+        "internal/adapters/inbound/wikihttp/server.go"
+      ],
+      "why": "all three record rejecting traversal and symlink escape before a read. They are separate entry points for the MCP tool, the namespace-scoped read, and the Wiki server, and any of them starts the reader in the right place."
+    },
+    {
+      "query": "what keeps a parser result from being reused after the file it came from changed",
+      "bucket": "behavior",
+      "relevant": [],
+      "relevant_files": [
+        "internal/adapters/outbound/graphgorm/store.go",
+        "internal/adapters/outbound/treesitter/walker.go"
+      ],
+      "why": "store.go records preventing stale parser output from being reused across content, path, parser, context, or namespace changes; walker.go records bumping the key when language queries change. The cache key is written in one and invalidated in the other."
+    },
+    {
+      "query": "why does a result say it was cut short instead of returning everything",
+      "bucket": "behavior",
+      "relevant": [],
+      "relevant_files": [
+        "internal/adapters/inbound/mcp/handler_query.go",
+        "internal/adapters/inbound/mcp/handler_analysis.go",
+        "internal/app/analyze/flow/flow.go",
+        "internal/adapters/inbound/wikihttp/server.go"
+      ],
+      "why": "each of these records reporting truncation next to the bounded result it produced. The reader is looking for whichever surface truncated, so all four are acceptable starts."
+    },
+    {
+      "query": "what stops one repository from filling a result that covers several",
+      "bucket": "behavior",
+      "relevant": [],
+      "relevant_files": [
+        "internal/adapters/inbound/mcp/handler_query.go"
+      ],
+      "why": "handler_query.go records keeping one high-scoring repository from starving the other namespaces out of a federated result."
+    },
+    {
+      "query": "why was a push that only deleted a branch ignored",
+      "bucket": "incident",
+      "relevant": [],
+      "relevant_files": [
+        "internal/adapters/inbound/webhook/handler.go"
+      ],
+      "why": "handler.go records skipping pushes that report branch deletion instead of a syncable commit head."
+    },
+    {
+      "query": "what decides which repositories and branches are allowed to sync",
+      "bucket": "policy",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/reposync/admission.go"
+      ],
+      "why": "admission.go records the whole allowlist decision: repo rules, branch globs, and the order later rules override earlier ones."
+    },
+    {
+      "query": "why is a lock file left behind by a crashed run eventually cleaned up",
+      "bucket": "incident",
+      "relevant": [],
+      "relevant_files": [
+        "internal/adapters/outbound/gitrepo/checkout.go"
+      ],
+      "why": "checkout.go records writing lock provenance so stale locks can be detected, and discarding abandoned locks after a timeout."
+    },
+    {
+      "query": "what keeps the same relationship from being stored twice",
+      "bucket": "behavior",
+      "relevant": [],
+      "relevant_files": [
+        "internal/adapters/outbound/graphgorm/store.go",
+        "internal/adapters/outbound/treesitter/walker.go"
+      ],
+      "why": "store.go records that edges sharing a fingerprint are stored once; walker.go records preventing overlapping captures from emitting duplicate edges. The duplicate can be born in either place."
+    },
+    {
+      "query": "what makes the order files are parsed the same on every build",
+      "bucket": "behavior",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/ingest/workflow/build.go"
+      ],
+      "why": "build.go records keeping deterministic input sequencing separate from concurrent parsing, and preserving file order before parsing starts."
+    },
+    {
+      "query": "why does an answer with nothing in it still suggest another call",
+      "bucket": "behavior",
+      "relevant": [],
+      "relevant_files": [
+        "internal/adapters/inbound/mcp/handler_intent.go",
+        "internal/adapters/inbound/mcp/handler_query.go"
+      ],
+      "why": "handler_intent.go records turning an empty answer into a step rather than a dead end; handler_query.go carries the same hand-off on the search side."
+    },
+    {
+      "query": "why must the database schema be migrated before the server will run",
+      "bucket": "policy",
+      "relevant": [],
+      "relevant_files": [
+        "internal/db/migration/migration.go",
+        "internal/adapters/inbound/cli/migrate.go"
+      ],
+      "why": "migrate.go records keeping schema changes out of normal runtime startup, and migration.go holds the version guard that refuses an older database."
+    },
+    {
+      "query": "네임스페이스 설정이 플래그 기본값에 가려지지 않게 하는 곳은 어디야",
+      "bucket": "korean",
+      "relevant": [],
+      "relevant_files": [
+        "internal/adapters/inbound/cli/root.go"
+      ],
+      "why": "root.go records resolving namespace precedence between config and the --namespace flag default, and the reason is written in Korean. The question is kept because Korean was expected to be the weak case: FTS5's default tokenizer splits on spaces, so a Korean word carries its particle into the token. Prefix matching turns out to cover that — '네임스페이스'* still matches '네임스페이스가' — and this question answers at rank 1. It stays as the guard on that, since a change to the sanitizer that drops prefixes would silently break every Korean reason in the graph."
+    },
+    {
+      "query": "why does an invoice get a loyalty discount",
+      "bucket": "negative",
+      "relevant": [],
+      "relevant_files": [],
+      "why": "nothing in this codebase is about invoices, loyalty, or discounts, so the right answer is nothing at all. It used to return two files: 'get' survived the function-word list and prefix matching then reached getAnnotation, getImpactRadius, and getAffectedFlows spelled inside recorded reasons. Narrowing short Latin terms to exact matches closed that, and the question stays as the guard on it."
+    },
+    {
+      "query": "why did the build refuse a source file that changed while it was being opened",
+      "bucket": "incident",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/ingest/workflow/fileio.go"
+      ],
+      "why": "fileio.go의 openRegularSourceFile 구현은 열기 전후의 파일 정보를 비교하고 같은 파일이 아니면 읽기를 중단한다. 파일 교체 경쟁 중 심볼릭 링크나 다른 파일을 따라가지 않게 하는 진입점이다."
+    },
+    {
+      "query": "why did one oversized file abort indexing before it was read",
+      "bucket": "incident",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/ingest/workflow/fileio.go"
+      ],
+      "why": "fileio.go의 크기 검사 구현은 파일 내용을 메모리에 올리기 전에 개별 파일 한도를 비교해 오류를 반환한다. 색인 중 큰 파일 하나가 즉시 실패를 만든 원인을 추적하기 좋은 자리다."
+    },
+    {
+      "query": "why did an update merely warn about unreadable files instead of failing",
+      "bucket": "incident",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/ingest/workflow/fileio.go",
+        "internal/app/ingest/workflow/update.go"
+      ],
+      "why": "update.go는 읽기 실패를 모아 경고한 뒤 설정이 켜진 경우에만 오류로 승격한다. fileio.go는 누락 경로 집계와 단일 구조화 오류 변환을 담당하므로 둘 다 판단 흐름의 시작점이다."
+    },
+    {
+      "query": "why did change analysis fail after a huge diff exhausted the command output limit",
+      "bucket": "incident",
+      "relevant": [],
+      "relevant_files": [
+        "internal/adapters/outbound/gitexec/git.go"
+      ],
+      "why": "git.go의 실행 구현은 diff 표준 출력을 제한된 리더로 읽고 최대 바이트를 넘으면 오류를 반환한다. 변경 분석이 큰 diff에서 멈춘 이유를 직접 확인할 수 있다."
+    },
+    {
+      "query": "why was the wiki index never left half-written after the process died",
+      "bucket": "incident",
+      "relevant": [],
+      "relevant_files": [
+        "internal/adapters/outbound/contentfiles/wiki.go"
+      ],
+      "why": "wiki.go는 같은 디렉터리의 임시 파일에 전체 JSON을 기록하고 닫은 다음 최종 경로로 이름을 바꾼다. 독자가 중간 스냅샷을 보지 않는 이유를 확인할 수 있다."
+    },
+    {
+      "query": "why is a cross-project link still dead after the target project was rebuilt",
+      "bucket": "incident",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/crossref/service.go"
+      ],
+      "why": "service.go는 한 네임스페이스가 다시 만들어진 뒤 그쪽을 가리키는 외부 행을 다시 해석하고 상태나 대상 노드가 달라지면 갱신한다. 재빌드 뒤 링크 복구가 안 된 장애의 시작점이다."
+    },
+    {
+      "query": "what made readiness fail while webhook work kept piling up",
+      "bucket": "incident",
+      "relevant": [],
+      "relevant_files": [
+        "internal/adapters/inbound/http/serve.go"
+      ],
+      "why": "serve.go의 준비 상태 검사는 추적 중인 저장소 수가 한도에 닿거나 대기·처리 시간이 허용 시간을 넘으면 실패를 반환한다. 큐 적체가 트래픽 차단으로 이어지는 판정이 모여 있다."
+    },
+    {
+      "query": "why does status stay degraded after the latest repository sync failed",
+      "bucket": "incident",
+      "relevant": [],
+      "relevant_files": [
+        "internal/adapters/inbound/http/serve.go"
+      ],
+      "why": "serve.go는 마지막 오류 시각이 마지막 성공보다 새로우면 전체 또는 저장소별 상태를 degraded로 둔다. 이후 성공이 오류를 덮기 전까지 상태가 회복되지 않는 이유를 보여준다."
+    },
+    {
+      "query": "why did an incremental update lose relationships between files read in different batches",
+      "bucket": "incident",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/ingest/incremental/incremental.go",
+        "internal/app/ingest/workflow/update.go"
+      ],
+      "why": "incremental.go는 모든 배치의 노드를 먼저 저장한 뒤 별도 스풀에서 관계를 해석하며, update.go는 그 staged 경로를 선택해 재생한다. 배치 경계를 넘는 관계가 사라진 회귀를 조사할 두 진입점이다."
+    },
+    {
+      "query": "why are unchanged files skipped without calling a parser again",
+      "bucket": "behavior",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/ingest/incremental/incremental.go"
+      ],
+      "why": "incremental.go의 동기화 루프는 저장된 해시와 새 해시가 같고 강제 처리가 아니면 파서를 고르기만 한 뒤 내용을 해제하고 건너뛴다. 재파싱 여부가 결정되는 구현이다."
+    },
+    {
+      "query": "why do uncertain call targets appear in a flow unless I opt out",
+      "bucket": "behavior",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/analyze/flow/flow.go"
+      ],
+      "why": "flow.go는 별도 선택이 없으면 불확실한 대체 호출 관계를 포함하도록 기본값을 채우고, 명시적으로 제외했을 때만 해당 관계를 건너뛴다. 흐름 결과가 넓어지는 이유가 여기에 있다."
+    },
+    {
+      "query": "why does impact include code on both sides of a relationship",
+      "bucket": "behavior",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/analyze/impact/impact.go"
+      ],
+      "why": "impact.go의 너비 우선 탐색은 각 깊이에서 나가는 관계와 들어오는 관계를 모두 읽어 다음 방문 목록에 넣는다. 영향 범위가 의존 대상과 의존 주체 양쪽으로 퍼지는 구현이다."
+    },
+    {
+      "query": "why does editing a function with many outgoing links rank as riskier",
+      "bucket": "behavior",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/analyze/changes/service.go"
+      ],
+      "why": "service.go의 위험도 계산은 수정 구간이 겹친 횟수에 해당 노드의 바깥 관계 수에 1을 더한 값을 곱한다. 같은 변경량이어도 연결이 많은 코드가 위로 가는 이유를 보여준다."
+    },
+    {
+      "query": "why does the wiki tree fetch only the requested number of levels",
+      "bucket": "behavior",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/wiki/builder.go"
+      ],
+      "why": "builder.go는 요청한 깊이까지만 현재 노드의 자식을 재귀적으로 채우고 경계에 도달하면 빈 자식 목록을 둔다. 전체 트리를 매번 만들지 않는 탐색 흐름의 시작점이다."
+    },
+    {
+      "query": "why does a configured clone host take precedence over the address in a webhook",
+      "bucket": "behavior",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/reposync/cloneurl.go"
+      ],
+      "why": "cloneurl.go는 유효한 기본 주소 중 첫 번째가 있으면 저장소 경로를 붙여 즉시 반환하고, 기본 주소가 전혀 없고 허용 설정이 있을 때만 payload 주소를 사용한다. 선택 순서를 직접 읽을 수 있다."
+    },
+    {
+      "query": "why does an exact short name jump ahead of stronger text matches",
+      "bucket": "behavior",
+      "relevant": [],
+      "relevant_files": [
+        "internal/adapters/outbound/searchsql/postgres.go",
+        "internal/adapters/outbound/searchsql/sanitize.go",
+        "internal/adapters/outbound/searchsql/sqlite.go"
+      ],
+      "why": "sanitize.go는 단일 식별자 모양의 질의만 정확 이름 승격 대상으로 만들고 일치 항목을 맨 앞으로 옮긴다. postgres.go와 sqlite.go는 각 검색 결과에 이 후처리를 적용하므로 어느 백엔드에서든 읽기 시작할 수 있다."
+    },
+    {
+      "query": "why can searching for a language name find files that only carry an extension",
+      "bucket": "behavior",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/search/document/document.go"
+      ],
+      "why": "document.go의 문서 구성은 파일명 확장자를 토큰으로 넣고 짧은 확장자를 사람이 쓰는 언어 이름으로도 확장한다. 경로에 긴 언어명이 없어도 검색되는 이유다."
+    },
+    {
+      "query": "why are only reasons and rules searchable in the intent index",
+      "bucket": "behavior",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/search/document/document.go"
+      ],
+      "why": "document.go의 별도 색인 내용 생성 루프는 어노테이션 태그 중 의도와 도메인 규칙 종류만 이어 붙이고 나머지는 건너뛴다. 일반 심볼 정보와 이유 전용 색인이 갈리는 코드다."
+    },
+    {
+      "query": "what decides whether an HTTP server may listen outside the local machine without authentication",
+      "bucket": "policy",
+      "relevant": [],
+      "relevant_files": [
+        "internal/adapters/inbound/http/serve.go"
+      ],
+      "why": "serve.go의 노출 검사는 로컬 주소이거나 명시적 비보안 허용이면 통과시키고, 그 밖의 주소에는 인증 토큰을 요구한다. 외부 바인딩 허용 여부를 결정하는 정책 지점이다."
+    },
+    {
+      "query": "what prevents a user supplied revision from being treated as a command option",
+      "bucket": "policy",
+      "relevant": [],
+      "relevant_files": [
+        "internal/adapters/outbound/gitexec/git.go"
+      ],
+      "why": "git.go는 호출자가 준 기준 리비전이 비었거나 하이픈으로 시작하면 명령 실행 전에 거부하고, 경로 인수 앞에는 옵션 종료 표식도 넣는다. 외부 입력이 명령 옵션으로 해석되지 않게 하는 자리다."
+    },
+    {
+      "query": "what limits how much source code a single indexing pass may read",
+      "bucket": "policy",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/ingest/workflow/fileio.go"
+      ],
+      "why": "fileio.go에는 한 파일의 바이트 수와 이번 실행에서 누적한 바이트 수를 각각 설정 한도와 비교하는 검사가 있다. 메모리에 읽을 수 있는 소스 규모 정책의 중심이다."
+    },
+    {
+      "query": "읽지 못한 파일을 업데이트에서 삭제된 것으로 보지 않는 기준은 어디야",
+      "bucket": "korean",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/ingest/workflow/update.go"
+      ],
+      "why": "update.go는 현재 파일 집합에 없더라도 읽기 실패 집합에 들어 있는 기존 경로는 삭제 목록에서 제외한다. 일시적인 접근 실패를 실제 삭제로 오인하지 않는 판정 코드다."
+    },
+    {
+      "query": "여러 묶음으로 읽은 파일 사이의 호출 관계는 왜 마지막에 한꺼번에 연결하지",
+      "bucket": "korean",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/ingest/incremental/incremental.go",
+        "internal/app/ingest/workflow/update.go"
+      ],
+      "why": "incremental.go는 모든 배치의 노드 저장과 삭제를 끝낸 뒤 관계 스풀을 다시 읽어 구현 관계와 나머지 관계를 순서대로 해석한다. update.go는 이 staged 동기화 경로를 호출하므로 둘 다 자연스러운 출발점이다."
+    },
+    {
+      "query": "which team owns the changed code and should review it",
+      "bucket": "negative",
+      "relevant": [],
+      "relevant_files": [],
+      "why": "저장소에는 변경 위험과 그래프 관계 분석은 있지만 코드 소유권 파일, blame 이력, 리뷰어 배정 기능이 없다. 코드 분석 제품에는 그럴듯하지만 이 코드베이스에서는 빈 결과가 정상이다."
+    },
+    {
+      "query": "which functions consume the most CPU in a live process",
+      "bucket": "negative",
+      "relevant": [],
+      "relevant_files": [],
+      "why": "이 도구는 정적 파싱과 저장된 그래프를 다루며 실행 중 프로세스의 CPU 프로파일을 수집하거나 함수별 샘플을 집계하지 않는다. 따라서 답이 없어야 한다."
+    },
+    {
+      "query": "which dependencies have known vulnerabilities or forbidden licenses",
+      "bucket": "negative",
+      "relevant": [],
+      "relevant_files": [],
+      "why": "의존 관계 파싱 기능은 있어도 취약점 데이터베이스 조회, SBOM 생성, 라이선스 허용 목록 검사는 구현되어 있지 않다. 보안 분석 도구에서 기대할 법한 주제지만 여기서는 음성 사례다."
+    },
+    {
+      "query": "why are old generated pages still present after their source files were removed",
+      "bucket": "incident",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/docs/generator.go"
+      ],
+      "why": "generator.go의 실행 흐름은 정리 옵션이 켜졌을 때만 이전 manifest와 현재 산출물을 비교해 오래된 페이지를 지운다."
+    },
+    {
+      "query": "why are handwritten pages kept when obsolete generated docs are pruned",
+      "bucket": "behavior",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/docs/generator.go"
+      ],
+      "why": "generator.go의 정리 루프는 이전 manifest에 있던 파일이라도 생성기 표식으로 시작하지 않으면 삭제하지 않는다."
+    },
+    {
+      "query": "what decides whether generated documentation may delete an existing page",
+      "bucket": "policy",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/docs/generator.go"
+      ],
+      "why": "generator.go는 이전 manifest에는 있으나 현재 목록에는 없는 파일만 후보로 삼고, 실제 내용이 생성기 표식으로 시작할 때만 제거한다."
+    },
+    {
+      "query": "코드가 바뀐 뒤 어떤 주석을 다시 확인해야 하는지는 어디서 판단해",
+      "bucket": "korean",
+      "relevant": [],
+      "relevant_files": [
+        "internal/app/docs/lint.go"
+      ],
+      "why": "lint.go는 심볼 갱신 시각과 어노테이션 갱신 시각을 비교해 코드가 더 새로우면 드리프트로 보고한다."
     }
   ],
   "scoring": {

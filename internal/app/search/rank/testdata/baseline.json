@@ -3,7 +3,7 @@
     "query": "SanitizeFTS5",
     "bucket": "exact",
     "retrieved": true,
-    "returned": 1,
+    "returned": 3,
     "relevant": 1,
     "found": 1,
     "rank": 1,
@@ -13,11 +13,11 @@
     "query": "BuildContent",
     "bucket": "exact",
     "retrieved": true,
-    "returned": 2,
+    "returned": 3,
     "relevant": 1,
     "found": 1,
     "rank": 1,
-    "weak_filtered": 6
+    "weak_filtered": 4
   },
   {
     "query": "UnresolvedEdgeCandidate",
@@ -56,33 +56,33 @@
     "relevant": 6,
     "found": 6,
     "rank": 1,
-    "weak_filtered": 3
+    "weak_filtered": 9
   },
   {
     "query": "rerank",
     "bucket": "prefix",
     "retrieved": true,
-    "returned": 2,
+    "returned": 7,
     "relevant": 1,
     "found": 1,
     "rank": 1,
-    "weak_filtered": 6
+    "weak_filtered": 9
   },
   {
     "query": "annot",
     "bucket": "prefix",
     "retrieved": true,
-    "returned": 20,
+    "returned": 33,
     "relevant": 4,
     "found": 2,
     "rank": 1,
-    "weak_filtered": 22
+    "weak_filtered": 10
   },
   {
     "query": "crossref",
     "bucket": "prefix",
     "retrieved": true,
-    "returned": 32,
+    "returned": 33,
     "relevant": 3,
     "found": 3,
     "rank": 1,
@@ -102,7 +102,7 @@
     "query": "discovery",
     "bucket": "subword",
     "retrieved": true,
-    "returned": 45,
+    "returned": 46,
     "relevant": 3,
     "found": 2,
     "rank": 1,
@@ -112,11 +112,11 @@
     "query": "syncer",
     "bucket": "subword",
     "retrieved": true,
-    "returned": 27,
+    "returned": 28,
     "relevant": 3,
     "found": 3,
     "rank": 1,
-    "weak_filtered": 7
+    "weak_filtered": 6
   },
   {
     "query": "radius",
@@ -132,47 +132,47 @@
     "query": "tracer",
     "bucket": "subword",
     "retrieved": true,
-    "returned": 9,
+    "returned": 12,
     "relevant": 2,
     "found": 2,
     "rank": 1,
-    "weak_filtered": 8
+    "weak_filtered": 5
   },
   {
     "query": "membership",
     "bucket": "subword",
     "retrieved": true,
-    "returned": 8,
+    "returned": 9,
     "relevant": 1,
     "found": 1,
     "rank": 1,
-    "weak_filtered": 6
+    "weak_filtered": 7
   },
   {
     "query": "fts",
     "bucket": "acronym",
     "retrieved": true,
-    "returned": 23,
+    "returned": 19,
     "relevant": 3,
     "found": 2,
     "rank": 1,
-    "weak_filtered": 11
+    "weak_filtered": 13
   },
   {
     "query": "sqlite",
     "bucket": "acronym",
     "retrieved": true,
-    "returned": 28,
+    "returned": 40,
     "relevant": 2,
     "found": 2,
     "rank": 2,
-    "weak_filtered": 11
+    "weak_filtered": 9
   },
   {
     "query": "mcp",
     "bucket": "acronym",
     "retrieved": false,
-    "returned": 30,
+    "returned": 37,
     "relevant": 1,
     "found": 0,
     "rank": 0
@@ -230,7 +230,7 @@
     "query": "package discovery",
     "bucket": "concept",
     "retrieved": true,
-    "returned": 50,
+    "returned": 46,
     "relevant": 3,
     "found": 3,
     "rank": 1
@@ -239,7 +239,7 @@
     "query": "impact radius",
     "bucket": "concept",
     "retrieved": true,
-    "returned": 12,
+    "returned": 17,
     "relevant": 2,
     "found": 2,
     "rank": 1
@@ -248,7 +248,7 @@
     "query": "cross ref",
     "bucket": "concept",
     "retrieved": true,
-    "returned": 35,
+    "returned": 41,
     "relevant": 3,
     "found": 3,
     "rank": 1,
@@ -258,7 +258,7 @@
     "query": "trace flow",
     "bucket": "concept",
     "retrieved": true,
-    "returned": 19,
+    "returned": 41,
     "relevant": 3,
     "found": 3,
     "rank": 1
@@ -267,17 +267,17 @@
     "query": "search document",
     "bucket": "concept",
     "retrieved": true,
-    "returned": 25,
+    "returned": 30,
     "relevant": 4,
     "found": 3,
     "rank": 1,
-    "weak_filtered": 16
+    "weak_filtered": 15
   },
   {
     "query": "flow membership",
     "bucket": "concept",
     "retrieved": true,
-    "returned": 7,
+    "returned": 34,
     "relevant": 1,
     "found": 1,
     "rank": 1
@@ -286,11 +286,11 @@
     "query": "incremental syncer",
     "bucket": "concept",
     "retrieved": true,
-    "returned": 27,
+    "returned": 50,
     "relevant": 3,
     "found": 3,
     "rank": 2,
-    "weak_filtered": 4
+    "weak_filtered": 3
   },
   {
     "query": "treesitter semantics",
@@ -305,7 +305,7 @@
     "query": "graphgorm crossref",
     "bucket": "path-scoped",
     "retrieved": true,
-    "returned": 8,
+    "returned": 9,
     "relevant": 5,
     "found": 5,
     "rank": 1
@@ -314,7 +314,7 @@
     "query": "migration schema",
     "bucket": "path-scoped",
     "retrieved": true,
-    "returned": 30,
+    "returned": 43,
     "relevant": 2,
     "found": 2,
     "rank": 1
@@ -323,7 +323,7 @@
     "query": "worker pool",
     "bucket": "description",
     "retrieved": true,
-    "returned": 1,
+    "returned": 13,
     "relevant": 2,
     "found": 1,
     "rank": 1,
@@ -333,7 +333,7 @@
     "query": "bounded traversal",
     "bucket": "description",
     "retrieved": true,
-    "returned": 4,
+    "returned": 16,
     "relevant": 2,
     "found": 2,
     "rank": 1,
@@ -342,9 +342,8 @@
   {
     "query": "how does the graph get built",
     "bucket": "question",
-    "out_of_scope": true,
-    "retrieved": false,
-    "returned": 0,
+    "retrieved": true,
+    "returned": 25,
     "relevant": 1,
     "found": 0,
     "rank": 0
@@ -352,9 +351,8 @@
   {
     "query": "what happens when a webhook arrives",
     "bucket": "question",
-    "out_of_scope": true,
     "retrieved": false,
-    "returned": 0,
+    "returned": 29,
     "relevant": 1,
     "found": 0,
     "rank": 0
@@ -362,9 +360,8 @@
   {
     "query": "where do search results get ranked",
     "bucket": "question",
-    "out_of_scope": true,
     "retrieved": false,
-    "returned": 0,
+    "returned": 18,
     "relevant": 1,
     "found": 0,
     "rank": 0
@@ -372,19 +369,17 @@
   {
     "query": "how do i follow a call chain",
     "bucket": "question",
-    "out_of_scope": true,
-    "retrieved": false,
-    "returned": 0,
+    "retrieved": true,
+    "returned": 30,
     "relevant": 1,
-    "found": 0,
-    "rank": 0
+    "found": 1,
+    "rank": 3
   },
   {
     "query": "what stops the server accepting new work",
     "bucket": "question",
-    "out_of_scope": true,
     "retrieved": true,
-    "returned": 1,
+    "returned": 21,
     "relevant": 1,
     "found": 1,
     "rank": 1
@@ -393,11 +388,10 @@
     "query": "syncqueue",
     "bucket": "receiver",
     "retrieved": true,
-    "returned": 16,
+    "returned": 17,
     "relevant": 4,
     "found": 4,
-    "rank": 1,
-    "weak_filtered": 1
+    "rank": 1
   },
   {
     "query": "webhookhandler",
@@ -412,10 +406,11 @@
     "query": "sqlitebackend",
     "bucket": "receiver",
     "retrieved": true,
-    "returned": 9,
+    "returned": 12,
     "relevant": 6,
     "found": 6,
-    "rank": 1
+    "rank": 1,
+    "weak_filtered": 1
   },
   {
     "query": "zzz nonexistent symbol qqq",
@@ -424,6 +419,433 @@
     "retrieved": false,
     "returned": 0,
     "relevant": 0,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "what stops two pushes for the same repository from building at the same time",
+    "bucket": "incident",
+    "retrieved": true,
+    "returned": 18,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "who checks that a push really came from the forge before we trust it",
+    "bucket": "incident",
+    "retrieved": true,
+    "returned": 19,
+    "relevant": 1,
+    "found": 1,
+    "rank": 5
+  },
+  {
+    "query": "why did a failing sync stop retrying instead of backing off again",
+    "bucket": "incident",
+    "retrieved": true,
+    "returned": 15,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "how does a sync that is already running end when the server is told to stop",
+    "bucket": "incident",
+    "retrieved": true,
+    "returned": 21,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "what refuses to read a file that sits outside the documentation directory",
+    "bucket": "policy",
+    "retrieved": true,
+    "returned": 17,
+    "relevant": 3,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "what keeps a parser result from being reused after the file it came from changed",
+    "bucket": "behavior",
+    "retrieved": true,
+    "returned": 21,
+    "relevant": 2,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "why does a result say it was cut short instead of returning everything",
+    "bucket": "behavior",
+    "retrieved": true,
+    "returned": 19,
+    "relevant": 4,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "what stops one repository from filling a result that covers several",
+    "bucket": "behavior",
+    "retrieved": true,
+    "returned": 18,
+    "relevant": 1,
+    "found": 1,
+    "rank": 2
+  },
+  {
+    "query": "why was a push that only deleted a branch ignored",
+    "bucket": "incident",
+    "retrieved": true,
+    "returned": 22,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "what decides which repositories and branches are allowed to sync",
+    "bucket": "policy",
+    "retrieved": true,
+    "returned": 24,
+    "relevant": 1,
+    "found": 1,
+    "rank": 7
+  },
+  {
+    "query": "why is a lock file left behind by a crashed run eventually cleaned up",
+    "bucket": "incident",
+    "retrieved": true,
+    "returned": 21,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "what keeps the same relationship from being stored twice",
+    "bucket": "behavior",
+    "retrieved": true,
+    "returned": 25,
+    "relevant": 2,
+    "found": 1,
+    "rank": 3
+  },
+  {
+    "query": "what makes the order files are parsed the same on every build",
+    "bucket": "behavior",
+    "retrieved": true,
+    "returned": 23,
+    "relevant": 1,
+    "found": 1,
+    "rank": 2
+  },
+  {
+    "query": "why does an answer with nothing in it still suggest another call",
+    "bucket": "behavior",
+    "retrieved": true,
+    "returned": 22,
+    "relevant": 2,
+    "found": 2,
+    "rank": 5
+  },
+  {
+    "query": "why must the database schema be migrated before the server will run",
+    "bucket": "policy",
+    "retrieved": true,
+    "returned": 21,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "네임스페이스 설정이 플래그 기본값에 가려지지 않게 하는 곳은 어디야",
+    "bucket": "korean",
+    "retrieved": true,
+    "returned": 7,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "why does an invoice get a loyalty discount",
+    "bucket": "negative",
+    "negative": true,
+    "retrieved": false,
+    "returned": 0,
+    "relevant": 0,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "why did the build refuse a source file that changed while it was being opened",
+    "bucket": "incident",
+    "retrieved": true,
+    "returned": 31,
+    "relevant": 1,
+    "found": 1,
+    "rank": 3
+  },
+  {
+    "query": "why did one oversized file abort indexing before it was read",
+    "bucket": "incident",
+    "retrieved": true,
+    "returned": 19,
+    "relevant": 1,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "why did an update merely warn about unreadable files instead of failing",
+    "bucket": "incident",
+    "retrieved": true,
+    "returned": 16,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "why did change analysis fail after a huge diff exhausted the command output limit",
+    "bucket": "incident",
+    "retrieved": true,
+    "returned": 22,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "why was the wiki index never left half-written after the process died",
+    "bucket": "incident",
+    "retrieved": true,
+    "returned": 14,
+    "relevant": 1,
+    "found": 1,
+    "rank": 9
+  },
+  {
+    "query": "why is a cross-project link still dead after the target project was rebuilt",
+    "bucket": "incident",
+    "retrieved": true,
+    "returned": 17,
+    "relevant": 1,
+    "found": 1,
+    "rank": 10
+  },
+  {
+    "query": "what made readiness fail while webhook work kept piling up",
+    "bucket": "incident",
+    "retrieved": true,
+    "returned": 30,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "why does status stay degraded after the latest repository sync failed",
+    "bucket": "incident",
+    "retrieved": true,
+    "returned": 23,
+    "relevant": 1,
+    "found": 1,
+    "rank": 6
+  },
+  {
+    "query": "why did an incremental update lose relationships between files read in different batches",
+    "bucket": "incident",
+    "retrieved": true,
+    "returned": 30,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "why are unchanged files skipped without calling a parser again",
+    "bucket": "behavior",
+    "retrieved": true,
+    "returned": 23,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "why do uncertain call targets appear in a flow unless I opt out",
+    "bucket": "behavior",
+    "retrieved": true,
+    "returned": 20,
+    "relevant": 1,
+    "found": 1,
+    "rank": 2
+  },
+  {
+    "query": "why does impact include code on both sides of a relationship",
+    "bucket": "behavior",
+    "retrieved": true,
+    "returned": 17,
+    "relevant": 1,
+    "found": 1,
+    "rank": 2
+  },
+  {
+    "query": "why does editing a function with many outgoing links rank as riskier",
+    "bucket": "behavior",
+    "retrieved": false,
+    "returned": 23,
+    "relevant": 1,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "why does the wiki tree fetch only the requested number of levels",
+    "bucket": "behavior",
+    "retrieved": true,
+    "returned": 36,
+    "relevant": 1,
+    "found": 1,
+    "rank": 2
+  },
+  {
+    "query": "why does a configured clone host take precedence over the address in a webhook",
+    "bucket": "behavior",
+    "retrieved": true,
+    "returned": 26,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "why does an exact short name jump ahead of stronger text matches",
+    "bucket": "behavior",
+    "retrieved": true,
+    "returned": 20,
+    "relevant": 3,
+    "found": 1,
+    "rank": 5
+  },
+  {
+    "query": "why can searching for a language name find files that only carry an extension",
+    "bucket": "behavior",
+    "retrieved": true,
+    "returned": 20,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "why are only reasons and rules searchable in the intent index",
+    "bucket": "behavior",
+    "retrieved": true,
+    "returned": 30,
+    "relevant": 1,
+    "found": 1,
+    "rank": 4
+  },
+  {
+    "query": "what decides whether an HTTP server may listen outside the local machine without authentication",
+    "bucket": "policy",
+    "retrieved": true,
+    "returned": 25,
+    "relevant": 1,
+    "found": 1,
+    "rank": 3
+  },
+  {
+    "query": "what prevents a user supplied revision from being treated as a command option",
+    "bucket": "policy",
+    "retrieved": true,
+    "returned": 14,
+    "relevant": 1,
+    "found": 1,
+    "rank": 3
+  },
+  {
+    "query": "what limits how much source code a single indexing pass may read",
+    "bucket": "policy",
+    "retrieved": true,
+    "returned": 20,
+    "relevant": 1,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "읽지 못한 파일을 업데이트에서 삭제된 것으로 보지 않는 기준은 어디야",
+    "bucket": "korean",
+    "retrieved": false,
+    "returned": 0,
+    "relevant": 1,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "여러 묶음으로 읽은 파일 사이의 호출 관계는 왜 마지막에 한꺼번에 연결하지",
+    "bucket": "korean",
+    "retrieved": false,
+    "returned": 0,
+    "relevant": 2,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "which team owns the changed code and should review it",
+    "bucket": "negative",
+    "negative": true,
+    "retrieved": false,
+    "returned": 16,
+    "relevant": 0,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "which functions consume the most CPU in a live process",
+    "bucket": "negative",
+    "negative": true,
+    "retrieved": false,
+    "returned": 18,
+    "relevant": 0,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "which dependencies have known vulnerabilities or forbidden licenses",
+    "bucket": "negative",
+    "negative": true,
+    "retrieved": false,
+    "returned": 19,
+    "relevant": 0,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "why are old generated pages still present after their source files were removed",
+    "bucket": "incident",
+    "retrieved": true,
+    "returned": 25,
+    "relevant": 1,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "why are handwritten pages kept when obsolete generated docs are pruned",
+    "bucket": "behavior",
+    "retrieved": true,
+    "returned": 40,
+    "relevant": 1,
+    "found": 1,
+    "rank": 3
+  },
+  {
+    "query": "what decides whether generated documentation may delete an existing page",
+    "bucket": "policy",
+    "retrieved": false,
+    "returned": 17,
+    "relevant": 1,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "코드가 바뀐 뒤 어떤 주석을 다시 확인해야 하는지는 어디서 판단해",
+    "bucket": "korean",
+    "retrieved": false,
+    "returned": 0,
+    "relevant": 1,
     "found": 0,
     "rank": 0
   }

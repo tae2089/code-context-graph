@@ -3,12 +3,16 @@
 A frozen record of what `search` returns for real queries, so a later change has
 to justify every result it moves.
 
-`golden_test.go` replays the MCP `search` tool — `rank.Rerank` over full-text
-candidates — and scores where each query's first relevant **node** landed.
+`golden_test.go` replays the whole production pipeline — `searchapp.Service`
+over both frozen index answers, including the intent merge and the evidence cut
+— and scores what each query's shown list contains.
 
-A second harness scores `find_by_intent` and lives somewhere else, because it
-needs a live index rather than a frozen result list — see [The intent golden
-set](#the-intent-golden-set) at the bottom.
+The 47 questions of the intent golden set were merged into `queries.json` when
+search absorbed `find_by_intent`'s answers. Their judgments were made at file
+granularity ("somewhere the reader can start walking"), so they live in
+`relevant_files` rather than being re-judged down to declarations. The retired
+harness is described in [The intent golden set](#the-intent-golden-set) at the
+bottom, kept until its files are deleted with the tool.
 
 There used to be a third path here. `wiki_search` named the Wiki web UI's search
 box — `retrieval.FromDB`, full-text plus a namespace scan — and had its own
@@ -23,9 +27,16 @@ the unified service will be scored against them.
 
 | File | Written by | Purpose |
 | --- | --- | --- |
-| `queries.json` | a human | 44 queries with the answers a developer typing them would accept, and why |
-| `candidates.json` | `TestCaptureGoldenCandidates` | the full-text candidates for `search`, in retrieval order, at `rank.FetchLimit(10)` = 50 |
+| `queries.json` | a human | 91 queries with the answers a developer typing them would accept, and why |
+| `candidates.json` | `TestCaptureGoldenCandidates` | the full-text candidates for `search`, in retrieval order, at `rank.FetchLimit(10)` |
+| `intent_candidates.json` | `TestCaptureGoldenCandidates` | what the intent index said per query: ranked hits, every scored term with its reason count, and the corpus size |
 | `baseline.json` | `-update-golden` | where `search` put the first relevant node on the last accepted run |
+
+`intent_candidates.json` keeps the term counts, not only the hits, because
+membership is gated on them: `intent.Result.CanAnswer` drops every intent hit
+when fewer than half the question's scored terms appear in any recorded reason.
+A replay without the terms would score a search that thinks every question is
+answerable.
 
 The fixture is captured through the production query path, so the tool is scored
 on exactly the pool it gets in production. Once captured it is never re-read
@@ -65,7 +76,7 @@ repository root, which is build output and not tracked:
 
 ```sh
 make wiki-db              # builds ./ccg.db, which the capture reads
-make search-eval-capture  # rewrites candidates.json
+make search-eval-capture  # rewrites candidates.json and intent_candidates.json
 ```
 
 A recapture can hide a retrieval regression by baking it into the fixture, so
@@ -73,8 +84,10 @@ diff the file and re-read every judgment it touches before committing.
 
 ## Labels
 
-`relevant` entries are written `path/to/file.go@pkg.Symbol`. `search` is scored
-on the symbol after the `@`.
+`relevant` entries are written `kind:pkg.Symbol@path/to/file.go` and judge at
+node granularity. `relevant_files` entries are bare file paths and judge at
+file granularity; a judged file counts once however many hits it answered with.
+A query may use either or both.
 
 `out_of_scope` is a list of the tools that decline the query, not a boolean, so
 one judgment file can score more than one tool. Today only `search` is scored
@@ -87,24 +100,36 @@ ranking change can fix that query.
 ## The two totals
 
 ```
-search       ALL  43   34/43  0.745  top1 32  top3 34  MRR 0.767
-search       ANSWERABLE  34   33/34  0.900  top1 31  top3 33  MRR 0.941
+search       ALL         86   74/86  0.732 (123/168)  top1 49  top3 62  MRR 0.650
+search       ANSWERABLE  82   74/82  0.804 (123/153)  top1 49  top3 62  MRR 0.681
 ```
 
-`queries.json` holds 44 entries and the scoreboard counts 43. The missing one is
-`zzz nonexistent symbol qqq`, whose `relevant` list is empty; a query with no
-right answer has no rank to average, so the report skips it and lists it
-separately. Nothing is silently dropped.
+`queries.json` holds 91 entries and the scoreboard counts 86. The missing five
+are the negative cases — queries whose `relevant` and `relevant_files` lists are
+empty; a query with no right answer has no rank to average, so the report skips
+them and lists any that return noise separately. Nothing is silently dropped.
 
 `ALL` includes the out-of-scope queries, so it can never reach 1.0 however good
-the code gets. `ANSWERABLE` drops the nine queries `search` declines, and is the
-number to read when asking how the code is doing.
+the code gets. `ANSWERABLE` drops the four queries `search` declines (`cfg` and
+the three typos), and is the number to read when asking how the code is doing.
 
-`search`'s 0.941 is not comparable to the number this file used to print. Until
-the five question queries were reclassified, they were scored against `search`
-and dragged it down. Moving them is bookkeeping, not a code improvement — with
-the same judgments as before, `search` scores 0.846, unchanged by any code in
-this round.
+These totals are not comparable to what this file printed before the intent
+questions were merged in: 47 harder, file-judged questions joined the average.
+On the pre-merge queries alone the numbers did not move, and on the migrated
+questions parity with the retired intent harness held exactly within the
+10-file page (top1 17, top3 27, MRR 0.524 against 0.526) — the three hits it
+lost sat at old ranks 11–16, past the page search shows.
+
+## Negative cases
+
+A negative query's right answer is nothing. Three of the five still return
+results, because their words are ordinary codebase vocabulary and the reasons
+"speak their language" without answering them — the same debt the retired
+intent golden set carried. The baseline records each negative's measured count
+rather than asserting zero: growth fails the ratchet, and a negative that
+reaches zero must be re-recorded so the improvement cannot silently regress.
+`intent.Result.CanAnswer` is what keeps the other two at zero — a question
+mostly made of words nobody ever wrote down gets no intent hits at all.
 
 ## The four kept-red queries
 

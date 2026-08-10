@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	intentapp "github.com/tae2089/code-context-graph/internal/app/search/intent"
 	"github.com/tae2089/code-context-graph/internal/app/search/rank"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 )
@@ -58,9 +59,11 @@ func TestCaptureGoldenCandidates(t *testing.T) {
 		t.Fatalf("open %s: %v", goldenGraphPath, err)
 	}
 	backend := &SQLiteBackend{}
+	reader := NewReader(db, backend)
 	ctx := requestctx.WithNamespace(context.Background(), set.Corpus.Namespace)
 
 	out := map[string][]goldenCandidate{}
+	outIntent := map[string]goldenIntentAnswer{}
 	for _, q := range set.Queries {
 		nodes, err := backend.Query(ctx, db, q.Query, rank.FetchLimit(goldenLimit))
 		if err != nil {
@@ -78,17 +81,56 @@ func TestCaptureGoldenCandidates(t *testing.T) {
 			})
 		}
 		out[q.Query] = captured
-		t.Logf("%-30q -> %2d candidates", q.Query, len(captured))
+		answer, err := captureIntentAnswer(ctx, reader, q.Query)
+		if err != nil {
+			t.Fatalf("%q: %v", q.Query, err)
+		}
+		outIntent[q.Query] = answer
+		t.Logf("%-30q -> %2d candidates, %2d intent hits", q.Query, len(captured), len(answer.Hits))
 	}
 
-	blob, err := json.MarshalIndent(out, "", "  ")
+	writeGoldenJSON(t, goldenDir+"candidates.json", out)
+	writeGoldenJSON(t, goldenDir+"intent_candidates.json", outIntent)
+	t.Log("candidates.json and intent_candidates.json rewritten; re-run the rank golden report and review every change")
+}
+
+// captureIntentAnswer runs the production intent query for one golden query,
+// with the same over-fetch the search service asks for, and keeps the whole
+// answer: hits, scored terms with their reason counts, and the corpus size.
+// The terms matter as much as the hits — membership is gated on them.
+func captureIntentAnswer(ctx context.Context, reader *Reader, query string) (goldenIntentAnswer, error) {
+	result, err := reader.QueryIntent(ctx, query, rank.FetchLimit(goldenLimit))
+	if err != nil {
+		return goldenIntentAnswer{}, err
+	}
+	answer := goldenIntentAnswer{Corpus: result.Corpus}
+	for _, term := range result.Terms {
+		answer.Terms = append(answer.Terms, goldenIntentTerm{Text: term.Text, InReasons: term.InReasons})
+	}
+	for _, h := range result.Hits {
+		answer.Hits = append(answer.Hits, goldenIntentHit{
+			ID:            h.Node.ID,
+			Name:          h.Node.Name,
+			QualifiedName: h.Node.QualifiedName,
+			Kind:          string(h.Node.Kind),
+			FilePath:      h.Node.FilePath,
+			Intent:        h.Node.Intent(),
+			Reason:        intentapp.RecordedReason(h.Node),
+			Terms:         h.Terms,
+		})
+	}
+	return answer, nil
+}
+
+func writeGoldenJSON(t *testing.T, path string, data any) {
+	t.Helper()
+	blob, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(goldenDir+"candidates.json", append(blob, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(path, append(blob, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Log("candidates.json rewritten; re-run the rank golden report and review every change")
 }
 
 // TestCaptureMissingGoldenCandidates captures only the queries candidates.json
@@ -129,50 +171,63 @@ func TestCaptureMissingGoldenCandidates(t *testing.T) {
 	if err := json.Unmarshal(blob, &existing); err != nil {
 		t.Fatal(err)
 	}
+	existingIntent := map[string]goldenIntentAnswer{}
+	if blob, err := os.ReadFile(goldenDir + "intent_candidates.json"); err == nil {
+		if err := json.Unmarshal(blob, &existingIntent); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	db, err := gorm.Open(sqlite.Open("file:"+goldenGraphPath+"?immutable=1&mode=ro"), &gorm.Config{Logger: logger.Discard})
 	if err != nil {
 		t.Fatalf("open %s: %v", goldenGraphPath, err)
 	}
 	backend := &SQLiteBackend{}
+	reader := NewReader(db, backend)
 	ctx := requestctx.WithNamespace(context.Background(), set.Corpus.Namespace)
 
 	added := 0
 	for _, q := range set.Queries {
-		if _, ok := existing[q.Query]; ok {
+		_, haveNamed := existing[q.Query]
+		_, haveIntent := existingIntent[q.Query]
+		if haveNamed && haveIntent {
 			continue
 		}
-		nodes, err := backend.Query(ctx, db, q.Query, rank.FetchLimit(goldenLimit))
-		if err != nil {
-			t.Fatalf("%q: %v", q.Query, err)
+		if !haveNamed {
+			nodes, err := backend.Query(ctx, db, q.Query, rank.FetchLimit(goldenLimit))
+			if err != nil {
+				t.Fatalf("%q: %v", q.Query, err)
+			}
+			captured := make([]goldenCandidate, 0, len(nodes))
+			for _, n := range nodes {
+				captured = append(captured, goldenCandidate{
+					ID:            n.ID,
+					Name:          n.Name,
+					QualifiedName: n.QualifiedName,
+					Kind:          string(n.Kind),
+					FilePath:      n.FilePath,
+					Intent:        n.Intent(),
+				})
+			}
+			existing[q.Query] = captured
 		}
-		captured := make([]goldenCandidate, 0, len(nodes))
-		for _, n := range nodes {
-			captured = append(captured, goldenCandidate{
-				ID:            n.ID,
-				Name:          n.Name,
-				QualifiedName: n.QualifiedName,
-				Kind:          string(n.Kind),
-				FilePath:      n.FilePath,
-				Intent:        n.Intent(),
-			})
+		if !haveIntent {
+			answer, err := captureIntentAnswer(ctx, reader, q.Query)
+			if err != nil {
+				t.Fatalf("%q: %v", q.Query, err)
+			}
+			existingIntent[q.Query] = answer
 		}
-		existing[q.Query] = captured
 		added++
-		t.Logf("added %-40q -> %2d candidates", q.Query, len(captured))
+		t.Logf("added %-40q -> %2d candidates, %2d intent hits", q.Query, len(existing[q.Query]), len(existingIntent[q.Query].Hits))
 	}
 	if added == 0 {
 		t.Log("every query already has captured candidates; nothing written")
 		return
 	}
-	out, err := json.MarshalIndent(existing, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(goldenDir+"candidates.json", append(out, '\n'), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("candidates.json: %d queries added, existing entries untouched", added)
+	writeGoldenJSON(t, goldenDir+"candidates.json", existing)
+	writeGoldenJSON(t, goldenDir+"intent_candidates.json", existingIntent)
+	t.Logf("candidates.json and intent_candidates.json: %d queries added, existing entries untouched", added)
 }
 
 var (
@@ -203,4 +258,33 @@ type goldenCandidate struct {
 	Kind          string `json:"kind"`
 	FilePath      string `json:"file_path"`
 	Intent        string `json:"intent,omitempty"`
+}
+
+// goldenIntentAnswer mirrors the intent-candidate record the rank golden set
+// reads back: the ranked hits, every scored term with its reason count, and the
+// corpus size. The terms are captured because membership is gated on them.
+type goldenIntentAnswer struct {
+	Corpus int                `json:"corpus,omitempty"`
+	Terms  []goldenIntentTerm `json:"terms,omitempty"`
+	Hits   []goldenIntentHit  `json:"hits,omitempty"`
+}
+
+// goldenIntentTerm is one scored term of the question and how many recorded
+// reasons in the whole index hold it.
+type goldenIntentTerm struct {
+	Text      string `json:"text"`
+	InReasons int    `json:"in_reasons"`
+}
+
+// goldenIntentHit is one node the intent index answered the query with, the
+// recorded reason it matched, and the query terms the scorer counted in it.
+type goldenIntentHit struct {
+	ID            uint     `json:"id"`
+	Name          string   `json:"name"`
+	QualifiedName string   `json:"qualified_name"`
+	Kind          string   `json:"kind"`
+	FilePath      string   `json:"file_path"`
+	Intent        string   `json:"intent,omitempty"`
+	Reason        string   `json:"reason,omitempty"`
+	Terms         []string `json:"terms,omitempty"`
 }

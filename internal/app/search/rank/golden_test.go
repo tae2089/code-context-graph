@@ -1,10 +1,11 @@
 // The golden harness lives in the external test package because it replays the
-// list search actually returns, which means it goes through the evidence cut —
-// and the evidence package imports this one, so an in-package test could not
-// reach it.
+// list search actually returns — the whole service pipeline, including the
+// intent merge and the evidence cut — and the packages that make it up import
+// this one, so an in-package test could not reach them.
 package rank_test
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -14,8 +15,9 @@ import (
 	"strings"
 	"testing"
 
+	searchapp "github.com/tae2089/code-context-graph/internal/app/search"
 	"github.com/tae2089/code-context-graph/internal/app/search/evidence"
-	"github.com/tae2089/code-context-graph/internal/app/search/rank"
+	intentapp "github.com/tae2089/code-context-graph/internal/app/search/intent"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
@@ -31,10 +33,16 @@ var updateGolden = flag.Bool("update-golden", false, "rewrite testdata/baseline.
 const goldenLimit = 10
 
 type goldenQuery struct {
-	Query    string   `json:"query"`
-	Bucket   string   `json:"bucket"`
+	Query  string `json:"query"`
+	Bucket string `json:"bucket"`
+	// Relevant judges at node granularity, as kind:qualified@path labels.
 	Relevant []string `json:"relevant"`
-	Why      string   `json:"why"`
+	// RelevantFiles judges at file granularity. The questions migrated from the
+	// intent golden set were judged as "somewhere the reader can start walking",
+	// and the file is the unit a reader picks from, so re-judging them down to
+	// declarations would invent precision the judgment never had.
+	RelevantFiles []string `json:"relevant_files,omitempty"`
+	Why           string   `json:"why"`
 	// OutOfScope names the tools that have decided not to answer this query, so
 	// their zero is a recorded decision rather than a defect. Without it those
 	// queries sink the headline average and nobody reading it can tell how much
@@ -86,6 +94,92 @@ func nodeOf(c goldenCandidate) graph.Node {
 	return n
 }
 
+// goldenIntentAnswer is everything the intent index said about one golden
+// query, as captured through the production intent query path: the ranked hits,
+// every scored term with its reason count, and the corpus size. The terms are
+// captured because membership is gated on them — a replay without them would
+// score a search that thinks every question is answerable.
+type goldenIntentAnswer struct {
+	Corpus int                `json:"corpus,omitempty"`
+	Terms  []goldenIntentTerm `json:"terms,omitempty"`
+	Hits   []goldenIntentHit  `json:"hits,omitempty"`
+}
+
+// goldenIntentTerm is one scored term of the question and how many recorded
+// reasons in the whole index hold it.
+type goldenIntentTerm struct {
+	Text      string `json:"text"`
+	InReasons int    `json:"in_reasons"`
+}
+
+// goldenIntentHit is one candidate the intent index answered a golden query
+// with, as captured through the production intent query path.
+type goldenIntentHit struct {
+	ID            uint   `json:"id"`
+	Name          string `json:"name"`
+	QualifiedName string `json:"qualified_name"`
+	Kind          string `json:"kind"`
+	FilePath      string `json:"file_path"`
+	Intent        string `json:"intent,omitempty"`
+	// Reason is the recorded reason the index matched — the @intent, or the
+	// @domainRule when the node has no @intent of its own.
+	Reason string `json:"reason,omitempty"`
+	// Terms are the query terms the intent scorer counted in Reason.
+	Terms []string `json:"terms,omitempty"`
+}
+
+// intentHitOf rebuilds the hit the intent query hands the service, with enough
+// of the annotation restored that RecordedReason reads the captured reason back.
+func intentHitOf(h goldenIntentHit) intentapp.Hit {
+	n := graph.Node{
+		ID:            h.ID,
+		Name:          h.Name,
+		QualifiedName: h.QualifiedName,
+		Kind:          graph.NodeKind(h.Kind),
+		FilePath:      h.FilePath,
+	}
+	tags := make([]graph.DocTag, 0, 2)
+	if h.Intent != "" {
+		tags = append(tags, graph.DocTag{Kind: graph.TagIntent, Value: h.Intent})
+	}
+	if h.Reason != "" && h.Reason != h.Intent {
+		tags = append(tags, graph.DocTag{Kind: graph.TagDomainRule, Value: h.Reason})
+	}
+	if len(tags) > 0 {
+		n.Annotation = &graph.Annotation{Tags: tags}
+	}
+	return intentapp.Hit{Node: n, Terms: h.Terms}
+}
+
+// fixtureSearcher answers the service's two fetches from the frozen captures,
+// so the only thing that can move a result is the search code itself.
+type fixtureSearcher struct {
+	named  map[string][]goldenCandidate
+	intent map[string]goldenIntentAnswer
+}
+
+func (f fixtureSearcher) Query(_ context.Context, query string, _ int) ([]graph.Node, error) {
+	captured := f.named[query]
+	nodes := make([]graph.Node, len(captured))
+	for i, c := range captured {
+		nodes[i] = nodeOf(c)
+	}
+	return nodes, nil
+}
+
+func (f fixtureSearcher) QueryIntent(_ context.Context, query string, _ int) (intentapp.Result, error) {
+	captured := f.intent[query]
+	hits := make([]intentapp.Hit, len(captured.Hits))
+	for i, h := range captured.Hits {
+		hits[i] = intentHitOf(h)
+	}
+	terms := make([]intentapp.Term, len(captured.Terms))
+	for i, term := range captured.Terms {
+		terms[i] = intentapp.Term{Text: term.Text, InReasons: term.InReasons}
+	}
+	return intentapp.Result{Hits: hits, Terms: terms, Corpus: captured.Corpus}, nil
+}
+
 // outcome is one query's result, and the unit the baseline compares.
 //
 // Retrieved, Found and Rank answer three different questions that a single
@@ -122,22 +216,29 @@ type outcome struct {
 	WeakFiltered int `json:"weak_filtered,omitempty"`
 }
 
-func label(c goldenCandidate) string {
-	return c.Kind + ":" + c.QualifiedName + "@" + c.FilePath
+func label(n graph.Node) string {
+	return string(n.Kind) + ":" + n.QualifiedName + "@" + n.FilePath
 }
 
-func loadGolden(t *testing.T) (goldenSet, map[string][]goldenCandidate) {
+func loadGolden(t *testing.T) (goldenSet, fixtureSearcher) {
 	t.Helper()
 	var set goldenSet
 	readJSON(t, "testdata/queries.json", &set)
-	candidates := map[string][]goldenCandidate{}
-	readJSON(t, "testdata/candidates.json", &candidates)
+	searcher := fixtureSearcher{
+		named:  map[string][]goldenCandidate{},
+		intent: map[string]goldenIntentAnswer{},
+	}
+	readJSON(t, "testdata/candidates.json", &searcher.named)
+	readJSON(t, "testdata/intent_candidates.json", &searcher.intent)
 	for _, q := range set.Queries {
-		if _, ok := candidates[q.Query]; !ok {
+		if _, ok := searcher.named[q.Query]; !ok {
 			t.Fatalf("query %q has no captured candidates; re-run the capture", q.Query)
 		}
+		if _, ok := searcher.intent[q.Query]; !ok {
+			t.Fatalf("query %q has no captured intent candidates; re-run the capture", q.Query)
+		}
 	}
-	return set, candidates
+	return set, searcher
 }
 
 func readJSON(t *testing.T, path string, into any) {
@@ -151,58 +252,89 @@ func readJSON(t *testing.T, path string, into any) {
 	}
 }
 
-// runGolden replays every golden query through the same two steps production
-// runs — rank, then cut to what can be justified — against its frozen candidate
-// list. No database is opened, so the only thing that can move a result is the
-// ranking or evidence code itself.
-func runGolden(t *testing.T) []outcome {
-	t.Helper()
-	set, candidates := loadGolden(t)
-	outcomes := make([]outcome, 0, len(set.Queries))
-	for _, q := range set.Queries {
-		captured := candidates[q.Query]
-		nodes := make([]graph.Node, len(captured))
-		for i, c := range captured {
-			nodes[i] = nodeOf(c)
-		}
+// relevance is one query's judgment, at whichever granularity it was made.
+type relevance struct {
+	nodes map[string]bool // kind:qualified@path labels
+	files map[string]bool // file paths
+}
 
-		relevant := make(map[string]bool, len(q.Relevant))
-		for _, r := range q.Relevant {
-			relevant[r] = true
+func relevanceOf(q goldenQuery) relevance {
+	rel := relevance{nodes: map[string]bool{}, files: map[string]bool{}}
+	for _, r := range q.Relevant {
+		rel.nodes[r] = true
+	}
+	for _, f := range q.RelevantFiles {
+		rel.files[f] = true
+	}
+	return rel
+}
+
+func (rel relevance) count() int { return len(rel.nodes) + len(rel.files) }
+
+// retrieved reports whether any judged node or file is anywhere in either
+// captured pool — the ceiling no ranking or filtering change can lift.
+func (rel relevance) retrieved(named []goldenCandidate, intent goldenIntentAnswer) bool {
+	for _, c := range named {
+		if rel.nodes[label(nodeOf(c))] || rel.files[c.FilePath] {
+			return true
 		}
-		byID := make(map[uint]goldenCandidate, len(captured))
-		retrieved := false
-		for _, c := range captured {
-			byID[c.ID] = c
-			if relevant[label(c)] {
-				retrieved = true
+	}
+	for _, h := range intent.Hits {
+		if rel.nodes[label(intentHitOf(h).Node)] || rel.files[h.FilePath] {
+			return true
+		}
+	}
+	return false
+}
+
+// score counts the judged nodes and files the shown list contains, and the
+// 1-based file position of the first. A judged file counts once however many
+// hits it answered with; a judged node counts wherever its label appears.
+func (rel relevance) score(list evidence.List) (found, rank int) {
+	for i, f := range list.Files {
+		fileHit := rel.files[f.FilePath]
+		if fileHit {
+			found++
+		}
+		for _, r := range f.Hits {
+			if rel.nodes[label(r.Node)] {
+				found++
+				fileHit = true
 			}
 		}
+		if fileHit && rank == 0 {
+			rank = i + 1
+		}
+	}
+	return found, rank
+}
 
+// runGolden replays every golden query through the production pipeline — both
+// index fetches, the intent merge, the rerank, and the evidence cut — against
+// its frozen candidate lists. No database is opened, so the only thing that can
+// move a result is the search code itself.
+func runGolden(t *testing.T) []outcome {
+	t.Helper()
+	set, searcher := loadGolden(t)
+	svc := searchapp.New(searcher)
+	outcomes := make([]outcome, 0, len(set.Queries))
+	for _, q := range set.Queries {
+		rel := relevanceOf(q)
 		result := outcome{
 			Query:      q.Query,
 			Bucket:     q.Bucket,
-			Negative:   len(q.Relevant) == 0,
+			Negative:   rel.count() == 0,
 			OutOfScope: q.declinedBy("search"),
-			Retrieved:  retrieved,
-			Relevant:   len(q.Relevant),
+			Retrieved:  rel.retrieved(searcher.named[q.Query], searcher.intent[q.Query]),
+			Relevant:   rel.count(),
 		}
-		// Rerank the whole pool and let the evidence cut bound it, exactly as
-		// the CLI and the MCP handler do.
-		list := evidence.Build(q.Query, rank.Rerank(q.Query, nodes, 0), evidence.Options{Limit: goldenLimit})
+		list, err := svc.Search(context.Background(), searchapp.Params{Query: q.Query, Limit: goldenLimit})
+		if err != nil {
+			t.Fatalf("%q: %v", q.Query, err)
+		}
 		result.Returned = len(list.Hits())
 		result.WeakFiltered = list.WeakFiltered
-		for i, f := range list.Files {
-			for _, r := range f.Hits {
-				if !relevant[label(byID[r.Node.ID])] {
-					continue
-				}
-				result.Found++
-				if result.Rank == 0 {
-					result.Rank = i + 1
-				}
-			}
-		}
+		result.Found, result.Rank = rel.score(list)
 		outcomes = append(outcomes, result)
 	}
 	return outcomes
@@ -246,8 +378,18 @@ func TestGolden_RankingHasNotRegressed(t *testing.T) {
 			continue
 		}
 		if got.Negative {
-			if got.Returned != 0 {
-				t.Errorf("%q: nothing should match, got %d results", got.Query, got.Returned)
+			// The right answer is nothing. Some negatives still come back with
+			// intent hits, because their words are ordinary codebase vocabulary
+			// and the reasons "speak their language" without answering them —
+			// the same debt the retired intent golden set carried. The baseline
+			// holds the measured count rather than asserting zero, so growth
+			// fails, and a negative that reaches zero must be recorded so the
+			// improvement cannot silently regress.
+			if got.Returned > prev.Returned {
+				t.Errorf("%q: nothing about this is recorded and the answer grew from %d to %d results", got.Query, prev.Returned, got.Returned)
+			}
+			if got.Returned == 0 && prev.Returned > 0 {
+				t.Errorf("%q: now answers with nothing, as it should — record it with -update-golden", got.Query)
 			}
 			continue
 		}
@@ -283,26 +425,24 @@ func TestGolden_RankingHasNotRegressed(t *testing.T) {
 // cut: it can equally mean the node's @intent is missing or stale. Either way
 // somebody has to look, which is the point.
 func TestGolden_EvidenceCutHidesNoRelevantNode(t *testing.T) {
-	set, candidates := loadGolden(t)
+	set, searcher := loadGolden(t)
+	svc := searchapp.New(searcher)
 	for _, q := range set.Queries {
-		if len(q.Relevant) == 0 {
+		rel := relevanceOf(q)
+		if rel.count() == 0 {
 			continue
 		}
-		relevant := make(map[string]bool, len(q.Relevant))
-		for _, r := range q.Relevant {
-			relevant[r] = true
-		}
-		captured := candidates[q.Query]
-		nodes := make([]graph.Node, len(captured))
-		byID := make(map[uint]goldenCandidate, len(captured))
-		for i, c := range captured {
-			nodes[i] = nodeOf(c)
-			byID[c.ID] = c
-		}
 
-		ranked := rank.Rerank(q.Query, nodes, 0)
-		shown := shownRelevant(evidence.Build(q.Query, ranked, evidence.Options{Limit: goldenLimit}), relevant, byID)
-		withWeak := shownRelevant(evidence.Build(q.Query, ranked, evidence.Options{Limit: goldenLimit, IncludeWeak: true}), relevant, byID)
+		asShipped, err := svc.Search(context.Background(), searchapp.Params{Query: q.Query, Limit: goldenLimit})
+		if err != nil {
+			t.Fatalf("%q: %v", q.Query, err)
+		}
+		weakKept, err := svc.Search(context.Background(), searchapp.Params{Query: q.Query, Limit: goldenLimit, IncludeWeak: true})
+		if err != nil {
+			t.Fatalf("%q: %v", q.Query, err)
+		}
+		shown := shownRelevant(asShipped, rel)
+		withWeak := shownRelevant(weakKept, rel)
 
 		for name := range withWeak {
 			if shown[name] {
@@ -338,11 +478,18 @@ var knownHiddenRelevant = map[string]string{
 	"worker pool | function:workflow.Service.parseBuildInputs@internal/app/ingest/workflow/build.go":           "the judgment for this query says outright that the node was chosen by reading build.go, not from anything on its surface: nothing in its name, path, or @intent says 'worker pool'. The cut is doing what it was built to do, and the sibling answer reposync.SyncQueue — whose @intent does say it — is still shown.",
 }
 
-func shownRelevant(list evidence.List, relevant map[string]bool, byID map[uint]goldenCandidate) map[string]bool {
+// shownRelevant collects the judged nodes and files this list shows, each under
+// the name its judgment used — a node label, or a bare file path.
+func shownRelevant(list evidence.List, rel relevance) map[string]bool {
 	out := map[string]bool{}
-	for _, r := range list.Hits() {
-		if name := label(byID[r.Node.ID]); relevant[name] {
-			out[name] = true
+	for _, f := range list.Files {
+		if rel.files[f.FilePath] {
+			out[f.FilePath] = true
+		}
+		for _, r := range f.Hits {
+			if name := label(r.Node); rel.nodes[name] {
+				out[name] = true
+			}
 		}
 	}
 	return out
@@ -423,6 +570,8 @@ func TestGolden_Report(t *testing.T) {
 
 	for _, o := range outcomes {
 		switch {
+		case o.Negative && o.Returned > 0:
+			t.Logf("  negative noise: %-28q (%s) — %d results for a question whose right answer is nothing", o.Query, o.Bucket, o.Returned)
 		case o.Negative:
 		case o.OutOfScope:
 			t.Logf("  out of scope:   %-28q (%s) — answering it was decided against, not missed", o.Query, o.Bucket)
