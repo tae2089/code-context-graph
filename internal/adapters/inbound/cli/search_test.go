@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/adapters/outbound/graphgorm"
 	search "github.com/tae2089/code-context-graph/internal/adapters/outbound/searchsql"
+	"github.com/tae2089/code-context-graph/internal/app/search/evidence"
 	intentapp "github.com/tae2089/code-context-graph/internal/app/search/intent"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
@@ -115,6 +117,111 @@ func TestSearchCommand_FindsResults(t *testing.T) {
 	out := stdout.String()
 	if !strings.Contains(out, "pkg.Hello") {
 		t.Fatalf("expected pkg.Hello in output, got: %s", out)
+	}
+}
+
+// --json answers with the same wire contract the MCP search tool speaks, so an
+// agent can consume either surface with one parser.
+func TestSearchCommand_JSONSpeaksTheMCPContract(t *testing.T) {
+	deps, stdout, stderr, db := setupSearchTest(t)
+	seedSearchData(t, db)
+
+	stdout.Reset()
+	if err := executeCmd(deps, stdout, stderr, "search", "--json", "Hello"); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+
+	var payload struct {
+		Files []struct {
+			FilePath string `json:"file_path"`
+			HitCount int    `json:"hit_count"`
+			Hits     []struct {
+				QualifiedName string   `json:"qualified_name"`
+				Matched       []string `json:"matched"`
+			} `json:"hits"`
+		} `json:"files"`
+		FileCount int `json:"file_count"`
+		Limits    struct {
+			Files     int `json:"files"`
+			HitBudget int `json:"hit_budget"`
+		} `json:"limits"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode: %v output=%s", err, stdout.String())
+	}
+	if payload.FileCount != 1 || len(payload.Files) != 1 {
+		t.Fatalf("file_count = %d files = %#v, want the one answering file", payload.FileCount, payload.Files)
+	}
+	file := payload.Files[0]
+	if file.FilePath != "hello.go" || file.HitCount != 1 {
+		t.Fatalf("files[0] = %#v, want hello.go with 1 hit", file)
+	}
+	if file.Hits[0].QualifiedName != "pkg.Hello" {
+		t.Errorf("hits[0].qualified_name = %q", file.Hits[0].QualifiedName)
+	}
+	if len(file.Hits[0].Matched) == 0 {
+		t.Errorf("hits[0].matched is empty; the contract explains every hit")
+	}
+	if payload.Limits.Files != 10 || payload.Limits.HitBudget != evidence.PageHitBudget {
+		t.Errorf("limits = %#v", payload.Limits)
+	}
+}
+
+// A truncated --json answer carries the same next actions MCP emits, phrased as
+// a repeatable search call.
+func TestSearchCommand_JSONNamesTheNextPage(t *testing.T) {
+	deps, stdout, stderr, db := setupSearchTest(t)
+	seedSearchData(t, db)
+
+	stdout.Reset()
+	if err := executeCmd(deps, stdout, stderr, "search", "--json", "--limit", "1", "--include-weak", "function"); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+
+	var payload struct {
+		Truncated bool `json:"truncated"`
+		Next      []struct {
+			Tool string         `json:"tool"`
+			Args map[string]any `json:"args"`
+		} `json:"next"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode: %v output=%s", err, stdout.String())
+	}
+	if !payload.Truncated {
+		t.Fatalf("truncated = false with three files behind --limit 1: %s", stdout.String())
+	}
+	if len(payload.Next) == 0 || payload.Next[0].Tool != "search" {
+		t.Fatalf("next = %#v, want a search call for the withheld files", payload.Next)
+	}
+	if offset, ok := payload.Next[0].Args["offset"].(float64); !ok || offset != 1 {
+		t.Errorf("next[0].args.offset = %#v, want 1", payload.Next[0].Args["offset"])
+	}
+}
+
+// An empty --json answer is still one JSON document with its reason inside,
+// never the human "No results" lines.
+func TestSearchCommand_JSONExplainsAnEmptyAnswer(t *testing.T) {
+	deps, stdout, stderr, db := setupSearchTest(t)
+	seedSearchData(t, db)
+
+	stdout.Reset()
+	if err := executeCmd(deps, stdout, stderr, "search", "--json", "zzzznotfound"); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+
+	var payload struct {
+		FileCount int    `json:"file_count"`
+		Note      string `json:"note"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode: %v output=%s", err, stdout.String())
+	}
+	if payload.FileCount != 0 {
+		t.Fatalf("file_count = %d, want 0", payload.FileCount)
+	}
+	if payload.Note == "" {
+		t.Errorf("note is empty; an empty answer must say which kind of empty it is")
 	}
 }
 

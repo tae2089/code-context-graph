@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	searchapp "github.com/tae2089/code-context-graph/internal/app/search"
 	"github.com/tae2089/code-context-graph/internal/app/search/evidence"
+	searchwire "github.com/tae2089/code-context-graph/internal/app/search/wire"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 )
 
@@ -22,6 +24,7 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 	var offset int
 	var pathPrefix string
 	var includeWeak bool
+	var asJSON bool
 
 	cmd := &cobra.Command{
 		Use:   "search <query>",
@@ -43,6 +46,9 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 				return trace.Wrap(err, "search")
 			}
 
+			if asJSON {
+				return printJSONResponse(stdout(cmd), searchwire.NewResponse(list, query, limit, offset, false))
+			}
 			printEvidenceList(stdout(cmd), list, offset)
 			return nil
 		},
@@ -52,8 +58,18 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().IntVar(&offset, "offset", 0, "Skip this many files, to read on from a previous run")
 	cmd.Flags().StringVar(&pathPrefix, "path", "", "Filter results to file paths starting with this prefix (e.g. internal/auth)")
 	cmd.Flags().BoolVar(&includeWeak, "include-weak", false, "Also show candidates whose name, path, and @intent say nothing about the query")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the answer as JSON, in the same shape the MCP search tool returns")
 
 	return cmd
+}
+
+// printJSONResponse writes the wire payload as one indented JSON document.
+// @intent keep --json output byte-stable and diffable while staying the MCP contract.
+// @sideEffect writes the whole search answer to out.
+func printJSONResponse(out io.Writer, response searchwire.Response) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return trace.Wrap(encoder.Encode(response), "encode search response")
 }
 
 // printEvidenceList writes one result per unindented line and everything else
