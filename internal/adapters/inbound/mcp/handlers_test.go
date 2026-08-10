@@ -2882,10 +2882,11 @@ type searchPayload struct {
 		HitCount int              `json:"hit_count"`
 		Hits     []map[string]any `json:"hits"`
 	} `json:"files"`
-	FileCount    int  `json:"file_count"`
-	WeakFiltered int  `json:"weak_filtered"`
-	Truncated    bool `json:"truncated"`
-	Limits       struct {
+	FileCount     int  `json:"file_count"`
+	WeakFiltered  int  `json:"weak_filtered"`
+	Truncated     bool `json:"truncated"`
+	PoolTruncated bool `json:"pool_truncated"`
+	Limits        struct {
 		Files     int `json:"files"`
 		Offset    int `json:"offset"`
 		HitBudget int `json:"hit_budget"`
@@ -2931,6 +2932,115 @@ func denseFileDeps(t *testing.T, n int, path string) *Deps {
 	}
 	testSearchBackendFor(deps).Rebuild(ctx, testDBFor(deps))
 	return deps
+}
+
+// indexDeclarations indexes one declaration per path, all answering the same
+// query. Every name is the same length and no path segment is a query term, so
+// structural reranking scores them all alike and leaves the backend's own order
+// alone — which is what lets a test walk the answer one page at a time.
+func indexDeclarations(t *testing.T, paths []string) *Deps {
+	t.Helper()
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+
+	nodes := make([]graph.Node, 0, len(paths))
+	for i, path := range paths {
+		nodes = append(nodes, graph.Node{
+			QualifiedName: fmt.Sprintf("reposync.SyncQueue.step%03d", i),
+			Kind:          graph.NodeKindFunction,
+			Name:          fmt.Sprintf("syncQueueStep%03d", i),
+			FilePath:      path, StartLine: i*10 + 1, EndLine: i*10 + 5, Language: "go",
+		})
+	}
+	testGraphStoreFor(deps).UpsertNodes(ctx, nodes)
+	for i := range paths {
+		node, _ := testGraphStoreFor(deps).GetNode(ctx, fmt.Sprintf("reposync.SyncQueue.step%03d", i))
+		testDBFor(deps).Create(&graph.SearchDocument{
+			NodeID: node.ID, Content: "syncqueue worker step", Language: "go",
+		})
+	}
+	testSearchBackendFor(deps).Rebuild(ctx, testDBFor(deps))
+	return deps
+}
+
+// Three hundred files answer this query. Paging by the answer's own signals has
+// to reach every one of them: it used to stop at the first pool's worth and
+// call that the whole answer.
+func TestHandler_Search_PagesThreeHundredAnsweringFilesToTheEnd(t *testing.T) {
+	const total = 300
+	paths := make([]string, 0, total)
+	for i := range total {
+		paths = append(paths, fmt.Sprintf("internal/app/reposync/queue%03d.go", i))
+	}
+	deps := indexDeclarations(t, paths)
+
+	seen := map[string]bool{}
+	offset := 0
+	for page := 0; page < total; page++ {
+		payload := decodeSearchPayload(t, getTextContent(
+			callTool(t, deps, "search", map[string]any{"query": "syncqueue", "limit": 10, "offset": offset})))
+		if len(payload.Files) == 0 {
+			t.Fatalf("page at offset %d came back empty (%q) after %d of %d files", offset, payload.Note, len(seen), total)
+		}
+		for _, f := range payload.Files {
+			if seen[f.FilePath] {
+				t.Errorf("%s came back on two pages", f.FilePath)
+			}
+			seen[f.FilePath] = true
+		}
+		offset += len(payload.Files)
+		if !payload.Truncated && !payload.PoolTruncated {
+			break
+		}
+	}
+	if len(seen) != total {
+		t.Fatalf("paging until both signals cleared yielded %d files, want all %d", len(seen), total)
+	}
+}
+
+// The sharp case: one file's hits fill the whole candidate pool, so the page
+// reaches every file the pool held and has nothing left to call truncated. The
+// pool cut is what says the answer is not over, and `next` is what makes the
+// files behind that one file reachable.
+func TestHandler_Search_ACrowdedFileDoesNotEndTheSearch(t *testing.T) {
+	const crowded = "internal/app/reposync/queue.go"
+	paths := make([]string, 0, 60)
+	for range 50 {
+		paths = append(paths, crowded)
+	}
+	quiet := make([]string, 0, 10)
+	for i := range 10 {
+		quiet = append(quiet, fmt.Sprintf("internal/app/reposync/quiet%02d.go", i))
+	}
+	deps := indexDeclarations(t, append(paths, quiet...))
+
+	first := decodeSearchPayload(t, getTextContent(
+		callTool(t, deps, "search", map[string]any{"query": "syncqueue", "limit": 10})))
+	if first.FileCount != 1 || first.Files[0].FilePath != crowded {
+		t.Fatalf("first page = %+v, want the crowded file alone", first.Files)
+	}
+	if first.Truncated {
+		t.Errorf("truncated = true, but the page reached every file the pool held — that signal counts files")
+	}
+	if !first.PoolTruncated {
+		t.Fatalf("pool_truncated = false: the answer called itself complete with %d files still waiting", len(quiet))
+	}
+	if len(first.Next) == 0 {
+		t.Fatalf("the pool ran out and nothing told the caller how to read on: %+v", first)
+	}
+
+	// Make the call the answer itself named.
+	args := map[string]any{"query": "syncqueue"}
+	for k, v := range first.Next[0].Args {
+		args[k] = v
+	}
+	second := decodeSearchPayload(t, getTextContent(callTool(t, deps, "search", args)))
+	if second.FileCount == 0 {
+		t.Fatalf("the call in `next` came back empty (%q); the quiet files are unreachable", second.Note)
+	}
+	if second.Files[0].FilePath == crowded {
+		t.Errorf("the next page repeated the crowded file instead of moving past it")
+	}
 }
 
 // A file that answers the query seventeen times is a file the reader wants to

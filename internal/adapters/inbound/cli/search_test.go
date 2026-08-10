@@ -272,6 +272,63 @@ func TestSearchCommand_LimitFlagCountsFiles(t *testing.T) {
 	}
 }
 
+// seedCrowdedFile indexes one file holding dense declarations, then quiet
+// files of one each. The crowded file alone fills a first page's candidate
+// pool, so the page ends at the pool's edge with no further file left to count.
+func seedCrowdedFile(t *testing.T, db *gorm.DB, dense, quiet int) {
+	t.Helper()
+	ctx := context.Background()
+
+	nodes := make([]graph.Node, 0, dense+quiet)
+	for i := range dense {
+		nodes = append(nodes, graph.Node{
+			Name: fmt.Sprintf("syncQueueStep%03d", i), QualifiedName: fmt.Sprintf("pkg.SyncQueue.step%03d", i),
+			Kind: graph.NodeKindFunction, FilePath: "crowded.go", StartLine: i*10 + 1, EndLine: i*10 + 5, Language: "go",
+		})
+	}
+	for i := range quiet {
+		nodes = append(nodes, graph.Node{
+			Name: fmt.Sprintf("syncQueueStep%03d", dense+i), QualifiedName: fmt.Sprintf("pkg.SyncQueue.quiet%03d", i),
+			Kind: graph.NodeKindFunction, FilePath: fmt.Sprintf("quiet%02d.go", i), StartLine: 1, EndLine: 5, Language: "go",
+		})
+	}
+	if err := db.WithContext(ctx).Create(&nodes).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	docs := make([]graph.SearchDocument, 0, len(nodes))
+	for _, n := range nodes {
+		docs = append(docs, graph.SearchDocument{Namespace: n.Namespace, NodeID: n.ID, Content: "syncqueue worker step", Language: "go"})
+	}
+	if err := db.WithContext(ctx).Create(&docs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := search.NewSQLiteBackend().Rebuild(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// One file's hits can fill the whole candidate pool, and then the page reaches
+// every file the pool held. The reader still has files waiting, so the printed
+// answer has to say so rather than just ending.
+func TestSearchCommand_SaysWhenThePageEndedAtThePoolsEdge(t *testing.T) {
+	deps, stdout, stderr, db := setupSearchTest(t)
+	seedCrowdedFile(t, db, evidence.PageHitBudget, 10)
+
+	stdout.Reset()
+	if err := executeCmd(deps, stdout, stderr, "search", "--limit", "10", "syncqueue"); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+
+	out := stdout.String()
+	if strings.Contains(out, "quiet00.go") {
+		t.Fatalf("the crowded file was meant to fill the page on its own: %s", out)
+	}
+	if !strings.Contains(out, "--offset 1") {
+		t.Errorf("the answer ended without telling the reader the quiet files are still waiting: %s", out)
+	}
+}
+
 // A second page starts at a new file; no file is ever split across pages.
 func TestSearchCommand_OffsetMovesToTheNextFile(t *testing.T) {
 	deps, stdout, stderr, db := setupSearchTest(t)

@@ -113,16 +113,33 @@ nothing retrieved, nothing justifiable, or an offset past the last file.
 Order comes from name similarity, then path overlap. `@intent` is shown for the
 reader to judge; it does not move a result up.
 
-Over MCP the answer also says what it withheld. Results come back as
-`files[] {file_path, hit_count, hits[]}`. `truncated` is true when more files
-answered the query than this page reached — never about hits, since a shown file
-is shown whole. `limits` gives `files` (the page size), `offset` (where it
+Over MCP the answer also says what it withheld, in two separate signals.
+Results come back as `files[] {file_path, hit_count, hits[]}`. `truncated` is
+true when more files answered the query than this page reached — never about
+hits, since a shown file is shown whole. `pool_truncated` is true when the
+candidate pool behind this page came back full: the backend held at least as
+many candidates as the pool had room for, and may have held more.
+
+Read both before calling a search complete:
+
+| `truncated` | `pool_truncated` | what it means |
+| ----------- | ---------------- | ------------------------------------------------------------------------------------------------------- |
+| `false`     | `false`          | this is the whole answer |
+| `true`      | either           | more files answered this query; page on |
+| `false`     | `true`           | this page ended at the edge of the candidates that were fetched, not at the end of the answer; page on anyway |
+
+That last row is the one that used to read as "that is everything". One file
+holding a page's worth of hits can fill the candidate pool by itself, so there
+are no further files left to count as `truncated` while later files are still
+waiting to be fetched.
+
+`limits` gives `files` (the page size), `offset` (where it
 started), and `hit_budget` (the point past which a page stops taking on *more*
 files; it never trims one, and the first file of a page is always included).
-`next` lists ready-to-make calls: more files become
-`search(query: <same query>, limit: <same>, offset: <next>)`, and cut candidates
-become `search(query: <same query>, include_weak: true)`. Make the call in
-`next` rather than inventing one.
+`next` lists ready-to-make calls: whichever of the two signals is up, the next
+page becomes `search(query: <same query>, limit: <same>, offset: <next>)`, and
+cut candidates become `search(query: <same query>, include_weak: true)`. Make
+the call in `next` rather than inventing one.
 
 Every hit carries a `node_id`. Hand that ID straight to `get_node`,
 `query_graph`, `get_impact_radius`, or `trace_flow` — the answer exists to

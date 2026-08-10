@@ -43,7 +43,10 @@ Graph-based analysis for **change impact, call flow, and recent-change risk**.
    files. When `truncated` is true more files answered than this page reached,
    and the response's `next` field holds the exact calls — usually the same
    search at a higher `offset`; make those instead of re-searching with a
-   larger `limit`.
+   larger `limit`. `pool_truncated` is a second, separate signal: true means the
+   page ended at the edge of the candidates that were fetched, so page on even
+   when `truncated` is false. Only `truncated: false` together with
+   `pool_truncated: false` means the search is complete.
 2. **Symbol identity**: confirm each entry point or major stage with `get_node`;
    continue with qualified names rather than display labels.
 3. **Relationship and structure evidence**: use `query_graph` with

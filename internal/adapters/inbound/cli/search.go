@@ -107,13 +107,20 @@ func printEvidenceList(out io.Writer, list evidence.List, offset int) {
 		}
 	}
 
-	if list.OverflowFiles > 0 {
+	// Two ways this page can stop short, and only one of them can count what is
+	// left. A pool that ran out has no further files to count, so it says the
+	// same thing without a number rather than saying nothing at all.
+	switch {
+	case list.OverflowFiles > 0:
 		noun := "files"
 		if list.OverflowFiles == 1 {
 			noun = "file"
 		}
 		fmt.Fprintf(out, "    %d more %s answered this query; add --offset %d to read on.\n",
 			list.OverflowFiles, noun, offset+len(list.Files))
+	case list.PoolTruncated && len(list.Files) > 0:
+		fmt.Fprintf(out, "    This page ended where the fetched candidates ran out, not where the answer did; add --offset %d to read on.\n",
+			offset+len(list.Files))
 	}
 
 	if list.WeakFiltered > 0 {

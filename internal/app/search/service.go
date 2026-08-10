@@ -72,7 +72,9 @@ func (s *Service) Search(ctx context.Context, p Params) (evidence.List, error) {
 	}
 	ranked := searchrank.Rerank(p.Query, pool.named, 0)
 	merged, intentEvidence := absorbIntent(ranked, pool.intent)
-	return evidence.Build(p.Query, merged, evidence.Options{Limit: p.Limit, Offset: p.Offset, IncludeWeak: p.IncludeWeak, Intent: intentEvidence}), nil
+	list := evidence.Build(p.Query, merged, evidence.Options{Limit: p.Limit, Offset: p.Offset, IncludeWeak: p.IncludeWeak, Intent: intentEvidence})
+	list.PoolTruncated = pool.truncated
+	return list, nil
 }
 
 // SearchFederated answers one query across an explicit namespace set.
@@ -89,6 +91,7 @@ func (s *Service) SearchFederated(ctx context.Context, namespaces []string, p Pa
 	}
 	groups := make([][]graph.Node, 0, len(namespaces))
 	intentHits := make([]intentapp.Hit, 0)
+	poolTruncated := false
 	for _, ns := range namespaces {
 		pool, err := s.fetch(requestctx.WithNamespace(ctx, ns), p)
 		if err != nil {
@@ -102,6 +105,9 @@ func (s *Service) SearchFederated(ctx context.Context, namespaces []string, p Pa
 		}
 		groups = append(groups, pool.named)
 		intentHits = append(intentHits, pool.intent...)
+		// One repository's pool running out is enough to make the whole answer
+		// short, and the caller cannot tell which one it was from the files.
+		poolTruncated = poolTruncated || pool.truncated
 	}
 	merged := searchrank.RerankGroups(p.Query, groups, 0)
 	merged, intentEvidence := absorbIntent(merged, intentHits)
@@ -112,6 +118,7 @@ func (s *Service) SearchFederated(ctx context.Context, namespaces []string, p Pa
 	reachable := len(list.Files)
 	list.Files = selectWithNamespaceQuota(list.Files, func(f evidence.File) string { return f.Namespace }, p.Limit, len(namespaces))
 	list.OverflowFiles = reachable - len(list.Files)
+	list.PoolTruncated = poolTruncated
 	return list, nil
 }
 
@@ -119,6 +126,9 @@ func (s *Service) SearchFederated(ctx context.Context, namespaces []string, p Pa
 type pool struct {
 	named  []graph.Node
 	intent []intentapp.Hit
+	// truncated says the backend answered with as many rows as the fetch had
+	// room for, so there were candidates it never got to send.
+	truncated bool
 }
 
 // fetch over-fetches one namespace's candidate pool from both indexes in
@@ -127,19 +137,29 @@ type pool struct {
 // and keeps path filtering from emptying the page. The two queries run
 // concurrently because neither needs the other's answer and both are the same
 // round-trip to the same database.
-// @intent give both search shapes the same candidate pool for the same request.
+//
+// The pool is sized for Offset+Limit, not Limit. Neither query carries a skip,
+// so page five is cut out of the same pool page one was: a pool wide enough for
+// Limit alone runs out under any offset worth asking for, and the page then
+// comes back empty while the query still has hundreds of files to answer with.
+// Pushing the skip into the backend instead was considered and dropped — it
+// keeps the pool small but pays for the skipped rows on every deep page.
+//
+// @ensures the returned pool is marked truncated when either index answered with as many rows as the fetch had room for.
+// @intent give both search shapes the same candidate pool for the same request, wide enough to reach the page that was asked for.
 func (s *Service) fetch(ctx context.Context, p Params) (pool, error) {
 	type intentAnswer struct {
 		result intentapp.Result
 		err    error
 	}
+	fetchLimit := searchrank.FetchLimit(p.Offset + p.Limit)
 	intentCh := make(chan intentAnswer, 1)
 	go func() {
-		result, err := s.searcher.QueryIntent(ctx, p.Query, searchrank.FetchLimit(p.Limit))
+		result, err := s.searcher.QueryIntent(ctx, p.Query, fetchLimit)
 		intentCh <- intentAnswer{result: result, err: err}
 	}()
 
-	named, err := s.searcher.Query(ctx, p.Query, searchrank.FetchLimit(p.Limit))
+	named, err := s.searcher.Query(ctx, p.Query, fetchLimit)
 	fromIntent := <-intentCh
 	if err != nil {
 		return pool{}, err
@@ -148,6 +168,11 @@ func (s *Service) fetch(ctx context.Context, p Params) (pool, error) {
 		return pool{}, fromIntent.err
 	}
 
+	// Judged on what the backends sent, before the path filter and the
+	// answerability cut thin it out: those drop candidates that were fetched,
+	// which says nothing about candidates that never were.
+	truncated := len(named) >= fetchLimit || len(fromIntent.result.Hits) >= fetchLimit
+
 	intentHits := fromIntent.result.Hits
 	// A question the recorded reasons cannot answer contributes no intent hits:
 	// whatever the index matched was a shared word, not an answer.
@@ -155,7 +180,7 @@ func (s *Service) fetch(ctx context.Context, p Params) (pool, error) {
 		intentHits = nil
 	}
 
-	out := pool{named: named, intent: intentHits}
+	out := pool{named: named, intent: intentHits, truncated: truncated}
 	if p.PathPrefix == "" {
 		return out, nil
 	}
