@@ -148,7 +148,14 @@ func (s *Service) fetch(ctx context.Context, p Params) (pool, error) {
 		return pool{}, fromIntent.err
 	}
 
-	out := pool{named: named, intent: fromIntent.result.Hits}
+	intentHits := fromIntent.result.Hits
+	// A question the recorded reasons cannot answer contributes no intent hits:
+	// whatever the index matched was a shared word, not an answer.
+	if !fromIntent.result.CanAnswer() {
+		intentHits = nil
+	}
+
+	out := pool{named: named, intent: intentHits}
 	if p.PathPrefix == "" {
 		return out, nil
 	}
@@ -159,7 +166,7 @@ func (s *Service) fetch(ctx context.Context, p Params) (pool, error) {
 		}
 	}
 	filteredIntent := out.intent[:0]
-	for _, h := range fromIntent.result.Hits {
+	for _, h := range intentHits {
 		if pathspec.HasPathPrefix(h.Node.FilePath, p.PathPrefix) {
 			filteredIntent = append(filteredIntent, h)
 		}

@@ -20,11 +20,14 @@ import (
 type fakeSearcher struct {
 	byNamespace       map[string][]graph.Node
 	intentByNamespace map[string][]intent.Hit
-	intentErr         error
-	gotQuery          string
-	gotLimit          int
-	gotIntentQuery    string
-	gotIntentLimit    int
+	// intentTerms is what the fake's whole intent index "knows": every scored
+	// term of the question with its reason count, as the real backend reports.
+	intentTerms    []intent.Term
+	intentErr      error
+	gotQuery       string
+	gotLimit       int
+	gotIntentQuery string
+	gotIntentLimit int
 }
 
 func (f *fakeSearcher) Query(ctx context.Context, query string, limit int) ([]graph.Node, error) {
@@ -39,7 +42,7 @@ func (f *fakeSearcher) QueryIntent(ctx context.Context, query string, limit int)
 	if f.intentErr != nil {
 		return intent.Result{}, f.intentErr
 	}
-	return intent.Result{Hits: f.intentByNamespace[requestctx.FromContext(ctx)]}, nil
+	return intent.Result{Hits: f.intentByNamespace[requestctx.FromContext(ctx)], Terms: f.intentTerms}, nil
 }
 
 func node(id uint, name, path string) graph.Node {
@@ -189,6 +192,57 @@ func TestSearch_AttachesIntentEvidenceToANameHitWithoutDuplicatingIt(t *testing.
 	hit := list.Files[0].Hits[0]
 	if hit.Reason == "" || len(hit.MatchedTerms) == 0 {
 		t.Errorf("intent evidence lost on the name hit: Reason=%q MatchedTerms=%v", hit.Reason, hit.MatchedTerms)
+	}
+}
+
+func TestSearch_DropsIntentHitsWhenTheReasonsCannotAnswerTheQuestion(t *testing.T) {
+	// Three of the question's four words were never written in any reason: the
+	// corpus cannot answer it, so the one common shared word ("symbol") does
+	// not put anything on the page.
+	searcher := &fakeSearcher{
+		byNamespace: map[string][]graph.Node{requestctx.DefaultNamespace: nil},
+		intentByNamespace: map[string][]intent.Hit{requestctx.DefaultNamespace: {
+			{Node: annotatedNode(2, "addName", "b/resolve.go", "index every symbol by name"), Terms: []string{"symbol"}},
+		}},
+		intentTerms: []intent.Term{
+			{Text: "zzz", InReasons: 0}, {Text: "nonexistent", InReasons: 0},
+			{Text: "symbol", InReasons: 52}, {Text: "qqq", InReasons: 0},
+		},
+	}
+	svc := New(searcher)
+
+	ctx := requestctx.WithNamespace(context.Background(), requestctx.DefaultNamespace)
+	list, err := svc.Search(ctx, Params{Query: "zzz nonexistent symbol qqq", Limit: 10})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(list.Files) != 0 {
+		t.Fatalf("got %+v, want no results for a question the reasons cannot answer", list.Files)
+	}
+}
+
+func TestSearch_KeepsIntentHitsWhenTheReasonsSpeakTheQuestionsTerms(t *testing.T) {
+	// Every scored term is written in some reason: the question is answerable,
+	// so a hit that matched the words that mattered stays even though it did
+	// not match all of them.
+	searcher := &fakeSearcher{
+		byNamespace: map[string][]graph.Node{requestctx.DefaultNamespace: nil},
+		intentByNamespace: map[string][]intent.Hit{requestctx.DefaultNamespace: {
+			{Node: annotatedNode(2, "admitRepo", "b/admission.go", "decide which push may build"), Terms: []string{"push", "build"}},
+		}},
+		intentTerms: []intent.Term{
+			{Text: "push", InReasons: 12}, {Text: "trigger", InReasons: 8}, {Text: "build", InReasons: 40},
+		},
+	}
+	svc := New(searcher)
+
+	ctx := requestctx.WithNamespace(context.Background(), requestctx.DefaultNamespace)
+	list, err := svc.Search(ctx, Params{Query: "which push may trigger a build", Limit: 10})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(list.Files) != 1 || list.Files[0].FilePath != "b/admission.go" {
+		t.Fatalf("got %+v, want the intent hit kept for an answerable question", list.Files)
 	}
 }
 

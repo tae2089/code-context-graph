@@ -73,6 +73,28 @@ type Result struct {
 	Corpus int
 }
 
+// CanAnswer reports whether the recorded reasons speak this question's language
+// at all: at least half of its scored terms are written in some reason.
+//
+// It gates membership, not ranking. The index admits a document on any shared
+// word, which is right for a tool that reports term counts alongside its answer
+// — but search reports membership. A question mostly made of words nobody ever
+// wrote down ("zzz nonexistent symbol qqq") is not answered by the one common
+// word it happens to share with fifty reasons; a real question keeps its hits
+// even when each one matched only the couple of words that mattered. The
+// fraction is over the question's own terms, so no corpus-fitted cutoff hides
+// in it.
+// @domainRule intent hits justify membership only when at least half of the question's scored terms appear in some recorded reason.
+func (r Result) CanAnswer() bool {
+	known := 0
+	for _, term := range r.Terms {
+		if term.InReasons > 0 {
+			known++
+		}
+	}
+	return known*2 >= len(r.Terms)
+}
+
 // CoverageReader reports how much of the namespace has a reason recorded at all.
 // @intent let an answer say how much of the code it could possibly have searched.
 type CoverageReader interface {

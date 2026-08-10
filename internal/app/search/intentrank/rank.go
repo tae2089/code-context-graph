@@ -281,4 +281,3 @@ func MatchesByPrefix(term string) bool {
 // intent index.
 // @intent name the boundary the golden set was measured at.
 const minPrefixRunes = 4
-
