@@ -130,6 +130,70 @@ func classifyZeroScore(prev outcome, note zeroScoreNote) []string {
 	return problems
 }
 
+// TestGolden_BaselineIsFullyGuarded runs the guard over every corpus's real
+// files. Where TestGolden_RankingHasNotRegressed asks whether the ranking got
+// worse, this asks whether that question is still being put to every entry the
+// baseline holds — a green ratchet means nothing over an entry it skips.
+func TestGolden_BaselineIsFullyGuarded(t *testing.T) {
+	for _, corpus := range goldenCorpora(t) {
+		t.Run(corpus.name, func(t *testing.T) {
+			var baseline []outcome
+			readJSON(t, corpus.dir+"/baseline.json", &baseline)
+			for _, problem := range guardBaseline(runGolden(t, corpus.dir), baseline, zeroScoreNotes[corpus.name]) {
+				t.Error(problem)
+			}
+		})
+	}
+}
+
+// zeroScoreNotes lists, per corpus, every baseline entry that scores nothing,
+// with the class and reason that let it stay. The list is a debt, not a
+// permission: the guard above fails when an entry is missing one, and equally
+// when a listed entry starts scoring, so it cannot rot into a silent excuse.
+// Four of the nineteen are the ranker's own: the pool handed it the judged
+// answer and the page of ten did not carry it. Those are `known gap` by
+// definition — nothing was declined — and the guard enforces that, so no
+// future zero can be filed under policy while retrieval is still finding it.
+var zeroScoreNotes = map[string]map[string]zeroScoreNote{
+	"ccg": {
+		// The four the recorded decision covers. Each `why` in queries.json
+		// carries the measurement anyone reversing the decision inherits.
+		"cfg":       {classOutOfScope, "search does not expand abbreviations. No node is named cfg — it appears only as a local variable, and locals are not indexed — so answering means guessing that cfg is config. Measured over the whole graph that guess scores 0.28 against a 0.08 ceiling for unrelated junk, a margin too thin to gate on."},
+		"sanitze":   {classOutOfScope, "search does not correct spelling. FTS returns no candidate for the misspelling at all, so the ranker is never handed one; only matching on the qualified name as a subsequence would reach it, and that was removed by decision."},
+		"retreival": {classOutOfScope, "search does not correct spelling. 'ie' swapped for 'ei' breaks the ordered subsequence outright, so nothing short of edit-distance matching could recover it, and that was removed by decision."},
+		"anotation": {classOutOfScope, "search does not correct spelling. One 'n' short is still an ordered subsequence of annotation, but FTS never returns the candidate, so the ranker is never given the chance."},
+
+		// The pool held the judged answer and the page did not. These four are
+		// the ranker's own debt, and the only ones here a reordering can pay.
+		"how does the graph get built":                                                    {classKnownGap, "the intent pool holds workflow.Service.Build in the judged internal/app/ingest/workflow/build.go, and the page of ten files did not carry it. The name index answers nothing here — SanitizeFTS5 joins terms with a space and FTS5 reads a space as AND, so a six-word question needs all six words in one document — which leaves the ordering entirely to the intent scorer."},
+		"why did one oversized file abort indexing before it was read":                    {classKnownGap, "the intent pool holds three declarations in the judged internal/app/ingest/workflow/fileio.go, CheckParseFileSize among them, and none reached the page of ten."},
+		"what limits how much source code a single indexing pass may read":                {classKnownGap, "the intent pool holds CheckTotalParsedBytes, readRegularSourceFile and inspectRegularSourceFile, all three in the judged internal/app/ingest/workflow/fileio.go, and none reached the page of ten."},
+		"why are old generated pages still present after their source files were removed": {classKnownGap, "the intent pool holds docs.Generator.pruneManaged in the judged internal/app/docs/generator.go — the prune path the question is about — and it did not reach the page of ten."},
+
+		// Retrieval never handed the answer over. A reordering cannot pay
+		// these; the index or the tokenizer has to change first.
+		"mcp":                                 {classKnownGap, "the only defensible answer is the package node for internal/adapters/inbound/mcp, and the captured pool of 50 name-index candidates holds no package node at all, so no reordering can reach it. search means to answer identifier queries, so this is retrieval owing an answer, not a decision to decline — and closing it needs a recapture, not a constant."},
+		"what happens when a webhook arrives": {classKnownGap, "neither pool holds the judged webhook.WebhookHandler.ServeHTTP. The name index returns nothing because it needs every word of the question in one document; the intent index returns 46 hits and the handler is not among them, so the reason text the question is asking for was never fetched."},
+		"where do search results get ranked":  {classKnownGap, "neither pool holds the judged rank.Rerank. Its surface says Rerank, not ranked, and the question's other words — search, results, get — are spread across every file with a search API, so the 50 hits fetched are all of that spread. queries.json calls this the hardest question in the set."},
+		"why does editing a function with many outgoing links rank as riskier":     {classKnownGap, "the judged internal/app/analyze/changes/service.go is in neither pool. Three of the seven scored terms — editing, riskier, and the phrasing around them — appear in no recorded reason, so the 49 intent hits fetched are ranked on function, many, outgoing, links and rank alone."},
+		"what decides whether generated documentation may delete an existing page": {classKnownGap, "the judged internal/app/docs/generator.go is in neither pool for this phrasing, though the incident query about the same prune path does retrieve it. So the file is indexed and reachable; this wording does not reach it."},
+
+		// Korean. All three are the same mechanism, and all three are the
+		// reason this project exists — reasons written in Korean, asked for in
+		// Korean. Each returns nothing at all, not a bad order.
+		"읽지 못한 파일을 업데이트에서 삭제된 것으로 보지 않는 기준은 어디야":    {classKnownGap, "the answer is empty, not misordered: 2 of the question's 10 scored terms appear in any recorded reason, and CanAnswer drops every intent hit below half. The terms carry their particles — 파일을, 기준은, 업데이트에서 — so they cannot match 파일 or 기준 in a reason, which is why 8 of the 10 count zero. The judged internal/app/ingest/workflow/update.go is not among the 5 hits fetched."},
+		"여러 묶음으로 읽은 파일 사이의 호출 관계는 왜 마지막에 한꺼번에 연결하지": {classKnownGap, "the same particle mismatch: 2 of 11 scored terms appear in any recorded reason, so CanAnswer drops all 30 intent hits and the answer is empty. Neither judged file — incremental.go, update.go — is among them."},
+		"코드가 바뀐 뒤 어떤 주석을 다시 확인해야 하는지는 어디서 판단해":      {classKnownGap, "the same particle mismatch: 4 of 11 scored terms appear in any recorded reason, still under half, so CanAnswer drops all 9 intent hits. The judged internal/app/docs/lint.go is not among them."},
+	},
+	"cobra": {
+		"levenshtein": {classKnownGap, "the name pool holds the judged cobra.ld, retrieved through its docstring, and the evidence cut drops it: the cut justifies a hit on name, path and @intent only, and cobra carries no annotations to speak with. Recorded in knownHiddenRelevant too, under the same reason — closing it means teaching the cut a docstring signal, which is a design change to make deliberately."},
+		"Excute":      {classOutOfScope, "a missing letter, declined by the same recorded policy as the primary corpus's typos. queries.json lists search in its out_of_scope."},
+	},
+	"gorm": {
+		"Preloda": {classOutOfScope, "a transposition, declined by the same recorded policy as the primary corpus's typos. queries.json lists search in its out_of_scope."},
+	},
+}
+
 // guardedCorpus builds the smallest corpus the guard accepts: one query the
 // search answers, one it declines with the decision recorded, and one negative
 // whose right answer is nothing. Each test below breaks it in exactly one way,
