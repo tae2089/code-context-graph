@@ -535,6 +535,23 @@ func (q queryTokens) empty() bool { return len(q.parts) == 0 && len(q.whole) == 
 // leftover of a larger word, so it still has to match. Withholding it there
 // would make short names unfindable, a worse fault than the one this fixes.
 //
+// Two runes was measured before being left alone. The worry is that id, cut out
+// of getUserById, is an ordered subsequence of Field and of plenty else. Across
+// the four frozen corpora, of the 370 candidates a multi-part query kept on name
+// evidence, the number carried by a two-rune piece alone is zero — counting a
+// candidate the joined reading cannot reach and whose longest matching piece is
+// exactly two runes. Forty-six of those queries do hold a two-rune piece, though
+// only gorm's OnConflict is an identifier rather than an English question, and
+// its on carried nothing by itself. A rune almost every identifier holds and a
+// pair that has to appear in order are not the same risk.
+//
+// Two things that measurement does not cover, either of which could change the
+// answer: a pool is the top ten rows full-text search returned, so a coincidence
+// it never retrieved is invisible here, and no corpus holds a query shaped like
+// getUserById — the very example the worry is written around. Closing the
+// question properly means adding such a query to a corpus and recapturing its
+// candidates, which is a larger change than the one it would justify today.
+//
 // @ensures a query whose sub-tokens are all one rune keeps every one of them.
 // @intent stop a single shared character from standing as a candidate's only evidence.
 func (q queryTokens) meaningfulPart(part string) bool {
