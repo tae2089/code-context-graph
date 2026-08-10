@@ -128,8 +128,59 @@ It reports one line per query that got worse. For each one, open its entry in
 - **The new order is a deliberate trade** — record it with `-update-golden` and
   name the trade in the commit message.
 
-Never widen a `relevant` list to make a run pass. The list answers "what did the
-person want", which does not change because the code did.
+Never widen a `relevant` list to make a run pass, and never narrow one either.
+The list answers "what did the person want", which does not change because the
+code did. Narrowing is the worse of the two: Recall is `found/relevant`, so
+deleting an answer nobody found raises the score without a line of code
+changing. `TestGolden_BaselineIsFullyGuarded` fails that now.
+
+## What the guard adds
+
+The ratchet compares this run against the baseline. `golden_guard_test.go` asks
+a different question — whether the baseline is still being compared at all —
+because a green ratchet says nothing about an entry it never reaches. There were
+three holes.
+
+**It walked the run, not the baseline.** Deleting a hard query from
+`queries.json` left its baseline entry sitting there, unvisited and unmissed.
+The guard walks the baseline and fails on any entry no query answers to.
+
+**It recorded the answer key's size without comparing it.** `relevant` was
+written into `baseline.json` on every update and read back never. The guard
+fails when it shrinks.
+
+**It could not fail an entry that already scores nothing.** The ratchet holds an
+entry with two assertions — `found` may not drop, `rank` may not rise — and both
+are dead at zero. Nineteen entries sat there: 16 on `ccg`, 2 on `cobra`, 1 on
+`gorm`. Each now carries a class and a reason in `zeroScoreNotes`, and the guard
+fails on one that has neither.
+
+The two classes are not interchangeable, and the candidate pool is what
+separates them.
+
+| Class | Means | Test |
+| --- | --- | --- |
+| `out of scope` | a recorded decision not to answer | `queries.json` must list `search` in the query's `out_of_scope` |
+| `known gap` | the search means to answer this and cannot yet | anything else |
+
+`retrieved: true` forces `known gap`. If the pool already held the judged
+answer, nothing was declined — the ranker left it off the page, and that is a
+debt to work off. Four entries are in that state today, all on `ccg`, all
+answered by the intent index and all missing from the page of ten files. The
+other eight `known gap` entries never got the answer out of retrieval, so no
+reordering can pay them: `mcp` wants a package node the name index does not
+carry, and the three Korean questions die at `intent.Result.CanAnswer` because
+their terms carry particles — `파일을` cannot match `파일` in a reason, so under
+half the terms score and every hit is dropped.
+
+An entry is a debt, not a permission. The guard also fails when a listed entry
+starts scoring, so the list cannot rot into a silent excuse — the same rule
+`knownHiddenRelevant` runs under.
+
+One limit, stated plainly: `-update-golden` rewrites `relevant` from the run, so
+re-recording after narrowing a judgment still passes. What the guard buys is
+that the narrowing cannot be silent — it has to arrive as a `baseline.json` diff
+a reviewer reads.
 
 ## Rebuilding the candidate fixture
 
@@ -220,6 +271,10 @@ query that matches nothing exactly is naming something that does not exist.
 Answering it approximately would turn "no such thing" into a confident wrong
 answer. They are kept, and kept red, so the decision stays visible and anyone
 who reverses it inherits the measurements in each `why`.
+
+These four, plus `Excute` on `cobra` and `Preloda` on `gorm`, are the whole of
+`out of scope` in `zeroScoreNotes`. Every other entry that scores nothing is a
+`known gap` — nobody decided against answering it.
 
 ## What this measures, and what it does not
 
