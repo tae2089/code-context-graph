@@ -254,15 +254,28 @@ func Build(query string, nodes []graph.Node, opts Options) List {
 		list.NextOffset = opts.Offset + len(list.Files)
 	}
 	if len(list.Files) == 0 {
-		list.Note = noteNothingRetrieved
-		switch {
-		case len(files) > 0:
-			list.Note = notePastTheEnd
-		case len(nodes) > 0:
-			list.Note = noteAllWeak
-		}
+		list.Note = emptyNote(len(files), len(nodes))
 	}
 	return list
+}
+
+// emptyNote says which kind of empty this answer is, given how many files the
+// query answered with anywhere and how many candidates were retrieved.
+//
+// The order is the order of the questions a reader asks. A page past the end is
+// first because files did answer this query, just not at this offset.
+//
+// @ensures the returned note is never empty, since it is only asked for when the answer is.
+// @intent name the cause of an empty answer, rather than guessing at a remedy for it.
+func emptyNote(answeredFiles, retrieved int) string {
+	switch {
+	case answeredFiles > 0:
+		return notePastTheEnd
+	case retrieved > 0:
+		return noteAllWeak
+	default:
+		return noteNothingRetrieved
+	}
 }
 
 // matchedSignals collects every reason this node is worth showing, in a fixed
