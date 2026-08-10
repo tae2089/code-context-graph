@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/tae2089/trace"
@@ -103,6 +104,30 @@ func answerableCorpus(n int) []graph.Node {
 	return out
 }
 
+// reversedCorpus is n files that each hold one declaration the query names,
+// handed over in the order a backend whose own relevance order runs exactly
+// against the structural one would hand them: the row it puts first is the row
+// structural scoring puts last.
+//
+// The padding is what turns the order around. Every name starts with the query,
+// so every file is a real answer to it, but a longer surrounding identifier
+// scores lower — so the most padded name is the weakest structurally, and that
+// is the row the backend offers first. No two names are padded alike, so no two
+// files score alike and nothing falls through to a tie-break.
+//
+// This is the shape answerableCorpus cannot show. There, every file scores the
+// same and the pool's own order survives reranking, so a pool that grows only
+// ever grows at the end. Here reranking turns the pool around, and every row a
+// wider pool adds belongs in front of the ones already delivered.
+func reversedCorpus(n int) []graph.Node {
+	out := make([]graph.Node, 0, n)
+	for i := range n {
+		padded := "alpha" + strings.Repeat("x", n-1-i)
+		out = append(out, node(uint(i+1), padded, fmt.Sprintf("pkg/f%03d.go", i)))
+	}
+	return out
+}
+
 // crowdedCorpus is one file holding hits hits, followed by quiet files of one
 // hit each. The crowded file alone fills a first page's candidate pool.
 func crowdedCorpus(hits, quiet int) []graph.Node {
@@ -186,6 +211,59 @@ func TestSearch_PagesAThreeHundredFileAnswerToTheEnd(t *testing.T) {
 	}
 	if len(seen) != total {
 		t.Fatalf("paging to the completion signal yielded %d files, want all %d", len(seen), total)
+	}
+}
+
+// walkAnswer pages through one repository's answer with exactly the offsets the
+// answer suggests, and reports how many pages each file arrived on.
+func walkAnswer(t *testing.T, svc *Service, p Params, maxPages int) (seen map[string]int, repeats []string) {
+	t.Helper()
+	ctx := requestctx.WithNamespace(context.Background(), requestctx.DefaultNamespace)
+	seen = map[string]int{}
+	for range maxPages {
+		list, err := svc.Search(ctx, p)
+		if err != nil {
+			t.Fatalf("Search at offset %d: %v", p.Offset, err)
+		}
+		if len(list.Files) == 0 {
+			t.Fatalf("page at offset %d came back empty (%q) after %d files", p.Offset, list.Note, len(seen))
+		}
+		for _, f := range list.Files {
+			if seen[f.FilePath] > 0 {
+				repeats = append(repeats, f.FilePath)
+			}
+			seen[f.FilePath]++
+		}
+		if list.OverflowFiles == 0 && !list.PoolTruncated {
+			return seen, repeats
+		}
+		if list.NextOffset <= p.Offset {
+			t.Fatalf("the answer at offset %d suggested offset %d, which does not move", p.Offset, list.NextOffset)
+		}
+		// Exactly the call the answer's own `next` action names.
+		p.Offset = list.NextOffset
+	}
+	t.Fatalf("paging did not finish in %d pages", maxPages)
+	return nil, nil
+}
+
+// A backend order that runs against the structural one is where paging used to
+// come apart: every row a wider pool added belonged in front of the rows already
+// delivered, so the page boundary slid backwards over files that had already
+// been handed out and past files that never were. Measured before the fix, this
+// answer reached 250 of its 300 files and delivered 50 of them twice.
+func TestSearch_PagesToTheEndWhenTheBackendOrderRunsAgainstTheStructuralOne(t *testing.T) {
+	const total = 300
+	svc := New(&fakeSearcher{byNamespace: map[string][]graph.Node{
+		requestctx.DefaultNamespace: reversedCorpus(total),
+	}})
+
+	seen, repeats := walkAnswer(t, svc, Params{Query: "alpha", Limit: 10}, total)
+	if len(repeats) > 0 {
+		t.Errorf("%d files came back on more than one page: %v", len(repeats), repeats)
+	}
+	if len(seen) != total {
+		t.Errorf("paging reached %d files, want all %d", len(seen), total)
 	}
 }
 

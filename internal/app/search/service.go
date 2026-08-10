@@ -87,7 +87,7 @@ func (s *Service) Search(ctx context.Context, p Params) (evidence.List, error) {
 	if err != nil {
 		return evidence.List{}, err
 	}
-	ranked := searchrank.Rerank(p.Query, pool.named, 0)
+	ranked := orderPool(p.Query, pool.named, searchrank.FetchLimit(p.Limit))
 	merged, intentEvidence := absorbIntent(ranked, pool.intent)
 	merged = keepPathPrefix(merged, p.PathPrefix)
 	list := evidence.Build(p.Query, merged, evidence.Options{
@@ -138,7 +138,7 @@ func (s *Service) SearchFederated(ctx context.Context, namespaces []string, p Pa
 		poolTruncated = poolTruncated || pool.truncated
 		coverage = addCoverage(coverage, pool.coverage)
 	}
-	merged := searchrank.RerankGroups(p.Query, groups, 0)
+	merged := orderGroupedPool(p.Query, groups, searchrank.FetchLimit(p.Limit))
 	merged, intentEvidence := absorbIntent(merged, intentHits)
 	merged = keepPathPrefix(merged, p.PathPrefix)
 	list := evidence.Build(p.Query, merged, evidence.Options{
@@ -216,6 +216,78 @@ func (s *Service) fetch(ctx context.Context, p Params) (pool, error) {
 		truncated: truncated,
 		coverage:  coverageFromIntent(fromIntent.result.Coverage),
 	}, nil
+}
+
+// orderPool orders one repository's candidate pool the way a caller who pages
+// through it can rely on: one block at a time, with the blocks left in the order
+// the backend sent them.
+//
+// Ordering the whole pool at once is what used to break paging. The pool is
+// widened for the page that was asked for — page five is cut from a wider pool
+// than page one, since no fetch carries a skip — and a wider pool ordered as a
+// whole can lift a row the backend sent later in front of rows an earlier page
+// already handed out. Everything after that point slides back, so some files
+// arrive twice and the files at the far end are stepped over and never arrive at
+// all. On a pool whose backend order runs against the structural one, that cost a
+// 300-file answer 50 files delivered twice and 50 that could not be reached.
+//
+// Ordering block by block pins the earlier blocks down. Widening the pool only
+// appends blocks to it, so the order of its first n rows does not depend on how
+// many rows came after them, and a page already cut stays cut where it was.
+//
+// What it gives up is that a row cannot be promoted out of its block however well
+// it scores. The block is why that costs nothing a caller can see: it is the pool
+// a single page would have fetched on its own, so the first page of any query is
+// ordered exactly as it was before, and no page is ordered from fewer rows than
+// asking for it alone would have used.
+//
+// @requires nodes is the backend's rank-ordered pool, fetched in whole multiples of block.
+// @ensures the order of the first n rows does not depend on any row after them, at every n that is a multiple of block.
+// @intent keep a page already delivered from being reshuffled by the wider pool the next page fetches.
+func orderPool(query string, nodes []graph.Node, block int) []graph.Node {
+	if block <= 0 || len(nodes) <= block {
+		return searchrank.Rerank(query, nodes, 0)
+	}
+	out := make([]graph.Node, 0, len(nodes))
+	for start := 0; start < len(nodes); start += block {
+		out = append(out, searchrank.Rerank(query, nodes[start:min(start+block, len(nodes))], 0)...)
+	}
+	return out
+}
+
+// orderGroupedPool is orderPool for a federated pool: every repository's rows are
+// cut into blocks of their own, and one block from each repository is merged at a
+// time.
+//
+// Merging block by block rather than pool by pool is what keeps each repository's
+// own list a prefix-extension as the pools widen, which is what federated paging
+// resumes from — every namespace is windowed at the same offset in its own list.
+// A block a repository has no rows for contributes nothing, so a repository with
+// fewer candidates than the others does not hold the blocks after it open.
+//
+// @requires each group is that repository's rank-ordered pool, fetched in whole multiples of block.
+// @intent give federated paging the same fixed prefix a single repository's paging has.
+func orderGroupedPool(query string, groups [][]graph.Node, block int) []graph.Node {
+	widest, total := 0, 0
+	for _, g := range groups {
+		widest = max(widest, len(g))
+		total += len(g)
+	}
+	if block <= 0 || widest <= block {
+		return searchrank.RerankGroups(query, groups, 0)
+	}
+	out := make([]graph.Node, 0, total)
+	for start := 0; start < widest; start += block {
+		inBlock := make([][]graph.Node, 0, len(groups))
+		for _, g := range groups {
+			if start >= len(g) {
+				continue
+			}
+			inBlock = append(inBlock, g[start:min(start+block, len(g))])
+		}
+		out = append(out, searchrank.RerankGroups(query, inBlock, 0)...)
+	}
+	return out
 }
 
 // keepPathPrefix drops the candidates that live outside the caller's path
