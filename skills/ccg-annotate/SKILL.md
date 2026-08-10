@@ -2,7 +2,7 @@
 name: ccg-annotate
 description: "Author, refine, and verify CCG annotations such as @intent, @domainRule, @sideEffect, @mutates, @index, and @see. Use when adding business meaning to code, improving annotation-aware code or documentation retrieval, fixing annotation lint findings, checking supported tag syntax, or documenting operational contracts. Do not use for generated Markdown editing or annotations that merely restate symbol names."
 metadata:
-  version: 1.2.1
+  version: 1.3.0
   openclaw:
     category: "code-intelligence"
     domain: "annotation"
@@ -85,10 +85,14 @@ For cross-namespace behavior, explain the reason in the semantic tag and put the
 - Do not repeat the same keyword across tags unless each tag adds distinct evidence
 - Match the language of existing comments (Korean for Korean codebases, English for English)
 
-### Step 4: Refresh and verify
+### Step 4: Rebuild, then verify
 
-Use the `ccg` skill's Graph Freshness workflow to re-index changed source, then
-run `ccg lint` to verify annotation quality and references.
+Annotations enter the search index only at graph build time. An annotation
+written but not rebuilt is invisible to `search` — the most common way to
+conclude, wrongly, that "annotations don't work". So rebuild first: run
+`ccg build <dir>` (or `ccg update <dir>` after ordinary edits, per the `ccg`
+skill's Graph Freshness workflow), then run `ccg lint` to verify annotation
+quality and references.
 
 For representative changed symbols, call `get_annotation` and confirm the
 expected tags and values were actually stored. The parser returns unknown-tag
@@ -143,16 +147,27 @@ For MCP/Web UI retrieval, use `search` + `get_doc_content` or Wiki search. If th
 expected file is missing, prefer improving the precise `@index`, `@intent`,
 `@domainRule`, or `@see` evidence on that file over changing global scoring.
 
-## MCP Tools
+## Closing the Question Loop
 
-| Tool             | Use                                  |
-| ---------------- | ------------------------------------ |
-| `get_annotation` | Verify stored annotation/doc tags for a qualified node |
+When this skill was entered from the `ccg` skill's search failure path — a
+plain-language question that came back empty because no recorded reason
+answered it — the work is not done until that question succeeds:
+
+1. Annotate the area the question was about (Steps 1–3), writing the
+   `@intent`/`@domainRule` in words that answer the question actually asked.
+2. Rebuild (Step 4). Without this the re-ask is guaranteed to fail again.
+3. Re-ask the **original question, verbatim**, through `search`, and confirm
+   the answer now carries reason-matched hits (`reason` and `matched_terms`)
+   pointing at the annotated area.
+
+If the re-ask still comes back empty, the recorded reason and the question do
+not share vocabulary — revise the annotation's wording, not the search.
 
 ## Completion
 
 List annotated files and meaningful tags added or deliberately revised, report
-any existing rationale changed, apply the `ccg` Graph Freshness workflow,
-verify representative nodes with `get_annotation`, run retrieval probes for
-affected concepts, and report lint plus any unknown-tag risk or unrelated
-finding without claiming it was fixed.
+any existing rationale changed, confirm the rebuild ran, verify representative
+nodes with `get_annotation`, run retrieval probes for affected concepts, and
+report lint plus any unknown-tag risk or unrelated finding without claiming it
+was fixed. When the work started from a failed question, state the original
+question and what its re-ask returned.
