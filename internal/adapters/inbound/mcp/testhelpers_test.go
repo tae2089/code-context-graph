@@ -214,12 +214,23 @@ func groupedTestDeps(st *graphgorm.Store, db *gorm.DB, sb search.Backend, parser
 	}
 }
 
-// openSharedMemoryTestDB opens one test's own in-memory database.
+// openSharedMemoryTestDB opens one test's own in-memory database and keeps it
+// alive until the test returns.
 //
 // The name carries a counter because the cache is shared: two databases opened
 // under the same name in one process are one database, and every test here
 // counts rows, so a name reused across tests would have them counting each
 // other's.
+//
+// The connection held back is what keeps the database there. SQLite drops a
+// shared-cache in-memory database as soon as its last connection closes, and
+// nothing here promises the pool will always hold one: it does today only
+// because database/sql keeps two idle connections and expires neither, and any
+// idle timeout — the five minutes internal/db.ConfigurePool gives postgres, say
+// — would empty the pool between two statements. The next query would then open
+// a fresh, empty database and every count taken from it would be wrong rather
+// than missing. One connection of our own, released on cleanup, takes that out
+// of the pool's hands. See TestSetupTestDeps_DatabaseOutlivesAnEmptiedConnectionPool.
 func openSharedMemoryTestDB(t *testing.T, name string) *gorm.DB {
 	t.Helper()
 	dsn := fmt.Sprintf("file:%s%d?mode=memory&cache=shared", name, handlerTestDBSeq.Add(1))
@@ -227,6 +238,15 @@ func openSharedMemoryTestDB(t *testing.T, name string) *gorm.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { held.Close() })
 	return db
 }
 
