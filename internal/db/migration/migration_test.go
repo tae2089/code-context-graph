@@ -14,7 +14,7 @@ import (
 // the highest migration. Pinning it to a literal makes forgetting that a test
 // failure rather than a runtime surprise.
 func TestRequiredSchemaVersion_MatchesHighestMigration(t *testing.T) {
-	const highest = 18 // 000018_intent_fts
+	const highest = 19 // 000019_tokenize_identifier_separators
 	if RequiredSchemaVersion != highest {
 		t.Fatalf("RequiredSchemaVersion = %d, want %d", RequiredSchemaVersion, highest)
 	}

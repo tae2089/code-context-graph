@@ -37,13 +37,20 @@ func (p *PostgresBackend) Migrate(db *gorm.DB) error {
 }
 
 // Rebuild recalculates the tsvector for all search documents.
+//
+// The separators '/', '.', and '_' are translated to spaces before
+// to_tsvector, because FTS5's unicode61 tokenizer splits on them and this
+// vector has to see the same tokens: without it, PostgreSQL keeps a dotted
+// qualified name as one host-like token and cannot answer a query naming one
+// of its segments. The trigger in migration 000019 applies the same
+// expression on every write.
 // @intent Batch regenerates the full-text search index for existing search_documents rows.
 // @sideEffect Updates search_documents.tsv values.
 func (p *PostgresBackend) Rebuild(ctx context.Context, db *gorm.DB) error {
 	ns := requestctx.FromContext(ctx)
 	query := `
 		UPDATE search_documents
-		SET tsv = to_tsvector('simple', COALESCE(content, ''))
+		SET tsv = to_tsvector('simple', translate(COALESCE(content, ''), '/._', '   '))
 		WHERE namespace = ?`
 	args := []any{ns}
 	return db.WithContext(ctx).Exec(query, args...).Error
@@ -58,7 +65,7 @@ func (p *PostgresBackend) RebuildNodes(ctx context.Context, db *gorm.DB, nodeIDs
 	ns := requestctx.FromContext(ctx)
 	query := `
 		UPDATE search_documents
-		SET tsv = to_tsvector('simple', COALESCE(content, ''))
+		SET tsv = to_tsvector('simple', translate(COALESCE(content, ''), '/._', '   '))
 		WHERE namespace = ? AND node_id IN ?`
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for start := 0; start < len(nodeIDs); start += scopedRebuildChunkSize {

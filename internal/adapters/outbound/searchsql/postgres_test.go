@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"github.com/tae2089/code-context-graph/internal/app/search/document"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/db/migration"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
@@ -289,6 +290,64 @@ func TestPostgresFTS_Query(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected pkg.AuthenticateUser in results")
+	}
+}
+
+// TestPostgresFTS_Query_SeesTheTokensSQLiteSees pins the tokenization parity
+// the two backends owe each other. FTS5's unicode61 tokenizer splits indexed
+// text on every non-alphanumeric rune, so SQLite can answer a query with any
+// dot-separated segment of a qualified name, any directory of a file path, or
+// either half of a snake_case word. PostgreSQL's default parser instead keeps
+// `webhook.WebhookHandler.verifySignature` as one host-like token, a whole
+// file path as one file token, and `handler_docs` as one word — so the same
+// document, built by the same production builder, answered fewer queries on
+// PostgreSQL. Each case here is a query SQLite answers from the raw text and
+// PostgreSQL used to miss.
+func TestPostgresFTS_Query_SeesTheTokensSQLiteSees(t *testing.T) {
+	db := setupPostgresDB(t)
+	backend := NewPostgresBackend()
+	if err := backend.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+
+	node := graph.Node{
+		Name:          "verifySignature",
+		QualifiedName: "webhook.WebhookHandler.verifySignature",
+		Kind:          graph.NodeKindFunction,
+		FilePath:      "internal/adapters/inbound/webhook/handler_docs.go",
+		StartLine:     1,
+		EndLine:       10,
+		Language:      "go",
+	}
+	if err := db.Create(&node).Error; err != nil {
+		t.Fatal(err)
+	}
+	doc := graph.SearchDocument{
+		Namespace: node.Namespace,
+		NodeID:    node.ID,
+		Content:   document.BuildContent(node, nil),
+		Language:  "go",
+	}
+	if err := db.Create(&doc).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.Rebuild(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+
+	queries := map[string]string{
+		"a camelCase segment of the qualified name": "webhookhandler",
+		"a directory segment of the file path":      "webhook",
+		"one half of a snake_case path word":        "docs",
+	}
+	for label, query := range queries {
+		nodes, err := backend.Query(context.Background(), db, query, 10)
+		if err != nil {
+			t.Fatalf("%s (%q): %v", label, query, err)
+		}
+		if len(nodes) == 0 {
+			t.Errorf("%s (%q): SQLite answers this from the same document; PostgreSQL returned nothing", label, query)
+		}
 	}
 }
 
