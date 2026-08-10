@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/tae2089/code-context-graph/internal/app/search/identtoken"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
@@ -115,8 +116,8 @@ func rerankWithRanks(query string, nodes []graph.Node, retrievalRank []int, limi
 	if strings.TrimSpace(query) == "" || len(nodes) == 0 {
 		return applyLimit(nodes, limit)
 	}
-	qTokens := tokenize(query)
-	if len(qTokens) == 0 {
+	qTokens := newQueryTokens(query)
+	if qTokens.empty() {
 		return applyLimit(nodes, limit)
 	}
 
@@ -249,10 +250,10 @@ func applyLimit(nodes []graph.Node, limit int) []graph.Node {
 // containing it; an identifier that does not contain the query as an ordered
 // subsequence scores 0.
 // @intent score query tokens against simple and qualified node identifiers.
-func nameSim(qTokens []string, node graph.Node) float64 {
-	best := scoreTargets(qTokens, node.Name, lastSegment(node.QualifiedName, '.'))
+func nameSim(q queryTokens, node graph.Node) float64 {
+	best := scoreTargets(q, node.Name, lastSegment(node.QualifiedName, '.'))
 	if receiver := receiverSegment(node.QualifiedName); receiver != "" {
-		best = max(best, receiverWeight*scoreTargets(qTokens, receiver))
+		best = max(best, receiverWeight*scoreTargets(q, receiver))
 	}
 	return best
 }
@@ -290,19 +291,22 @@ func receiverSegment(qualifiedName string) string {
 // scoreTargets returns the best score any of the given identifiers earns for the
 // query, using the token-level and joined-whole readings described on nameSim.
 // @intent score one query against several spellings of the same node.
-func scoreTargets(qTokens []string, targets ...string) float64 {
-	joined := strings.Join(qTokens, "")
+func scoreTargets(q queryTokens, targets ...string) float64 {
+	if len(q.parts) == 0 {
+		return 0
+	}
+	joined := strings.Join(q.parts, "")
 	best := 0.0
 	for _, target := range targets {
 		if target == "" {
 			continue
 		}
 		sum := 0.0
-		for _, tok := range qTokens {
+		for _, tok := range q.parts {
 			sum += subsequenceScore(tok, target)
 		}
-		best = max(best, sum/float64(len(qTokens)))
-		if len(qTokens) > 1 { // for one token the joined query is that token
+		best = max(best, sum/float64(len(q.parts)))
+		if len(q.parts) > 1 { // for one part the joined query is that part
 			best = max(best, subsequenceScore(joined, target))
 		}
 	}
@@ -400,9 +404,17 @@ func matchBonus(target []rune, i int, consecutive bool) float64 {
 	}
 }
 
-// pathScore is the fraction of query tokens that appear as file-path segments.
+// pathScore is the fraction of the query's whole tokens that appear as
+// file-path segments.
+//
+// It reads the whole tokens, not their sub-tokens, because a segment match is an
+// exact one: a query for syncQueue is answered by internal/syncqueue/, which the
+// sub-tokens sync and queue would each miss.
 // @intent use matching path segments as a bounded secondary relevance signal.
-func pathScore(qTokens []string, node graph.Node) float64 {
+func pathScore(q queryTokens, node graph.Node) float64 {
+	if len(q.whole) == 0 {
+		return 0
+	}
 	segs := map[string]struct{}{}
 	for _, seg := range strings.FieldsFunc(strings.ToLower(node.FilePath), isPathSep) {
 		segs[seg] = struct{}{}
@@ -411,15 +423,58 @@ func pathScore(qTokens []string, node graph.Node) float64 {
 		return 0
 	}
 	hits := 0
-	for _, tok := range qTokens {
+	for _, tok := range q.whole {
 		if _, ok := segs[tok]; ok {
 			hits++
 		}
 	}
-	return float64(hits) / float64(len(qTokens))
+	return float64(hits) / float64(len(q.whole))
 }
 
-// tokenize lowercases and splits input into alphanumeric tokens.
+// queryTokens holds the two readings of a query the scorers need, because they
+// ask different questions of it.
+//
+// nameSim compares runes inside an identifier, so it wants the query cut as
+// small as the identifier was cut when it was indexed. pathScore compares a
+// token against a whole path segment, so it wants the token the searcher typed:
+// internal/syncqueue/ holds the segment syncqueue, and nothing in it is spelled
+// sync.
+//
+// One flat list cannot serve both. Keeping the two apart is also what protects
+// the joined reading in scoreTargets, which runs the tokens back together with
+// no separator between them: the parts of a token rejoin to that token, while
+// the parts plus the token they came from rejoin to it written twice —
+// getUserId would join to useriduserid, which matches nothing.
+type queryTokens struct {
+	// parts is the query cut into sub-tokens, for scoring against identifiers.
+	parts []string
+	// whole is the query cut into whole tokens, for matching path segments.
+	whole []string
+}
+
+// newQueryTokens reads one query both ways.
+//
+// parts comes from identtoken.Split, the same cut the index, the full-text query
+// and the evidence cut are built from. Reading the query as whole tokens here
+// instead was how a camelCase query lost the node full-text search had already
+// found for it: the index matched getUserId as get, user and id, while scoring
+// asked whether the nine-rune run getuserid appeared inside a seven-rune
+// identifier and answered no. The node was retrieved and then dropped for
+// failing a test the index never applied.
+//
+// @ensures parts cuts the query exactly as identifiers are cut when indexed.
+// @intent read a query once and hand each scorer the cut it can use.
+func newQueryTokens(query string) queryTokens {
+	return queryTokens{parts: identtoken.Split(query), whole: tokenize(query)}
+}
+
+// empty reports whether the query left nothing to score with.
+// @intent give callers one question to ask before scoring a candidate.
+func (q queryTokens) empty() bool { return len(q.parts) == 0 && len(q.whole) == 0 }
+
+// tokenize lowercases and splits input into alphanumeric tokens. Underscore is a
+// separator, so user_id becomes two tokens — which is how the identifier index
+// splits it, and how a path segment spelled user_id is read.
 // @intent normalize free-text search input into comparable Unicode tokens.
 func tokenize(s string) []string {
 	return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {

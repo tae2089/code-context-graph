@@ -3,31 +3,30 @@
     "query": "SanitizeFTS5",
     "bucket": "exact",
     "retrieved": true,
-    "returned": 3,
+    "returned": 4,
     "relevant": 1,
     "found": 1,
-    "rank": 1,
-    "weak_filtered": 1
+    "rank": 1
   },
   {
     "query": "BuildContent",
     "bucket": "exact",
     "retrieved": true,
-    "returned": 3,
+    "returned": 5,
     "relevant": 1,
     "found": 1,
     "rank": 1,
-    "weak_filtered": 4
+    "weak_filtered": 2
   },
   {
     "query": "UnresolvedEdgeCandidate",
     "bucket": "exact",
     "retrieved": true,
-    "returned": 8,
+    "returned": 10,
     "relevant": 1,
     "found": 1,
     "rank": 1,
-    "weak_filtered": 4
+    "weak_filtered": 2
   },
   {
     "query": "promoteExactNameMatch",
@@ -42,11 +41,11 @@
     "query": "RunMigrations",
     "bucket": "exact",
     "retrieved": true,
-    "returned": 3,
+    "returned": 5,
     "relevant": 1,
     "found": 1,
     "rank": 1,
-    "weak_filtered": 3
+    "weak_filtered": 1
   },
   {
     "query": "sanit",

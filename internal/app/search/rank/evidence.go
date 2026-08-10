@@ -31,8 +31,8 @@ func Signals(query string, node graph.Node) Structural {
 	if strings.TrimSpace(query) == "" {
 		return Structural{}
 	}
-	qTokens := tokenize(query)
-	if len(qTokens) == 0 {
+	qTokens := newQueryTokens(query)
+	if qTokens.empty() {
 		return Structural{}
 	}
 	return Structural{Name: nameSim(qTokens, node), Path: pathScore(qTokens, node)}
