@@ -20,6 +20,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/app/crossref"
 	"github.com/tae2089/code-context-graph/internal/app/ingest/workflow"
 	"github.com/tae2089/code-context-graph/internal/app/reposync"
+	searchapp "github.com/tae2089/code-context-graph/internal/app/search"
 	ccgruntime "github.com/tae2089/code-context-graph/internal/runtime"
 	mcpruntime "github.com/tae2089/code-context-graph/internal/runtime/mcp"
 )
@@ -66,11 +67,15 @@ func RunHTTP(rt *ccgruntime.Runtime, cfg httpin.Config, serviceVersion, ragIndex
 	}
 
 	if cfg.WikiDir != "" {
-		wiki, err := wikihttp.New(wikihttp.Config{
+		wikiCfg := wikihttp.Config{
 			StaticDir: cfg.WikiDir, RagIndexDir: cfg.RagIndexDir,
 			NamespaceRoot: cfg.NamespaceRoot, Repository: rt.Store,
 			Logger: rt.Logger,
-		})
+		}
+		if rt.SearchReader != nil {
+			wikiCfg.Search = searchapp.New(rt.SearchReader)
+		}
+		wiki, err := wikihttp.New(wikiCfg)
 		if err != nil {
 			return err
 		}

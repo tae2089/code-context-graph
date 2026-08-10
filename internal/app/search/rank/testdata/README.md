@@ -26,11 +26,12 @@ fixes or expressed in terms the runtime recomputes per corpus.
 There used to be a third path here. `wiki_search` named the Wiki web UI's search
 box — `retrieval.FromDB`, full-text plus a namespace scan — and had its own
 frozen pool and baseline. That pipeline was deleted along with
-`internal/app/search/retrieval`; the Wiki `/api/retrieve` route answers 501
-until the unified search core takes it over. Entries in `queries.json` that name
-`wiki_search` — the `label_format` note and two `out_of_scope` lists — are
-dormant judgment data, kept because the judgments themselves are still true and
-the unified service will be scored against them.
+`internal/app/search/retrieval`; the Wiki `/api/retrieve` route now answers from
+the unified search core, so scoring `search` scores it too. Entries in
+`queries.json` that name `wiki_search` — the `label_format` note and two
+`out_of_scope` lists — are dormant judgment data, kept because the judgments
+themselves are still true and were made against that retired pipeline's own
+scope rules.
 
 ## What each file is
 

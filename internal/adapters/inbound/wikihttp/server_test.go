@@ -19,6 +19,8 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/tae2089/code-context-graph/internal/adapters/outbound/graphgorm"
+	searchapp "github.com/tae2089/code-context-graph/internal/app/search"
+	intentapp "github.com/tae2089/code-context-graph/internal/app/search/intent"
 	"github.com/tae2089/code-context-graph/internal/app/wiki"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
@@ -235,18 +237,112 @@ func TestAPI_SearchAndDoc(t *testing.T) {
 	}
 }
 
-func TestAPI_RetrieveReturnsNotImplemented(t *testing.T) {
-	srv := newTestServer(t)
+// stubSearcher answers the unified search ports from fixed values, so retrieve
+// tests exercise the HTTP mapping without a search index.
+type stubSearcher struct {
+	nodes  []graph.Node
+	intent intentapp.Result
+}
 
-	req := httptest.NewRequest(http.MethodGet, "/wiki/api/retrieve?q=Run&namespace=default&limit=5", nil)
+func (s stubSearcher) Query(context.Context, string, int) ([]graph.Node, error) {
+	return s.nodes, nil
+}
+
+func (s stubSearcher) QueryIntent(context.Context, string, int) (intentapp.Result, error) {
+	return s.intent, nil
+}
+
+func TestAPI_Retrieve_AnswersFromTheUnifiedSearch(t *testing.T) {
+	srv := newTestServer(t)
+	node := graph.Node{
+		ID: 7, Namespace: requestctx.DefaultNamespace,
+		QualifiedName: "auth.ValidateToken", Kind: graph.NodeKindFunction, Name: "ValidateToken",
+		FilePath: "internal/auth/token.go", StartLine: 10, EndLine: 24, Language: "go",
+		Annotation: &graph.Annotation{Tags: []graph.DocTag{{Kind: graph.TagIntent, Value: "reject forged webhook pushes"}}},
+	}
+	srv.search = searchapp.New(stubSearcher{
+		intent: intentapp.Result{
+			Hits:  []intentapp.Hit{{Node: node, Terms: []string{"forged", "pushes"}}},
+			Terms: []intentapp.Term{{Text: "forged", InReasons: 2}, {Text: "pushes", InReasons: 1}},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/wiki/api/retrieve?q=why+do+we+reject+forged+pushes&namespace=default&limit=5", nil)
 	rec := httptest.NewRecorder()
 	srv.APIHandler().ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("retrieve status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusNotImplemented)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("retrieve status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusOK)
 	}
-	if !strings.Contains(rec.Body.String(), "rebuilt") {
-		t.Fatalf("expected an explanation the pipeline is being rebuilt, got %s", rec.Body.String())
+	var got struct {
+		Namespace string `json:"namespace"`
+		Results   []struct {
+			ID           string   `json:"id"`
+			Label        string   `json:"label"`
+			Kind         string   `json:"kind"`
+			Summary      string   `json:"summary"`
+			DocPath      string   `json:"doc_path"`
+			Score        int      `json:"score"`
+			MatchedTerms []string `json:"matched_terms"`
+			Matches      []struct {
+				Label   string `json:"label"`
+				Kind    string `json:"kind"`
+				Summary string `json:"summary"`
+			} `json:"matches"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v body=%s", err, rec.Body.String())
+	}
+	if got.Namespace != requestctx.DefaultNamespace {
+		t.Fatalf("namespace = %q", got.Namespace)
+	}
+	if len(got.Results) != 1 {
+		t.Fatalf("results = %#v, want exactly the one answering file", got.Results)
+	}
+	result := got.Results[0]
+	if result.DocPath != "docs/internal/auth/token.go.md" {
+		t.Errorf("doc_path = %q, want the generated doc for the source file", result.DocPath)
+	}
+	if result.Label != "token.go" || result.Kind != "file" {
+		t.Errorf("label/kind = %q/%q, want token.go/file", result.Label, result.Kind)
+	}
+	if result.Summary != "reject forged webhook pushes" {
+		t.Errorf("summary = %q, want the recorded reason", result.Summary)
+	}
+	if result.Score != 1 {
+		t.Errorf("score = %d, want the hit count 1", result.Score)
+	}
+	if !slices.Equal(result.MatchedTerms, []string{"forged", "pushes"}) {
+		t.Errorf("matched_terms = %#v", result.MatchedTerms)
+	}
+	if len(result.Matches) != 1 || result.Matches[0].Label != "ValidateToken" {
+		t.Errorf("matches = %#v, want the answering declaration", result.Matches)
+	}
+}
+
+func TestAPI_Retrieve_WithoutSearchIsUnavailable(t *testing.T) {
+	srv := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/wiki/api/retrieve?q=Run&namespace=default", nil)
+	rec := httptest.NewRecorder()
+	srv.APIHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("retrieve status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusServiceUnavailable)
+	}
+}
+
+func TestAPI_Retrieve_RejectsAnEmptyQuery(t *testing.T) {
+	srv := newTestServer(t)
+	srv.search = searchapp.New(stubSearcher{})
+
+	req := httptest.NewRequest(http.MethodGet, "/wiki/api/retrieve?namespace=default", nil)
+	rec := httptest.NewRecorder()
+	srv.APIHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("retrieve status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusBadRequest)
 	}
 }
 

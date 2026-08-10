@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	searchapp "github.com/tae2089/code-context-graph/internal/app/search"
+	"github.com/tae2089/code-context-graph/internal/app/search/evidence"
 	"github.com/tae2089/code-context-graph/internal/app/wiki"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
@@ -33,7 +35,10 @@ type Config struct {
 	RagIndexDir   string
 	NamespaceRoot string
 	Repository    wiki.Repository
-	Logger        *slog.Logger
+	// Search answers /wiki/api/retrieve from the unified search core — the
+	// same pipeline MCP's search tool runs. Nil disables the route with a 503.
+	Search *searchapp.Service
+	Logger *slog.Logger
 }
 
 // Server serves static Wiki assets and small JSON APIs for docs exploration.
@@ -43,6 +48,7 @@ type Server struct {
 	ragIndexDir   string
 	namespaceRoot string
 	repository    wiki.Repository
+	search        *searchapp.Service
 	logger        *slog.Logger
 }
 
@@ -76,6 +82,7 @@ func New(cfg Config) (*Server, error) {
 		ragIndexDir:   ragDir,
 		namespaceRoot: nsRoot,
 		repository:    cfg.Repository,
+		search:        cfg.Search,
 		logger:        logger,
 	}, nil
 }
@@ -223,14 +230,43 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "results": results})
 }
 
-// handleRetrieve is a deliberate stub: the retrieval pipeline it served was
-// deleted, and the unified search core takes this route over in a follow-up.
-// @intent answer an explicit 501 so Wiki UI callers can tell "being rebuilt" from "route gone".
+// handleRetrieve answers the Wiki UI's Retrieve mode from the unified search
+// core — the same pipeline MCP's search tool runs — and folds each answering
+// file into the result card shape the browser already renders.
+// @intent give the Wiki UI the same search answer every other surface gets, in its own viewer contract.
 func (s *Server) handleRetrieve(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
-	writeError(w, http.StatusNotImplemented, "retrieve is disabled while its search pipeline is rebuilt", nil)
+	ns, ok := namespaceParam(w, r)
+	if !ok {
+		return
+	}
+	if s.search == nil {
+		writeError(w, http.StatusServiceUnavailable, "search is not configured", nil)
+		return
+	}
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query == "" {
+		writeError(w, http.StatusBadRequest, "q must not be empty", nil)
+		return
+	}
+	limit, err := boundedIntParam(r, "limit", 10, 1, 100)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	ctx := requestctx.WithNamespace(r.Context(), ns)
+	list, err := s.search.Search(ctx, searchapp.Params{Query: query, Limit: limit})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "retrieve", err)
+		return
+	}
+	results := make([]retrieveResult, 0, len(list.Files))
+	for _, file := range list.Files {
+		results = append(results, retrieveResultFromFile(file))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"namespace": ns, "results": results})
 }
 
 // @intent read DB fallback document content without crossing from a named namespace into shared/global docs roots.
@@ -544,6 +580,80 @@ func (s *Server) findRefGraphNode(r *http.Request, ref *reference.Ref) (*graphNo
 		graphNode.Details.Annotation = annotationDetailFromModel(node.Annotation)
 	}
 	return &graphNode, nil
+}
+
+// retrieveResult is one file the unified search answered with, in the result
+// card shape the Wiki UI's Retrieve mode has always rendered: the generated
+// doc to open, plus the evidence for opening it.
+// @intent keep the browser contract stable while the answer behind it changes pipelines.
+type retrieveResult struct {
+	ID      string `json:"id"`
+	Label   string `json:"label"`
+	Kind    string `json:"kind"`
+	Summary string `json:"summary"`
+	DocPath string `json:"doc_path"`
+	// Score is the file's hit count. The unified pipeline orders by structural
+	// evidence and exposes no fused score, so the honest number left to show is
+	// how many declarations in this file answered.
+	Score        int                 `json:"score"`
+	MatchedTerms []string            `json:"matched_terms"`
+	Matches      []wiki.SearchResult `json:"matches,omitempty"`
+}
+
+// retrieveResultFromFile folds one answering file into a Retrieve card: the
+// card's summary is the first recorded reason (then the first @intent) among
+// its hits, its matched terms are the union over them, and every hit becomes
+// an evidence entry.
+// @intent show a file through the reasons its declarations gave, not just its path.
+func retrieveResultFromFile(file evidence.File) retrieveResult {
+	out := retrieveResult{
+		ID:           "file:" + file.FilePath,
+		Label:        filepath.Base(file.FilePath),
+		Kind:         "file",
+		DocPath:      docPathForSource(file.FilePath),
+		Score:        file.HitCount(),
+		MatchedTerms: []string{},
+		Matches:      make([]wiki.SearchResult, 0, len(file.Hits)),
+	}
+	seenTerms := map[string]struct{}{}
+	firstIntent := ""
+	for _, hit := range file.Hits {
+		if out.Summary == "" {
+			out.Summary = hit.Reason
+		}
+		if firstIntent == "" {
+			firstIntent = hit.Intent
+		}
+		for _, term := range hit.MatchedTerms {
+			if _, seen := seenTerms[term]; seen {
+				continue
+			}
+			seenTerms[term] = struct{}{}
+			out.MatchedTerms = append(out.MatchedTerms, term)
+		}
+		summary := hit.Reason
+		if summary == "" {
+			summary = hit.Intent
+		}
+		out.Matches = append(out.Matches, wiki.SearchResult{
+			ID:      "symbol:" + hit.Node.QualifiedName,
+			Label:   hit.Node.Name,
+			Kind:    string(hit.Node.Kind),
+			Summary: summary,
+			DocPath: out.DocPath,
+			Details: &wiki.NodeDetails{
+				QualifiedName: hit.Node.QualifiedName,
+				FilePath:      hit.Node.FilePath,
+				StartLine:     hit.Node.StartLine,
+				EndLine:       hit.Node.EndLine,
+				Language:      hit.Node.Language,
+			},
+		})
+	}
+	if out.Summary == "" {
+		out.Summary = firstIntent
+	}
+	return out
 }
 
 // @intent decode selected Wiki document paths from the context-copy request body.
