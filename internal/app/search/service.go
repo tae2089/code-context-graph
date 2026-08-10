@@ -54,10 +54,11 @@ const OffsetMustNotBeNegative = "offset must not be negative"
 // ValidateOffset turns away the one page position no answer exists for, in the
 // words every search surface says it in.
 //
-// MCP and the CLI both call it before the pipeline runs. The sentence lives
-// here rather than at either entry point so the two cannot end up describing
-// the same rejected request differently — a reader who learns what the tool
-// says has also learned what the flag says.
+// MCP and the CLI both call it before the pipeline runs, and change analysis
+// calls it for its own page position. The sentence lives here rather than at
+// each entry point so they cannot end up describing the same rejected request
+// differently — a reader who learns what the tool says has also learned what
+// the flag says.
 //
 // @intent keep the search entry points agreeing about which requests are askable.
 func ValidateOffset(offset int) error {

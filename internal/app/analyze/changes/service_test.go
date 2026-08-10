@@ -4,9 +4,11 @@ package changes
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/adapters/outbound/graphgorm"
+	searchapp "github.com/tae2089/code-context-graph/internal/app/search"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 	"gorm.io/driver/sqlite"
@@ -404,11 +406,19 @@ func TestAnalyzePage_RejectsLimitAboveMax(t *testing.T) {
 	}
 }
 
+// A negative page position is the same rejected request here as on every search
+// surface, so it has to come back in the same words. The expectation is the
+// exported constant rather than a literal: spelling the sentence out again here
+// would be exactly the second copy this ticket removed.
 func TestAnalyzePage_RejectsNegativeOffset(t *testing.T) {
 	db := setupDB(t)
 	svc := New(graphgorm.New(db), &mockGit{})
-	if _, err := svc.AnalyzePage(context.Background(), ".", "main", 10, -1); err == nil {
+	_, err := svc.AnalyzePage(context.Background(), ".", "main", 10, -1)
+	if err == nil {
 		t.Fatal("expected error for negative offset")
+	}
+	if !strings.Contains(err.Error(), searchapp.OffsetMustNotBeNegative) {
+		t.Fatalf("AnalyzePage offset=-1 = %q, want it to say %q", err.Error(), searchapp.OffsetMustNotBeNegative)
 	}
 }
 
