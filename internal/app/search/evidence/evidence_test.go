@@ -411,3 +411,61 @@ func TestBuild_ANegativeOffsetOnAnEmptyAnswerDoesNotPanic(t *testing.T) {
 		t.Error("an empty answer must say which kind of empty it is")
 	}
 }
+
+// namespacedFileNode is fileNode with a repository attached, which is the only
+// way to reach the per-namespace paging path.
+func namespacedFileNode(id uint, namespace, name, path string) graph.Node {
+	n := fileNode(id, name, path)
+	n.Namespace = namespace
+	return n
+}
+
+// A negative offset is clamped where the window is cut, and the per-namespace
+// path then does two more things with the offset it was handed: it filters the
+// reassembled list against it, and it adds it to the step. Both read the
+// unclamped number, so a clamped window of three files is filtered down to two
+// and the file in between is dropped with nothing in the answer counting it.
+func TestBuild_ANegativeOffsetStartsEveryNamespaceAtItsFirstFile(t *testing.T) {
+	nodes := []graph.Node{
+		namespacedFileNode(1, "repo-a", "Add", "internal/app/reposync/queue0.go"),
+		namespacedFileNode(2, "repo-a", "Add", "internal/app/reposync/queue1.go"),
+		namespacedFileNode(3, "repo-a", "Add", "internal/app/reposync/queue2.go"),
+		namespacedFileNode(4, "repo-b", "Add", "internal/app/reposync/queue0.go"),
+		namespacedFileNode(5, "repo-b", "Add", "internal/app/reposync/queue1.go"),
+		namespacedFileNode(6, "repo-b", "Add", "internal/app/reposync/queue2.go"),
+	}
+
+	got := Build("syncqueue", nodes, Options{Limit: 5, Offset: -1, PerNamespace: true})
+
+	perNamespace := map[string]int{}
+	for _, f := range got.Files {
+		perNamespace[f.Namespace]++
+	}
+	if perNamespace["repo-a"] != 3 || perNamespace["repo-b"] != 3 {
+		t.Errorf("files per repository = %v, want three each — every file fits under the limit", perNamespace)
+	}
+	if got.OverflowFiles != 0 {
+		t.Errorf("OverflowFiles = %d, want 0 — every file this query answers with is on the page", got.OverflowFiles)
+	}
+	if got.NextOffset != 3 {
+		t.Errorf("NextOffset = %d, want 3 — three files were shown from the first one", got.NextOffset)
+	}
+}
+
+// The same unclamped arithmetic sets the next offset on the single-repository
+// path, where a page that was cut hands back a place behind its own last file.
+func TestBuild_ANegativeOffsetDoesNotSuggestAnOffsetBehindThePage(t *testing.T) {
+	nodes := make([]graph.Node, 0, 10)
+	for i := range 10 {
+		nodes = append(nodes, fileNode(uint(i+1), "Add", fmt.Sprintf("internal/app/reposync/queue%d.go", i)))
+	}
+
+	got := Build("syncqueue", nodes, Options{Limit: 3, Offset: -1})
+
+	if len(got.Files) != 3 {
+		t.Fatalf("files = %d, want 3", len(got.Files))
+	}
+	if got.NextOffset != 3 {
+		t.Errorf("NextOffset = %d, want 3 — anything lower shows a file this page already did", got.NextOffset)
+	}
+}

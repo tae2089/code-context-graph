@@ -172,8 +172,15 @@ const (
 // @requires nodes arrive in the order rank.Rerank left them, and carry their loaded Annotation.
 // @ensures the returned Files never exceed Options.Limit, and every returned file carries all of its justified hits.
 // @ensures Note is non-empty exactly when Files is empty.
+// @ensures a negative Offset is read as zero everywhere the page is cut, counted, and stepped from.
 // @intent give a reader or an agent a file list where every line states why it is there.
 func Build(query string, nodes []graph.Node, opts Options) List {
+	// Cutting the window is not the only thing done with the offset: the page is
+	// also filtered against it and the next one is stepped from it. Clamping it
+	// once here is what keeps those three agreeing, since a clamp further down
+	// fixes the window and leaves the other two reading a number no page ever
+	// started at.
+	opts.Offset = max(opts.Offset, 0)
 	qTokens := identtoken.Split(query)
 	kept := make([]Result, 0, len(nodes))
 	weak := make([]Result, 0)
