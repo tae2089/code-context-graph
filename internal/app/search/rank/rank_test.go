@@ -319,7 +319,7 @@ func TestRerank_ExactNameOutranksLongerNameContainingIt(t *testing.T) {
 // 정확 일치 > 짧게 감싼 이름 > 길게 감싼 이름 순으로 줄을 서야, 서브토큰을
 // 가진 후보들 사이에서도 순위가 결정된다.
 func TestNameSim_DecreasesAsNameGrowsAroundQuery(t *testing.T) {
-	qTokens := tokenize("payment")
+	qTokens := newQueryTokens("payment")
 	exact := nameSim(qTokens, graph.Node{Name: "Payment"})
 	short := nameSim(qTokens, graph.Node{Name: "paymentProcessor"})
 	long := nameSim(qTokens, graph.Node{Name: "PaymentProcessHelper"})
@@ -349,7 +349,7 @@ func TestRerank_NameMatchOutranksPathOnlyMatch(t *testing.T) {
 // 이름 신호는 관련 없는 이름과 진짜 일치를 갈라야 한다. 무관한 이름 중 최고
 // 점수가 진짜 일치 중 최저 점수보다 낮아야, 그 사이에 순위 경계가 생긴다.
 func TestNameSim_NoiseScoresBelowEveryRealMatch(t *testing.T) {
-	qTokens := tokenize("user")
+	qTokens := newQueryTokens("user")
 	matches := []string{
 		"user", "userService", "getUserById",
 		"userRepositoryFactory", "UserServiceImplementationFactory",
@@ -386,9 +386,9 @@ func TestNameSim_MissingLetterStaysASubsequence(t *testing.T) {
 		{"paymnt", "payment"},
 		{"paymentProcesor", "paymentProcessor"},
 	}
-	noiseCeiling := nameSim(tokenize("user"), graph.Node{Name: "serve"})
+	noiseCeiling := nameSim(newQueryTokens("user"), graph.Node{Name: "serve"})
 	for _, c := range cases {
-		got := nameSim(tokenize(c.query), graph.Node{Name: c.name})
+		got := nameSim(newQueryTokens(c.query), graph.Node{Name: c.name})
 		if got <= noiseCeiling {
 			t.Errorf("nameSim(%q, %q)=%.4f, not above the noise level %.4f", c.query, c.name, got, noiseCeiling)
 		}
@@ -405,7 +405,7 @@ func TestNameSim_ScatteredMatchFallsWellBelowConsecutiveMatch(t *testing.T) {
 		{"repo", "repository", "responseWriter"},
 	}
 	for _, c := range cases {
-		qTokens := tokenize(c.query)
+		qTokens := newQueryTokens(c.query)
 		hit := nameSim(qTokens, graph.Node{Name: c.consecutive})
 		miss := nameSim(qTokens, graph.Node{Name: c.scattered})
 		if hit-miss < wantMargin {
@@ -426,7 +426,7 @@ func TestNameSim_AbbreviationsStayAboveZero(t *testing.T) {
 		{"repo", "repository"},
 	}
 	for _, c := range cases {
-		if got := nameSim(tokenize(c.query), graph.Node{Name: c.name}); got <= 0 {
+		if got := nameSim(newQueryTokens(c.query), graph.Node{Name: c.name}); got <= 0 {
 			t.Errorf("nameSim(%q, %q)=%.4f, want > 0", c.query, c.name, got)
 		}
 	}
@@ -441,7 +441,7 @@ func TestNameSim_TransposedTypoScoresZero(t *testing.T) {
 		{"anotaiton", "annotation"},
 	}
 	for _, c := range cases {
-		if got := nameSim(tokenize(c.query), graph.Node{Name: c.name}); got != 0 {
+		if got := nameSim(newQueryTokens(c.query), graph.Node{Name: c.name}); got != 0 {
 			t.Errorf("nameSim(%q, %q)=%.4f, want 0", c.query, c.name, got)
 		}
 	}
@@ -465,7 +465,7 @@ func TestRerank_WeakNameMatchStillOutranksPathOnlyMatch(t *testing.T) {
 		}
 		if got := Rerank(c.query, nodes, 10); got[0].ID != 2 {
 			t.Errorf("query %q: path-only node beat the name match %q (nameSim=%.4f)",
-				c.query, c.name, nameSim(tokenize(c.query), nodes[1]))
+				c.query, c.name, nameSim(newQueryTokens(c.query), nodes[1]))
 		}
 	}
 }
@@ -564,8 +564,8 @@ func TestNameSim_WholeWordMatchBeatsScatteredMatch(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.query, func(t *testing.T) {
-			word := nameSim([]string{c.query}, graph.Node{Name: c.word})
-			scattered := nameSim([]string{c.query}, graph.Node{Name: c.scattered})
+			word := nameSim(newQueryTokens(c.query), graph.Node{Name: c.word})
+			scattered := nameSim(newQueryTokens(c.query), graph.Node{Name: c.scattered})
 			if word <= scattered {
 				t.Errorf("nameSim(%q, %q)=%.4f must exceed nameSim(%q, %q)=%.4f",
 					c.query, c.word, word, c.query, c.scattered, scattered)
@@ -577,8 +577,8 @@ func TestNameSim_WholeWordMatchBeatsScatteredMatch(t *testing.T) {
 // An acronym run hides the boundary that starts the next word: the S in
 // HTTPServer follows an uppercase P, so an upper-after-lower test misses it.
 func TestNameSim_AcronymRunDoesNotHideTheNextWordBoundary(t *testing.T) {
-	acronym := nameSim([]string{"server"}, graph.Node{Name: "HTTPServer"})
-	mixed := nameSim([]string{"server"}, graph.Node{Name: "HttpServer"})
+	acronym := nameSim(newQueryTokens("server"), graph.Node{Name: "HTTPServer"})
+	mixed := nameSim(newQueryTokens("server"), graph.Node{Name: "HttpServer"})
 	if acronym != mixed {
 		t.Errorf("HTTPServer scored %.4f but HttpServer scored %.4f; the word boundary is the same", acronym, mixed)
 	}
@@ -599,7 +599,7 @@ func TestRerank_FaintestNameMatchStillOutranksPathOnlyMatch(t *testing.T) {
 		{ID: 1, Name: "handler", QualifiedName: "http.handler", FilePath: "internal/" + query + "/handler.go"},
 		{ID: 2, Name: faint, QualifiedName: "app." + faint, FilePath: "internal/app/boot.go"},
 	}
-	score := nameSim(tokenize(query), nodes[1])
+	score := nameSim(newQueryTokens(query), nodes[1])
 	if score <= 0 {
 		t.Fatalf("test premise broken: %q must be a real name match, scored %.5f", query, score)
 	}
@@ -612,7 +612,7 @@ func TestRerank_FaintestNameMatchStillOutranksPathOnlyMatch(t *testing.T) {
 // 자기 이름과 qualified name의 마지막 조각이 똑같아서, 수신자 타입을 안 보면
 // 두 자리 모두 같은 문자열을 재는 데 쓰인다.
 func TestNameSim_MethodScoresItsReceiverType(t *testing.T) {
-	qTokens := tokenize("syncqueue")
+	qTokens := newQueryTokens("syncqueue")
 	method := graph.Node{Name: "Add", QualifiedName: "reposync.SyncQueue.Add"}
 	if got := nameSim(qTokens, method); got <= 0 {
 		t.Fatalf("nameSim(%q, %s) = %.4f, want > 0: the receiver type spells the query", "syncqueue", method.QualifiedName, got)
@@ -623,7 +623,7 @@ func TestNameSim_MethodScoresItsReceiverType(t *testing.T) {
 // 수십 개가 그 타입 노드와 동점이 되어, 정작 타입을 찾던 사람이 메서드 목록에
 // 파묻힌다.
 func TestNameSim_ReceiverMatchScoresBelowOwnNameMatch(t *testing.T) {
-	qTokens := tokenize("syncqueue")
+	qTokens := newQueryTokens("syncqueue")
 	own := nameSim(qTokens, graph.Node{Name: "SyncQueue", QualifiedName: "reposync.SyncQueue"})
 	viaReceiver := nameSim(qTokens, graph.Node{Name: "Add", QualifiedName: "reposync.SyncQueue.Add"})
 	if !(own > viaReceiver && viaReceiver > 0) {
@@ -635,7 +635,7 @@ func TestNameSim_ReceiverMatchScoresBelowOwnNameMatch(t *testing.T) {
 // 수신자로 읽으면, 패키지 이름을 친 질의가 그 패키지의 함수 전부를 이름 일치로
 // 끌어올린다. 패키지 근접성은 경로 점수가 이미 재고 있다.
 func TestNameSim_PackageSegmentIsNotAReceiver(t *testing.T) {
-	qTokens := tokenize("reposync")
+	qTokens := newQueryTokens("reposync")
 	fn := graph.Node{Name: "NewQueue", QualifiedName: "reposync.NewQueue"}
 	if got := nameSim(qTokens, fn); got != 0 {
 		t.Errorf("nameSim(%q, %s) = %.4f, want 0: reposync is the package, not a receiver type", "reposync", fn.QualifiedName, got)
