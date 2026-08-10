@@ -36,6 +36,14 @@ func noStructuralRank(_ string, nodes []graph.Node, _ int) []graph.Node { return
 // this with the real ranker and requires the answer to equal the service's, hit
 // for hit, on every query of every corpus. If the service grows a step this
 // mirror does not have, that test fails.
+//
+// One difference is deliberate and invisible here: the service orders the pool
+// one FetchLimit(Limit) block at a time so a page it already delivered cannot be
+// reshuffled by a wider pool, while this calls rerank over the whole pool at
+// once. At goldenLimit the block is 50 rows and no fixture pool is longer than
+// that, so both take the same single pass. A fixture with more than 50
+// candidates for one query would split the service's order and not this one,
+// and TestGolden_MutationHarnessMatchesTheService is what would say so.
 func searchWith(t *testing.T, rerank reranker, searcher fixtureSearcher, query string) evidence.List {
 	t.Helper()
 	ctx := context.Background()
