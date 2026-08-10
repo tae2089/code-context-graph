@@ -267,7 +267,7 @@
     "query": "search document",
     "bucket": "concept",
     "retrieved": true,
-    "returned": 30,
+    "returned": 25,
     "relevant": 4,
     "found": 3,
     "rank": 1,

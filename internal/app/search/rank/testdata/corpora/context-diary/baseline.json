@@ -1,0 +1,180 @@
+[
+  {
+    "query": "ValidSignature",
+    "bucket": "exact",
+    "retrieved": true,
+    "returned": 1,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1,
+    "weak_filtered": 1
+  },
+  {
+    "query": "UpsertComment",
+    "bucket": "exact",
+    "retrieved": true,
+    "returned": 1,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "SaveEntries",
+    "bucket": "exact",
+    "retrieved": true,
+    "returned": 2,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1,
+    "weak_filtered": 1
+  },
+  {
+    "query": "Prepare",
+    "bucket": "exact",
+    "retrieved": true,
+    "returned": 2,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1,
+    "weak_filtered": 2
+  },
+  {
+    "query": "mirror sync",
+    "bucket": "subword",
+    "retrieved": true,
+    "returned": 3,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "trailer lint",
+    "bucket": "subword",
+    "retrieved": true,
+    "returned": 17,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1,
+    "weak_filtered": 2
+  },
+  {
+    "query": "explain function",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 7,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1,
+    "weak_filtered": 1
+  },
+  {
+    "query": "backfill",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 8,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1,
+    "weak_filtered": 4
+  },
+  {
+    "query": "why is the commit never blocked by the hook",
+    "bucket": "question",
+    "retrieved": true,
+    "returned": 20,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "how does the server verify a webhook really came from github",
+    "bucket": "question",
+    "retrieved": true,
+    "returned": 12,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "what happens when the ingest queue is full",
+    "bucket": "question",
+    "retrieved": true,
+    "returned": 9,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "how do korean searches find inflected words",
+    "bucket": "question",
+    "retrieved": true,
+    "returned": 1,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "why does a rescan reindex commits that did not change",
+    "bucket": "question",
+    "retrieved": true,
+    "returned": 13,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "does the installer overwrite hooks that belong to another tool",
+    "bucket": "question",
+    "retrieved": true,
+    "returned": 6,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "why does a merged pull request get acknowledged before indexing finishes",
+    "bucket": "question",
+    "retrieved": true,
+    "returned": 8,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "how does a crash avoid skipping or duplicating commits",
+    "bucket": "question",
+    "retrieved": true,
+    "returned": 9,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "why does the bot keep only one comment per pull request",
+    "bucket": "question",
+    "retrieved": true,
+    "returned": 15,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "how are github app tokens refreshed",
+    "bucket": "question",
+    "retrieved": true,
+    "returned": 9,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "kubernetes deployment rollout strategy",
+    "bucket": "negative",
+    "negative": true,
+    "retrieved": false,
+    "returned": 0,
+    "relevant": 0,
+    "found": 0,
+    "rank": 0
+  }
+]

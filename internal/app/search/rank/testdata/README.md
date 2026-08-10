@@ -28,6 +28,7 @@ captured from unrelated open-source codebases:
 | `ccg` (primary, `testdata/` itself) | this repository | code analysis, graphs, annotations |
 | `gorm` | `gorm.io/gorm v1.31.1` | ORM and database plumbing |
 | `cobra` | `github.com/spf13/cobra v1.10.2` | CLI flags and completion |
+| `context-diary` | `github.com/tae2089/context-diary @ 1054ca6` | git hooks, commit trailers, webhook bots |
 
 The rule they enforce: **a change that moves a ranking number must hold or
 improve it on every corpus.** A gain on one corpus paid for by a loss on
@@ -35,11 +36,21 @@ another is an overfit by definition, and the ratchet fails it. Changes that
 are plain correctness fixes, or expressed in terms the runtime recomputes per
 corpus, are the ones that pass everywhere.
 
-The external corpora carry no ccg annotations, so their intent index is empty
+`gorm` and `cobra` carry no ccg annotations, so their intent index is empty
 and they score the identifier path alone — retrieval, rerank, and evidence
 cut. They already earned their keep: the `levenshtein` query on cobra showed
 that a docstring-retrieved hit dies at the evidence cut on any corpus without
 `@intent` tags (recorded in `knownHiddenRelevant`, not tuned away).
+
+`context-diary` closes the gap the other two leave: it carries 84
+`@intent`/`@domainRule` lines written by its own author, so it is the first
+corpus outside this repository that scores the question path — intent
+retrieval, the `CanAnswer` gate, and reason-matched evidence. Until it was
+added, every constant on that path was validated against one codebase's
+vocabulary; a question-path change must now hold here too. Its questions were
+written while reading the annotations, so they share vocabulary with the
+reasons they target — treat its numbers as a floor for "the mechanism works",
+not as evidence the phrasing gap is solved.
 
 ## Backend parity
 

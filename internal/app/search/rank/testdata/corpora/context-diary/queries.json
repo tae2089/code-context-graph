@@ -1,0 +1,185 @@
+{
+  "corpus": {
+    "source": "github.com/tae2089/context-diary, local checkout at commit 1054ca6, captured 2026-08-10",
+    "namespace": "context-diary",
+    "nodes": 207,
+    "note": "Built with `ccg build .` at the repository root; its own .ccg.yaml excludes tests and docs. Unlike gorm and cobra, this corpus carries real ccg annotations — 84 @intent/@domainRule lines written by the project's author — so it is the first external corpus that exercises the question path: intent retrieval, the CanAnswer gate, and reason-matched evidence. The identifier path is covered too, but the questions are the point."
+  },
+  "authorship": {
+    "written_by": "assistant, 2026-08-10, before running any measurement; every judged symbol and file was verified to exist in the built graph first",
+    "measures": "regression, not absolute quality",
+    "caveat": "Same rules as the primary set: expectations are never edited to make a run pass. The questions paraphrase what a developer would ask; they were written while reading the annotations, so vocabulary overlap with @intent text is real but not verbatim."
+  },
+  "label_format": "kind:qualified_name@file_path",
+  "queries": [
+    {
+      "query": "ValidSignature",
+      "bucket": "exact",
+      "relevant": [
+        "function:github.ValidSignature@internal/forge/github/github.go"
+      ],
+      "why": "The exact name of the HMAC check; a developer typing it wants the function."
+    },
+    {
+      "query": "UpsertComment",
+      "bucket": "exact",
+      "relevant": [
+        "function:github.Client.UpsertComment@internal/forge/github/github.go"
+      ],
+      "why": "Exact method name; the one place the bot writes its PR comment."
+    },
+    {
+      "query": "SaveEntries",
+      "bucket": "exact",
+      "relevant": [
+        "function:store.Store.SaveEntries@internal/store/store.go"
+      ],
+      "why": "Exact method name; the batch persistence path."
+    },
+    {
+      "query": "Prepare",
+      "bucket": "exact",
+      "relevant": [
+        "function:hook.Prepare@internal/hook/hook.go"
+      ],
+      "why": "The bare name is ambiguous in general but unique in this graph; the prepare-commit-msg hook body."
+    },
+    {
+      "query": "mirror sync",
+      "bucket": "subword",
+      "relevant": [
+        "function:mirror.Sync@internal/mirror/mirror.go"
+      ],
+      "why": "Two words naming package and function; the bare-mirror maintenance entry point."
+    },
+    {
+      "query": "trailer lint",
+      "bucket": "subword",
+      "relevant": [
+        "function:trailer.Lint@internal/trailer/trailer.go"
+      ],
+      "why": "Package plus function; the message validator that both the hook and CI call."
+    },
+    {
+      "query": "explain function",
+      "bucket": "concept",
+      "relevant": [],
+      "relevant_files": [
+        "cmd/context-diary/explain.go",
+        "internal/funclog/funclog.go"
+      ],
+      "why": "The feature spans the CLI command and the git line-history walker it joins; either file is a place to start. The mcptool explain handler is reachable from both."
+    },
+    {
+      "query": "backfill",
+      "bucket": "concept",
+      "relevant": [],
+      "relevant_files": [
+        "cmd/context-diary/backfill.go"
+      ],
+      "why": "One file implements the command that lists commits still lacking context."
+    },
+    {
+      "query": "why is the commit never blocked by the hook",
+      "bucket": "question",
+      "relevant": [],
+      "relevant_files": [
+        "internal/hook/hook.go",
+        "cmd/context-diary/main.go"
+      ],
+      "why": "hook.go records the never-block rule (I-1): every failure path warns to stderr and returns. main.go records the same rule at the git entry points: prepare-commit-msg always exits 0."
+    },
+    {
+      "query": "how does the server verify a webhook really came from github",
+      "bucket": "question",
+      "relevant": [],
+      "relevant_files": [
+        "internal/forge/github/github.go",
+        "cmd/context-diary/serve.go"
+      ],
+      "why": "github.go holds the HMAC check itself (authenticate before any side effect); serve.go records the ordering rule — verified before any parsing, invalid signature is 401."
+    },
+    {
+      "query": "what happens when the ingest queue is full",
+      "bucket": "question",
+      "relevant": [],
+      "relevant_files": [
+        "internal/queue/queue.go",
+        "cmd/context-diary/serve.go"
+      ],
+      "why": "queue.go records the back-pressure signal on Enqueue; serve.go records the visible behavior — a full queue returns 503 with no side effects."
+    },
+    {
+      "query": "how do korean searches find inflected words",
+      "bucket": "question",
+      "relevant": [],
+      "relevant_files": [
+        "internal/store/store.go"
+      ],
+      "why": "The domain rule on Store.Search: free text matches when either the tsvector FTS query or an all-words trigram substring hits, so agglutinative-language stems find their inflected forms."
+    },
+    {
+      "query": "why does a rescan reindex commits that did not change",
+      "bucket": "question",
+      "relevant": [],
+      "relevant_files": [
+        "internal/store/store.go",
+        "cmd/context-diary/index.go"
+      ],
+      "why": "store.go records force=true rebuilding derived children even when content is unchanged, so parser upgrades reach already-indexed commits; index.go records that --rescan ignores the cursor for exactly that reason."
+    },
+    {
+      "query": "does the installer overwrite hooks that belong to another tool",
+      "bucket": "question",
+      "relevant": [],
+      "relevant_files": [
+        "internal/installer/installer.go"
+      ],
+      "why": "The install rule (I-3): never edit files it does not own — a foreign hook is left untouched and returned as a manual instruction."
+    },
+    {
+      "query": "why does a merged pull request get acknowledged before indexing finishes",
+      "bucket": "question",
+      "relevant": [],
+      "relevant_files": [
+        "cmd/context-diary/serve.go"
+      ],
+      "why": "The webhook handler's rule: a merged PR is enqueued and answered 202 immediately; ingestion runs in the background so the 10-second webhook timeout is never a factor."
+    },
+    {
+      "query": "how does a crash avoid skipping or duplicating commits",
+      "bucket": "question",
+      "relevant": [],
+      "relevant_files": [
+        "internal/store/store.go",
+        "internal/gitlog/gitlog.go"
+      ],
+      "why": "store.go records the atomic batch-plus-cursor guarantee on SaveEntries; gitlog.go records the fallback — an unreachable cursor triggers a full rescan, safe because inserts are idempotent."
+    },
+    {
+      "query": "why does the bot keep only one comment per pull request",
+      "bucket": "question",
+      "relevant": [],
+      "relevant_files": [
+        "internal/forge/github/github.go"
+      ],
+      "why": "UpsertComment's intent line: exactly one bot comment per PR so pushes never spam the thread."
+    },
+    {
+      "query": "how are github app tokens refreshed",
+      "bucket": "question",
+      "relevant": [],
+      "relevant_files": [
+        "internal/forge/github/app.go"
+      ],
+      "why": "AppAuth's intent: provide a valid installation token to every call, hiding the JWT exchange and hourly rotation."
+    },
+    {
+      "query": "kubernetes deployment rollout strategy",
+      "bucket": "negative",
+      "relevant": [],
+      "relevant_files": [],
+      "why": "The project has no deployment logic at all; nothing in the graph or the recorded reasons concerns rollouts. The right answer is nothing."
+    }
+  ]
+}

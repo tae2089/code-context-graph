@@ -1,0 +1,370 @@
+{
+  "Prepare": [
+    {
+      "id": 102,
+      "name": "Prepare",
+      "qualified_name": "hook.Prepare",
+      "kind": "function",
+      "file_path": "internal/hook/hook.go",
+      "intent": "give a human committer a commented trailer template to fill in, without ever blocking the commit"
+    },
+    {
+      "id": 37,
+      "name": "cmdHook",
+      "qualified_name": "main.cmdHook",
+      "kind": "function",
+      "file_path": "cmd/context-diary/main.go",
+      "intent": "implement the git hook entry points (prepare-commit-msg, commit-msg) invoked by git"
+    },
+    {
+      "id": 99,
+      "name": "Deps",
+      "qualified_name": "hook.Deps",
+      "kind": "class",
+      "file_path": "internal/hook/hook.go"
+    },
+    {
+      "id": 98,
+      "name": "internal/hook/hook.go",
+      "qualified_name": "internal/hook/hook.go",
+      "kind": "file",
+      "file_path": "internal/hook/hook.go"
+    }
+  ],
+  "SaveEntries": [
+    {
+      "id": 172,
+      "name": "SaveEntries",
+      "qualified_name": "store.Store.SaveEntries",
+      "kind": "function",
+      "file_path": "internal/store/store.go",
+      "intent": "atomically persist a batch of context entries and advance the repo cursor so a crash never skips or duplicates commits"
+    },
+    {
+      "id": 118,
+      "name": "Run",
+      "qualified_name": "ingest.Run",
+      "kind": "function",
+      "file_path": "internal/ingest/ingest.go",
+      "intent": "walk history since the cursor, map commits to entries, and save them — the shared path behind the index CLI and the serve merge webhook"
+    },
+    {
+      "id": 115,
+      "name": "internal/ingest/ingest.go",
+      "qualified_name": "internal/ingest/ingest.go",
+      "kind": "file",
+      "file_path": "internal/ingest/ingest.go"
+    }
+  ],
+  "UpsertComment": [
+    {
+      "id": 79,
+      "name": "UpsertComment",
+      "qualified_name": "github.Client.UpsertComment",
+      "kind": "function",
+      "file_path": "internal/forge/github/github.go",
+      "intent": "keep exactly one bot comment per PR so pushes never spam the thread"
+    }
+  ],
+  "ValidSignature": [
+    {
+      "id": 73,
+      "name": "ValidSignature",
+      "qualified_name": "github.ValidSignature",
+      "kind": "function",
+      "file_path": "internal/forge/github/github.go",
+      "intent": "authenticate that a webhook payload really came from GitHub before any side effect"
+    },
+    {
+      "id": 74,
+      "name": "ParsePREvent",
+      "qualified_name": "github.ParsePREvent",
+      "kind": "function",
+      "file_path": "internal/forge/github/github.go",
+      "intent": "extract the pull_request fields serve needs from a verified webhook payload"
+    }
+  ],
+  "backfill": [
+    {
+      "id": 19,
+      "name": "cmd/context-diary/backfill.go",
+      "qualified_name": "cmd/context-diary/backfill.go",
+      "kind": "file",
+      "file_path": "cmd/context-diary/backfill.go",
+      "intent": "implement `context-diary backfill`: list commits still lacking context as the worklist an AI agent annotates via git notes"
+    },
+    {
+      "id": 20,
+      "name": "cmdBackfill",
+      "qualified_name": "main.cmdBackfill",
+      "kind": "function",
+      "file_path": "cmd/context-diary/backfill.go",
+      "intent": "implement `context-diary backfill`: list commits still lacking context as the worklist an AI agent annotates via git notes"
+    },
+    {
+      "id": 21,
+      "name": "firstLine",
+      "qualified_name": "main.firstLine",
+      "kind": "function",
+      "file_path": "cmd/context-diary/backfill.go"
+    },
+    {
+      "id": 113,
+      "name": "noteTrailers",
+      "qualified_name": "index.noteTrailers",
+      "kind": "function",
+      "file_path": "internal/index/entry.go"
+    },
+    {
+      "id": 32,
+      "name": "run",
+      "qualified_name": "main.run",
+      "kind": "function",
+      "file_path": "cmd/context-diary/main.go",
+      "intent": "single entry point that routes the CLI subcommand (init/hook/lint/index/serve/backfill/explain/scopes/instructions)"
+    },
+    {
+      "id": 111,
+      "name": "EntryFromCommit",
+      "qualified_name": "index.EntryFromCommit",
+      "kind": "function",
+      "file_path": "internal/index/entry.go",
+      "intent": "turn one commit into an indexable context entry, or nil when it carries no why"
+    },
+    {
+      "id": 108,
+      "name": "internal/index/entry.go",
+      "qualified_name": "internal/index/entry.go",
+      "kind": "file",
+      "file_path": "internal/index/entry.go"
+    },
+    {
+      "id": 26,
+      "name": "cmdIndex",
+      "qualified_name": "main.cmdIndex",
+      "kind": "function",
+      "file_path": "cmd/context-diary/index.go",
+      "intent": "implement `context-diary index`: scan default-branch history and upsert context entries into Postgres"
+    },
+    {
+      "id": 83,
+      "name": "internal/gitlog/gitlog.go",
+      "qualified_name": "internal/gitlog/gitlog.go",
+      "kind": "file",
+      "file_path": "internal/gitlog/gitlog.go"
+    },
+    {
+      "id": 118,
+      "name": "Run",
+      "qualified_name": "ingest.Run",
+      "kind": "function",
+      "file_path": "internal/ingest/ingest.go",
+      "intent": "walk history since the cursor, map commits to entries, and save them — the shared path behind the index CLI and the serve merge webhook"
+    },
+    {
+      "id": 43,
+      "name": "rescanHandler",
+      "qualified_name": "main.rescanHandler",
+      "kind": "function",
+      "file_path": "cmd/context-diary/serve.go",
+      "intent": "serve POST /admin/rescan?repo=owner/repo[\u0026branch=name]: re-sync the mirror and rewalk full history into the index"
+    },
+    {
+      "id": 172,
+      "name": "SaveEntries",
+      "qualified_name": "store.Store.SaveEntries",
+      "kind": "function",
+      "file_path": "internal/store/store.go",
+      "intent": "atomically persist a batch of context entries and advance the repo cursor so a crash never skips or duplicates commits"
+    }
+  ],
+  "does the installer overwrite hooks that belong to another tool": [],
+  "explain function": [
+    {
+      "id": 22,
+      "name": "cmd/context-diary/explain.go",
+      "qualified_name": "cmd/context-diary/explain.go",
+      "kind": "file",
+      "file_path": "cmd/context-diary/explain.go",
+      "intent": "implement `context-diary explain \u003cfile\u003e \u003cfunction\u003e`: print a function why-timeline by joining git line history with the index"
+    },
+    {
+      "id": 23,
+      "name": "cmdExplain",
+      "qualified_name": "main.cmdExplain",
+      "kind": "function",
+      "file_path": "cmd/context-diary/explain.go",
+      "intent": "implement `context-diary explain \u003cfile\u003e \u003cfunction\u003e`: print a function why-timeline by joining git line history with the index"
+    },
+    {
+      "id": 32,
+      "name": "run",
+      "qualified_name": "main.run",
+      "kind": "function",
+      "file_path": "cmd/context-diary/main.go",
+      "intent": "single entry point that routes the CLI subcommand (init/hook/lint/index/serve/backfill/explain/scopes/instructions)"
+    },
+    {
+      "id": 175,
+      "name": "ByHashes",
+      "qualified_name": "store.Store.ByHashes",
+      "kind": "function",
+      "file_path": "internal/store/store.go",
+      "intent": "hydrate index entries for a set of commit hashes, oldest first — the join step behind explain_function"
+    },
+    {
+      "id": 130,
+      "name": "internal/mcptool/mcptool.go",
+      "qualified_name": "internal/mcptool/mcptool.go",
+      "kind": "file",
+      "file_path": "internal/mcptool/mcptool.go"
+    },
+    {
+      "id": 143,
+      "name": "NewServer",
+      "qualified_name": "mcptool.NewServer",
+      "kind": "function",
+      "file_path": "internal/mcptool/mcptool.go",
+      "intent": "expose the context index to AI assistants as MCP tools so anyone can ask why code is the way it is"
+    }
+  ],
+  "how are github app tokens refreshed": [
+    {
+      "id": 64,
+      "name": "AppAuth",
+      "qualified_name": "github.AppAuth",
+      "kind": "class",
+      "file_path": "internal/forge/github/app.go"
+    },
+    {
+      "id": 63,
+      "name": "internal/forge/github/app.go",
+      "qualified_name": "internal/forge/github/app.go",
+      "kind": "file",
+      "file_path": "internal/forge/github/app.go"
+    }
+  ],
+  "how do korean searches find inflected words": [
+    {
+      "id": 174,
+      "name": "Search",
+      "qualified_name": "store.Store.Search",
+      "kind": "function",
+      "file_path": "internal/store/store.go",
+      "intent": "answer \"why did this area change\" by scope, time window, and free text — the non-developer query entry point"
+    }
+  ],
+  "how does a crash avoid skipping or duplicating commits": [],
+  "how does the server verify a webhook really came from github": [],
+  "kubernetes deployment rollout strategy": [],
+  "mirror sync": [
+    {
+      "id": 147,
+      "name": "Sync",
+      "qualified_name": "mirror.Sync",
+      "kind": "function",
+      "file_path": "internal/mirror/mirror.go",
+      "intent": "keep a local bare mirror of a repository so merge-time ingestion has git history without a working tree"
+    },
+    {
+      "id": 43,
+      "name": "rescanHandler",
+      "qualified_name": "main.rescanHandler",
+      "kind": "function",
+      "file_path": "cmd/context-diary/serve.go",
+      "intent": "serve POST /admin/rescan?repo=owner/repo[\u0026branch=name]: re-sync the mirror and rewalk full history into the index"
+    }
+  ],
+  "trailer lint": [
+    {
+      "id": 183,
+      "name": "Violation",
+      "qualified_name": "trailer.Violation",
+      "kind": "class",
+      "file_path": "internal/trailer/trailer.go"
+    },
+    {
+      "id": 181,
+      "name": "internal/trailer/trailer.go",
+      "qualified_name": "internal/trailer/trailer.go",
+      "kind": "file",
+      "file_path": "internal/trailer/trailer.go"
+    },
+    {
+      "id": 194,
+      "name": "Lint",
+      "qualified_name": "trailer.Lint",
+      "kind": "function",
+      "file_path": "internal/trailer/trailer.go",
+      "intent": "validate a commit or PR message against the trailer format and return actionable violations"
+    },
+    {
+      "id": 38,
+      "name": "cmdLint",
+      "qualified_name": "main.cmdLint",
+      "kind": "function",
+      "file_path": "cmd/context-diary/main.go",
+      "intent": "implement `context-diary lint \u003crev-range\u003e`: the CI gate that fails when a commit lacks context trailers"
+    },
+    {
+      "id": 28,
+      "name": "cmd/context-diary/lintmessage.go",
+      "qualified_name": "cmd/context-diary/lintmessage.go",
+      "kind": "file",
+      "file_path": "cmd/context-diary/lintmessage.go",
+      "intent": "implement `context-diary lint-message`: validate a PR description or message body (stdin or file) for CI on servers without serve"
+    },
+    {
+      "id": 190,
+      "name": "StripComments",
+      "qualified_name": "trailer.StripComments",
+      "kind": "function",
+      "file_path": "internal/trailer/trailer.go",
+      "intent": "drop comment lines so an injected draft template is not mistaken for accepted content when linting an editor buffer"
+    },
+    {
+      "id": 29,
+      "name": "cmdLintMessage",
+      "qualified_name": "main.cmdLintMessage",
+      "kind": "function",
+      "file_path": "cmd/context-diary/lintmessage.go",
+      "intent": "implement `context-diary lint-message`: validate a PR description or message body (stdin or file) for CI on servers without serve"
+    },
+    {
+      "id": 98,
+      "name": "internal/hook/hook.go",
+      "qualified_name": "internal/hook/hook.go",
+      "kind": "file",
+      "file_path": "internal/hook/hook.go"
+    },
+    {
+      "id": 30,
+      "name": "cmd/context-diary/main.go",
+      "qualified_name": "cmd/context-diary/main.go",
+      "kind": "file",
+      "file_path": "cmd/context-diary/main.go"
+    },
+    {
+      "id": 152,
+      "name": "Evaluate",
+      "qualified_name": "preview.Evaluate",
+      "kind": "function",
+      "file_path": "internal/preview/preview.go",
+      "intent": "decide whether a PR carries enough context to merge, and render the bot comment, status description, and check page"
+    }
+  ],
+  "what happens when the ingest queue is full": [],
+  "why does a merged pull request get acknowledged before indexing finishes": [],
+  "why does a rescan reindex commits that did not change": [],
+  "why does the bot keep only one comment per pull request": [],
+  "why is the commit never blocked by the hook": [
+    {
+      "id": 104,
+      "name": "CommitMsg",
+      "qualified_name": "hook.CommitMsg",
+      "kind": "function",
+      "file_path": "internal/hook/hook.go",
+      "intent": "lint the final commit message and, in strict mode, reject it so the AI agent self-corrects from the violation output"
+    }
+  ]
+}
