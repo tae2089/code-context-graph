@@ -354,6 +354,76 @@ func TestHandler_Search_ExplainsWhatItFilteredOut(t *testing.T) {
 	}
 }
 
+// A question that no name matches still gets an answer when a recorded reason
+// covers it, and the answer carries that reason and the words that matched —
+// otherwise the caller cannot tell why the hit is there.
+func TestHandler_Search_AnswersFromRecordedReasonsWithProof(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+
+	testGraphStoreFor(deps).UpsertNodes(ctx, []graph.Node{
+		{QualifiedName: "pkg.admitRepo", Kind: graph.NodeKindFunction, Name: "admitRepo", FilePath: "admission.go", StartLine: 1, EndLine: 10, Language: "go"},
+	})
+	node, _ := testGraphStoreFor(deps).GetNode(ctx, "pkg.admitRepo")
+	testGraphStoreFor(deps).UpsertAnnotation(ctx, &graph.Annotation{
+		NodeID: node.ID,
+		Tags:   []graph.DocTag{{Kind: graph.TagIntent, Value: "decide which push may trigger a build"}},
+	})
+	testDBFor(deps).Create(&graph.SearchDocument{
+		NodeID: node.ID, Content: "admitRepo checks repository allowlist", Language: "go",
+		IntentContent: "decide which push may trigger a build",
+	})
+	testSearchBackendFor(deps).Rebuild(ctx, testDBFor(deps))
+
+	nodes := decodeSearchResults(t, getTextContent(
+		callTool(t, deps, "search", map[string]any{"query": "which push starts a build"})))
+	if len(nodes) != 1 {
+		t.Fatalf("expected the recorded reason to answer the question, got %d results", len(nodes))
+	}
+	if nodes[0]["reason"] != "decide which push may trigger a build" {
+		t.Errorf("reason = %v, want the recorded reason", nodes[0]["reason"])
+	}
+	terms, _ := nodes[0]["matched_terms"].([]any)
+	if len(terms) == 0 {
+		t.Fatalf("matched_terms missing: %v", nodes[0])
+	}
+	got := map[string]bool{}
+	for _, term := range terms {
+		got[term.(string)] = true
+	}
+	if !got["push"] || !got["build"] {
+		t.Errorf("matched_terms = %v, want push and build in it", terms)
+	}
+}
+
+// A hit that earned its place on its name alone must not grow reason fields —
+// existing callers pin the item shape.
+func TestHandler_Search_NameOnlyHitCarriesNoReason(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+
+	testGraphStoreFor(deps).UpsertNodes(ctx, []graph.Node{
+		{QualifiedName: "pkg.AuthenticateUser", Kind: graph.NodeKindFunction, Name: "AuthenticateUser", FilePath: "auth.go", StartLine: 1, EndLine: 10, Language: "go"},
+	})
+	node, _ := testGraphStoreFor(deps).GetNode(ctx, "pkg.AuthenticateUser")
+	testDBFor(deps).Create(&graph.SearchDocument{
+		NodeID: node.ID, Content: "AuthenticateUser authenticates user credentials", Language: "go",
+	})
+	testSearchBackendFor(deps).Rebuild(ctx, testDBFor(deps))
+
+	nodes := decodeSearchResults(t, getTextContent(
+		callTool(t, deps, "search", map[string]any{"query": "authenticate"})))
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(nodes))
+	}
+	if _, present := nodes[0]["reason"]; present {
+		t.Errorf("a name-only hit grew a reason field: %v", nodes[0])
+	}
+	if _, present := nodes[0]["matched_terms"]; present {
+		t.Errorf("a name-only hit grew a matched_terms field: %v", nodes[0])
+	}
+}
+
 func TestHandler_Search_PathFilter(t *testing.T) {
 	deps := setupTestDeps(t)
 	ctx := context.Background()

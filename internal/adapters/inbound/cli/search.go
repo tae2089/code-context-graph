@@ -77,10 +77,16 @@ func printEvidenceList(out io.Writer, list evidence.List, offset int) {
 		for _, r := range f.Hits {
 			n := r.Node
 			fmt.Fprintf(out, "%s\t%s\t%s:%d\n", n.QualifiedName, n.Kind, n.FilePath, n.StartLine)
-			// A node with no @intent gets no second line: its name and path are
-			// already on the first one, so a label row would repeat what is visible.
-			if r.Intent != "" {
-				fmt.Fprintf(out, "    %s%s\n", r.Intent, matchedLabels(r.Matched))
+			// The evidence line shows the node's @intent, or the recorded reason
+			// the intent index matched when the node has none of its own. A node
+			// with neither gets no second line: its name and path are already on
+			// the first one, so a label row would repeat what is visible.
+			commentary := r.Intent
+			if commentary == "" {
+				commentary = r.Reason
+			}
+			if commentary != "" {
+				fmt.Fprintf(out, "    %s%s\n", commentary, matchedLabels(r.Matched))
 			}
 		}
 	}

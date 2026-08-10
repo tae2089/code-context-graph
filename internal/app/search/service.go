@@ -1,8 +1,9 @@
 // Package search assembles the one pipeline every search surface shares:
-// fetch full-text candidates, filter them by path, rerank them structurally,
-// and cut the answer down to the hits that can justify themselves. MCP and the
-// CLI both call this service, so the two cannot drift into answering the same
-// query differently.
+// fetch full-text and recorded-reason candidates in parallel, filter them by
+// path, rerank the full-text pool structurally, absorb the intent hits as
+// evidence, and cut the answer down to the hits that can justify themselves.
+// MCP and the CLI both call this service, so the two cannot drift into
+// answering the same query differently.
 package search
 
 import (
@@ -11,16 +12,22 @@ import (
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/app/search/evidence"
+	intentapp "github.com/tae2089/code-context-graph/internal/app/search/intent"
 	searchrank "github.com/tae2089/code-context-graph/internal/app/search/rank"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 	"github.com/tae2089/code-context-graph/internal/pathspec"
 )
 
-// Searcher returns relevance-ordered full-text candidates for a query.
-// @intent keep the service on a fetch-only port so no backend or scoring package leaks in.
+// Searcher answers one query from both indexes a search runs over: the
+// full-text index of names and content, and the recorded-reason index of
+// @intent/@domainRule text. One port because the two answers are two halves of
+// the same question — a caller wired for only one would answer it worse
+// without any way to see that from the types.
+// @intent keep the service on fetch-only ports so no backend or scoring package leaks in.
 type Searcher interface {
 	Query(ctx context.Context, query string, limit int) ([]graph.Node, error)
+	QueryIntent(ctx context.Context, query string, limit int) (intentapp.Result, error)
 }
 
 // Params is one search request as every surface phrases it.
@@ -59,12 +66,13 @@ func (s *Service) Search(ctx context.Context, p Params) (evidence.List, error) {
 	if s == nil || s.searcher == nil {
 		return evidence.List{}, trace.New("search service not configured")
 	}
-	nodes, err := s.fetch(ctx, p)
+	pool, err := s.fetch(ctx, p)
 	if err != nil {
 		return evidence.List{}, err
 	}
-	ranked := searchrank.Rerank(p.Query, nodes, 0)
-	return evidence.Build(p.Query, ranked, evidence.Options{Limit: p.Limit, Offset: p.Offset, IncludeWeak: p.IncludeWeak}), nil
+	ranked := searchrank.Rerank(p.Query, pool.named, 0)
+	merged, intentEvidence := absorbIntent(ranked, pool.intent)
+	return evidence.Build(p.Query, merged, evidence.Options{Limit: p.Limit, Offset: p.Offset, IncludeWeak: p.IncludeWeak, Intent: intentEvidence}), nil
 }
 
 // SearchFederated answers one query across an explicit namespace set.
@@ -80,46 +88,115 @@ func (s *Service) SearchFederated(ctx context.Context, namespaces []string, p Pa
 		return evidence.List{}, trace.New("search service not configured")
 	}
 	groups := make([][]graph.Node, 0, len(namespaces))
+	intentHits := make([]intentapp.Hit, 0)
 	for _, ns := range namespaces {
-		nodes, err := s.fetch(requestctx.WithNamespace(ctx, ns), p)
+		pool, err := s.fetch(requestctx.WithNamespace(ctx, ns), p)
 		if err != nil {
 			return evidence.List{}, err
 		}
-		for i := range nodes {
-			nodes[i].Namespace = ns
+		for i := range pool.named {
+			pool.named[i].Namespace = ns
 		}
-		groups = append(groups, nodes)
+		for i := range pool.intent {
+			pool.intent[i].Node.Namespace = ns
+		}
+		groups = append(groups, pool.named)
+		intentHits = append(intentHits, pool.intent...)
 	}
 	merged := searchrank.RerankGroups(p.Query, groups, 0)
+	merged, intentEvidence := absorbIntent(merged, intentHits)
 	// Page over the whole grouped answer, then let the quota decide which of
 	// those files each repository gets, so no repository's files are spent
 	// before another repository is heard from.
-	list := evidence.Build(p.Query, merged, evidence.Options{Offset: p.Offset, IncludeWeak: p.IncludeWeak})
+	list := evidence.Build(p.Query, merged, evidence.Options{Offset: p.Offset, IncludeWeak: p.IncludeWeak, Intent: intentEvidence})
 	reachable := len(list.Files)
 	list.Files = selectWithNamespaceQuota(list.Files, func(f evidence.File) string { return f.Namespace }, p.Limit, len(namespaces))
 	list.OverflowFiles = reachable - len(list.Files)
 	return list, nil
 }
 
-// fetch over-fetches one namespace's candidate pool and applies the path filter.
-// Over-fetching lets structural reranking promote good matches the backend
-// ranked below the caller's limit, and keeps path filtering from emptying the page.
+// pool is one namespace's candidates from both indexes, already path-filtered.
+type pool struct {
+	named  []graph.Node
+	intent []intentapp.Hit
+}
+
+// fetch over-fetches one namespace's candidate pool from both indexes in
+// parallel and applies the path filter to each. Over-fetching lets structural
+// reranking promote good matches the backend ranked below the caller's limit,
+// and keeps path filtering from emptying the page. The two queries run
+// concurrently because neither needs the other's answer and both are the same
+// round-trip to the same database.
 // @intent give both search shapes the same candidate pool for the same request.
-func (s *Service) fetch(ctx context.Context, p Params) ([]graph.Node, error) {
-	nodes, err := s.searcher.Query(ctx, p.Query, searchrank.FetchLimit(p.Limit))
+func (s *Service) fetch(ctx context.Context, p Params) (pool, error) {
+	type intentAnswer struct {
+		result intentapp.Result
+		err    error
+	}
+	intentCh := make(chan intentAnswer, 1)
+	go func() {
+		result, err := s.searcher.QueryIntent(ctx, p.Query, searchrank.FetchLimit(p.Limit))
+		intentCh <- intentAnswer{result: result, err: err}
+	}()
+
+	named, err := s.searcher.Query(ctx, p.Query, searchrank.FetchLimit(p.Limit))
+	fromIntent := <-intentCh
 	if err != nil {
-		return nil, err
+		return pool{}, err
 	}
+	if fromIntent.err != nil {
+		return pool{}, fromIntent.err
+	}
+
+	out := pool{named: named, intent: fromIntent.result.Hits}
 	if p.PathPrefix == "" {
-		return nodes, nil
+		return out, nil
 	}
-	filtered := nodes[:0]
-	for _, n := range nodes {
+	out.named = out.named[:0]
+	for _, n := range named {
 		if pathspec.HasPathPrefix(n.FilePath, p.PathPrefix) {
-			filtered = append(filtered, n)
+			out.named = append(out.named, n)
 		}
 	}
-	return filtered, nil
+	filteredIntent := out.intent[:0]
+	for _, h := range fromIntent.result.Hits {
+		if pathspec.HasPathPrefix(h.Node.FilePath, p.PathPrefix) {
+			filteredIntent = append(filteredIntent, h)
+		}
+	}
+	out.intent = filteredIntent
+	return out, nil
+}
+
+// absorbIntent merges intent hits into the name-ranked pool as evidence, not
+// as a score. The name order is untouched; a hit only the intent index found
+// is appended after it, in intent rank order. Fusing the two orders was ruled
+// out the same way backend-rank fusion was (see Rerank): the two rankings
+// measure different things and a weighted mix answers neither question well.
+// @ensures the returned evidence map holds every intent hit, keyed by namespace and node id.
+// @intent let a recorded reason put a node on the page without letting it reshuffle the name matches.
+func absorbIntent(ranked []graph.Node, hits []intentapp.Hit) ([]graph.Node, map[evidence.NodeRef]evidence.IntentHit) {
+	if len(hits) == 0 {
+		return ranked, nil
+	}
+	marks := make(map[evidence.NodeRef]evidence.IntentHit, len(hits))
+	present := make(map[evidence.NodeRef]bool, len(ranked))
+	for _, n := range ranked {
+		present[evidence.NodeRef{Namespace: n.Namespace, ID: n.ID}] = true
+	}
+	merged := ranked
+	for _, h := range hits {
+		ref := evidence.NodeRef{Namespace: h.Node.Namespace, ID: h.Node.ID}
+		if _, seen := marks[ref]; seen {
+			continue
+		}
+		marks[ref] = evidence.IntentHit{Reason: intentapp.RecordedReason(h.Node), Terms: h.Terms}
+		if !present[ref] {
+			merged = append(merged, h.Node)
+			present[ref] = true
+		}
+	}
+	return merged, marks
 }
 
 // selectWithNamespaceQuota bounds globally-ranked federated results while guaranteeing

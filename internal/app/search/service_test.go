@@ -2,8 +2,13 @@ package search
 
 import (
 	"context"
+	"slices"
 	"testing"
 
+	"github.com/tae2089/trace"
+
+	"github.com/tae2089/code-context-graph/internal/app/search/evidence"
+	"github.com/tae2089/code-context-graph/internal/app/search/intent"
 	searchrank "github.com/tae2089/code-context-graph/internal/app/search/rank"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
@@ -13,15 +18,28 @@ import (
 // pool, keyed by the namespace on the context so federated tests can vary
 // answers per repository.
 type fakeSearcher struct {
-	byNamespace map[string][]graph.Node
-	gotQuery    string
-	gotLimit    int
+	byNamespace       map[string][]graph.Node
+	intentByNamespace map[string][]intent.Hit
+	intentErr         error
+	gotQuery          string
+	gotLimit          int
+	gotIntentQuery    string
+	gotIntentLimit    int
 }
 
 func (f *fakeSearcher) Query(ctx context.Context, query string, limit int) ([]graph.Node, error) {
 	f.gotQuery = query
 	f.gotLimit = limit
 	return f.byNamespace[requestctx.FromContext(ctx)], nil
+}
+
+func (f *fakeSearcher) QueryIntent(ctx context.Context, query string, limit int) (intent.Result, error) {
+	f.gotIntentQuery = query
+	f.gotIntentLimit = limit
+	if f.intentErr != nil {
+		return intent.Result{}, f.intentErr
+	}
+	return intent.Result{Hits: f.intentByNamespace[requestctx.FromContext(ctx)]}, nil
 }
 
 func node(id uint, name, path string) graph.Node {
@@ -103,6 +121,140 @@ func TestSearchFederated_StampsNamespacesAndKeepsEveryRepositoryHeard(t *testing
 	}
 	if list.OverflowFiles != 2 {
 		t.Errorf("OverflowFiles = %d, want 2", list.OverflowFiles)
+	}
+}
+
+// annotatedNode carries the @intent tag QueryIntent's hydration would have
+// preloaded, so the merged hit can read its recorded reason back.
+func annotatedNode(id uint, name, path, reason string) graph.Node {
+	n := node(id, name, path)
+	n.Annotation = &graph.Annotation{Tags: []graph.DocTag{{Kind: graph.TagIntent, Value: reason}}}
+	return n
+}
+
+func TestSearch_MergesIntentHitsWithoutFusion(t *testing.T) {
+	searcher := &fakeSearcher{
+		byNamespace: map[string][]graph.Node{requestctx.DefaultNamespace: {
+			node(1, "alpha", "a/alpha.go"),
+		}},
+		intentByNamespace: map[string][]intent.Hit{requestctx.DefaultNamespace: {
+			{Node: annotatedNode(2, "admitRepo", "b/admission.go", "decide which push may build"), Terms: []string{"push", "build"}},
+		}},
+	}
+	svc := New(searcher)
+
+	ctx := requestctx.WithNamespace(context.Background(), requestctx.DefaultNamespace)
+	list, err := svc.Search(ctx, Params{Query: "alpha", Limit: 10})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if searcher.gotIntentQuery != "alpha" || searcher.gotIntentLimit != searchrank.FetchLimit(10) {
+		t.Errorf("intent query = (%q, %d), want (%q, %d)", searcher.gotIntentQuery, searcher.gotIntentLimit, "alpha", searchrank.FetchLimit(10))
+	}
+	if len(list.Files) != 2 {
+		t.Fatalf("got %d files, want the name hit and the intent hit: %+v", len(list.Files), list.Files)
+	}
+	// No fusion: the name-ranked pool keeps its order, intent-only hits follow it.
+	if list.Files[0].FilePath != "a/alpha.go" || list.Files[1].FilePath != "b/admission.go" {
+		t.Errorf("file order = [%s, %s], want the name hit first", list.Files[0].FilePath, list.Files[1].FilePath)
+	}
+	hit := list.Files[1].Hits[0]
+	if !slices.Contains(hit.Matched, evidence.MatchIntent) {
+		t.Errorf("Matched = %v, want %q", hit.Matched, evidence.MatchIntent)
+	}
+	if hit.Reason != "decide which push may build" {
+		t.Errorf("Reason = %q, want the recorded reason", hit.Reason)
+	}
+	if want := []string{"push", "build"}; !slices.Equal(hit.MatchedTerms, want) {
+		t.Errorf("MatchedTerms = %v, want %v", hit.MatchedTerms, want)
+	}
+}
+
+func TestSearch_AttachesIntentEvidenceToANameHitWithoutDuplicatingIt(t *testing.T) {
+	shared := annotatedNode(1, "alpha", "a/alpha.go", "answer alpha requests")
+	searcher := &fakeSearcher{
+		byNamespace:       map[string][]graph.Node{requestctx.DefaultNamespace: {shared}},
+		intentByNamespace: map[string][]intent.Hit{requestctx.DefaultNamespace: {{Node: shared, Terms: []string{"alpha"}}}},
+	}
+	svc := New(searcher)
+
+	ctx := requestctx.WithNamespace(context.Background(), requestctx.DefaultNamespace)
+	list, err := svc.Search(ctx, Params{Query: "alpha", Limit: 10})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(list.Files) != 1 || len(list.Files[0].Hits) != 1 {
+		t.Fatalf("got %+v, want exactly one hit for the shared node", list.Files)
+	}
+	hit := list.Files[0].Hits[0]
+	if hit.Reason == "" || len(hit.MatchedTerms) == 0 {
+		t.Errorf("intent evidence lost on the name hit: Reason=%q MatchedTerms=%v", hit.Reason, hit.MatchedTerms)
+	}
+}
+
+func TestSearch_PathPrefixFiltersIntentHitsToo(t *testing.T) {
+	searcher := &fakeSearcher{
+		byNamespace: map[string][]graph.Node{requestctx.DefaultNamespace: {node(1, "alpha", "keep/alpha.go")}},
+		intentByNamespace: map[string][]intent.Hit{requestctx.DefaultNamespace: {
+			{Node: annotatedNode(2, "other", "drop/other.go", "alpha related"), Terms: []string{"alpha"}},
+		}},
+	}
+	svc := New(searcher)
+
+	ctx := requestctx.WithNamespace(context.Background(), requestctx.DefaultNamespace)
+	list, err := svc.Search(ctx, Params{Query: "alpha", Limit: 10, PathPrefix: "keep"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(list.Files) != 1 || list.Files[0].FilePath != "keep/alpha.go" {
+		t.Fatalf("got %+v, want only keep/alpha.go", list.Files)
+	}
+}
+
+func TestSearch_IntentQueryErrorFailsTheSearch(t *testing.T) {
+	searcher := &fakeSearcher{
+		byNamespace: map[string][]graph.Node{requestctx.DefaultNamespace: {node(1, "alpha", "a/alpha.go")}},
+		intentErr:   trace.New("intent index gone"),
+	}
+	svc := New(searcher)
+
+	ctx := requestctx.WithNamespace(context.Background(), requestctx.DefaultNamespace)
+	if _, err := svc.Search(ctx, Params{Query: "alpha", Limit: 10}); err == nil {
+		t.Error("a failing intent query was silently swallowed")
+	}
+}
+
+func TestSearchFederated_StampsNamespaceOnIntentHits(t *testing.T) {
+	searcher := &fakeSearcher{
+		byNamespace: map[string][]graph.Node{"repo-a": {node(1, "alpha", "a/one.go")}},
+		intentByNamespace: map[string][]intent.Hit{"repo-b": {
+			{Node: annotatedNode(1, "admit", "b/admission.go", "decide which alpha push may build"), Terms: []string{"alpha"}},
+		}},
+	}
+	svc := New(searcher)
+
+	list, err := svc.SearchFederated(context.Background(), []string{"repo-a", "repo-b"}, Params{Query: "alpha", Limit: 10})
+	if err != nil {
+		t.Fatalf("SearchFederated: %v", err)
+	}
+	if len(list.Files) != 2 {
+		t.Fatalf("got %d files, want one per repository: %+v", len(list.Files), list.Files)
+	}
+	var intentFile *evidence.File
+	for i := range list.Files {
+		if list.Files[i].FilePath == "b/admission.go" {
+			intentFile = &list.Files[i]
+		}
+	}
+	if intentFile == nil {
+		t.Fatalf("intent hit missing from the federated answer: %+v", list.Files)
+	}
+	if intentFile.Namespace != "repo-b" {
+		t.Errorf("intent hit namespace = %q, want repo-b", intentFile.Namespace)
+	}
+	// Same node id as repo-a's hit: the evidence must stay on repo-b's node.
+	if hit := intentFile.Hits[0]; hit.Reason == "" {
+		t.Errorf("intent evidence lost across namespaces: %+v", hit)
 	}
 }
 

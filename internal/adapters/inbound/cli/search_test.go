@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/adapters/outbound/graphgorm"
 	search "github.com/tae2089/code-context-graph/internal/adapters/outbound/searchsql"
+	intentapp "github.com/tae2089/code-context-graph/internal/app/search/intent"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
@@ -29,11 +32,21 @@ func (s *spySearchBackend) Query(ctx context.Context, query string, limit int) (
 	return nil, nil
 }
 
+func (s *spySearchBackend) QueryIntent(ctx context.Context, query string, limit int) (intentapp.Result, error) {
+	return intentapp.Result{}, nil
+}
+
+var searchTestDBSeq atomic.Int64
+
 func setupSearchTest(t *testing.T) (*Deps, *bytes.Buffer, *bytes.Buffer, *gorm.DB) {
 	t.Helper()
 	deps, stdout, stderr := newTestDeps()
 
-	db, err := gorm.Open(sqlite.Open(":memory:?_pragma=journal_mode(WAL)"), &gorm.Config{Logger: gormlogger.Discard})
+	// A shared-cache named memory DB, because the search service queries both
+	// indexes concurrently: a plain :memory: DSN gives every pool connection
+	// its own empty database, and the second query finds no tables.
+	dsn := fmt.Sprintf("file:clisearchtest%d?mode=memory&cache=shared", searchTestDBSeq.Add(1))
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,6 +319,54 @@ func TestSearchCommand_PrintsIntentUnderTheResult(t *testing.T) {
 	}
 	if !strings.Contains(lines[1], "[intent]") {
 		t.Errorf("evidence line missing the matched-signal labels, got %q", lines[1])
+	}
+}
+
+// A hit only the intent index found prints its recorded reason on the evidence
+// line, even when the node has no @intent of its own — otherwise the reader
+// sees a bare result line with nothing saying why it answered the question.
+func TestSearchCommand_PrintsTheRecordedReasonForAnIntentHit(t *testing.T) {
+	deps, stdout, stderr, db := setupSearchTest(t)
+	ctx := context.Background()
+
+	node := graph.Node{Name: "admitRepo", QualifiedName: "webhook.admitRepo", Kind: graph.NodeKindFunction, FilePath: "internal/webhook/admission.go", StartLine: 5, EndLine: 20, Language: "go"}
+	if err := db.WithContext(ctx).Create(&node).Error; err != nil {
+		t.Fatal(err)
+	}
+	// Only a @domainRule: node.Intent() stays empty, so the fallback to the
+	// recorded reason is the only thing that can fill the evidence line.
+	if err := db.WithContext(ctx).Create(&graph.Annotation{
+		NodeID: node.ID,
+		Tags:   []graph.DocTag{{Kind: graph.TagDomainRule, Value: "only pushes from allowed repositories may trigger a build"}},
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.WithContext(ctx).Create(&graph.SearchDocument{
+		Namespace: node.Namespace, NodeID: node.ID,
+		Content: "admitRepo checks repository allowlist", Language: "go",
+		IntentContent: "only pushes from allowed repositories may trigger a build",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := search.NewSQLiteBackend().Rebuild(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+
+	if err := executeCmd(deps, stdout, stderr, "search", "which push may trigger a build"); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "webhook.admitRepo") {
+		t.Fatalf("the recorded reason did not answer the question:\n%s", out)
+	}
+	if !strings.Contains(out, "    only pushes from allowed repositories may trigger a build") {
+		t.Errorf("evidence line missing the recorded reason:\n%s", out)
+	}
+	// Fuzzy name scoring may add its own label, so only the intent label is pinned.
+	if !strings.Contains(out, "intent]") {
+		t.Errorf("evidence line missing the matched-signal label:\n%s", out)
 	}
 }
 

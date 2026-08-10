@@ -103,8 +103,15 @@ type searchResultItem struct {
 	Intent string `json:"intent,omitempty"`
 	// Matched names the signals this query touched — name, path, intent — so a
 	// caller can tell an exact identifier hit from a hit on a written purpose.
-	Matched   []evidence.Match `json:"matched"`
-	Namespace string           `json:"namespace,omitempty"`
+	Matched []evidence.Match `json:"matched"`
+	// Reason is the recorded reason the intent index answered with — set only
+	// when this hit came from the intent query, so its absence means the hit
+	// earned its place on name, path, or token overlap alone.
+	Reason string `json:"reason,omitempty"`
+	// MatchedTerms are the query terms written in Reason — the proof behind an
+	// intent match that token overlap alone cannot see.
+	MatchedTerms []string `json:"matched_terms,omitempty"`
+	Namespace    string   `json:"namespace,omitempty"`
 }
 
 // searchFileGroup is one file and every hit it answered the query with.
@@ -179,6 +186,7 @@ func newSearchResponse(list evidence.List, query string, limit, offset int, with
 				ID: n.ID, QualifiedName: n.QualifiedName, Kind: n.Kind, Name: n.Name,
 				FilePath: n.FilePath, StartLine: n.StartLine, EndLine: n.EndLine,
 				Intent: r.Intent, Matched: r.Matched,
+				Reason: r.Reason, MatchedTerms: r.MatchedTerms,
 			}
 			if withNamespace {
 				hits[j].Namespace = n.Namespace
@@ -391,7 +399,6 @@ func (h *handlers) searchFederated(ctx context.Context, query string, limit, off
 		return result, nil
 	}))
 }
-
 
 // getAnnotation returns stored annotation metadata for a graph node.
 // @intent fetch stored annotation tags and summary data so semantic search results can show business context.
