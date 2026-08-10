@@ -92,6 +92,18 @@ type List struct {
 	// the Limit or the page budget stopped it. It separates "this is
 	// everything" from "this is the first ten files of thirty".
 	OverflowFiles int
+	// PoolTruncated says the candidate pool this list was built from came back
+	// full: the backend had at least as many candidates as the pool could hold
+	// and may have had more. Build never sets it — it is a fact about the fetch,
+	// which happens before this package sees anything — so whoever fetched the
+	// pool sets it.
+	//
+	// It is deliberately not folded into OverflowFiles, which counts files and
+	// only ever counts files. Read together they separate the two ways a page
+	// can end: OverflowFiles == 0 with PoolTruncated false is the whole answer,
+	// while OverflowFiles == 0 with PoolTruncated true is only the end of the
+	// candidates that were fetched.
+	PoolTruncated bool
 	// Note is set only when Files is empty, and says which kind of empty it is:
 	// nothing retrieved, nothing explainable, or a page past the end.
 	Note string

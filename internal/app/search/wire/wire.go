@@ -66,10 +66,21 @@ type Response struct {
 	WeakFiltered int         `json:"weak_filtered"`
 	// Truncated is true when this answer did not reach every file the query
 	// answered with. It is never about hits: a shown file is shown whole.
-	Truncated bool         `json:"truncated"`
-	Limits    Limits       `json:"limits"`
-	Next      []NextAction `json:"next,omitempty"`
-	Note      string       `json:"note,omitempty"`
+	Truncated bool `json:"truncated"`
+	// PoolTruncated is true when the candidate pool behind this answer came back
+	// full, so the backend held at least as many candidates as the pool could
+	// take and may have held more.
+	//
+	// It is a second signal rather than part of Truncated because the two say
+	// different things and call for different moves. Truncated counts files this
+	// page did not reach, and stays about files. PoolTruncated says the page
+	// stopped at the edge of what was fetched. `truncated: false` with
+	// `pool_truncated: true` is the case that used to read as "that is
+	// everything" when it was not: ask for the next page anyway.
+	PoolTruncated bool         `json:"pool_truncated"`
+	Limits        Limits       `json:"limits"`
+	Next          []NextAction `json:"next,omitempty"`
+	Note          string       `json:"note,omitempty"`
 }
 
 // Limits states the bounds that shaped this page, all counted in files
@@ -122,26 +133,42 @@ func NewResponse(list evidence.List, query string, limit, offset int, withNamesp
 		}
 	}
 	return Response{
-		Files:        files,
-		FileCount:    len(files),
-		WeakFiltered: list.WeakFiltered,
-		Truncated:    list.OverflowFiles > 0,
-		Limits:       Limits{Files: limit, Offset: offset, HitBudget: evidence.PageHitBudget},
-		Next:         nextActions(list, query, limit, offset),
-		Note:         list.Note,
+		Files:         files,
+		FileCount:     len(files),
+		WeakFiltered:  list.WeakFiltered,
+		Truncated:     list.OverflowFiles > 0,
+		PoolTruncated: list.PoolTruncated,
+		Limits:        Limits{Files: limit, Offset: offset, HitBudget: evidence.PageHitBudget},
+		Next:          nextActions(list, query, limit, offset),
+		Note:          list.Note,
 	}
 }
 
 // nextActions writes one call per thing this answer withheld. An empty answer
 // gets none: search already scored the query against names and recorded
 // reasons both, so there is no second index left to hand the query to.
+//
+// A cut candidate pool earns the same next-page call as unreached files, and
+// only one of the two is ever written: they are the same call, and the reason
+// differs only in what the caller is being told they might find. Without it the
+// crowded-file case — one file whose hits fill the whole pool — would report a
+// pool cut and hand the caller nowhere to go with it.
+//
 // @ensures every returned action names a tool every search surface offers, with arguments that need no editing.
+// @ensures at most one next-page action is returned, however many bounds stopped this page.
 // @intent make the follow-up call obvious enough that an agent does not have to invent one.
 func nextActions(list evidence.List, query string, limit, offset int) []NextAction {
 	actions := make([]NextAction, 0, 2)
-	if list.OverflowFiles > 0 {
+	switch {
+	case list.OverflowFiles > 0:
 		actions = append(actions, NextAction{
 			Reason: fmt.Sprintf("%d more files answered this query and are not on this page", list.OverflowFiles),
+			Tool:   "search",
+			Args:   map[string]any{"query": query, "limit": limit, "offset": offset + len(list.Files)},
+		})
+	case list.PoolTruncated && len(list.Files) > 0:
+		actions = append(actions, NextAction{
+			Reason: "this page reached the end of the candidates that were fetched, not the end of the answer; more files may follow",
 			Tool:   "search",
 			Args:   map[string]any{"query": query, "limit": limit, "offset": offset + len(list.Files)},
 		})

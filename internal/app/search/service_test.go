@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -82,6 +83,192 @@ func TestSearch_OverfetchesThenCutsToLimit(t *testing.T) {
 	}
 	if list.OverflowFiles != 1 {
 		t.Errorf("OverflowFiles = %d, want 1", list.OverflowFiles)
+	}
+}
+
+// answerableCorpus is n files that each hold one declaration the query names.
+// Every declaration carries the same name and no path segment the query
+// touches, so structural reranking scores them all alike and leaves the pool's
+// own order alone. That keeps the growing pool's prefix stable, which is what
+// lets a test walk the whole answer one page at a time.
+func answerableCorpus(n int) []graph.Node {
+	out := make([]graph.Node, 0, n)
+	for i := range n {
+		out = append(out, node(uint(i+1), "alpha", fmt.Sprintf("pkg/f%03d.go", i)))
+	}
+	return out
+}
+
+// crowdedCorpus is one file holding hits hits, followed by quiet files of one
+// hit each. The crowded file alone fills a first page's candidate pool.
+func crowdedCorpus(hits, quiet int) []graph.Node {
+	out := make([]graph.Node, 0, hits+quiet)
+	for i := range hits {
+		out = append(out, node(uint(i+1), "alpha", "pkg/crowded.go"))
+	}
+	for i := range quiet {
+		out = append(out, node(uint(1000+i), "alpha", fmt.Sprintf("pkg/quiet%02d.go", i)))
+	}
+	return out
+}
+
+func TestSearch_FetchesThePoolForTheOffsetAsWellAsTheLimit(t *testing.T) {
+	searcher := &fakeSearcher{byNamespace: map[string][]graph.Node{
+		requestctx.DefaultNamespace: {node(1, "alpha", "a/alpha.go")},
+	}}
+	svc := New(searcher)
+
+	ctx := requestctx.WithNamespace(context.Background(), requestctx.DefaultNamespace)
+	if _, err := svc.Search(ctx, Params{Query: "alpha", Limit: 10, Offset: 200}); err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	want := searchrank.FetchLimit(210)
+	if searcher.gotLimit != want {
+		t.Errorf("name fetch limit = %d, want %d — the pool has to cover the offset too", searcher.gotLimit, want)
+	}
+	if searcher.gotIntentLimit != want {
+		t.Errorf("intent fetch limit = %d, want %d — the pool has to cover the offset too", searcher.gotIntentLimit, want)
+	}
+}
+
+func TestSearch_DoesNotClaimCompletionWhileAnswerableFilesRemain(t *testing.T) {
+	searcher := &fakeSearcher{byNamespace: map[string][]graph.Node{
+		requestctx.DefaultNamespace: answerableCorpus(300),
+	}}
+	svc := New(searcher)
+
+	ctx := requestctx.WithNamespace(context.Background(), requestctx.DefaultNamespace)
+	list, err := svc.Search(ctx, Params{Query: "alpha", Limit: 10, Offset: 60})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(list.Files) == 0 {
+		t.Fatalf("page at offset 60 came back empty (%q), but 300 files answer this query", list.Note)
+	}
+	if list.OverflowFiles == 0 {
+		t.Errorf("OverflowFiles = 0, want the 230 files still unreached: the answer called itself complete")
+	}
+}
+
+func TestSearch_PagesAThreeHundredFileAnswerToTheEnd(t *testing.T) {
+	const total = 300
+	searcher := &fakeSearcher{byNamespace: map[string][]graph.Node{
+		requestctx.DefaultNamespace: answerableCorpus(total),
+	}}
+	svc := New(searcher)
+
+	ctx := requestctx.WithNamespace(context.Background(), requestctx.DefaultNamespace)
+	seen := map[string]bool{}
+	offset := 0
+	for page := 0; page < total; page++ {
+		list, err := svc.Search(ctx, Params{Query: "alpha", Limit: 10, Offset: offset})
+		if err != nil {
+			t.Fatalf("Search at offset %d: %v", offset, err)
+		}
+		if len(list.Files) == 0 {
+			t.Fatalf("page at offset %d came back empty after %d of %d files", offset, len(seen), total)
+		}
+		for _, f := range list.Files {
+			if seen[f.FilePath] {
+				t.Errorf("file %s came back on two pages", f.FilePath)
+			}
+			seen[f.FilePath] = true
+		}
+		// Exactly the call the answer's own `next` action names.
+		offset += len(list.Files)
+		if list.OverflowFiles == 0 {
+			break
+		}
+	}
+	if len(seen) != total {
+		t.Fatalf("paging to the completion signal yielded %d files, want all %d", len(seen), total)
+	}
+}
+
+func TestSearch_AFileFullOfHitsDoesNotHideTheFilesBehindIt(t *testing.T) {
+	searcher := &fakeSearcher{byNamespace: map[string][]graph.Node{
+		requestctx.DefaultNamespace: crowdedCorpus(evidence.PageHitBudget, 10),
+	}}
+	svc := New(searcher)
+
+	ctx := requestctx.WithNamespace(context.Background(), requestctx.DefaultNamespace)
+	first, err := svc.Search(ctx, Params{Query: "alpha", Limit: 10})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(first.Files) != 1 || first.Files[0].FilePath != "pkg/crowded.go" {
+		t.Fatalf("first page = %+v, want the crowded file alone", first.Files)
+	}
+
+	second, err := svc.Search(ctx, Params{Query: "alpha", Limit: 10, Offset: len(first.Files)})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(second.Files) == 0 {
+		t.Fatalf("the page after the crowded file came back empty (%q); the quiet files are unreachable", second.Note)
+	}
+	if second.Files[0].FilePath != "pkg/quiet00.go" {
+		t.Errorf("second page starts at %s, want pkg/quiet00.go", second.Files[0].FilePath)
+	}
+}
+
+func TestSearch_ReportsAPoolCutApartFromTheFileOverflow(t *testing.T) {
+	// The crowded file's hits alone fill the whole first-page pool, so the
+	// answer ends at the pool's edge and not at the end of what it can answer.
+	searcher := &fakeSearcher{byNamespace: map[string][]graph.Node{
+		requestctx.DefaultNamespace: crowdedCorpus(evidence.PageHitBudget, 10),
+	}}
+	svc := New(searcher)
+
+	ctx := requestctx.WithNamespace(context.Background(), requestctx.DefaultNamespace)
+	list, err := svc.Search(ctx, Params{Query: "alpha", Limit: 10})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	// The completion signal keeps counting files, and it reached every file the
+	// pool held — so the pool cut has to be said some other way.
+	if list.OverflowFiles != 0 {
+		t.Fatalf("OverflowFiles = %d, want 0: the page reached every file in the pool", list.OverflowFiles)
+	}
+	if !list.PoolTruncated {
+		t.Errorf("PoolTruncated = false, but the pool came back full at %d rows", searcher.gotLimit)
+	}
+}
+
+func TestSearch_ReportsNoPoolCutWhenTheBackendHadRoomToSpare(t *testing.T) {
+	searcher := &fakeSearcher{byNamespace: map[string][]graph.Node{
+		requestctx.DefaultNamespace: answerableCorpus(3),
+	}}
+	svc := New(searcher)
+
+	ctx := requestctx.WithNamespace(context.Background(), requestctx.DefaultNamespace)
+	list, err := svc.Search(ctx, Params{Query: "alpha", Limit: 10})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if list.PoolTruncated {
+		t.Errorf("PoolTruncated = true, but the backend answered with 3 of the %d rows it was offered", searcher.gotLimit)
+	}
+}
+
+func TestSearchFederated_FetchesEachNamespacePoolForTheOffsetToo(t *testing.T) {
+	searcher := &fakeSearcher{byNamespace: map[string][]graph.Node{
+		"repo-a": answerableCorpus(400),
+	}}
+	svc := New(searcher)
+
+	list, err := svc.SearchFederated(context.Background(), []string{"repo-a"}, Params{Query: "alpha", Limit: 10, Offset: 60})
+	if err != nil {
+		t.Fatalf("SearchFederated: %v", err)
+	}
+	if want := searchrank.FetchLimit(70); searcher.gotLimit != want {
+		t.Errorf("fetch limit = %d, want %d", searcher.gotLimit, want)
+	}
+	if len(list.Files) == 0 {
+		t.Fatalf("page at offset 60 came back empty (%q), but 400 files answer this query", list.Note)
+	}
+	if !list.PoolTruncated {
+		t.Errorf("PoolTruncated = false, but repo-a's pool came back full at %d rows", searcher.gotLimit)
 	}
 }
 
