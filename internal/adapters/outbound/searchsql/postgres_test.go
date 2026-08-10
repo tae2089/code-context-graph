@@ -56,13 +56,19 @@ func countPostgresSQLInList(sql string) int {
 	return strings.Count(list, ",") + 1
 }
 
+// postgresTestDSN is where every postgres-tagged test in this package looks for
+// a database: TEST_POSTGRES_DSN when it is set, and a local development server
+// otherwise.
+func postgresTestDSN() string {
+	if dsn := os.Getenv("TEST_POSTGRES_DSN"); dsn != "" {
+		return dsn
+	}
+	return "host=localhost user=postgres password=postgres dbname=ccg_test port=5432 sslmode=disable"
+}
+
 func setupPostgresDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv("TEST_POSTGRES_DSN")
-	if dsn == "" {
-		dsn = "host=localhost user=postgres password=postgres dbname=ccg_test port=5432 sslmode=disable"
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Discard})
+	db, err := gorm.Open(postgres.Open(postgresTestDSN()), &gorm.Config{Logger: logger.Discard})
 	if err != nil {
 		t.Skipf("PostgreSQL not available: %v", err)
 	}
@@ -228,11 +234,7 @@ func TestPostgresFTS_RebuildNodes_EmptyScopeIsNoOp(t *testing.T) {
 
 func TestPostgresFTS_RebuildNodes_ChunksLargeNodeScopes(t *testing.T) {
 	capture := &postgresINQueryCaptureLogger{Interface: logger.Discard, needle: "search_documents"}
-	dsn := os.Getenv("TEST_POSTGRES_DSN")
-	if dsn == "" {
-		dsn = "host=localhost user=postgres password=postgres dbname=ccg_test port=5432 sslmode=disable"
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: capture})
+	db, err := gorm.Open(postgres.Open(postgresTestDSN()), &gorm.Config{Logger: capture})
 	if err != nil {
 		t.Skipf("PostgreSQL not available: %v", err)
 	}
