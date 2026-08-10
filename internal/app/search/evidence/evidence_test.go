@@ -375,3 +375,39 @@ func TestBuild_ReportsNoOverflowWhenEverythingFits(t *testing.T) {
 		t.Errorf("OverflowFiles = %d, want 0", list.OverflowFiles)
 	}
 }
+
+// A negative offset is a caller's mistake, and every entry point turns it away.
+// The paging still has to survive one: cutting a slice from a negative index
+// panics, and a panic here names this package rather than the caller that was
+// actually wrong. Skipping a negative number of files skips none.
+func TestBuild_ANegativeOffsetStartsAtTheFirstFile(t *testing.T) {
+	nodes := []graph.Node{
+		fileNode(1, "Add", "internal/app/reposync/queue0.go"),
+		fileNode(2, "Add", "internal/app/reposync/queue1.go"),
+	}
+
+	got := Build("syncqueue", nodes, Options{Limit: 5, Offset: -1})
+
+	if len(got.Files) != 2 {
+		t.Fatalf("files = %d, want both", len(got.Files))
+	}
+	if got.Files[0].FilePath != "internal/app/reposync/queue0.go" {
+		t.Errorf("first file = %q, want the first one", got.Files[0].FilePath)
+	}
+	if got.OverflowFiles != 0 {
+		t.Errorf("OverflowFiles = %d, want 0 — nothing was skipped and nothing was cut", got.OverflowFiles)
+	}
+}
+
+// The empty answer is the case the upper-bound check misses: an offset past the
+// end is caught by comparing against the file count, and a negative one is not.
+func TestBuild_ANegativeOffsetOnAnEmptyAnswerDoesNotPanic(t *testing.T) {
+	got := Build("syncqueue", nil, Options{Limit: 5, Offset: -1})
+
+	if len(got.Files) != 0 {
+		t.Fatalf("files = %d, want none", len(got.Files))
+	}
+	if got.Note == "" {
+		t.Error("an empty answer must say which kind of empty it is")
+	}
+}
