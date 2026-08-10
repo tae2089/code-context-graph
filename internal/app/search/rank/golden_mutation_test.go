@@ -81,7 +81,7 @@ func absorbIntentLike(ranked []graph.Node, hits []intentapp.Hit) ([]graph.Node, 
 		if _, seen := marks[ref]; seen {
 			continue
 		}
-		marks[ref] = evidence.IntentHit{Reason: intentapp.RecordedReason(h.Node), Terms: h.Terms}
+		marks[ref] = evidence.IntentHit{Reason: h.Node.RecordedReason(), Terms: h.Terms}
 		if !present[ref] {
 			merged = append(merged, h.Node)
 			present[ref] = true

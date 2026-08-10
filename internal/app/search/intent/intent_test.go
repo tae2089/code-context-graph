@@ -4,40 +4,7 @@ import (
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/app/search/intent"
-	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
-
-// The index takes @intent and @domainRule, so a node carrying only a domain
-// rule earned its place on that rule. Reading back only @intent would present
-// exactly that node with a blank line where its reason goes.
-func TestRecordedReason_FallsBackToADomainRule(t *testing.T) {
-	node := graph.Node{ID: 7, Name: "charge"}
-	node.Annotation = &graph.Annotation{NodeID: 7, Tags: []graph.DocTag{
-		{Kind: graph.TagDomainRule, Value: "a refund never exceeds the original charge"},
-	}}
-	if got := intent.RecordedReason(node); got != "a refund never exceeds the original charge" {
-		t.Errorf("reason = %q, want the recorded domain rule", got)
-	}
-}
-
-// When both tags are present, @intent wins: it says why the code exists, and
-// that is what the index was asked about.
-func TestRecordedReason_PrefersIntentOverADomainRule(t *testing.T) {
-	node := graph.Node{ID: 7, Name: "charge"}
-	node.Annotation = &graph.Annotation{NodeID: 7, Tags: []graph.DocTag{
-		{Kind: graph.TagDomainRule, Value: "a refund never exceeds the original charge"},
-		{Kind: graph.TagIntent, Value: "collect payment exactly once"},
-	}}
-	if got := intent.RecordedReason(node); got != "collect payment exactly once" {
-		t.Errorf("reason = %q, want the @intent line", got)
-	}
-}
-
-func TestRecordedReason_IsEmptyWhenNothingWasRecorded(t *testing.T) {
-	if got := intent.RecordedReason(graph.Node{ID: 1, Name: "bare"}); got != "" {
-		t.Errorf("reason = %q, want empty for an unannotated node", got)
-	}
-}
 
 // CanAnswer is the membership gate: a question mostly made of words nobody
 // ever wrote down was not answered by the one common word it shares with many

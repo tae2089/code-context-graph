@@ -11,7 +11,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	intentapp "github.com/tae2089/code-context-graph/internal/app/search/intent"
 	"github.com/tae2089/code-context-graph/internal/app/search/rank"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 )
@@ -116,7 +115,7 @@ func captureIntentAnswer(ctx context.Context, reader *Reader, query string) (gol
 			Kind:          string(h.Node.Kind),
 			FilePath:      h.Node.FilePath,
 			Intent:        h.Node.Intent(),
-			Reason:        intentapp.RecordedReason(h.Node),
+			Reason:        h.Node.RecordedReason(),
 			Terms:         h.Terms,
 		})
 	}

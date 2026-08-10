@@ -52,3 +52,47 @@ func TestNodeIntent(t *testing.T) {
 		})
 	}
 }
+
+// The recorded-reason index takes @intent and @domainRule, so a node carrying
+// only a domain rule earned its place on that rule. Reading back only @intent
+// would present exactly that node with a blank line where its reason goes.
+func TestNodeRecordedReason_FallsBackToADomainRule(t *testing.T) {
+	node := Node{ID: 7, Name: "charge"}
+	node.Annotation = &Annotation{NodeID: 7, Tags: []DocTag{
+		{Kind: TagDomainRule, Value: "a refund never exceeds the original charge"},
+	}}
+	if got := node.RecordedReason(); got != "a refund never exceeds the original charge" {
+		t.Errorf("reason = %q, want the recorded domain rule", got)
+	}
+}
+
+// When both tags are present, @intent wins: it says why the code exists, and
+// that is what the index was asked about.
+func TestNodeRecordedReason_PrefersIntentOverADomainRule(t *testing.T) {
+	node := Node{ID: 7, Name: "charge"}
+	node.Annotation = &Annotation{NodeID: 7, Tags: []DocTag{
+		{Kind: TagDomainRule, Value: "a refund never exceeds the original charge"},
+		{Kind: TagIntent, Value: "collect payment exactly once"},
+	}}
+	if got := node.RecordedReason(); got != "collect payment exactly once" {
+		t.Errorf("reason = %q, want the @intent line", got)
+	}
+}
+
+func TestNodeRecordedReason_IsEmptyWhenNothingWasRecorded(t *testing.T) {
+	if got := (Node{ID: 1, Name: "bare"}).RecordedReason(); got != "" {
+		t.Errorf("reason = %q, want empty for an unannotated node", got)
+	}
+}
+
+// A blank domain rule is not a reason. Without the check the readback would
+// hand a caller an empty string it then treats as "a reason exists".
+func TestNodeRecordedReason_IgnoresABlankDomainRule(t *testing.T) {
+	node := Node{ID: 7, Name: "charge"}
+	node.Annotation = &Annotation{NodeID: 7, Tags: []DocTag{
+		{Kind: TagDomainRule, Value: "   "},
+	}}
+	if got := node.RecordedReason(); got != "" {
+		t.Errorf("reason = %q, want empty for a blank domain rule", got)
+	}
+}

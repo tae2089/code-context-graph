@@ -3,7 +3,6 @@ package intent
 
 import (
 	"context"
-	"strings"
 
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
@@ -83,28 +82,4 @@ func (r Result) CanAnswer() bool {
 		}
 	}
 	return known*2 >= len(r.Terms)
-}
-
-// RecordedReason returns the line that could have earned this node its place in
-// the intent index.
-//
-// It mirrors document.BuildReasons, which indexes @intent and @domainRule.
-// Reading back only @intent would drop a node indexed on a domain rule alone,
-// and that node did not fail to record a reason — it recorded a different kind
-// of one. @intent still wins when both are present, because it says why the code
-// exists and a domain rule says what it must hold to.
-// @intent read back the same tags the intent index was built from.
-func RecordedReason(node graph.Node) string {
-	if reason := node.Intent(); reason != "" {
-		return reason
-	}
-	if node.Annotation == nil {
-		return ""
-	}
-	for _, tag := range node.Annotation.Tags {
-		if tag.Kind == graph.TagDomainRule && strings.TrimSpace(tag.Value) != "" {
-			return tag.Value
-		}
-	}
-	return ""
 }
