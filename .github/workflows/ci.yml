@@ -63,3 +63,56 @@ jobs:
         with:
           name: go-build-json
           path: build-results.json
+
+  # The `postgres` build tag guards every test that needs a real PostgreSQL
+  # server, including the backend parity test that is the only check that SQLite
+  # and PostgreSQL answer a search the same way. The `verify` job above does not
+  # pass that tag, so none of those files were ever compiled or run in CI. This
+  # job is what makes them count.
+  verify-postgres:
+    runs-on: ubuntu-24.04
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ccg_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ccg_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_POSTGRES_DSN: host=localhost user=postgres password=postgres dbname=ccg_test port=5432 sslmode=disable
+      # Without this the whole tagged suite calls t.Skip when the server is
+      # missing and reports ok having exercised nothing. Setting it turns that
+      # silence into a failure.
+      REQUIRE_POSTGRES: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Configure git for clone/gitops tests
+        run: |
+          git config --global init.defaultBranch main
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.com"
+
+      - name: Run go vet with the postgres tag
+        run: CGO_ENABLED=1 go vet -tags "fts5,postgres" ./...
+
+      # -p 1 is required, not a speed knob. Every postgres test resets the
+      # server with DROP SCHEMA public CASCADE, and all packages share one
+      # database, so two packages running at once destroy each other's tables
+      # mid-test. Serialising the packages is what keeps them independent.
+      - name: Run go test with the postgres tag
+        run: CGO_ENABLED=1 go test -p 1 -tags "fts5,postgres" ./... -count=1
