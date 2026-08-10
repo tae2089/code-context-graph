@@ -33,7 +33,7 @@ type fakeSearcher struct {
 func (f *fakeSearcher) Query(ctx context.Context, query string, limit int) ([]graph.Node, error) {
 	f.gotQuery = query
 	f.gotLimit = limit
-	return f.byNamespace[requestctx.FromContext(ctx)], nil
+	return capped(f.byNamespace[requestctx.FromContext(ctx)], limit), nil
 }
 
 func (f *fakeSearcher) QueryIntent(ctx context.Context, query string, limit int) (intent.Result, error) {
@@ -42,7 +42,18 @@ func (f *fakeSearcher) QueryIntent(ctx context.Context, query string, limit int)
 	if f.intentErr != nil {
 		return intent.Result{}, f.intentErr
 	}
-	return intent.Result{Hits: f.intentByNamespace[requestctx.FromContext(ctx)], Terms: f.intentTerms}, nil
+	hits := capped(f.intentByNamespace[requestctx.FromContext(ctx)], limit)
+	return intent.Result{Hits: hits, Terms: f.intentTerms}, nil
+}
+
+// capped answers with at most limit rows, the way a real backend's LIMIT does.
+// Without it the fake hands back its whole canned pool however narrow the fetch
+// was, and a test can never see the service ask for too few candidates.
+func capped[T any](rows []T, limit int) []T {
+	if limit > 0 && len(rows) > limit {
+		return rows[:limit]
+	}
+	return rows
 }
 
 func node(id uint, name, path string) graph.Node {
