@@ -87,8 +87,9 @@ func (s *Service) Search(ctx context.Context, p Params) (evidence.List, error) {
 	if err != nil {
 		return evidence.List{}, err
 	}
-	ranked := searchrank.Rerank(p.Query, pool.named, 0)
+	ranked := orderPool(p.Query, pool.named, searchrank.FetchLimit(p.Limit))
 	merged, intentEvidence := absorbIntent(ranked, pool.intent)
+	merged = keepPathPrefix(merged, p.PathPrefix)
 	list := evidence.Build(p.Query, merged, evidence.Options{
 		Limit: p.Limit, Offset: p.Offset, IncludeWeak: p.IncludeWeak,
 		Intent: intentEvidence, Coverage: pool.coverage,
@@ -137,8 +138,9 @@ func (s *Service) SearchFederated(ctx context.Context, namespaces []string, p Pa
 		poolTruncated = poolTruncated || pool.truncated
 		coverage = addCoverage(coverage, pool.coverage)
 	}
-	merged := searchrank.RerankGroups(p.Query, groups, 0)
+	merged := orderGroupedPool(p.Query, groups, searchrank.FetchLimit(p.Limit))
 	merged, intentEvidence := absorbIntent(merged, intentHits)
+	merged = keepPathPrefix(merged, p.PathPrefix)
 	list := evidence.Build(p.Query, merged, evidence.Options{
 		Limit: p.Limit, Offset: p.Offset, PerNamespace: true,
 		IncludeWeak: p.IncludeWeak, Intent: intentEvidence, Coverage: coverage,
@@ -161,11 +163,10 @@ type pool struct {
 }
 
 // fetch over-fetches one namespace's candidate pool from both indexes in
-// parallel and applies the path filter to each. Over-fetching lets structural
-// reranking promote good matches the backend ranked below the caller's limit,
-// and keeps path filtering from emptying the page. The two queries run
-// concurrently because neither needs the other's answer and both are the same
-// round-trip to the same database.
+// parallel. Over-fetching lets structural reranking promote good matches the
+// backend ranked below the caller's limit, and keeps the path filter from
+// emptying the page. The two queries run concurrently because neither needs the
+// other's answer and both are the same round-trip to the same database.
 //
 // The pool is sized for Offset+Limit, not Limit. Neither query carries a skip,
 // so page five is cut out of the same pool page one was: a pool wide enough for
@@ -174,6 +175,9 @@ type pool struct {
 // Pushing the skip into the backend instead was considered and dropped — it
 // keeps the pool small but pays for the skipped rows on every deep page.
 //
+// The width is a whole number of blocks, which is what lets orderPool leave the
+// blocks a page was already cut from alone. See rank.PoolWidth.
+//
 // @ensures the returned pool is marked truncated when either index answered with as many rows as the fetch had room for.
 // @intent give both search shapes the same candidate pool for the same request, wide enough to reach the page that was asked for.
 func (s *Service) fetch(ctx context.Context, p Params) (pool, error) {
@@ -181,7 +185,7 @@ func (s *Service) fetch(ctx context.Context, p Params) (pool, error) {
 		result intentapp.Result
 		err    error
 	}
-	fetchLimit := searchrank.FetchLimit(p.Offset + p.Limit)
+	fetchLimit := searchrank.PoolWidth(p.Offset, p.Limit)
 	intentCh := make(chan intentAnswer, 1)
 	go func() {
 		result, err := s.searcher.QueryIntent(ctx, p.Query, fetchLimit)
@@ -209,29 +213,113 @@ func (s *Service) fetch(ctx context.Context, p Params) (pool, error) {
 		intentHits = nil
 	}
 
-	out := pool{
+	return pool{
 		named:     named,
 		intent:    intentHits,
 		truncated: truncated,
 		coverage:  coverageFromIntent(fromIntent.result.Coverage),
+	}, nil
+}
+
+// orderPool orders one repository's candidate pool the way a caller who pages
+// through it can rely on: one block at a time, with the blocks left in the order
+// the backend sent them.
+//
+// Ordering the whole pool at once is what used to break paging. The pool is
+// widened for the page that was asked for — page five is cut from a wider pool
+// than page one, since no fetch carries a skip — and a wider pool ordered as a
+// whole can lift a row the backend sent later in front of rows an earlier page
+// already handed out. Everything after that point slides back, so some files
+// arrive twice and the files at the far end are stepped over and never arrive at
+// all. On a pool whose backend order runs against the structural one, that cost a
+// 300-file answer 50 files delivered twice and 50 that could not be reached.
+//
+// Ordering block by block pins the earlier blocks down. Widening the pool only
+// appends blocks to it, so the order of its first n rows does not depend on how
+// many rows came after them, and a page already cut stays cut where it was.
+//
+// What it gives up is that a row cannot be promoted out of its block however well
+// it scores. The block is why that costs nothing a caller can see: it is the pool
+// a single page would have fetched on its own, so the first page of any query is
+// ordered exactly as it was before, and no page is ordered from fewer rows than
+// asking for it alone would have used.
+//
+// @requires nodes is the backend's rank-ordered pool, fetched in whole multiples of block.
+// @ensures the order of the first n rows does not depend on any row after them, at every n that is a multiple of block.
+// @intent keep a page already delivered from being reshuffled by the wider pool the next page fetches.
+func orderPool(query string, nodes []graph.Node, block int) []graph.Node {
+	if block <= 0 || len(nodes) <= block {
+		return searchrank.Rerank(query, nodes, 0)
 	}
-	if p.PathPrefix == "" {
-		return out, nil
+	out := make([]graph.Node, 0, len(nodes))
+	for start := 0; start < len(nodes); start += block {
+		out = append(out, searchrank.Rerank(query, nodes[start:min(start+block, len(nodes))], 0)...)
 	}
-	out.named = out.named[:0]
-	for _, n := range named {
-		if pathspec.HasPathPrefix(n.FilePath, p.PathPrefix) {
-			out.named = append(out.named, n)
+	return out
+}
+
+// orderGroupedPool is orderPool for a federated pool: every repository's rows are
+// cut into blocks of their own, and one block from each repository is merged at a
+// time.
+//
+// Merging block by block rather than pool by pool is what keeps each repository's
+// own list a prefix-extension as the pools widen, which is what federated paging
+// resumes from — every namespace is windowed at the same offset in its own list.
+// A block a repository has no rows for contributes nothing, so a repository with
+// fewer candidates than the others does not hold the blocks after it open.
+//
+// @requires each group is that repository's rank-ordered pool, fetched in whole multiples of block.
+// @intent give federated paging the same fixed prefix a single repository's paging has.
+func orderGroupedPool(query string, groups [][]graph.Node, block int) []graph.Node {
+	widest, total := 0, 0
+	for _, g := range groups {
+		widest = max(widest, len(g))
+		total += len(g)
+	}
+	if block <= 0 || widest <= block {
+		return searchrank.RerankGroups(query, groups, 0)
+	}
+	out := make([]graph.Node, 0, total)
+	for start := 0; start < widest; start += block {
+		inBlock := make([][]graph.Node, 0, len(groups))
+		for _, g := range groups {
+			if start >= len(g) {
+				continue
+			}
+			inBlock = append(inBlock, g[start:min(start+block, len(g))])
+		}
+		out = append(out, searchrank.RerankGroups(query, inBlock, 0)...)
+	}
+	return out
+}
+
+// keepPathPrefix drops the candidates that live outside the caller's path
+// filter, once the answer's order is already decided.
+//
+// Filtering afterwards rather than before is the same set of files either way,
+// and in the same order: the order is decided by each candidate's own structural
+// evidence, so removing a candidate cannot move the ones that stay. What it does
+// change is the number a candidate is charged as its retrieval rank, which is
+// its position in the slice the ranker is handed. A filter that runs first
+// renumbers the pool, and that number stops being the rank the backend gave the
+// candidate. Nothing reads it that closely today — it only breaks a tie between
+// two candidates of the same identity — but the pool's own numbering is what
+// keeps a page already delivered from being reshuffled, so it has to stay the
+// backend's.
+//
+// @ensures the returned candidates keep the order they arrived in.
+// @intent apply the caller's path filter without renumbering the pool the order was decided from.
+func keepPathPrefix(nodes []graph.Node, prefix string) []graph.Node {
+	if prefix == "" {
+		return nodes
+	}
+	kept := nodes[:0]
+	for _, n := range nodes {
+		if pathspec.HasPathPrefix(n.FilePath, prefix) {
+			kept = append(kept, n)
 		}
 	}
-	filteredIntent := out.intent[:0]
-	for _, h := range intentHits {
-		if pathspec.HasPathPrefix(h.Node.FilePath, p.PathPrefix) {
-			filteredIntent = append(filteredIntent, h)
-		}
-	}
-	out.intent = filteredIntent
-	return out, nil
+	return kept
 }
 
 // coverageFromIntent carries the recorded-reason index's coverage across the port

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/tae2089/trace"
@@ -103,6 +104,40 @@ func answerableCorpus(n int) []graph.Node {
 	return out
 }
 
+// reversedCorpus is files files of hitsPerFile declarations the query names,
+// handed over in the order a backend whose own relevance order runs exactly
+// against the structural one would hand them: the row it puts first is the row
+// structural scoring puts last.
+//
+// The padding is what turns the order around. Every name starts with the query,
+// so every file is a real answer to it, but a longer surrounding identifier
+// scores lower — so the most padded name is the weakest structurally, and that
+// is the row the backend offers first. No two names are padded alike, so no two
+// files score alike and nothing falls through to a tie-break.
+//
+// This is the shape answerableCorpus cannot show. There, every file scores the
+// same and the pool's own order survives reranking, so a pool that grows only
+// ever grows at the end. Here reranking turns the pool around, and every row a
+// wider pool adds belongs in front of the ones already delivered.
+//
+// hitsPerFile is how many rows one file spends of the pool. It is 1 for the
+// plainest reading of the shape, and more where a test needs the page to sit at
+// the far end of its own pool: the pool is five rows wide for every file asked
+// for, so files of five hits put the last file of a page on the pool's last row.
+func reversedCorpus(files, hitsPerFile int) []graph.Node {
+	out := make([]graph.Node, 0, files*hitsPerFile)
+	id := uint(1)
+	for i := range files {
+		padded := "alpha" + strings.Repeat("x", files-1-i)
+		path := fmt.Sprintf("pkg/f%03d.go", i)
+		for range hitsPerFile {
+			out = append(out, node(id, padded, path))
+			id++
+		}
+	}
+	return out
+}
+
 // crowdedCorpus is one file holding hits hits, followed by quiet files of one
 // hit each. The crowded file alone fills a first page's candidate pool.
 func crowdedCorpus(hits, quiet int) []graph.Node {
@@ -186,6 +221,87 @@ func TestSearch_PagesAThreeHundredFileAnswerToTheEnd(t *testing.T) {
 	}
 	if len(seen) != total {
 		t.Fatalf("paging to the completion signal yielded %d files, want all %d", len(seen), total)
+	}
+}
+
+// walkAnswer pages through one repository's answer with exactly the offsets the
+// answer suggests, and reports how many pages each file arrived on.
+func walkAnswer(t *testing.T, svc *Service, p Params, maxPages int) (seen map[string]int, repeats []string) {
+	t.Helper()
+	ctx := requestctx.WithNamespace(context.Background(), requestctx.DefaultNamespace)
+	seen = map[string]int{}
+	for range maxPages {
+		list, err := svc.Search(ctx, p)
+		if err != nil {
+			t.Fatalf("Search at offset %d: %v", p.Offset, err)
+		}
+		if len(list.Files) == 0 {
+			t.Fatalf("page at offset %d came back empty (%q) after %d files", p.Offset, list.Note, len(seen))
+		}
+		for _, f := range list.Files {
+			if seen[f.FilePath] > 0 {
+				repeats = append(repeats, f.FilePath)
+			}
+			seen[f.FilePath]++
+		}
+		if list.OverflowFiles == 0 && !list.PoolTruncated {
+			return seen, repeats
+		}
+		if list.NextOffset <= p.Offset {
+			t.Fatalf("the answer at offset %d suggested offset %d, which does not move", p.Offset, list.NextOffset)
+		}
+		// Exactly the call the answer's own `next` action names.
+		p.Offset = list.NextOffset
+	}
+	t.Fatalf("paging did not finish in %d pages", maxPages)
+	return nil, nil
+}
+
+// A backend order that runs against the structural one is where paging used to
+// come apart: every row a wider pool added belonged in front of the rows already
+// delivered, so the page boundary slid backwards over files that had already
+// been handed out and past files that never were. Measured before the fix, this
+// answer reached 250 of its 300 files and delivered 50 of them twice.
+func TestSearch_PagesToTheEndWhenTheBackendOrderRunsAgainstTheStructuralOne(t *testing.T) {
+	const total = 300
+	svc := New(&fakeSearcher{byNamespace: map[string][]graph.Node{
+		requestctx.DefaultNamespace: reversedCorpus(total, 1),
+	}})
+
+	seen, repeats := walkAnswer(t, svc, Params{Query: "alpha", Limit: 10}, total)
+	if len(repeats) > 0 {
+		t.Errorf("%d files came back on more than one page: %v", len(repeats), repeats)
+	}
+	if len(seen) != total {
+		t.Errorf("paging reached %d files, want all %d", len(seen), total)
+	}
+}
+
+// A page of files that each answer with several hits sits at the far end of its
+// own candidate pool: the pool is five rows wide for every file asked for, so
+// files of five hits put the last file of the page on the pool's last row. That
+// is where the block the pool ends in starts to matter. A pool that stops in the
+// middle of a block holds a block the backend has more rows for, so the next,
+// wider page fills that block in and reorders it — and the files the earlier page
+// cut out of the half-filled block come back on the later one.
+//
+// Limit 7 is a limit whose pool is not a whole number of blocks: the pool for its
+// second page is 5×(7+7) = 70 rows, and the block is 50.
+func TestSearch_PagesToTheEndWhenThePageReachesThePoolsLastBlock(t *testing.T) {
+	const (
+		files = 60
+		hits  = 5
+	)
+	svc := New(&fakeSearcher{byNamespace: map[string][]graph.Node{
+		requestctx.DefaultNamespace: reversedCorpus(files, hits),
+	}})
+
+	seen, repeats := walkAnswer(t, svc, Params{Query: "alpha", Limit: 7}, files)
+	if len(repeats) > 0 {
+		t.Errorf("%d files came back on more than one page: %v", len(repeats), repeats)
+	}
+	if len(seen) != files {
+		t.Errorf("paging reached %d files, want all %d", len(seen), files)
 	}
 }
 
@@ -276,7 +392,7 @@ func TestSearchFederated_FetchesEachNamespacePoolForTheOffsetToo(t *testing.T) {
 	}
 }
 
-func TestSearch_FiltersByPathPrefixBeforeRanking(t *testing.T) {
+func TestSearch_FiltersByPathPrefix(t *testing.T) {
 	pool := []graph.Node{
 		node(1, "alpha", "keep/alpha.go"),
 		node(2, "alphaHelper", "drop/beta.go"),
@@ -475,6 +591,28 @@ func walkFederated(t *testing.T, svc *Service, namespaces []string, p Params, ma
 	}
 	t.Fatalf("paging did not finish in %d pages", maxPages)
 	return nil, nil
+}
+
+// Federated paging is cut from one pool per repository, so it comes apart the
+// same way a single repository's does when the pool it is cut from is reordered
+// as a whole. Each repository here hands over the order that runs against
+// structural scoring, and there are enough files in each that the pool has to
+// grow past its first block to reach the end.
+func TestSearchFederated_PagesToTheEndWhenEveryBackendOrderRunsAgainstTheStructuralOne(t *testing.T) {
+	namespaces := []string{"repo-a", "repo-b"}
+	const filesEach = 120
+	svc := New(&fakeSearcher{byNamespace: map[string][]graph.Node{
+		"repo-a": reversedCorpus(filesEach, 1),
+		"repo-b": reversedCorpus(filesEach, 1),
+	}})
+
+	seen, repeats := walkFederated(t, svc, namespaces, Params{Query: "alpha", Limit: 10}, filesEach)
+	if len(repeats) > 0 {
+		t.Errorf("%d files came back on more than one page: %v", len(repeats), repeats)
+	}
+	if want := filesEach * len(namespaces); len(seen) != want {
+		t.Errorf("paging reached %d files, want all %d", len(seen), want)
+	}
 }
 
 func TestSearchFederated_PagingWithTheSuggestedOffsetSkipsAndRepeatsNothing(t *testing.T) {
