@@ -11,6 +11,8 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"github.com/tae2089/code-context-graph/internal/db/dbtest"
 )
 
 // TestPostgresIsReachable fails a run that asked for PostgreSQL and did not get
@@ -31,7 +33,7 @@ func TestPostgresIsReachable(t *testing.T) {
 		t.Skip("REQUIRE_POSTGRES unset: PostgreSQL is optional for this run")
 	}
 
-	db, err := gorm.Open(postgres.Open(postgresTestDSN()), &gorm.Config{Logger: logger.Discard})
+	db, err := gorm.Open(postgres.Open(dbtest.PostgresDSN()), &gorm.Config{Logger: logger.Discard})
 	if err != nil {
 		t.Fatalf("REQUIRE_POSTGRES is set but PostgreSQL could not be opened, so every postgres-tagged test would have skipped: %v", err)
 	}

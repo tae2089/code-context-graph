@@ -35,6 +35,38 @@ make test
 
 `make test`는 Go 테스트 스위트와 Docker 통합 테스트용 경량 셸 헬퍼 테스트를 모두 실행합니다.
 
+## PostgreSQL 테스트
+
+`postgres` 빌드 태그가 붙은 테스트는 실제 서버가 필요합니다. `TEST_POSTGRES_DSN`으로 서버를 지정한 뒤 실행합니다:
+
+```bash
+docker run -d --name ccg-test-pg -p 5432:5432 \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=ccg_test postgres:16
+
+TEST_POSTGRES_DSN="host=localhost user=postgres password=postgres dbname=ccg_test port=5432 sslmode=disable" \
+  CGO_ENABLED=1 go test -tags "fts5,postgres" ./... -count=1
+```
+
+이 명령에서 주의할 점 두 가지:
+
+- 읽히는 환경 변수는 `TEST_POSTGRES_DSN` 하나뿐입니다. 값이 없거나 이름을 잘못 쓰면 모든 postgres 테스트가 `t.Skip`을 호출하고, 실제로는 아무것도 실행하지 않은 채 패키지마다 `ok`만 출력합니다. CI처럼 `REQUIRE_POSTGRES=1`을 설정하면 이 조용한 통과가 실패로 바뀝니다.
+- `-p 1`은 쓰지 않습니다. 각 테스트가 `internal/db/dbtest`를 통해 자기 스키마를 만들고 `search_path`를 거기로 맞추므로 패키지가 병렬로 돌아갑니다. 패키지를 함께 돌릴 때만 실패하는 테스트는 자기 스키마 밖을 건드리고 있다는 뜻이며, `-p 1`은 그것을 고치는 대신 감춥니다.
+
+postgres 테스트를 새로 쓸 때는 직접 커넥션을 열지 말고 헬퍼 두 개 중 하나를 씁니다:
+
+```go
+db := dbtest.OpenIsolatedPostgres(t)   // 이 테스트 전용 스키마로 범위가 잡힌 *gorm.DB
+dsn := dbtest.IsolatedPostgresDSN(t)   // 같은 스키마를 DSN으로. 풀을 직접 여는 코드용
+```
+
+둘 다 스키마를 만들고, 테스트가 끝나면 지우고, 서버가 없으면 테스트를 건너뜁니다. 설계상 알아둘 점:
+
+- 스키마는 `SET search_path` 문이 아니라 DSN에 담겨 전달됩니다. `SET`은 커넥션 하나에만 적용되는데 풀은 여러 개를 열고, 나머지는 계속 `public`에 씁니다.
+- DSN에 `search_path`를 직접 써넣지 말고, 테스트에서 `public`을 이름으로 쓰지 마세요. 스키마를 명시한 이름이나 `'public'`으로 필터한 카탈로그 쿼리는 다른 테스트의 테이블을 읽습니다.
+- 카탈로그 쿼리에는 스키마 조건이 필요합니다. `SELECT count(*) FROM pg_indexes WHERE indexname = 'x'`는 병렬로 도는 모든 테스트의 사본을 셉니다. `current_schema()`로 필터하거나 `migration.PostgresIndexExists`를 쓰세요.
+- 익스텐션은 스키마가 아니라 데이터베이스에 속하므로, `pg_trgm`은 전용 스키마에 두고 각 테스트의 `search_path` 뒤에 붙입니다. 이것이 `public` 밖에서도 `gin_trgm_ops` 인덱스가 동작하게 하는 부분입니다.
+- 강제 종료된 테스트가 남긴 스키마는 다음 실행에서 생성 시각 기준 정리(sweep)로 지워집니다. 기준 시간은 어떤 테스트보다도 긴 시간 단위라서, 사용 중인 스키마가 지워지는 일은 없습니다.
+
 ## Integration Test
 
 풀스택 파이프라인 테스트: Gitea push → 명시적 `ccg migrate` → 웹훅 → ccg 복제 → 빌드 → PostgreSQL → MCP 검증:

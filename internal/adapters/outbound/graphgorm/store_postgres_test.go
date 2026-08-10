@@ -6,16 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
-	"time"
 
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
 	"github.com/tae2089/code-context-graph/internal/app/ingest"
+	"github.com/tae2089/code-context-graph/internal/db/dbtest"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
@@ -111,51 +108,7 @@ func TestDeleteGraph_PostgresHandlesMoreThanBindParameterLimit(t *testing.T) {
 func setupIsolatedPostgresStore(t *testing.T) (*Store, *gorm.DB) {
 	t.Helper()
 
-	dsn := os.Getenv("TEST_POSTGRES_DSN")
-	if dsn == "" {
-		dsn = "host=localhost user=postgres password=postgres dbname=ccg_test port=5432 sslmode=disable"
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Skipf("PostgreSQL not available: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("get sql DB: %v", err)
-	}
-	sqlDB.SetMaxOpenConns(1)
-	schema := fmt.Sprintf("ccg_ar02_%d", time.Now().UnixNano())
-	schemaCreated := false
-	t.Cleanup(func() {
-		if schemaCreated {
-			if err := db.Exec("SET search_path TO public").Error; err != nil {
-				t.Errorf("reset search path: %v", err)
-			}
-			if err := db.Exec("DROP SCHEMA " + schema + " CASCADE").Error; err != nil {
-				t.Errorf("drop isolated schema: %v", err)
-			}
-		}
-		if err := sqlDB.Close(); err != nil {
-			t.Errorf("close PostgreSQL pool: %v", err)
-		}
-	})
-
-	var databaseName string
-	if err := db.Raw("SELECT current_database()").Scan(&databaseName).Error; err != nil {
-		t.Fatalf("query database name: %v", err)
-	}
-	if !strings.HasSuffix(databaseName, "_test") {
-		t.Fatalf("refusing to create isolated schema in non-test database %q", databaseName)
-	}
-
-	if err := db.Exec("CREATE SCHEMA " + schema).Error; err != nil {
-		t.Fatalf("create isolated schema: %v", err)
-	}
-	schemaCreated = true
-	if err := db.Exec("SET search_path TO " + schema).Error; err != nil {
-		t.Fatalf("set isolated search path: %v", err)
-	}
-
+	db := dbtest.OpenIsolatedPostgres(t)
 	s := New(db)
 	if err := s.AutoMigrate(); err != nil {
 		t.Fatalf("migrate graph schema: %v", err)

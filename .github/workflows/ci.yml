@@ -110,9 +110,9 @@ jobs:
       - name: Run go vet with the postgres tag
         run: CGO_ENABLED=1 go vet -tags "fts5,postgres" ./...
 
-      # -p 1 is required, not a speed knob. Every postgres test resets the
-      # server with DROP SCHEMA public CASCADE, and all packages share one
-      # database, so two packages running at once destroy each other's tables
-      # mid-test. Serialising the packages is what keeps them independent.
+      # Packages run in parallel. Every postgres test takes its own schema from
+      # internal/db/dbtest and names no other, so the -p 1 this step used to
+      # carry is no longer needed. Putting it back would hide a test that
+      # reaches outside its own schema instead of fixing it.
       - name: Run go test with the postgres tag
-        run: CGO_ENABLED=1 go test -p 1 -tags "fts5,postgres" ./... -count=1
+        run: CGO_ENABLED=1 go test -tags "fts5,postgres" ./... -count=1

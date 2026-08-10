@@ -800,12 +800,13 @@ func SQLiteColumnInfo(db *gorm.DB, tableName, columnName string) (struct {
 
 // postgresColumnNotNull checks whether an information_schema column is NOT NULL.
 // @intent PostgreSQL 컬럼 nullability 검증을 위한 내부 helper를 제공한다.
+// @domainRule the answer describes the schema this connection uses, not a schema named in the query.
 func postgresColumnNotNull(db *gorm.DB, tableName, columnName string) (bool, error) {
 	var nullable string
 	err := db.Raw(`
 		SELECT is_nullable
 		FROM information_schema.columns
-		WHERE table_schema = 'public'
+		WHERE table_schema = current_schema()
 		AND table_name = ?
 		AND column_name = ?
 	`, tableName, columnName).Scan(&nullable).Error
@@ -822,7 +823,7 @@ func postgresColumnDataType(db *gorm.DB, tableName, columnName string) (string, 
 	err := db.Raw(`
 		SELECT data_type
 		FROM information_schema.columns
-		WHERE table_schema = 'public'
+		WHERE table_schema = current_schema()
 		AND table_name = ?
 		AND column_name = ?
 	`, tableName, columnName).Scan(&dataType).Error
@@ -844,14 +845,15 @@ func PostgresColumnDataType(db *gorm.DB, tableName, columnName string) (string, 
 	return postgresColumnDataType(db, tableName, columnName)
 }
 
-// postgresIndexExists reports whether a named Postgres index exists in public schema.
+// postgresIndexExists reports whether a named Postgres index exists in the current schema.
 // @intent 검색 인덱스와 운영 필수 인덱스 존재 여부를 내부 helper로 조회한다.
+// @domainRule the answer describes the schema this connection uses, not a schema named in the query.
 func postgresIndexExists(db *gorm.DB, indexName string) (bool, error) {
 	var count int64
 	err := db.Raw(`
 		SELECT COUNT(*)
 		FROM pg_indexes
-		WHERE schemaname = 'public'
+		WHERE schemaname = current_schema()
 		AND indexname = ?
 	`, indexName).Scan(&count).Error
 	return count > 0, err
@@ -863,15 +865,19 @@ func PostgresIndexExists(db *gorm.DB, indexName string) (bool, error) {
 	return postgresIndexExists(db, indexName)
 }
 
-// postgresTriggerExists reports whether a named non-internal Postgres trigger exists.
+// postgresTriggerExists reports whether a named non-internal Postgres trigger exists in the current schema.
 // @intent 검색 트리거 같은 운영 필수 트리거 존재 여부를 내부 helper로 조회한다.
+// @domainRule trigger names are unique per table, not per database, so the answer is scoped to the schema this connection uses.
 func postgresTriggerExists(db *gorm.DB, triggerName string) (bool, error) {
 	var count int64
 	err := db.Raw(`
 		SELECT COUNT(*)
-		FROM pg_trigger
-		WHERE tgname = ?
-		AND NOT tgisinternal
+		FROM pg_trigger AS trigger_entry
+		JOIN pg_class AS table_entry ON table_entry.oid = trigger_entry.tgrelid
+		JOIN pg_namespace AS schema_entry ON schema_entry.oid = table_entry.relnamespace
+		WHERE trigger_entry.tgname = ?
+		AND NOT trigger_entry.tgisinternal
+		AND schema_entry.nspname = current_schema()
 	`, triggerName).Scan(&count).Error
 	return count > 0, err
 }

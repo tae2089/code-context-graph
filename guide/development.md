@@ -33,6 +33,38 @@ make test
 
 `make test` runs both the Go test suite and the lightweight shell helper tests for the Docker integration harness.
 
+## PostgreSQL Tests
+
+Tests behind the `postgres` build tag need a real server. Point `TEST_POSTGRES_DSN` at one and run:
+
+```bash
+docker run -d --name ccg-test-pg -p 5432:5432 \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=ccg_test postgres:16
+
+TEST_POSTGRES_DSN="host=localhost user=postgres password=postgres dbname=ccg_test port=5432 sslmode=disable" \
+  CGO_ENABLED=1 go test -tags "fts5,postgres" ./... -count=1
+```
+
+Two things to know about that command:
+
+- `TEST_POSTGRES_DSN` is the only variable read. With it unset or misspelled, every postgres test calls `t.Skip`, and the run prints `ok` for each package while having exercised nothing. Set `REQUIRE_POSTGRES=1` to turn that silence into a failure, as CI does.
+- No `-p 1`. Packages run in parallel because each test creates its own schema through `internal/db/dbtest` and points `search_path` at it. A test that fails only when packages run together is reaching outside its schema; `-p 1` would hide that rather than fix it.
+
+Writing a postgres test means calling one of two helpers instead of opening a connection yourself:
+
+```go
+db := dbtest.OpenIsolatedPostgres(t)   // a *gorm.DB scoped to this test's schema
+dsn := dbtest.IsolatedPostgresDSN(t)   // the same schema as a DSN, for code that opens its own pool
+```
+
+Both create the schema, drop it when the test returns, and skip the test when no server answers. Notes on the design:
+
+- The schema travels in the DSN, not in a `SET search_path` statement. `SET` reaches one connection; a pool opens several, and the rest keep writing to `public`.
+- Never write `search_path` into the DSN by hand and never name `public` in a test. A schema-qualified name or a catalog query filtered on `'public'` reads another test's tables.
+- Catalog queries need a schema condition. `SELECT count(*) FROM pg_indexes WHERE indexname = 'x'` counts every concurrent test's copy. Filter on `current_schema()`, or use `migration.PostgresIndexExists`.
+- Extensions belong to a database, not a schema, so `pg_trgm` lives in a schema of its own that is appended to each test's `search_path`. That is what keeps an index using `gin_trgm_ops` working outside `public`.
+- A schema left behind by a killed test is dropped by an age-based sweep on the next run. The cutoff is hours, far longer than any test, so a schema in use is never swept.
+
 ## Integration Test
 
 Full-stack pipeline test: Gitea push → explicit `ccg migrate` → webhook → ccg clone → build → PostgreSQL → MCP verification:
