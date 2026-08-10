@@ -3173,6 +3173,11 @@ func TestHandler_Search_PointsAtTheArgumentThatShowsWeakCandidates(t *testing.T)
 // the annotate step, which is the step that has no tool. Counting zero was only
 // ever a proxy for "nothing unreachable was suggested", so it now asks the
 // server's own tool list that question directly.
+//
+// Only the tool form is checked here, because only this package can ask what the
+// server registers. The skill form is unreachable in its own way — a name with
+// no directory under skills/ — and is checked where the name is written, by
+// wire.TestNewResponse_NamesOnlySkillsThisRepositoryShips.
 func TestHandler_Search_EmptyAnswerSuggestsNoRetiredHandOff(t *testing.T) {
 	deps := setupTestDeps(t)
 	ctx := context.Background()
@@ -3196,6 +3201,7 @@ func TestHandler_Search_EmptyAnswerSuggestsNoRetiredHandOff(t *testing.T) {
 		registered[tool.Tool.Name] = true
 	}
 	for _, n := range payload.Next {
+		// A skill step names no tool, so the tool list has nothing to say about it.
 		if n.Tool == "" && n.Skill != "" {
 			continue
 		}
