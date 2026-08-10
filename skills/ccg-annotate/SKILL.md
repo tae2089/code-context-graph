@@ -90,9 +90,9 @@ For cross-namespace behavior, explain the reason in the semantic tag and put the
 Annotations enter the search index only at graph build time. An annotation
 written but not rebuilt is invisible to `search` — the most common way to
 conclude, wrongly, that "annotations don't work". So rebuild first: run
-`ccg build <dir>` (or `ccg update <dir>` after ordinary edits, per the `ccg`
-skill's Graph Freshness workflow), then run `ccg lint` to verify annotation
-quality and references.
+`ccg build <dir>`, or `ccg update <dir>` after ordinary edits — the
+`ccg` skill's Graph Freshness workflow decides which. Then run `ccg lint` to
+verify annotation quality and references.
 
 For representative changed symbols, call `get_annotation` and confirm the
 expected tags and values were actually stored. The parser returns unknown-tag
