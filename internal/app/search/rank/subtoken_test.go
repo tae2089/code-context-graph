@@ -42,7 +42,11 @@ func TestNameSim_AQueryWithNothingLongerStillFindsTheNameItSpells(t *testing.T) 
 		{"c", "c"},
 		{"db", "db"},
 		{"T", "T"},
-		{"x y", "xy"},
+		// Spelled backwards on purpose. Run together, x y is not an ordered
+		// subsequence of yx, so the joined reading cannot reach this one and
+		// only the piece-by-piece reading can — which is the reading the rule
+		// withholds, and here there is nothing longer to withhold it for.
+		{"x y", "yx"},
 	}
 	for _, c := range cases {
 		node := graph.Node{Name: c.name, QualifiedName: "pkg." + c.name}
