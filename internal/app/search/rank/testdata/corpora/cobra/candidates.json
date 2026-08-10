@@ -1,0 +1,526 @@
+{
+  "ExactArgs": [
+    {
+      "id": 813,
+      "name": "ExactArgs",
+      "qualified_name": "cobra.ExactArgs",
+      "kind": "function",
+      "file_path": "args.go"
+    },
+    {
+      "id": 816,
+      "name": "ExactValidArgs",
+      "qualified_name": "cobra.ExactValidArgs",
+      "kind": "function",
+      "file_path": "args.go"
+    }
+  ],
+  "Excute": [],
+  "ExecuteC": [
+    {
+      "id": 919,
+      "name": "ExecuteC",
+      "qualified_name": "cobra.Command.ExecuteC",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 918,
+      "name": "ExecuteContextC",
+      "qualified_name": "cobra.Command.ExecuteContextC",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 916,
+      "name": "ExecuteContext",
+      "qualified_name": "cobra.Command.ExecuteContext",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 860,
+      "name": "SetContext",
+      "qualified_name": "cobra.Command.SetContext",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 859,
+      "name": "Context",
+      "qualified_name": "cobra.Command.Context",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 913,
+      "name": "execute",
+      "qualified_name": "cobra.Command.execute",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 917,
+      "name": "Execute",
+      "qualified_name": "cobra.Command.Execute",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 984,
+      "name": "tmplFunc",
+      "qualified_name": "cobra.tmplFunc",
+      "kind": "class",
+      "file_path": "command.go"
+    },
+    {
+      "id": 843,
+      "name": "OnInitialize",
+      "qualified_name": "cobra.OnInitialize",
+      "kind": "function",
+      "file_path": "cobra.go"
+    },
+    {
+      "id": 844,
+      "name": "OnFinalize",
+      "qualified_name": "cobra.OnFinalize",
+      "kind": "function",
+      "file_path": "cobra.go"
+    }
+  ],
+  "SuggestionsFor": [
+    {
+      "id": 909,
+      "name": "SuggestionsFor",
+      "qualified_name": "cobra.Command.SuggestionsFor",
+      "kind": "function",
+      "file_path": "command.go"
+    }
+  ],
+  "active help": [
+    {
+      "id": 804,
+      "name": "activeHelpEnvVar",
+      "qualified_name": "cobra.activeHelpEnvVar",
+      "kind": "function",
+      "file_path": "active_help.go"
+    },
+    {
+      "id": 801,
+      "name": "active_help.go",
+      "qualified_name": "active_help.go",
+      "kind": "file",
+      "file_path": "active_help.go"
+    },
+    {
+      "id": 803,
+      "name": "GetActiveHelpConfig",
+      "qualified_name": "cobra.GetActiveHelpConfig",
+      "kind": "function",
+      "file_path": "active_help.go"
+    },
+    {
+      "id": 802,
+      "name": "AppendActiveHelp",
+      "qualified_name": "cobra.AppendActiveHelp",
+      "kind": "function",
+      "file_path": "active_help.go"
+    }
+  ],
+  "database connection pool": [],
+  "flag groups": [
+    {
+      "id": 1069,
+      "name": "validateRequiredFlagGroups",
+      "qualified_name": "cobra.validateRequiredFlagGroups",
+      "kind": "function",
+      "file_path": "flag_groups.go"
+    },
+    {
+      "id": 1071,
+      "name": "validateExclusiveFlagGroups",
+      "qualified_name": "cobra.validateExclusiveFlagGroups",
+      "kind": "function",
+      "file_path": "flag_groups.go"
+    },
+    {
+      "id": 1070,
+      "name": "validateOneRequiredFlagGroups",
+      "qualified_name": "cobra.validateOneRequiredFlagGroups",
+      "kind": "function",
+      "file_path": "flag_groups.go"
+    },
+    {
+      "id": 1062,
+      "name": "flag_groups.go",
+      "qualified_name": "flag_groups.go",
+      "kind": "file",
+      "file_path": "flag_groups.go"
+    },
+    {
+      "id": 1067,
+      "name": "hasAllFlags",
+      "qualified_name": "cobra.hasAllFlags",
+      "kind": "function",
+      "file_path": "flag_groups.go"
+    },
+    {
+      "id": 1068,
+      "name": "processFlagForGroupAnnotation",
+      "qualified_name": "cobra.processFlagForGroupAnnotation",
+      "kind": "function",
+      "file_path": "flag_groups.go"
+    },
+    {
+      "id": 1066,
+      "name": "ValidateFlagGroups",
+      "qualified_name": "cobra.Command.ValidateFlagGroups",
+      "kind": "function",
+      "file_path": "flag_groups.go"
+    },
+    {
+      "id": 1072,
+      "name": "sortedKeys",
+      "qualified_name": "cobra.sortedKeys",
+      "kind": "function",
+      "file_path": "flag_groups.go"
+    },
+    {
+      "id": 1073,
+      "name": "enforceFlagGroupsForCompletion",
+      "qualified_name": "cobra.Command.enforceFlagGroupsForCompletion",
+      "kind": "function",
+      "file_path": "flag_groups.go"
+    },
+    {
+      "id": 1064,
+      "name": "MarkFlagsOneRequired",
+      "qualified_name": "cobra.Command.MarkFlagsOneRequired",
+      "kind": "function",
+      "file_path": "flag_groups.go"
+    },
+    {
+      "id": 1065,
+      "name": "MarkFlagsMutuallyExclusive",
+      "qualified_name": "cobra.Command.MarkFlagsMutuallyExclusive",
+      "kind": "function",
+      "file_path": "flag_groups.go"
+    },
+    {
+      "id": 1063,
+      "name": "MarkFlagsRequiredTogether",
+      "qualified_name": "cobra.Command.MarkFlagsRequiredTogether",
+      "kind": "function",
+      "file_path": "flag_groups.go"
+    }
+  ],
+  "levenshtein": [
+    {
+      "id": 851,
+      "name": "ld",
+      "qualified_name": "cobra.ld",
+      "kind": "function",
+      "file_path": "cobra.go"
+    }
+  ],
+  "persistent flags": [
+    {
+      "id": 967,
+      "name": "PersistentFlags",
+      "qualified_name": "cobra.Command.PersistentFlags",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 981,
+      "name": "mergePersistentFlags",
+      "qualified_name": "cobra.Command.mergePersistentFlags",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 970,
+      "name": "HasPersistentFlags",
+      "qualified_name": "cobra.Command.HasPersistentFlags",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 974,
+      "name": "HasAvailablePersistentFlags",
+      "qualified_name": "cobra.Command.HasAvailablePersistentFlags",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 962,
+      "name": "Flags",
+      "qualified_name": "cobra.Command.Flags",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 979,
+      "name": "ParseFlags",
+      "qualified_name": "cobra.Command.ParseFlags",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 969,
+      "name": "HasFlags",
+      "qualified_name": "cobra.Command.HasFlags",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 973,
+      "name": "HasAvailableFlags",
+      "qualified_name": "cobra.Command.HasAvailableFlags",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 963,
+      "name": "LocalNonPersistentFlags",
+      "qualified_name": "cobra.Command.LocalNonPersistentFlags",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 982,
+      "name": "updateParentsPflags",
+      "qualified_name": "cobra.Command.updateParentsPflags",
+      "kind": "function",
+      "file_path": "command.go"
+    }
+  ],
+  "shell completion": [
+    {
+      "id": 992,
+      "name": "ShellCompDirective",
+      "qualified_name": "cobra.ShellCompDirective",
+      "kind": "type",
+      "file_path": "completions.go"
+    },
+    {
+      "id": 995,
+      "name": "CompletionOptions",
+      "qualified_name": "cobra.CompletionOptions",
+      "kind": "class",
+      "file_path": "completions.go"
+    },
+    {
+      "id": 1082,
+      "name": "shell_completions.go",
+      "qualified_name": "shell_completions.go",
+      "kind": "file",
+      "file_path": "shell_completions.go"
+    },
+    {
+      "id": 996,
+      "name": "SetDefaultShellCompDirective",
+      "qualified_name": "cobra.CompletionOptions.SetDefaultShellCompDirective",
+      "kind": "function",
+      "file_path": "completions.go"
+    },
+    {
+      "id": 1093,
+      "name": "MarkFlagDirname",
+      "qualified_name": "cobra.MarkFlagDirname",
+      "kind": "function",
+      "file_path": "shell_completions.go"
+    },
+    {
+      "id": 1089,
+      "name": "MarkFlagFilename",
+      "qualified_name": "cobra.MarkFlagFilename",
+      "kind": "function",
+      "file_path": "shell_completions.go"
+    },
+    {
+      "id": 1091,
+      "name": "MarkFlagDirname",
+      "qualified_name": "cobra.Command.MarkFlagDirname",
+      "kind": "function",
+      "file_path": "shell_completions.go"
+    },
+    {
+      "id": 1076,
+      "name": "genPowerShellCompletion",
+      "qualified_name": "cobra.Command.genPowerShellCompletion",
+      "kind": "function",
+      "file_path": "powershell_completions.go"
+    },
+    {
+      "id": 1086,
+      "name": "MarkFlagFilename",
+      "qualified_name": "cobra.Command.MarkFlagFilename",
+      "kind": "function",
+      "file_path": "shell_completions.go"
+    },
+    {
+      "id": 1092,
+      "name": "MarkPersistentFlagDirname",
+      "qualified_name": "cobra.Command.MarkPersistentFlagDirname",
+      "kind": "function",
+      "file_path": "shell_completions.go"
+    },
+    {
+      "id": 1077,
+      "name": "genPowerShellCompletionFile",
+      "qualified_name": "cobra.Command.genPowerShellCompletionFile",
+      "kind": "function",
+      "file_path": "powershell_completions.go"
+    },
+    {
+      "id": 1088,
+      "name": "MarkPersistentFlagFilename",
+      "qualified_name": "cobra.Command.MarkPersistentFlagFilename",
+      "kind": "function",
+      "file_path": "shell_completions.go"
+    },
+    {
+      "id": 1078,
+      "name": "GenPowerShellCompletionFile",
+      "qualified_name": "cobra.Command.GenPowerShellCompletionFile",
+      "kind": "function",
+      "file_path": "powershell_completions.go"
+    },
+    {
+      "id": 1075,
+      "name": "genPowerShellComp",
+      "qualified_name": "cobra.genPowerShellComp",
+      "kind": "function",
+      "file_path": "powershell_completions.go"
+    },
+    {
+      "id": 1085,
+      "name": "MarkFlagRequired",
+      "qualified_name": "cobra.MarkFlagRequired",
+      "kind": "function",
+      "file_path": "shell_completions.go"
+    },
+    {
+      "id": 1080,
+      "name": "GenPowerShellCompletionFileWithDesc",
+      "qualified_name": "cobra.Command.GenPowerShellCompletionFileWithDesc",
+      "kind": "function",
+      "file_path": "powershell_completions.go"
+    },
+    {
+      "id": 1083,
+      "name": "MarkFlagRequired",
+      "qualified_name": "cobra.Command.MarkFlagRequired",
+      "kind": "function",
+      "file_path": "shell_completions.go"
+    },
+    {
+      "id": 1002,
+      "name": "string",
+      "qualified_name": "cobra.ShellCompDirective.string",
+      "kind": "function",
+      "file_path": "completions.go"
+    },
+    {
+      "id": 1084,
+      "name": "MarkPersistentFlagRequired",
+      "qualified_name": "cobra.Command.MarkPersistentFlagRequired",
+      "kind": "function",
+      "file_path": "shell_completions.go"
+    },
+    {
+      "id": 1079,
+      "name": "GenPowerShellCompletion",
+      "qualified_name": "cobra.Command.GenPowerShellCompletion",
+      "kind": "function",
+      "file_path": "powershell_completions.go"
+    },
+    {
+      "id": 1081,
+      "name": "GenPowerShellCompletionWithDesc",
+      "qualified_name": "cobra.Command.GenPowerShellCompletionWithDesc",
+      "kind": "function",
+      "file_path": "powershell_completions.go"
+    },
+    {
+      "id": 1099,
+      "name": "MarkZshCompPositionalArgumentFile",
+      "qualified_name": "cobra.Command.MarkZshCompPositionalArgumentFile",
+      "kind": "function",
+      "file_path": "zsh_completions.go"
+    },
+    {
+      "id": 1090,
+      "name": "MarkFlagCustom",
+      "qualified_name": "cobra.MarkFlagCustom",
+      "kind": "function",
+      "file_path": "shell_completions.go"
+    },
+    {
+      "id": 1087,
+      "name": "MarkFlagCustom",
+      "qualified_name": "cobra.Command.MarkFlagCustom",
+      "kind": "function",
+      "file_path": "shell_completions.go"
+    },
+    {
+      "id": 1100,
+      "name": "MarkZshCompPositionalArgumentWords",
+      "qualified_name": "cobra.Command.MarkZshCompPositionalArgumentWords",
+      "kind": "function",
+      "file_path": "zsh_completions.go"
+    }
+  ],
+  "usage template": [
+    {
+      "id": 895,
+      "name": "UsageTemplate",
+      "qualified_name": "cobra.Command.UsageTemplate",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 867,
+      "name": "SetUsageTemplate",
+      "qualified_name": "cobra.Command.SetUsageTemplate",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 841,
+      "name": "AddTemplateFunc",
+      "qualified_name": "cobra.AddTemplateFunc",
+      "kind": "function",
+      "file_path": "cobra.go"
+    },
+    {
+      "id": 842,
+      "name": "AddTemplateFuncs",
+      "qualified_name": "cobra.AddTemplateFuncs",
+      "kind": "function",
+      "file_path": "cobra.go"
+    },
+    {
+      "id": 885,
+      "name": "getUsageTemplateFunc",
+      "qualified_name": "cobra.Command.getUsageTemplateFunc",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 959,
+      "name": "HasAvailableSubCommands",
+      "qualified_name": "cobra.Command.HasAvailableSubCommands",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 958,
+      "name": "HasHelpSubCommands",
+      "qualified_name": "cobra.Command.HasHelpSubCommands",
+      "kind": "function",
+      "file_path": "command.go"
+    }
+  ]
+}

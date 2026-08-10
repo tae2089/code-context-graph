@@ -1,0 +1,107 @@
+[
+  {
+    "query": "ExactArgs",
+    "bucket": "exact",
+    "retrieved": true,
+    "returned": 2,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "ExecuteC",
+    "bucket": "exact",
+    "retrieved": true,
+    "returned": 3,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1,
+    "weak_filtered": 7
+  },
+  {
+    "query": "persistent flags",
+    "bucket": "subword",
+    "retrieved": true,
+    "returned": 10,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "usage template",
+    "bucket": "subword",
+    "retrieved": true,
+    "returned": 5,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1,
+    "weak_filtered": 2
+  },
+  {
+    "query": "shell completion",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 23,
+    "relevant": 1,
+    "found": 1,
+    "rank": 3,
+    "weak_filtered": 2
+  },
+  {
+    "query": "active help",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 4,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "flag groups",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 12,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "levenshtein",
+    "bucket": "description",
+    "retrieved": true,
+    "returned": 0,
+    "relevant": 1,
+    "found": 0,
+    "rank": 0,
+    "weak_filtered": 1
+  },
+  {
+    "query": "SuggestionsFor",
+    "bucket": "exact",
+    "retrieved": true,
+    "returned": 1,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "database connection pool",
+    "bucket": "negative",
+    "negative": true,
+    "retrieved": false,
+    "returned": 0,
+    "relevant": 0,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "Excute",
+    "bucket": "typo",
+    "out_of_scope": true,
+    "retrieved": false,
+    "returned": 0,
+    "relevant": 1,
+    "found": 0,
+    "rank": 0
+  }
+]

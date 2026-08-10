@@ -1,0 +1,612 @@
+{
+  "AutoMigrate": [
+    {
+      "id": 556,
+      "name": "AutoMigrate",
+      "qualified_name": "migrator.Migrator.AutoMigrate",
+      "kind": "function",
+      "file_path": "migrator/migrator.go"
+    },
+    {
+      "id": 598,
+      "name": "AutoMigrate",
+      "qualified_name": "gorm.DB.AutoMigrate",
+      "kind": "function",
+      "file_path": "migrator.go"
+    }
+  ],
+  "OnConflict": [
+    {
+      "id": 228,
+      "name": "OnConflict",
+      "qualified_name": "clause.OnConflict",
+      "kind": "class",
+      "file_path": "clause/on_conflict.go"
+    },
+    {
+      "id": 230,
+      "name": "Build",
+      "qualified_name": "clause.OnConflict.Build",
+      "kind": "function",
+      "file_path": "clause/on_conflict.go"
+    },
+    {
+      "id": 231,
+      "name": "MergeClause",
+      "qualified_name": "clause.OnConflict.MergeClause",
+      "kind": "function",
+      "file_path": "clause/on_conflict.go"
+    },
+    {
+      "id": 27,
+      "name": "onConflictOption",
+      "qualified_name": "callbacks.onConflictOption",
+      "kind": "function",
+      "file_path": "callbacks/associations.go"
+    },
+    {
+      "id": 227,
+      "name": "clause/on_conflict.go",
+      "qualified_name": "clause/on_conflict.go",
+      "kind": "file",
+      "file_path": "clause/on_conflict.go"
+    },
+    {
+      "id": 229,
+      "name": "Name",
+      "qualified_name": "clause.OnConflict.Name",
+      "kind": "function",
+      "file_path": "clause/on_conflict.go"
+    }
+  ],
+  "Open": [
+    {
+      "id": 411,
+      "name": "Open",
+      "qualified_name": "gorm.Open",
+      "kind": "function",
+      "file_path": "gorm.go"
+    }
+  ],
+  "Preload": [
+    {
+      "id": 70,
+      "name": "Preload",
+      "qualified_name": "callbacks.Preload",
+      "kind": "function",
+      "file_path": "callbacks/query.go"
+    },
+    {
+      "id": 66,
+      "name": "preload",
+      "qualified_name": "callbacks.preload",
+      "kind": "function",
+      "file_path": "callbacks/preload.go"
+    },
+    {
+      "id": 65,
+      "name": "preloadDB",
+      "qualified_name": "callbacks.preloadDB",
+      "kind": "function",
+      "file_path": "callbacks/preload.go"
+    },
+    {
+      "id": 332,
+      "name": "PreloadBuilder",
+      "qualified_name": "gorm.PreloadBuilder",
+      "kind": "type",
+      "file_path": "generics.go"
+    },
+    {
+      "id": 362,
+      "name": "preloadBuilder",
+      "qualified_name": "gorm.preloadBuilder",
+      "kind": "class",
+      "file_path": "generics.go"
+    },
+    {
+      "id": 134,
+      "name": "Preload",
+      "qualified_name": "gorm.DB.Preload",
+      "kind": "function",
+      "file_path": "chainable_api.go"
+    },
+    {
+      "id": 381,
+      "name": "Preload",
+      "qualified_name": "gorm.chainG[T].Preload",
+      "kind": "function",
+      "file_path": "generics.go"
+    },
+    {
+      "id": 64,
+      "name": "preloadEntryPoint",
+      "qualified_name": "callbacks.preloadEntryPoint",
+      "kind": "function",
+      "file_path": "callbacks/preload.go"
+    },
+    {
+      "id": 363,
+      "name": "Where",
+      "qualified_name": "gorm.preloadBuilder.Where",
+      "kind": "function",
+      "file_path": "generics.go"
+    },
+    {
+      "id": 364,
+      "name": "Or",
+      "qualified_name": "gorm.preloadBuilder.Or",
+      "kind": "function",
+      "file_path": "generics.go"
+    },
+    {
+      "id": 365,
+      "name": "Not",
+      "qualified_name": "gorm.preloadBuilder.Not",
+      "kind": "function",
+      "file_path": "generics.go"
+    },
+    {
+      "id": 366,
+      "name": "Select",
+      "qualified_name": "gorm.preloadBuilder.Select",
+      "kind": "function",
+      "file_path": "generics.go"
+    },
+    {
+      "id": 367,
+      "name": "Omit",
+      "qualified_name": "gorm.preloadBuilder.Omit",
+      "kind": "function",
+      "file_path": "generics.go"
+    },
+    {
+      "id": 368,
+      "name": "Limit",
+      "qualified_name": "gorm.preloadBuilder.Limit",
+      "kind": "function",
+      "file_path": "generics.go"
+    },
+    {
+      "id": 369,
+      "name": "Offset",
+      "qualified_name": "gorm.preloadBuilder.Offset",
+      "kind": "function",
+      "file_path": "generics.go"
+    },
+    {
+      "id": 370,
+      "name": "Order",
+      "qualified_name": "gorm.preloadBuilder.Order",
+      "kind": "function",
+      "file_path": "generics.go"
+    },
+    {
+      "id": 371,
+      "name": "LimitPerRecord",
+      "qualified_name": "gorm.preloadBuilder.LimitPerRecord",
+      "kind": "function",
+      "file_path": "generics.go"
+    },
+    {
+      "id": 61,
+      "name": "callbacks/preload.go",
+      "qualified_name": "callbacks/preload.go",
+      "kind": "file",
+      "file_path": "callbacks/preload.go"
+    },
+    {
+      "id": 63,
+      "name": "embeddedValues",
+      "qualified_name": "callbacks.embeddedValues",
+      "kind": "function",
+      "file_path": "callbacks/preload.go"
+    },
+    {
+      "id": 62,
+      "name": "parsePreloadMap",
+      "qualified_name": "callbacks.parsePreloadMap",
+      "kind": "function",
+      "file_path": "callbacks/preload.go"
+    }
+  ],
+  "Preloda": [],
+  "Transaction": [
+    {
+      "id": 313,
+      "name": "Transaction",
+      "qualified_name": "gorm.DB.Transaction",
+      "kind": "function",
+      "file_path": "finisher_api.go"
+    },
+    {
+      "id": 76,
+      "name": "callbacks/transaction.go",
+      "qualified_name": "callbacks/transaction.go",
+      "kind": "file",
+      "file_path": "callbacks/transaction.go"
+    },
+    {
+      "id": 77,
+      "name": "BeginTransaction",
+      "qualified_name": "callbacks.BeginTransaction",
+      "kind": "function",
+      "file_path": "callbacks/transaction.go"
+    },
+    {
+      "id": 78,
+      "name": "CommitOrRollbackTransaction",
+      "qualified_name": "callbacks.CommitOrRollbackTransaction",
+      "kind": "function",
+      "file_path": "callbacks/transaction.go"
+    },
+    {
+      "id": 314,
+      "name": "Begin",
+      "qualified_name": "gorm.DB.Begin",
+      "kind": "function",
+      "file_path": "finisher_api.go"
+    },
+    {
+      "id": 315,
+      "name": "Commit",
+      "qualified_name": "gorm.DB.Commit",
+      "kind": "function",
+      "file_path": "finisher_api.go"
+    },
+    {
+      "id": 316,
+      "name": "Rollback",
+      "qualified_name": "gorm.DB.Rollback",
+      "kind": "function",
+      "file_path": "finisher_api.go"
+    },
+    {
+      "id": 492,
+      "name": "New",
+      "qualified_name": "stmt_store.lruStore.New",
+      "kind": "function",
+      "file_path": "internal/stmt_store/stmt_store.go"
+    }
+  ],
+  "create in batches": [
+    {
+      "id": 291,
+      "name": "CreateInBatches",
+      "qualified_name": "gorm.DB.CreateInBatches",
+      "kind": "function",
+      "file_path": "finisher_api.go"
+    },
+    {
+      "id": 345,
+      "name": "CreateInBatches",
+      "qualified_name": "gorm.createG[T].CreateInBatches",
+      "kind": "function",
+      "file_path": "generics.go"
+    }
+  ],
+  "kubernetes ingress controller": [],
+  "naming strategy": [
+    {
+      "id": 666,
+      "name": "NamingStrategy",
+      "qualified_name": "schema.NamingStrategy",
+      "kind": "class",
+      "file_path": "schema/naming.go"
+    },
+    {
+      "id": 675,
+      "name": "formatName",
+      "qualified_name": "schema.NamingStrategy.formatName",
+      "kind": "function",
+      "file_path": "schema/naming.go"
+    },
+    {
+      "id": 678,
+      "name": "toSchemaName",
+      "qualified_name": "schema.NamingStrategy.toSchemaName",
+      "kind": "function",
+      "file_path": "schema/naming.go"
+    },
+    {
+      "id": 677,
+      "name": "toDBName",
+      "qualified_name": "schema.NamingStrategy.toDBName",
+      "kind": "function",
+      "file_path": "schema/naming.go"
+    },
+    {
+      "id": 672,
+      "name": "CheckerName",
+      "qualified_name": "schema.NamingStrategy.CheckerName",
+      "kind": "function",
+      "file_path": "schema/naming.go"
+    },
+    {
+      "id": 673,
+      "name": "IndexName",
+      "qualified_name": "schema.NamingStrategy.IndexName",
+      "kind": "function",
+      "file_path": "schema/naming.go"
+    },
+    {
+      "id": 674,
+      "name": "UniqueName",
+      "qualified_name": "schema.NamingStrategy.UniqueName",
+      "kind": "function",
+      "file_path": "schema/naming.go"
+    },
+    {
+      "id": 667,
+      "name": "TableName",
+      "qualified_name": "schema.NamingStrategy.TableName",
+      "kind": "function",
+      "file_path": "schema/naming.go"
+    },
+    {
+      "id": 669,
+      "name": "ColumnName",
+      "qualified_name": "schema.NamingStrategy.ColumnName",
+      "kind": "function",
+      "file_path": "schema/naming.go"
+    },
+    {
+      "id": 671,
+      "name": "RelationshipFKName",
+      "qualified_name": "schema.NamingStrategy.RelationshipFKName",
+      "kind": "function",
+      "file_path": "schema/naming.go"
+    },
+    {
+      "id": 670,
+      "name": "JoinTableName",
+      "qualified_name": "schema.NamingStrategy.JoinTableName",
+      "kind": "function",
+      "file_path": "schema/naming.go"
+    },
+    {
+      "id": 668,
+      "name": "SchemaName",
+      "qualified_name": "schema.NamingStrategy.SchemaName",
+      "kind": "function",
+      "file_path": "schema/naming.go"
+    }
+  ],
+  "parse field": [
+    {
+      "id": 646,
+      "name": "ParseField",
+      "qualified_name": "schema.Schema.ParseField",
+      "kind": "function",
+      "file_path": "schema/field.go"
+    },
+    {
+      "id": 654,
+      "name": "parseFieldIndexes",
+      "qualified_name": "schema.parseFieldIndexes",
+      "kind": "function",
+      "file_path": "schema/index.go"
+    },
+    {
+      "id": 647,
+      "name": "setupValuerAndSetter",
+      "qualified_name": "schema.Field.setupValuerAndSetter",
+      "kind": "function",
+      "file_path": "schema/field.go"
+    }
+  ],
+  "prepared statement": [
+    {
+      "id": 610,
+      "name": "Close",
+      "qualified_name": "gorm.PreparedStmtDB.Close",
+      "kind": "function",
+      "file_path": "prepare_stmt.go"
+    },
+    {
+      "id": 608,
+      "name": "NewPreparedStmtDB",
+      "qualified_name": "gorm.NewPreparedStmtDB",
+      "kind": "function",
+      "file_path": "prepare_stmt.go"
+    },
+    {
+      "id": 606,
+      "name": "prepare_stmt.go",
+      "qualified_name": "prepare_stmt.go",
+      "kind": "file",
+      "file_path": "prepare_stmt.go"
+    }
+  ],
+  "soft delete": [
+    {
+      "id": 739,
+      "name": "soft_delete.go",
+      "qualified_name": "soft_delete.go",
+      "kind": "file",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 759,
+      "name": "SoftDeleteDeleteClause",
+      "qualified_name": "gorm.SoftDeleteDeleteClause",
+      "kind": "class",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 747,
+      "name": "SoftDeleteQueryClause",
+      "qualified_name": "gorm.SoftDeleteQueryClause",
+      "kind": "class",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 753,
+      "name": "SoftDeleteUpdateClause",
+      "qualified_name": "gorm.SoftDeleteUpdateClause",
+      "kind": "class",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 760,
+      "name": "Name",
+      "qualified_name": "gorm.SoftDeleteDeleteClause.Name",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 761,
+      "name": "Build",
+      "qualified_name": "gorm.SoftDeleteDeleteClause.Build",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 762,
+      "name": "MergeClause",
+      "qualified_name": "gorm.SoftDeleteDeleteClause.MergeClause",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 748,
+      "name": "Name",
+      "qualified_name": "gorm.SoftDeleteQueryClause.Name",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 749,
+      "name": "Build",
+      "qualified_name": "gorm.SoftDeleteQueryClause.Build",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 750,
+      "name": "MergeClause",
+      "qualified_name": "gorm.SoftDeleteQueryClause.MergeClause",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 754,
+      "name": "Name",
+      "qualified_name": "gorm.SoftDeleteUpdateClause.Name",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 755,
+      "name": "Build",
+      "qualified_name": "gorm.SoftDeleteUpdateClause.Build",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 756,
+      "name": "MergeClause",
+      "qualified_name": "gorm.SoftDeleteUpdateClause.MergeClause",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 763,
+      "name": "ModifyStatement",
+      "qualified_name": "gorm.SoftDeleteDeleteClause.ModifyStatement",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 751,
+      "name": "ModifyStatement",
+      "qualified_name": "gorm.SoftDeleteQueryClause.ModifyStatement",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 757,
+      "name": "ModifyStatement",
+      "qualified_name": "gorm.SoftDeleteUpdateClause.ModifyStatement",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 740,
+      "name": "DeletedAt",
+      "qualified_name": "gorm.DeletedAt",
+      "kind": "type",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 758,
+      "name": "DeleteClauses",
+      "qualified_name": "gorm.DeletedAt.DeleteClauses",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 743,
+      "name": "MarshalJSON",
+      "qualified_name": "gorm.DeletedAt.MarshalJSON",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 744,
+      "name": "UnmarshalJSON",
+      "qualified_name": "gorm.DeletedAt.UnmarshalJSON",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 745,
+      "name": "QueryClauses",
+      "qualified_name": "gorm.DeletedAt.QueryClauses",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 752,
+      "name": "UpdateClauses",
+      "qualified_name": "gorm.DeletedAt.UpdateClauses",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 741,
+      "name": "Scan",
+      "qualified_name": "gorm.DeletedAt.Scan",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 742,
+      "name": "Value",
+      "qualified_name": "gorm.DeletedAt.Value",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 746,
+      "name": "parseZeroValueTag",
+      "qualified_name": "gorm.parseZeroValueTag",
+      "kind": "function",
+      "file_path": "soft_delete.go"
+    },
+    {
+      "id": 305,
+      "name": "Delete",
+      "qualified_name": "gorm.DB.Delete",
+      "kind": "function",
+      "file_path": "finisher_api.go"
+    },
+    {
+      "id": 137,
+      "name": "Unscoped",
+      "qualified_name": "gorm.DB.Unscoped",
+      "kind": "function",
+      "file_path": "chainable_api.go"
+    }
+  ]
+}

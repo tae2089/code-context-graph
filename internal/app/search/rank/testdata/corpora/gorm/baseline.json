@@ -1,0 +1,115 @@
+[
+  {
+    "query": "Preload",
+    "bucket": "exact",
+    "retrieved": true,
+    "returned": 20,
+    "relevant": 2,
+    "found": 2,
+    "rank": 2
+  },
+  {
+    "query": "AutoMigrate",
+    "bucket": "exact",
+    "retrieved": true,
+    "returned": 2,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "OnConflict",
+    "bucket": "exact",
+    "retrieved": true,
+    "returned": 6,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "Transaction",
+    "bucket": "exact",
+    "retrieved": true,
+    "returned": 4,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1,
+    "weak_filtered": 4
+  },
+  {
+    "query": "soft delete",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 26,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1,
+    "weak_filtered": 1
+  },
+  {
+    "query": "prepared statement",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 2,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1,
+    "weak_filtered": 1
+  },
+  {
+    "query": "naming strategy",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 12,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "create in batches",
+    "bucket": "subword",
+    "retrieved": true,
+    "returned": 2,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "parse field",
+    "bucket": "behavior",
+    "retrieved": true,
+    "returned": 3,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "Open",
+    "bucket": "exact",
+    "retrieved": true,
+    "returned": 1,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1
+  },
+  {
+    "query": "kubernetes ingress controller",
+    "bucket": "negative",
+    "negative": true,
+    "retrieved": false,
+    "returned": 0,
+    "relevant": 0,
+    "found": 0,
+    "rank": 0
+  },
+  {
+    "query": "Preloda",
+    "bucket": "typo",
+    "out_of_scope": true,
+    "retrieved": false,
+    "returned": 0,
+    "relevant": 1,
+    "found": 0,
+    "rank": 0
+  }
+]

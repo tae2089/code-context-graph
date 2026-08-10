@@ -526,6 +526,9 @@ var knownHiddenRelevant = map[string]map[string]string{
 		"fts | file:internal/adapters/outbound/searchsql/sqlite.go@internal/adapters/outbound/searchsql/sqlite.go": "a file node's only surface is its path, and 'fts' is nowhere in internal/adapters/outbound/searchsql/sqlite.go — the acronym lives in the declarations inside it. The reader loses nothing: searchsql.ftsRow is shown and carries this exact file, so the file is on the page under a hit that can explain itself. This entry only became visible when paging moved to files and the with-weak run started reaching this far.",
 		"worker pool | function:workflow.Service.parseBuildInputs@internal/app/ingest/workflow/build.go":           "the judgment for this query says outright that the node was chosen by reading build.go, not from anything on its surface: nothing in its name, path, or @intent says 'worker pool'. The cut is doing what it was built to do, and the sibling answer reposync.SyncQueue — whose @intent does say it — is still shown.",
 	},
+	"cobra": {
+		"levenshtein | function:cobra.ld@cobra.go": "the first cross-corpus finding, recorded rather than tuned away: cobra.ld is retrieved through its docstring, but the cut justifies a hit on name, path, and @intent only, and an annotation-free corpus has no @intent to speak with. A docstring-retrieved hit on such a corpus therefore dies at the cut. Fixing it means teaching the cut a docstring-match signal, which is a design change to make deliberately, not a constant to nudge here.",
+	},
 }
 
 // shownRelevant collects the judged nodes and files this list shows, each under

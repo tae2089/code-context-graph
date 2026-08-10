@@ -15,13 +15,31 @@ harness — a corpus-freezing eval in `internal/adapters/outbound/searchsql/` �
 was deleted along with the tool; this set is now the only measurement of
 question-shaped queries.
 
-A word on tuning against these numbers, inherited from that harness: every
-constant that would raise them — a score floor, a stopword list, a length
-penalty — would be fitted to one codebase's vocabulary, and there is no way to
-tell an improvement from an overfit while the only measurement comes from that
-same codebase. A second golden set on an unrelated repository is what tells
-them apart; until one exists, prefer changes that are either plain correctness
-fixes or expressed in terms the runtime recomputes per corpus.
+## The tuning rule
+
+Do not tune constants against these numbers. Every constant that would raise
+them — a score floor, a stopword list, a length penalty — is fitted to one
+codebase's vocabulary, and a single corpus cannot tell an improvement from an
+overfit. That is why `testdata/corpora/` holds two more frozen corpora,
+captured from unrelated open-source codebases:
+
+| Corpus | Source | Vocabulary |
+| --- | --- | --- |
+| `ccg` (primary, `testdata/` itself) | this repository | code analysis, graphs, annotations |
+| `gorm` | `gorm.io/gorm v1.31.1` | ORM and database plumbing |
+| `cobra` | `github.com/spf13/cobra v1.10.2` | CLI flags and completion |
+
+The rule they enforce: **a change that moves a ranking number must hold or
+improve it on every corpus.** A gain on one corpus paid for by a loss on
+another is an overfit by definition, and the ratchet fails it. Changes that
+are plain correctness fixes, or expressed in terms the runtime recomputes per
+corpus, are the ones that pass everywhere.
+
+The external corpora carry no ccg annotations, so their intent index is empty
+and they score the identifier path alone — retrieval, rerank, and evidence
+cut. They already earned their keep: the `levenshtein` query on cobra showed
+that a docstring-retrieved hit dies at the evidence cut on any corpus without
+`@intent` tags (recorded in `knownHiddenRelevant`, not tuned away).
 
 There used to be a third path here. `wiki_search` named the Wiki web UI's search
 box — `retrieval.FromDB`, full-text plus a namespace scan — and had its own
@@ -88,6 +106,22 @@ repository root, which is build output and not tracked:
 make wiki-db              # builds ./ccg.db, which the capture reads
 make search-eval-capture  # rewrites candidates.json and intent_candidates.json
 ```
+
+An external corpus is recaptured the same way, from a graph built out of the
+Go module cache (the version is pinned by go.mod, so the sources are
+reproducible):
+
+```sh
+ccg --db-dsn /tmp/corpora.db --namespace gorm migrate
+ccg --db-dsn /tmp/corpora.db --namespace gorm \
+  build "$(go env GOMODCACHE)/gorm.io/gorm@v1.31.1" --exclude tests --exclude '*_test.go'
+go test -tags fts5 ./internal/adapters/outbound/searchsql/ \
+  -run TestCaptureGoldenCandidates -capture-golden \
+  -corpus gorm -graph /tmp/corpora.db -count=1
+```
+
+(cobra: namespace `cobra`, `github.com/spf13/cobra@v1.10.2`, excludes
+`*_test.go` and `site`.)
 
 A recapture can hide a retrieval regression by baking it into the fixture, so
 diff the file and re-read every judgment it touches before committing.

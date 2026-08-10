@@ -1,0 +1,108 @@
+{
+  "corpus": {
+    "source": "github.com/spf13/cobra v1.10.2, from the Go module cache, captured 2026-08-10",
+    "namespace": "cobra",
+    "nodes": 305,
+    "note": "Built with `ccg build $(go env GOMODCACHE)/github.com/spf13/cobra@v1.10.2 --exclude '*_test.go' --exclude site`. No ccg annotations, so the intent index is empty; see the gorm corpus note. Chosen as a second vocabulary — CLI plumbing instead of ORM plumbing — so a constant fitted to either would show on the other."
+  },
+  "authorship": {
+    "written_by": "assistant, 2026-08-10, before running any measurement; every judged symbol was verified to exist in the built graph first",
+    "measures": "regression, not absolute quality",
+    "caveat": "Same rules as the primary set: expectations are never edited to make a run pass."
+  },
+  "label_format": "kind:qualified_name@file_path",
+  "queries": [
+    {
+      "query": "ExactArgs",
+      "bucket": "exact",
+      "relevant": [
+        "function:cobra.ExactArgs@args.go"
+      ],
+      "why": "The positional-argument validator, named exactly."
+    },
+    {
+      "query": "ExecuteC",
+      "bucket": "exact",
+      "relevant": [
+        "function:cobra.Command.ExecuteC@command.go"
+      ],
+      "why": "The variant of Execute that returns the executed command; the trailing C makes it unambiguous."
+    },
+    {
+      "query": "persistent flags",
+      "bucket": "subword",
+      "relevant": [
+        "function:cobra.Command.PersistentFlags@command.go"
+      ],
+      "why": "PersistentFlags split at its case boundary; the accessor is where the persistent flag set lives."
+    },
+    {
+      "query": "usage template",
+      "bucket": "subword",
+      "relevant": [
+        "function:cobra.Command.UsageTemplate@command.go"
+      ],
+      "why": "UsageTemplate split at its case boundary."
+    },
+    {
+      "query": "shell completion",
+      "bucket": "concept",
+      "relevant_files": [
+        "completions.go"
+      ],
+      "why": "completions.go holds the shell-agnostic completion engine and the `completion` command; the per-shell generators (bash_completions.go and friends) are acceptable too, but the engine is the answer."
+    },
+    {
+      "query": "active help",
+      "bucket": "concept",
+      "relevant_files": [
+        "active_help.go"
+      ],
+      "why": "The whole feature is one file: AppendActiveHelp and the environment-variable plumbing."
+    },
+    {
+      "query": "flag groups",
+      "bucket": "concept",
+      "relevant": [
+        "function:cobra.Command.ValidateFlagGroups@flag_groups.go"
+      ],
+      "relevant_files": [
+        "flag_groups.go"
+      ],
+      "why": "MarkFlagsRequiredTogether and friends live in flag_groups.go; ValidateFlagGroups is the enforcement point."
+    },
+    {
+      "query": "levenshtein",
+      "bucket": "description",
+      "relevant": [
+        "function:cobra.ld@cobra.go"
+      ],
+      "why": "The function is named ld, so nothing in its name or path says levenshtein — only its docstring does. This is the docstring-retrieval case: an annotation-free corpus answering a concept word from the comment text."
+    },
+    {
+      "query": "SuggestionsFor",
+      "bucket": "exact",
+      "relevant": [
+        "function:cobra.Command.SuggestionsFor@command.go"
+      ],
+      "why": "The did-you-mean lookup, named exactly."
+    },
+    {
+      "query": "database connection pool",
+      "bucket": "negative",
+      "relevant": [],
+      "why": "A CLI framework has none of this. The right answer is nothing."
+    },
+    {
+      "query": "Excute",
+      "bucket": "typo",
+      "relevant": [
+        "function:cobra.Command.Execute@command.go"
+      ],
+      "out_of_scope": [
+        "search"
+      ],
+      "why": "Missing letter. Declined by the same recorded policy as the primary corpus's typos."
+    }
+  ]
+}

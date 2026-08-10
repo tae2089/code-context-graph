@@ -1,0 +1,115 @@
+{
+  "corpus": {
+    "source": "gorm.io/gorm v1.31.1, from the Go module cache, captured 2026-08-10",
+    "namespace": "gorm",
+    "nodes": 798,
+    "note": "Built with `ccg build $(go env GOMODCACHE)/gorm.io/gorm@v1.31.1 --exclude tests --exclude '*_test.go'`. The corpus carries no ccg annotations, so the intent index is empty and every answer here comes from the identifier path: full-text retrieval, the rerank, and the evidence cut. That is the point — this set scores the parts of search that must generalize beyond one codebase's vocabulary."
+  },
+  "authorship": {
+    "written_by": "assistant, 2026-08-10, before running any measurement; every judged symbol was verified to exist in the built graph first",
+    "measures": "regression, not absolute quality",
+    "caveat": "Same rules as the primary set: expectations are never edited to make a run pass."
+  },
+  "label_format": "kind:qualified_name@file_path",
+  "queries": [
+    {
+      "query": "Preload",
+      "bucket": "exact",
+      "relevant": [
+        "function:gorm.DB.Preload@chainable_api.go",
+        "function:callbacks.Preload@callbacks/query.go"
+      ],
+      "why": "The chainable API method is what a developer typing the name wants; the callback of the same name is where the work happens, and both carry the name exactly."
+    },
+    {
+      "query": "AutoMigrate",
+      "bucket": "exact",
+      "relevant": [
+        "function:gorm.DB.AutoMigrate@migrator.go",
+        "function:migrator.Migrator.AutoMigrate@migrator/migrator.go"
+      ],
+      "why": "The public entry point and the migrator implementation share the exact name; a reader wants either."
+    },
+    {
+      "query": "OnConflict",
+      "bucket": "exact",
+      "relevant": [
+        "class:clause.OnConflict@clause/on_conflict.go"
+      ],
+      "why": "The clause struct is the thing the name refers to; its methods are reachable from it."
+    },
+    {
+      "query": "Transaction",
+      "bucket": "exact",
+      "relevant": [
+        "function:gorm.DB.Transaction@finisher_api.go"
+      ],
+      "why": "The closure-based transaction wrapper is the API a developer means by the bare word in gorm."
+    },
+    {
+      "query": "soft delete",
+      "bucket": "concept",
+      "relevant_files": [
+        "soft_delete.go"
+      ],
+      "why": "The whole feature lives in one file: the query, update, and delete clauses that turn Delete into an UPDATE. The file is the answer; which of its clause structs the reader opens first does not matter."
+    },
+    {
+      "query": "prepared statement",
+      "bucket": "concept",
+      "relevant_files": [
+        "prepare_stmt.go"
+      ],
+      "why": "PreparedStmtDB and PreparedStmtTX both live here; the file is where the caching of prepared statements is implemented."
+    },
+    {
+      "query": "naming strategy",
+      "bucket": "concept",
+      "relevant": [
+        "class:schema.NamingStrategy@schema/naming.go"
+      ],
+      "why": "NamingStrategy is the type that maps struct names to table and column names; the phrase is its name split at the case boundary."
+    },
+    {
+      "query": "create in batches",
+      "bucket": "subword",
+      "relevant": [
+        "function:gorm.DB.CreateInBatches@finisher_api.go"
+      ],
+      "why": "CreateInBatches split at its case boundaries. The generics variant createG[T].CreateInBatches is acceptable too but the finisher API is what documentation names."
+    },
+    {
+      "query": "parse field",
+      "bucket": "behavior",
+      "relevant": [
+        "function:schema.Schema.ParseField@schema/field.go"
+      ],
+      "why": "ParseField is where a struct field becomes a schema field, tags and all."
+    },
+    {
+      "query": "Open",
+      "bucket": "exact",
+      "relevant": [
+        "function:gorm.Open@gorm.go"
+      ],
+      "why": "gorm.Open is the front door of the library. The word is common in English but exact as an identifier, which is the case the exact-name promotion exists for."
+    },
+    {
+      "query": "kubernetes ingress controller",
+      "bucket": "negative",
+      "relevant": [],
+      "why": "An ORM has none of this. The right answer is nothing; results here are noise the evidence cut should be dropping."
+    },
+    {
+      "query": "Preloda",
+      "bucket": "typo",
+      "relevant": [
+        "function:gorm.DB.Preload@chainable_api.go"
+      ],
+      "out_of_scope": [
+        "search"
+      ],
+      "why": "A human can see the transposition; search declines typos by decision, not omission — the same policy the primary corpus records. Kept red so reversing the decision inherits the measurement."
+    }
+  ]
+}
