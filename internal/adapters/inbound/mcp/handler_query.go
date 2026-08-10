@@ -189,7 +189,7 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 	if err := validateQueryGraphLimit(limit); err != nil {
 		return finalizeToolResult("", err)
 	}
-	if err := searchapp.ValidateOffset(offset); err != nil {
+	if err := validateOffset(offset); err != nil {
 		return finalizeToolResult("", err)
 	}
 
