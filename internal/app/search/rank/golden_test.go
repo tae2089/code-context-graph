@@ -21,7 +21,37 @@ import (
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
-var updateGolden = flag.Bool("update-golden", false, "rewrite testdata/baseline.json from this run")
+var updateGolden = flag.Bool("update-golden", false, "rewrite each corpus's baseline.json from this run")
+
+// goldenCorpus is one frozen corpus the golden tests replay: a name for the
+// subtest and the directory its four fixture files live in.
+type goldenCorpus struct {
+	name string
+	dir  string
+}
+
+// goldenCorpora lists every corpus, primary first. The primary set lives in
+// testdata/ itself; each extra corpus is a subdirectory of testdata/corpora/,
+// named after the codebase it was captured from. The extras exist to catch
+// overfitting: a constant tuned to one codebase's vocabulary shows up as a
+// regression on a corpus that does not share it.
+func goldenCorpora(t *testing.T) []goldenCorpus {
+	t.Helper()
+	corpora := []goldenCorpus{{name: "ccg", dir: "testdata"}}
+	entries, err := os.ReadDir("testdata/corpora")
+	if err != nil {
+		if os.IsNotExist(err) {
+			return corpora
+		}
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			corpora = append(corpora, goldenCorpus{name: e.Name(), dir: "testdata/corpora/" + e.Name()})
+		}
+	}
+	return corpora
+}
 
 // goldenLimit is the number of files the golden run asks for. It matches the
 // limit used when candidates.json was captured, so the candidate pool the ranker
@@ -220,16 +250,16 @@ func label(n graph.Node) string {
 	return string(n.Kind) + ":" + n.QualifiedName + "@" + n.FilePath
 }
 
-func loadGolden(t *testing.T) (goldenSet, fixtureSearcher) {
+func loadGolden(t *testing.T, dir string) (goldenSet, fixtureSearcher) {
 	t.Helper()
 	var set goldenSet
-	readJSON(t, "testdata/queries.json", &set)
+	readJSON(t, dir+"/queries.json", &set)
 	searcher := fixtureSearcher{
 		named:  map[string][]goldenCandidate{},
 		intent: map[string]goldenIntentAnswer{},
 	}
-	readJSON(t, "testdata/candidates.json", &searcher.named)
-	readJSON(t, "testdata/intent_candidates.json", &searcher.intent)
+	readJSON(t, dir+"/candidates.json", &searcher.named)
+	readJSON(t, dir+"/intent_candidates.json", &searcher.intent)
 	for _, q := range set.Queries {
 		if _, ok := searcher.named[q.Query]; !ok {
 			t.Fatalf("query %q has no captured candidates; re-run the capture", q.Query)
@@ -313,9 +343,9 @@ func (rel relevance) score(list evidence.List) (found, rank int) {
 // index fetches, the intent merge, the rerank, and the evidence cut — against
 // its frozen candidate lists. No database is opened, so the only thing that can
 // move a result is the search code itself.
-func runGolden(t *testing.T) []outcome {
+func runGolden(t *testing.T, dir string) []outcome {
 	t.Helper()
-	set, searcher := loadGolden(t)
+	set, searcher := loadGolden(t, dir)
 	svc := searchapp.New(searcher)
 	outcomes := make([]outcome, 0, len(set.Queries))
 	for _, q := range set.Queries {
@@ -350,22 +380,30 @@ func runGolden(t *testing.T) []outcome {
 // queries.json and either fixing the code or recording the new baseline with
 // -update-golden — never by relaxing the judgment to make the run pass.
 func TestGolden_RankingHasNotRegressed(t *testing.T) {
-	outcomes := runGolden(t)
+	for _, corpus := range goldenCorpora(t) {
+		t.Run(corpus.name, func(t *testing.T) {
+			ratchetCorpus(t, corpus)
+		})
+	}
+}
+
+func ratchetCorpus(t *testing.T, corpus goldenCorpus) {
+	outcomes := runGolden(t, corpus.dir)
 
 	if *updateGolden {
 		blob, err := json.MarshalIndent(outcomes, "", "  ")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile("testdata/baseline.json", append(blob, '\n'), 0o644); err != nil {
+		if err := os.WriteFile(corpus.dir+"/baseline.json", append(blob, '\n'), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		t.Log("baseline.json rewritten")
+		t.Logf("%s/baseline.json rewritten", corpus.dir)
 		return
 	}
 
 	var baseline []outcome
-	readJSON(t, "testdata/baseline.json", &baseline)
+	readJSON(t, corpus.dir+"/baseline.json", &baseline)
 	want := make(map[string]outcome, len(baseline))
 	for _, b := range baseline {
 		want[b.Query] = b
@@ -425,7 +463,16 @@ func TestGolden_RankingHasNotRegressed(t *testing.T) {
 // cut: it can equally mean the node's @intent is missing or stale. Either way
 // somebody has to look, which is the point.
 func TestGolden_EvidenceCutHidesNoRelevantNode(t *testing.T) {
-	set, searcher := loadGolden(t)
+	for _, corpus := range goldenCorpora(t) {
+		t.Run(corpus.name, func(t *testing.T) {
+			evidenceCutCorpus(t, corpus)
+		})
+	}
+}
+
+func evidenceCutCorpus(t *testing.T, corpus goldenCorpus) {
+	set, searcher := loadGolden(t, corpus.dir)
+	knownHidden := knownHiddenRelevant[corpus.name]
 	svc := searchapp.New(searcher)
 	for _, q := range set.Queries {
 		rel := relevanceOf(q)
@@ -448,12 +495,12 @@ func TestGolden_EvidenceCutHidesNoRelevantNode(t *testing.T) {
 			if shown[name] {
 				continue
 			}
-			if _, known := knownHiddenRelevant[q.Query+" | "+name]; known {
+			if _, known := knownHidden[q.Query+" | "+name]; known {
 				continue
 			}
 			t.Errorf("%q: the evidence cut hid a relevant node — %s has nothing in its name, path, or @intent to match the query", q.Query, name)
 		}
-		for key := range knownHiddenRelevant {
+		for key := range knownHidden {
 			name, ok := strings.CutPrefix(key, q.Query+" | ")
 			if ok && shown[name] {
 				t.Errorf("%q: %s is no longer hidden; drop it from knownHiddenRelevant", q.Query, name)
@@ -462,9 +509,10 @@ func TestGolden_EvidenceCutHidesNoRelevantNode(t *testing.T) {
 	}
 }
 
-// knownHiddenRelevant lists the relevant nodes the evidence cut drops today,
-// each with the reason it is accepted rather than fixed. Two, out of 39
-// answerable queries — that is the whole price of the cut, measured.
+// knownHiddenRelevant lists, per corpus, the relevant nodes the evidence cut
+// drops today, each with the reason it is accepted rather than fixed. Two on
+// the primary corpus, out of 39 answerable queries — that is the whole price
+// of the cut, measured.
 //
 // It was two. The other was flow.Tracer.TraceFlow on the query "tracer", hidden
 // because nameSim could not see a method's receiver type; that was a gap in the
@@ -473,9 +521,11 @@ func TestGolden_EvidenceCutHidesNoRelevantNode(t *testing.T) {
 // An entry is a debt, not a permission: whoever fixes one deletes its line, and
 // the test above fails if a listed node starts showing, so the list cannot rot
 // into a silent excuse.
-var knownHiddenRelevant = map[string]string{
-	"fts | file:internal/adapters/outbound/searchsql/sqlite.go@internal/adapters/outbound/searchsql/sqlite.go": "a file node's only surface is its path, and 'fts' is nowhere in internal/adapters/outbound/searchsql/sqlite.go — the acronym lives in the declarations inside it. The reader loses nothing: searchsql.ftsRow is shown and carries this exact file, so the file is on the page under a hit that can explain itself. This entry only became visible when paging moved to files and the with-weak run started reaching this far.",
-	"worker pool | function:workflow.Service.parseBuildInputs@internal/app/ingest/workflow/build.go":           "the judgment for this query says outright that the node was chosen by reading build.go, not from anything on its surface: nothing in its name, path, or @intent says 'worker pool'. The cut is doing what it was built to do, and the sibling answer reposync.SyncQueue — whose @intent does say it — is still shown.",
+var knownHiddenRelevant = map[string]map[string]string{
+	"ccg": {
+		"fts | file:internal/adapters/outbound/searchsql/sqlite.go@internal/adapters/outbound/searchsql/sqlite.go": "a file node's only surface is its path, and 'fts' is nowhere in internal/adapters/outbound/searchsql/sqlite.go — the acronym lives in the declarations inside it. The reader loses nothing: searchsql.ftsRow is shown and carries this exact file, so the file is on the page under a hit that can explain itself. This entry only became visible when paging moved to files and the with-weak run started reaching this far.",
+		"worker pool | function:workflow.Service.parseBuildInputs@internal/app/ingest/workflow/build.go":           "the judgment for this query says outright that the node was chosen by reading build.go, not from anything on its surface: nothing in its name, path, or @intent says 'worker pool'. The cut is doing what it was built to do, and the sibling answer reposync.SyncQueue — whose @intent does say it — is still shown.",
+	},
 }
 
 // shownRelevant collects the judged nodes and files this list shows, each under
@@ -499,7 +549,15 @@ func shownRelevant(list evidence.List, rel relevance) map[string]bool {
 // numbers are for reading, and the ratchet above is what fails a build.
 // Run with `go test -run TestGolden_Report -v`.
 func TestGolden_Report(t *testing.T) {
-	outcomes := runGolden(t)
+	for _, corpus := range goldenCorpora(t) {
+		t.Run(corpus.name, func(t *testing.T) {
+			reportCorpus(t, corpus)
+		})
+	}
+}
+
+func reportCorpus(t *testing.T, corpus goldenCorpus) {
+	outcomes := runGolden(t, corpus.dir)
 
 	type tally struct {
 		n, retrieved, top1, top3 int

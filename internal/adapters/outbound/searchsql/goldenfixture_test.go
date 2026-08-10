@@ -36,6 +36,7 @@ func TestCaptureGoldenCandidates(t *testing.T) {
 	if !*captureGolden {
 		t.Skip("pass -capture-golden to rewrite the ranking golden fixture")
 	}
+	dir, graphPath := captureTarget(t)
 	var set struct {
 		Corpus struct {
 			Namespace string `json:"namespace"`
@@ -44,7 +45,7 @@ func TestCaptureGoldenCandidates(t *testing.T) {
 			Query string `json:"query"`
 		} `json:"queries"`
 	}
-	raw, err := os.ReadFile(goldenDir + "queries.json")
+	raw, err := os.ReadFile(dir + "queries.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,9 +55,9 @@ func TestCaptureGoldenCandidates(t *testing.T) {
 
 	// Read-only, and immutable so SQLite never writes a WAL sidecar next to a
 	// graph the test does not own.
-	db, err := gorm.Open(sqlite.Open("file:"+goldenGraphPath+"?immutable=1&mode=ro"), &gorm.Config{Logger: logger.Discard})
+	db, err := gorm.Open(sqlite.Open("file:"+graphPath+"?immutable=1&mode=ro"), &gorm.Config{Logger: logger.Discard})
 	if err != nil {
-		t.Fatalf("open %s: %v", goldenGraphPath, err)
+		t.Fatalf("open %s: %v", graphPath, err)
 	}
 	backend := &SQLiteBackend{}
 	reader := NewReader(db, backend)
@@ -89,8 +90,8 @@ func TestCaptureGoldenCandidates(t *testing.T) {
 		t.Logf("%-30q -> %2d candidates, %2d intent hits", q.Query, len(captured), len(answer.Hits))
 	}
 
-	writeGoldenJSON(t, goldenDir+"candidates.json", out)
-	writeGoldenJSON(t, goldenDir+"intent_candidates.json", outIntent)
+	writeGoldenJSON(t, dir+"candidates.json", out)
+	writeGoldenJSON(t, dir+"intent_candidates.json", outIntent)
 	t.Log("candidates.json and intent_candidates.json rewritten; re-run the rank golden report and review every change")
 }
 
@@ -148,6 +149,7 @@ func TestCaptureMissingGoldenCandidates(t *testing.T) {
 	if !*captureMissing {
 		t.Skip("pass -capture-missing to add newly written golden queries")
 	}
+	dir, graphPath := captureTarget(t)
 	var set struct {
 		Corpus struct {
 			Namespace string `json:"namespace"`
@@ -156,7 +158,7 @@ func TestCaptureMissingGoldenCandidates(t *testing.T) {
 			Query string `json:"query"`
 		} `json:"queries"`
 	}
-	raw, err := os.ReadFile(goldenDir + "queries.json")
+	raw, err := os.ReadFile(dir + "queries.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +166,7 @@ func TestCaptureMissingGoldenCandidates(t *testing.T) {
 		t.Fatal(err)
 	}
 	existing := map[string][]goldenCandidate{}
-	blob, err := os.ReadFile(goldenDir + "candidates.json")
+	blob, err := os.ReadFile(dir + "candidates.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,15 +174,15 @@ func TestCaptureMissingGoldenCandidates(t *testing.T) {
 		t.Fatal(err)
 	}
 	existingIntent := map[string]goldenIntentAnswer{}
-	if blob, err := os.ReadFile(goldenDir + "intent_candidates.json"); err == nil {
+	if blob, err := os.ReadFile(dir + "intent_candidates.json"); err == nil {
 		if err := json.Unmarshal(blob, &existingIntent); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	db, err := gorm.Open(sqlite.Open("file:"+goldenGraphPath+"?immutable=1&mode=ro"), &gorm.Config{Logger: logger.Discard})
+	db, err := gorm.Open(sqlite.Open("file:"+graphPath+"?immutable=1&mode=ro"), &gorm.Config{Logger: logger.Discard})
 	if err != nil {
-		t.Fatalf("open %s: %v", goldenGraphPath, err)
+		t.Fatalf("open %s: %v", graphPath, err)
 	}
 	backend := &SQLiteBackend{}
 	reader := NewReader(db, backend)
@@ -225,15 +227,36 @@ func TestCaptureMissingGoldenCandidates(t *testing.T) {
 		t.Log("every query already has captured candidates; nothing written")
 		return
 	}
-	writeGoldenJSON(t, goldenDir+"candidates.json", existing)
-	writeGoldenJSON(t, goldenDir+"intent_candidates.json", existingIntent)
+	writeGoldenJSON(t, dir+"candidates.json", existing)
+	writeGoldenJSON(t, dir+"intent_candidates.json", existingIntent)
 	t.Logf("candidates.json and intent_candidates.json: %d queries added, existing entries untouched", added)
 }
 
 var (
 	captureGolden  = flag.Bool("capture-golden", false, "rewrite the ranking golden candidate fixture from a local graph")
 	captureMissing = flag.Bool("capture-missing", false, "capture only golden queries missing from the fixture and merge them in")
+	captureCorpus  = flag.String("corpus", "", "capture the named extra corpus under testdata/corpora/ instead of the primary set")
+	captureGraph   = flag.String("graph", "", "path to the graph database to capture from (default: the primary corpus's ./ccg.db)")
 )
+
+// captureTarget resolves which corpus a capture run rewrites and which graph it
+// reads. The primary set keeps its historical defaults; an extra corpus names
+// its directory with -corpus and must name its graph with -graph, because an
+// external codebase's graph has no conventional location in this repository.
+func captureTarget(t *testing.T) (dir, graphPath string) {
+	t.Helper()
+	dir, graphPath = goldenDir, goldenGraphPath
+	if *captureCorpus != "" {
+		dir = goldenDir + "corpora/" + *captureCorpus + "/"
+		if *captureGraph == "" {
+			t.Fatalf("capturing corpus %q needs -graph pointing at its built graph database", *captureCorpus)
+		}
+	}
+	if *captureGraph != "" {
+		graphPath = *captureGraph
+	}
+	return dir, graphPath
+}
 
 const (
 	goldenDir = "../../../app/search/rank/testdata/"
