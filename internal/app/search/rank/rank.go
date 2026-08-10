@@ -19,19 +19,9 @@ import (
 // limit so reranking has more than `limit` rows to reorder before bounding.
 const (
 	fetchFactor = 5
+	fetchFloor  = 50
 	fetchCap    = 500
 )
-
-// PoolBlock is how many of the backend's rows one block of a candidate pool
-// holds.
-//
-// It is also the narrowest pool anyone ever fetches, and that is the same number
-// on purpose rather than by accident: a block has to fit inside every pool, and
-// the narrowest pool is the smallest thing it has to fit inside. Making it any
-// narrower would only cut the pool up more finely for nothing.
-//
-// @intent name the step a candidate pool grows by, so callers that page can order it a whole block at a time.
-const PoolBlock = 50
 
 // Name-similarity tuning.
 //
@@ -83,7 +73,7 @@ var noAlignment = math.Inf(-1)
 // @intent retain enough backend candidates for structural relevance signals to affect the caller's bounded result.
 // @domainRule candidate pools stay between 50 and 500 rows regardless of the requested result limit.
 func FetchLimit(limit int) int {
-	return min(max(limit*fetchFactor, PoolBlock), fetchCap)
+	return min(max(limit*fetchFactor, fetchFloor), fetchCap)
 }
 
 // Rerank orders FTS candidates by structural evidence — identifier-name

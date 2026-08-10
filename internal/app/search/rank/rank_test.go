@@ -172,8 +172,8 @@ func TestRerank_NameOutranksSaturatedPath(t *testing.T) {
 // 밀린다. 두 번째 그룹의 정확한 이름 일치가 첫 그룹의 무관한 후보에게
 // 져서는 안 된다.
 func TestRerankGroups_LaterGroupTopHitNotPenalizedByPosition(t *testing.T) {
-	filler := make([]graph.Node, 0, PoolBlock)
-	for i := range PoolBlock {
+	filler := make([]graph.Node, 0, fetchFloor)
+	for i := range fetchFloor {
 		filler = append(filler, graph.Node{
 			ID:            uint(i + 1),
 			Namespace:     "alpha",
@@ -199,8 +199,8 @@ func TestRerankGroups_LaterGroupTopHitNotPenalizedByPosition(t *testing.T) {
 // 구조 점수가 확실히 갈리는 후보라면, 그룹을 넘겨준 순서가 결과 순위를 바꾸면
 // 안 된다. alpha는 무관한 후보만 많고 beta에 정확 일치가 하나 있다.
 func TestRerankGroups_GroupOrderDoesNotChangeRanking(t *testing.T) {
-	alpha := make([]graph.Node, 0, PoolBlock)
-	for i := range PoolBlock {
+	alpha := make([]graph.Node, 0, fetchFloor)
+	for i := range fetchFloor {
 		alpha = append(alpha, graph.Node{
 			ID:            uint(i + 1),
 			Namespace:     "alpha",
@@ -237,8 +237,8 @@ func TestRerankGroups_GroupOrderDoesNotChangeRanking(t *testing.T) {
 // 보장이 더 강한 형태로 성립한다: 위치가 공급 순서에 전혀 의존하지 않는다.
 // 네임스페이스별 노출 보장은 서비스 계층의 파일 쿼터가 담당한다.
 func TestRerankGroups_TieOrderIgnoresGroupSupplyOrder(t *testing.T) {
-	alpha := make([]graph.Node, 0, PoolBlock)
-	for i := range PoolBlock {
+	alpha := make([]graph.Node, 0, fetchFloor)
+	for i := range fetchFloor {
 		alpha = append(alpha, graph.Node{
 			ID:            uint(i + 1),
 			Namespace:     "alpha",
