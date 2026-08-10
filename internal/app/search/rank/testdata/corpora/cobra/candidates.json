@@ -128,6 +128,99 @@
     }
   ],
   "database connection pool": [],
+  "flag error": [
+    {
+      "id": 994,
+      "name": "Error",
+      "qualified_name": "cobra.flagCompError.Error",
+      "kind": "function",
+      "file_path": "completions.go"
+    },
+    {
+      "id": 993,
+      "name": "flagCompError",
+      "qualified_name": "cobra.flagCompError",
+      "kind": "class",
+      "file_path": "completions.go"
+    },
+    {
+      "id": 891,
+      "name": "FlagErrorFunc",
+      "qualified_name": "cobra.Command.FlagErrorFunc",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 868,
+      "name": "SetFlagErrorFunc",
+      "qualified_name": "cobra.Command.SetFlagErrorFunc",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 921,
+      "name": "ValidateRequiredFlags",
+      "qualified_name": "cobra.Command.ValidateRequiredFlags",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 1064,
+      "name": "MarkFlagsOneRequired",
+      "qualified_name": "cobra.Command.MarkFlagsOneRequired",
+      "kind": "function",
+      "file_path": "flag_groups.go"
+    },
+    {
+      "id": 1065,
+      "name": "MarkFlagsMutuallyExclusive",
+      "qualified_name": "cobra.Command.MarkFlagsMutuallyExclusive",
+      "kind": "function",
+      "file_path": "flag_groups.go"
+    },
+    {
+      "id": 1066,
+      "name": "ValidateFlagGroups",
+      "qualified_name": "cobra.Command.ValidateFlagGroups",
+      "kind": "function",
+      "file_path": "flag_groups.go"
+    },
+    {
+      "id": 1063,
+      "name": "MarkFlagsRequiredTogether",
+      "qualified_name": "cobra.Command.MarkFlagsRequiredTogether",
+      "kind": "function",
+      "file_path": "flag_groups.go"
+    },
+    {
+      "id": 856,
+      "name": "FParseErrWhitelist",
+      "qualified_name": "cobra.FParseErrWhitelist",
+      "kind": "type",
+      "file_path": "command.go"
+    },
+    {
+      "id": 1085,
+      "name": "MarkFlagRequired",
+      "qualified_name": "cobra.MarkFlagRequired",
+      "kind": "function",
+      "file_path": "shell_completions.go"
+    },
+    {
+      "id": 1083,
+      "name": "MarkFlagRequired",
+      "qualified_name": "cobra.Command.MarkFlagRequired",
+      "kind": "function",
+      "file_path": "shell_completions.go"
+    },
+    {
+      "id": 1084,
+      "name": "MarkPersistentFlagRequired",
+      "qualified_name": "cobra.Command.MarkPersistentFlagRequired",
+      "kind": "function",
+      "file_path": "shell_completions.go"
+    }
+  ],
   "flag groups": [
     {
       "id": 1069,
@@ -521,6 +614,36 @@
       "qualified_name": "cobra.Command.HasHelpSubCommands",
       "kind": "function",
       "file_path": "command.go"
+    }
+  ],
+  "valid args": [
+    {
+      "id": 920,
+      "name": "ValidateArgs",
+      "qualified_name": "cobra.Command.ValidateArgs",
+      "kind": "function",
+      "file_path": "command.go"
+    },
+    {
+      "id": 809,
+      "name": "OnlyValidArgs",
+      "qualified_name": "cobra.OnlyValidArgs",
+      "kind": "function",
+      "file_path": "args.go"
+    },
+    {
+      "id": 816,
+      "name": "ExactValidArgs",
+      "qualified_name": "cobra.ExactValidArgs",
+      "kind": "function",
+      "file_path": "args.go"
+    },
+    {
+      "id": 807,
+      "name": "legacyArgs",
+      "qualified_name": "cobra.legacyArgs",
+      "kind": "function",
+      "file_path": "args.go"
     }
   ]
 }

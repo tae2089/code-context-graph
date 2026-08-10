@@ -95,6 +95,25 @@
       "why": "gorm.Open is the front door of the library. The word is common in English but exact as an identifier, which is the case the exact-name promotion exists for."
     },
     {
+      "query": "table name",
+      "bucket": "concept",
+      "relevant": [
+        "function:schema.NamingStrategy.TableName@schema/naming.go"
+      ],
+      "discriminates": "ranking",
+      "why": "Two ordinary words that name two different things in an ORM, so the answer turns on which one is meant. NamingStrategy.TableName is the rule that decides what table a model maps to. migrator.TableType.Name — which full-text search ranks above it — reports the name of a table that already exists in the database, which answers a different question."
+    },
+    {
+      "query": "association",
+      "bucket": "concept",
+      "relevant": [
+        "class:gorm.Association@association.go",
+        "function:gorm.DB.Association@association.go"
+      ],
+      "discriminates": "ranking",
+      "why": "Association Mode — db.Association(\"Langs\").Append(...) — is what a developer means by the bare word; the type's own doc comment says so. clause.Association, which full-text search ranks first, is the internal descriptor of an association operation inside a generated statement and is not an API anyone reaches for by name."
+    },
+    {
       "query": "kubernetes ingress controller",
       "bucket": "negative",
       "relevant": [],

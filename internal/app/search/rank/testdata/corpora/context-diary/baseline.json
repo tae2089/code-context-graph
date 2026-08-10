@@ -168,6 +168,26 @@
     "rank": 1
   },
   {
+    "query": "rescan commits",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 10,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1,
+    "weak_filtered": 1
+  },
+  {
+    "query": "explain",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 8,
+    "relevant": 1,
+    "found": 1,
+    "rank": 1,
+    "weak_filtered": 1
+  },
+  {
     "query": "kubernetes deployment rollout strategy",
     "bucket": "negative",
     "negative": true,

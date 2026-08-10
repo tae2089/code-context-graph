@@ -85,6 +85,25 @@
     "rank": 1
   },
   {
+    "query": "valid args",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 4,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
+    "query": "flag error",
+    "bucket": "concept",
+    "retrieved": true,
+    "returned": 12,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1,
+    "weak_filtered": 1
+  },
+  {
     "query": "database connection pool",
     "bucket": "negative",
     "negative": true,
