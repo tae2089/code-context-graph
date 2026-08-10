@@ -3337,6 +3337,12 @@ func coverageFixture(t *testing.T) *Deps {
 		if err != nil {
 			t.Fatalf("fixture: read back %s: %v", name, err)
 		}
+		// A node that is not there comes back as no node and no error, so this
+		// check is the only thing standing between "never indexed" and a nil
+		// dereference on the next line.
+		if node == nil {
+			t.Fatalf("fixture: %s was indexed but reads back as missing", name)
+		}
 		if err := testDBFor(deps).Create(&graph.SearchDocument{
 			NodeID: node.ID, Content: node.Name + " does something", Language: "go",
 		}).Error; err != nil {
