@@ -125,9 +125,15 @@ func TestRankOrderFixture_IsALadderOfEqualLengthDocuments(t *testing.T) {
 // seedRankOrderCorpus writes the ladder into one database as the indexer would —
 // a node and the search document derived from it — and then refreshes the
 // backend's own index for the fixture namespace.
+//
+// The rows go in worst match first, the exact reverse of the expected answer.
+// Insertion order is what a database hands back when nothing sorts the rows, so
+// seeding in the expected order would let a query that lost its ORDER BY
+// altogether pass by luck. Reversed, the fixture fails on a deleted sort as well
+// as on a flipped one.
 func seedRankOrderCorpus(t *testing.T, ctx context.Context, db *gorm.DB, backend Backend) {
 	t.Helper()
-	for _, doc := range rankOrderLadder() {
+	for _, doc := range slices.Backward(rankOrderLadder()) {
 		node := graph.Node{
 			Namespace:     rankOrderNamespace,
 			Name:          doc.name,
