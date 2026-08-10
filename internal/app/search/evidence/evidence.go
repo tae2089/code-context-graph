@@ -277,14 +277,23 @@ func groupByFile(results []Result) []File {
 // the first file of a page is added whatever its size — so the answer is always
 // at least one whole file.
 //
+// A negative offset skips no files rather than panicking. Every entry point
+// rejects one before the pipeline runs, so this is not how a caller finds out
+// they were wrong; it is here because a slice cut from a negative index takes
+// the process down, and a crash inside this package names it instead of the
+// caller that was actually at fault. The bounds are checked at both ends for
+// that reason: the upper one alone still panics on an empty answer, where there
+// is no file count large enough to catch a negative start.
+//
 // @ensures every returned file carries all the hits groupByFile gave it.
-// @ensures the returned count plus the returned files plus Offset covers the whole input.
+// @ensures the returned count plus the returned files covers every file from the start position on.
 // @intent bound an answer by files, so paging through it never lands a reader mid-file.
 func page(files []File, opts Options) ([]File, int) {
-	if opts.Offset >= len(files) {
+	start := max(opts.Offset, 0)
+	if start >= len(files) {
 		return nil, 0
 	}
-	remaining := files[opts.Offset:]
+	remaining := files[start:]
 
 	out := make([]File, 0, len(remaining))
 	hits := 0

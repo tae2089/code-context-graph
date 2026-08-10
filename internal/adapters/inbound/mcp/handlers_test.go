@@ -3207,3 +3207,24 @@ func TestHandler_Search_ClaimsNoTruncationWhenNothingWasHeldBack(t *testing.T) {
 		t.Errorf("file_count = %d, want 1", payload.FileCount)
 	}
 }
+
+// The sentence this asserts is the one `ccg search` says too. Both surfaces
+// take it from the same place, and this test is what would notice if the MCP
+// side started saying something else.
+//
+// The handler is called directly because a rejected offset comes back as a
+// protocol-level error rather than a tool result, and callTool fails the test
+// on those instead of handing them over.
+func TestHandler_Search_RejectsANegativeOffset(t *testing.T) {
+	deps := setupTestDeps(t)
+	h := &handlers{deps: deps, cache: NewCache(5 * time.Minute)}
+
+	_, err := h.search(context.Background(), makeToolRequest("search", map[string]any{"query": "login", "offset": -1}))
+
+	if err == nil {
+		t.Fatal("expected a negative offset to be rejected")
+	}
+	if !strings.Contains(err.Error(), "offset must not be negative") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
