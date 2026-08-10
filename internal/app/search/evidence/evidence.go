@@ -63,6 +63,39 @@ type IntentHit struct {
 	Terms  []string
 }
 
+// Coverage is how much of the searched repositories ever recorded a reason: how
+// many declarations carry at least one @intent or @domainRule, out of how many
+// declarations were indexed at all.
+//
+// It is a fact about the index rather than about this query, and it is what
+// separates the two empty answers that used to read alike. An empty answer in a
+// repository with 1900 recorded reasons means the reasons do not cover this
+// question; an empty answer in a repository with none means nobody has written
+// anything down yet, and only the second one is answered by annotating.
+//
+// WithReason counts declarations, never reasons. One reason is one indexed
+// document, so counting documents would report a declaration whose author wrote
+// three of them three times.
+//
+// This is declared here, rather than reused from the intent package, for the same
+// reason IntentHit is: a list has to be describable without the retrieval ports
+// that filled it.
+//
+// @domainRule WithReason never exceeds Declarations.
+// @intent let an empty answer say whether anyone ever recorded a reason to search.
+type Coverage struct {
+	WithReason   int `json:"with_reason"`
+	Declarations int `json:"declarations"`
+}
+
+// Known reports whether these numbers were measured at all.
+//
+// A surface that never reached the recorded-reason index leaves the zero value
+// here, and "0 of 0 declarations recorded a reason" reads as a finding when it is
+// the absence of one. Nothing may state the fraction without asking this first.
+// @intent keep an unmeasured coverage from being reported as a measured zero.
+func (c Coverage) Known() bool { return c.Declarations > 0 }
+
 // File is every hit one file answered the query with.
 //
 // The file is the unit of a search answer because it is the unit of reading: a
@@ -112,6 +145,11 @@ type List struct {
 	// the files on this page" is only right when the page is one contiguous run
 	// of the answer. Whoever cut the page is the only one who knows that.
 	NextOffset int
+	// Coverage is how much of the searched repositories recorded a reason at all.
+	// Build does not measure it — it is a fact about the index, which is read
+	// before this package sees anything — so it arrives on Options and is carried
+	// through unchanged.
+	Coverage Coverage
 	// Note is set only when Files is empty, and says which kind of empty it is:
 	// nothing retrieved, nothing explainable, or a page past the end.
 	Note string
@@ -152,6 +190,11 @@ type Options struct {
 	// with an entry here is justified by it — the terms are the proof — even
 	// when its name, path, and @intent share no token with the query.
 	Intent map[NodeRef]IntentHit
+	// Coverage is how much of the searched repositories recorded a reason at all.
+	// It is an input rather than something set on the returned list afterwards
+	// because the note depends on it: which kind of empty an empty answer is
+	// cannot be decided without knowing whether anybody wrote a reason down.
+	Coverage Coverage
 }
 
 const (
@@ -197,7 +240,7 @@ func Build(query string, nodes []graph.Node, opts Options) List {
 		weak = append(weak, result)
 	}
 
-	list := List{WeakFiltered: len(weak)}
+	list := List{WeakFiltered: len(weak), Coverage: opts.Coverage}
 	if opts.IncludeWeak {
 		kept = append(kept, weak...)
 		list.WeakFiltered = 0

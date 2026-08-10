@@ -44,16 +44,9 @@ type Term struct {
 // @domainRule WithReason never exceeds Declarations, because both are counted from the same derived index.
 // @intent let an answer say whether it came back empty because nobody wrote a reason down.
 type Coverage struct {
-	WithReason   int `json:"with_reason"`
-	Declarations int `json:"declarations"`
+	WithReason   int
+	Declarations int
 }
-
-// Known reports whether the coverage numbers were measured at all. A caller that
-// never asked the index — or asked one that holds nothing — must not be told "0
-// of 0 declarations recorded a reason", which reads as a finding when it is an
-// absence of one.
-// @intent keep an unmeasured coverage from being reported as a measured zero.
-func (c Coverage) Known() bool { return c.Declarations > 0 }
 
 // Result is what the recorded-reason index answered with: the ranked hits and
 // the evidence that produced them.

@@ -89,7 +89,10 @@ func (s *Service) Search(ctx context.Context, p Params) (evidence.List, error) {
 	}
 	ranked := searchrank.Rerank(p.Query, pool.named, 0)
 	merged, intentEvidence := absorbIntent(ranked, pool.intent)
-	list := evidence.Build(p.Query, merged, evidence.Options{Limit: p.Limit, Offset: p.Offset, IncludeWeak: p.IncludeWeak, Intent: intentEvidence})
+	list := evidence.Build(p.Query, merged, evidence.Options{
+		Limit: p.Limit, Offset: p.Offset, IncludeWeak: p.IncludeWeak,
+		Intent: intentEvidence, Coverage: pool.coverage,
+	})
 	list.PoolTruncated = pool.truncated
 	return list, nil
 }
@@ -115,6 +118,7 @@ func (s *Service) SearchFederated(ctx context.Context, namespaces []string, p Pa
 	groups := make([][]graph.Node, 0, len(namespaces))
 	intentHits := make([]intentapp.Hit, 0)
 	poolTruncated := false
+	coverage := evidence.Coverage{}
 	for _, ns := range namespaces {
 		pool, err := s.fetch(requestctx.WithNamespace(ctx, ns), p)
 		if err != nil {
@@ -131,12 +135,13 @@ func (s *Service) SearchFederated(ctx context.Context, namespaces []string, p Pa
 		// One repository's pool running out is enough to make the whole answer
 		// short, and the caller cannot tell which one it was from the files.
 		poolTruncated = poolTruncated || pool.truncated
+		coverage = addCoverage(coverage, pool.coverage)
 	}
 	merged := searchrank.RerankGroups(p.Query, groups, 0)
 	merged, intentEvidence := absorbIntent(merged, intentHits)
 	list := evidence.Build(p.Query, merged, evidence.Options{
 		Limit: p.Limit, Offset: p.Offset, PerNamespace: true,
-		IncludeWeak: p.IncludeWeak, Intent: intentEvidence,
+		IncludeWeak: p.IncludeWeak, Intent: intentEvidence, Coverage: coverage,
 	})
 	list.PoolTruncated = poolTruncated
 	return list, nil
@@ -149,6 +154,10 @@ type pool struct {
 	// truncated says the backend answered with as many rows as the fetch had
 	// room for, so there were candidates it never got to send.
 	truncated bool
+	// coverage is how much of this namespace ever recorded a reason. It survives
+	// the path filter untouched: the filter narrows what this query may answer
+	// with, while the coverage is about the repository the question was put to.
+	coverage evidence.Coverage
 }
 
 // fetch over-fetches one namespace's candidate pool from both indexes in
@@ -200,7 +209,12 @@ func (s *Service) fetch(ctx context.Context, p Params) (pool, error) {
 		intentHits = nil
 	}
 
-	out := pool{named: named, intent: intentHits, truncated: truncated}
+	out := pool{
+		named:     named,
+		intent:    intentHits,
+		truncated: truncated,
+		coverage:  coverageFromIntent(fromIntent.result.Coverage),
+	}
 	if p.PathPrefix == "" {
 		return out, nil
 	}
@@ -218,6 +232,26 @@ func (s *Service) fetch(ctx context.Context, p Params) (pool, error) {
 	}
 	out.intent = filteredIntent
 	return out, nil
+}
+
+// coverageFromIntent carries the recorded-reason index's coverage across the port
+// boundary. The two types hold the same two numbers on purpose: an evidence list
+// has to be describable without the retrieval port that filled it.
+// @intent keep the intent port's types out of the answer the surfaces serialize.
+func coverageFromIntent(c intentapp.Coverage) evidence.Coverage {
+	return evidence.Coverage{WithReason: c.WithReason, Declarations: c.Declarations}
+}
+
+// addCoverage sums one namespace's coverage into the answer's running total.
+// Both numbers add, so several repositories searched at once report one fraction
+// over all of them: keeping only the last namespace's would describe one
+// repository and label it the answer.
+// @intent make a federated answer's coverage cover every repository it searched.
+func addCoverage(total, next evidence.Coverage) evidence.Coverage {
+	return evidence.Coverage{
+		WithReason:   total.WithReason + next.WithReason,
+		Declarations: total.Declarations + next.Declarations,
+	}
 }
 
 // absorbIntent merges intent hits into the name-ranked pool as evidence, not

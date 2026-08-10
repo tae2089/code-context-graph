@@ -469,3 +469,16 @@ func TestBuild_ANegativeOffsetDoesNotSuggestAnOffsetBehindThePage(t *testing.T) 
 		t.Errorf("NextOffset = %d, want 3 — anything lower shows a file this page already did", got.NextOffset)
 	}
 }
+
+// Build is handed the coverage rather than measuring it — the numbers are a fact
+// about the index, not about the candidates — but it has to hand it on, because
+// the response is where a caller reads it.
+func TestBuild_CarriesTheCoverageItWasGiven(t *testing.T) {
+	got := Build("rerank", []graph.Node{
+		{ID: 1, Name: "Rerank", QualifiedName: "rank.Rerank", FilePath: "internal/app/search/rank/rank.go"},
+	}, Options{Limit: 10, Coverage: Coverage{WithReason: 3, Declarations: 90}})
+
+	if got.Coverage.WithReason != 3 || got.Coverage.Declarations != 90 {
+		t.Errorf("Coverage = %+v, want 3 of 90", got.Coverage)
+	}
+}

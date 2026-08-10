@@ -129,3 +129,17 @@ func TestNewResponse_PassesOnTheAnswersOwnNextOffset(t *testing.T) {
 			got.Next[0].Args["offset"], len(got.Files))
 	}
 }
+
+// A caller that reads only the JSON has to be able to tell a repository with
+// 1900 recorded reasons from one with none, because the same empty answer means
+// opposite things in the two.
+func TestNewResponse_CarriesTheAnnotationCoverage(t *testing.T) {
+	got := NewResponse(evidence.List{
+		Files:    []evidence.File{file("a.go", 1)},
+		Coverage: evidence.Coverage{WithReason: 12, Declarations: 400},
+	}, "alpha", 10, 0, false)
+
+	if got.AnnotationCoverage.WithReason != 12 || got.AnnotationCoverage.Declarations != 400 {
+		t.Errorf("annotation_coverage = %+v, want 12 of 400", got.AnnotationCoverage)
+	}
+}

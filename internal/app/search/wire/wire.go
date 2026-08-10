@@ -77,10 +77,19 @@ type Response struct {
 	// stopped at the edge of what was fetched. `truncated: false` with
 	// `pool_truncated: true` is the case that used to read as "that is
 	// everything" when it was not: ask for the next page anyway.
-	PoolTruncated bool         `json:"pool_truncated"`
-	Limits        Limits       `json:"limits"`
-	Next          []NextAction `json:"next,omitempty"`
-	Note          string       `json:"note,omitempty"`
+	PoolTruncated bool   `json:"pool_truncated"`
+	Limits        Limits `json:"limits"`
+	// AnnotationCoverage is how many of the searched declarations recorded a
+	// reason — an @intent or a @domainRule — out of how many were indexed.
+	//
+	// It is on every answer, not only the empty ones, because it is what makes an
+	// answer's size readable: two files out of a repository where four hundred
+	// declarations recorded a reason is a thin answer, and two out of a repository
+	// where six did is most of what there was to find. `with_reason: 0` says the
+	// question was put to an index nobody has written anything into yet.
+	AnnotationCoverage evidence.Coverage `json:"annotation_coverage"`
+	Next               []NextAction      `json:"next,omitempty"`
+	Note               string            `json:"note,omitempty"`
 }
 
 // Limits states the bounds that shaped this page, all counted in files
@@ -139,8 +148,10 @@ func NewResponse(list evidence.List, query string, limit, offset int, withNamesp
 		Truncated:     list.OverflowFiles > 0,
 		PoolTruncated: list.PoolTruncated,
 		Limits:        Limits{Files: limit, Offset: offset, HitBudget: evidence.PageHitBudget},
-		Next:          nextActions(list, query, limit),
-		Note:          list.Note,
+
+		AnnotationCoverage: list.Coverage,
+		Next:               nextActions(list, query, limit),
+		Note:               list.Note,
 	}
 }
 
