@@ -36,7 +36,8 @@ type Params struct {
 	Query string
 	// Limit bounds how many files the answer shows, not how many candidates
 	// are fetched: the service over-fetches so reranking can promote matches
-	// the backend ranked below it.
+	// the backend ranked below it. Across several namespaces it is what each
+	// one may show, not what they share — see SearchFederated.
 	Limit       int
 	Offset      int
 	PathPrefix  string
@@ -96,11 +97,17 @@ func (s *Service) Search(ctx context.Context, p Params) (evidence.List, error) {
 // SearchFederated answers one query across an explicit namespace set.
 //
 // Each namespace stays its own ranked list so fusion charges a hit the rank it
-// held in its own namespace, not its offset in a concatenated slice. The
-// evidence cut runs before the quota, so a namespace's slots go to hits it can
-// justify rather than to whatever it retrieved first.
+// held in its own namespace, not its offset in a concatenated slice.
+//
+// Limit is what each repository may show, not what they share. Sharing it meant
+// the repositories competed: a limit smaller than the namespace count silenced
+// the ones at the back outright, and the quota that was supposed to prevent
+// that took its slots out of the middle of the ranked list, which left no
+// offset that could resume the page. A budget each repository holds on its own
+// removes the competition, so none of the three has anywhere to come from.
+//
 // @intent answer one search across several repositories with per-item namespace labels.
-// @domainRule each namespace is queried in isolation, and every namespace with hits keeps at least one file on the page.
+// @domainRule each namespace is queried in isolation and spends its own file budget, so no namespace with hits can be crowded off the page by another.
 func (s *Service) SearchFederated(ctx context.Context, namespaces []string, p Params) (evidence.List, error) {
 	if s == nil || s.searcher == nil {
 		return evidence.List{}, trace.New("search service not configured")
@@ -127,13 +134,10 @@ func (s *Service) SearchFederated(ctx context.Context, namespaces []string, p Pa
 	}
 	merged := searchrank.RerankGroups(p.Query, groups, 0)
 	merged, intentEvidence := absorbIntent(merged, intentHits)
-	// Page over the whole grouped answer, then let the quota decide which of
-	// those files each repository gets, so no repository's files are spent
-	// before another repository is heard from.
-	list := evidence.Build(p.Query, merged, evidence.Options{Offset: p.Offset, IncludeWeak: p.IncludeWeak, Intent: intentEvidence})
-	reachable := len(list.Files)
-	list.Files = selectWithNamespaceQuota(list.Files, func(f evidence.File) string { return f.Namespace }, p.Limit, len(namespaces))
-	list.OverflowFiles = reachable - len(list.Files)
+	list := evidence.Build(p.Query, merged, evidence.Options{
+		Limit: p.Limit, Offset: p.Offset, PerNamespace: true,
+		IncludeWeak: p.IncludeWeak, Intent: intentEvidence,
+	})
 	list.PoolTruncated = poolTruncated
 	return list, nil
 }
@@ -245,45 +249,4 @@ func absorbIntent(ranked []graph.Node, hits []intentapp.Hit) ([]graph.Node, map[
 		}
 	}
 	return merged, marks
-}
-
-// selectWithNamespaceQuota bounds globally-ranked federated results while guaranteeing
-// every namespace with hits at least limit/namespaceCount slots (minimum one).
-// @intent keep one high-scoring repository from starving the other namespaces out of a federated result.
-// @domainRule remaining slots after the per-namespace quota pass are filled in global rank order.
-// @requires namespaceOf returns the namespace an item belongs to.
-func selectWithNamespaceQuota[T any](ranked []T, namespaceOf func(T) string, limit, namespaceCount int) []T {
-	if limit <= 0 || len(ranked) <= limit {
-		return ranked
-	}
-	quota := max(limit/max(namespaceCount, 1), 1)
-	chosen := make([]bool, len(ranked))
-	count := 0
-	perNamespace := map[string]int{}
-	for i, item := range ranked {
-		if count == limit {
-			break
-		}
-		if ns := namespaceOf(item); perNamespace[ns] < quota {
-			chosen[i] = true
-			perNamespace[ns]++
-			count++
-		}
-	}
-	for i := range ranked {
-		if count == limit {
-			break
-		}
-		if !chosen[i] {
-			chosen[i] = true
-			count++
-		}
-	}
-	kept := make([]T, 0, count)
-	for i, item := range ranked {
-		if chosen[i] {
-			kept = append(kept, item)
-		}
-	}
-	return kept
 }
