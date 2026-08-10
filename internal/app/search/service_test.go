@@ -881,3 +881,39 @@ func TestSearchFederated_AddsUpTheCoverageOfEveryRepository(t *testing.T) {
 		t.Errorf("Coverage = %+v, want 30 of 100", list.Coverage)
 	}
 }
+
+// The whole point of the tool is reasons written in Korean, asked for in
+// Korean. This is the path that used to lose them: the question carries
+// particles, so under half its terms are counted in any reason and CanAnswer
+// drops every intent hit — leaving the full-text pool as the only thing on the
+// page, and the evidence cut as the only thing that can justify it. The cut
+// compared the question's words to the reason's for equality, so 네임스페이스
+// never reached 네임스페이스를 and the node the index had already found was
+// dropped again.
+func TestSearch_AKoreanQuestionSurvivesWhenTheIntentIndexCannotAnswerIt(t *testing.T) {
+	hit := annotatedNode(1, "isolate", "internal/adapters/outbound/searchsql/postgres.go",
+		"테스트마다 네임스페이스를 격리해서 서로 간섭하지 않게 한다")
+	searcher := &fakeSearcher{
+		byNamespace:       map[string][]graph.Node{requestctx.DefaultNamespace: {hit}},
+		intentByNamespace: map[string][]intent.Hit{requestctx.DefaultNamespace: {{Node: hit, Terms: []string{"네임스페이스"}}}},
+		// Only one of the three scored terms is written in any reason, so
+		// CanAnswer is false and the intent hits are dropped before the cut.
+		intentTerms: []intent.Term{
+			{Text: "네임스페이스", InReasons: 4}, {Text: "격리를", InReasons: 0}, {Text: "어디서", InReasons: 0},
+		},
+	}
+	svc := New(searcher)
+
+	ctx := requestctx.WithNamespace(context.Background(), requestctx.DefaultNamespace)
+	list, err := svc.Search(ctx, Params{Query: "네임스페이스 격리를 어디서", Limit: 10})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(list.Files) != 1 || list.Files[0].FilePath != "internal/adapters/outbound/searchsql/postgres.go" {
+		t.Fatalf("got %+v (WeakFiltered=%d, Note=%q), want the node whose Korean reason answers the question",
+			list.Files, list.WeakFiltered, list.Note)
+	}
+	if got := list.Hits()[0].Matched; !slices.Contains(got, evidence.MatchIntent) {
+		t.Errorf("Matched = %v, want it to name the recorded reason", got)
+	}
+}

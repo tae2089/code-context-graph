@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/tae2089/code-context-graph/internal/app/search/identtoken"
+	"github.com/tae2089/code-context-graph/internal/app/search/intentrank"
 	"github.com/tae2089/code-context-graph/internal/app/search/rank"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
@@ -353,19 +354,33 @@ func matchedSignals(query string, qTokens []string, node graph.Node, intent stri
 // described. Here the question is only whether there is a reason at all, so the
 // simplest answer is also the whole answer.
 //
+// A word counts as shared under intentrank.MatchesByPrefix, the same rule the
+// index matched the question with and the scorer counted it by. This is the one
+// place that used to apply its own rule — equality on lowercased text — and
+// Korean is where the two answers come apart. Korean glues the particle onto the
+// noun, so a reason about 네임스페이스 is written 네임스페이스를; the index asks
+// for 네임스페이스* and finds it, and then equality dropped it again. Reasons
+// written in Korean and asked for in Korean is what this tool is for, so that
+// was the first path cut. Sharing the rule is also what keeps a short Latin
+// term from widening: `run` stays three runes and still does not reach
+// `runtime`.
+//
 // @domainRule a single shared word is evidence; the query and the intent are compared as identifier tokens, so camelCase splits the same way on both sides.
 // @intent treat an author-written purpose as a reason to show a result even when the name and path say nothing.
 func intentOverlaps(qTokens []string, intent string) bool {
 	if intent == "" || len(qTokens) == 0 {
 		return false
 	}
-	words := map[string]bool{}
-	for _, w := range identtoken.Split(intent) {
-		words[strings.ToLower(w)] = true
-	}
+	// identtoken.Split lowercases what it returns, so the reason's words arrive
+	// in the case the query's terms are compared in.
+	words := identtoken.Split(intent)
 	for _, tok := range qTokens {
-		if words[strings.ToLower(tok)] {
-			return true
+		term := strings.ToLower(tok)
+		prefix := intentrank.MatchesByPrefix(term)
+		for _, word := range words {
+			if word == term || (prefix && strings.HasPrefix(word, term)) {
+				return true
+			}
 		}
 	}
 	return false
