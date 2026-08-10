@@ -1,6 +1,7 @@
 package wire
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/app/search/evidence"
@@ -141,5 +142,83 @@ func TestNewResponse_CarriesTheAnnotationCoverage(t *testing.T) {
 
 	if got.AnnotationCoverage.WithReason != 12 || got.AnnotationCoverage.Declarations != 400 {
 		t.Errorf("annotation_coverage = %+v, want 12 of 400", got.AnnotationCoverage)
+	}
+}
+
+// weakFile is a file whose hits named no signal — what IncludeWeak returns. The
+// answer is not empty, but nothing in it can say why it is there.
+func weakFile(path string, hits int) evidence.File {
+	f := evidence.File{FilePath: path}
+	for i := range hits {
+		f.Hits = append(f.Hits, evidence.Result{
+			Node: graph.Node{ID: uint(i + 1), Name: "alpha", FilePath: path, Kind: "function"},
+		})
+	}
+	return f
+}
+
+// annotateAction finds the step that is not a call to a tool.
+func annotateAction(actions []NextAction) *NextAction {
+	for i := range actions {
+		if actions[i].Skill == annotateSkill {
+			return &actions[i]
+		}
+	}
+	return nil
+}
+
+// Coverage without a remedy is half an answer. An empty answer used to name no
+// next step at all, which left the caller reading "nothing matched" with nowhere
+// to go and concluding the code does not exist.
+func TestNewResponse_SuggestsAnnotatingWhenTheAnswerIsEmpty(t *testing.T) {
+	got := NewResponse(evidence.List{
+		Coverage: evidence.Coverage{WithReason: 0, Declarations: 1900},
+		Note:     "nothing matched",
+	}, "why is this repository isolated", 10, 0, false)
+
+	action := annotateAction(got.Next)
+	if action == nil {
+		t.Fatalf("Next = %+v, want a step that writes the missing reasons", got.Next)
+	}
+	if !strings.Contains(action.Reason, "1900") {
+		t.Errorf("Reason = %q, want the coverage that justifies the suggestion", action.Reason)
+	}
+}
+
+// An answer full of candidates nothing can justify is the same situation as an
+// empty one: the reasons that would have explained them were never written.
+func TestNewResponse_SuggestsAnnotatingWhenEveryShownHitIsWeak(t *testing.T) {
+	got := NewResponse(evidence.List{
+		Files:    []evidence.File{weakFile("a.go", 2), weakFile("b.go", 1)},
+		Coverage: evidence.Coverage{WithReason: 4, Declarations: 900},
+	}, "why does checkout retry", 10, 0, false)
+
+	if annotateAction(got.Next) == nil {
+		t.Errorf("Next = %+v, want the annotate step: no shown hit justified itself", got.Next)
+	}
+}
+
+// A working answer must not be told to go annotate. The suggestion is only worth
+// anything where it names the actual cause, and pinned to every answer it becomes
+// noise the caller learns to skip.
+func TestNewResponse_DoesNotSuggestAnnotatingOnAJustifiedAnswer(t *testing.T) {
+	got := NewResponse(evidence.List{
+		Files:    []evidence.File{file("a.go", 2)},
+		Coverage: evidence.Coverage{WithReason: 4, Declarations: 900},
+	}, "alpha", 10, 0, false)
+
+	if action := annotateAction(got.Next); action != nil {
+		t.Errorf("a justified answer carried the annotate step: %+v", *action)
+	}
+}
+
+// Nothing may state a fraction it never measured. A surface that did not reach
+// the recorded-reason index leaves the coverage at zero, and "0 of 0 declarations
+// recorded a reason" reads as a finding when it is the absence of one.
+func TestNewResponse_DoesNotSuggestAnnotatingOnUnmeasuredCoverage(t *testing.T) {
+	got := NewResponse(evidence.List{Note: "nothing matched"}, "alpha", 10, 0, false)
+
+	if action := annotateAction(got.Next); action != nil {
+		t.Errorf("suggested annotating without having measured coverage: %+v", *action)
 	}
 }

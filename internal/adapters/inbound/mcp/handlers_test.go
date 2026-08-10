@@ -2893,10 +2893,18 @@ type searchPayload struct {
 		Offset    int `json:"offset"`
 		HitBudget int `json:"hit_budget"`
 	} `json:"limits"`
+	// AnnotationCoverage is spelled out here rather than reused from the wire
+	// package so this decoder stays an independent reading of the JSON: a field
+	// renamed on one side and not the other has to break something.
+	AnnotationCoverage struct {
+		WithReason   int `json:"with_reason"`
+		Declarations int `json:"declarations"`
+	} `json:"annotation_coverage"`
 	Next []struct {
 		Reason string         `json:"reason"`
 		Tool   string         `json:"tool"`
 		Args   map[string]any `json:"args"`
+		Skill  string         `json:"skill"`
 	} `json:"next"`
 	Note string `json:"note"`
 }
@@ -3157,10 +3165,14 @@ func TestHandler_Search_PointsAtTheArgumentThatShowsWeakCandidates(t *testing.T)
 }
 
 // An empty answer used to hand the question to find_by_intent. That tool is
-// gone because search itself now scores a question against recorded reasons,
-// so there is no second index left to suggest: an empty answer that withheld
-// nothing must come back with no next action at all, rather than pointing the
-// caller at a tool this server does not register.
+// gone because search itself now scores a question against recorded reasons, so
+// nothing an empty answer suggests may name a second index to query: every step
+// it offers must be a tool this server actually registers, or work no tool does.
+//
+// This checked for no next action at all until an empty answer started naming
+// the annotate step, which is the step that has no tool. Counting zero was only
+// ever a proxy for "nothing unreachable was suggested", so it now asks the
+// server's own tool list that question directly.
 func TestHandler_Search_EmptyAnswerSuggestsNoRetiredHandOff(t *testing.T) {
 	deps := setupTestDeps(t)
 	ctx := context.Background()
@@ -3178,8 +3190,18 @@ func TestHandler_Search_EmptyAnswerSuggestsNoRetiredHandOff(t *testing.T) {
 	if len(payload.Files) != 0 {
 		t.Fatalf("the query was meant to match nothing, got %d files", len(payload.Files))
 	}
-	if len(payload.Next) != 0 {
-		t.Errorf("an empty answer that withheld nothing suggested %+v", payload.Next)
+
+	registered := map[string]bool{}
+	for _, tool := range NewServer(deps).ListTools() {
+		registered[tool.Tool.Name] = true
+	}
+	for _, n := range payload.Next {
+		if n.Tool == "" && n.Skill != "" {
+			continue
+		}
+		if !registered[n.Tool] {
+			t.Errorf("an empty answer pointed at %q, which this server does not register: %+v", n.Tool, n)
+		}
 	}
 }
 
@@ -3226,5 +3248,87 @@ func TestHandler_Search_RejectsANegativeOffset(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "offset must not be negative") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// coverageFixture indexes three declarations and hangs reasons on two of them:
+// one reason on the first, three on the second, none on the third. Post-#56 the
+// recorded-reason index holds one row per reason, so any count that reads that
+// table row by row reports 4 here where the answer is 2 of 3.
+func coverageFixture(t *testing.T) *Deps {
+	t.Helper()
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+
+	testGraphStoreFor(deps).UpsertNodes(ctx, []graph.Node{
+		{QualifiedName: "pkg.one", Kind: graph.NodeKindFunction, Name: "one", FilePath: "one.go", StartLine: 1, EndLine: 5, Language: "go"},
+		{QualifiedName: "pkg.three", Kind: graph.NodeKindFunction, Name: "three", FilePath: "three.go", StartLine: 1, EndLine: 5, Language: "go"},
+		{QualifiedName: "pkg.silent", Kind: graph.NodeKindFunction, Name: "silent", FilePath: "silent.go", StartLine: 1, EndLine: 5, Language: "go"},
+	})
+	reasonCount := map[string]int{"pkg.one": 1, "pkg.three": 3, "pkg.silent": 0}
+	for name, reasons := range reasonCount {
+		node, _ := testGraphStoreFor(deps).GetNode(ctx, name)
+		testDBFor(deps).Create(&graph.SearchDocument{
+			NodeID: node.ID, Content: node.Name + " does something", Language: "go",
+		})
+		for i := range reasons {
+			testDBFor(deps).Create(&graph.SearchReason{
+				NodeID: node.ID, Content: fmt.Sprintf("keep %s honest, reason %d", node.Name, i),
+			})
+		}
+	}
+	testSearchBackendFor(deps).Rebuild(ctx, testDBFor(deps))
+	return deps
+}
+
+// The coverage has to survive the trip through JSON, counted in declarations. A
+// count of reasons would say 4 of 3 here, which is not a fraction.
+func TestHandler_Search_ReportsCoverageInDeclarations(t *testing.T) {
+	deps := coverageFixture(t)
+
+	payload := decodeSearchPayload(t, getTextContent(
+		callTool(t, deps, "search", map[string]any{"query": "one"})))
+
+	if got := payload.AnnotationCoverage.WithReason; got != 2 {
+		t.Errorf("annotation_coverage.with_reason = %d, want 2 — two of three declarations recorded a reason, four reasons between them", got)
+	}
+	if got := payload.AnnotationCoverage.Declarations; got != 3 {
+		t.Errorf("annotation_coverage.declarations = %d, want 3", got)
+	}
+}
+
+// The case the whole feature exists for, end to end: a repository nobody has
+// annotated, asked a question only a recorded reason could answer. The empty
+// answer has to name the cause and the step that fixes it.
+func TestHandler_Search_EmptyAnswerBlamesTheMissingReasonsNotTheQuery(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+
+	testGraphStoreFor(deps).UpsertNodes(ctx, []graph.Node{
+		{QualifiedName: "auth.Login", Kind: graph.NodeKindFunction, Name: "Login", FilePath: "internal/auth/login.go", StartLine: 1, EndLine: 10, Language: "go"},
+	})
+	node, _ := testGraphStoreFor(deps).GetNode(ctx, "auth.Login")
+	testDBFor(deps).Create(&graph.SearchDocument{NodeID: node.ID, Content: "login a caller", Language: "go"})
+	testSearchBackendFor(deps).Rebuild(ctx, testDBFor(deps))
+
+	payload := decodeSearchPayload(t, getTextContent(
+		callTool(t, deps, "search", map[string]any{"query": "why is a session pinned to one device"})))
+	if len(payload.Files) != 0 {
+		t.Fatalf("the query was meant to match nothing, got %d files", len(payload.Files))
+	}
+	if payload.AnnotationCoverage.WithReason != 0 || payload.AnnotationCoverage.Declarations != 1 {
+		t.Fatalf("annotation_coverage = %+v, want 0 of 1", payload.AnnotationCoverage)
+	}
+	if !strings.Contains(payload.Note, "0 of 1") {
+		t.Errorf("note = %q, want it to say nobody recorded a reason", payload.Note)
+	}
+	var suggested bool
+	for _, n := range payload.Next {
+		if n.Skill == "ccg-annotate" {
+			suggested = true
+		}
+	}
+	if !suggested {
+		t.Errorf("nothing told the caller to write the missing reasons: %+v", payload.Next)
 	}
 }

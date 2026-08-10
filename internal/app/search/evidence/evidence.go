@@ -168,6 +168,28 @@ func (l List) Hits() []Result {
 	return out
 }
 
+// Justified reports whether any hit on this page named a signal the query
+// touched. It is false for an empty answer, and also for a page IncludeWeak
+// filled with candidates that matched nothing nameable — to a caller those are
+// the same situation: the answer holds nothing that can say why it is here.
+//
+// The two are one method rather than two checks at the call site because a
+// caller acts on them identically, and keeping them apart invited the reading
+// that a page with rows on it must have answered something.
+//
+// @ensures true only when at least one shown hit carries at least one Match.
+// @intent tell a page that answered something apart from one that merely has rows on it.
+func (l List) Justified() bool {
+	for _, f := range l.Files {
+		for _, h := range f.Hits {
+			if len(h.Matched) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Options are the caller's choices about how wide the list may be.
 // @domainRule Limit and Offset are both counted in files, never in hits, so paging never splits a file.
 // @intent keep the bounds a caller controls — page size, page position, strictness — in one argument.
