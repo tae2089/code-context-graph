@@ -107,8 +107,11 @@ none of the three is dropped and only counted, so the list never pads itself to
 brings them back. Hits arrive grouped by file, and a file that appears appears
 whole — every hit it answered with is printed, however many that is. `limit`
 counts files, not hits, and `--offset` (MCP `offset`) moves to the next files,
-so paging never splits a file. An empty result says which kind of empty it is —
-nothing retrieved, nothing justifiable, or an offset past the last file.
+so paging never splits a file. Across several repositories (MCP `namespaces:
+[]`) both are per repository: `limit: 5` over three repositories is five files
+from each, and every repository with a hit is on the page whatever the limit is.
+An empty result says which kind of empty it is — nothing retrieved, nothing
+justifiable, or an offset past the last file.
 
 Order comes from name similarity, then path overlap. `@intent` is shown for the
 reader to judge; it does not move a result up.
@@ -139,7 +142,10 @@ files; it never trims one, and the first file of a page is always included).
 `next` lists ready-to-make calls: whichever of the two signals is up, the next
 page becomes `search(query: <same query>, limit: <same>, offset: <next>)`, and
 cut candidates become `search(query: <same query>, include_weak: true)`. Make
-the call in `next` rather than inventing one.
+the call in `next` rather than inventing one. Over several repositories that
+matters more than usual: `offset` moves every repository through its own list,
+so it is not this page's offset plus the files you were shown, and computing it
+that way skips files in one repository while repeating them in another.
 
 Every hit carries a `node_id`. Hand that ID straight to `get_node`,
 `query_graph`, `get_impact_radius`, or `trace_flow` — the answer exists to

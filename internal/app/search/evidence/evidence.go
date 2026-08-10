@@ -104,6 +104,14 @@ type List struct {
 	// while OverflowFiles == 0 with PoolTruncated true is only the end of the
 	// candidates that were fetched.
 	PoolTruncated bool
+	// NextOffset is the offset the page after this one starts at. It is set
+	// whether or not another page exists; OverflowFiles and PoolTruncated are
+	// what say whether asking for it is worth anything.
+	//
+	// It is carried rather than recomputed by the caller because "offset plus
+	// the files on this page" is only right when the page is one contiguous run
+	// of the answer. Whoever cut the page is the only one who knows that.
+	NextOffset int
 	// Note is set only when Files is empty, and says which kind of empty it is:
 	// nothing retrieved, nothing explainable, or a page past the end.
 	Note string
@@ -126,6 +134,16 @@ func (l List) Hits() []Result {
 type Options struct {
 	Limit  int
 	Offset int
+	// PerNamespace makes Limit and Offset a budget every namespace gets on its
+	// own rather than one budget the namespaces compete for. Federated search
+	// sets it; a single-repository search has one namespace and cannot tell the
+	// difference.
+	//
+	// Sharing one budget meant a limit smaller than the namespace count silenced
+	// whole repositories, and the page ended up an arbitrary subset of the
+	// answer rather than a run of it — so the offset that would resume it did
+	// not exist.
+	PerNamespace bool
 	// IncludeWeak keeps candidates no signal explains, after the explainable
 	// ones. Off by default, because a list padded with unexplainable results
 	// reads as "here are ten answers" when there were two.
@@ -179,7 +197,12 @@ func Build(query string, nodes []graph.Node, opts Options) List {
 	}
 
 	files := groupByFile(kept)
-	list.Files, list.OverflowFiles = page(files, opts)
+	if opts.PerNamespace {
+		list.Files, list.OverflowFiles, list.NextOffset = pagePerNamespace(files, opts)
+	} else {
+		list.Files, list.OverflowFiles = page(files, opts)
+		list.NextOffset = opts.Offset + len(list.Files)
+	}
 	if len(list.Files) == 0 {
 		list.Note = noteNothingRetrieved
 		switch {
@@ -308,4 +331,90 @@ func page(files []File, opts Options) ([]File, int) {
 		hits += f.HitCount()
 	}
 	return out, len(remaining) - len(out)
+}
+
+// pagePerNamespace cuts one page per namespace instead of one page for the
+// whole answer, and returns the files, how many it did not reach, and the
+// offset all of those pages resume at.
+//
+// Every namespace is windowed at the same Offset under the same Limit, so no
+// namespace can spend another's slots and none is silenced by a limit smaller
+// than the namespace count. That also makes each namespace's page a run of its
+// own list rather than a scattering of it, which is what lets one shared offset
+// resume all of them.
+//
+// The catch is the hit budget: it can stop one namespace's page earlier than
+// another's, and one offset cannot resume lists that moved by different
+// amounts. So the answer walks the repositories in lockstep — every page is cut
+// back to the shortest page any namespace with files left produced, and the
+// offset handed back is that step. A namespace that ran out does not set the
+// step, because holding every repository down to the smallest one's size would
+// let a repository with two files pace a repository with two thousand.
+//
+// @requires files arrive in the order groupByFile left them.
+// @ensures every returned namespace's files are one run of that namespace's list starting at Offset.
+// @ensures the returned offset steps over no file of any namespace that still has files left.
+// @intent give federated search one offset that resumes every repository at once, so the next call it suggests is a call that works.
+func pagePerNamespace(files []File, opts Options) ([]File, int, int) {
+	order, byNamespace := groupByNamespace(files)
+
+	taken := make(map[string]int, len(order))
+	overflow := 0
+	// step is the shortest page among namespaces that still have files left;
+	// shortest is the shortest page of all, the fallback for when none do.
+	step, shortest := 0, 0
+	for _, ns := range order {
+		kept, left := page(byNamespace[ns], opts)
+		taken[ns] = len(kept)
+		overflow += left
+		if left > 0 && (step == 0 || len(kept) < step) {
+			step = len(kept)
+		}
+		if len(kept) > 0 && (shortest == 0 || len(kept) < shortest) {
+			shortest = len(kept)
+		}
+	}
+
+	next := step
+	if next == 0 {
+		// Every namespace showed all it had from Offset on, so there is no next
+		// page to line up. The offset still gets read when the candidate pool was
+		// cut, and then the shortest page is the only place all of them can
+		// resume from without stepping over a file.
+		next = shortest
+	}
+	for ns, n := range taken {
+		if step > 0 && n > step {
+			overflow += n - step
+			taken[ns] = step
+		}
+	}
+
+	out := make([]File, 0, len(files))
+	at := make(map[string]int, len(order))
+	for _, f := range files {
+		i := at[f.Namespace]
+		at[f.Namespace]++
+		if i >= opts.Offset && i < opts.Offset+taken[f.Namespace] {
+			out = append(out, f)
+		}
+	}
+	return out, overflow, opts.Offset + next
+}
+
+// groupByNamespace splits the file list per repository, keeping each
+// repository's files in the order the whole list had them so a page still reads
+// in rank order once the windows are put back together.
+// @ensures the returned namespaces are in the order they first appear in files.
+// @intent let each repository be paged through its own list without losing the shared ranking.
+func groupByNamespace(files []File) ([]string, map[string][]File) {
+	order := make([]string, 0, len(files))
+	byNamespace := make(map[string][]File, len(files))
+	for _, f := range files {
+		if _, seen := byNamespace[f.Namespace]; !seen {
+			order = append(order, f.Namespace)
+		}
+		byNamespace[f.Namespace] = append(byNamespace[f.Namespace], f)
+	}
+	return order, byNamespace
 }

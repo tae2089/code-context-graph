@@ -75,6 +75,7 @@ func TestNewResponse_OffersTheNextPageWhenOnlyThePoolRanOut(t *testing.T) {
 	got := NewResponse(evidence.List{
 		Files:         []evidence.File{file("crowded.go", 50)},
 		PoolTruncated: true,
+		NextOffset:    1,
 	}, "alpha", 10, 0, false)
 
 	if len(got.Next) != 1 {
@@ -104,5 +105,27 @@ func TestNewResponse_DoesNotDoubleUpTheNextPageCall(t *testing.T) {
 	}
 	if pages != 1 {
 		t.Errorf("got %d next-page calls in %+v, want exactly 1", pages, got.Next)
+	}
+}
+
+func TestNewResponse_PassesOnTheAnswersOwnNextOffset(t *testing.T) {
+	// A federated page spends its limit once per repository, so it can carry
+	// four files and still resume from two. Adding this page's file count to
+	// its offset would name six and skip the two in between.
+	got := NewResponse(evidence.List{
+		Files: []evidence.File{
+			file("a/one.go", 1), file("a/two.go", 1),
+			file("b/one.go", 1), file("b/two.go", 1),
+		},
+		OverflowFiles: 4,
+		NextOffset:    2,
+	}, "alpha", 2, 0, false)
+
+	if len(got.Next) != 1 {
+		t.Fatalf("Next = %+v, want one next-page call", got.Next)
+	}
+	if got.Next[0].Args["offset"] != 2 {
+		t.Errorf("Next[0] offset = %v, want 2 — the answer's own NextOffset, not offset plus the %d files on this page",
+			got.Next[0].Args["offset"], len(got.Files))
 	}
 }

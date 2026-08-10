@@ -303,12 +303,14 @@ func TestSearchFederated_StampsNamespacesAndKeepsEveryRepositoryHeard(t *testing
 	}}
 	svc := New(searcher)
 
+	// Limit 2 is two files per repository: repo-a shows two of its three, repo-b
+	// shows its only one, and repo-a's third file is the one left over.
 	list, err := svc.SearchFederated(context.Background(), []string{"repo-a", "repo-b"}, Params{Query: "alpha", Limit: 2})
 	if err != nil {
 		t.Fatalf("SearchFederated: %v", err)
 	}
-	if len(list.Files) != 2 {
-		t.Fatalf("got %d files, want limit 2", len(list.Files))
+	if len(list.Files) != 3 {
+		t.Fatalf("got %d files, want 3: two from repo-a and repo-b's one", len(list.Files))
 	}
 	seen := map[string]bool{}
 	for _, f := range list.Files {
@@ -318,10 +320,189 @@ func TestSearchFederated_StampsNamespacesAndKeepsEveryRepositoryHeard(t *testing
 		seen[f.Namespace] = true
 	}
 	if !seen["repo-a"] || !seen["repo-b"] {
-		t.Errorf("quota did not keep both repositories on the page: %v", seen)
+		t.Errorf("a repository with hits was left off the page: %v", seen)
 	}
-	if list.OverflowFiles != 2 {
-		t.Errorf("OverflowFiles = %d, want 2", list.OverflowFiles)
+	if list.OverflowFiles != 1 {
+		t.Errorf("OverflowFiles = %d, want 1: repo-a's third file", list.OverflowFiles)
+	}
+}
+
+// federatedCorpus gives every namespace filesEach files, each holding
+// hitsPerFile declarations the query names.
+//
+// Every declaration carries the same name, so structural reranking cannot
+// separate them and ties break on the file path — which puts each namespace's
+// files together, in namespace order. That is the shape that used to let the
+// first repository spend the whole page before the next was heard from.
+func federatedCorpus(namespaces []string, filesEach, hitsPerFile int) map[string][]graph.Node {
+	byNamespace := make(map[string][]graph.Node, len(namespaces))
+	id := uint(1)
+	for _, ns := range namespaces {
+		nodes := make([]graph.Node, 0, filesEach*hitsPerFile)
+		for i := range filesEach {
+			path := fmt.Sprintf("%s/f%03d.go", ns, i)
+			for range hitsPerFile {
+				nodes = append(nodes, node(id, "alpha", path))
+				id++
+			}
+		}
+		byNamespace[ns] = nodes
+	}
+	return byNamespace
+}
+
+// filesPerNamespace counts how many of a page's files each repository put there.
+func filesPerNamespace(list evidence.List) map[string]int {
+	counts := map[string]int{}
+	for _, f := range list.Files {
+		counts[f.Namespace]++
+	}
+	return counts
+}
+
+func TestSearchFederated_LimitIsABudgetEachRepositoryGetsOnItsOwn(t *testing.T) {
+	namespaces := []string{"repo-a", "repo-b"}
+	svc := New(&fakeSearcher{byNamespace: federatedCorpus(namespaces, 10, 1)})
+
+	list, err := svc.SearchFederated(context.Background(), namespaces, Params{Query: "alpha", Limit: 5})
+	if err != nil {
+		t.Fatalf("SearchFederated: %v", err)
+	}
+	got := filesPerNamespace(list)
+	for _, ns := range namespaces {
+		if got[ns] != 5 {
+			t.Errorf("%s put %d files on the page, want the whole per-repository budget of 5 (all of them: %v)", ns, got[ns], got)
+		}
+	}
+	if len(list.Files) != 10 {
+		t.Errorf("page holds %d files, want 5 per repository across 2 repositories", len(list.Files))
+	}
+}
+
+func TestSearchFederated_EveryRepositoryWithHitsIsHeardBelowTheLimit(t *testing.T) {
+	namespaces := []string{"repo-a", "repo-b", "repo-c", "repo-d", "repo-e"}
+	svc := New(&fakeSearcher{byNamespace: federatedCorpus(namespaces, 1, 1)})
+
+	// Fewer slots than repositories under the old shared budget: the last
+	// repositories got nothing, and nothing in the answer said so.
+	list, err := svc.SearchFederated(context.Background(), namespaces, Params{Query: "alpha", Limit: 3})
+	if err != nil {
+		t.Fatalf("SearchFederated: %v", err)
+	}
+	got := filesPerNamespace(list)
+	silent := make([]string, 0, len(namespaces))
+	for _, ns := range namespaces {
+		if got[ns] == 0 {
+			silent = append(silent, ns)
+		}
+	}
+	if len(silent) > 0 {
+		t.Errorf("repositories with a hit that got no file on the page: %v (page: %v)", silent, got)
+	}
+}
+
+func TestSearchFederated_ARepositoryUnderTheHitBudgetCutStillReachesThePage(t *testing.T) {
+	// repo-a's one file fills the whole page budget on its own, and it sorts
+	// ahead of repo-b. Under a shared budget the page ended there, so repo-b was
+	// silenced on this page and on every later one too.
+	namespaces := []string{"repo-a", "repo-b"}
+	byNamespace := federatedCorpus([]string{"repo-a"}, 1, evidence.PageHitBudget)
+	byNamespace["repo-b"] = federatedCorpus([]string{"repo-b"}, 3, 1)["repo-b"]
+	svc := New(&fakeSearcher{byNamespace: byNamespace})
+
+	list, err := svc.SearchFederated(context.Background(), namespaces, Params{Query: "alpha", Limit: 5})
+	if err != nil {
+		t.Fatalf("SearchFederated: %v", err)
+	}
+	if got := filesPerNamespace(list); got["repo-b"] == 0 {
+		t.Errorf("repo-b put no file on the page: %v — its files all sit below repo-a's budget cut", got)
+	}
+}
+
+func TestSearchFederated_CountsEveryFileItLeftOff(t *testing.T) {
+	// Small enough that neither pool is cut, so every file this query answers
+	// with is reachable and the hidden count has to add up exactly.
+	namespaces := []string{"repo-a", "repo-b"}
+	const filesEach = 30
+	svc := New(&fakeSearcher{byNamespace: federatedCorpus(namespaces, filesEach, 1)})
+
+	list, err := svc.SearchFederated(context.Background(), namespaces, Params{Query: "alpha", Limit: 5})
+	if err != nil {
+		t.Fatalf("SearchFederated: %v", err)
+	}
+	if list.PoolTruncated {
+		t.Fatalf("a pool was cut, so this test cannot tell a hidden file from an unfetched one")
+	}
+	total := filesEach * len(namespaces)
+	if want := total - len(list.Files); list.OverflowFiles != want {
+		t.Errorf("OverflowFiles = %d, want %d: %d files answered this query and %d are on the page",
+			list.OverflowFiles, want, total, len(list.Files))
+	}
+}
+
+// walkFederated pages through a federated answer with exactly the offsets the
+// answer suggests, and reports the files it saw and the ones it saw twice.
+func walkFederated(t *testing.T, svc *Service, namespaces []string, p Params, maxPages int) (seen map[string]int, repeats []string) {
+	t.Helper()
+	seen = map[string]int{}
+	for range maxPages {
+		list, err := svc.SearchFederated(context.Background(), namespaces, p)
+		if err != nil {
+			t.Fatalf("SearchFederated at offset %d: %v", p.Offset, err)
+		}
+		if len(list.Files) == 0 {
+			t.Fatalf("page at offset %d came back empty (%q) with files still unseen", p.Offset, list.Note)
+		}
+		for _, f := range list.Files {
+			key := f.Namespace + "/" + f.FilePath
+			if seen[key] > 0 {
+				repeats = append(repeats, key)
+			}
+			seen[key]++
+		}
+		if list.OverflowFiles == 0 && !list.PoolTruncated {
+			return seen, repeats
+		}
+		if list.NextOffset <= p.Offset {
+			t.Fatalf("the answer at offset %d suggested offset %d, which does not move", p.Offset, list.NextOffset)
+		}
+		// Exactly the call the answer's own `next` action names.
+		p.Offset = list.NextOffset
+	}
+	t.Fatalf("paging did not finish in %d pages", maxPages)
+	return nil, nil
+}
+
+func TestSearchFederated_PagingWithTheSuggestedOffsetSkipsAndRepeatsNothing(t *testing.T) {
+	namespaces := []string{"repo-a", "repo-b"}
+	const filesEach = 10
+	svc := New(&fakeSearcher{byNamespace: federatedCorpus(namespaces, filesEach, 1)})
+
+	seen, repeats := walkFederated(t, svc, namespaces, Params{Query: "alpha", Limit: 5}, 20)
+	if len(repeats) > 0 {
+		t.Errorf("these files came back on two pages: %v", repeats)
+	}
+	if want := filesEach * len(namespaces); len(seen) != want {
+		t.Errorf("paging reached %d files, want all %d", len(seen), want)
+	}
+}
+
+func TestSearchFederated_PagingHoldsUpWhenTheHitBudgetCutsEveryPageShort(t *testing.T) {
+	// Three repositories, each holding six files of fifteen hits. One
+	// repository's files alone hold 90 hits against a 50-hit page budget, so
+	// every page stops mid-repository — the case where "offset plus the files
+	// on this page" stops being a place any repository's list can be resumed
+	// from. Limit is wide enough that the budget, not the limit, is what cuts.
+	namespaces := []string{"repo-a", "repo-b", "repo-c"}
+	const filesEach = 6
+	svc := New(&fakeSearcher{byNamespace: federatedCorpus(namespaces, filesEach, 15)})
+
+	seen, repeats := walkFederated(t, svc, namespaces, Params{Query: "alpha", Limit: 20}, 20)
+	if len(repeats) > 0 {
+		t.Errorf("these files came back on two pages: %v", repeats)
+	}
+	if want := filesEach * len(namespaces); len(seen) != want {
+		t.Errorf("paging reached %d files, want all %d", len(seen), want)
 	}
 }
 

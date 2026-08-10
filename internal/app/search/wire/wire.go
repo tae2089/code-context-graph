@@ -139,7 +139,7 @@ func NewResponse(list evidence.List, query string, limit, offset int, withNamesp
 		Truncated:     list.OverflowFiles > 0,
 		PoolTruncated: list.PoolTruncated,
 		Limits:        Limits{Files: limit, Offset: offset, HitBudget: evidence.PageHitBudget},
-		Next:          nextActions(list, query, limit, offset),
+		Next:          nextActions(list, query, limit),
 		Note:          list.Note,
 	}
 }
@@ -154,23 +154,27 @@ func NewResponse(list evidence.List, query string, limit, offset int, withNamesp
 // crowded-file case — one file whose hits fill the whole pool — would report a
 // pool cut and hand the caller nowhere to go with it.
 //
+// The offset it hands back is the list's own NextOffset, not this page's offset
+// plus the files on it. The two agree whenever a page is one contiguous run of
+// the answer, and only the code that cut the page knows whether it was.
+//
 // @ensures every returned action names a tool every search surface offers, with arguments that need no editing.
 // @ensures at most one next-page action is returned, however many bounds stopped this page.
 // @intent make the follow-up call obvious enough that an agent does not have to invent one.
-func nextActions(list evidence.List, query string, limit, offset int) []NextAction {
+func nextActions(list evidence.List, query string, limit int) []NextAction {
 	actions := make([]NextAction, 0, 2)
 	switch {
 	case list.OverflowFiles > 0:
 		actions = append(actions, NextAction{
 			Reason: fmt.Sprintf("%d more files answered this query and are not on this page", list.OverflowFiles),
 			Tool:   "search",
-			Args:   map[string]any{"query": query, "limit": limit, "offset": offset + len(list.Files)},
+			Args:   map[string]any{"query": query, "limit": limit, "offset": list.NextOffset},
 		})
 	case list.PoolTruncated && len(list.Files) > 0:
 		actions = append(actions, NextAction{
 			Reason: "this page reached the end of the candidates that were fetched, not the end of the answer; more files may follow",
 			Tool:   "search",
-			Args:   map[string]any{"query": query, "limit": limit, "offset": offset + len(list.Files)},
+			Args:   map[string]any{"query": query, "limit": limit, "offset": list.NextOffset},
 		})
 	}
 	if list.WeakFiltered > 0 {
