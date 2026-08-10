@@ -2,7 +2,7 @@
 name: ccg-analyze
 description: "Analyze algorithms, feature pipelines, and code relationships with CCG impact radius, bounded flow tracing, callers/callees, git-diff risk, affected stored flows, and cross-namespace references. Use when a task asks how a feature or algorithm works, how a pipeline flows, what a change affects, who calls a symbol, whether results were truncated, or which flows recent changes touch. Do not use for simple text lookup, documentation generation, or annotation authoring."
 metadata:
-  version: 1.3.1
+  version: 1.4.0
   openclaw:
     category: "code-intelligence"
     domain: "analysis"
@@ -23,11 +23,11 @@ Graph-based analysis for **change impact, call flow, and recent-change risk**.
 | ------------------------------------ | ------------------------------------------------ | --------------------------------------------- |
 | "Impact of changing this function?"  | `get_impact_radius` (`depth=3`, `max_depth=3`)   | Raise both bounds to widen                    |
 | "How does this algorithm or feature pipeline work?" | Pipeline workflow below | Graph-first, then source-verified |
-| "Trace call flow from this function" | `trace_flow`                                     | If unexpectedly thin, verify the causes below |
+| "Trace call flow from this function" | `trace_flow`                                     | If unexpectedly thin, verify the causes below; `cross_namespace: true` continues into referenced namespaces |
 | "Who calls this function?"           | `query_graph` (callers_of)                       |                                               |
 | "What does this function call?"      | `query_graph` (callees_of)                       |                                               |
 | "Risk of this change"                | `detect_changes` + `get_affected_flows`          | git diff-based                                |
-| "Which repos depend on this one?"    | `list_cross_refs` (direction inbound)            | Annotation `ccg://` refs, materialized        |
+| "Which repos depend on this one?"    | `list_cross_refs` (direction inbound)            | Annotation `ccg://` refs, materialized; `direction` also takes outbound/both, plus a `status` filter |
 | "Impact across repos?"               | `get_impact_radius` with `cross_namespace: true` | Crosses resolved `ccg://` refs both ways      |
 
 ## Pipeline Analysis Workflow
@@ -118,24 +118,12 @@ their `truncated` metadata by narrowing the start/scope or deliberately raising
 - Do not treat missing graph edges as proof that runtime behavior is impossible.
 - Do not hide per-namespace errors or truncation when federated/cross-namespace evidence is partial.
 
-## Analysis MCP Tools
-
-| Tool                        | One-liner                    |
-| --------------------------- | ---------------------------- |
-| `get_impact_radius`         | BFS blast radius; `cross_namespace: true` follows resolved `ccg://` refs |
-| `trace_flow`                | Call chain trace; `cross_namespace: true` continues into referenced namespaces |
-| `detect_changes`            | Git diff risk score          |
-| `get_affected_flows`        | Flows affected by change     |
-| `list_flows`                | Stored flow list, paginated  |
-| `list_cross_refs`           | Repository dependency map from materialized `ccg://` refs (`direction`: outbound/inbound/both, `status` filter) |
-
-For detailed parameters, see MCP schema.
-
 ## Prerequisites
 
 Use the `ccg` skill's Graph Freshness workflow before interpreting graph or
-stored-flow results. Stored-flow tools require flow postprocessing; an empty
-flow list is not evidence of no flow until that state has been checked.
+stored-flow results. The stored-flow tools — `list_flows`,
+`get_affected_flows` — require flow postprocessing; an empty flow list is not
+evidence of no flow until that state has been checked.
 
 ## Completion
 

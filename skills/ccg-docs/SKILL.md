@@ -2,7 +2,7 @@
 name: ccg-docs
 description: "Generate, discover, read, and lint CCG documentation. Use when producing Markdown and Wiki snapshots, narrowing broad module questions with search, reading generated docs from configured content roots with get_doc_content, or diagnosing orphan, missing, stale, incomplete, contradiction, dead-ref, and drift findings. Do not use for direct source annotation authoring or exact call-graph analysis."
 metadata:
-  version: 1.2.1
+  version: 1.3.0
   openclaw:
     category: "code-intelligence"
     domain: "documentation"
@@ -30,7 +30,7 @@ selected evidence and documentation quality.
 | Regenerate Markdown and Wiki snapshot | `ccg docs --out docs` |
 | Audit generated docs | `ccg lint` |
 
-`search` is a DB-backed narrowing layer. A question is scored against recorded `@intent`/`@domainRule` reasons as well as names, and every hit carries a `node_id`; it does not read a separately generated retrieval index. Read a file's Markdown with `get_doc_content`, then use graph tools for exact symbols and relationships.
+`search` is a DB-backed narrowing layer. A question is scored against recorded `@intent`/`@domainRule` reasons as well as names, and every hit carries a `node_id`; it does not read a separately generated retrieval index. Read a file's Markdown with `get_doc_content`, then use graph tools for exact symbols and relationships. Local MCP clients use `ccg serve`; self-hosted clients connect to `ccg-server` over Streamable HTTP.
 
 ## Discovery Pipeline
 
@@ -45,8 +45,8 @@ Generate files only when the task needs current Markdown, Wiki output, or
 `get_doc_content`:
 
 ```bash
-ccg docs --out docs
-ccg lint
+ccg docs --out docs  # Markdown + wiki-index.json compatibility snapshot
+ccg lint             # Documentation quality checks; --strict exits 1 on actionable issues
 ```
 
 ## Content-Root Contract
@@ -70,14 +70,6 @@ Pass the selected result's relative generated-doc path to `get_doc_content`. If 
 fails, report the configured-root mismatch; do not guess paths outside the
 allowed root.
 
-## CLI Commands
-
-| Command | Use |
-| ------- | --- |
-| `ccg docs --out docs` | Generate Markdown and `wiki-index.json` compatibility snapshot |
-| `ccg lint` | Run documentation quality checks |
-| `ccg lint --strict` | Exit 1 when lint reports actionable issues |
-
 ## Lint Categories
 
 | Category | Meaning |
@@ -98,18 +90,6 @@ allowed root.
 3. Empty answers to a question-shaped `search`: an empty answer usually means nobody recorded a reason in the area, not that the graph is stale. Confirm namespace statistics and refresh only when the graph is missing or stale.
 4. Missing `get_doc_content` file: compare the generated-doc path with the configured content root before regenerating.
 5. Exact-answer needs: switch from documentation discovery to `get_node`, `query_graph`, or `trace_flow`.
-
-## MCP Tools
-
-| Tool | Use |
-| ---- | --- |
-| `search` | Symbol and question search in one tool; a question answers from recorded reasons, and every hit carries a `node_id` |
-| `get_doc_content` | Safely read a selected generated Markdown file |
-
-`search` reads graph evidence without a separately generated retrieval
-index. `get_doc_content` still requires the selected Markdown beneath its
-configured root. Local MCP clients use `ccg serve`; self-hosted clients connect
-to `ccg-server` over Streamable HTTP.
 
 ## Boundary
 

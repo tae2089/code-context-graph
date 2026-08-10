@@ -2,7 +2,7 @@
 name: ccg-namespace
 description: "Isolate CCG graph build, search, documentation discovery, and analysis by namespace. Use when working across multiple repositories or services, preventing cross-project graph leakage, choosing safe scoped-update semantics, federating supported reads, or traversing materialized cross-namespace references. Do not use for ordinary single-repository work that fits the default namespace."
 metadata:
-  version: 1.3.1
+  version: 1.4.0
   openclaw:
     category: "code-intelligence"
     domain: "namespace"
@@ -36,15 +36,10 @@ search(namespace: "payment", query: "checkout")
 search(namespace: "payment", query: "why does checkout retry a failed capture")
 ```
 
-## MCP Tools
-
-| Tool | Use |
-| ---- | --- |
-| `list_namespaces` | List namespaces containing graph data and their node counts |
-| `build_or_update_graph` | Build or incrementally update one namespace from a filesystem path |
-| `search` | Search code nodes inside a namespace, including plain-language questions answered from recorded reasons; `namespaces: []` federates across several with per-item labels. Candidates with no evidence are cut before the per-namespace quota runs, so a namespace's slots go to hits it can justify |
-| `get_doc_content` | Read a selected generated document, optionally namespace-scoped |
-| `list_cross_refs` | List materialized `ccg://` refs for a namespace (`direction`: outbound/inbound/both) |
+`list_namespaces` reports every namespace holding graph data with its node
+count — the first call before interpreting any namespace-scoped result. Both
+`search` query shapes work namespace-scoped: keywords and plain-language
+questions answered from recorded reasons.
 
 ## Scoped Update Decision
 
@@ -66,6 +61,10 @@ chosen for the namespace.
 Only `search`, `query_graph`, and `list_graph_stats` accept `namespaces: []`.
 Treat `get_node`, `get_annotation`, `get_doc_content`,
 `list_flows`, and `list_cross_refs` as single-namespace operations.
+
+A federated `search` labels every hit with its namespace, and candidates with
+no visible evidence are cut before the per-namespace quota runs — a
+namespace's slots go to hits it can justify, not to padding.
 
 `get_impact_radius` and `trace_flow` also start in one namespace; enable
 `cross_namespace=true` only when resolved `ccg://` references should extend the
