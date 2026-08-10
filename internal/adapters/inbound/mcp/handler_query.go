@@ -189,7 +189,7 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 	if err := validateQueryGraphLimit(limit); err != nil {
 		return finalizeToolResult("", err)
 	}
-	if err := searchapp.ValidateOffset(offset); err != nil {
+	if err := validateOffset(offset); err != nil {
 		return finalizeToolResult("", err)
 	}
 
@@ -328,8 +328,8 @@ func (h *handlers) queryGraph(ctx context.Context, request mcp.CallToolRequest) 
 	if err := validateQueryGraphLimit(limit); err != nil {
 		return finalizeToolResult("", err)
 	}
-	if offset < 0 {
-		return finalizeToolResult("", newToolResultErr(fmt.Sprintf("offset must be >= 0, got %d", offset)))
+	if err := validateOffset(offset); err != nil {
+		return finalizeToolResult("", err)
 	}
 	includeFallbackCalls := request.GetBool("include_fallback_calls", true)
 

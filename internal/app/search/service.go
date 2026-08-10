@@ -44,6 +44,13 @@ type Params struct {
 	IncludeWeak bool
 }
 
+// OffsetMustNotBeNegative is the sentence every search surface turns a negative
+// page position away with. It is exported because the MCP boundary cannot pass
+// the error through unchanged — it has to restate the sentence as a tool result
+// the caller can read — and restating it from a copied literal is exactly how
+// the two surfaces would drift apart.
+const OffsetMustNotBeNegative = "offset must not be negative"
+
 // ValidateOffset turns away the one page position no answer exists for, in the
 // words every search surface says it in.
 //
@@ -55,7 +62,7 @@ type Params struct {
 // @intent keep the search entry points agreeing about which requests are askable.
 func ValidateOffset(offset int) error {
 	if offset < 0 {
-		return trace.New("offset must not be negative")
+		return trace.New(OffsetMustNotBeNegative)
 	}
 	return nil
 }

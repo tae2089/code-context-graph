@@ -23,6 +23,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/app/analyze/changes"
 	"github.com/tae2089/code-context-graph/internal/app/analyze/query"
 	"github.com/tae2089/code-context-graph/internal/app/ingest/incremental"
+	searchapp "github.com/tae2089/code-context-graph/internal/app/search"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 	"github.com/tae2089/code-context-graph/internal/obs"
@@ -3236,24 +3237,75 @@ func TestHandler_Search_ClaimsNoTruncationWhenNothingWasHeldBack(t *testing.T) {
 	}
 }
 
-// The sentence this asserts is the one `ccg search` says too. Both surfaces
-// take it from the same place, and this test is what would notice if the MCP
-// side started saying something else.
+// A mistyped offset is something the caller can fix, so search has to hand it
+// back as a result they can read. Returning a bare error instead makes the
+// transport report a broken call, and a broken call carries no tool result at
+// all — the agent sees that something failed and not what to do about it.
 //
-// The handler is called directly because a rejected offset comes back as a
-// protocol-level error rather than a tool result, and callTool fails the test
-// on those instead of handing them over.
-func TestHandler_Search_RejectsANegativeOffset(t *testing.T) {
+// The handler is called directly so the returned error is visible. Going
+// through callTool would only show the result, and "result is fine" is half of
+// what this test is for.
+func TestHandler_Search_RejectsANegativeOffsetAsAToolResult(t *testing.T) {
 	deps := setupTestDeps(t)
 	h := &handlers{deps: deps, cache: NewCache(5 * time.Minute)}
 
-	_, err := h.search(context.Background(), makeToolRequest("search", map[string]any{"query": "login", "offset": -1}))
+	result, err := h.search(context.Background(), makeToolRequest("search", map[string]any{"query": "login", "offset": -1}))
 
-	if err == nil {
-		t.Fatal("expected a negative offset to be rejected")
+	if err != nil {
+		t.Fatalf("a negative offset came back as a protocol error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "offset must not be negative") {
-		t.Fatalf("unexpected error: %v", err)
+	if result == nil {
+		t.Fatal("expected a tool result, got nil")
+	}
+	if !result.IsError {
+		t.Fatalf("expected the result to carry the error flag: %+v", result.Content)
+	}
+	if got := getTextContent(result); got != searchapp.OffsetMustNotBeNegative {
+		t.Fatalf("result text = %q, want %q", got, searchapp.OffsetMustNotBeNegative)
+	}
+}
+
+// Every tool that takes an offset says the same thing about a negative one, and
+// says it in the words the CLI uses. The wording is asserted against the
+// constant rather than a literal, so there is one place to change it and this
+// is the test that notices if a handler stops agreeing.
+func TestTools_RejectANegativeOffsetWithTheSameSentence(t *testing.T) {
+	// Each tool's other required arguments, filled in so the request reaches
+	// the offset check rather than being turned away before it.
+	cases := []struct {
+		tool string
+		args map[string]any
+	}{
+		{tool: "search", args: map[string]any{"query": "login"}},
+		{tool: "query_graph", args: map[string]any{"pattern": "callers_of", "target": "pkg.Handler"}},
+		{tool: "list_namespaces", args: map[string]any{}},
+		{tool: "list_flows", args: map[string]any{}},
+		{tool: "detect_changes", args: map[string]any{"repo_root": "."}},
+		{tool: "get_affected_flows", args: map[string]any{"repo_root": "."}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.tool, func(t *testing.T) {
+			deps := setupTestDeps(t)
+			args := map[string]any{"offset": -1}
+			for k, v := range tc.args {
+				args[k] = v
+			}
+
+			// callTool fails the test on a JSON-RPC error, which is the other
+			// half of the claim: a readable result, not a broken call.
+			result := callTool(t, deps, tc.tool, args)
+
+			if result == nil {
+				t.Fatal("expected a tool result, got nil")
+			}
+			if !result.IsError {
+				t.Fatalf("expected the result to carry the error flag: %+v", result.Content)
+			}
+			if got := getTextContent(result); got != searchapp.OffsetMustNotBeNegative {
+				t.Fatalf("result text = %q, want %q", got, searchapp.OffsetMustNotBeNegative)
+			}
+		})
 	}
 }
 

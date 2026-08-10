@@ -17,6 +17,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/adapters/outbound/graphgorm"
 	search "github.com/tae2089/code-context-graph/internal/adapters/outbound/searchsql"
+	searchapp "github.com/tae2089/code-context-graph/internal/app/search"
 	"github.com/tae2089/code-context-graph/internal/app/search/evidence"
 	intentapp "github.com/tae2089/code-context-graph/internal/app/search/intent"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
@@ -674,6 +675,11 @@ func TestSearchCommand_RejectsNonPositiveLimit(t *testing.T) {
 // The MCP search tool has always turned a negative offset away; the flag used
 // to take the process down with it instead. A reader who mistypes an argument
 // gets the same sentence from either surface now.
+//
+// The sentence is read from searchapp rather than spelled out here, so that
+// "the flag and the tool agree" is what this asserts. What the words actually
+// are is TestValidateOffset_SaysOneSentence's job, in the package that owns
+// them.
 func TestSearchCommand_RejectsNegativeOffset(t *testing.T) {
 	for _, offset := range []string{"-1", "-42"} {
 		deps, stdout, stderr, _ := setupSearchTest(t)
@@ -685,7 +691,7 @@ func TestSearchCommand_RejectsNegativeOffset(t *testing.T) {
 
 		err := executeCmd(deps, stdout, stderr, "search", "--offset", offset, "hello")
 
-		if err == nil || !strings.Contains(err.Error(), "offset must not be negative") {
+		if err == nil || !strings.Contains(err.Error(), searchapp.OffsetMustNotBeNegative) {
 			t.Fatalf("expected offset validation error for %s, got %v", offset, err)
 		}
 		if called {
@@ -701,7 +707,7 @@ func TestSearchCommand_RejectsNegativeOffsetOnAnEmptyIndex(t *testing.T) {
 
 	err := executeCmd(deps, stdout, stderr, "search", "--offset", "-1", "nothing-matches-this")
 
-	if err == nil || !strings.Contains(err.Error(), "offset must not be negative") {
+	if err == nil || !strings.Contains(err.Error(), searchapp.OffsetMustNotBeNegative) {
 		t.Fatalf("expected offset validation error, got %v", err)
 	}
 }
