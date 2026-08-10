@@ -12,11 +12,11 @@
     "query": "ExecuteC",
     "bucket": "exact",
     "retrieved": true,
-    "returned": 8,
+    "returned": 5,
     "relevant": 1,
     "found": 1,
     "rank": 1,
-    "weak_filtered": 2
+    "weak_filtered": 5
   },
   {
     "query": "persistent flags",

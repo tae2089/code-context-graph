@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/tae2089/code-context-graph/internal/app/search/identtoken"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
@@ -317,6 +318,15 @@ func receiverSegment(qualifiedName string) string {
 
 // scoreTargets returns the best score any of the given identifiers earns for the
 // query, using the token-level and joined-whole readings described on nameSim.
+//
+// The token-level reading is only offered when a sub-token worth more than a
+// shared character earned part of it — see queryTokens.meaningfulPart. Averaging
+// it unconditionally let one stray rune stand as a candidate's whole evidence.
+//
+// The joined reading needs no such guard. If the run-together query is an
+// ordered subsequence of the target then so is every sub-token it was built
+// from, the long ones included, so a joined match can never rest on a stray rune
+// alone.
 // @intent score one query against several spellings of the same node.
 func scoreTargets(q queryTokens, targets ...string) float64 {
 	if len(q.parts) == 0 {
@@ -329,10 +339,15 @@ func scoreTargets(q queryTokens, targets ...string) float64 {
 			continue
 		}
 		sum := 0.0
+		justified := false
 		for _, tok := range q.parts {
-			sum += subsequenceScore(tok, target)
+			hit := subsequenceScore(tok, target)
+			sum += hit
+			justified = justified || (hit > 0 && q.meaningfulPart(tok))
 		}
-		best = max(best, sum/float64(len(q.parts)))
+		if justified {
+			best = max(best, sum/float64(len(q.parts)))
+		}
 		if len(q.parts) > 1 { // for one part the joined query is that part
 			best = max(best, subsequenceScore(joined, target))
 		}
@@ -498,6 +513,41 @@ func newQueryTokens(query string) queryTokens {
 // empty reports whether the query left nothing to score with.
 // @intent give callers one question to ask before scoring a candidate.
 func (q queryTokens) empty() bool { return len(q.parts) == 0 && len(q.whole) == 0 }
+
+// meaningfulPart reports whether this sub-token is worth showing a candidate for
+// on its own.
+//
+// A sub-token one rune long is not. Cutting the query the way the index cuts an
+// identifier is what lets ExecuteC reach Execute, but it also leaves a trailing
+// capital standing as a sub-token of its own, and one rune is a rune most
+// identifiers hold somewhere. Cobra's tmplFunc shares the c of ExecuteC and
+// nothing else; that scored 0.1056, and any score above zero is all the evidence
+// cut asks for, so the query answered with eight declarations instead of three.
+//
+// One rune is not a threshold picked for these numbers. It is the point below
+// which there is nothing to pick: a sub-token has to be at least one rune to
+// exist, so this withholds the shortest possible piece and nothing else. A
+// length that could be raised — two runes, three — would be fitted to one
+// codebase's identifiers, which testdata/README.md forbids.
+//
+// The exception is a query with nothing longer in it. Someone typing c means the
+// identifier c, and that rune is the whole of what they asked rather than the
+// leftover of a larger word, so it still has to match. Withholding it there
+// would make short names unfindable, a worse fault than the one this fixes.
+//
+// @ensures a query whose sub-tokens are all one rune keeps every one of them.
+// @intent stop a single shared character from standing as a candidate's only evidence.
+func (q queryTokens) meaningfulPart(part string) bool {
+	if utf8.RuneCountInString(part) > 1 {
+		return true
+	}
+	for _, other := range q.parts {
+		if utf8.RuneCountInString(other) > 1 {
+			return false
+		}
+	}
+	return true
+}
 
 // tokenize lowercases and splits input into alphanumeric tokens. Underscore is a
 // separator, so user_id becomes two tokens — which is how the identifier index
