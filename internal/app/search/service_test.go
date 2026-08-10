@@ -276,7 +276,7 @@ func TestSearchFederated_FetchesEachNamespacePoolForTheOffsetToo(t *testing.T) {
 	}
 }
 
-func TestSearch_FiltersByPathPrefixBeforeRanking(t *testing.T) {
+func TestSearch_FiltersByPathPrefix(t *testing.T) {
 	pool := []graph.Node{
 		node(1, "alpha", "keep/alpha.go"),
 		node(2, "alphaHelper", "drop/beta.go"),

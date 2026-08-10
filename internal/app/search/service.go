@@ -89,6 +89,7 @@ func (s *Service) Search(ctx context.Context, p Params) (evidence.List, error) {
 	}
 	ranked := searchrank.Rerank(p.Query, pool.named, 0)
 	merged, intentEvidence := absorbIntent(ranked, pool.intent)
+	merged = keepPathPrefix(merged, p.PathPrefix)
 	list := evidence.Build(p.Query, merged, evidence.Options{
 		Limit: p.Limit, Offset: p.Offset, IncludeWeak: p.IncludeWeak,
 		Intent: intentEvidence, Coverage: pool.coverage,
@@ -139,6 +140,7 @@ func (s *Service) SearchFederated(ctx context.Context, namespaces []string, p Pa
 	}
 	merged := searchrank.RerankGroups(p.Query, groups, 0)
 	merged, intentEvidence := absorbIntent(merged, intentHits)
+	merged = keepPathPrefix(merged, p.PathPrefix)
 	list := evidence.Build(p.Query, merged, evidence.Options{
 		Limit: p.Limit, Offset: p.Offset, PerNamespace: true,
 		IncludeWeak: p.IncludeWeak, Intent: intentEvidence, Coverage: coverage,
@@ -161,11 +163,10 @@ type pool struct {
 }
 
 // fetch over-fetches one namespace's candidate pool from both indexes in
-// parallel and applies the path filter to each. Over-fetching lets structural
-// reranking promote good matches the backend ranked below the caller's limit,
-// and keeps path filtering from emptying the page. The two queries run
-// concurrently because neither needs the other's answer and both are the same
-// round-trip to the same database.
+// parallel. Over-fetching lets structural reranking promote good matches the
+// backend ranked below the caller's limit, and keeps the path filter from
+// emptying the page. The two queries run concurrently because neither needs the
+// other's answer and both are the same round-trip to the same database.
 //
 // The pool is sized for Offset+Limit, not Limit. Neither query carries a skip,
 // so page five is cut out of the same pool page one was: a pool wide enough for
@@ -209,29 +210,41 @@ func (s *Service) fetch(ctx context.Context, p Params) (pool, error) {
 		intentHits = nil
 	}
 
-	out := pool{
+	return pool{
 		named:     named,
 		intent:    intentHits,
 		truncated: truncated,
 		coverage:  coverageFromIntent(fromIntent.result.Coverage),
+	}, nil
+}
+
+// keepPathPrefix drops the candidates that live outside the caller's path
+// filter, once the answer's order is already decided.
+//
+// Filtering afterwards rather than before is the same set of files either way,
+// and in the same order: the order is decided by each candidate's own structural
+// evidence, so removing a candidate cannot move the ones that stay. What it does
+// change is the number a candidate is charged as its retrieval rank, which is
+// its position in the slice the ranker is handed. A filter that runs first
+// renumbers the pool, and that number stops being the rank the backend gave the
+// candidate. Nothing reads it that closely today — it only breaks a tie between
+// two candidates of the same identity — but the pool's own numbering is what
+// keeps a page already delivered from being reshuffled, so it has to stay the
+// backend's.
+//
+// @ensures the returned candidates keep the order they arrived in.
+// @intent apply the caller's path filter without renumbering the pool the order was decided from.
+func keepPathPrefix(nodes []graph.Node, prefix string) []graph.Node {
+	if prefix == "" {
+		return nodes
 	}
-	if p.PathPrefix == "" {
-		return out, nil
-	}
-	out.named = out.named[:0]
-	for _, n := range named {
-		if pathspec.HasPathPrefix(n.FilePath, p.PathPrefix) {
-			out.named = append(out.named, n)
+	kept := nodes[:0]
+	for _, n := range nodes {
+		if pathspec.HasPathPrefix(n.FilePath, prefix) {
+			kept = append(kept, n)
 		}
 	}
-	filteredIntent := out.intent[:0]
-	for _, h := range intentHits {
-		if pathspec.HasPathPrefix(h.Node.FilePath, p.PathPrefix) {
-			filteredIntent = append(filteredIntent, h)
-		}
-	}
-	out.intent = filteredIntent
-	return out, nil
+	return kept
 }
 
 // coverageFromIntent carries the recorded-reason index's coverage across the port
