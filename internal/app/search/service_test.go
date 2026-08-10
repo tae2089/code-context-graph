@@ -917,3 +917,40 @@ func TestSearch_AKoreanQuestionSurvivesWhenTheIntentIndexCannotAnswerIt(t *testi
 		t.Errorf("Matched = %v, want it to name the recorded reason", got)
 	}
 }
+
+// ruleOnlyNode is a node whose author wrote a @domainRule and no @intent. One
+// such node exists in this repository's own graph — intent.Result.CanAnswer —
+// and it is the top hit of a real question about it, so the readback that
+// reaches past @intent is load-bearing, not a defensive branch.
+func ruleOnlyNode(id uint, name, path, rule string) graph.Node {
+	n := node(id, name, path)
+	n.Annotation = &graph.Annotation{Tags: []graph.DocTag{{Kind: graph.TagDomainRule, Value: rule}}}
+	return n
+}
+
+// The reason shown beside a hit is read past @intent to the domain rule when
+// that is the only reason recorded. Reading @intent alone would put this node
+// on the page with a blank line where its reason goes — and in the CLI the
+// evidence line carries the match labels, so the node would lose those too.
+func TestSearch_ShowsADomainRuleWhenItIsTheOnlyReasonRecorded(t *testing.T) {
+	const rule = "intent hits justify membership only when at least half of the question's scored terms appear in some recorded reason"
+	hit := ruleOnlyNode(1, "CanAnswer", "internal/app/search/intent/intent.go", rule)
+	searcher := &fakeSearcher{
+		byNamespace:       map[string][]graph.Node{requestctx.DefaultNamespace: nil},
+		intentByNamespace: map[string][]intent.Hit{requestctx.DefaultNamespace: {{Node: hit, Terms: []string{"membership"}}}},
+		intentTerms:       []intent.Term{{Text: "membership", InReasons: 3}, {Text: "justify", InReasons: 2}},
+	}
+	svc := New(searcher)
+
+	ctx := requestctx.WithNamespace(context.Background(), requestctx.DefaultNamespace)
+	list, err := svc.Search(ctx, Params{Query: "justify membership", Limit: 10})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(list.Files) != 1 {
+		t.Fatalf("got %+v, want the domain-rule hit on the page", list.Files)
+	}
+	if got := list.Hits()[0].Reason; got != rule {
+		t.Errorf("Reason = %q, want the recorded domain rule", got)
+	}
+}
