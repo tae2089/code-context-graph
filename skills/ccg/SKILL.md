@@ -22,17 +22,17 @@ Use CCG for current graph evidence and use grep/read for direct source evidence.
 | ------------------------------------------ | ----------------- | --------------------------------- |
 | "Where is X?" — simple location lookup     | Grep + Read       | Direct source lookup              |
 | "Find code related to X" — keyword/intent search | `ccg search` | Indexed code and annotations |
-| "Why was this built?" / "where do I start?" — you cannot name the symbol | MCP `find_by_intent` | Matches the reasons authors recorded, then hands back node IDs to walk from |
+| "Why was this built?" / "where do I start?" — you cannot name the symbol | MCP `search`, phrased as a question | Also scores the reasons authors recorded, then hands back node IDs to walk from |
 | "What is in this folder/file?" — you already have a path | MCP `describe` | Lists what the graph holds there, exactly, with no ranking to second-guess |
 | "How does this algorithm or feature pipeline work?" | `ccg-analyze` skill | Graph-first narrowing, then source verification |
 | "What's affected if I change X?"           | `ccg-analyze` skill   | Graph traversal                       |
-| "Understand a module from generated docs"  | `ccg-docs` skill      | `find_by_intent`, then `get_doc_content` |
+| "Understand a module from generated docs"  | `ccg-docs` skill      | `search`, then `get_doc_content` |
 | "Document intent/rules in code"            | `ccg-annotate` skill  | AI annotation workflow                |
 | "Manage multiple service codebases"        | `ccg-namespace` skill | MSA namespace isolation               |
 
 For an unfamiliar MCP task, call `get_minimal_context` once, then confirm the
 selected namespace with `list_graph_stats`. For broad module questions, use
-`find_by_intent` and `get_doc_content`; switch to `query_graph`, `get_node`, or
+`search` and `get_doc_content`; switch to `query_graph`, `get_node`, or
 `trace_flow` when the answer needs exact symbols or relationships.
 
 Do not rebuild the graph or regenerate docs merely to start a read-only query.
@@ -113,34 +113,30 @@ first, but a short, rare query is still the reliable form.
 
 ## Finding an Entry Point by Intent
 
-Use MCP `find_by_intent` when you are looking at an incident or unfamiliar code
-and cannot name the symbol yet. Ask the question in plain words:
+Ask `search` the question in plain words when you are looking at an incident or
+unfamiliar code and cannot name the symbol yet:
 
 ```text
-find_by_intent(question: "why do we verify the signature on a push")
+search(query: "why do we verify the signature on a push")
 ```
 
-It is scored **only** against the reasons authors recorded — `@intent` and
-`@domainRule` — never against names or paths. A declaration whose name happens
-to contain one of your words does not come back. That is the point: it answers
-"why does this exist", which a name cannot.
+A question is scored against the reasons authors recorded — `@intent` and
+`@domainRule` — as well as names, and the files those reasons justify are
+appended after any name matches. A reason-matched hit carries the recorded
+`reason` and `matched_terms`, so you can see whether it answered your question
+or merely shared a common word with it.
 
-The answer is `files[] {file_path, entries[]}`, and every entry carries a
-`node_id`. Hand that ID straight to `get_node`, `query_graph`,
-`get_impact_radius`, or `trace_flow` — the tool exists to start a graph walk,
-not to finish the investigation.
+Every hit carries a `node_id`. Hand that ID straight to `get_node`,
+`query_graph`, `get_impact_radius`, or `trace_flow` — the answer exists to
+start a graph walk, not to finish the investigation.
 
-There is no fallback to name search. An empty answer means no recorded reason
-matched, and `coverage` says how many of the searchable declarations have a
-recorded reason at all, so you can tell that apart from code nobody annotated.
-When coverage is low, `ccg annotate <file|dir>` on the area under investigation
-is what makes the tool answer.
-
-Use `search` instead when you already know the identifier.
+A question mostly made of words nobody ever wrote down gets no intent hits at
+all. When that happens, `ccg annotate <file|dir>` on the area under
+investigation is what makes questions answerable.
 
 ## Reading a Path You Already Have
 
-`search` and `find_by_intent` rank; they can be wrong about what matters.
+`search` ranks; it can be wrong about what matters.
 `describe` does not rank, so it cannot be. Once either tool hands back a path —
 or a stack frame or a diff does — read it with `describe`:
 
@@ -184,8 +180,7 @@ so `children_of` on a type always came back empty.
 | `parse_project`         | Full parse/write that skips search postprocessing      |
 | `build_or_update_graph` | Build or incrementally synchronize through MCP        |
 | `run_postprocess`       | Refresh stored flows and/or FTS without reparsing      |
-| `search`                | Annotation-aware full-text candidate search           |
-| `find_by_intent`        | Ask in plain language why something exists, when no symbol is known yet |
+| `search`                | Annotation-aware full-text candidate search; also answers plain-language questions from recorded reasons |
 | `describe`              | List what a folder or file holds, once you have the path |
 | `query_graph`           | Structured queries (callers/callees/imports)          |
 | `get_node`              | Lookup by qualified name                              |

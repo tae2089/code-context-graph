@@ -4,10 +4,10 @@ A local code analysis tool that parses codebases with Tree-sitter and builds a k
 
 ## MCP Server
 
-The ccg MCP server registered in `.mcp.json` provides 19 tools:
+The ccg MCP server registered in `.mcp.json` provides 18 tools:
 
 - `parse_project`, `build_or_update_graph`, `run_postprocess`
-- `get_node`, `search`, `find_by_intent`, `describe`, `query_graph`, `list_graph_stats`, `list_namespaces`, `get_minimal_context`
+- `get_node`, `search`, `describe`, `query_graph`, `list_graph_stats`, `list_namespaces`, `get_minimal_context`
 - `get_impact_radius`, `trace_flow`, `list_cross_refs`
 - `detect_changes`, `get_affected_flows`, `list_flows`
 - `get_annotation`
@@ -52,9 +52,8 @@ Use `.ccg.yaml` to manage project defaults such as exclude patterns and DB setti
 When looking for code locations, related implementations, call relationships, impact radius, or architecture context,
 use ccg MCP tools and Agent Skills first.
 
-- For natural-language code understanding and module exploration, start with ccg MCP `find_by_intent`: ask why something was built, then walk from the `node_id` it returns. Use the `/ccg-docs` skill and `get_doc_content` to read a generated doc.
+- For code lookup and natural-language code understanding alike, start with ccg MCP `search`: it answers identifier queries and "why was this built" questions from one index, then walk from the `node_id` values it returns. Use the `/ccg-docs` skill and `get_doc_content` to read a generated doc.
 - For exact symbol locations, call relationships, and graph metadata, use ccg MCP `query_graph`, `get_node`, `get_minimal_context`, or the `/ccg` skill.
-- For annotation/keyword-based candidate search, use ccg MCP `search` or `ccg search` as a supplement.
 - For impact radius, flows, and change-risk analysis, prefer the `/ccg-analyze` skill and related MCP tools (`get_impact_radius`, `trace_flow`, `detect_changes`, `get_affected_flows`).
 - For simple string checks, file existence checks, or cases where the ccg index is missing or stale, use `rg` as a supplement. If needed, refresh the graph with `ccg build .` or `ccg update .`.
 
@@ -63,7 +62,7 @@ use ccg MCP tools and Agent Skills first.
 See the `guide/` directory for detailed documentation:
 
 - [CLI Reference](guide/cli-reference.md) - all commands, flags, and config files
-- [MCP Tools](guide/mcp-tools.md) - 19 MCP tools, Agent Skills, AI-Driven Annotation
+- [MCP Tools](guide/mcp-tools.md) - 18 MCP tools, Agent Skills, AI-Driven Annotation
 - [Annotations](guide/annotations.md) - annotation tags, examples, and search
 - [Webhook](guide/webhook.md) - webhook sync, branch filtering, HMAC, graceful shutdown
 - [Docker](guide/docker.md) - Docker builds, MCP server, PostgreSQL deployment

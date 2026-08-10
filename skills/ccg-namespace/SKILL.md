@@ -33,7 +33,7 @@ Through MCP:
 build_or_update_graph(path: "/repos/payment", namespace: "payment", full_rebuild: true)
 list_namespaces()
 search(namespace: "payment", query: "checkout")
-find_by_intent(namespace: "payment", question: "why does checkout retry a failed capture")
+search(namespace: "payment", query: "why does checkout retry a failed capture")
 ```
 
 ## MCP Tools
@@ -42,8 +42,7 @@ find_by_intent(namespace: "payment", question: "why does checkout retry a failed
 | ---- | --- |
 | `list_namespaces` | List namespaces containing graph data and their node counts |
 | `build_or_update_graph` | Build or incrementally update one namespace from a filesystem path |
-| `search` | Search code nodes inside a namespace; `namespaces: []` federates across several with per-item labels. Candidates with no evidence are cut before the per-namespace quota runs, so a namespace's slots go to hits it can justify |
-| `find_by_intent` | Ask why something was built inside one namespace; answers from recorded reasons and returns a `node_id` per entry. Single-namespace only |
+| `search` | Search code nodes inside a namespace, including plain-language questions answered from recorded reasons; `namespaces: []` federates across several with per-item labels. Candidates with no evidence are cut before the per-namespace quota runs, so a namespace's slots go to hits it can justify |
 | `get_doc_content` | Read a selected generated document, optionally namespace-scoped |
 | `list_cross_refs` | List materialized `ccg://` refs for a namespace (`direction`: outbound/inbound/both) |
 
@@ -65,7 +64,7 @@ chosen for the namespace.
 ## Federation Boundaries
 
 Only `search`, `query_graph`, and `list_graph_stats` accept `namespaces: []`.
-Treat `find_by_intent`, `get_node`, `get_annotation`, `get_doc_content`,
+Treat `get_node`, `get_annotation`, `get_doc_content`,
 `list_flows`, and `list_cross_refs` as single-namespace operations.
 
 `get_impact_radius` and `trace_flow` also start in one namespace; enable

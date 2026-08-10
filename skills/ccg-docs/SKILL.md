@@ -1,6 +1,6 @@
 ---
 name: ccg-docs
-description: "Generate, discover, read, and lint CCG documentation. Use when producing Markdown and Wiki snapshots, narrowing broad module questions with find_by_intent, reading generated docs from configured content roots with get_doc_content, or diagnosing orphan, missing, stale, incomplete, contradiction, dead-ref, and drift findings. Do not use for direct source annotation authoring or exact call-graph analysis."
+description: "Generate, discover, read, and lint CCG documentation. Use when producing Markdown and Wiki snapshots, narrowing broad module questions with search, reading generated docs from configured content roots with get_doc_content, or diagnosing orphan, missing, stale, incomplete, contradiction, dead-ref, and drift findings. Do not use for direct source annotation authoring or exact call-graph analysis."
 metadata:
   version: 1.2.1
   openclaw:
@@ -23,22 +23,22 @@ selected evidence and documentation quality.
 
 | Task | Tool |
 | ---- | ---- |
-| Broad question about a module | `find_by_intent`, then `get_doc_content` |
+| Broad question about a module | MCP `search`, phrased as a question, then `get_doc_content` |
 | Focused annotation or symbol keyword | `ccg search` or MCP `search` |
 | Exact generated Markdown body | `get_doc_content` |
 | Exact signature or relationship | `get_node` or `query_graph` |
 | Regenerate Markdown and Wiki snapshot | `ccg docs --out docs` |
 | Audit generated docs | `ccg lint` |
 
-`find_by_intent` is a DB-backed narrowing layer. It answers from recorded `@intent`/`@domainRule` only and returns candidate files with a `node_id` per entry; it does not read a separately generated retrieval index. Read a file's Markdown with `get_doc_content`, then use graph tools for exact symbols and relationships.
+`search` is a DB-backed narrowing layer. A question is scored against recorded `@intent`/`@domainRule` reasons as well as names, and every hit carries a `node_id`; it does not read a separately generated retrieval index. Read a file's Markdown with `get_doc_content`, then use graph tools for exact symbols and relationships.
 
 ## Discovery Pipeline
 
 Use the `ccg` skill's Graph Freshness workflow before relying on graph evidence.
-`find_by_intent` can narrow candidates without generated Markdown:
+`search` can narrow candidates without generated Markdown:
 
 ```text
-find_by_intent(question: "how does a caller get authenticated", limit: 5)
+search(query: "how does a caller get authenticated", limit: 5)
 ```
 
 Generate files only when the task needs current Markdown, Wiki output, or
@@ -51,7 +51,7 @@ ccg lint
 
 ## Content-Root Contract
 
-`find_by_intent` returns DB-backed candidates with source `file_path` values; it
+`search` returns DB-backed candidates with source `file_path` values; it
 does not prove that a corresponding generated Markdown file exists in the
 filesystem root used by `get_doc_content`.
 
@@ -95,7 +95,7 @@ allowed root.
 
 1. Sparse results: add accurate `@intent` or `@index` annotations with the `ccg-annotate` skill.
 2. Stale generated docs: use the core Graph Freshness workflow, then rerun `ccg docs --out docs`.
-3. Empty `find_by_intent` results: read its `coverage` field first — an empty answer with low coverage means nobody recorded a reason, not that the graph is stale. Confirm namespace statistics and refresh only when the graph is missing or stale.
+3. Empty answers to a question-shaped `search`: an empty answer usually means nobody recorded a reason in the area, not that the graph is stale. Confirm namespace statistics and refresh only when the graph is missing or stale.
 4. Missing `get_doc_content` file: compare the generated-doc path with the configured content root before regenerating.
 5. Exact-answer needs: switch from documentation discovery to `get_node`, `query_graph`, or `trace_flow`.
 
@@ -103,17 +103,17 @@ allowed root.
 
 | Tool | Use |
 | ---- | --- |
-| `find_by_intent` | Ask in plain language why something was built; answers from recorded reasons and returns a `node_id` per entry |
+| `search` | Symbol and question search in one tool; a question answers from recorded reasons, and every hit carries a `node_id` |
 | `get_doc_content` | Safely read a selected generated Markdown file |
 
-`find_by_intent` reads graph evidence without a separately generated retrieval
+`search` reads graph evidence without a separately generated retrieval
 index. `get_doc_content` still requires the selected Markdown beneath its
 configured root. Local MCP clients use `ccg serve`; self-hosted clients connect
 to `ccg-server` over Streamable HTTP.
 
 ## Boundary
 
-- Treat `find_by_intent` as a narrowing layer, not a guaranteed Top-1 answer.
+- Treat `search` as a narrowing layer, not a guaranteed Top-1 answer.
 - Confirm the selected generated-doc path is readable before treating its body as evidence.
 - Do not hand-edit generator-managed Markdown when the source annotation or generator owns the content.
 - Separate current lint results from pre-existing unrelated findings.

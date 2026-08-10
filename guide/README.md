@@ -2,11 +2,12 @@
 
 Documentation index for code-context-graph.
 
-For LLM-agent workflows, start natural-language code exploration with
-`find_by_intent`: ask why something was built, then walk from the `node_id` it
-returns, or read a generated doc with `get_doc_content`. Treat it as an
-evidence-driven narrowing layer, not a Top1 search engine: use the small
-file-level answer to choose the shortest route into graph tools.
+For LLM-agent workflows, start code exploration with `search`: it answers
+identifier lookups and "why was this built" questions from one index, and
+every answer carries the `node_id` values to walk from, or read a generated
+doc with `get_doc_content`. Treat it as an evidence-driven narrowing layer,
+not a Top1 search engine: use the small file-level answer to choose the
+shortest route into graph tools.
 
 The browser Wiki is served by `ccg-server` when `--wiki-dir` points at built
 React assets. It prefers the graph database for presentation, uses
@@ -20,7 +21,7 @@ explore graph edges.
 |----------|-------------|
 | [CLI Reference](cli-reference.md) | Full CLI commands, options, and configuration file (`.ccg.yaml`) |
 | [Lint](lint.md) | Detailed `ccg lint` category reference, interpretation guide, and CI usage |
-| [MCP Tools](mcp-tools.md) | 19 MCP tools, agent skills, evidence-first routing, AI-driven annotation |
+| [MCP Tools](mcp-tools.md) | 18 MCP tools, agent skills, evidence-first routing, AI-driven annotation |
 | [Annotations](annotations.md) | Custom annotation system — tags, examples, and search quality |
 | [Webhook](webhook.md) | GitHub / Gitea webhook sync, branch filtering, graceful shutdown |
 | [Docker](docker.md) | Docker image build, MCP server setup, Wiki UI deployment, PostgreSQL integration |

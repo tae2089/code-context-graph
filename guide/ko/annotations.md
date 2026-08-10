@@ -4,7 +4,7 @@
 
 코드에 구조화된 메타데이터를 추가하여 AI, 생성 문서, 집중 검색이 비즈니스 컨텍스트를 활용할 수 있도록 합니다. 어노테이션은 `ccg search`를 위해 인덱싱되며 생성 Markdown에도 반영됩니다.
 
-LLM 에이전트의 자연어 기반 코드 탐색은 MCP `find_by_intent`로 시작하십시오. 기록된 `@intent`/`@domainRule`만으로 평문 질문에 답하고, 이어서 탐색할 `node_id`를 함께 반환합니다. 생성 문서는 `ccg docs` 후 `get_doc_content`로 읽습니다. `ccg search`는 어노테이션/키워드에 매칭되는 심볼 후보 목록이 필요할 때 사용하십시오.
+LLM 에이전트의 코드 탐색은 MCP `search`로 시작하십시오. 평문 질문은 이름뿐 아니라 기록된 `@intent`/`@domainRule`에도 점수를 매겨 답하고, 모든 답에 이어서 탐색할 `node_id`가 실려 옵니다. 생성 문서는 `ccg docs` 후 `get_doc_content`로 읽습니다.
 
 어노테이션 품질은 `ccg lint`에 의해 검증됩니다. `unannotated`, `incomplete`, `dead-ref`, `contradiction`, `drifted`와 같은 카테고리의 의미는 [Lint 가이드](lint.md)를 참조하십시오.
 
@@ -61,7 +61,7 @@ path와 symbol은 선택 사항입니다. `ccg://auth-svc/internal/auth`는 패�
 
 ## Retrieval 품질 (Retrieval Quality)
 
-어노테이션은 retrieval feature입니다. `find_by_intent`, 브라우저 Wiki 검색, 생성 문서는
+어노테이션은 retrieval feature입니다. `search`, 브라우저 Wiki 검색, 생성 문서는
 `@index`, `@intent`, `@domainRule`, `@sideEffect`, `@requires`, `@ensures`,
 `@see` 같은 구조화된 bucket을 파일 단위 근거로 점수화합니다. 자연어 검색
 품질은 좋은 어노테이션으로 올라가지만, 태그가 실제 동작을 설명할 때만

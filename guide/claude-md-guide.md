@@ -25,7 +25,7 @@ get_minimal_context          ← always start here (graph state + recommended to
         │                   → get_impact_radius(qualified_name: "...", depth: 3)
         │                   → get_affected_flows(repo_root: ".")
         │
-        ├─ understand structure → find_by_intent(question: "why ...")
+        ├─ understand structure → search(query: "why ...")
         │                          → get_node() / get_doc_content()
         │                          → describe(target: "<path>")
         │

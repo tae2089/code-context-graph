@@ -27,7 +27,7 @@ get_minimal_context          ← 항상 여기서 시작하십시오 (그래프 
         │                   → get_impact_radius(qualified_name: "...", depth: 3)
         │                   → get_affected_flows(repo_root: ".")
         │
-        ├─ 구조 파악 → find_by_intent(question: "왜 ...")
+        ├─ 구조 파악 → search(query: "왜 ...")
         │                          → get_node() / get_doc_content()
         │                          → describe(target: "<경로>")
         │

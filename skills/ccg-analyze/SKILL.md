@@ -32,11 +32,10 @@ Graph-based analysis for **change impact, call flow, and recent-change risk**.
 
 ## Pipeline Analysis Workflow
 
-1. **Candidate discovery**: use `find_by_intent` when you cannot name the symbol
-   yet and need somewhere to start — it answers a plain-language question from
-   recorded `@intent`/`@domainRule` only, and every entry carries a `node_id` to
-   walk from. Use `search` for focused symbol and annotation candidates once
-   you can name what you are after. A `search` hit carries
+1. **Candidate discovery**: use `search` for both cases. When you cannot name
+   the symbol yet, phrase the query as a question — it is scored against
+   recorded `@intent`/`@domainRule` reasons as well as names, and every hit
+   carries a `node_id` to walk from. Name the symbol once you can. A hit carries
    its own evidence — the `matched` signals and the node's `@intent` — so pick
    entry points from that rather than from position in the list; a short list
    means few justifiable files, and `weak_filtered` counts what was cut. Hits

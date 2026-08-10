@@ -49,6 +49,7 @@ ccg update ./backend --namespace backend
 | `ccg search --limit <n> <query>` | 최대 `n`개 파일만 출력. 출력된 파일 안의 hit은 전부 출력 (기본 10) |
 | `ccg search --offset <n> <query>` | 앞의 `n`개 파일을 건너뜀. 파일 단위라 이어 읽어도 파일이 잘리지 않고, 마지막 줄이 다음에 쓸 offset을 알려 줌 |
 | `ccg search --include-weak <query>` | 이름·경로·`@intent` 어디에도 근거가 없는 후보까지 함께 출력 |
+| `ccg search --json <query>` | 답을 MCP `search` 도구와 같은 모양의 JSON으로 출력 — 스크립트와 diff에 쓸 수 있게 안정적 |
 | `ccg docs [--out dir]` | 마크다운 문서와 `wiki-index.json` 호환 snapshot 생성 (기본적으로 그래프에 없는 generator-managed 문서를 prune) |
 | `ccg docs --rag-index-dir <dir>` | legacy 이름을 유지한 Wiki index 출력 디렉터리 지정 (기본 `.ccg` 또는 `rag.index_dir`) |
 | `ccg docs --prune=false` | 기존 generator-managed 문서를 삭제하지 않고 문서만 다시 생성 |
@@ -63,14 +64,13 @@ ccg update ./backend --namespace backend
 
 ### 검색과 문서 라우팅 (Search and Documentation Routing)
 
-CCG에는 역할이 다른 두 검색 표면이 있습니다.
+CCG에는 하나의 검색 표면과 여러 정확 조회 도구가 있습니다.
 
 | 사용 사례 | 우선 진입점 |
 |----------|-------------|
-| 자연어 기반 코드 이해와 모듈 탐색 | MCP `find_by_intent`, 이후 `ccg docs`와 `get_doc_content` |
+| 심볼 후보, 어노테이션/키워드 검색, 자연어 질문 | `ccg search` 또는 MCP `search`, 이후 `ccg docs`와 `get_doc_content` |
 | 정확한 심볼 조회, caller/callee, import, bounded graph traversal | MCP `get_node`, `query_graph`, `get_minimal_context` |
 | 영향 분석, flow 추적 | `get_impact_radius`, `trace_flow` 같은 MCP 분석 도구 |
-| 어노테이션/키워드 기반 후보 검색 | `ccg search` 또는 MCP `search` |
 
 코딩 에이전트의 자연어 탐색에는 다음 흐름을 권장합니다.
 
@@ -92,7 +92,7 @@ payload에는 이 숨겨진 text를 반환하지 않습니다.
 브라우저 Wiki는 `/wiki/api/graph` 기반 Graph 탭도 제공합니다. 이 탭은 설정된
 데이터베이스에서 해당 네임스페이스의 graph node와 edge를 직접 읽고, 클릭한
 file/symbol node를 같은 문서 viewer로 엽니다.
-그 다음 MCP `find_by_intent`로 평문 질문을 던지고 `get_doc_content`로 생성 문서를 직접 읽습니다. `ccg search`는 빠른 키워드 또는 심볼 어노테이션 매칭에는 유용하지만, 넓은 자연어 질문의 기본 응답 표면으로 보기는 어렵습니다.
+그 다음 `search`로 평문 질문을 던지고 — 이름뿐 아니라 작성자가 기록한 이유(`@intent`, `@domainRule`)에도 점수를 매깁니다 — `get_doc_content`로 생성 문서를 직접 읽습니다. 같은 질의는 SQLite와 PostgreSQL에서 같은 답을 반환합니다.
 
 ### 데이터베이스 선택 (Database Choice)
 

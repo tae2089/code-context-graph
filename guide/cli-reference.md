@@ -47,6 +47,7 @@ ccg update ./backend --namespace backend
 | `ccg search --limit <n> <query>` | Show at most `n` files; every hit inside a shown file is printed (default 10) |
 | `ccg search --offset <n> <query>` | Skip the first `n` files, so reading on never splits a file; the last line names the offset to use next |
 | `ccg search --include-weak <query>` | Also show candidates whose name, path, and `@intent` say nothing about the query |
+| `ccg search --json <query>` | Print the answer as JSON, in the same shape the MCP `search` tool returns — stable for scripts and diffs |
 | `ccg docs [--out dir]` | Generate Markdown documentation and the `wiki-index.json` compatibility snapshot (prunes stale generator-managed docs by default) |
 | `ccg docs --rag-index-dir <dir>` | Override the legacy-named Wiki index output directory (default `.ccg` or `rag.index_dir`) |
 | `ccg docs --prune=false` | Regenerate docs without deleting older generator-managed files |
@@ -61,14 +62,13 @@ For the default local SQLite database (`ccg.db`, including `./ccg.db`, absolute 
 
 ### Search and Documentation Routing
 
-CCG has two search surfaces with different jobs:
+CCG has one search surface and several exact-lookup tools:
 
 | Use case | Preferred entrypoint |
 |----------|----------------------|
-| Natural-language code understanding and module exploration | MCP `find_by_intent`, then `ccg docs` and `get_doc_content` |
+| Symbol candidates, annotation/keyword search, and natural-language questions | `ccg search` or MCP `search`, then `ccg docs` and `get_doc_content` |
 | Exact symbol lookup, callers/callees, imports, bounded graph traversal | MCP `get_node`, `query_graph`, `get_minimal_context` |
 | Impact analysis, flow tracing | MCP analysis tools such as `get_impact_radius`, `trace_flow` |
-| Focused annotation/keyword candidate search | `ccg search` or MCP `search` |
 
 For coding agents, the recommended natural-language path is:
 
@@ -90,10 +90,10 @@ normal tree payloads.
 The browser Wiki also provides a Graph tab backed by `/wiki/api/graph`; it reads
 the namespace's graph nodes and edges directly from the configured database and
 opens clicked file/symbol nodes through the same document viewer.
-Then use MCP `find_by_intent` for a plain-language question and
-`get_doc_content` to read a generated doc directly. `ccg search` remains useful
-for quick keyword or annotation matches over symbols, but it should not be
-treated as the primary answering surface for broad natural-language questions.
+Then use `search` for a plain-language question — it scores the reasons
+authors recorded (`@intent`, `@domainRule`) as well as names — and
+`get_doc_content` to read a generated doc directly. The same query returns the
+same answer on SQLite and PostgreSQL.
 
 ### Database Choice
 
