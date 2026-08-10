@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/tae2089/code-context-graph/internal/app/search/identtoken"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
@@ -442,7 +443,8 @@ func pathScore(q queryTokens, node graph.Node) float64 {
 // One flat list cannot serve both. Keeping the two apart is also what protects
 // the joined reading in scoreTargets, which runs the tokens back together with
 // no separator between them: the parts of a token rejoin to that token, while
-// the parts plus the token they came from rejoin to it written twice.
+// the parts plus the token they came from rejoin to it written twice —
+// getUserId would join to useriduserid, which matches nothing.
 type queryTokens struct {
 	// parts is the query cut into sub-tokens, for scoring against identifiers.
 	parts []string
@@ -451,10 +453,19 @@ type queryTokens struct {
 }
 
 // newQueryTokens reads one query both ways.
+//
+// parts comes from identtoken.Split, the same cut the index, the full-text query
+// and the evidence cut are built from. Reading the query as whole tokens here
+// instead was how a camelCase query lost the node full-text search had already
+// found for it: the index matched getUserId as get, user and id, while scoring
+// asked whether the nine-rune run getuserid appeared inside a seven-rune
+// identifier and answered no. The node was retrieved and then dropped for
+// failing a test the index never applied.
+//
+// @ensures parts cuts the query exactly as identifiers are cut when indexed.
 // @intent read a query once and hand each scorer the cut it can use.
 func newQueryTokens(query string) queryTokens {
-	whole := tokenize(query)
-	return queryTokens{parts: whole, whole: whole}
+	return queryTokens{parts: identtoken.Split(query), whole: tokenize(query)}
 }
 
 // empty reports whether the query left nothing to score with.
