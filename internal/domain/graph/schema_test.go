@@ -17,6 +17,7 @@ func TestGraphModelStringFieldsUseText(t *testing.T) {
 		FlowMembership{},
 		ParseCacheEntry{},
 		SearchDocument{},
+		SearchReason{},
 		UnresolvedEdgeCandidate{},
 		UnresolvedIndexState{},
 		SchemaVersion{},

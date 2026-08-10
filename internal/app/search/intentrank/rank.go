@@ -12,17 +12,22 @@ import (
 	"github.com/tae2089/code-context-graph/internal/app/search/queryterm"
 )
 
-// Doc is one candidate the index admitted: a node and the recorded reason that
-// was indexed for it.
+// Doc is one candidate the index admitted: a node and one recorded reason that
+// was indexed for it. A node that recorded several reasons arrives as several
+// Docs sharing a node id.
 // @intent carry the exact indexed text into scoring so the score is computed over what was matched.
 type Doc struct {
 	NodeID  uint
 	Content string
 }
 
-// Match is one document the question reached, and the terms of the question
-// written in it.
-// @intent say what earned a document its place, not only that it earned one.
+// Match is one declaration the question reached, and the terms of the question
+// written in its recorded reasons.
+//
+// It is per node, not per reason. The index holds one document per reason, so a
+// question touching two of a node's reasons reaches it twice; naming it twice
+// would tell the reader there are two answers where there is one declaration.
+// @intent say what earned a declaration its place, not only that it earned one.
 type Match struct {
 	NodeID uint
 	Terms  []string
@@ -48,7 +53,12 @@ type Result struct {
 }
 
 // Rank scores candidate reasons against a question and returns the answer best
-// first, at most limit documents of it, with the evidence that produced it.
+// first, at most limit declarations of it, with the evidence that produced it.
+//
+// The limit counts declarations because that is what the caller is asking for.
+// One node can arrive as several documents — one per recorded reason — and if
+// those spent the caller's slots, a node whose author wrote three reasons down
+// would shorten the page for everybody else.
 //
 // This runs in Go rather than in the database because the two databases do not
 // agree. SQLite's FTS5 orders by bm25, which discounts a word that appears in
@@ -70,7 +80,7 @@ type Result struct {
 // reasons" is something the reader can act on. A score of 0.31 is not.
 //
 // @requires docs must be every document the index matched, not a truncated page.
-// @return returns matches in answer order, dropping any document no term of the question reaches, and every question term with its corpus count either way.
+// @return returns one match per declaration in answer order, dropping any declaration no term of the question reaches, and every question term with its corpus count either way.
 func Rank(question string, docs []Doc, corpusSize, limit int) Result {
 	groups := parseGroups(question)
 	if len(groups) == 0 || len(docs) == 0 || limit <= 0 {
@@ -110,27 +120,49 @@ func Rank(question string, docs []Doc, corpusSize, limit int) Result {
 		terms[g] = Term{Text: groups[g].whole, InReasons: seen}
 	}
 
+	// A declaration is scored one term at a time: each term is credited to the
+	// single reason that says it best, and those credits are added up.
+	//
+	// Both halves of that matter. Adding a term up across reasons would pay a
+	// node twice for writing the same word twice, which is the reward version of
+	// the penalty this scoring removed. Taking only the best reason and stopping
+	// there is worse still: a declaration whose reasons together answer the whole
+	// question would score no higher than one that answers half of it, because
+	// half the evidence is thrown away for living in the wrong sentence. Best per
+	// term, summed over terms, charges each term exactly the length of the reason
+	// it was written in and still counts how much of the question was answered.
 	type scored struct {
 		nodeID uint
 		score  float64
-		terms  []string
+		best   []float64
 	}
-	results := make([]scored, 0, len(docs))
+	grouped := make([]scored, 0, len(docs))
+	position := make(map[uint]int, len(docs))
 	for i, doc := range docs {
-		score := 0.0
-		var matched []string
+		at, seen := position[doc.NodeID]
+		if !seen {
+			at = len(grouped)
+			position[doc.NodeID] = at
+			grouped = append(grouped, scored{nodeID: doc.NodeID, best: make([]float64, len(groups))})
+		}
+		node := &grouped[at]
 		for g := range groups {
 			count := freq[i][g]
 			if count == 0 {
 				continue
 			}
-			score += weight[g] * saturate(float64(count), float64(lengths[i]), averageLength)
-			matched = append(matched, groups[g].whole)
+			node.best[g] = max(node.best[g], weight[g]*saturate(float64(count), float64(lengths[i]), averageLength))
 		}
-		if score <= 0 {
+	}
+	results := make([]scored, 0, len(grouped))
+	for _, node := range grouped {
+		for _, credit := range node.best {
+			node.score += credit
+		}
+		if node.score <= 0 {
 			continue
 		}
-		results = append(results, scored{nodeID: doc.NodeID, score: score, terms: matched})
+		results = append(results, node)
 	}
 
 	// The node id is not a preference, it is the promise that asking for one more
@@ -148,7 +180,15 @@ func Rank(question string, docs []Doc, corpusSize, limit int) Result {
 		if len(matches) >= limit {
 			break
 		}
-		matches = append(matches, Match{NodeID: result.nodeID, Terms: result.terms})
+		// In question order, not in the order the reasons happened to be read,
+		// so two nodes that matched the same words report the same list.
+		var matched []string
+		for g, credit := range result.best {
+			if credit > 0 {
+				matched = append(matched, groups[g].whole)
+			}
+		}
+		matches = append(matches, Match{NodeID: result.nodeID, Terms: matched})
 	}
 	return Result{Matches: matches, Terms: terms, Corpus: total}
 }
@@ -171,9 +211,9 @@ func saturate(count, length, averageLength float64) float64 {
 }
 
 // k1 and b are BM25's standard settings. b controls how hard a long reason is
-// penalised; it is worth something here because a node carrying both an @intent
-// and a @domainRule is indexed as one longer document than a node carrying only
-// an @intent.
+// penalised. It still earns its place now that each reason is its own document:
+// reasons differ in length from one sentence to a paragraph, and a paragraph
+// that mentions a word once should not beat a sentence that is about it.
 const (
 	k1 = 1.2
 	b  = 0.75

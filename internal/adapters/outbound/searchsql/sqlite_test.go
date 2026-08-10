@@ -63,7 +63,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	// Annotation and DocTag are here because search loads them with every node;
 	// production always has both tables, so a fixture without them would only
 	// exercise a database shape that cannot occur.
-	if err := db.AutoMigrate(&graph.Node{}, &graph.SearchDocument{}, &graph.Annotation{}, &graph.DocTag{}); err != nil {
+	if err := db.AutoMigrate(&graph.Node{}, &graph.SearchDocument{}, &graph.SearchReason{}, &graph.Annotation{}, &graph.DocTag{}); err != nil {
 		t.Fatal(err)
 	}
 	return db
@@ -251,7 +251,7 @@ func TestSQLiteFTS_RebuildNodes_ChunksLargeNodeScopes(t *testing.T) {
 	// Annotation and DocTag are here because search loads them with every node;
 	// production always has both tables, so a fixture without them would only
 	// exercise a database shape that cannot occur.
-	if err := db.AutoMigrate(&graph.Node{}, &graph.SearchDocument{}, &graph.Annotation{}, &graph.DocTag{}); err != nil {
+	if err := db.AutoMigrate(&graph.Node{}, &graph.SearchDocument{}, &graph.SearchReason{}, &graph.Annotation{}, &graph.DocTag{}); err != nil {
 		t.Fatal(err)
 	}
 	backend := NewSQLiteBackend()

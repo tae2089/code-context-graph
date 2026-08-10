@@ -24,7 +24,7 @@ func setupDeletionSQLMeasurement(t *testing.T, fileCount int) (*Store, context.C
 	if err := store.AutoMigrate(); err != nil {
 		t.Fatalf("auto migrate graph store: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatalf("auto migrate search documents: %v", err)
 	}
 	ctx := requestctx.WithNamespace(context.Background(), "bulk-delete")
@@ -49,6 +49,10 @@ func setupDeletionSQLMeasurement(t *testing.T, fileCount int) (*Store, context.C
 	return store, ctx, filePaths, counter
 }
 
+// The budget is one statement per dependent table plus the node delete, and it
+// must not grow with the number of files. It went from 12 to 13 when
+// search_reasons joined the cascade: one more table, one more statement, still
+// flat in file count, which is what this test is guarding.
 func TestDeleteNodesByFiles_UsesBoundedSQL(t *testing.T) {
 	store, ctx, filePaths, counter := setupDeletionSQLMeasurement(t, 5)
 	started := time.Now()
@@ -57,8 +61,8 @@ func TestDeleteNodesByFiles_UsesBoundedSQL(t *testing.T) {
 	}
 	statements := counter.statements.Load()
 	t.Logf("bulk file deletion: files=%d statements=%d elapsed=%s", len(filePaths), statements, time.Since(started))
-	if statements > 12 {
-		t.Fatalf("bulk file deletion statements = %d, want <= 12", statements)
+	if statements > 13 {
+		t.Fatalf("bulk file deletion statements = %d, want <= 13", statements)
 	}
 	var remaining int64
 	if err := store.db.Model(&graph.Node{}).Where("namespace = ?", requestctx.FromContext(ctx)).Count(&remaining).Error; err != nil {

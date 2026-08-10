@@ -57,7 +57,7 @@ func setupSearchTest(t *testing.T) (*Deps, *bytes.Buffer, *bytes.Buffer, *gorm.D
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -508,7 +508,12 @@ func TestSearchCommand_PrintsTheRecordedReasonForAnIntentHit(t *testing.T) {
 	if err := db.WithContext(ctx).Create(&graph.SearchDocument{
 		Namespace: node.Namespace, NodeID: node.ID,
 		Content: "admitRepo checks repository allowlist", Language: "go",
-		IntentContent: "only pushes from allowed repositories may trigger a build",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.WithContext(ctx).Create(&graph.SearchReason{
+		Namespace: node.Namespace, NodeID: node.ID,
+		Content: "only pushes from allowed repositories may trigger a build",
 	}).Error; err != nil {
 		t.Fatal(err)
 	}

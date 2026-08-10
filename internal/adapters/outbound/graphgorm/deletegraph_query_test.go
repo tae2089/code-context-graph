@@ -58,7 +58,7 @@ func TestDeleteGraph_DeletesSearchDocumentsByNamespace(t *testing.T) {
 	if err := store.AutoMigrate(); err != nil {
 		t.Fatalf("auto migrate: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatalf("migrate search documents: %v", err)
 	}
 

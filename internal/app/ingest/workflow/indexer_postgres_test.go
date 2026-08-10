@@ -29,7 +29,7 @@ func TestBuild_PostgresSearchFailureRollsBackGraphAndDocuments(t *testing.T) {
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatalf("migrate graph schema: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatalf("migrate search documents: %v", err)
 	}
 

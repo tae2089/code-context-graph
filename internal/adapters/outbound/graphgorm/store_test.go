@@ -37,7 +37,7 @@ func setupTestDB(t *testing.T) *Store {
 	if err := s.AutoMigrate(); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatalf("failed to migrate search_documents: %v", err)
 	}
 	return s

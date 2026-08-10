@@ -139,10 +139,16 @@ func refreshSearchDocuments(ctx context.Context, db *gorm.DB, nodeIDs []uint, sc
 				if err := tx.WithContext(ctx).Where("namespace = ?", ns).Where("node_id IN ?", chunk).Delete(&graph.SearchDocument{}).Error; err != nil {
 					return trace.Wrap(err, "clear search documents")
 				}
+				if err := tx.WithContext(ctx).Where("namespace = ?", ns).Where("node_id IN ?", chunk).Delete(&graph.SearchReason{}).Error; err != nil {
+					return trace.Wrap(err, "clear search reasons")
+				}
 			}
 		} else {
 			if err := docsQ.Delete(&graph.SearchDocument{}).Error; err != nil {
 				return trace.Wrap(err, "clear search documents")
+			}
+			if err := tx.WithContext(ctx).Where("namespace = ?", ns).Delete(&graph.SearchReason{}).Error; err != nil {
+				return trace.Wrap(err, "clear search reasons")
 			}
 		}
 
@@ -187,18 +193,26 @@ func refreshSearchDocuments(ctx context.Context, db *gorm.DB, nodeIDs []uint, sc
 					}
 				}
 				docs := make([]graph.SearchDocument, 0, len(batchNodes))
+				var reasons []graph.SearchReason
 				for _, n := range batchNodes {
 					docs = append(docs, graph.SearchDocument{
-						Namespace:     n.Namespace,
-						NodeID:        n.ID,
-						Content:       document.BuildContent(n, annByNode),
-						IntentContent: document.BuildIntentContent(n, annByNode),
-						Language:      n.Language,
+						Namespace: n.Namespace,
+						NodeID:    n.ID,
+						Content:   document.BuildContent(n, annByNode),
+						Language:  n.Language,
 					})
+					for _, reason := range document.BuildReasons(n, annByNode) {
+						reasons = append(reasons, graph.SearchReason{Namespace: n.Namespace, NodeID: n.ID, Content: reason})
+					}
 				}
 				if len(docs) > 0 {
 					if err := tx.WithContext(ctx).CreateInBatches(docs, 100).Error; err != nil {
 						return trace.Wrap(err, "batch insert search documents")
+					}
+				}
+				if len(reasons) > 0 {
+					if err := tx.WithContext(ctx).CreateInBatches(reasons, 100).Error; err != nil {
+						return trace.Wrap(err, "batch insert search reasons")
 					}
 				}
 				count += len(docs)

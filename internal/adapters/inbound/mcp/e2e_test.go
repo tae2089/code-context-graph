@@ -34,7 +34,7 @@ func setupE2EDeps(t *testing.T) *Deps {
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.Flow{}, &graph.FlowMembership{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}, &graph.Flow{}, &graph.FlowMembership{}); err != nil {
 		t.Fatal(err)
 	}
 	sb := search.NewSQLiteBackend()

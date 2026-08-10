@@ -371,7 +371,9 @@ func TestHandler_Search_AnswersFromRecordedReasonsWithProof(t *testing.T) {
 	})
 	testDBFor(deps).Create(&graph.SearchDocument{
 		NodeID: node.ID, Content: "admitRepo checks repository allowlist", Language: "go",
-		IntentContent: "decide which push may trigger a build",
+	})
+	testDBFor(deps).Create(&graph.SearchReason{
+		NodeID: node.ID, Content: "decide which push may trigger a build",
 	})
 	testSearchBackendFor(deps).Rebuild(ctx, testDBFor(deps))
 

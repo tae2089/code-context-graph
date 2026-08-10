@@ -2,6 +2,7 @@ package migration
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -14,7 +15,7 @@ import (
 // the highest migration. Pinning it to a literal makes forgetting that a test
 // failure rather than a runtime surprise.
 func TestRequiredSchemaVersion_MatchesHighestMigration(t *testing.T) {
-	const highest = 19 // 000019_tokenize_identifier_separators
+	const highest = 20 // 000020_reason_documents
 	if RequiredSchemaVersion != highest {
 		t.Fatalf("RequiredSchemaVersion = %d, want %d", RequiredSchemaVersion, highest)
 	}
@@ -182,12 +183,12 @@ func TestSQLiteMigrationFifteen_CreatesCrossRefsAndCanMigrateDown(t *testing.T) 
 	}
 }
 
-// The recorded reason for a node lives beside its name text rather than in a
-// table of its own. Both are derived from the same node in the same refresh, so
-// one row cannot drift from the other; two tables could. The separation callers
-// asked for is between the two *indexes*, and that happens above this column —
-// the name index reads `content`, the intent index reads `intent_content`, and
-// neither sees the other's text.
+// Version 17 put the recorded reason beside the name text, in a column of
+// search_documents. Version 20 moved it into search_reasons because one column
+// can only hold one document per node, and joining a node's reasons into it made
+// each reason score as if it were as long as all of them together. This test
+// still pins 17 on its own terms: what the column was, and that stepping back to
+// 16 removes it.
 func TestSQLiteMigrationSeventeen_AddsIntentContentAndCanMigrateDown(t *testing.T) {
 	dsn := filepath.Join(t.TempDir(), "migration.db")
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -240,6 +241,106 @@ func TestSQLiteMigrationEighteen_AddsIntentFTSAndCanMigrateDown(t *testing.T) {
 	if sqliteHasTable(t, db, "intent_fts") {
 		t.Fatal("version 17 retained table intent_fts")
 	}
+}
+
+// Version 20 splits the joined intent_content column into one search_reasons row
+// per recorded reason, and reloads intent_fts from it. The backfill has to read
+// the annotation tags rather than the joined column, because joined text cannot
+// be cut back into the tags it came from — so this test writes tags that would
+// be indistinguishable once joined and checks they come out as separate rows.
+func TestSQLiteMigrationTwenty_SplitsReasonsIntoRowsAndCanMigrateDown(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "migration.db")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open SQLite: %v", err)
+	}
+	migrator, _, err := NewMigrator(db, "sqlite", "")
+	if err != nil {
+		t.Fatalf("NewMigrator: %v", err)
+	}
+	if err := migrator.Steps(19); err != nil {
+		t.Fatalf("migrate to version 19: %v", err)
+	}
+	seedVersionNineteenReasons(t, db)
+
+	if err := migrator.Steps(1); err != nil {
+		t.Fatalf("migrate to version 20: %v", err)
+	}
+	if sqliteHasColumn(t, db, "search_documents", "intent_content") {
+		t.Fatal("version 20 retained column search_documents.intent_content")
+	}
+	want := []string{
+		"decide which push may trigger a build",
+		"only allowlisted repositories are admitted",
+		"a tag push never starts a build",
+	}
+	if got := reasonContents(t, db, "SELECT content FROM search_reasons ORDER BY id"); !slices.Equal(got, want) {
+		t.Errorf("search_reasons = %v, want %v", got, want)
+	}
+	// A second @intent is a writing mistake, not a list, and only the first one is
+	// ever displayed. Indexing the rest would make text findable that can never be
+	// shown as the reason it was found by.
+	if got := reasonContents(t, db, "SELECT content FROM search_reasons WHERE content LIKE 'a second purpose%'"); len(got) != 0 {
+		t.Errorf("the second @intent reached the index as %v", got)
+	}
+	if got := reasonContents(t, db, "SELECT content FROM intent_fts ORDER BY rowid"); !slices.Equal(got, want) {
+		t.Errorf("intent_fts = %v, want %v", got, want)
+	}
+
+	if err := migrator.Steps(-1); err != nil {
+		t.Fatalf("migrate down to version 19: %v", err)
+	}
+	if !sqliteHasColumn(t, db, "search_documents", "intent_content") {
+		t.Fatal("version 19 missing column search_documents.intent_content")
+	}
+	if sqliteHasTable(t, db, "search_reasons") {
+		t.Fatal("version 19 retained table search_reasons")
+	}
+	rejoined := reasonContents(t, db, "SELECT intent_content FROM search_documents ORDER BY id")
+	if len(rejoined) != 1 || rejoined[0] != strings.Join(want, " ") {
+		t.Errorf("rejoined intent_content = %v, want %q", rejoined, strings.Join(want, " "))
+	}
+}
+
+// seedVersionNineteenReasons writes one annotated declaration straight into the
+// version-19 tables. The models cannot be used here: they describe the current
+// schema, and the point is to start from the old one.
+func seedVersionNineteenReasons(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	statements := []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO nodes (id, namespace, qualified_name, kind, name, file_path, start_line, end_line, language)
+		  VALUES (1, 'default', 'webhook.admitRepo', 'function', 'admitRepo', 'webhook/admit.go', 1, 10, 'go')`, nil},
+		{`INSERT INTO annotations (id, node_id) VALUES (1, 1)`, nil},
+		{`INSERT INTO doc_tags (annotation_id, kind, value, ordinal) VALUES
+		  (1, 'intent', 'decide which push may trigger a build', 0),
+		  (1, 'domainRule', 'only allowlisted repositories are admitted', 1),
+		  (1, 'sideEffect', 'writes an admission record', 2),
+		  (1, 'domainRule', 'a tag push never starts a build', 3),
+		  (1, 'intent', 'a second purpose nobody will ever be shown', 4)`, nil},
+		{`INSERT INTO search_documents (namespace, node_id, content, intent_content, language)
+		  VALUES ('default', 1, 'admitRepo checks repository allowlist', ?, 'go')`, []any{
+			"decide which push may trigger a build only allowlisted repositories are admitted a tag push never starts a build",
+		}},
+		{`INSERT INTO intent_fts (node_id, content, namespace)
+		  SELECT node_id, intent_content, namespace FROM search_documents`, nil},
+	}
+	for _, statement := range statements {
+		if err := db.Exec(statement.sql, statement.args...).Error; err != nil {
+			t.Fatalf("seed version 19 row: %v", err)
+		}
+	}
+}
+
+func reasonContents(t *testing.T, db *gorm.DB, query string) []string {
+	t.Helper()
+	var out []string
+	if err := db.Raw(query).Scan(&out).Error; err != nil {
+		t.Fatalf("%s: %v", query, err)
+	}
+	return out
 }
 
 func sqliteHasTable(t *testing.T, db *gorm.DB, table string) bool {

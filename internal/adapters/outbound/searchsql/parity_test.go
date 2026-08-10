@@ -274,14 +274,19 @@ func seedParityCorpus(t *testing.T, db *gorm.DB, corpus parityCorpus) {
 			annotations[node.ID] = node.Annotation
 		}
 		doc := graph.SearchDocument{
-			Namespace:     corpus.namespace,
-			NodeID:        node.ID,
-			Content:       document.BuildContent(node, annotations),
-			IntentContent: document.BuildIntentContent(node, annotations),
-			Language:      "go",
+			Namespace: corpus.namespace,
+			NodeID:    node.ID,
+			Content:   document.BuildContent(node, annotations),
+			Language:  "go",
 		}
 		if err := db.Create(&doc).Error; err != nil {
 			t.Fatalf("seed doc %s: %v", n.qualifiedName, err)
+		}
+		for _, reason := range document.BuildReasons(node, annotations) {
+			row := graph.SearchReason{Namespace: corpus.namespace, NodeID: node.ID, Content: reason}
+			if err := db.Create(&row).Error; err != nil {
+				t.Fatalf("seed reason %s: %v", n.qualifiedName, err)
+			}
 		}
 	}
 }

@@ -3291,7 +3291,7 @@ func TestE2E_SearchAcrossLanguages(t *testing.T) {
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&graph.SearchDocument{}); err != nil {
+	if err := db.AutoMigrate(&graph.SearchDocument{}, &graph.SearchReason{}); err != nil {
 		t.Fatal(err)
 	}
 	sb := search.NewSQLiteBackend()

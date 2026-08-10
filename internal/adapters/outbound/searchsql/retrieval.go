@@ -105,18 +105,20 @@ func intentTerms(terms []intentrank.Term) []intentapp.Term {
 	return out
 }
 
-// intentCorpusSize counts the declarations carrying a recorded reason, which is
-// how many documents the scorer is measuring a word's commonness against.
+// intentCorpusSize counts the recorded reasons, which is how many documents the
+// scorer is measuring a word's commonness against.
 //
 // A word written in half the recorded reasons tells the reader nothing, and
 // without this number there is nothing to compare a word's document count
-// against.
+// against. The count is of reasons, not of declarations, because one reason is
+// one document now: a declaration that wrote three of them contributes three,
+// and counting it once would leave the denominator smaller than the number of
+// documents a word can appear in.
 // @intent give the scorer the denominator that makes a common word common.
 func (r *Reader) intentCorpusSize(ctx context.Context) (int, error) {
 	var total int64
-	if err := r.db.WithContext(ctx).Model(&graph.SearchDocument{}).
+	if err := r.db.WithContext(ctx).Model(&graph.SearchReason{}).
 		Where("namespace = ?", requestctx.FromContext(ctx)).
-		Where("intent_content <> ''").
 		Count(&total).Error; err != nil {
 		return 0, err
 	}

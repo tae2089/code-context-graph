@@ -312,6 +312,7 @@ func (s *Store) DeleteNodesByFiles(ctx context.Context, filePaths []string) erro
 	ns := requestctx.FromContext(ctx)
 	hasFlowMemberships := s.db.Migrator().HasTable(&graph.FlowMembership{})
 	hasSearchDocuments := s.db.Migrator().HasTable(&graph.SearchDocument{})
+	hasSearchReasons := s.db.Migrator().HasTable(&graph.SearchReason{})
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for start := 0; start < len(filePaths); start += 500 {
 			end := min(start+500, len(filePaths))
@@ -322,7 +323,7 @@ func (s *Store) DeleteNodesByFiles(ctx context.Context, filePaths []string) erro
 			if err := tx.Where("namespace = ? AND file_path IN ?", ns, chunk).Delete(&graph.Edge{}).Error; err != nil {
 				return trace.Wrap(err, "delete file-owned edges")
 			}
-			if err := deleteNodeScope(tx, "namespace = ? AND file_path IN ?", []any{ns, chunk}, hasFlowMemberships, hasSearchDocuments); err != nil {
+			if err := deleteNodeScope(tx, "namespace = ? AND file_path IN ?", []any{ns, chunk}, hasFlowMemberships, hasSearchDocuments, hasSearchReasons); err != nil {
 				return err
 			}
 		}
@@ -333,7 +334,7 @@ func (s *Store) DeleteNodesByFiles(ctx context.Context, filePaths []string) erro
 // deleteNodeScope removes every dependent row for nodes selected by a reusable WHERE scope.
 // @intent centralize node-dependent cleanup while keeping node IDs inside database subqueries.
 // @sideEffect deletes connected edges, documentation, memberships, search documents, and nodes.
-func deleteNodeScope(tx *gorm.DB, nodeWhere string, nodeArgs []any, hasFlowMemberships, hasSearchDocuments bool) error {
+func deleteNodeScope(tx *gorm.DB, nodeWhere string, nodeArgs []any, hasFlowMemberships, hasSearchDocuments, hasSearchReasons bool) error {
 	nodeIDs := func() *gorm.DB {
 		return tx.Model(&graph.Node{}).Select("id").Where(nodeWhere, nodeArgs...)
 	}
@@ -360,6 +361,11 @@ func deleteNodeScope(tx *gorm.DB, nodeWhere string, nodeArgs []any, hasFlowMembe
 			return trace.Wrap(err, "cascade delete search_documents")
 		}
 	}
+	if hasSearchReasons {
+		if err := tx.Where("node_id IN (?)", nodeIDs()).Delete(&graph.SearchReason{}).Error; err != nil {
+			return trace.Wrap(err, "cascade delete search_reasons")
+		}
+	}
 	if err := tx.Where(nodeWhere, nodeArgs...).Delete(&graph.Node{}).Error; err != nil {
 		return trace.Wrap(err, "cascade delete nodes")
 	}
@@ -374,6 +380,7 @@ func (s *Store) DeleteGraph(ctx context.Context) error {
 	ns := requestctx.FromContext(ctx)
 	hasFlowMemberships := s.db.Migrator().HasTable(&graph.FlowMembership{})
 	hasSearchDocuments := s.db.Migrator().HasTable(&graph.SearchDocument{})
+	hasSearchReasons := s.db.Migrator().HasTable(&graph.SearchReason{})
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("namespace = ?", ns).Delete(&graph.UnresolvedEdgeCandidate{}).Error; err != nil {
 			return trace.Wrap(err, "delete namespace unresolved edges")
@@ -395,7 +402,12 @@ func (s *Store) DeleteGraph(ctx context.Context) error {
 				return trace.Wrap(err, "delete namespace search documents")
 			}
 		}
-		return deleteNodeScope(tx, "namespace = ?", []any{ns}, hasFlowMemberships, false)
+		if hasSearchReasons {
+			if err := tx.Where("namespace = ?", ns).Delete(&graph.SearchReason{}).Error; err != nil {
+				return trace.Wrap(err, "delete namespace search reasons")
+			}
+		}
+		return deleteNodeScope(tx, "namespace = ?", []any{ns}, hasFlowMemberships, false, false)
 	})
 }
 

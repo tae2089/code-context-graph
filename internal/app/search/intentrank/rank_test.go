@@ -192,3 +192,99 @@ func TestMatchesByPrefix_SplitsOnLengthExceptOutsideASCII(t *testing.T) {
 		}
 	}
 }
+
+// A node whose author wrote two reasons is still one declaration. The index
+// holds one document per reason, so a question touching both reaches the same
+// node twice, and a list that names it twice tells the reader there are two
+// answers when there is one.
+func TestRank_AnswersOnceForANodeIndexedUnderSeveralReasons(t *testing.T) {
+	docs := []intentrank.Doc{
+		{NodeID: 1, Content: "quarantine a repository whose sync keeps failing"},
+		{NodeID: 1, Content: "a quarantined repository stays out of every later sync"},
+		{NodeID: 2, Content: "sync something else entirely"},
+	}
+	got := rank(t, "why does a sync quarantine a repository", 3, docs...)
+	if !slices.Equal(got, []uint{1, 2}) {
+		t.Fatalf("got %v, want node 1 once and then node 2", got)
+	}
+}
+
+// The terms are what a reader judges an answer by, and they are per node, not
+// per reason. A node whose @intent holds one word of the question and whose
+// @domainRule holds another matched on both, and reporting either one alone
+// understates the evidence that put it on the page.
+func TestRank_CombinesTheTermsMatchedAcrossSeveralReasons(t *testing.T) {
+	docs := []intentrank.Doc{
+		{NodeID: 1, Content: "keep every sync bounded"},
+		{NodeID: 1, Content: "a repository is quarantined after three failures"},
+	}
+	result := intentrank.Rank("why does a sync quarantine a repository", docs, 2, 5)
+	if len(result.Matches) != 1 {
+		t.Fatalf("got %d matches, want the one node", len(result.Matches))
+	}
+	want := []string{"sync", "quarantine", "repository"}
+	if !slices.Equal(result.Matches[0].Terms, want) {
+		t.Errorf("matched terms are %v, want %v: every term reached the node, across two reasons", result.Matches[0].Terms, want)
+	}
+}
+
+// The caller asks for a number of answers, and an answer is a declaration. If
+// the limit counted reasons, a node carrying three of them would eat three of
+// the caller's slots and the page would be shorter than the page it asked for.
+func TestRank_LimitCountsNodesNotReasons(t *testing.T) {
+	docs := []intentrank.Doc{
+		{NodeID: 1, Content: "drain the queue under backpressure"},
+		{NodeID: 1, Content: "the queue drains oldest first"},
+		{NodeID: 1, Content: "a drained queue is never re-entered"},
+		{NodeID: 2, Content: "drain the queue on shutdown"},
+	}
+	result := intentrank.Rank("what drains the queue", docs, 4, 2)
+	if !slices.Equal(ids(result), []uint{1, 2}) {
+		t.Fatalf("got %v, want two nodes: the limit counts declarations, not reasons", ids(result))
+	}
+}
+
+// Writing more reasons down must not cost a node the question it does answer.
+// All three declarations record the same @intent; the middle one also records
+// three domain rules the question says nothing about. Scored per reason, the
+// rules it did not match are simply other documents, and the three tie.
+func TestRank_ExtraReasonsDoNotOutweighTheOneThatMatched(t *testing.T) {
+	intent := "verify the signature so a push from anywhere else is rejected"
+	docs := []intentrank.Doc{
+		{NodeID: 1, Content: intent},
+		{NodeID: 2, Content: intent},
+		{NodeID: 2, Content: "a rejected delivery is retried at most five times before it is dropped"},
+		{NodeID: 2, Content: "the retry delay doubles each attempt and never exceeds one hour"},
+		{NodeID: 2, Content: "a dropped delivery is recorded in the audit log with its last error"},
+		{NodeID: 3, Content: intent},
+	}
+	got := rank(t, "why do we verify the signature on a push", 6, docs...)
+	if !slices.Equal(got, []uint{1, 2, 3}) {
+		t.Fatalf("got %v, want 1 2 3: node 2 recorded three more rules and must still tie on the intent it shares", got)
+	}
+}
+
+// A question is answered better by a declaration whose reasons cover all of it
+// than by one that covers half, and it must not matter that the covering words
+// were written in two reasons rather than one. Scoring a node on its single best
+// reason threw the other half away: the node that answered the whole question
+// scored the same as the node that answered part of it.
+func TestRank_CoveringMoreOfTheQuestionOutranksCoveringLess(t *testing.T) {
+	docs := []intentrank.Doc{
+		// Both words of the question, split across two long reasons.
+		{NodeID: 1, Content: "rotate the webhook secret without dropping any delivery that is already in flight"},
+		{NodeID: 1, Content: "the previous secret stays valid for one overlap window before it stops being accepted"},
+		// One word of the question, in a reason short enough to score higher on
+		// that word alone than either of node 1's reasons does.
+		{NodeID: 2, Content: "rotate the signing key"},
+		// Filler, so neither word of the question looks unique to one reason.
+		{NodeID: 3, Content: "rotate the log files once a day"},
+		{NodeID: 4, Content: "the overlap between two scans is discarded"},
+		{NodeID: 5, Content: "rotate the cached credentials before they expire"},
+		{NodeID: 6, Content: "an overlap in file ranges means the same line was read twice"},
+	}
+	got := rank(t, "rotate overlap", 6, docs...)
+	if len(got) == 0 || got[0] != 1 {
+		t.Fatalf("got %v, want node 1 first: its two reasons together hold both words of the question", got)
+	}
+}
