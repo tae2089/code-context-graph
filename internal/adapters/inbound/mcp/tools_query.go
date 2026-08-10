@@ -4,8 +4,6 @@ package mcp
 import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-
-	"github.com/tae2089/code-context-graph/internal/app/search/intent"
 )
 
 // withNamespaceParam appends canonical namespace arguments to a tool definition.
@@ -37,7 +35,7 @@ func queryTools(h *handlers) []server.ServerTool {
 		},
 		{
 			Tool: mcp.NewTool("search", withFederatedNamespaceParams(
-				mcp.WithDescription("Full-text search across code nodes, grouped by file. Use it to find a symbol you can name: an identifier, a type, a package word, or two or three such words together. Every term of the query has to appear in the same indexed node, so a question written as a sentence ('how does the graph get built') usually returns nothing — send that to find_by_intent instead. The answer is a list of files, and every file it shows it shows whole: all of that file's hits are in its 'hits' array. Every hit carries the evidence for it — the signals the query matched (name, path, intent) and the node's own @intent tag. Candidates nothing can justify are left out and counted in weak_filtered. 'truncated' is true when more files answered the query than this page reached, and 'next' lists the exact calls that read on, including the find_by_intent hand-off when this search came back empty. Use 'path' to scope results to a module for token-efficient queries."),
+				mcp.WithDescription("Full-text search across code nodes, grouped by file. It takes both shapes of query: a symbol you can name (an identifier, a type, a package word, or two or three such words together) and a plain-language question ('how does the graph get built', 'why do we verify the webhook signature'). Named symbols are matched against the indexed nodes, where every term has to appear in the same node; a question is additionally scored against the reasons authors recorded (@intent and @domainRule), and files those reasons justify are appended after the name matches. The answer is a list of files, and every file it shows it shows whole: all of that file's hits are in its 'hits' array. Every hit carries the evidence for it — the signals the query matched (name, path, intent), the node's own @intent tag, and, for a reason-matched hit, the recorded reason and the words of the question written in it ('reason', 'matched_terms'). Candidates nothing can justify are left out and counted in weak_filtered. 'truncated' is true when more files answered the query than this page reached, and 'next' lists the exact calls that read on. Use 'path' to scope results to a module for token-efficient queries."),
 				mcp.WithString("query", mcp.Description("Search query string"), mcp.Required()),
 				mcp.WithNumber("limit", mcp.Description("Maximum number of files to return; every hit inside a returned file is included"), mcp.DefaultNumber(10)),
 				mcp.WithNumber("offset", mcp.Description("Skip this many files before the page starts, so paging never splits a file"), mcp.DefaultNumber(0)),
@@ -47,16 +45,8 @@ func queryTools(h *handlers) []server.ServerTool {
 			Handler: h.search,
 		},
 		{
-			Tool: mcp.NewTool("find_by_intent", withNamespaceParam(
-				mcp.WithDescription("Ask in plain language why something was built, and get somewhere to start reading. Use it when investigating an incident or unfamiliar code and you cannot name the symbol yet: 'why do we verify the webhook signature', 'what makes a refund get rejected'. It is scored only against the reasons authors recorded (@intent and @domainRule), never against names or paths, so a declaration whose name happens to contain one of your words will not come back. The answer is files, each with the declarations inside it that answered, and each of those carries a node_id you can hand straight to get_node, query_graph, get_impact_radius, or trace_flow. There is no fallback to name search: an empty answer means no recorded reason matched, and 'coverage' tells you how much of this codebase has a recorded reason at all, so you can tell that apart from code nobody annotated. Weigh the answer before you trust it: every declaration lists the words of your question written in its reason ('matched_terms'), and 'terms' says how many of the 'reasons_searched' recorded reasons hold each of those words. A long file list whose entries all matched one word that appears in most reasons is a weak answer, and a word reported in 0 reasons is one nobody in this codebase wrote down — rephrase with the words this codebase uses. Use 'search' instead when you already know the identifier."),
-				mcp.WithString("question", mcp.Description("A plain-language question, e.g. 'why do we verify the signature on a push'"), mcp.Required()),
-				mcp.WithNumber("limit", mcp.Description("Maximum files in the answer; each shows its best-matching declarations"), mcp.DefaultNumber(intent.DefaultLimit)),
-			)...),
-			Handler: h.findByIntent,
-		},
-		{
 			Tool: mcp.NewTool("describe", withNamespaceParam(
-				mcp.WithDescription("List what the graph holds under one path, exactly and without ranking it. Give it a folder and you get the folders and files directly inside, one level down, each with how many files and declarations are under it. Give it a file and you get every declaration written in it, in the order they appear, each with its line range, its node_id, and its recorded @intent. This is the tool 'search' and 'find_by_intent' hand off to: those two guess which declarations matter and can be wrong, this one only reports which exist and cannot be. There is no query, no relevance, no limit, and no empty answer to interpret — a target the graph does not hold comes back as scope 'unknown' with the places that name is actually declared, plus the calls that find it. Start at a folder and descend, or hand it a path from a search hit, a stack frame, or a diff."),
+				mcp.WithDescription("List what the graph holds under one path, exactly and without ranking it. Give it a folder and you get the folders and files directly inside, one level down, each with how many files and declarations are under it. Give it a file and you get every declaration written in it, in the order they appear, each with its line range, its node_id, and its recorded @intent. This is the tool 'search' hands off to: search guesses which declarations matter and can be wrong, this one only reports which exist and cannot be. There is no query, no relevance, no limit, and no empty answer to interpret — a target the graph does not hold comes back as scope 'unknown' with the places that name is actually declared, plus the calls that find it. Start at a folder and descend, or hand it a path from a search hit, a stack frame, or a diff."),
 				mcp.WithString("target", mcp.Description("A folder path (internal/app/search), a file path (internal/app/search/intent/intent.go), or a name you are not sure about"), mcp.Required()),
 			)...),
 			Handler: h.describe,

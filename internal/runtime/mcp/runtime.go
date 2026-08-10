@@ -25,7 +25,6 @@ import (
 	"github.com/tae2089/code-context-graph/internal/app/ingest"
 	"github.com/tae2089/code-context-graph/internal/app/ingest/incremental"
 	"github.com/tae2089/code-context-graph/internal/app/search/document"
-	"github.com/tae2089/code-context-graph/internal/app/search/intent"
 	ccgobs "github.com/tae2089/code-context-graph/internal/obs"
 )
 
@@ -105,7 +104,6 @@ func New(components Components, opts Options) (*Instance, error) {
 		},
 		Graph: mcp.GraphToolsDeps{
 			Store: components.Store, Query: query.New(components.Store), Search: components.SearchReader,
-			Intent:     intent.New(components.SearchReader, components.SearchReader),
 			Describe:   describe.New(components.Store),
 			Statistics: components.Store, Reader: components.Store,
 		},

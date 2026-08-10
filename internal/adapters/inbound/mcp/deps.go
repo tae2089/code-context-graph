@@ -15,7 +15,6 @@ import (
 	"github.com/tae2089/code-context-graph/internal/app/ingest/incremental"
 	searchapp "github.com/tae2089/code-context-graph/internal/app/search"
 	"github.com/tae2089/code-context-graph/internal/app/search/document"
-	"github.com/tae2089/code-context-graph/internal/app/search/intent"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
@@ -104,13 +103,9 @@ type GraphToolsDeps struct {
 	Store  analyze.GraphLookup
 	Query  QueryService
 	Search searchapp.Searcher
-	// Intent answers plain-language questions from recorded reasons. It sits
-	// beside Search rather than replacing it: one finds a symbol the caller can
-	// already name, the other finds where to start when they cannot.
-	Intent *intent.Service
 	// Describe reports what the graph holds under a path, without ranking it.
-	// It is what Search and Intent hand off to: those two guess which
-	// declarations matter, and this one only reports which exist.
+	// It is what Search hands off to: search guesses which declarations
+	// matter, and this one only reports which exist.
 	Describe   *describe.Service
 	Statistics analyze.StatisticsReader
 	Reader     analyze.GraphReadRepository

@@ -21,7 +21,6 @@ type Reader struct {
 }
 
 var _ intentapp.Searcher = (*Reader)(nil)
-var _ intentapp.CoverageReader = (*Reader)(nil)
 
 // NewReader constructs bound search read ports.
 // @intent keep database handles out of application service construction.
@@ -109,9 +108,9 @@ func intentTerms(terms []intentrank.Term) []intentapp.Term {
 // intentCorpusSize counts the declarations carrying a recorded reason, which is
 // how many documents the scorer is measuring a word's commonness against.
 //
-// It is the same count IntentCoverage reports as NodesWithReason. A word written
-// in half the recorded reasons tells the reader nothing, and without this number
-// there is nothing to compare a word's document count against.
+// A word written in half the recorded reasons tells the reader nothing, and
+// without this number there is nothing to compare a word's document count
+// against.
 // @intent give the scorer the denominator that makes a common word common.
 func (r *Reader) intentCorpusSize(ctx context.Context) (int, error) {
 	var total int64
@@ -122,29 +121,4 @@ func (r *Reader) intentCorpusSize(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	return int(total), nil
-}
-
-// IntentCoverage counts how many searchable declarations carry a recorded reason.
-//
-// Both numbers come from search_documents rather than from nodes, because that
-// table is already the set of declarations the index can reach: it drops the
-// kinds search never returns. Counting nodes instead would put packages and
-// other unindexed kinds into the denominator and understate coverage.
-// @intent tell a caller how much of the searchable code could have answered at all.
-func (r *Reader) IntentCoverage(ctx context.Context) (intentapp.Coverage, error) {
-	if r == nil || r.db == nil {
-		return intentapp.Coverage{}, gorm.ErrInvalidDB
-	}
-	ns := requestctx.FromContext(ctx)
-	base := func() *gorm.DB {
-		return r.db.WithContext(ctx).Model(&graph.SearchDocument{}).Where("namespace = ?", ns)
-	}
-	var total, withReason int64
-	if err := base().Count(&total).Error; err != nil {
-		return intentapp.Coverage{}, err
-	}
-	if err := base().Where("intent_content <> ''").Count(&withReason).Error; err != nil {
-		return intentapp.Coverage{}, err
-	}
-	return intentapp.Coverage{NodesWithReason: int(withReason), NodesTotal: int(total)}, nil
 }

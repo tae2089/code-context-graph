@@ -3044,13 +3044,12 @@ func TestHandler_Search_PointsAtTheArgumentThatShowsWeakCandidates(t *testing.T)
 	}
 }
 
-// An empty answer is the one place a caller most needs somewhere else to go.
-// `search` needs every term in the same document, so a question phrased as a
-// sentence usually comes back with nothing. `find_by_intent` takes exactly that
-// shape of input and scores it against recorded reasons instead of names, so it
-// is the hand-off — and unlike the old one it never re-scores the question
-// against the same identifier text that just failed.
-func TestHandler_Search_HandsAnEmptyAnswerToFindByIntent(t *testing.T) {
+// An empty answer used to hand the question to find_by_intent. That tool is
+// gone because search itself now scores a question against recorded reasons,
+// so there is no second index left to suggest: an empty answer that withheld
+// nothing must come back with no next action at all, rather than pointing the
+// caller at a tool this server does not register.
+func TestHandler_Search_EmptyAnswerSuggestsNoRetiredHandOff(t *testing.T) {
 	deps := setupTestDeps(t)
 	ctx := context.Background()
 
@@ -3067,18 +3066,8 @@ func TestHandler_Search_HandsAnEmptyAnswerToFindByIntent(t *testing.T) {
 	if len(payload.Files) != 0 {
 		t.Fatalf("the query was meant to match nothing, got %d files", len(payload.Files))
 	}
-
-	var found bool
-	for _, n := range payload.Next {
-		if n.Tool == "find_by_intent" && n.Args["question"] == query {
-			found = true
-			if n.Reason == "" {
-				t.Error("a suggested call came with no reason")
-			}
-		}
-	}
-	if !found {
-		t.Errorf("an empty answer left the caller with nowhere to go: %+v", payload.Next)
+	if len(payload.Next) != 0 {
+		t.Errorf("an empty answer that withheld nothing suggested %+v", payload.Next)
 	}
 }
 

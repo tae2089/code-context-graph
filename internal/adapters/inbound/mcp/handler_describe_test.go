@@ -127,7 +127,7 @@ func TestDescribe_AnswersAMissedTargetWithWhereToLookInstead(t *testing.T) {
 	}
 }
 
-func TestDescribe_SendsATargetNobodyDeclaredToTheRankedTools(t *testing.T) {
+func TestDescribe_SendsATargetNobodyDeclaredToSearch(t *testing.T) {
 	deps := setupTestDeps(t)
 	seedDescribeGraph(t, deps)
 
@@ -146,8 +146,8 @@ func TestDescribe_SendsATargetNobodyDeclaredToTheRankedTools(t *testing.T) {
 		action, _ := entry.(map[string]any)
 		tools = append(tools, action["tool"].(string))
 	}
-	if strings.Join(tools, ",") != "search,find_by_intent" {
-		t.Errorf("expected a hand-off to the ranked tools, got %v", tools)
+	if strings.Join(tools, ",") != "search" {
+		t.Errorf("expected a hand-off to search, got %v", tools)
 	}
 }
 

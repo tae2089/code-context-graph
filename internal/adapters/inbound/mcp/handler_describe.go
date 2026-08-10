@@ -79,10 +79,10 @@ type describeResponse struct {
 
 // describe lists what the graph holds under one path.
 //
-// It is the tool the ranked ones hand off to. `search` and `find_by_intent`
-// guess which declarations matter and can be wrong about it; this one only
-// reports what exists, so it cannot be. Once a caller has a path from either of
-// them, everything after that is a lookup rather than a query.
+// It is the tool the ranked one hands off to. `search` guesses which
+// declarations matter and can be wrong about it; this one only reports what
+// exists, so it cannot be. Once a caller has a path from a search hit,
+// everything after that is a lookup rather than a query.
 //
 // @param request target is a folder path, a file path, or a name that turns out to be neither.
 // @requires Graph.Describe must be configured.
@@ -165,14 +165,9 @@ func describeNextActions(outline describe.Outline) []nextAction {
 	}
 	return []nextAction{
 		{
-			Reason: fmt.Sprintf("nothing is stored under %q; if it is an identifier, search for it by name", outline.Target),
+			Reason: fmt.Sprintf("nothing is stored under %q; search matches it as an identifier and as a question against recorded reasons", outline.Target),
 			Tool:   "search",
 			Args:   map[string]any{"query": outline.Target},
-		},
-		{
-			Reason: "if you cannot name the symbol, ask why it exists instead",
-			Tool:   "find_by_intent",
-			Args:   map[string]any{"question": fmt.Sprintf("what handles %s", outline.Target)},
 		},
 	}
 }
