@@ -120,43 +120,49 @@ func Rank(question string, docs []Doc, corpusSize, limit int) Result {
 		terms[g] = Term{Text: groups[g].whole, InReasons: seen}
 	}
 
-	// A declaration is scored on its best single reason, and reported on all of
-	// them. Adding the reasons up would hand a node that wrote three of them a
-	// score no single-reason node could reach, which is the penalty this scoring
-	// removed, pointed the other way. Taking the best one is what makes "the
-	// question matched this reason" cost exactly that reason's length.
+	// A declaration is scored one term at a time: each term is credited to the
+	// single reason that says it best, and those credits are added up.
+	//
+	// Both halves of that matter. Adding a term up across reasons would pay a
+	// node twice for writing the same word twice, which is the reward version of
+	// the penalty this scoring removed. Taking only the best reason and stopping
+	// there is worse still: a declaration whose reasons together answer the whole
+	// question would score no higher than one that answers half of it, because
+	// half the evidence is thrown away for living in the wrong sentence. Best per
+	// term, summed over terms, charges each term exactly the length of the reason
+	// it was written in and still counts how much of the question was answered.
 	type scored struct {
-		nodeID  uint
-		score   float64
-		reached []bool
+		nodeID uint
+		score  float64
+		best   []float64
 	}
-	results := make([]scored, 0, len(docs))
+	grouped := make([]scored, 0, len(docs))
 	position := make(map[uint]int, len(docs))
 	for i, doc := range docs {
-		score := 0.0
-		reached := make([]bool, len(groups))
+		at, seen := position[doc.NodeID]
+		if !seen {
+			at = len(grouped)
+			position[doc.NodeID] = at
+			grouped = append(grouped, scored{nodeID: doc.NodeID, best: make([]float64, len(groups))})
+		}
+		node := &grouped[at]
 		for g := range groups {
 			count := freq[i][g]
 			if count == 0 {
 				continue
 			}
-			score += weight[g] * saturate(float64(count), float64(lengths[i]), averageLength)
-			reached[g] = true
+			node.best[g] = max(node.best[g], weight[g]*saturate(float64(count), float64(lengths[i]), averageLength))
 		}
-		if score <= 0 {
+	}
+	results := make([]scored, 0, len(grouped))
+	for _, node := range grouped {
+		for _, credit := range node.best {
+			node.score += credit
+		}
+		if node.score <= 0 {
 			continue
 		}
-		at, seen := position[doc.NodeID]
-		if !seen {
-			position[doc.NodeID] = len(results)
-			results = append(results, scored{nodeID: doc.NodeID, score: score, reached: reached})
-			continue
-		}
-		node := &results[at]
-		node.score = max(node.score, score)
-		for g, hit := range reached {
-			node.reached[g] = node.reached[g] || hit
-		}
+		results = append(results, node)
 	}
 
 	// The node id is not a preference, it is the promise that asking for one more
@@ -177,8 +183,8 @@ func Rank(question string, docs []Doc, corpusSize, limit int) Result {
 		// In question order, not in the order the reasons happened to be read,
 		// so two nodes that matched the same words report the same list.
 		var matched []string
-		for g, hit := range result.reached {
-			if hit {
+		for g, credit := range result.best {
+			if credit > 0 {
 				matched = append(matched, groups[g].whole)
 			}
 		}

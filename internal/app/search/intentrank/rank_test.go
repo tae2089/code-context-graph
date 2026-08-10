@@ -263,3 +263,28 @@ func TestRank_ExtraReasonsDoNotOutweighTheOneThatMatched(t *testing.T) {
 		t.Fatalf("got %v, want 1 2 3: node 2 recorded three more rules and must still tie on the intent it shares", got)
 	}
 }
+
+// A question is answered better by a declaration whose reasons cover all of it
+// than by one that covers half, and it must not matter that the covering words
+// were written in two reasons rather than one. Scoring a node on its single best
+// reason threw the other half away: the node that answered the whole question
+// scored the same as the node that answered part of it.
+func TestRank_CoveringMoreOfTheQuestionOutranksCoveringLess(t *testing.T) {
+	docs := []intentrank.Doc{
+		// Both words of the question, split across two long reasons.
+		{NodeID: 1, Content: "rotate the webhook secret without dropping any delivery that is already in flight"},
+		{NodeID: 1, Content: "the previous secret stays valid for one overlap window before it stops being accepted"},
+		// One word of the question, in a reason short enough to score higher on
+		// that word alone than either of node 1's reasons does.
+		{NodeID: 2, Content: "rotate the signing key"},
+		// Filler, so neither word of the question looks unique to one reason.
+		{NodeID: 3, Content: "rotate the log files once a day"},
+		{NodeID: 4, Content: "the overlap between two scans is discarded"},
+		{NodeID: 5, Content: "rotate the cached credentials before they expire"},
+		{NodeID: 6, Content: "an overlap in file ranges means the same line was read twice"},
+	}
+	got := rank(t, "rotate overlap", 6, docs...)
+	if len(got) == 0 || got[0] != 1 {
+		t.Fatalf("got %v, want node 1 first: its two reasons together hold both words of the question", got)
+	}
+}
