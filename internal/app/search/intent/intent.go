@@ -32,13 +32,42 @@ type Term struct {
 	InReasons int    `json:"in_reasons"`
 }
 
+// Coverage is how much of a repository ever recorded a reason: how many
+// declarations carry at least one @intent or @domainRule, out of how many
+// declarations were indexed at all.
+//
+// WithReason counts declarations, not reasons, and that is the whole point of
+// the type. One reason is one indexed document, so a declaration whose author
+// wrote three of them is three documents; counting documents would report that
+// declaration three times and say a repository is better annotated than it is.
+//
+// @domainRule WithReason never exceeds Declarations, because both are counted from the same derived index.
+// @intent let an answer say whether it came back empty because nobody wrote a reason down.
+type Coverage struct {
+	WithReason   int `json:"with_reason"`
+	Declarations int `json:"declarations"`
+}
+
+// Known reports whether the coverage numbers were measured at all. A caller that
+// never asked the index — or asked one that holds nothing — must not be told "0
+// of 0 declarations recorded a reason", which reads as a finding when it is an
+// absence of one.
+// @intent keep an unmeasured coverage from being reported as a measured zero.
+func (c Coverage) Known() bool { return c.Declarations > 0 }
+
 // Result is what the recorded-reason index answered with: the ranked hits and
 // the evidence that produced them.
 // @intent keep the ranking and the evidence for it on one value, so neither can be reported without the other.
 type Result struct {
-	Hits   []Hit
-	Terms  []Term
+	Hits  []Hit
+	Terms []Term
+	// Corpus is how many recorded reasons the scorer weighed a word's commonness
+	// against — a count of reasons, so it is not Coverage.WithReason.
 	Corpus int
+	// Coverage is the state of the whole recorded-reason index, not of this
+	// query. It is reported even when nothing matched, because that is the case
+	// it exists for.
+	Coverage Coverage
 }
 
 // CanAnswer reports whether the recorded reasons speak this question's language
