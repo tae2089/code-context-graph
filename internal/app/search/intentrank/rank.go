@@ -12,17 +12,22 @@ import (
 	"github.com/tae2089/code-context-graph/internal/app/search/queryterm"
 )
 
-// Doc is one candidate the index admitted: a node and the recorded reason that
-// was indexed for it.
+// Doc is one candidate the index admitted: a node and one recorded reason that
+// was indexed for it. A node that recorded several reasons arrives as several
+// Docs sharing a node id.
 // @intent carry the exact indexed text into scoring so the score is computed over what was matched.
 type Doc struct {
 	NodeID  uint
 	Content string
 }
 
-// Match is one document the question reached, and the terms of the question
-// written in it.
-// @intent say what earned a document its place, not only that it earned one.
+// Match is one declaration the question reached, and the terms of the question
+// written in its recorded reasons.
+//
+// It is per node, not per reason. The index holds one document per reason, so a
+// question touching two of a node's reasons reaches it twice; naming it twice
+// would tell the reader there are two answers where there is one declaration.
+// @intent say what earned a declaration its place, not only that it earned one.
 type Match struct {
 	NodeID uint
 	Terms  []string
@@ -48,7 +53,12 @@ type Result struct {
 }
 
 // Rank scores candidate reasons against a question and returns the answer best
-// first, at most limit documents of it, with the evidence that produced it.
+// first, at most limit declarations of it, with the evidence that produced it.
+//
+// The limit counts declarations because that is what the caller is asking for.
+// One node can arrive as several documents — one per recorded reason — and if
+// those spent the caller's slots, a node whose author wrote three reasons down
+// would shorten the page for everybody else.
 //
 // This runs in Go rather than in the database because the two databases do not
 // agree. SQLite's FTS5 orders by bm25, which discounts a word that appears in
@@ -70,7 +80,7 @@ type Result struct {
 // reasons" is something the reader can act on. A score of 0.31 is not.
 //
 // @requires docs must be every document the index matched, not a truncated page.
-// @return returns matches in answer order, dropping any document no term of the question reaches, and every question term with its corpus count either way.
+// @return returns one match per declaration in answer order, dropping any declaration no term of the question reaches, and every question term with its corpus count either way.
 func Rank(question string, docs []Doc, corpusSize, limit int) Result {
 	groups := parseGroups(question)
 	if len(groups) == 0 || len(docs) == 0 || limit <= 0 {
@@ -110,27 +120,43 @@ func Rank(question string, docs []Doc, corpusSize, limit int) Result {
 		terms[g] = Term{Text: groups[g].whole, InReasons: seen}
 	}
 
+	// A declaration is scored on its best single reason, and reported on all of
+	// them. Adding the reasons up would hand a node that wrote three of them a
+	// score no single-reason node could reach, which is the penalty this scoring
+	// removed, pointed the other way. Taking the best one is what makes "the
+	// question matched this reason" cost exactly that reason's length.
 	type scored struct {
-		nodeID uint
-		score  float64
-		terms  []string
+		nodeID  uint
+		score   float64
+		reached []bool
 	}
 	results := make([]scored, 0, len(docs))
+	position := make(map[uint]int, len(docs))
 	for i, doc := range docs {
 		score := 0.0
-		var matched []string
+		reached := make([]bool, len(groups))
 		for g := range groups {
 			count := freq[i][g]
 			if count == 0 {
 				continue
 			}
 			score += weight[g] * saturate(float64(count), float64(lengths[i]), averageLength)
-			matched = append(matched, groups[g].whole)
+			reached[g] = true
 		}
 		if score <= 0 {
 			continue
 		}
-		results = append(results, scored{nodeID: doc.NodeID, score: score, terms: matched})
+		at, seen := position[doc.NodeID]
+		if !seen {
+			position[doc.NodeID] = len(results)
+			results = append(results, scored{nodeID: doc.NodeID, score: score, reached: reached})
+			continue
+		}
+		node := &results[at]
+		node.score = max(node.score, score)
+		for g, hit := range reached {
+			node.reached[g] = node.reached[g] || hit
+		}
 	}
 
 	// The node id is not a preference, it is the promise that asking for one more
@@ -148,7 +174,15 @@ func Rank(question string, docs []Doc, corpusSize, limit int) Result {
 		if len(matches) >= limit {
 			break
 		}
-		matches = append(matches, Match{NodeID: result.nodeID, Terms: result.terms})
+		// In question order, not in the order the reasons happened to be read,
+		// so two nodes that matched the same words report the same list.
+		var matched []string
+		for g, hit := range result.reached {
+			if hit {
+				matched = append(matched, groups[g].whole)
+			}
+		}
+		matches = append(matches, Match{NodeID: result.nodeID, Terms: matched})
 	}
 	return Result{Matches: matches, Terms: terms, Corpus: total}
 }
@@ -171,9 +205,9 @@ func saturate(count, length, averageLength float64) float64 {
 }
 
 // k1 and b are BM25's standard settings. b controls how hard a long reason is
-// penalised; it is worth something here because a node carrying both an @intent
-// and a @domainRule is indexed as one longer document than a node carrying only
-// an @intent.
+// penalised. It still earns its place now that each reason is its own document:
+// reasons differ in length from one sentence to a paragraph, and a paragraph
+// that mentions a word once should not beat a sentence that is about it.
 const (
 	k1 = 1.2
 	b  = 0.75
