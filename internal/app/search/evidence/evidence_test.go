@@ -3,6 +3,7 @@ package evidence
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
@@ -480,5 +481,50 @@ func TestBuild_CarriesTheCoverageItWasGiven(t *testing.T) {
 
 	if got.Coverage.WithReason != 3 || got.Coverage.Declarations != 90 {
 		t.Errorf("Coverage = %+v, want 3 of 90", got.Coverage)
+	}
+}
+
+// The full-text advice — try a rarer or shorter query — is the wrong answer in a
+// repository nobody has annotated. It sends the caller to rephrase a question
+// that no rephrasing can answer, and an agent that reads it concludes the
+// behaviour it asked about does not exist in the codebase.
+func TestBuild_AnEmptyAnswerSaysNobodyRecordedAReasonInsteadOfAdvisingOnTheQuery(t *testing.T) {
+	unannotated := Build("why is this repository isolated", nil, Options{
+		Limit:    10,
+		Coverage: Coverage{WithReason: 0, Declarations: 1900},
+	})
+	if len(unannotated.Files) != 0 {
+		t.Fatalf("returned %d files, want none", len(unannotated.Files))
+	}
+	if unannotated.Note == noteNothingRetrieved {
+		t.Errorf("an unannotated repository was handed the full-text advice: %q", unannotated.Note)
+	}
+	if !strings.Contains(unannotated.Note, "1900") {
+		t.Errorf("Note = %q, want the declaration count that was searched", unannotated.Note)
+	}
+
+	// A repository that did record reasons keeps the full-text advice: there the
+	// index really is what came up short, and rephrasing really can help.
+	annotatedRepo := Build("why is this repository isolated", nil, Options{
+		Limit:    10,
+		Coverage: Coverage{WithReason: 1200, Declarations: 1900},
+	})
+	if annotatedRepo.Note != noteNothingRetrieved {
+		t.Errorf("Note = %q, want the full-text advice where reasons were recorded", annotatedRepo.Note)
+	}
+}
+
+// A page past the end is not an unannotated repository — files did answer this
+// query, just not at this offset — so coverage must not talk over it.
+func TestBuild_CoverageDoesNotSwallowTheOffsetPastTheEnd(t *testing.T) {
+	nodes := []graph.Node{fileNode(1, "Rerank", "internal/app/search/rank/rank.go")}
+	got := Build("rerank", nodes, Options{
+		Limit:    10,
+		Offset:   5,
+		Coverage: Coverage{WithReason: 0, Declarations: 1900},
+	})
+
+	if got.Note != notePastTheEnd {
+		t.Errorf("Note = %q, want the past-the-end note", got.Note)
 	}
 }

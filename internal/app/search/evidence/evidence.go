@@ -2,6 +2,7 @@
 package evidence
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/tae2089/code-context-graph/internal/app/search/identtoken"
@@ -151,7 +152,8 @@ type List struct {
 	// through unchanged.
 	Coverage Coverage
 	// Note is set only when Files is empty, and says which kind of empty it is:
-	// nothing retrieved, nothing explainable, or a page past the end.
+	// nothing retrieved, nothing explainable, a page past the end, or a
+	// repository where nobody ever recorded a reason to search.
 	Note string
 }
 
@@ -201,6 +203,13 @@ const (
 	noteNothingRetrieved = "Full-text search matched no indexed node. Every term of the query has to appear in the same document, so a rarer or shorter query usually helps."
 	noteAllWeak          = "Every candidate matched the query only inside indexed text, with nothing in its name, file path, or @intent to justify it. Ask again with weak candidates included to see them anyway."
 	notePastTheEnd       = "The offset is past the last file this query answered with. Ask again from a lower offset."
+	// noteNoRecordedReasons takes the declaration count. It replaces the
+	// full-text advice rather than joining it: advising a rarer or shorter query
+	// is advice about the index, and in a repository nobody has annotated the
+	// index is not what came up short. A caller who follows that advice rephrases
+	// a question no rephrasing can answer, and then reports that the behaviour
+	// does not exist in the codebase.
+	noteNoRecordedReasons = "Nobody has recorded a reason in this repository: 0 of %d indexed declarations carry an @intent or a @domainRule. A question about why code exists is answered from those reasons, so this one had nothing to match — rephrasing will not help. Annotate the area, rebuild the graph, then ask again."
 )
 
 // Build turns the reranked candidate pool into a list whose every entry can be
@@ -254,25 +263,35 @@ func Build(query string, nodes []graph.Node, opts Options) List {
 		list.NextOffset = opts.Offset + len(list.Files)
 	}
 	if len(list.Files) == 0 {
-		list.Note = emptyNote(len(files), len(nodes))
+		list.Note = emptyNote(len(files), len(nodes), opts.Coverage)
 	}
 	return list
 }
 
 // emptyNote says which kind of empty this answer is, given how many files the
-// query answered with anywhere and how many candidates were retrieved.
+// query answered with anywhere, how many candidates were retrieved, and how much
+// of the repository ever recorded a reason.
 //
-// The order is the order of the questions a reader asks. A page past the end is
-// first because files did answer this query, just not at this offset.
+// The order matters. A page past the end is checked first because files did
+// answer this query — coverage explains nothing there. Then, when nothing was
+// retrieved at all and nobody has recorded a reason, the coverage fact replaces
+// the full-text advice.
+//
+// Partial coverage keeps the ordinary notes. "12 of 1900 recorded a reason" does
+// not say this question is unanswerable, only that most of the repository is
+// silent, and the numbers ride on the answer for the caller to read. Zero is the
+// one level that turns "no reason matched" into "there were no reasons".
 //
 // @ensures the returned note is never empty, since it is only asked for when the answer is.
 // @intent name the cause of an empty answer, rather than guessing at a remedy for it.
-func emptyNote(answeredFiles, retrieved int) string {
+func emptyNote(answeredFiles, retrieved int, coverage Coverage) string {
 	switch {
 	case answeredFiles > 0:
 		return notePastTheEnd
 	case retrieved > 0:
 		return noteAllWeak
+	case coverage.Known() && coverage.WithReason == 0:
+		return fmt.Sprintf(noteNoRecordedReasons, coverage.Declarations)
 	default:
 		return noteNothingRetrieved
 	}
