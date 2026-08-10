@@ -81,8 +81,12 @@ func OpenIsolatedPostgres(t *testing.T) *gorm.DB {
 // The lifecycle is kept off *testing.T so the drop path can be exercised on its own.
 // @intent model "a schema that exists for as long as one test does" as a value with an explicit end.
 type postgresSchema struct {
-	name  string
-	admin *gorm.DB
+	name string
+	// extensionSchema is where shared extensions live, appended to search_path so an
+	// operator class such as gin_trgm_ops still resolves. Empty when no extension is
+	// installed. It is never public, so no table outside this test's schema is visible.
+	extensionSchema string
+	admin           *gorm.DB
 }
 
 // newPostgresSchema creates an empty schema no other test will touch.
@@ -102,6 +106,11 @@ func newPostgresSchema(baseDSN string) (*postgresSchema, error) {
 		return nil, schema.abort(err)
 	}
 	sweepStalePostgresSchemasOnce(admin)
+	extensionSchema, err := postgresExtensionSchema(admin)
+	if err != nil {
+		return nil, schema.abort(err)
+	}
+	schema.extensionSchema = extensionSchema
 	if err := admin.Exec("CREATE SCHEMA " + schema.name).Error; err != nil {
 		return nil, schema.abort(err)
 	}
@@ -121,12 +130,16 @@ func (s *postgresSchema) requireTestDatabase() error {
 	return nil
 }
 
-// dsn points a connection string at this schema and nothing else.
+// dsn points a connection string at this schema, plus wherever extensions live.
 // Every pooled connection needs the schema, and `SET search_path` only reaches the
 // one session that ran it, so the schema travels in the DSN as a startup parameter.
 // @intent make the private schema apply to every connection a pool opens, not just the first.
 func (s *postgresSchema) dsn(baseDSN string) string {
-	return withPostgresSearchPath(baseDSN, s.name)
+	path := s.name
+	if s.extensionSchema != "" {
+		path += "," + s.extensionSchema
+	}
+	return withPostgresSearchPath(baseDSN, path)
 }
 
 // drop removes the schema and everything in it, naming only this schema.
@@ -160,6 +173,92 @@ func (s *postgresSchema) closeAdmin() error {
 		return err
 	}
 	return sqlDB.Close()
+}
+
+// extensionSchemaName is a permanent schema holding extensions shared by every test.
+//
+// An extension is installed once per database, into one schema. Migration 000006 runs
+// `CREATE EXTENSION IF NOT EXISTS pg_trgm` and then builds an index using gin_trgm_ops,
+// so that operator class has to be reachable from search_path. Leaving the extension in
+// public would mean putting public on every test's search_path, which is how a stray
+// table in public becomes visible to a test that never created it. Parking extensions in
+// their own schema keeps them reachable while public stays out of the picture, and keeps
+// them out of a test schema that is about to be dropped.
+const extensionSchemaName = "ccg_pgext"
+
+// extensionSchemaOnce resolves the extension schema once per test binary.
+var (
+	extensionSchemaOnce  sync.Once
+	resolvedExtSchema    string
+	resolvedExtSchemaErr error
+)
+
+// postgresExtensionSchema reports the schema holding shared extensions, or "" if none is installed.
+// @intent keep an extension's operator classes reachable from a private schema without exposing public.
+// @sideEffect may create the extension schema and move pg_trgm into it.
+func postgresExtensionSchema(admin *gorm.DB) (string, error) {
+	extensionSchemaOnce.Do(func() {
+		resolvedExtSchema, resolvedExtSchemaErr = resolvePostgresExtensionSchema(admin)
+	})
+	return resolvedExtSchema, resolvedExtSchemaErr
+}
+
+// resolvePostgresExtensionSchema places pg_trgm in extensionSchemaName and reports where it is.
+// @intent settle the extension's location once so every test's search_path can name it.
+func resolvePostgresExtensionSchema(admin *gorm.DB) (string, error) {
+	// Concurrent test binaries race here; CREATE SCHEMA IF NOT EXISTS can still report a
+	// duplicate, so the outcome is read back rather than inferred from the error.
+	_ = admin.Exec("CREATE SCHEMA IF NOT EXISTS " + extensionSchemaName).Error
+
+	current, err := postgresTrigramSchema(admin)
+	if err != nil {
+		return "", err
+	}
+	switch current {
+	case "":
+		// Not installed. Creating it may need privileges this user lacks, which is fine:
+		// migration 000006 skips its indexes when the extension is absent.
+		_ = admin.Exec("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA " + extensionSchemaName).Error
+	case extensionSchemaName:
+		return extensionSchemaName, nil
+	default:
+		_ = admin.Exec("ALTER EXTENSION pg_trgm SET SCHEMA " + extensionSchemaName).Error
+	}
+
+	moved, err := postgresTrigramSchema(admin)
+	if err != nil {
+		return "", err
+	}
+	switch moved {
+	case "", extensionSchemaName:
+		return extensionSchemaName, nil
+	case "public":
+		return "", fmt.Errorf(
+			"pg_trgm is installed in public and could not be moved to %s; a test schema cannot stay isolated while public is on its search_path. Run: ALTER EXTENSION pg_trgm SET SCHEMA %s",
+			extensionSchemaName, extensionSchemaName,
+		)
+	default:
+		// Somewhere else already, and not public, so it is safe to name directly.
+		return moved, nil
+	}
+}
+
+// postgresTrigramSchema reports the schema holding pg_trgm, or "" when it is not installed.
+func postgresTrigramSchema(admin *gorm.DB) (string, error) {
+	var schemas []string
+	err := admin.Raw(`
+		SELECT namespace.nspname
+		FROM pg_extension AS extension
+		JOIN pg_namespace AS namespace ON namespace.oid = extension.extnamespace
+		WHERE extension.extname = 'pg_trgm'
+	`).Scan(&schemas).Error
+	if err != nil {
+		return "", err
+	}
+	if len(schemas) == 0 {
+		return "", nil
+	}
+	return schemas[0], nil
 }
 
 // postgresSchemaPrefix marks a schema as belonging to this test suite.

@@ -3,31 +3,21 @@
 package main
 
 import (
-	"os"
-	"strings"
 	"testing"
 
 	ccgdb "github.com/tae2089/code-context-graph/internal/db"
+	"github.com/tae2089/code-context-graph/internal/db/dbtest"
 	"github.com/tae2089/code-context-graph/internal/db/migration"
 	"gorm.io/gorm"
 )
 
+// setupPostgresMigrationDB opens this test's own schema through the production
+// db.Open, so the migration smoke tests exercise the same entry point the CLI uses.
 func setupPostgresMigrationDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv("TEST_POSTGRES_DSN")
-	if dsn == "" {
-		dsn = "host=localhost user=postgres password=postgres dbname=ccg_test port=5432 sslmode=disable"
-	}
-	db, err := ccgdb.Open("postgres", dsn)
+	db, err := ccgdb.Open("postgres", dbtest.IsolatedPostgresDSN(t))
 	if err != nil {
-		t.Skipf("PostgreSQL not available: %v", err)
-	}
-	var databaseName string
-	if err := db.Raw("SELECT current_database()").Scan(&databaseName).Error; err != nil {
-		t.Fatalf("query database name: %v", err)
-	}
-	if databaseName != "ccg_test" && !strings.HasSuffix(databaseName, "_test") {
-		t.Fatalf("refusing to reset non-test database %q", databaseName)
+		t.Fatalf("open isolated PostgreSQL: %v", err)
 	}
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
@@ -35,12 +25,6 @@ func setupPostgresMigrationDB(t *testing.T) *gorm.DB {
 			_ = sqlDB.Close()
 		}
 	})
-	if err := db.Exec("DROP SCHEMA public CASCADE").Error; err != nil {
-		t.Fatalf("drop schema: %v", err)
-	}
-	if err := db.Exec("CREATE SCHEMA public").Error; err != nil {
-		t.Fatalf("create schema: %v", err)
-	}
 	return db
 }
 
@@ -54,17 +38,15 @@ func TestRunMigrations_PostgresSmoke(t *testing.T) {
 		t.Fatalf("check schema version: %v", err)
 	}
 
-	var indexCount int64
-	if err := db.Raw(`
-		SELECT COUNT(*)
-		FROM pg_indexes
-		WHERE tablename = 'search_documents'
-		AND indexname = 'idx_search_documents_tsv'
-	`).Scan(&indexCount).Error; err != nil {
+	// Asked through the production check, which scopes the lookup to this test's own
+	// schema. A bare pg_indexes count would also see the same index in every other
+	// schema on the server.
+	hasIndex, err := migration.PostgresIndexExists(db, "idx_search_documents_tsv")
+	if err != nil {
 		t.Fatalf("query gin index: %v", err)
 	}
-	if indexCount != 1 {
-		t.Fatalf("expected search_documents tsv GIN index, got %d", indexCount)
+	if !hasIndex {
+		t.Fatal("expected search_documents tsv GIN index")
 	}
 	for _, tc := range migration.ModelNullabilityColumns() {
 		notNull, err := migration.PostgresColumnNotNull(db, tc.Table, tc.Column)

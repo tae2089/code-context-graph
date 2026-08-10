@@ -5,7 +5,6 @@ package searchsql
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/app/search/document"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
+	"github.com/tae2089/code-context-graph/internal/db/dbtest"
 	"github.com/tae2089/code-context-graph/internal/db/migration"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
@@ -56,28 +56,11 @@ func countPostgresSQLInList(sql string) int {
 	return strings.Count(list, ",") + 1
 }
 
-// postgresTestDSN is where every postgres-tagged test in this package looks for
-// a database: TEST_POSTGRES_DSN when it is set, and a local development server
-// otherwise.
-func postgresTestDSN() string {
-	if dsn := os.Getenv("TEST_POSTGRES_DSN"); dsn != "" {
-		return dsn
-	}
-	return "host=localhost user=postgres password=postgres dbname=ccg_test port=5432 sslmode=disable"
-}
-
 func setupPostgresDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(postgres.Open(postgresTestDSN()), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Skipf("PostgreSQL not available: %v", err)
-	}
-
-	// Reset to a clean schema and build it from the production migrations (the single source
-	// of truth), rather than AutoMigrate + hand-written backend DDL.
-	if err := db.Exec("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").Error; err != nil {
-		t.Fatalf("reset schema: %v", err)
-	}
+	// A schema of this test's own, built from the production migrations (the single
+	// source of truth) rather than AutoMigrate + hand-written backend DDL.
+	db := dbtest.OpenIsolatedPostgres(t)
 	if err := migration.RunMigrations(db, "postgres", ""); err != nil {
 		t.Fatalf("run migrations: %v", err)
 	}
@@ -113,14 +96,15 @@ func TestPostgresFTS_Migrate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var count int64
-	db.Raw(`
-		SELECT COUNT(*) FROM pg_indexes
-		WHERE tablename = 'search_documents'
-		AND indexname = 'idx_search_documents_tsv'
-	`).Scan(&count)
-	if count != 1 {
-		t.Errorf("expected GIN index to exist, got count=%d", count)
+	// Asked through the production check, which scopes the lookup to this test's own
+	// schema. A bare pg_indexes count would also see the same index in every other
+	// schema on the server.
+	hasIndex, err := migration.PostgresIndexExists(db, "idx_search_documents_tsv")
+	if err != nil {
+		t.Fatalf("query gin index: %v", err)
+	}
+	if !hasIndex {
+		t.Error("expected GIN index to exist")
 	}
 }
 
@@ -234,12 +218,9 @@ func TestPostgresFTS_RebuildNodes_EmptyScopeIsNoOp(t *testing.T) {
 
 func TestPostgresFTS_RebuildNodes_ChunksLargeNodeScopes(t *testing.T) {
 	capture := &postgresINQueryCaptureLogger{Interface: logger.Discard, needle: "search_documents"}
-	db, err := gorm.Open(postgres.Open(postgresTestDSN()), &gorm.Config{Logger: capture})
+	db, err := gorm.Open(postgres.Open(dbtest.IsolatedPostgresDSN(t)), &gorm.Config{Logger: capture})
 	if err != nil {
-		t.Skipf("PostgreSQL not available: %v", err)
-	}
-	if err := db.Exec("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").Error; err != nil {
-		t.Fatalf("reset schema: %v", err)
+		t.Fatalf("open isolated PostgreSQL: %v", err)
 	}
 	if err := migration.RunMigrations(db, "postgres", ""); err != nil {
 		t.Fatalf("run migrations: %v", err)

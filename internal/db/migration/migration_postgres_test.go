@@ -3,37 +3,19 @@
 package migration
 
 import (
-	"os"
 	"slices"
 	"strings"
 	"testing"
 
 	gomigrate "github.com/golang-migrate/migrate/v4"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
-)
 
-// postgresMigrationDSN is where this file looks for a database: TEST_POSTGRES_DSN
-// when it is set, and a local development server otherwise. Same rule the
-// searchsql package uses, kept here because the two packages cannot share test
-// helpers.
-func postgresMigrationDSN() string {
-	if dsn := os.Getenv("TEST_POSTGRES_DSN"); dsn != "" {
-		return dsn
-	}
-	return "host=localhost user=postgres password=postgres dbname=ccg_test port=5432 sslmode=disable"
-}
+	"github.com/tae2089/code-context-graph/internal/db/dbtest"
+)
 
 func openPostgresAtVersion(t *testing.T, version int) (*gorm.DB, *gomigrate.Migrate) {
 	t.Helper()
-	db, err := gorm.Open(postgres.Open(postgresMigrationDSN()), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Skipf("PostgreSQL not available: %v", err)
-	}
-	if err := db.Exec("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").Error; err != nil {
-		t.Fatalf("reset schema: %v", err)
-	}
+	db := dbtest.OpenIsolatedPostgres(t)
 	migrator, _, err := NewMigrator(db, "postgres", "")
 	if err != nil {
 		t.Fatalf("NewMigrator: %v", err)
