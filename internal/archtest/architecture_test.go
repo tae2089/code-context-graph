@@ -47,8 +47,12 @@ func TestImportsPackageTree(t *testing.T) {
 func TestLegacyGORMImportersMatchBaseline(t *testing.T) {
 	packages := loadPackages(t)
 	allowedAdapters := map[string]bool{
-		modulePath + "/internal/db":                          true,
-		modulePath + "/internal/db/migration":                true,
+		modulePath + "/internal/db":           true,
+		modulePath + "/internal/db/migration": true,
+		// dbtest is test support for the database layer itself: it hands each
+		// postgres-tagged test a private schema, which means opening a connection.
+		// No production code imports it.
+		modulePath + "/internal/db/dbtest":                   true,
 		modulePath + "/internal/adapters/outbound/graphgorm": true,
 		modulePath + "/internal/adapters/outbound/searchsql": true,
 		modulePath + "/internal/runtime":                     true,
