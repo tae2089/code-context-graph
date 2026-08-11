@@ -202,6 +202,15 @@ are dead at zero. Twenty entries sit there: 17 on `ccg`, 2 on `cobra`, 1 on
 `gorm`. Each carries a class and a reason in `zeroScoreNotes`, and the guard
 fails on one that has neither.
 
+The guard is symmetric, and one entry has already left the list that way rather
+than by being fixed. `why does an answer with nothing in it still suggest
+another call` was listed because one of its two judged files had been deleted
+from the repository; re-judging it named the files that answer it today, the
+pool already carried one of them inside the page, and the guard then refused to
+let a scoring query stay filed as a zero. That is the intended direction — a
+re-judgment is allowed to move a number **only** when it lands as its own change
+with no code beside it, and the commit says which file scored and why.
+
 **It read the decision out of its own copy.** Whether `search` declines a query
 is decided in `queries.json`; `baseline.json` only copies the answer, and every
 check read the copy. Deleting an `out_of_scope` list therefore returned the
