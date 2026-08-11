@@ -74,7 +74,12 @@ See the `guide/` directory for detailed documentation:
 
 - TDD: Red -> Green -> Refactor
 - Tidy First: separate structural changes from behavioral changes
-- Use GORM queries only (no raw SQL)
+- Use GORM's model layer for queries. Raw SQL is allowed only where GORM has no
+  form for the statement — full-text operators, FTS5 virtual-table DDL and
+  writes, schema introspection its migrator cannot do, connection pragmas — and
+  only inside `internal/adapters/outbound/searchsql` and `internal/db`.
+  Identifiers come from package constants, values are always bound parameters.
+  Details and the evidence for each exemption: `guide/development.md` §Raw SQL
 - Tests: `CGO_ENABLED=1 go test -tags "fts5" ./... -count=1`
 - Integration test: `./scripts/integration-test.sh` (full Gitea + PostgreSQL + ccg Docker pipeline)
 

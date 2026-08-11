@@ -57,7 +57,7 @@ Graceful shutdown: SIGINT/SIGTERM 시 진행 중인 clone/build에 context cance
 
 - TDD: Red → Green → Refactor
 - Tidy First: 구조적 변경과 행위 변경 분리
-- GORM 쿼리만 사용 (raw SQL 금지)
+- 쿼리는 GORM 모델 계층으로 작성한다. Raw SQL은 GORM에 대응 형태가 없는 경우에만 허용한다 — 전문 검색 연산자, FTS5 가상 테이블 DDL·쓰기, migrator가 못 하는 스키마 introspection, 연결 pragma — 그리고 `internal/adapters/outbound/searchsql`와 `internal/db` 안에서만이다. 식별자는 패키지 상수에서 오고, 값은 항상 bound parameter다 (상세와 각 예외의 근거: `guide/development.md` §Raw SQL)
 - 코드 정렬: 종류별 그룹화가 아니라 "타입 + 그 타입의 생성자·메소드"를 붙여 두는 응집 관례를 따른다 (상세: `guide/development.md` §Declaration order)
 - 테스트: `CGO_ENABLED=1 go test -tags "fts5" ./... -count=1`
 - Integration test: `./scripts/integration-test.sh` (Gitea + PostgreSQL + ccg Docker 전체 파이프라인)

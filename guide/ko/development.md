@@ -207,7 +207,48 @@ go test ./internal/adapters/inbound/cli -run TestProjectSkills -count=1
 
 - TDD: Red → Green → Refactor
 - Tidy First: 구조적 변경과 행동 변경의 분리
-- GORM 쿼리만 사용 (Raw SQL 사용 금지)
+- 쿼리는 GORM 모델 계층으로 작성. Raw SQL은 GORM에 대응 형태가 없는 경우에만 허용
+  ([Raw SQL](#raw-sql) 참고)
 - 로깅: `slog`
 - CLI: `cobra` 프레임워크
 - 빌드 플래그: `CGO_ENABLED=1 -tags "fts5"`
+
+### Raw SQL
+
+GORM에 대응 형태가 있는 문장은 모두 GORM 모델 계층(`Model`, `Where`,
+`FindInBatches`, `Migrator`)으로 작성합니다. 이것이 기본이고, 아래 두 패키지
+밖에서 나타나는 `Raw`/`Exec`는 리뷰에서 멈춰야 합니다.
+
+Raw SQL은 GORM에 대응 형태가 아예 없는 경우에만 허용합니다. 취향 문제가 아니라,
+아래 각 항목은 GORM builder나 migrator가 표현할 수 없는 것을 가리킵니다.
+
+- **전문 검색 연산자와 인덱스 관리** — SQLite FTS5의 `MATCH`와 `rank` 컬럼,
+  PostgreSQL의 `to_tsvector`, `to_tsquery`, `ts_rank`, `@@`. match 연산자나 rank
+  표현식에 해당하는 builder 형태가 GORM에 없습니다.
+- **FTS5 가상 테이블 DDL** — `CREATE VIRTUAL TABLE … USING fts5`, 그리고 legacy
+  업그레이드가 필요로 하는 `DROP` / `ALTER TABLE … RENAME TO` 쌍. `AutoMigrate`는
+  가상 테이블을 모델링하지 않습니다.
+- **FTS5 가상 테이블 쓰기** — namespace 범위 delete와 bulk insert. 이 테이블들은
+  GORM 모델이 없고 `AutoMigrate` 대상도 아니어서, `Table("search_fts")`를 거쳐도
+  테이블 이름은 결국 문자열로 남습니다. bulk insert가 한 문장인 것은 의도이며,
+  rebuild가 행마다 round trip을 내지 않게 합니다.
+- **GORM migrator가 못 하는 스키마 introspection** — `PRAGMA table_info`,
+  `sqlite_master`, `information_schema.columns`, `pg_indexes`, `pg_trigger`.
+- **연결 pragma** — `PRAGMA journal_mode`, `PRAGMA busy_timeout`.
+
+허용 범위는 `internal/adapters/outbound/searchsql`와 `internal/db` 두 패키지뿐입니다.
+
+허용된 문장 안에서도 두 제약이 유지됩니다. 테이블·컬럼 이름은 패키지 상수에서만
+오고, 호출자 입력에서 오지 않습니다. 값은 항상 bound parameter입니다 —
+`Exec("DELETE FROM "+sqliteFTSTable+" WHERE namespace = ?", ns)`는 맞고, `ns`를
+문자열에 이어 붙이는 것은 틀립니다. 어떤 예외도 이것을 맞게 만들지 않습니다.
+
+introspection 예외는 믿지 말고 확인해야 하는 항목입니다. GORM에도
+`Migrator().HasTable`, `HasColumn`, `ColumnTypes`가 있기 때문입니다.
+`searchsql/migrator_limits_test.go`가 실제 FTS5 테이블을 상대로 셋 다 실행하고
+결과를 기록합니다: `HasTable`은 동작하고, `ColumnTypes`는 `invalid DDL`로
+실패하며, `HasColumn`은 스키마가 아니라 DDL 텍스트를 매칭하므로 존재하는 컬럼에도
+`false`를 반환할 수 있습니다. `HasTable`은 동작하지만 error를 돌려주지 않고,
+`sqliteTableExists`의 모든 호출자는 error를 전파합니다. 그것을 삼키면 업그레이드
+경로에서 일시적 실패가 "테이블 없음"으로 바뀝니다. GORM 업그레이드로 그 테스트가
+깨지면 테스트를 느슨하게 만들 것이 아니라 예외 자체를 다시 판단해야 합니다.
