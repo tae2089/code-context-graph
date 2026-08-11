@@ -105,6 +105,65 @@ func TestRefreshSearchDocuments_GivesEveryReasonTagItsOwnRow(t *testing.T) {
 	}
 }
 
+// Typing a bare package name is an identifier query, and the package node is the
+// only defensible answer to it. The graph models one — kind `package`, the
+// directory as its path — but a search document was never written for it, so no
+// amount of reordering could ever reach it. The two layouts differ in what the
+// package is named after: a Go package is named for its directory, an npm one
+// for a scope its directory never spells.
+func TestRefreshSearchDocuments_MakesAPackageFindableByItsBareName(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		node  graph.Node
+		query string
+	}{
+		{
+			name:  "go package named after its directory",
+			node:  graph.Node{QualifiedName: "github.com/example/project/internal/adapters/inbound/mcp", Kind: graph.NodeKindPackage, Name: "mcp", FilePath: "internal/adapters/inbound/mcp", StartLine: 1, EndLine: 1, Language: "go"},
+			query: "mcp",
+		},
+		{
+			name:  "scoped npm package whose name is not its directory",
+			node:  graph.Node{QualifiedName: "@app/utils", Kind: graph.NodeKindPackage, Name: "utils", FilePath: "src/utils", StartLine: 1, EndLine: 1, Language: "typescript"},
+			query: "utils",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupTestDB(t)
+			ctx := requestctx.WithNamespace(t.Context(), requestctx.DefaultNamespace)
+			node := tc.node
+			if err := db.Create(&node).Error; err != nil {
+				t.Fatalf("seed package node: %v", err)
+			}
+
+			if _, err := RefreshSearchDocuments(ctx, db); err != nil {
+				t.Fatalf("RefreshSearchDocuments: %v", err)
+			}
+			backend := NewSQLiteBackend()
+			if err := backend.Migrate(db); err != nil {
+				t.Fatalf("migrate backend: %v", err)
+			}
+			if err := backend.Rebuild(ctx, db); err != nil {
+				t.Fatalf("rebuild backend: %v", err)
+			}
+
+			nodes, err := backend.Query(ctx, db, tc.query, 10)
+			if err != nil {
+				t.Fatalf("query %q: %v", tc.query, err)
+			}
+			found := false
+			for _, n := range nodes {
+				if n.ID == node.ID {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("query %q returned %d nodes, none of them the package node %q", tc.query, len(nodes), node.QualifiedName)
+			}
+		})
+	}
+}
+
 // A full rebuild and a node-scoped one are two separate queries over the same
 // node table, and they select the kinds they index independently. Nothing
 // downstream compares them, so a kind one path indexes and the other does not is

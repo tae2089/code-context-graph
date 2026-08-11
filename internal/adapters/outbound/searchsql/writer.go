@@ -33,6 +33,7 @@ var indexedNodeKinds = []string{
 	string(graph.NodeKindType),
 	string(graph.NodeKindTest),
 	string(graph.NodeKindFile),
+	string(graph.NodeKindPackage),
 }
 
 // Writer updates derived search documents and the configured search backend through one DB handle.
