@@ -283,10 +283,12 @@ type ftsRow struct {
 func (s *SQLiteBackend) matchRows(ctx context.Context, db *gorm.DB, ftsQuery, ns string, limit int) ([]ftsRow, error) {
 	var rows []ftsRow
 	if err := db.WithContext(ctx).Raw(
-		`SELECT CAST(node_id AS INTEGER) AS node_id
+		`SELECT CAST(search_fts.node_id AS INTEGER) AS node_id
 		 FROM search_fts
-		 WHERE search_fts MATCH ? AND namespace = ?
-		 ORDER BY rank LIMIT ?`, ftsQuery, ns, limit).Scan(&rows).Error; err != nil {
+		 JOIN nodes n ON n.id = CAST(search_fts.node_id AS INTEGER)
+		 WHERE search_fts MATCH ? AND search_fts.namespace = ?
+		 ORDER BY search_fts.rank, n.qualified_name, n.file_path, n.id
+		 LIMIT ?`, ftsQuery, ns, limit).Scan(&rows).Error; err != nil {
 		return nil, trace.Wrap(err, "fts query")
 	}
 	return rows, nil
