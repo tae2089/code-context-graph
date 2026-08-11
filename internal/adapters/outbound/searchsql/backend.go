@@ -1,4 +1,11 @@
 // @index Shared search backend interface and errors for SQLite FTS5 and PostgreSQL tsvector implementations.
+//
+// The raw SQL in this package is bounded and deliberate: full-text operators,
+// DDL and writes against the FTS5 virtual tables, and the schema introspection
+// GORM's migrator cannot do. guide/development.md §Raw SQL states the rule and
+// what falls under it; migrator_limits_test.go holds the evidence for the
+// introspection part. Anything GORM's model layer can express belongs there
+// instead, here as much as anywhere else.
 package searchsql
 
 import (
