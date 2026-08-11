@@ -139,7 +139,7 @@ changing. `TestGolden_BaselineIsFullyGuarded` fails that now.
 The ratchet compares this run against the baseline. `golden_guard_test.go` asks
 a different question — whether the baseline is still being compared at all —
 because a green ratchet says nothing about an entry it never reaches. There were
-three holes.
+four holes.
 
 **It walked the run, not the baseline.** Deleting a hard query from
 `queries.json` left its baseline entry sitting there, unvisited and unmissed.
@@ -154,6 +154,15 @@ entry with two assertions — `found` may not drop, `rank` may not rise — and 
 are dead at zero. Nineteen entries sat there: 16 on `ccg`, 2 on `cobra`, 1 on
 `gorm`. Each now carries a class and a reason in `zeroScoreNotes`, and the guard
 fails on one that has neither.
+
+**It read the decision out of its own copy.** Whether `search` declines a query
+is decided in `queries.json`; `baseline.json` only copies the answer, and every
+check read the copy. Deleting an `out_of_scope` list therefore returned the
+query to the `ANSWERABLE` average while the baseline went on excusing it, and
+no ranking assertion could see the difference — the whole package stayed green.
+The guard now compares the two per query and fails either way round, because a
+hand-edited baseline carrying a flag the query no longer records is the same
+break in reverse.
 
 The two classes are not interchangeable, and the candidate pool is what
 separates them.
