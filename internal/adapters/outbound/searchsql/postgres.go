@@ -110,9 +110,10 @@ func (p *PostgresBackend) matchRows(ctx context.Context, db *gorm.DB, tsQuery, n
 	if err := db.WithContext(ctx).Raw(`
 		SELECT sd.node_id
 		FROM search_documents sd
+		JOIN nodes n ON n.id = sd.node_id
 		WHERE sd.tsv @@ to_tsquery('simple', ?)
 		AND sd.namespace = ?
-		ORDER BY ts_rank(sd.tsv, to_tsquery('simple', ?)) DESC
+		ORDER BY ts_rank(sd.tsv, to_tsquery('simple', ?)) DESC, n.qualified_name, n.file_path, n.id
 		LIMIT ?`, tsQuery, ns, tsQuery, limit).Scan(&rows).Error; err != nil {
 		return nil, trace.Wrap(err, "ts_query")
 	}

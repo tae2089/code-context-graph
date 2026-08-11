@@ -162,6 +162,134 @@ func seedRankOrderCorpus(t *testing.T, ctx context.Context, db *gorm.DB, backend
 	}
 }
 
+// The tie fixture is the ladder's opposite. Every document is byte-identical, so
+// no relevance function can prefer one over another and all of them come back
+// carrying the same rank. What the ladder measures is whether the backend orders
+// on relevance; what this measures is what the backend does once relevance has
+// run out of things to say.
+//
+// The answer has to be the same list every time, because the alternative is that
+// asking the same question of the same code twice gives two answers. Without a
+// second sort key the databases fall back on their own storage order, which
+// tracks the order rows were written — so the same corpus indexed in a different
+// order produces a different cut, and the rows past the LIMIT are simply lost.
+//
+// One file holds them all, so file path is constant across the fixture and
+// qualified name is the only thing left that can separate two rows. That is what
+// makes this a test of the qualified-name tie-break specifically rather than of
+// "some order was applied".
+const (
+	// rankOrderTieDocs is how many tied documents the fixture seeds.
+	rankOrderTieDocs = 8
+
+	// rankOrderTieLimit is deliberately smaller than rankOrderTieDocs, so an
+	// unstable order changes which rows survive the LIMIT and not merely the
+	// sequence they arrive in.
+	rankOrderTieLimit = 3
+
+	// rankOrderTieFile holds every tied declaration, pinning file path constant.
+	rankOrderTieFile = "rankorder/ties.go"
+)
+
+// rankOrderTies builds the tied documents in ascending qualified-name order,
+// which is the order the backends are required to return them in.
+func rankOrderTies() []rankOrderDoc {
+	tokens := make([]string, 0, rankOrderContentTokens)
+	for range rankOrderDocs {
+		tokens = append(tokens, rankOrderTerm)
+	}
+	for len(tokens) < rankOrderContentTokens {
+		tokens = append(tokens, rankOrderFiller[len(tokens)%len(rankOrderFiller)])
+	}
+	content := strings.Join(tokens, " ")
+
+	ties := make([]rankOrderDoc, 0, rankOrderTieDocs)
+	for i := range rankOrderTieDocs {
+		label := strconv.Itoa(i)
+		if i < 10 {
+			label = "0" + label
+		}
+		ties = append(ties, rankOrderDoc{
+			name:          "Tie" + label,
+			qualifiedName: "rankorder.Tie" + label,
+			filePath:      rankOrderTieFile,
+			termCount:     rankOrderDocs,
+			content:       content,
+		})
+	}
+	return ties
+}
+
+// TestRankOrderFixture_TiesAreIndistinguishableByRelevance checks the tie
+// fixture's premise: every document must be byte-identical in content, or the
+// backends could legitimately separate them and the test would be measuring
+// relevance instead of the tie-break. It also holds file path constant, which is
+// what leaves qualified name as the only available key.
+func TestRankOrderFixture_TiesAreIndistinguishableByRelevance(t *testing.T) {
+	ties := rankOrderTies()
+	if len(ties) <= rankOrderTieLimit {
+		t.Fatalf("fixture must hold more documents than the limit fetches, got %d for limit %d", len(ties), rankOrderTieLimit)
+	}
+	for i, doc := range ties {
+		if doc.content != ties[0].content {
+			t.Errorf("%s: content must be identical to tie, got %q want %q", doc.qualifiedName, doc.content, ties[0].content)
+		}
+		if doc.filePath != rankOrderTieFile {
+			t.Errorf("%s: every tied document must share one file, got %q", doc.qualifiedName, doc.filePath)
+		}
+		if i > 0 && doc.qualifiedName <= ties[i-1].qualifiedName {
+			t.Errorf("%s: qualified names must strictly ascend, %q follows %q", doc.qualifiedName, doc.qualifiedName, ties[i-1].qualifiedName)
+		}
+	}
+}
+
+// seedTieCorpus writes the given documents into a database in exactly the order
+// given, so a caller can seed the same corpus two ways and compare the answers.
+func seedTieCorpus(t *testing.T, ctx context.Context, db *gorm.DB, backend Backend, docs []rankOrderDoc) {
+	t.Helper()
+	for _, doc := range docs {
+		node := graph.Node{
+			Namespace:     rankOrderNamespace,
+			Name:          doc.name,
+			QualifiedName: doc.qualifiedName,
+			Kind:          graph.NodeKindFunction,
+			FilePath:      doc.filePath,
+			StartLine:     1,
+			EndLine:       2,
+			Language:      "go",
+		}
+		if err := db.Create(&node).Error; err != nil {
+			t.Fatalf("seed node %s: %v", doc.qualifiedName, err)
+		}
+		row := graph.SearchDocument{
+			Namespace: rankOrderNamespace,
+			NodeID:    node.ID,
+			Content:   doc.content,
+			Language:  "go",
+		}
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatalf("seed doc %s: %v", doc.qualifiedName, err)
+		}
+	}
+	if err := backend.Rebuild(ctx, db); err != nil {
+		t.Fatalf("rebuild index: %v", err)
+	}
+}
+
+// rankOrderTieExpected is the answer the tie fixture demands: ascending
+// qualified name, cut to the query's limit.
+func rankOrderTieExpected(limit int) []string {
+	ties := rankOrderTies()
+	if limit > len(ties) {
+		limit = len(ties)
+	}
+	want := make([]string, 0, limit)
+	for _, doc := range ties[:limit] {
+		want = append(want, doc.qualifiedName)
+	}
+	return want
+}
+
 // rankOrderExpected is the answer the ladder demands, best first, cut to the
 // same length the query's limit would cut it to.
 func rankOrderExpected(limit int) []string {

@@ -76,6 +76,19 @@ to spaces before `to_tsvector`, matching FTS5's unicode61 splitting) and the
 identity tie-break in `rank.go` (structural ties order by file path and
 qualified name, not by the backend's own retrieval rank).
 
+Retrieval carries a tie-break of its own, one layer below that one. Both
+backends order by relevance and then by qualified name, file path, and id, so
+rows the ranking function scored equally come back in a fixed order rather than
+in whatever order the database stored them. Storage order tracks insertion
+order, and insertion order is decided by the order files happened to be walked —
+nothing a reader chose and nothing they can see. Without the second key,
+indexing an unchanged repository again could hand back a different cut, because
+the `LIMIT` applies after the sort and drops what falls past it. That is a
+reproducibility guarantee, not a parity one: it does not make the two backends
+agree, because they still disagree about which rows tie. `rankorder_*_test.go`
+holds both properties — relevance decides the order, and identity decides what
+relevance left tied.
+
 There used to be a third path here. `wiki_search` named the Wiki web UI's search
 box — `retrieval.FromDB`, full-text plus a namespace scan — and had its own
 frozen pool and baseline. That pipeline was deleted along with
