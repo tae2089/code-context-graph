@@ -546,8 +546,8 @@
     "retrieved": true,
     "returned": 24,
     "relevant": 2,
-    "found": 0,
-    "rank": 0
+    "found": 1,
+    "rank": 6
   },
   {
     "query": "why must the database schema be migrated before the server will run",

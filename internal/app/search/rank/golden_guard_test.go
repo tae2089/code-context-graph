@@ -175,7 +175,7 @@ func TestGolden_BaselineIsFullyGuarded(t *testing.T) {
 // with the class and reason that let it stay. The list is a debt, not a
 // permission: the guard above fails when an entry is missing one, and equally
 // when a listed entry starts scoring, so it cannot rot into a silent excuse.
-// Six of the twenty are the ranker's own: the pool handed it the judged
+// Five of the nineteen are the ranker's own: the pool handed it the judged
 // answer and the page of ten did not carry it. Those are `known gap` by
 // definition — nothing was declined — and the guard enforces that, so no
 // future zero can be filed under policy while retrieval is still finding it.
@@ -226,18 +226,26 @@ var zeroScoreNotes = map[string]map[string]zeroScoreNote{
 		// change moves nothing here until the fixture is recaptured. The recapture
 		// is then what a reviewer reads. See testdata/README.md.
 		//
-		// The last two arrived with this fixture refresh, and no line of code
-		// moved with them. Both were already at the edge of the page on the
-		// stale fixture — files 10 and 6 — and the intent order captured from
-		// today's source put them past it. They are listed here rather than
+		// The last one arrived with a fixture refresh, and no line of code
+		// moved with it. It was already at the edge of the page on the stale
+		// fixture — file 10 — and the intent order captured from today's
+		// source put it one place past. It is listed here rather than
 		// re-judged because the two measurements above were never run against
-		// them.
+		// it.
+		//
+		// A second entry arrived with that refresh and has since left the list.
+		// It was "why does an answer with nothing in it still suggest another
+		// call", listed because one of its two judged files had been deleted
+		// from the repository and the query needed re-judging rather than a
+		// ranker fix. Re-judging it named the files that answer it today, one
+		// of which the pool already carried inside the page, so it scores and
+		// the guard above required this entry to go. What it cost and what it
+		// bought is in the commit that re-judged it.
 		"how does the graph get built":                                                    {classKnownGap, "the intent pool holds workflow.Service.Build in the judged internal/app/ingest/workflow/build.go, and the page of ten files did not carry it. The name index answers nothing here — SanitizeFTS5 joins terms with a space and FTS5 reads a space as AND, so a six-word question needs all six words in one document — which leaves the ordering entirely to the intent scorer."},
 		"why did one oversized file abort indexing before it was read":                    {classKnownGap, "the intent pool holds three declarations in the judged internal/app/ingest/workflow/fileio.go, CheckParseFileSize among them, and none reached the page of ten."},
 		"what limits how much source code a single indexing pass may read":                {classKnownGap, "the intent pool holds CheckTotalParsedBytes, readRegularSourceFile and inspectRegularSourceFile, all three in the judged internal/app/ingest/workflow/fileio.go, and none reached the page of ten."},
 		"why are old generated pages still present after their source files were removed": {classKnownGap, "the intent pool holds docs.Generator.pruneManaged in the judged internal/app/docs/generator.go — the prune path the question is about — and it did not reach the page of ten."},
 		"why was the wiki index never left half-written after the process died":           {classKnownGap, "the intent pool holds contentfiles.WikiIndexWriter in the judged internal/adapters/outbound/contentfiles/wiki.go at hit 12, which is file 11 — one place past the page of ten. It was hit 11 and file 10 on the stale fixture, the last slot on the page, so this records a query that has always sat on the edge."},
-		"why does an answer with nothing in it still suggest another call":                {classKnownGap, "its two judged files are internal/adapters/inbound/mcp/handler_intent.go and handler_query.go. The first has since been deleted from the repository, and it was the one that answered: on the stale fixture it was hit 6 and file 6, while handler_query.go was file 8. Today only handler_query.go can be found at all, and its best hit is 24, which is file 21. So `relevant` counts 2 where at most 1 now exists, and the query needs re-judging. Narrowing the list here is not this refresh's to do: it would raise Recall without a line of code changing, the one move the golden set forbids outright."},
 
 		// Retrieval never handed the answer over. A reordering cannot pay
 		// these; the index or the tokenizer has to change first. mcp used to

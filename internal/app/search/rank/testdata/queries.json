@@ -575,10 +575,10 @@
       "bucket": "behavior",
       "relevant": [],
       "relevant_files": [
-        "internal/adapters/inbound/mcp/handler_intent.go",
-        "internal/adapters/inbound/mcp/handler_query.go"
+        "internal/app/search/wire/wire.go",
+        "internal/adapters/inbound/mcp/handler_describe.go"
       ],
-      "why": "handler_intent.go records turning an empty answer into a step rather than a dead end; handler_query.go carries the same hand-off on the search side."
+      "why": "Re-judged: the two files this named before no longer answer it. handler_intent.go was deleted with find_by_intent in a3a29d2, and handler_query.go stopped building next actions when that hand-off went, so the only next it still carries is the paging offset. The behaviour moved rather than disappeared. wire.nextActions is where a search decides to hand a caller a step, and two of its branches fire on a page with nothing on it: the one offering include_weak when every candidate was filtered out as weak, and the annotate step when nothing shown justified itself. NextAction's own comment beside it is the why the question asks for, in as many words — naming the tool and its arguments turns a dead-end count into a step. describeNextActions is judged with it as the purest form of the question: describe returns actions only when the target was not found, and a found outline gets none, so there the empty answer is the only one that suggests a call."
     },
     {
       "query": "why must the database schema be migrated before the server will run",
