@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
+	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
 // setupPostgresRankOrder seeds the rank-order ladder into a fresh PostgreSQL
@@ -96,4 +97,37 @@ func TestPostgresFTS_Query_TiesDoNotDependOnInsertionOrder(t *testing.T) {
 			strings.Join(got, " "), strings.Join(reversed, " "))
 	}
 	requireRankOrder(t, got, rankOrderTieExpected(rankOrderTieLimit))
+}
+
+// TestPostgresFTS_Query_StaleIndexRowsDoNotEatTheLimit is the SQLite test's twin.
+// Both backends gained the same join for the same reason, so both owe the same
+// promise: a limit is filled from the rows that still resolve.
+func TestPostgresFTS_Query_StaleIndexRowsDoNotEatTheLimit(t *testing.T) {
+	ctx, db, backend := setupPostgresTies(t, rankOrderTies())
+
+	stale := rankOrderTieDocs - rankOrderTieLimit
+	if stale < 1 {
+		t.Fatalf("fixture must leave enough rows to fill the limit after deletions, got %d docs for limit %d", rankOrderTieDocs, rankOrderTieLimit)
+	}
+	var victims []graph.Node
+	if err := db.Where("namespace = ?", rankOrderNamespace).Order("qualified_name").Limit(stale).Find(&victims).Error; err != nil {
+		t.Fatalf("find nodes to delete: %v", err)
+	}
+	for _, victim := range victims {
+		if err := db.Delete(&graph.Node{}, victim.ID).Error; err != nil {
+			t.Fatalf("delete node %s: %v", victim.QualifiedName, err)
+		}
+	}
+
+	got := queryRankOrder(t, ctx, db, backend, rankOrderTieLimit)
+
+	if len(got) != rankOrderTieLimit {
+		t.Errorf("expected the limit filled from the rows that still resolve, got %d of %d: %s",
+			len(got), rankOrderTieLimit, strings.Join(got, " "))
+	}
+	for _, victim := range victims {
+		if slices.Contains(got, victim.QualifiedName) {
+			t.Errorf("%s was deleted but still came back", victim.QualifiedName)
+		}
+	}
 }
