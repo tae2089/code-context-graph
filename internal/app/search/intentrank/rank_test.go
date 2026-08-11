@@ -75,6 +75,50 @@ func TestRank_TiedAnswerDoesNotDependOnWhichIDsWereHandedOut(t *testing.T) {
 	}
 }
 
+// Two declarations can share a file and qualified name, so their start line is
+// the last part of the identity that keeps re-indexing from changing the answer.
+func TestRank_TiedDuplicateQualifiedNamesUseStartLineAcrossSeedOrders(t *testing.T) {
+	answerForSeed := func(startLines ...int) []int {
+		docs := make([]intentrank.Doc, 0, len(startLines))
+		for i, startLine := range startLines {
+			docs = append(docs, intentrank.Doc{
+				NodeID:        uint(i + 1),
+				Content:       "keep the queue draining under backpressure",
+				FilePath:      "queue/drain.go",
+				QualifiedName: "queue.Drain",
+				Kind:          graph.NodeKindFunction,
+				Namespace:     "example",
+				StartLine:     startLine,
+			})
+		}
+
+		answer := rank(t, "what keeps the queue draining", len(docs), docs...)
+		lines := make([]int, 0, len(answer))
+		for _, id := range answer {
+			for _, doc := range docs {
+				if doc.NodeID == id {
+					lines = append(lines, doc.StartLine)
+					break
+				}
+			}
+		}
+		return lines
+	}
+
+	forward := answerForSeed(12, 48)
+	reverse := answerForSeed(48, 12)
+	want := []int{12, 48}
+	if !slices.Equal(forward, want) {
+		t.Errorf("forward seed answers by line %v, want %v", forward, want)
+	}
+	if !slices.Equal(reverse, want) {
+		t.Errorf("reverse seed answers by line %v, want %v", reverse, want)
+	}
+	if !slices.Equal(forward, reverse) {
+		t.Errorf("answer order depends on seed direction: forward %v, reverse %v", forward, reverse)
+	}
+}
+
 // tiedDocs is three declarations whose recorded reason is byte-identical, so all
 // three score the same and only the tie-break decides the order.
 func tiedDocs() []intentrank.Doc {
