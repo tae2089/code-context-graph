@@ -2,7 +2,7 @@
 name: ccg
 description: "Build, update, inspect, and search code-context-graph graphs and route to specialized CCG workflows. Use when a task needs CCG setup, graph freshness, algorithm or feature-pipeline understanding, exact symbol or relationship lookup, annotation-aware full-text search, safe full or scoped synchronization, MCP graph queries, or selection among CCG analysis, docs, annotation, and namespace skills. Do not use for a simple file or string lookup when grep/read is sufficient."
 metadata:
-  version: 1.4.0
+  version: 1.4.1
   openclaw:
     category: "code-intelligence"
     domain: "core"
@@ -166,16 +166,44 @@ Every hit carries a `node_id`. Hand that ID straight to `get_node`,
 `query_graph`, `get_impact_radius`, or `trace_flow` — the answer exists to
 start a graph walk, not to finish the investigation.
 
-**When a question comes back empty or weak, the search is not broken — the
-reasons were never written down.** A question mostly made of words nobody
-recorded gets no intent hits by design. Hand off to the `ccg-annotate` skill:
-annotate the area under investigation, rebuild the graph, then re-ask the same
-question. That loop, not query rephrasing, is what makes questions answerable.
+**When coverage says the reasons were never written, fix the evidence rather
+than rephrasing the query.** If `annotation_coverage.with_reason` is zero or
+`next` names `ccg-annotate`, hand off to the `ccg-annotate` skill: annotate the
+area under investigation, rebuild the graph, then re-ask the same question. An
+empty or weak answer without that evidence is not enough to blame annotations;
+follow the hybrid workflow below and inspect freshness and truncation first.
 
 **Difference from Grep**: Grep scans source text directly. CCG full-text search
 queries indexed symbol fields and annotations together. Searching "결제" can find
 a `payment` function when its annotation contains "결제 처리"; search does not
 infer translations or arbitrary synonyms that are absent from the index.
+
+## Hybrid Search Workflow
+
+Do not treat grep/read and CCG search as mutually exclusive. Prefer `rg` when
+it is available for repository text searches. The two approaches answer
+different parts of the same investigation:
+
+1. When the question names an exact identifier, path, literal, or error text,
+   use grep/read for the current source. Also use CCG when the task asks why the
+   code exists, how it relates to other code, or what a change affects.
+2. When the question cannot name a symbol yet, start with `ccg search`. Feed the
+   returned qualified names, paths, and distinctive reason terms into grep/read
+   to verify the candidate against source.
+3. Before concluding that code or behavior does not exist, verify graph
+   freshness and check both CCG and grep/read. A miss in either one alone is not
+   proof of absence: CCG can be stale or rank a candidate off the first page,
+   while grep cannot find intent or relationships that are not written as the
+   query's exact text.
+4. Merge corroborating results by file path and symbol instead of presenting
+   duplicate lists. Preserve why each result was found (`exact text`,
+   `identifier`, `recorded reason`, or `graph relationship`). Treat source as
+   authority for current text and location; treat CCG as candidate evidence for
+   intent and relationships, then verify those claims with the relevant graph
+   query or source read.
+
+Run the two searches in parallel when the request contains both an exact clue
+and an intent/relationship question, or when a completeness claim matters.
 
 ## Reading a Path You Already Have
 
@@ -243,7 +271,10 @@ a narrow question before expanding through graph queries.
 
 ## Boundary
 
-- Use grep/read for a known filename, exact string, or one obvious location.
+- Follow the hybrid workflow when both direct source evidence and indexed
+  intent or relationship evidence can materially change the answer.
+- Use grep/read alone only for a known filename, exact string, or one obvious
+  location with no intent, relationship, or completeness claim.
 - Treat algorithm, feature-flow, and pipeline questions as relationship analysis rather than simple location lookup.
 - Use `ccg search` for intent and annotation candidates, not exact graph proof.
 - Use specialized CCG skills for analysis, docs, annotations, or namespaces.
@@ -255,5 +286,6 @@ a narrow question before expanding through graph queries.
 Before finishing, state the namespace and freshness evidence used (or say it
 was not verified), name the evidence-producing tools or commands, report result
 limits and truncation, record the chosen `replace` behavior for scoped updates,
-and list any failed/skipped postprocess step, source fallback, or verification
-that was not run.
+say whether grep/read corroborated CCG whenever absence or completeness was
+claimed, and list any failed/skipped postprocess step, source fallback, or
+verification that was not run.
