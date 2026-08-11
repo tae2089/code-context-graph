@@ -1,17 +1,19 @@
 {
-  "AutoMigrate": {},
-  "OnConflict": {},
-  "Open": {},
-  "Preload": {},
-  "Preloda": {},
-  "Transaction": {},
-  "association": {},
-  "clause": {},
-  "create in batches": {},
-  "kubernetes ingress controller": {},
-  "naming strategy": {},
-  "parse field": {},
-  "prepared statement": {},
-  "soft delete": {},
-  "table name": {}
+  "queries": {
+    "AutoMigrate": [],
+    "OnConflict": [],
+    "Open": [],
+    "Preload": [],
+    "Preloda": [],
+    "Transaction": [],
+    "association": [],
+    "clause": [],
+    "create in batches": [],
+    "kubernetes ingress controller": [],
+    "naming strategy": [],
+    "parse field": [],
+    "prepared statement": [],
+    "soft delete": [],
+    "table name": []
+  }
 }

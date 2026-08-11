@@ -1,9 +1,9 @@
 {
   "corpus": {
-    "source": "CCG's own graph, captured 2026-08-10",
+    "source": "CCG's own graph, built from current source and captured 2026-08-11",
     "namespace": "ccg",
-    "nodes": 1929,
-    "note": "Candidates in candidates.json were captured by replaying the production FTS path (searchsql.SQLiteBackend.Query with rank.FetchLimit(10)) against that graph; intent_candidates.json was captured the same way through Reader.QueryIntent. Both captures are frozen: they never re-read a database, so a metric change is attributable to the search service alone."
+    "nodes": 1967,
+    "note": "Candidates in candidates.json and the matched reason documents in intent_candidates.json were captured from the same scratch graph. The latter also stores the corpus size and node identity needed to replay intentrank.Rank. Both captures are frozen: they never re-read a database, so a metric change is attributable to the search service alone."
   },
   "authorship": {
     "written_by": "assistant, 2026-08-08, before running any measurement; 47 intent questions merged in 2026-08-10 from the retired intent golden set, keeping their original file-level judgments as relevant_files",
