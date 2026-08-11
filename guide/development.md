@@ -33,6 +33,30 @@ make test
 
 `make test` runs both the Go test suite and the lightweight shell helper tests for the Docker integration harness.
 
+### Reading a full run
+
+A full run prints thousands of lines, so it is tempting to filter it down to the failures. Filter on the wrong thing and the failure survives as a name with nothing attached:
+
+```bash
+# Don't. `--- FAIL: TestX` arrives with no message under it, and the run is over.
+go test -tags fts5 ./... -count=1 | grep -E '^(FAIL|---)'
+```
+
+The lines that say what broke are the ones indented under `--- FAIL`, and that filter drops every one of them. Keep the whole log and search it afterwards:
+
+```bash
+go test -tags fts5 ./... -count=1 2>&1 | tee /tmp/ccg-test.log
+grep -B2 -A20 '^--- FAIL' /tmp/ccg-test.log
+```
+
+If you must filter live, keep the indented lines too:
+
+```bash
+go test -tags fts5 ./... -count=1 2>&1 | grep -E '^(FAIL|--- FAIL|ok )|^[[:space:]]'
+```
+
+This matters most for a test that fails once and never again: #78 lost the only message an intermittent failure ever produced, and no amount of re-running brought it back.
+
 ## PostgreSQL Tests
 
 Tests behind the `postgres` build tag need a real server. Point `TEST_POSTGRES_DSN` at one and run:

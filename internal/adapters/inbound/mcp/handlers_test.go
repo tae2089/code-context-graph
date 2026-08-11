@@ -3313,29 +3313,52 @@ func TestTools_RejectANegativeOffsetWithTheSameSentence(t *testing.T) {
 // one reason on the first, three on the second, none on the third. Post-#56 the
 // recorded-reason index holds one row per reason, so any count that reads that
 // table row by row reports 4 here where the answer is 2 of 3.
+//
+// Every write is checked. The tests built on this fixture assert exact counts,
+// so a write that fails without saying so does not show up as a broken fixture
+// — it shows up as "with_reason = 1, want 2" in a test about coverage
+// arithmetic, sending whoever reads it to look at the arithmetic. That already
+// cost one investigation (#78), so the fixture names its own failure now.
 func coverageFixture(t *testing.T) *Deps {
 	t.Helper()
 	deps := setupTestDeps(t)
 	ctx := context.Background()
 
-	testGraphStoreFor(deps).UpsertNodes(ctx, []graph.Node{
+	if err := testGraphStoreFor(deps).UpsertNodes(ctx, []graph.Node{
 		{QualifiedName: "pkg.one", Kind: graph.NodeKindFunction, Name: "one", FilePath: "one.go", StartLine: 1, EndLine: 5, Language: "go"},
 		{QualifiedName: "pkg.three", Kind: graph.NodeKindFunction, Name: "three", FilePath: "three.go", StartLine: 1, EndLine: 5, Language: "go"},
 		{QualifiedName: "pkg.silent", Kind: graph.NodeKindFunction, Name: "silent", FilePath: "silent.go", StartLine: 1, EndLine: 5, Language: "go"},
-	})
+	}); err != nil {
+		t.Fatalf("fixture: index three declarations: %v", err)
+	}
 	reasonCount := map[string]int{"pkg.one": 1, "pkg.three": 3, "pkg.silent": 0}
 	for name, reasons := range reasonCount {
-		node, _ := testGraphStoreFor(deps).GetNode(ctx, name)
-		testDBFor(deps).Create(&graph.SearchDocument{
+		node, err := testGraphStoreFor(deps).GetNode(ctx, name)
+		if err != nil {
+			t.Fatalf("fixture: read back %s: %v", name, err)
+		}
+		// A node that is not there comes back as no node and no error, so this
+		// check is the only thing standing between "never indexed" and a nil
+		// dereference on the next line.
+		if node == nil {
+			t.Fatalf("fixture: %s was indexed but reads back as missing", name)
+		}
+		if err := testDBFor(deps).Create(&graph.SearchDocument{
 			NodeID: node.ID, Content: node.Name + " does something", Language: "go",
-		})
+		}).Error; err != nil {
+			t.Fatalf("fixture: index a document for %s: %v", name, err)
+		}
 		for i := range reasons {
-			testDBFor(deps).Create(&graph.SearchReason{
+			if err := testDBFor(deps).Create(&graph.SearchReason{
 				NodeID: node.ID, Content: fmt.Sprintf("keep %s honest, reason %d", node.Name, i),
-			})
+			}).Error; err != nil {
+				t.Fatalf("fixture: record reason %d for %s: %v", i, name, err)
+			}
 		}
 	}
-	testSearchBackendFor(deps).Rebuild(ctx, testDBFor(deps))
+	if err := testSearchBackendFor(deps).Rebuild(ctx, testDBFor(deps)); err != nil {
+		t.Fatalf("fixture: rebuild the search index: %v", err)
+	}
 	return deps
 }
 

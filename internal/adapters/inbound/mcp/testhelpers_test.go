@@ -214,13 +214,45 @@ func groupedTestDeps(st *graphgorm.Store, db *gorm.DB, sb search.Backend, parser
 	}
 }
 
-func setupTestDeps(t *testing.T) *Deps {
+// openSharedMemoryTestDB opens one test's own in-memory database and keeps it
+// alive until the test returns.
+//
+// The name carries a counter because the cache is shared: two databases opened
+// under the same name in one process are one database, and every test here
+// counts rows, so a name reused across tests would have them counting each
+// other's.
+//
+// The connection held back is what keeps the database there. SQLite drops a
+// shared-cache in-memory database as soon as its last connection closes, and
+// nothing here promises the pool will always hold one: it does today only
+// because database/sql keeps two idle connections and expires neither, and any
+// idle timeout — the five minutes internal/db.ConfigurePool gives postgres, say
+// — would empty the pool between two statements. The next query would then open
+// a fresh, empty database and every count taken from it would be wrong rather
+// than missing. One connection of our own, released on cleanup, takes that out
+// of the pool's hands. See TestSetupTestDeps_DatabaseOutlivesAnEmptiedConnectionPool.
+func openSharedMemoryTestDB(t *testing.T, name string) *gorm.DB {
 	t.Helper()
-	dsn := fmt.Sprintf("file:handlertest%d?mode=memory&cache=shared", handlerTestDBSeq.Add(1))
+	dsn := fmt.Sprintf("file:%s%d?mode=memory&cache=shared", name, handlerTestDBSeq.Add(1))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
 	if err != nil {
 		t.Fatal(err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { held.Close() })
+	return db
+}
+
+func setupTestDeps(t *testing.T) *Deps {
+	t.Helper()
+	db := openSharedMemoryTestDB(t, "handlertest")
 	st := graphgorm.New(db)
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatal(err)
@@ -245,11 +277,7 @@ func setupTestDeps(t *testing.T) *Deps {
 // Used to test backward compatibility - that old tools work even when new interfaces are nil.
 func setupTestDepsMinimal(t *testing.T) *Deps {
 	t.Helper()
-	dsn := fmt.Sprintf("file:handlertest-minimal%d?mode=memory&cache=shared", handlerTestDBSeq.Add(1))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := openSharedMemoryTestDB(t, "handlertest-minimal")
 	st := graphgorm.New(db)
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatal(err)
@@ -275,11 +303,7 @@ func setupTestDepsMinimal(t *testing.T) *Deps {
 
 func setupGraphOnlyTestDeps(t *testing.T) *Deps {
 	t.Helper()
-	dsn := fmt.Sprintf("file:handlertest-graph-only%d?mode=memory&cache=shared", handlerTestDBSeq.Add(1))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := openSharedMemoryTestDB(t, "handlertest-graph-only")
 	st := graphgorm.New(db)
 	if err := st.AutoMigrate(); err != nil {
 		t.Fatal(err)
