@@ -167,11 +167,9 @@ separates them.
 answer, nothing was declined — the ranker left it off the page, and that is a
 debt to work off. Four entries are in that state today, all on `ccg`, all
 answered by the intent index and all missing from the page of ten files. The
-other eight `known gap` entries never got the answer out of retrieval, so no
-reordering can pay them: `mcp` wants a package node the name index does not
-carry, and the three Korean questions die at `intent.Result.CanAnswer` because
-their terms carry particles — `파일을` cannot match `파일` in a reason, so under
-half the terms score and every hit is dropped.
+other five `known gap` entries never got the answer out of retrieval, so no
+reordering can pay them: `mcp`, for one, wants a package node the name index
+does not carry.
 
 An entry is a debt, not a permission. The guard also fails when a listed entry
 starts scoring, so the list cannot rot into a silent excuse — the same rule
@@ -230,9 +228,14 @@ ranking change can fix that query.
 ## The two totals
 
 ```
-search       ALL         86   74/86  0.732 (123/168)  top1 49  top3 62  MRR 0.650
-search       ANSWERABLE  82   74/82  0.804 (123/153)  top1 49  top3 62  MRR 0.681
+bucket           n  retrieved  Recall@10   top1  top3   MRR
+ALL             86   74/86      0.738 (124/168)  50    63  0.661
+ANSWERABLE      78   73/78      0.831 (123/148)  49    62  0.716
 ```
+
+That block is `make search-eval`'s own output for the `ccg` corpus, copied
+whole. Rewriting a number here by hand is how it drifted from the harness once
+already.
 
 `queries.json` holds 91 entries and the scoreboard counts 86. The missing five
 are the negative cases — queries whose `relevant` and `relevant_files` lists are
@@ -240,8 +243,9 @@ empty; a query with no right answer has no rank to average, so the report skips
 them and lists any that return noise separately. Nothing is silently dropped.
 
 `ALL` includes the out-of-scope queries, so it can never reach 1.0 however good
-the code gets. `ANSWERABLE` drops the four queries `search` declines (`cfg` and
-the three typos), and is the number to read when asking how the code is doing.
+the code gets. `ANSWERABLE` drops the eight queries `search` declines (`cfg`,
+the three typos, and the four Korean questions), and is the number to read when
+asking how the code is doing.
 
 These totals are not comparable to what this file printed before the intent
 questions were merged in: 47 harder, file-judged questions joined the average.
@@ -261,20 +265,45 @@ reaches zero must be re-recorded so the improvement cannot silently regress.
 `intent.Result.CanAnswer` is what keeps the other two at zero — a question
 mostly made of words nobody ever wrote down gets no intent hits at all.
 
-## The four kept-red queries
+## The declined queries
 
-`cfg` and the three typos — `sanitze`, `retreival`, `anotation` — are declined.
-They are neither a retrieval finding nor a ranking one. They record a decision:
-search does not correct spelling and does not expand abbreviations. The tool is
-driven by an agent quoting identifiers out of code it has already read, so a
-query that matches nothing exactly is naming something that does not exist.
-Answering it approximately would turn "no such thing" into a confident wrong
-answer. They are kept, and kept red, so the decision stays visible and anyone
-who reverses it inherits the measurements in each `why`.
+Eight queries on `ccg` are declined, and they record two decisions. Seven of
+them score nothing and are kept red on purpose; the eighth is declined and
+answers anyway, which is explained at the end.
 
-These four, plus `Excute` on `cobra` and `Preloda` on `gorm`, are the whole of
-`out of scope` in `zeroScoreNotes`. Every other entry that scores nothing is a
-`known gap` — nobody decided against answering it.
+**Spelling and abbreviations.** `cfg` and the three typos — `sanitze`,
+`retreival`, `anotation`. They are neither a retrieval finding nor a ranking
+one: search does not correct spelling and does not expand abbreviations. The
+tool is driven by an agent quoting identifiers out of code it has already read,
+so a query that matches nothing exactly is naming something that does not
+exist. Answering it approximately would turn "no such thing" into a confident
+wrong answer.
+
+**Language.** The four Korean questions in the `korean` bucket. Search answers
+questions written in English. Answering a Korean one means teaching the query
+pipeline Korean morphology — splitting the particle off `파일을` so it can reach
+`파일`, which scores 22 in this corpus where `파일을` scores 3 — and a Korean
+function-word list mirroring the English one in `queryterm`. Neither
+generalises: doing it for Korean commits the project to doing it for the next
+language somebody types in, and `gorm`, `cobra` and `context-diary` hold no
+Hangul, so any such change could only ever be measured against the four `ccg`
+queries it was written against. That is the overfit the tuning rule above
+forbids. Three of the four return nothing — under half their terms reach a
+recorded reason, so `intent.Result.CanAnswer` drops every hit — and the fourth
+answers at rank 1. All four are declined together: marking only the failures
+out of scope would be fitting the rule to the results.
+
+A declined query is kept in the set, and kept red where it scores nothing, so
+each decision stays visible and anyone who reverses it inherits the
+measurements in each `why`.
+
+These eight, plus `Excute` on `cobra` and `Preloda` on `gorm`, are the whole of
+the recorded declining. Ten queries, nine `zeroScoreNotes` entries: the fourth
+Korean question is declined and still scores, so it has no zero to explain and
+the guard would call a note on it stale. `out_of_scope` in `queries.json` is
+where a decision is recorded; `zeroScoreNotes` only explains the zeros. Every
+other entry that scores nothing is a `known gap` — nobody decided against
+answering it.
 
 ## What this measures, and what it does not
 
