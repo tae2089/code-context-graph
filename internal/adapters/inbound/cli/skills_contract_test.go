@@ -12,9 +12,10 @@ import (
 )
 
 type skillContract struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
-	Metadata    struct {
+	Name                   string `yaml:"name"`
+	Description            string `yaml:"description"`
+	DisableModelInvocation bool   `yaml:"disable-model-invocation"`
+	Metadata               struct {
 		Version  string `yaml:"version"`
 		OpenClaw struct {
 			Category string `yaml:"category"`
@@ -82,6 +83,9 @@ func TestProjectSkillsDeclareRuntimeContract(t *testing.T) {
 			if !strings.Contains(contract.Description, "Do not use") {
 				t.Errorf("description must include a concrete 'Do not use' boundary: %q", contract.Description)
 			}
+			if name == "ccg-build" && !contract.DisableModelInvocation {
+				t.Error("ccg-build must require explicit invocation")
+			}
 			if matched, _ := regexp.MatchString(`^\d+\.\d+\.\d+$`, contract.Metadata.Version); !matched {
 				t.Errorf("metadata.version = %q, want semantic version", contract.Metadata.Version)
 			}
@@ -137,6 +141,9 @@ func TestCoreSkillsHaveClaudeAndAntigravityProjectAdapters(t *testing.T) {
 					}
 					if adapter.Description != canonical.Description {
 						t.Errorf("description differs from canonical discovery contract")
+					}
+					if adapter.DisableModelInvocation != canonical.DisableModelInvocation {
+						t.Errorf("disable-model-invocation differs from canonical contract")
 					}
 					canonicalLink := "../../../skills/" + skillName + "/SKILL.md"
 					if !strings.Contains(string(raw), "("+canonicalLink+")") {
@@ -426,7 +433,7 @@ func parseSkillContract(t *testing.T, raw []byte) skillContract {
 		t.Fatalf("parse frontmatter fields: %v", err)
 	}
 	allowed := map[string]struct{}{
-		"name": {}, "description": {}, "license": {}, "allowed-tools": {}, "metadata": {},
+		"name": {}, "description": {}, "disable-model-invocation": {}, "license": {}, "allowed-tools": {}, "metadata": {},
 	}
 	for key := range fields {
 		if _, ok := allowed[key]; !ok {
