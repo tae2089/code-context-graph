@@ -104,6 +104,20 @@ type resultRow struct {
 }
 
 // matchRows runs one tsquery and returns the matching node ids in rank order.
+//
+// The keys after ts_rank carry the same promise as the SQLite backend's, and have
+// to stay identical to it: ts_rank ties on different rows than bm25 does, but once
+// either has tied, what happens next is ours to decide and the two deployments
+// have to decide it the same way. Without a further key the tie falls back on
+// storage order, which tracks insertion order, and the LIMIT drops tied rows
+// rather than reordering them — so the same repository indexed twice could answer
+// differently. `n.id` last makes the key total.
+//
+// The key order is deliberately NOT rank.compareIdentity's, which compares file
+// path before qualified name (and then kind and namespace). See the SQLite
+// matchRows for why that difference matters and why aligning them belongs to #106
+// rather than here.
+//
 // @intent let Query run the same retrieval twice with a different expression.
 func (p *PostgresBackend) matchRows(ctx context.Context, db *gorm.DB, tsQuery, ns string, limit int) ([]resultRow, error) {
 	var rows []resultRow

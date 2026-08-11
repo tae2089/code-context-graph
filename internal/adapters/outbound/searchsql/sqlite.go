@@ -279,6 +279,24 @@ type ftsRow struct {
 }
 
 // matchRows runs one FTS expression and returns the matching node ids in rank order.
+//
+// The keys after `rank` are what make the answer reproducible. bm25 ties often —
+// short documents, repeated identifiers — and a tie with no further key falls
+// back on storage order, which tracks the order rows were written and so tracks
+// the order files happened to be walked. Because the LIMIT cuts after the sort,
+// tied rows past it are not reordered but dropped, so the same repository indexed
+// twice could answer differently. `n.id` last makes the key total.
+//
+// The key order here is deliberately NOT rank.compareIdentity's, which compares
+// file path before qualified name (and then kind and namespace). The difference
+// is not cosmetic: it decides which tied rows survive the LIMIT. File-path-first
+// would cut on file boundaries more often, which is closer to what wire.FileGroup
+// promises one layer up — that a file appearing in an answer appears whole.
+// Aligning the two is #106's job, where compareIdentity is reused across
+// retrieval, rerank and intent together and one measurement covers all three.
+// Do not flip these keys on their own: every ranking number and every recapture
+// figure recorded for #103 was measured with this order.
+//
 // @intent let Query run the same retrieval twice with a different expression.
 func (s *SQLiteBackend) matchRows(ctx context.Context, db *gorm.DB, ftsQuery, ns string, limit int) ([]ftsRow, error) {
 	var rows []ftsRow
