@@ -23,7 +23,7 @@ import (
 	"github.com/tae2089/code-context-graph/internal/app/analyze/changes"
 	"github.com/tae2089/code-context-graph/internal/app/analyze/query"
 	"github.com/tae2089/code-context-graph/internal/app/ingest/incremental"
-	searchapp "github.com/tae2089/code-context-graph/internal/app/search"
+	"github.com/tae2089/code-context-graph/internal/app/search/offsetrule"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 	"github.com/tae2089/code-context-graph/internal/obs"
@@ -3260,8 +3260,8 @@ func TestHandler_Search_RejectsANegativeOffsetAsAToolResult(t *testing.T) {
 	if !result.IsError {
 		t.Fatalf("expected the result to carry the error flag: %+v", result.Content)
 	}
-	if got := getTextContent(result); got != searchapp.OffsetMustNotBeNegative {
-		t.Fatalf("result text = %q, want %q", got, searchapp.OffsetMustNotBeNegative)
+	if got := getTextContent(result); got != offsetrule.MustNotBeNegative {
+		t.Fatalf("result text = %q, want %q", got, offsetrule.MustNotBeNegative)
 	}
 }
 
@@ -3302,8 +3302,8 @@ func TestTools_RejectANegativeOffsetWithTheSameSentence(t *testing.T) {
 			if !result.IsError {
 				t.Fatalf("expected the result to carry the error flag: %+v", result.Content)
 			}
-			if got := getTextContent(result); got != searchapp.OffsetMustNotBeNegative {
-				t.Fatalf("result text = %q, want %q", got, searchapp.OffsetMustNotBeNegative)
+			if got := getTextContent(result); got != offsetrule.MustNotBeNegative {
+				t.Fatalf("result text = %q, want %q", got, offsetrule.MustNotBeNegative)
 			}
 		})
 	}

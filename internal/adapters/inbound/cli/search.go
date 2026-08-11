@@ -11,6 +11,7 @@ import (
 
 	searchapp "github.com/tae2089/code-context-graph/internal/app/search"
 	"github.com/tae2089/code-context-graph/internal/app/search/evidence"
+	"github.com/tae2089/code-context-graph/internal/app/search/offsetrule"
 	searchwire "github.com/tae2089/code-context-graph/internal/app/search/wire"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 )
@@ -38,7 +39,7 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 			// The same sentence the MCP search tool answers with, from the same
 			// place, so a mistyped flag and a mistyped tool argument are one
 			// thing to learn rather than two.
-			if err := searchapp.ValidateOffset(offset); err != nil {
+			if err := offsetrule.Validate(offset); err != nil {
 				return err
 			}
 			ctx := cmd.Context()

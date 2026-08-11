@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/adapters/outbound/graphgorm"
-	searchapp "github.com/tae2089/code-context-graph/internal/app/search"
+	"github.com/tae2089/code-context-graph/internal/app/search/offsetrule"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 	"gorm.io/driver/sqlite"
@@ -417,8 +417,8 @@ func TestAnalyzePage_RejectsNegativeOffset(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for negative offset")
 	}
-	if !strings.Contains(err.Error(), searchapp.OffsetMustNotBeNegative) {
-		t.Fatalf("AnalyzePage offset=-1 = %q, want it to say %q", err.Error(), searchapp.OffsetMustNotBeNegative)
+	if !strings.Contains(err.Error(), offsetrule.MustNotBeNegative) {
+		t.Fatalf("AnalyzePage offset=-1 = %q, want it to say %q", err.Error(), offsetrule.MustNotBeNegative)
 	}
 }
 

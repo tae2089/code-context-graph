@@ -44,30 +44,6 @@ type Params struct {
 	IncludeWeak bool
 }
 
-// OffsetMustNotBeNegative is the sentence every search surface turns a negative
-// page position away with. It is exported because the MCP boundary cannot pass
-// the error through unchanged — it has to restate the sentence as a tool result
-// the caller can read — and restating it from a copied literal is exactly how
-// the two surfaces would drift apart.
-const OffsetMustNotBeNegative = "offset must not be negative"
-
-// ValidateOffset turns away the one page position no answer exists for, in the
-// words every search surface says it in.
-//
-// MCP and the CLI both call it before the pipeline runs, and change analysis
-// calls it for its own page position. The sentence lives here rather than at
-// each entry point so they cannot end up describing the same rejected request
-// differently — a reader who learns what the tool says has also learned what
-// the flag says.
-//
-// @intent keep the search entry points agreeing about which requests are askable.
-func ValidateOffset(offset int) error {
-	if offset < 0 {
-		return trace.New(OffsetMustNotBeNegative)
-	}
-	return nil
-}
-
 // Service runs the shared search pipeline over one candidate searcher.
 // @intent hold the fetch→filter→rerank→evidence chain in one place instead of one copy per inbound adapter.
 type Service struct {
