@@ -1,8 +1,10 @@
 // The ratchet in golden_test.go is the only automated defence the ranking has,
-// and it had three holes: it walked the run instead of the baseline, it recorded
-// the answer key's size without comparing it, and it left every entry that
-// already scores nothing beyond the reach of any assertion. This file closes
-// them, and its own tests are what prove each one shut.
+// and it had four holes: it walked the run instead of the baseline, it recorded
+// the answer key's size without comparing it, it left every entry that already
+// scores nothing beyond the reach of any assertion, and it read the decision to
+// decline a query out of its own copy of it rather than out of queries.json,
+// where the decision is made. This file closes them, and its own tests are what
+// prove each one shut.
 package rank_test
 
 import (
@@ -66,6 +68,15 @@ func guardBaseline(outcomes, baseline []outcome, notes map[string]zeroScoreNote)
 				"%q: the answer key shrank from %d judged answers to %d, which raises Recall with no code change; restore the judgment or say in the commit why it was wrong",
 				prev.Query, prev.Relevant, got.Relevant))
 		}
+		// Whether search declines a query is decided in queries.json and only
+		// copied into the baseline, and the copy is what every check below reads.
+		// So the copy has to be held to the decision: deleting an out_of_scope
+		// list returns the query to the answerable average while the baseline
+		// goes on excusing it, and a baseline edited by hand does the reverse.
+		// Neither shows up as a ranking change, so nothing else here can fail it.
+		if got.OutOfScope != prev.OutOfScope {
+			problems = append(problems, outOfScopeDisagreement(prev.Query, got.OutOfScope))
+		}
 		// The ratchet holds an entry with two assertions: Found may not drop,
 		// and Rank may not rise. Both are dead at zero — nothing ranks below
 		// nothing — so an entry needs a note exactly when both are dead. A
@@ -91,6 +102,20 @@ func guardBaseline(outcomes, baseline []outcome, notes map[string]zeroScoreNote)
 			query))
 	}
 	return problems
+}
+
+// outOfScopeDisagreement words the two ways queries.json and the baseline can
+// stop agreeing about a declined query. They are separate sentences because the
+// fix differs: one side is a judgment to restore, the other is a stale record.
+func outOfScopeDisagreement(query string, declined bool) string {
+	if declined {
+		return fmt.Sprintf(
+			"%q lists search in its out_of_scope in queries.json, but its baseline entry does not carry the decision, so ANSWERABLE still scores the query; re-record the baseline with -update-golden",
+			query)
+	}
+	return fmt.Sprintf(
+		"%q is recorded as declined in baseline.json, but queries.json no longer lists search in its out_of_scope, so ANSWERABLE goes on excusing a query nobody decided against; restore the out_of_scope list in queries.json or re-record the baseline with -update-golden",
+		query)
 }
 
 // classifyZeroScore checks the note standing in for the assertions a zero-score
@@ -327,6 +352,31 @@ func TestGuardBaseline_RefusesOutOfScopeWithNoRecordedDecision(t *testing.T) {
 
 	wantMentions(t, onlyProblem(t, guardBaseline(outcomes, baseline, notes)),
 		`"declined"`, "out_of_scope", "queries.json")
+}
+
+// TestGuardBaseline_CatchesADecisionTheBaselineDoesNotCarry is the hand-edited
+// baseline: queries.json declines the query, the baseline entry was written
+// before that or edited since, and the scoreboard still counts it as answerable.
+// The mutation is applied to the answered query on purpose — a declined query
+// may still score, and the checks below it are reached only by a zero.
+func TestGuardBaseline_CatchesADecisionTheBaselineDoesNotCarry(t *testing.T) {
+	outcomes, baseline, notes := guardedCorpus()
+	outcomes[0].OutOfScope = true // search declines it in queries.json now
+
+	wantMentions(t, onlyProblem(t, guardBaseline(outcomes, baseline, notes)),
+		`"answered"`, "queries.json", "out_of_scope", "-update-golden")
+}
+
+// TestGuardBaseline_CatchesADecisionDroppedFromQueriesJSON is the reverse, and
+// the hole this file was missing: the decision to decline lives in queries.json,
+// nothing read it back, and deleting it left the baseline excusing a query
+// nobody decided against.
+func TestGuardBaseline_CatchesADecisionDroppedFromQueriesJSON(t *testing.T) {
+	outcomes, baseline, notes := guardedCorpus()
+	baseline[0].OutOfScope = true // recorded as declined, queries.json no longer says so
+
+	wantMentions(t, onlyProblem(t, guardBaseline(outcomes, baseline, notes)),
+		`"answered"`, "queries.json", "out_of_scope")
 }
 
 // A note that outlives the zero it explains would rot into a silent excuse.
