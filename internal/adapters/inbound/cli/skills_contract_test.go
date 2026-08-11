@@ -109,6 +109,43 @@ func TestProjectSkillsDeclareRuntimeContract(t *testing.T) {
 	}
 }
 
+func TestCoreSkillHasClaudeAndAntigravityProjectAdapters(t *testing.T) {
+	repoRoot := filepath.Join("..", "..", "..", "..")
+	canonicalPath := filepath.Join(repoRoot, "skills", "ccg", "SKILL.md")
+	canonicalRaw, err := os.ReadFile(canonicalPath)
+	if err != nil {
+		t.Fatalf("read canonical skill: %v", err)
+	}
+	canonical := parseSkillContract(t, canonicalRaw)
+
+	adapters := map[string]string{
+		"claude":      filepath.Join(repoRoot, ".claude", "skills", "ccg", "SKILL.md"),
+		"antigravity": filepath.Join(repoRoot, ".agents", "skills", "ccg", "SKILL.md"),
+	}
+	for runtime, path := range adapters {
+		t.Run(runtime, func(t *testing.T) {
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read runtime adapter: %v", err)
+			}
+			adapter := parseSkillContract(t, raw)
+			if adapter.Name != canonical.Name {
+				t.Errorf("name = %q, want canonical name %q", adapter.Name, canonical.Name)
+			}
+			if adapter.Description != canonical.Description {
+				t.Errorf("description differs from canonical discovery contract")
+			}
+			if !strings.Contains(string(raw), "[canonical CCG skill](../../../skills/ccg/SKILL.md)") {
+				t.Error("adapter does not route to the canonical CCG skill")
+			}
+			linkedPath := filepath.Clean(filepath.Join(filepath.Dir(path), "..", "..", "..", "skills", "ccg", "SKILL.md"))
+			if linkedPath != filepath.Clean(canonicalPath) {
+				t.Errorf("canonical link resolves to %q, want %q", linkedPath, canonicalPath)
+			}
+		})
+	}
+}
+
 func TestProjectSkillsDoNotAdvertiseRemovedCommands(t *testing.T) {
 	for _, command := range []string{"ccg index", "ccg languages", "ccg example", "ccg tags"} {
 		matches, err := filepath.Glob(filepath.Join("..", "..", "..", "..", "skills", "*", "SKILL.md"))
