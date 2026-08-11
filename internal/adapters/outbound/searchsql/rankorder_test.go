@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
+	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
 // setupSQLiteRankOrder seeds the rank-order ladder into a fresh SQLite FTS5
@@ -100,4 +101,45 @@ func TestSQLiteFTS_Query_TiesDoNotDependOnInsertionOrder(t *testing.T) {
 			strings.Join(got, " "), strings.Join(reversed, " "))
 	}
 	requireRankOrder(t, got, rankOrderTieExpected(rankOrderTieLimit))
+}
+
+// TestSQLiteFTS_Query_StaleIndexRowsDoNotEatTheLimit deletes nodes without
+// reindexing, which leaves index rows pointing at nothing, and requires the
+// query to still fill its limit.
+//
+// Nothing in the schema prevents this: SearchDocument.NodeID is a plain column
+// with no foreign key, so removing a node leaves its document and its FTS row
+// behind until something rebuilds the index. A stale row used to be fetched,
+// take one of the limit's slots, and only then be discarded by loadNodesInOrder
+// for failing to resolve — so the reader was served a short page while the rows
+// that would have filled it were never fetched at all. Joining nodes inside the
+// query drops them before the LIMIT applies rather than after.
+func TestSQLiteFTS_Query_StaleIndexRowsDoNotEatTheLimit(t *testing.T) {
+	ctx, db, backend := setupSQLiteTies(t, rankOrderTies())
+
+	stale := rankOrderTieDocs - rankOrderTieLimit
+	if stale < 1 {
+		t.Fatalf("fixture must leave enough rows to fill the limit after deletions, got %d docs for limit %d", rankOrderTieDocs, rankOrderTieLimit)
+	}
+	var victims []graph.Node
+	if err := db.Where("namespace = ?", rankOrderNamespace).Order("qualified_name").Limit(stale).Find(&victims).Error; err != nil {
+		t.Fatalf("find nodes to delete: %v", err)
+	}
+	for _, victim := range victims {
+		if err := db.Delete(&graph.Node{}, victim.ID).Error; err != nil {
+			t.Fatalf("delete node %s: %v", victim.QualifiedName, err)
+		}
+	}
+
+	got := queryRankOrder(t, ctx, db, backend, rankOrderTieLimit)
+
+	if len(got) != rankOrderTieLimit {
+		t.Errorf("expected the limit filled from the rows that still resolve, got %d of %d: %s",
+			len(got), rankOrderTieLimit, strings.Join(got, " "))
+	}
+	for _, victim := range victims {
+		if slices.Contains(got, victim.QualifiedName) {
+			t.Errorf("%s was deleted but still came back", victim.QualifiedName)
+		}
+	}
 }
