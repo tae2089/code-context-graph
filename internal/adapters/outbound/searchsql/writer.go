@@ -19,6 +19,22 @@ import (
 
 const scopedINQueryChunkSize = 400
 
+// indexedNodeKinds are the node kinds a search document is written for.
+//
+// It is one list because there are two rebuild paths — a full refresh and a
+// node-scoped one — reading the same node table. Held as two literals, a kind
+// added to one and not the other fails silently: the full build indexes it and
+// the next incremental update deletes it again, with nothing downstream to
+// notice the two disagree.
+// @intent keep the full and scoped search rebuilds indexing the same node kinds.
+var indexedNodeKinds = []string{
+	string(graph.NodeKindFunction),
+	string(graph.NodeKindClass),
+	string(graph.NodeKindType),
+	string(graph.NodeKindTest),
+	string(graph.NodeKindFile),
+}
+
 // Writer updates derived search documents and the configured search backend through one DB handle.
 // @intent provide a transaction-scoped SearchWriter implementation for ingest unit-of-work adapters.
 type Writer struct {
@@ -131,7 +147,7 @@ func refreshSearchDocuments(ctx context.Context, db *gorm.DB, nodeIDs []uint, sc
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		docsQ := tx.WithContext(ctx).Where("namespace = ?", ns)
 		nodesQ := tx.WithContext(ctx).
-			Where("kind IN ?", []string{"function", "class", "type", "test", "file"}).
+			Where("kind IN ?", indexedNodeKinds).
 			Where("namespace = ?", ns)
 		if scoped {
 			for start := 0; start < len(nodeIDs); start += scopedINQueryChunkSize {
@@ -228,7 +244,7 @@ func refreshSearchDocuments(ctx context.Context, db *gorm.DB, nodeIDs []uint, sc
 			for start := 0; start < len(nodeIDs); start += scopedINQueryChunkSize {
 				chunk := scopedNodeIDsForChunk(nodeIDs, start)
 				chunkNodesQ := tx.WithContext(ctx).
-					Where("kind IN ?", []string{"function", "class", "type", "test", "file"}).
+					Where("kind IN ?", indexedNodeKinds).
 					Where("namespace = ?", ns).
 					Where("id IN ?", chunk)
 				if err := loadNodes(chunkNodesQ); err != nil {
