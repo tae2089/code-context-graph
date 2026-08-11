@@ -181,28 +181,28 @@
   "does the installer overwrite hooks that belong to another tool": [],
   "explain": [
     {
-      "id": 1242,
+      "id": 139,
       "name": "explainArgs",
       "qualified_name": "mcptool.explainArgs",
       "kind": "class",
       "file_path": "internal/mcptool/mcptool.go"
     },
     {
-      "id": 1243,
+      "id": 140,
       "name": "explainPoint",
       "qualified_name": "mcptool.explainPoint",
       "kind": "class",
       "file_path": "internal/mcptool/mcptool.go"
     },
     {
-      "id": 1244,
+      "id": 141,
       "name": "explainResult",
       "qualified_name": "mcptool.explainResult",
       "kind": "class",
       "file_path": "internal/mcptool/mcptool.go"
     },
     {
-      "id": 1125,
+      "id": 22,
       "name": "cmd/context-diary/explain.go",
       "qualified_name": "cmd/context-diary/explain.go",
       "kind": "file",
@@ -210,7 +210,7 @@
       "intent": "implement `context-diary explain \u003cfile\u003e \u003cfunction\u003e`: print a function why-timeline by joining git line history with the index"
     },
     {
-      "id": 1126,
+      "id": 23,
       "name": "cmdExplain",
       "qualified_name": "main.cmdExplain",
       "kind": "function",
@@ -218,7 +218,7 @@
       "intent": "implement `context-diary explain \u003cfile\u003e \u003cfunction\u003e`: print a function why-timeline by joining git line history with the index"
     },
     {
-      "id": 1135,
+      "id": 32,
       "name": "run",
       "qualified_name": "main.run",
       "kind": "function",
@@ -226,7 +226,7 @@
       "intent": "single entry point that routes the CLI subcommand (init/hook/lint/index/serve/backfill/explain/scopes/instructions)"
     },
     {
-      "id": 1278,
+      "id": 175,
       "name": "ByHashes",
       "qualified_name": "store.Store.ByHashes",
       "kind": "function",
@@ -234,14 +234,14 @@
       "intent": "hydrate index entries for a set of commit hashes, oldest first — the join step behind explain_function"
     },
     {
-      "id": 1233,
+      "id": 130,
       "name": "internal/mcptool/mcptool.go",
       "qualified_name": "internal/mcptool/mcptool.go",
       "kind": "file",
       "file_path": "internal/mcptool/mcptool.go"
     },
     {
-      "id": 1246,
+      "id": 143,
       "name": "NewServer",
       "qualified_name": "mcptool.NewServer",
       "kind": "function",
@@ -347,15 +347,7 @@
   ],
   "rescan commits": [
     {
-      "id": 1275,
-      "name": "SaveEntries",
-      "qualified_name": "store.Store.SaveEntries",
-      "kind": "function",
-      "file_path": "internal/store/store.go",
-      "intent": "atomically persist a batch of context entries and advance the repo cursor so a crash never skips or duplicates commits"
-    },
-    {
-      "id": 1221,
+      "id": 118,
       "name": "Run",
       "qualified_name": "ingest.Run",
       "kind": "function",
@@ -363,7 +355,15 @@
       "intent": "walk history since the cursor, map commits to entries, and save them — the shared path behind the index CLI and the serve merge webhook"
     },
     {
-      "id": 1187,
+      "id": 172,
+      "name": "SaveEntries",
+      "qualified_name": "store.Store.SaveEntries",
+      "kind": "function",
+      "file_path": "internal/store/store.go",
+      "intent": "atomically persist a batch of context entries and advance the repo cursor so a crash never skips or duplicates commits"
+    },
+    {
+      "id": 84,
       "name": "WalkFull",
       "qualified_name": "gitlog.WalkFull",
       "kind": "function",
@@ -371,7 +371,7 @@
       "intent": "index every branch commit of a merge-commit workflow, not just the first-parent line, so per-commit context is preserved"
     },
     {
-      "id": 1188,
+      "id": 85,
       "name": "Walk",
       "qualified_name": "gitlog.Walk",
       "kind": "function",

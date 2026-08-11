@@ -120,7 +120,7 @@
     "returned": 13,
     "relevant": 2,
     "found": 2,
-    "rank": 1
+    "rank": 2
   },
   {
     "query": "does the installer overwrite hooks that belong to another tool",

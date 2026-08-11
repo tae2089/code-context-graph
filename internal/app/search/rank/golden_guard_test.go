@@ -175,7 +175,7 @@ func TestGolden_BaselineIsFullyGuarded(t *testing.T) {
 // with the class and reason that let it stay. The list is a debt, not a
 // permission: the guard above fails when an entry is missing one, and equally
 // when a listed entry starts scoring, so it cannot rot into a silent excuse.
-// Four of the nineteen are the ranker's own: the pool handed it the judged
+// Six of the twenty-one are the ranker's own: the pool handed it the judged
 // answer and the page of ten did not carry it. Those are `known gap` by
 // definition — nothing was declined — and the guard enforces that, so no
 // future zero can be filed under policy while retrieval is still finding it.
@@ -202,12 +202,13 @@ var zeroScoreNotes = map[string]map[string]zeroScoreNote{
 		"여러 묶음으로 읽은 파일 사이의 호출 관계는 왜 마지막에 한꺼번에 연결하지": {classOutOfScope, "declined with the other Korean questions, and the same particle mismatch: 2 of 11 scored terms appear in any recorded reason, so CanAnswer drops all 30 intent hits and the answer is empty. Neither judged file — incremental.go, update.go — is among them."},
 		"코드가 바뀐 뒤 어떤 주석을 다시 확인해야 하는지는 어디서 판단해":      {classOutOfScope, "declined with the other Korean questions, and the same particle mismatch: 4 of 10 scored terms appear in any recorded reason, still under half, so CanAnswer drops all 9 intent hits. The judged internal/app/docs/lint.go is not among them."},
 
-		// The pool held the judged answer and the page did not. These four are
+		// The pool held the judged answer and the page did not. These six are
 		// the ranker's own debt, and the only ones here a reordering can pay.
 		//
-		// Two ways of paying it were measured against all four corpora, and both
-		// were worse. Each reorders the intent hits absorbIntent appends, which for
-		// these four is the whole answer — their name pools are empty.
+		// The first four were measured against two ways of paying them, across
+		// all four corpora, and both were worse. Each reorders the intent hits
+		// absorbIntent appends, which for those four is the whole answer — their
+		// name pools are empty.
 		//
 		// Ordering that tail by the structural evidence Rerank uses moved fileio.go
 		// from file 13 to 5 and from 18 to 1, but left the other two off the page —
@@ -224,10 +225,19 @@ var zeroScoreNotes = map[string]map[string]zeroScoreNote{
 		// intent_candidates.json freezes that scorer's ranked output, so a scoring
 		// change moves nothing here until the fixture is recaptured. The recapture
 		// is then what a reviewer reads. See testdata/README.md.
+		//
+		// The last two arrived with this fixture refresh, and no line of code
+		// moved with them. Both were already at the edge of the page on the
+		// stale fixture — files 10 and 6 — and the intent order captured from
+		// today's source put them past it. They are listed here rather than
+		// re-judged because the two measurements above were never run against
+		// them.
 		"how does the graph get built":                                                    {classKnownGap, "the intent pool holds workflow.Service.Build in the judged internal/app/ingest/workflow/build.go, and the page of ten files did not carry it. The name index answers nothing here — SanitizeFTS5 joins terms with a space and FTS5 reads a space as AND, so a six-word question needs all six words in one document — which leaves the ordering entirely to the intent scorer."},
 		"why did one oversized file abort indexing before it was read":                    {classKnownGap, "the intent pool holds three declarations in the judged internal/app/ingest/workflow/fileio.go, CheckParseFileSize among them, and none reached the page of ten."},
 		"what limits how much source code a single indexing pass may read":                {classKnownGap, "the intent pool holds CheckTotalParsedBytes, readRegularSourceFile and inspectRegularSourceFile, all three in the judged internal/app/ingest/workflow/fileio.go, and none reached the page of ten."},
 		"why are old generated pages still present after their source files were removed": {classKnownGap, "the intent pool holds docs.Generator.pruneManaged in the judged internal/app/docs/generator.go — the prune path the question is about — and it did not reach the page of ten."},
+		"why was the wiki index never left half-written after the process died":           {classKnownGap, "the intent pool holds contentfiles.WikiIndexWriter in the judged internal/adapters/outbound/contentfiles/wiki.go at hit 12, which is file 11 — one place past the page of ten. It was hit 11 and file 10 on the stale fixture, the last slot on the page, so this records a query that has always sat on the edge."},
+		"why does an answer with nothing in it still suggest another call":                {classKnownGap, "its two judged files are internal/adapters/inbound/mcp/handler_intent.go and handler_query.go. The first has since been deleted from the repository, and it was the one that answered: on the stale fixture it was hit 6 and file 6, while handler_query.go was file 8. Today only handler_query.go can be found at all, and its best hit is 24, which is file 21. So `relevant` counts 2 where at most 1 now exists, and the query needs re-judging. Narrowing the list here is not this refresh's to do: it would raise Recall without a line of code changing, the one move the golden set forbids outright."},
 
 		// Retrieval never handed the answer over. A reordering cannot pay
 		// these; the index or the tokenizer has to change first.

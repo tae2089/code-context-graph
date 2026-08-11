@@ -161,8 +161,8 @@ fails when it shrinks.
 
 **It could not fail an entry that already scores nothing.** The ratchet holds an
 entry with two assertions — `found` may not drop, `rank` may not rise — and both
-are dead at zero. Nineteen entries sat there: 16 on `ccg`, 2 on `cobra`, 1 on
-`gorm`. Each now carries a class and a reason in `zeroScoreNotes`, and the guard
+are dead at zero. Twenty-one entries sit there: 18 on `ccg`, 2 on `cobra`, 1 on
+`gorm`. Each carries a class and a reason in `zeroScoreNotes`, and the guard
 fails on one that has neither.
 
 **It read the decision out of its own copy.** Whether `search` declines a query
@@ -184,11 +184,20 @@ separates them.
 
 `retrieved: true` forces `known gap`. If the pool already held the judged
 answer, nothing was declined — the ranker left it off the page, and that is a
-debt to work off. Four entries are in that state today, all on `ccg`, all
+debt to work off. Six entries are in that state today, all on `ccg`, all
 answered by the intent index and all missing from the page of ten files. The
 other five `known gap` entries never got the answer out of retrieval, so no
 reordering can pay them: `mcp`, for one, wants a package node the name index
 does not carry.
+
+Two of those six arrived with a fixture refresh that changed no code. A stale
+fixture is not a neutral record — it freezes an old graph, and the numbers
+scored against it drift away from what the code actually does today. Both
+queries were at the edge of the page on the old fixture and are just past it on
+the current one. One of them, `why does an answer with nothing in it still
+suggest another call`, is judged against a file that has since been deleted from
+the repository, so its `relevant` count can no longer be met; `zeroScoreNotes`
+records that it needs re-judging.
 
 An entry is a debt, not a permission. The guard also fails when a listed entry
 starts scoring, so the list cannot rot into a silent excuse — the same rule
@@ -217,16 +226,21 @@ Go module cache (the version is pinned by go.mod, so the sources are
 reproducible):
 
 ```sh
-ccg --db-dsn /tmp/corpora.db --namespace gorm migrate
-ccg --db-dsn /tmp/corpora.db --namespace gorm \
+ccg --db-driver sqlite --db-dsn /tmp/corpora.db --namespace gorm migrate
+ccg --db-driver sqlite --db-dsn /tmp/corpora.db --namespace gorm \
   build "$(go env GOMODCACHE)/gorm.io/gorm@v1.31.1" --exclude tests --exclude '*_test.go'
 go test -tags fts5 ./internal/adapters/outbound/searchsql/ \
   -run TestCaptureGoldenCandidates -capture-golden \
   -corpus gorm -graph /tmp/corpora.db -count=1
 ```
 
+`--db-driver sqlite` is not optional: the driver defaults to postgres, and a
+file path handed to the postgres driver fails with `invalid keyword/value`.
+
 (cobra: namespace `cobra`, `github.com/spf13/cobra@v1.10.2`, excludes
-`*_test.go` and `site`.)
+`*_test.go` and `site`. context-diary: namespace `context-diary`, built from a
+checkout of `github.com/tae2089/context-diary` at the commit its `queries.json`
+names, with no excludes — its own `.ccg.yaml` carries them.)
 
 A recapture can hide a retrieval regression by baking it into the fixture, so
 diff the file and re-read every judgment it touches before committing.
@@ -250,8 +264,8 @@ ranking change can fix that query.
 
 ```
 bucket           n  retrieved  Recall@10   top1  top3   MRR
-ALL             86   74/86      0.738 (124/168)  50    63  0.661
-ANSWERABLE      78   73/78      0.831 (123/148)  49    62  0.716
+ALL             86   74/86      0.720 (121/168)  47    61  0.636
+ANSWERABLE      78   73/78      0.811 (120/148)  46    60  0.688
 ```
 
 That block is `make search-eval`'s own output for the `ccg` corpus, copied
