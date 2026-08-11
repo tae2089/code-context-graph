@@ -313,12 +313,32 @@ from it; the lists that also name `wiki_search` are dormant, as above.
 never held a relevant answer, so the ranking was never given the chance and no
 ranking change can fix that query.
 
+### When a package node is a right answer
+
+A package node is judged the same way any other node is: on the name the package
+declares, matched the way the query's own bucket matches names. `mcp` judges the
+node for the package that declares `package mcp`, because an exact-name query
+judges an exact name; `annot` judges the package that declares `package
+annotation`, because that query is a prefix and already counts `graph.Annotation`
+a right answer on the same prefix.
+
+Two things do not make a package node an answer. A path that happens to contain
+the word does not: `internal/runtime/mcp` declares `package mcpruntime`, and a
+directory spelled `mcp` is not the package's name. Holding files the key already
+judges does not either. Where a `why` mentions that, it is corroboration after
+the name already matched, never the reason on its own — otherwise every package
+would inherit an answer from any one file inside it.
+
+Judging a package node moves a number without touching code, so it lands under
+the same rule as any other re-judgment: its own commit, no code beside it, and
+the per-query movement written down.
+
 ## The two totals
 
 ```
 bucket           n  retrieved  Recall@10   top1  top3   MRR
-ALL             86   75/86      0.744 (125/168)  47    62  0.644
-ANSWERABLE      78   74/78      0.838 (124/148)  46    61  0.697
+ALL             86   75/86      0.747 (127/170)  48    62  0.649
+ANSWERABLE      78   74/78      0.840 (126/150)  47    61  0.703
 ```
 
 That block is `make search-eval`'s own output for the `ccg` corpus, copied

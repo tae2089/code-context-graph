@@ -80,9 +80,10 @@
         "class:graph.Annotation@internal/domain/graph/annotation.go",
         "file:internal/domain/graph/annotation.go@internal/domain/graph/annotation.go",
         "file:internal/domain/annotation/parser.go@internal/domain/annotation/parser.go",
-        "file:internal/domain/annotation/normalizer.go@internal/domain/annotation/normalizer.go"
+        "file:internal/domain/annotation/normalizer.go@internal/domain/annotation/normalizer.go",
+        "package:github.com/tae2089/code-context-graph/internal/domain/annotation@internal/domain/annotation"
       ],
-      "why": "Short prefix over a crowded namespace. The domain type or its own package files are what someone typing five letters wants, not an MCP response DTO."
+      "why": "Short prefix over a crowded namespace. The domain type or its own package files are what someone typing five letters wants, not an MCP response DTO. The package node is judged with them for consistency with the rest of this key rather than as a new kind of answer: this is a prefix query, and the key already accepts a prefix match on a name — graph.Annotation is judged though the query stops five letters short. The package declares the name annotation, so it matches the same way, and it is the directory holding two files this key already calls right answers."
     },
     {
       "query": "crossref",
@@ -90,9 +91,10 @@
       "relevant": [
         "class:graph.CrossRef@internal/domain/graph/crossref.go",
         "file:internal/domain/graph/crossref.go@internal/domain/graph/crossref.go",
-        "file:internal/app/crossref/service.go@internal/app/crossref/service.go"
+        "file:internal/app/crossref/service.go@internal/app/crossref/service.go",
+        "package:github.com/tae2089/code-context-graph/internal/app/crossref@internal/app/crossref"
       ],
-      "why": "The domain type and the service that owns the feature outrank the persistence and transport shells."
+      "why": "The domain type and the service that owns the feature outrank the persistence and transport shells. The package node is judged on the same reasoning as impact: one word naming a whole feature, and the package declares that word exactly. It is also the directory holding service.go, which this key already names."
     },
     {
       "query": "impact",
@@ -176,7 +178,7 @@
       "relevant": [
         "package:github.com/tae2089/code-context-graph/internal/adapters/inbound/mcp@internal/adapters/inbound/mcp"
       ],
-      "why": "A three-letter acronym naming a whole adapter. The package node is the answer; nothing smaller is. An earlier judgment also accepted mcp/deps.go, which cannot be defended: the pool holds about twenty-five files from that same package and deps.go is not distinguished from any of them. Judging one and not its siblings measured nothing. The package node is not in the candidate pool, so this query is now a retrieval finding, not a ranking one: no reordering can answer it while the only correct node never arrives."
+      "why": "A three-letter acronym naming a whole adapter. The package node is the answer; nothing smaller is. An earlier judgment also accepted mcp/deps.go, which cannot be defended: the pool holds about twenty-five files from that same package and deps.go is not distinguished from any of them. Judging one and not its siblings measured nothing. A second package node sits in the pool right behind it and is deliberately not judged: internal/runtime/mcp matches only because a directory in its path is spelled mcp, while the package it declares is named mcpruntime. The name a package declares is what this set judges on, not the path it happens to sit under."
     },
     {
       "query": "cfg",

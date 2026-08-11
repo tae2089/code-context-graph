@@ -72,9 +72,9 @@
     "bucket": "prefix",
     "retrieved": true,
     "returned": 30,
-    "relevant": 4,
-    "found": 2,
-    "rank": 2,
+    "relevant": 5,
+    "found": 3,
+    "rank": 1,
     "weak_filtered": 9
   },
   {
@@ -82,8 +82,8 @@
     "bucket": "prefix",
     "retrieved": true,
     "returned": 34,
-    "relevant": 3,
-    "found": 3,
+    "relevant": 4,
+    "found": 4,
     "rank": 1,
     "weak_filtered": 1
   },
