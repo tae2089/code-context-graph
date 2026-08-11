@@ -559,6 +559,7 @@
   {
     "query": "네임스페이스 설정이 플래그 기본값에 가려지지 않게 하는 곳은 어디야",
     "bucket": "korean",
+    "out_of_scope": true,
     "retrieved": true,
     "returned": 7,
     "relevant": 1,
@@ -767,6 +768,7 @@
   {
     "query": "읽지 못한 파일을 업데이트에서 삭제된 것으로 보지 않는 기준은 어디야",
     "bucket": "korean",
+    "out_of_scope": true,
     "retrieved": false,
     "returned": 0,
     "relevant": 1,
@@ -776,6 +778,7 @@
   {
     "query": "여러 묶음으로 읽은 파일 사이의 호출 관계는 왜 마지막에 한꺼번에 연결하지",
     "bucket": "korean",
+    "out_of_scope": true,
     "retrieved": false,
     "returned": 0,
     "relevant": 2,
@@ -842,6 +845,7 @@
   {
     "query": "코드가 바뀐 뒤 어떤 주석을 다시 확인해야 하는지는 어디서 판단해",
     "bucket": "korean",
+    "out_of_scope": true,
     "retrieved": false,
     "returned": 0,
     "relevant": 1,

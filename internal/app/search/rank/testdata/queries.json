@@ -593,11 +593,14 @@
     {
       "query": "네임스페이스 설정이 플래그 기본값에 가려지지 않게 하는 곳은 어디야",
       "bucket": "korean",
+      "out_of_scope": [
+        "search"
+      ],
       "relevant": [],
       "relevant_files": [
         "internal/adapters/inbound/cli/root.go"
       ],
-      "why": "root.go records resolving namespace precedence between config and the --namespace flag default, and the reason is written in Korean. The question is kept because Korean was expected to be the weak case: FTS5's default tokenizer splits on spaces, so a Korean word carries its particle into the token. Prefix matching turns out to cover that — '네임스페이스'* still matches '네임스페이스가' — and this question answers at rank 1. It stays as the guard on that, since a change to the sanitizer that drops prefixes would silently break every Korean reason in the graph."
+      "why": "Deliberately unsupported, kept red on purpose: search answers questions written in English. Supporting Korean means teaching the query pipeline Korean morphology — splitting the particle off 파일을 so it can reach 파일 — and a Korean function-word list to mirror the English one in queryterm. Neither generalises to the next language a user types in, and gorm, cobra and context-diary hold no Hangul, so the only evidence for such a change would be the four ccg queries it was written against: the exact overfit README.md forbids. This one is declined with the other three even though it scores today — 6 of its 9 scored terms reach a recorded reason, which is what carries it past CanAnswer where the others fail. Declining only the failures would be fitting the rule to the results. It is not in zeroScoreNotes because it does not score zero, and the ratchet still guards it: root.go records resolving namespace precedence between config and the --namespace flag default, its reason is written in Korean, and prefix matching reaches it — '네임스페이스'* still matches '네임스페이스가' — at rank 1. A sanitizer change that drops prefixes would silently break every Korean reason in the graph, and this entry is what catches that."
     },
     {
       "query": "why does an invoice get a loyalty discount",
@@ -802,21 +805,27 @@
     {
       "query": "읽지 못한 파일을 업데이트에서 삭제된 것으로 보지 않는 기준은 어디야",
       "bucket": "korean",
+      "out_of_scope": [
+        "search"
+      ],
       "relevant": [],
       "relevant_files": [
         "internal/app/ingest/workflow/update.go"
       ],
-      "why": "update.go는 현재 파일 집합에 없더라도 읽기 실패 집합에 들어 있는 기존 경로는 삭제 목록에서 제외한다. 일시적인 접근 실패를 실제 삭제로 오인하지 않는 판정 코드다."
+      "why": "Deliberately unsupported, kept red on purpose: search answers questions written in English. Supporting Korean means teaching the query pipeline Korean morphology — splitting the particle off 파일을 so it can reach 파일 — and a Korean function-word list to mirror the English one in queryterm. Neither generalises to the next language a user types in, and gorm, cobra and context-diary hold no Hangul, so the only evidence for such a change would be the four ccg queries it was written against: the exact overfit README.md forbids. Measured: 2 of the 10 scored terms appear in any recorded reason, so CanAnswer drops all 5 intent hits and the answer is empty. 파일을 scores 3 in this corpus where 파일 scores 22. The judgment itself still stands — update.go는 현재 파일 집합에 없더라도 읽기 실패 집합에 들어 있는 기존 경로는 삭제 목록에서 제외한다. 일시적인 접근 실패를 실제 삭제로 오인하지 않는 판정 코드다."
     },
     {
       "query": "여러 묶음으로 읽은 파일 사이의 호출 관계는 왜 마지막에 한꺼번에 연결하지",
       "bucket": "korean",
+      "out_of_scope": [
+        "search"
+      ],
       "relevant": [],
       "relevant_files": [
         "internal/app/ingest/incremental/incremental.go",
         "internal/app/ingest/workflow/update.go"
       ],
-      "why": "incremental.go는 모든 배치의 노드 저장과 삭제를 끝낸 뒤 관계 스풀을 다시 읽어 구현 관계와 나머지 관계를 순서대로 해석한다. update.go는 이 staged 동기화 경로를 호출하므로 둘 다 자연스러운 출발점이다."
+      "why": "Deliberately unsupported, kept red on purpose: search answers questions written in English. Supporting Korean means teaching the query pipeline Korean morphology — splitting the particle off 파일을 so it can reach 파일 — and a Korean function-word list to mirror the English one in queryterm. Neither generalises to the next language a user types in, and gorm, cobra and context-diary hold no Hangul, so the only evidence for such a change would be the four ccg queries it was written against: the exact overfit README.md forbids. Measured: 2 of the 11 scored terms appear in any recorded reason, so CanAnswer drops all 30 intent hits and the answer is empty. Only 파일 and 호출 score at all; the other nine terms carry a particle or an ending. The judgment itself still stands — incremental.go는 모든 배치의 노드 저장과 삭제를 끝낸 뒤 관계 스풀을 다시 읽어 구현 관계와 나머지 관계를 순서대로 해석한다. update.go는 이 staged 동기화 경로를 호출하므로 둘 다 자연스러운 출발점이다."
     },
     {
       "query": "which team owns the changed code and should review it",
@@ -869,11 +878,14 @@
     {
       "query": "코드가 바뀐 뒤 어떤 주석을 다시 확인해야 하는지는 어디서 판단해",
       "bucket": "korean",
+      "out_of_scope": [
+        "search"
+      ],
       "relevant": [],
       "relevant_files": [
         "internal/app/docs/lint.go"
       ],
-      "why": "lint.go는 심볼 갱신 시각과 어노테이션 갱신 시각을 비교해 코드가 더 새로우면 드리프트로 보고한다."
+      "why": "Deliberately unsupported, kept red on purpose: search answers questions written in English. Supporting Korean means teaching the query pipeline Korean morphology — splitting the particle off 파일을 so it can reach 파일 — and a Korean function-word list to mirror the English one in queryterm. Neither generalises to the next language a user types in, and gorm, cobra and context-diary hold no Hangul, so the only evidence for such a change would be the four ccg queries it was written against: the exact overfit README.md forbids. Measured: 4 of the 10 scored terms appear in any recorded reason — still under half — so CanAnswer drops all 9 intent hits and the answer is empty. The judgment itself still stands — lint.go는 심볼 갱신 시각과 어노테이션 갱신 시각을 비교해 코드가 더 새로우면 드리프트로 보고한다."
     }
   ],
   "scoring": {
