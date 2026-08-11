@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>code-context-graph — 코드 지식 그래프 3종 비교</title>
+<style>
+/* ─────────────────────────────  tokens  ───────────────────────────── */
+:root {
+  color-scheme: light dark;
+
+  --bg:        #E9EAEC;
+  --bg-deep:   #DEDFE3;
+  --surface:   #F6F6F7;
+  --ink:       #16181D;
+  --ink-2:     #4A4F58;
+  --ink-3:     #787E88;
+  --rule:      #C7CACF;
+  --rule-soft: #D6D8DD;
+
+  --ccg:  #B4651A;
+  --ccg-wash: rgba(180, 101, 26, .10);
+  --crg:  #2F6E96;
+  --crg-wash: rgba(47, 110, 150, .10);
+  --cmm:  #35755F;
+  --cmm-wash: rgba(53, 117, 95, .10);
+
+  --ok:   #3D7A4E;
+  --warn: #97701A;
+  --bad:  #97402F;
+
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Segoe UI", Roboto, "Malgun Gothic", sans-serif;
+
+  --pad: clamp(1.6rem, 4.2vw, 5rem);
+  --maxw: 1180px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:        #131519;
+    --bg-deep:   #0E1013;
+    --surface:   #1B1E24;
+    --ink:       #E8E9EC;
+    --ink-2:     #A9AFB9;
+    --ink-3:     #757C87;
+    --rule:      #2E333C;
+    --rule-soft: #23272F;
+
+    --ccg:  #E39445;
+    --ccg-wash: rgba(227, 148, 69, .12);
+    --crg:  #62A8D2;
+    --crg-wash: rgba(98, 168, 210, .12);
+    --cmm:  #63B996;
+    --cmm-wash: rgba(99, 185, 150, .12);
+
+    --ok:   #6FBF83;
+    --warn: #D7AC4E;
+    --bad:  #DE8570;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #131519; --bg-deep: #0E1013; --surface: #1B1E24;
+  --ink: #E8E9EC; --ink-2: #A9AFB9; --ink-3: #757C87;
+  --rule: #2E333C; --rule-soft: #23272F;
+  --ccg: #E39445; --ccg-wash: rgba(227, 148, 69, .12);
+  --crg: #62A8D2; --crg-wash: rgba(98, 168, 210, .12);
+  --cmm: #63B996; --cmm-wash: rgba(99, 185, 150, .12);
+  --ok: #6FBF83; --warn: #D7AC4E; --bad: #DE8570;
+}
+:root[data-theme="light"] {
+  --bg: #E9EAEC; --bg-deep: #DEDFE3; --surface: #F6F6F7;
+  --ink: #16181D; --ink-2: #4A4F58; --ink-3: #787E88;
+  --rule: #C7CACF; --rule-soft: #D6D8DD;
+  --ccg: #B4651A; --ccg-wash: rgba(180, 101, 26, .10);
+  --crg: #2F6E96; --crg-wash: rgba(47, 110, 150, .10);
+  --cmm: #35755F; --cmm-wash: rgba(53, 117, 95, .10);
+  --ok: #3D7A4E; --warn: #97701A; --bad: #97402F;
+}
+
+/* ─────────────────────────────  base  ───────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: clamp(15px, 1.05vw, 17px);
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+.deck {
+  height: 100svh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: none;
+}
+.deck::-webkit-scrollbar { display: none; }
+
+.slide {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  min-height: 100svh;
+  padding: clamp(2.4rem, 5vh, 4rem) var(--pad) clamp(4.2rem, 8vh, 5.5rem);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(1rem, 2.4vh, 1.8rem);
+  border-bottom: 1px solid var(--rule-soft);
+}
+.slide > * { width: 100%; max-width: var(--maxw); margin-inline: auto; }
+
+/* ─────────────────────────────  type  ───────────────────────────── */
+.eyebrow {
+  font-family: var(--mono);
+  font-size: .72rem;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  display: flex;
+  align-items: center;
+  gap: .85rem;
+}
+.eyebrow::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+}
+
+h1 {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(2.1rem, 5.4vw, 4rem);
+  line-height: 1.06;
+  letter-spacing: -.03em;
+  margin: 0;
+  text-wrap: balance;
+}
+h2 {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(1.5rem, 3.1vw, 2.35rem);
+  line-height: 1.14;
+  letter-spacing: -.025em;
+  margin: 0;
+  text-wrap: balance;
+}
+h3 {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: .95rem;
+  letter-spacing: -.01em;
+  margin: 0;
+}
+p { margin: 0; max-width: 68ch; color: var(--ink-2); }
+p.lede { font-size: clamp(1.02rem, 1.5vw, 1.22rem); color: var(--ink); max-width: 60ch; }
+strong { color: var(--ink); font-weight: 600; }
+code, .m { font-family: var(--mono); font-size: .88em; }
+code {
+  background: var(--ccg-wash);
+  color: var(--ink);
+  padding: .1em .38em;
+  border-radius: 3px;
+}
+a { color: var(--ccg); text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--ccg); outline-offset: 3px; border-radius: 2px; }
+
+/* ─────────────────────────────  bits  ───────────────────────────── */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  font-family: var(--mono);
+  font-size: .7rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: .22rem .55rem;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.t-ccg { color: var(--ccg); background: var(--ccg-wash); }
+.t-crg { color: var(--crg); background: var(--crg-wash); }
+.t-cmm { color: var(--cmm); background: var(--cmm-wash); }
+
+.grid { display: grid; gap: clamp(.7rem, 1.4vw, 1.1rem); }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.g3 { grid-template-columns: repeat(auto-fit, minmax(238px, 1fr)); }
+.g4 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: clamp(.9rem, 1.6vw, 1.25rem);
+  display: flex;
+  flex-direction: column;
+  gap: .55rem;
+}
+.card p { font-size: .92rem; }
+.card ul { margin: 0; padding-left: 1.05rem; color: var(--ink-2); font-size: .9rem; display: grid; gap: .3rem; }
+.card li::marker { color: var(--ink-3); }
+
+.card.ccg { border-top: 3px solid var(--ccg); }
+.card.crg { border-top: 3px solid var(--crg); }
+.card.cmm { border-top: 3px solid var(--cmm); }
+
+.stat { display: flex; flex-direction: column; gap: .1rem; }
+.stat .n {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: clamp(1.5rem, 3vw, 2.15rem);
+  letter-spacing: -.03em;
+  line-height: 1.05;
+}
+.stat .k {
+  font-family: var(--mono);
+  font-size: .68rem;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* tables */
+.tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 4px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 660px; font-size: .87rem; }
+th, td { text-align: left; padding: .58rem .8rem; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+thead th {
+  font-family: var(--mono);
+  font-size: .68rem;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 600;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+tbody th { font-weight: 600; color: var(--ink); white-space: nowrap; width: 1%; }
+tbody tr:last-child td, tbody tr:last-child th { border-bottom: 0; }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+th.c-ccg { color: var(--ccg); } th.c-crg { color: var(--crg); } th.c-cmm { color: var(--cmm); }
+.yes { color: var(--ok); font-weight: 600; }
+.no  { color: var(--ink-3); }
+.part { color: var(--warn); font-weight: 600; }
+
+/* evidence marks */
+.src {
+  font-family: var(--mono);
+  font-size: .7rem;
+  color: var(--ink-3);
+  letter-spacing: .01em;
+}
+.guess {
+  border-left: 2px solid var(--warn);
+  padding-left: .7rem;
+  color: var(--ink-2);
+  font-size: .88rem;
+}
+
+/* pipeline diagram */
+.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: .5rem; }
+.flow .step {
+  flex: 1 1 130px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: .65rem .75rem;
+  display: flex; flex-direction: column; gap: .18rem;
+}
+.flow .step .lbl { font-family: var(--mono); font-size: .78rem; font-weight: 700; }
+.flow .step .sub { font-size: .76rem; color: var(--ink-3); }
+.flow .arw { align-self: center; color: var(--ink-3); font-family: var(--mono); }
+
+pre {
+  margin: 0;
+  background: var(--bg-deep);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: .85rem 1rem;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: .8rem;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+pre b { color: var(--ccg); font-weight: 600; }
+
+/* ─────────────────────────────  chrome  ───────────────────────────── */
+.rail {
+  position: fixed; top: 0; left: 0; right: 0; height: 2px;
+  background: var(--rule-soft); z-index: 40;
+}
+.rail > i { display: block; height: 100%; width: 0; background: var(--ccg); transition: width .18s linear; }
+@media (prefers-reduced-motion: reduce) { .rail > i { transition: none; } }
+
+.hud {
+  position: fixed; right: clamp(.8rem, 2vw, 1.6rem); bottom: clamp(.8rem, 2vh, 1.4rem);
+  z-index: 40; display: flex; align-items: center; gap: .5rem;
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 4px;
+  padding: .3rem .4rem;
+}
+.hud button {
+  font-family: var(--mono); font-size: .85rem; line-height: 1;
+  background: transparent; color: var(--ink-2); border: 0; cursor: pointer;
+  padding: .35rem .5rem; border-radius: 3px;
+}
+.hud button:hover { background: var(--ccg-wash); color: var(--ink); }
+.hud .count {
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: .74rem; color: var(--ink-3); letter-spacing: .06em; padding: 0 .3rem;
+}
+
+@media print {
+  .rail, .hud { display: none; }
+  .deck { height: auto; overflow: visible; }
+  .slide { min-height: auto; page-break-after: always; border-bottom: 0; }
+}
+</style>
+</head>
+<body>
+
+<div class="rail"><i id="rail"></i></div>
+
+<main class="deck" id="deck">
+
+<!-- 01 ───────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">오픈소스 소개 · 2026</div>
+  <h1>code-context-graph</h1>
+  <p class="lede">코딩 에이전트가 레포 전체를 읽지 않게 만드는 로컬 코드 지식 그래프.
+  Tree-sitter로 코드를 파싱해 노드·엣지로 저장하고, MCP로 필요한 조각만 꺼내 준다.</p>
+  <div class="grid g4">
+    <div class="stat"><span class="n">Go</span><span class="k">구현 언어</span></div>
+    <div class="stat"><span class="n">12</span><span class="k">지원 언어</span></div>
+    <div class="stat"><span class="n">18</span><span class="k">MCP 도구</span></div>
+    <div class="stat"><span class="n">MIT</span><span class="k">라이선스</span></div>
+  </div>
+  <p class="src">비교 대상 · code-review-graph (Python) · codebase-memory-mcp (C) — 세 프로젝트 모두 MIT, 모두 Tree-sitter 기반, 모두 MCP 서버.</p>
+</section>
+
+<!-- 02 ───────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">문제</div>
+  <h2>에이전트는 "어디를 볼지" 몰라서 다 읽는다</h2>
+  <p class="lede">"이 함수 바꾸면 뭐가 깨져?"에 답하려면 호출자, 호출자의 호출자, 테스트까지 따라가야 한다.
+  grep은 현재 소스의 정확한 문자열을 빠르게 찾지만, 호출 관계와 작성 의도까지 이어 주지는 않는다. 둘을 구분하지 않으면 에이전트는 파일을 계속 열고, 컨텍스트 창이 먼저 죽는다.</p>
+  <div class="grid g3">
+    <div class="card">
+      <h3>비용</h3>
+      <p>code-review-graph 자체 측정: flask 전체 코퍼스 <span class="m">143,594 토큰</span> → 그래프 응답 <span class="m">2,196 토큰</span>.</p>
+      <p class="src">출처: CRG README 벤치마크 표</p>
+    </div>
+    <div class="card">
+      <h3>정확도</h3>
+      <p>여러 홉을 못 따라가면 영향 범위를 놓친다. 테스트가 안 도는 코드를 "커버됨"으로 착각한다.</p>
+    </div>
+    <div class="card">
+      <h3>반복</h3>
+      <p>세션이 바뀌면 방금 알아낸 구조를 처음부터 다시 알아낸다. 그래프는 디스크에 남는다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 03 ───────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">공통 해법</div>
+  <h2>세 프로젝트가 똑같이 쓰는 파이프라인</h2>
+  <div class="flow">
+    <div class="step"><span class="lbl">소스 코드</span><span class="sub">git 추적 파일</span></div>
+    <span class="arw">›</span>
+    <div class="step"><span class="lbl">Tree-sitter</span><span class="sub">AST 파싱</span></div>
+    <span class="arw">›</span>
+    <div class="step"><span class="lbl">노드 + 엣지</span><span class="sub">함수·클래스 / calls·imports</span></div>
+    <span class="arw">›</span>
+    <div class="step"><span class="lbl">SQLite</span><span class="sub">영속 그래프 + 전문 검색</span></div>
+    <span class="arw">›</span>
+    <div class="step"><span class="lbl">MCP 서버</span><span class="sub">에이전트가 질의</span></div>
+  </div>
+  <p>차이는 파이프라인이 아니라 <strong>그 위에 무엇을 얹었는가</strong>다. 언어 커버리지, 배포 형태, 팀 단위 운영, 그리고 그래프에 담는 정보의 종류.</p>
+  <p class="guess"><strong>중요:</strong> 셋 다 LLM을 내장하지 않는다. 그래프는 구조만 답하고, 자연어 해석은 붙어 있는 에이전트가 한다.</p>
+</section>
+
+<!-- 04 ───────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">주인공</div>
+  <h2>code-context-graph는 무엇인가</h2>
+  <p class="lede">Go로 다시 쓴 코드 그래프. README가 <a href="https://github.com/tirth8205/code-review-graph">code-review-graph</a>에서 영감을 받았다고 직접 밝히고,
+  거기에 <strong>어노테이션</strong>·<strong>namespace</strong>·<strong>self-host 서버</strong>를 더했다.</p>
+  <div class="grid g4">
+    <div class="stat"><span class="n">977</span><span class="k">Go 파일</span></div>
+    <div class="stat"><span class="n">299,440</span><span class="k">Go 코드 줄</span></div>
+    <div class="stat"><span class="n">402</span><span class="k">테스트 파일</span></div>
+    <div class="stat"><span class="n">2026-04</span><span class="k">시작</span></div>
+  </div>
+  <div class="grid g2">
+    <div class="card ccg">
+      <h3>두 개의 실행 파일</h3>
+      <ul>
+        <li><span class="m">ccg</span> — CLI + stdio MCP (<span class="m">ccg serve</span>)</li>
+        <li><span class="m">ccg-server</span> — Streamable HTTP MCP + <span class="m">/webhook</span> + Wiki UI</li>
+      </ul>
+    </div>
+    <div class="card ccg">
+      <h3>저장소 선택</h3>
+      <ul>
+        <li>SQLite + FTS5 (로컬 기본, <span class="m">ccg.db</span>)</li>
+        <li>PostgreSQL + tsvector·GIN (팀 공용)</li>
+        <li>쿼리는 전부 GORM — raw SQL 금지</li>
+      </ul>
+    </div>
+  </div>
+  <p class="src">측정: 저장소에서 직접 센 값 (find / wc). 별 수 17개 — 아직 초기 프로젝트다.</p>
+</section>
+
+<!-- 05 ───────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">고유점 1 / 3</div>
+  <h2>코드에 "왜"를 적어 넣고, 그걸 검색한다</h2>
+  <p class="lede">다른 두 도구는 코드에서 <em>구조</em>만 뽑는다. CCG는 주석에 쓴 <strong>업무 규칙</strong>까지 그래프에 넣고 검색 대상으로 만든다.</p>
+  <pre>// AuthenticateUser validates credentials and creates a session.
+//
+// <b>@intent</b>      verify user identity before granting system access
+// <b>@domainRule</b>  lock account after 5 consecutive failed attempts
+// <b>@sideEffect</b>  writes login attempt to audit_log table
+// <b>@mutates</b>     user.FailedAttempts, user.LockedUntil
+// <b>@see</b>         ccg://auth-svc/internal/audit/token_audit.go#RecordTokenAudit
+func AuthenticateUser(username, password string) (string, error) {</pre>
+  <div class="grid g3">
+    <div class="card">
+      <h3>검색이 달라진다</h3>
+      <p><span class="m">ccg search "payment"</span> 는 이름에 payment가 없어도 <span class="m">@intent</span>·<span class="m">@domainRule</span>에 걸린 함수를 찾는다.</p>
+    </div>
+    <div class="card">
+      <h3>품질 게이트</h3>
+      <p><span class="m">ccg lint</span> 가 어노테이션을 검사한다: <span class="m">unannotated</span>, <span class="m">incomplete</span>, <span class="m">dead-ref</span>, <span class="m">contradiction</span>, <span class="m">drifted</span>.</p>
+    </div>
+    <div class="card">
+      <h3>대가</h3>
+      <p>사람 또는 AI가 어노테이션을 <strong>써 넣어야</strong> 값이 생긴다. 안 쓰면 그냥 평범한 코드 그래프다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 06 ───────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">고유점 2 / 3</div>
+  <h2>서비스가 여러 개인 조직을 전제로 만들었다</h2>
+  <p class="lede">마이크로서비스는 레포가 쪼개져 있다. CCG는 레포마다 <strong>namespace</strong>를 주고, 그 사이를 잇는 참조를 별도로 관리한다.</p>
+  <div class="grid g2">
+    <div class="card ccg">
+      <h3>namespace 격리</h3>
+      <ul>
+        <li><span class="m">ccg build ./backend --namespace backend</span></li>
+        <li>한 DB에 여러 서비스 그래프가 섞이지 않는다</li>
+        <li><span class="m">search</span>·<span class="m">query_graph</span>·<span class="m">list_graph_stats</span>에 <span class="m">namespaces: []</span> 를 주면 여러 namespace를 한 번에 훑고 결과에 출처 라벨이 붙는다</li>
+      </ul>
+    </div>
+    <div class="card ccg">
+      <h3><span class="m">ccg://</span> cross-ref</h3>
+      <ul>
+        <li>주석에 <span class="m">@see ccg://auth-svc/path/file.go#Symbol</span></li>
+        <li>동기화 때 실제 심볼로 해석해 저장</li>
+        <li><span class="m">get_impact_radius</span>·<span class="m">trace_flow</span>가 <span class="m">cross_namespace: true</span>로 서비스 경계를 넘어 따라간다</li>
+        <li><span class="m">list_cross_refs</span>로 방향(inbound/outbound)과 해석 상태를 확인</li>
+      </ul>
+    </div>
+  </div>
+  <p class="src">codebase-memory-mcp도 여러 레포를 <span class="m">CROSS_*</span> 엣지로 잇지만, HTTP 경로 매칭 기반이라 오탐 이슈가 열려 있다(#1459). CCG는 사람이 명시한 <span class="m">@see</span> 참조를 해석하는 방식이라 성격이 다르다.</p>
+</section>
+
+<!-- 07 ───────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">고유점 3 / 3</div>
+  <h2>노트북이 아니라 서버에서도 돈다</h2>
+  <div class="grid g3">
+    <div class="card ccg">
+      <h3>Webhook 동기화</h3>
+      <p>GitHub <span class="m">X-Hub-Signature-256</span> / Gitea <span class="m">X-Gitea-Signature</span> 서명 검증.
+      push 받으면 clone → build → DB 저장까지 자동. 레포별 브랜치 필터(<span class="m">--allow-repo "org/api:main,develop"</span>).</p>
+    </div>
+    <div class="card ccg">
+      <h3>브라우저 Wiki</h3>
+      <p><span class="m">ccg-server --wiki-dir</span> 로 React UI 제공. 트리 탐색, 근거가 붙는 <span class="m">search_docs</span>, 여러 파일을 한 덩어리 Markdown으로 복사하는 Context Tray, Obsidian 스타일 그래프 뷰.</p>
+    </div>
+    <div class="card ccg">
+      <h3>안전한 종료</h3>
+      <p>SIGINT/SIGTERM이 오면 진행 중인 clone·build에 취소 신호를 전파한다. 재시도는 최대 3회, 대기 시간 1s→30s.</p>
+    </div>
+  </div>
+  <p>세 도구 모두 로컬에서 돌지만, <strong>중앙 서버 하나가 여러 레포 그래프를 최신으로 유지</strong>하는 형태를 기본 시나리오로 잡은 건 CCG뿐이다.</p>
+  <p class="src">code-review-graph는 <span class="m">crg-daemon</span>으로 여러 레포를 감시하고 GitHub Action으로 PR 리뷰를 붙이지만, 웹훅 수신 서버는 아니다. codebase-memory-mcp는 계정 단위 coordination daemon으로 여러 세션을 조율하며, 팀 공유는 <span class="m">graph.db.zst</span> 파일을 커밋하는 방식이다.</p>
+</section>
+
+<!-- 08 ───────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">비교 대상 1</div>
+  <h2><span class="tag t-crg">code-review-graph</span></h2>
+  <p class="lede">Python. "리뷰"에 초점. 변경 하나가 건드리는 범위(blast radius)를 계산해 PR 리뷰까지 자동화한다. CCG가 영감을 받은 원본.</p>
+  <div class="grid g4">
+    <div class="stat"><span class="n">29.5k</span><span class="k">별</span></div>
+    <div class="stat"><span class="n">30</span><span class="k">MCP 도구</span></div>
+    <div class="stat"><span class="n">~40</span><span class="k">지원 언어</span></div>
+    <div class="stat"><span class="n">82</span><span class="k">열린 이슈</span></div>
+  </div>
+  <div class="grid g2">
+    <div class="card crg">
+      <h3>강한 부분</h3>
+      <ul>
+        <li>Leiden 알고리즘으로 코드 묶음(community) 자동 탐지 → 아키텍처 개요, Wiki 자동 생성</li>
+        <li>hub / bridge 노드, 예상 못 한 결합, 지식 공백 분석</li>
+        <li>GitHub Action이 PR에 위험도 점수 댓글을 붙이고, <span class="m">fail-on-risk</span>로 머지를 막을 수 있다</li>
+        <li>내보내기: GraphML, Neo4j Cypher, Obsidian, SVG</li>
+        <li><span class="m">languages.toml</span> 하나로 포크 없이 언어 추가</li>
+      </ul>
+    </div>
+    <div class="card crg">
+      <h3>스스로 밝힌 약점</h3>
+      <ul>
+        <li>영향 분석 재현율 1.0은 <strong>자기 그래프로 정답을 만든 순환 측정</strong>이라고 README에 명시</li>
+        <li>검색 순위 MRR 0.35 — 상위 4개 안엔 들지만 순위가 나쁨</li>
+        <li>flow 탐지 재현율 33%, JS·Go는 특히 약함</li>
+        <li>작은 단일 파일 변경엔 오히려 그래프 쪽이 토큰을 더 씀</li>
+      </ul>
+    </div>
+  </div>
+  <p class="src">수치는 GitHub API(2026-08-09 조회)와 저장소 README 벤치마크 절에서 그대로 옮김.</p>
+</section>
+
+<!-- 09 ───────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">비교 대상 2</div>
+  <h2><span class="tag t-cmm">codebase-memory-mcp</span></h2>
+  <p class="lede">순수 C. 의존성 없는 단일 실행 파일. 속도와 언어 커버리지로 밀어붙인다.</p>
+  <div class="grid g4">
+    <div class="stat"><span class="n">38.2k</span><span class="k">별</span></div>
+    <div class="stat"><span class="n">15</span><span class="k">MCP 도구</span></div>
+    <div class="stat"><span class="n">158</span><span class="k">지원 언어</span></div>
+    <div class="stat"><span class="n">427</span><span class="k">열린 이슈</span></div>
+  </div>
+  <div class="grid g2">
+    <div class="card cmm">
+      <h3>강한 부분</h3>
+      <ul>
+        <li>Linux 커널 28M 줄 / 75K 파일을 <strong>3분</strong>에 색인 (4.81M 노드, 7.72M 엣지) — Apple M3 Pro 기준</li>
+        <li>Cypher 비슷한 질의를 읽기 전용으로 지원, 응답 1ms 미만</li>
+        <li>Hybrid LSP: 12개 언어에 대해 타입 추론까지 해서 호출 대상을 정확히 찍는다</li>
+        <li>임베딩(nomic-embed-code 768d int8)을 바이너리에 넣어 API 키 없이 의미 검색</li>
+        <li>Dockerfile·Kubernetes 매니페스트도 그래프 노드로 색인</li>
+        <li>43개 코딩 도구 설정을 <span class="m">install</span> 한 번으로 잡아 준다</li>
+      </ul>
+    </div>
+    <div class="card cmm">
+      <h3>대가</h3>
+      <ul>
+        <li>열린 이슈 427개 — 표면적이 넓은 만큼 깨지는 곳도 많다</li>
+        <li>Windows 설치·경로 문제가 반복 등장(#1450, #1455, #1456, #1416)</li>
+        <li>계정 단위 daemon이 모든 세션을 조율 → 버전·캐시 경로가 어긋나면 실행 자체가 거부된다</li>
+        <li>MCP 도구 노출과 메모리 오염 관련 보안 검토 이슈가 열려 있음(#1458)</li>
+      </ul>
+    </div>
+  </div>
+  <p class="src">성능·규모 수치는 저장소 README의 자체 벤치마크. 이슈 번호는 GitHub 이슈 목록(2026-08-09 조회).</p>
+</section>
+
+<!-- 10 ───────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">정면 비교</div>
+  <h2>기술 기반은 속도와 깊이의 선택이다</h2>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr>
+          <th>축</th>
+          <th class="c-ccg">code-context-graph</th>
+          <th class="c-crg">code-review-graph</th>
+          <th class="c-cmm">codebase-memory-mcp</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><th>구현 언어</th><td>Go</td><td>Python 3.10+</td><td>C (순수)</td></tr>
+        <tr><th>설치</th><td><span class="m">npm</span> / <span class="m">go install</span> / Docker</td><td><span class="m">pip</span> / <span class="m">pipx</span> / <span class="m">uvx</span></td><td>단일 바이너리, 설치 스크립트</td></tr>
+        <tr><th>지원 언어</th><td class="num">12</td><td class="num">~40</td><td class="num">158</td></tr>
+        <tr><th>MCP 도구</th><td class="num">18</td><td class="num">30 (+프롬프트 5)</td><td class="num">15</td></tr>
+        <tr><th>저장소</th><td>SQLite <strong>또는 PostgreSQL</strong></td><td>SQLite</td><td>SQLite</td></tr>
+        <tr><th>의미 검색</th><td class="part">없음 — FTS로 후보를 뽑고 구조 근거로 정렬</td><td class="part">선택 — 기본은 로컬 무료 모델, 클라우드는 옵트인</td><td class="yes">내장 — 임베딩을 바이너리에 컴파일</td></tr>
+        <tr><th>검색 순위 품질</th><td class="part">ccg corpus: Recall@10 0.747 · MRR 0.649</td><td class="part">MRR 0.35 (자체 약점으로 명시)</td><td class="part">노이즈 이슈 열림 (#1417)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="src">CCG 검색 수치는 2026-08-11 <span class="m">make search-eval</span> 하네스와 저장소의 golden 문서 기준. CRG·CBM 도구 개수는 각 저장소 문서 기준.</p>
+</section>
+
+<!-- 11 ───────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">정면 비교</div>
+  <h2>운영 모델이 실제 도입 비용을 가른다</h2>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr>
+          <th>축</th>
+          <th class="c-ccg">code-context-graph</th>
+          <th class="c-crg">code-review-graph</th>
+          <th class="c-cmm">codebase-memory-mcp</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><th>업무 규칙 어노테이션</th><td class="yes">있음 + lint</td><td class="no">없음</td><td class="no">없음 (ADR은 별도 저장)</td></tr>
+        <tr><th>멀티 레포</th><td class="yes">namespace + <span class="m">ccg://</span> 참조</td><td class="part">레지스트리 + 교차 검색</td><td class="yes"><span class="m">CROSS_*</span> 엣지</td></tr>
+        <tr><th>웹훅 수신 서버</th><td class="yes">GitHub / Gitea</td><td class="no">없음 (GitHub Action은 있음)</td><td class="no">없음</td></tr>
+        <tr><th>브라우저 UI</th><td class="yes">Wiki + 그래프 뷰</td><td class="part">D3 정적 HTML 내보내기</td><td class="yes">3D 그래프 (별도 빌드)</td></tr>
+        <tr><th>CI 통합</th><td class="no">없음</td><td class="yes">PR 리뷰 Action</td><td class="no">없음</td></tr>
+        <tr><th>공개 벤치마크</th><td class="part">4개 corpus golden 평가 하네스</td><td class="yes">6개 레포, 재현 스크립트 공개</td><td class="yes">arXiv 프리프린트, 31개 레포</td></tr>
+        <tr><th>별 / 열린 이슈</th><td class="num">17 / 0</td><td class="num">29,490 / 82</td><td class="num">38,231 / 427</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="src">별·이슈 수는 GitHub API 2026-08-09 조회값. CI·서버·UI·benchmark 여부는 각 저장소 문서와 공개 파일 기준.</p>
+</section>
+
+<!-- 12 ───────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">그래프에 담는 것</div>
+  <h2>같은 AST에서 서로 다른 걸 뽑는다</h2>
+  <div class="grid g3">
+    <div class="card ccg">
+      <h3><span class="tag t-ccg">CCG</span></h3>
+      <p><strong>노드</strong> file, package, class, function, type</p>
+      <p><strong>엣지</strong> calls, contains, imports_from, implements, inherits</p>
+      <p><strong>추가</strong> 어노테이션 태그 10종, namespace 라벨, <span class="m">ccg://</span> 해석 참조</p>
+      <p class="src">자기 저장소 색인 결과: 158 파일 · 1,842 노드 · 11,623 엣지</p>
+    </div>
+    <div class="card crg">
+      <h3><span class="tag t-crg">CRG</span></h3>
+      <p><strong>노드</strong> function, class, import, test</p>
+      <p><strong>엣지</strong> calls, inheritance, tested-by</p>
+      <p><strong>추가</strong> 엣지 신뢰도 3단계(EXTRACTED / INFERRED / AMBIGUOUS), community 소속, 실행 흐름</p>
+      <p class="src">fastapi 색인: 1,122 파일 · 6,285 노드 · 27,117 엣지</p>
+    </div>
+    <div class="card cmm">
+      <h3><span class="tag t-cmm">CBM</span></h3>
+      <p><strong>노드</strong> Project, Package, Folder, File, Module, Class, Function, Method, Interface, Enum, Type, <strong>Route</strong>, <strong>Resource</strong></p>
+      <p><strong>엣지</strong> CALLS, USAGE, IMPORTS, DATA_FLOWS, HTTP_CALLS, EMITS/LISTENS_ON, SIMILAR_TO 등</p>
+      <p class="src">Django 색인: 49K 노드 · 196K 엣지, 약 6초</p>
+    </div>
+  </div>
+  <p><strong>읽는 법:</strong> CBM은 엣지 종류가 가장 많다 — 데이터 흐름, HTTP 호출, 이벤트 채널까지 잡는다. CRG는 엣지에 "얼마나 확실한가"를 붙인다. CCG는 엣지 종류는 적지만 <strong>노드에 사람이 쓴 의미</strong>가 붙는다.</p>
+</section>
+
+<!-- 13 ───────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">숫자 읽기</div>
+  <h2>토큰 절감과 검색 품질은 따로 읽어야 한다</h2>
+  <div class="grid g2">
+    <div class="card crg">
+      <h3><span class="tag t-crg">CRG의 주장과 단서</span></h3>
+      <p>질문당 토큰 <strong>중앙값 65배</strong> 감소 (범위 36~376배).</p>
+      <p>다만 README가 직접 말한다 — 기준선인 "코퍼스 전체 읽기"는 <strong>실제 에이전트가 치르지 않는 상한값</strong>이다. 제대로 된 에이전트는 grep 후 몇 파일만 읽는다.</p>
+      <p>영향 분석 F1 0.693 · 정밀도 0.546. 재현율 1.0은 순환 측정이라 상한선일 뿐.</p>
+    </div>
+    <div class="card cmm">
+      <h3><span class="tag t-cmm">CBM의 주장과 단서</span></h3>
+      <p>구조 질의 5개 기준 <strong>3,400 토큰 대 412,000 토큰</strong> — 99.2% 감소.</p>
+      <p>arXiv 프리프린트(2603.27277)는 더 보수적인 숫자를 낸다: 31개 레포에서 <strong>토큰 10배 감소, 도구 호출 2.1배 감소, 답변 품질 83%</strong>.</p>
+      <p>같은 프로젝트가 낸 두 숫자가 10배 차이 난다. 측정 조건이 다르기 때문이다.</p>
+    </div>
+  </div>
+  <div class="card ccg">
+    <h3><span class="tag t-ccg">CCG</span> 검색 회귀선은 생겼고, 토큰 절감 수치는 아직 없다</h3>
+    <p>4개 corpus의 golden 질의를 프로덕션 검색 경로로 replay한다. 주 corpus는 <strong>Recall@10 0.747 (127/170), MRR 0.649</strong>; 지원한다고 결정한 질문만 보면 <strong>Recall@10 0.840, MRR 0.703</strong>이다.</p>
+    <p class="src">한계: 자체 corpus와 판정으로 만든 회귀 하네스다. 외부 독립 평가나 토큰 비용 비교를 대신하지 않는다.</p>
+  </div>
+</section>
+
+<!-- 14 ───────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">솔직한 정리</div>
+  <h2>CCG의 위치</h2>
+  <div class="grid g2">
+    <div class="card">
+      <h3>지금 진짜 앞서는 것</h3>
+      <ul>
+        <li>어노테이션으로 <strong>업무 의미</strong>를 그래프에 넣는 유일한 도구 — 게다가 lint로 품질까지 잡음</li>
+        <li>MSA를 1급 개념으로 다룸: namespace 격리 + 서비스 경계를 넘는 영향 분석</li>
+        <li>웹훅 수신 → 자동 빌드까지 갖춘 self-host 서버</li>
+        <li>PostgreSQL 지원 — 셋 중 유일</li>
+        <li>검색 회귀 하네스가 4개 corpus에서 순위·재현율 하락을 막는다</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>따라가야 하는 것</h3>
+      <ul>
+        <li>언어 12개 대 158개 — 격차가 크다</li>
+        <li>벡터 의미 검색 없음 — 첫 검색 한 방의 명중률에서 불리하다 (다음 장)</li>
+        <li>외부 독립 벤치마크 없음 — 자체 golden 평가는 제품 간 우열의 증거가 아니다</li>
+        <li>사용자 규모 17 대 29k 대 38k. 이슈로 버그가 올라오는 양 자체가 다르다</li>
+      </ul>
+    </div>
+  </div>
+  <p><strong>쓰는 방식:</strong> 단순 위치는 <span class="m">rg</span>로, 의도·관계·영향은 CCG로 시작한다. “없다”거나 “전부 찾았다”고 결론 내릴 때는 둘을 모두 확인한다.</p>
+</section>
+
+<!-- 15 ───────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">운영 원칙</div>
+  <h2>grep과 그래프는 경쟁 관계가 아니다</h2>
+  <p class="lede">현재 소스의 정확한 증거는 직접 검색이 강하고, 이름에 드러나지 않는 의도와 여러 홉의 관계는 그래프가 강하다. 같은 질문을 서로 다른 각도에서 검증한다.</p>
+  <div class="flow">
+    <div class="step"><span class="lbl"><span class="m">rg</span> + Read</span><span class="sub">식별자·경로·리터럴·에러 문구</span></div>
+    <span class="arw">+</span>
+    <div class="step"><span class="lbl"><span class="m">ccg search</span></span><span class="sub">어노테이션·작성 의도 후보</span></div>
+    <span class="arw">›</span>
+    <div class="step"><span class="lbl">Graph walk</span><span class="sub">호출·영향·흐름 확인</span></div>
+  </div>
+  <div class="grid g2">
+    <div class="card ccg">
+      <h3>결론 내리기 전 체크</h3>
+      <ul>
+        <li>정확한 단서가 있으면 <span class="m">rg</span>, 심볼을 모르면 <span class="m">ccg search</span>부터 시작</li>
+        <li>그래프의 freshness와 <span class="m">truncated</span>·<span class="m">pool_truncated</span> 확인</li>
+        <li>두 결과를 파일·심볼 기준으로 합치고, 현재 소스에서 최종 확인</li>
+      </ul>
+    </div>
+    <div class="card ccg">
+      <h3>한 번 쓰고 세 런타임에서 공유</h3>
+      <ul>
+        <li>정본: <span class="m">skills/ccg/SKILL.md</span></li>
+        <li>Codex·Antigravity: <span class="m">.agents/skills/ccg</span></li>
+        <li>Claude Code: <span class="m">.claude/skills/ccg</span></li>
+        <li>런타임 어댑터는 정본을 가리켜 설명과 안전 규칙의 drift를 막는다</li>
+      </ul>
+    </div>
+  </div>
+  <p class="src">근거: 저장소의 CCG skill contract · <a href="https://code.claude.com/docs/en/slash-commands">Claude Code Skills</a> · <a href="https://antigravity.google/docs/skills">Google Antigravity Skills</a></p>
+</section>
+
+<!-- 16 ───────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">진짜 차이</div>
+  <h2>코드에서 뽑을 수 없는 걸 담는다</h2>
+  <p class="lede">파싱도 임베딩도 <strong>이미 소스에 적힌 것</strong>만 다룬다. 더 잘 뽑을 수는 있어도, 없는 걸 만들어 내지는 못한다.</p>
+  <div class="grid g2">
+    <div class="card">
+      <h3>AST가 아는 것 · 모르는 것</h3>
+      <ul>
+        <li><strong>안다</strong> — 무엇을 부르고, 무엇을 담고, 무엇을 상속하는지</li>
+        <li><strong>모른다</strong> — 왜 그렇게 짰는지, 부르기 전에 뭐가 참이어야 하는지, 저 숫자가 왜 하필 그 값인지</li>
+        <li>임베딩도 같은 벽에 부딪힌다. 표현을 바꿔 줄 뿐 정보를 늘리지 않는다</li>
+      </ul>
+    </div>
+    <div class="card ccg">
+      <h3>어노테이션이 넣는 것</h3>
+      <ul>
+        <li><span class="m">@domainRule</span> 업무 규칙, 운영 정책, 오탐·미탐 기준</li>
+        <li><span class="m">@requires</span> · <span class="m">@ensures</span> 부르기 전 지켜야 할 것, 부른 뒤 보장되는 것</li>
+        <li><span class="m">@sideEffect</span> · <span class="m">@mutates</span> 밖으로 새는 변화</li>
+        <li><span class="m">@intent</span> 왜 이게 있는지</li>
+        <li>이게 검색 색인에도 그대로 들어간다 — 코드에 <span class="m">retry</span>라는 글자가 없어도 "재시도"로 찾힌다</li>
+      </ul>
+    </div>
+  </div>
+  <p><strong><span class="m">if amount &gt; 50000</span> 을 아무리 파싱해도 "5만 원 넘으면 수동 승인이 회사 정책"은 안 나온다.</strong> 저쪽은 코드에서 뽑을 수 있는 것의 상한선을 향해 간다. CCG는 그 상한선 <em>밖</em>을 넣는다. "의미 검색이 없는 것 아니냐"의 답도 여기 있다 — 벡터는 소스에 있는 걸 더 잘 찾아 줄 뿐이다.</p>
+  <p class="src">단서: 어노테이션을 안 단 코드는 이 축이 0이다. 주석이라 코드와 어긋날 수 있고, <span class="m">ccg lint</span>는 품질을 볼 뿐 실제 동작과 맞는지는 검증하지 못한다. 쓰는 단계도 하나 더 필요하다 — <span class="m">/ccg-annotate</span>가 AI로 돕지만 공짜는 아니다.</p>
+</section>
+
+<!-- 17 ───────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">끝</div>
+  <h1>결론</h1>
+  <p class="lede">셋 다 "에이전트가 레포를 통째로 읽지 않게" 만든다. 갈라지는 지점은 <strong>무엇을 최적화했는가</strong>다.</p>
+  <div class="grid g3">
+    <div class="card cmm"><h3><span class="tag t-cmm">CBM</span></h3><p>속도와 커버리지. 아무 레포에나 던져도 몇 초 안에 답한다.</p><p class="src">피한다면: Windows가 주 환경이고 안정성이 최우선일 때.</p></div>
+    <div class="card crg"><h3><span class="tag t-crg">CRG</span></h3><p>리뷰 워크플로. 변경 위험을 PR 위에 얹는다.</p><p class="src">피한다면: Python 환경 관리가 부담일 때.</p></div>
+    <div class="card ccg"><h3><span class="tag t-ccg">CCG</span></h3><p>조직의 맥락. 서비스가 여러 개인 팀에서, 코드가 <em>왜</em> 그런지까지 그래프에 남긴다.</p><p class="src">피한다면: 12개 언어 밖의 코드가 많을 때. 검증된 성능 수치가 의사결정에 필요할 때.</p></div>
+  </div>
+  <p class="src">
+    github.com/tae2089/code-context-graph · github.com/tirth8205/code-review-graph · github.com/DeusData/codebase-memory-mcp<br />
+    경쟁 프로젝트 수치는 2026-08-09, CCG 검색 평가는 2026-08-11 기준이다. 각 저장소의 README, 문서, GitHub API, 이슈 목록에서 확인했고 추정한 부분은 본문에 따로 표시했다.
+  </p>
+</section>
+
+</main>
+
+<div class="hud">
+  <button type="button" id="prev" aria-label="이전 슬라이드">←</button>
+  <span class="count"><span id="cur">1</span> / <span id="tot">17</span></span>
+  <button type="button" id="next" aria-label="다음 슬라이드">→</button>
+</div>
+
+<script>
+(function () {
+  var deck = document.getElementById('deck');
+  var slides = Array.prototype.slice.call(deck.querySelectorAll('.slide'));
+  var rail = document.getElementById('rail');
+  var cur = document.getElementById('cur');
+  document.getElementById('tot').textContent = slides.length;
+
+  var index = 0;
+
+  function paint() {
+    cur.textContent = index + 1;
+    rail.style.width = ((index + 1) / slides.length * 100) + '%';
+  }
+
+  function go(n) {
+    index = Math.max(0, Math.min(slides.length - 1, n));
+    slides[index].scrollIntoView({ block: 'start' });
+    paint();
+  }
+
+  document.getElementById('prev').addEventListener('click', function () { go(index - 1); });
+  document.getElementById('next').addEventListener('click', function () { go(index + 1); });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    switch (e.key) {
+      case 'ArrowRight': case 'ArrowDown': case 'PageDown': case ' ':
+        e.preventDefault(); go(index + 1); break;
+      case 'ArrowLeft': case 'ArrowUp': case 'PageUp':
+        e.preventDefault(); go(index - 1); break;
+      case 'Home': e.preventDefault(); go(0); break;
+      case 'End': e.preventDefault(); go(slides.length - 1); break;
+    }
+  });
+
+  // keep the counter honest when the user scrolls or swipes directly
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          index = slides.indexOf(entry.target);
+          paint();
+        }
+      });
+    }, { root: deck, threshold: 0.55 });
+    slides.forEach(function (s) { io.observe(s); });
+  }
+
+  paint();
+})();
+</script>
+
+</body>
+</html>

@@ -2,7 +2,7 @@
 name: ccg
 description: "Build, update, inspect, and search code-context-graph graphs and route to specialized CCG workflows. Use when a task needs CCG setup, graph freshness, algorithm or feature-pipeline understanding, exact symbol or relationship lookup, annotation-aware full-text search, safe full or scoped synchronization, MCP graph queries, combining direct source lookup with CCG before an absence or completeness claim, or selection among CCG analysis, docs, annotation, and namespace skills. Do not use for a simple file or string lookup when grep/read is sufficient."
 metadata:
-  version: 1.4.1
+  version: 1.4.2
   openclaw:
     category: "code-intelligence"
     domain: "core"
@@ -181,8 +181,9 @@ infer translations or arbitrary synonyms that are absent from the index.
 ## Hybrid Search Workflow
 
 Do not treat grep/read and CCG search as mutually exclusive. Prefer `rg` when
-it is available for repository text searches. The two approaches answer
-different parts of the same investigation:
+it is available for repository text searches. Choose the starting point from
+the clue the user has; the two approaches answer different parts of the same
+investigation:
 
 1. When the question names an exact identifier, path, literal, or error text,
    use grep/read for the current source. Also use CCG when the task asks why the
@@ -190,11 +191,9 @@ different parts of the same investigation:
 2. When the question cannot name a symbol yet, start with `ccg search`. Feed the
    returned qualified names, paths, and distinctive reason terms into grep/read
    to verify the candidate against source.
-3. Before concluding that code or behavior does not exist, verify graph
-   freshness and check both CCG and grep/read. A miss in either one alone is not
-   proof of absence: CCG can be stale or rank a candidate off the first page,
-   while grep cannot find intent or relationships that are not written as the
-   query's exact text.
+3. Use the one CCG query shape that fits the clue: an identifier or keyword for
+   a named thing, or a plain-language question when the symbol is unknown. Do
+   not run both shapes by default.
 4. Merge corroborating results by file path and symbol instead of presenting
    duplicate lists. Preserve why each result was found (`exact text`,
    `identifier`, `recorded reason`, or `graph relationship`). Treat source as
@@ -204,6 +203,28 @@ different parts of the same investigation:
 
 Run the two searches in parallel when the request contains both an exact clue
 and an intent/relationship question, or when a completeness claim matters.
+
+### Before an Absence or Completeness Claim
+
+The minimum check is:
+
+1. Search the current source with grep/read.
+2. Run the appropriate CCG search shape and verify graph freshness.
+3. Follow the response's paging call when `truncated` or `pool_truncated` is
+   true. A miss in either source search or CCG alone is not proof of absence.
+
+Everything else is conditional:
+
+- Use `include_weak: true` only when `next` recommends it or the task explicitly
+  needs to inspect candidates withheld for weak evidence.
+- Use `describe` only after a path or candidate scope is known and an unranked
+  declaration inventory would answer the question.
+- Traverse the graph only when the answer makes a relationship, flow, or impact
+  claim.
+
+Do not present those conditional tools as universal prerequisites. `ccg status`
+or node counts prove that a graph is populated, not that it is fresh; compare it
+with relevant source changes and update the graph when needed.
 
 ## Reading a Path You Already Have
 
