@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
+	"slices"
+	"sort"
+	"strconv"
 	"testing"
 
 	"gorm.io/driver/sqlite"
@@ -13,6 +17,7 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/app/search/rank"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
+	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
 // TestCaptureGoldenCandidates refreshes the frozen candidate lists that the
@@ -63,7 +68,14 @@ func TestCaptureGoldenCandidates(t *testing.T) {
 	ctx := requestctx.WithNamespace(context.Background(), set.Corpus.Namespace)
 
 	out := map[string][]goldenCandidate{}
-	outIntent := map[string]goldenIntentAnswer{}
+	capturer, err := newGoldenIntentCapturer(ctx, reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outIntent := goldenIntentFixture{
+		Corpus: capturer.corpus, Nodes: map[uint]goldenIntentNode{},
+		Documents: map[uint]goldenIntentDocument{}, Queries: map[string][]uint{},
+	}
 	for _, q := range set.Queries {
 		nodes, err := backend.Query(ctx, db, q.Query, rank.FetchLimit(goldenLimit))
 		if err != nil {
@@ -81,45 +93,176 @@ func TestCaptureGoldenCandidates(t *testing.T) {
 			})
 		}
 		out[q.Query] = captured
-		answer, err := captureIntentAnswer(ctx, reader, q.Query)
+		matched, err := capturer.capture(ctx, q.Query, &outIntent)
 		if err != nil {
 			t.Fatalf("%q: %v", q.Query, err)
 		}
-		outIntent[q.Query] = answer
-		t.Logf("%-30q -> %2d candidates, %2d intent hits", q.Query, len(captured), len(answer.Hits))
+		t.Logf("%-30q -> %2d candidates, %2d matched intent reasons", q.Query, len(captured), matched)
 	}
 
+	if err := validateGoldenIntentFixture(outIntent); err != nil {
+		t.Fatal(err)
+	}
 	writeGoldenJSON(t, dir+"candidates.json", out)
 	writeGoldenJSON(t, dir+"intent_candidates.json", outIntent)
 	t.Log("candidates.json and intent_candidates.json rewritten; re-run the rank golden report and review every change")
 }
 
-// captureIntentAnswer runs the production intent query for one golden query,
-// with the same over-fetch the search service asks for, and keeps the whole
-// answer: hits, scored terms with their reason counts, and the corpus size.
-// The terms matter as much as the hits — membership is gated on them.
-func captureIntentAnswer(ctx context.Context, reader *Reader, query string) (goldenIntentAnswer, error) {
-	result, err := reader.QueryIntent(ctx, query, rank.FetchLimit(goldenLimit))
+type goldenIntentCapturer struct {
+	reader    *Reader
+	corpus    int
+	reasonIDs map[string][]uint
+}
+
+// newGoldenIntentCapturer indexes the corpus's persisted reason IDs once. Query
+// captures can then store compact references while replay still receives every
+// exact document MatchIntent returned.
+func newGoldenIntentCapturer(ctx context.Context, reader *Reader) (*goldenIntentCapturer, error) {
+	var reasons []graph.SearchReason
+	if err := reader.db.WithContext(ctx).
+		Where("namespace = ?", requestctx.FromContext(ctx)).
+		Order("id").Find(&reasons).Error; err != nil {
+		return nil, err
+	}
+	c := &goldenIntentCapturer{reader: reader, corpus: len(reasons), reasonIDs: make(map[string][]uint, len(reasons))}
+	for _, reason := range reasons {
+		key := intentReasonKey(reason.NodeID, reason.Content)
+		c.reasonIDs[key] = append(c.reasonIDs[key], reason.ID)
+	}
+	return c, nil
+}
+
+func intentReasonKey(nodeID uint, content string) string {
+	return strconv.FormatUint(uint64(nodeID), 10) + "\x00" + content
+}
+
+func (c *goldenIntentCapturer) capture(ctx context.Context, query string, fixture *goldenIntentFixture) (int, error) {
+	docs, err := c.reader.backend.MatchIntent(ctx, c.reader.db, query, maxIntentCandidates)
 	if err != nil {
-		return goldenIntentAnswer{}, err
+		return 0, err
 	}
-	answer := goldenIntentAnswer{Corpus: result.Corpus}
-	for _, term := range result.Terms {
-		answer.Terms = append(answer.Terms, goldenIntentTerm{Text: term.Text, InReasons: term.InReasons})
+	refs := make([]uint, 0, len(docs))
+	used := make(map[string]int)
+	nodeIDs := make([]uint, 0, len(docs))
+	seenNode := make(map[uint]bool)
+	for _, doc := range docs {
+		key := intentReasonKey(doc.NodeID, doc.Content)
+		at := used[key]
+		ids := c.reasonIDs[key]
+		if at >= len(ids) {
+			return 0, fmt.Errorf("matched intent reason for node %d is absent from search_reasons", doc.NodeID)
+		}
+		ref := ids[at]
+		used[key] = at + 1
+		refs = append(refs, ref)
+		document := goldenIntentDocument{NodeID: doc.NodeID, Content: doc.Content}
+		if existing, ok := fixture.Documents[ref]; ok && existing != document {
+			return 0, fmt.Errorf("intent document id %d identifies two different reasons", ref)
+		}
+		fixture.Documents[ref] = document
+		if !seenNode[doc.NodeID] {
+			seenNode[doc.NodeID] = true
+			nodeIDs = append(nodeIDs, doc.NodeID)
+		}
 	}
-	for _, h := range result.Hits {
-		answer.Hits = append(answer.Hits, goldenIntentHit{
-			ID:            h.Node.ID,
-			Name:          h.Node.Name,
-			QualifiedName: h.Node.QualifiedName,
-			Kind:          string(h.Node.Kind),
-			FilePath:      h.Node.FilePath,
-			Intent:        h.Node.Intent(),
-			Reason:        h.Node.RecordedReason(),
-			Terms:         h.Terms,
-		})
+	sort.Slice(refs, func(i, j int) bool { return refs[i] < refs[j] })
+	fixture.Queries[query] = refs
+	if len(nodeIDs) == 0 {
+		return 0, nil
 	}
-	return answer, nil
+	nodes, err := loadNodesInOrder(ctx, c.reader.db, nodeIDs)
+	if err != nil {
+		return 0, err
+	}
+	byID := make(map[uint]graph.Node, len(nodes))
+	for _, node := range nodes {
+		byID[node.ID] = node
+	}
+	for _, doc := range docs {
+		node, ok := byID[doc.NodeID]
+		if !ok {
+			return 0, fmt.Errorf("matched intent node %d could not be loaded", doc.NodeID)
+		}
+		captured := goldenIntentNode{
+			Name: node.Name, QualifiedName: doc.QualifiedName, Kind: string(doc.Kind),
+			FilePath: doc.FilePath, Namespace: doc.Namespace, StartLine: doc.StartLine,
+			Intent: node.Intent(), Reason: node.RecordedReason(),
+		}
+		if existing, ok := fixture.Nodes[doc.NodeID]; ok && existing != captured {
+			return 0, fmt.Errorf("intent node id %d identifies two different nodes", doc.NodeID)
+		}
+		fixture.Nodes[doc.NodeID] = captured
+	}
+	return len(refs), nil
+}
+
+func validateGoldenIntentFixture(fixture goldenIntentFixture) error {
+	usedDocuments := make(map[uint]bool, len(fixture.Documents))
+	usedNodes := make(map[uint]bool, len(fixture.Nodes))
+	for query, refs := range fixture.Queries {
+		if !sort.SliceIsSorted(refs, func(i, j int) bool { return refs[i] < refs[j] }) {
+			return fmt.Errorf("intent refs for %q are not in canonical id order", query)
+		}
+		seen := make(map[uint]bool, len(refs))
+		for _, ref := range refs {
+			if seen[ref] {
+				return fmt.Errorf("intent refs for %q repeat document id %d", query, ref)
+			}
+			seen[ref] = true
+			document, ok := fixture.Documents[ref]
+			if !ok {
+				return fmt.Errorf("intent refs for %q point to missing document id %d", query, ref)
+			}
+			if _, ok := fixture.Nodes[document.NodeID]; !ok {
+				return fmt.Errorf("intent document id %d points to missing node id %d", ref, document.NodeID)
+			}
+			usedDocuments[ref] = true
+			usedNodes[document.NodeID] = true
+		}
+	}
+	for id := range fixture.Documents {
+		if !usedDocuments[id] {
+			return fmt.Errorf("intent document id %d is unreachable from every query", id)
+		}
+	}
+	for id := range fixture.Nodes {
+		if !usedNodes[id] {
+			return fmt.Errorf("intent node id %d is unreachable from every query", id)
+		}
+	}
+	return nil
+}
+
+func (c *goldenIntentCapturer) validateExisting(ctx context.Context, fixture goldenIntentFixture) error {
+	if err := validateGoldenIntentFixture(fixture); err != nil {
+		return err
+	}
+	if fixture.Corpus != c.corpus {
+		return fmt.Errorf("intent corpus changed from %d to %d; run the full capture", fixture.Corpus, c.corpus)
+	}
+	for id, document := range fixture.Documents {
+		ids := c.reasonIDs[intentReasonKey(document.NodeID, document.Content)]
+		if !slices.Contains(ids, id) {
+			return fmt.Errorf("intent document id %d no longer identifies the captured reason; run the full capture", id)
+		}
+	}
+	for id, want := range fixture.Nodes {
+		var node graph.Node
+		if err := c.reader.db.WithContext(ctx).
+			Where("id = ? AND namespace = ?", id, requestctx.FromContext(ctx)).
+			Preload("Annotation.Tags").First(&node).Error; err != nil {
+			return fmt.Errorf("intent node id %d no longer resolves: %w", id, err)
+		}
+		got := goldenIntentNode{
+			Name: node.Name, QualifiedName: node.QualifiedName, Kind: string(node.Kind),
+			FilePath: node.FilePath, Namespace: node.Namespace, StartLine: node.StartLine,
+			Intent: node.Intent(), Reason: node.RecordedReason(),
+		}
+		if got != want {
+			return fmt.Errorf("intent node id %d no longer identifies the captured node; run the full capture", id)
+		}
+	}
+	return nil
 }
 
 func writeGoldenJSON(t *testing.T, path string, data any) {
@@ -172,7 +315,7 @@ func TestCaptureMissingGoldenCandidates(t *testing.T) {
 	if err := json.Unmarshal(blob, &existing); err != nil {
 		t.Fatal(err)
 	}
-	existingIntent := map[string]goldenIntentAnswer{}
+	existingIntent := goldenIntentFixture{}
 	if blob, err := os.ReadFile(dir + "intent_candidates.json"); err == nil {
 		if err := json.Unmarshal(blob, &existingIntent); err != nil {
 			t.Fatal(err)
@@ -186,11 +329,27 @@ func TestCaptureMissingGoldenCandidates(t *testing.T) {
 	backend := &SQLiteBackend{}
 	reader := NewReader(db, backend)
 	ctx := requestctx.WithNamespace(context.Background(), set.Corpus.Namespace)
+	capturer, err := newGoldenIntentCapturer(ctx, reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := capturer.validateExisting(ctx, existingIntent); err != nil {
+		t.Fatal(err)
+	}
+	if existingIntent.Nodes == nil {
+		existingIntent.Nodes = map[uint]goldenIntentNode{}
+	}
+	if existingIntent.Documents == nil {
+		existingIntent.Documents = map[uint]goldenIntentDocument{}
+	}
+	if existingIntent.Queries == nil {
+		existingIntent.Queries = map[string][]uint{}
+	}
 
 	added := 0
 	for _, q := range set.Queries {
 		_, haveNamed := existing[q.Query]
-		_, haveIntent := existingIntent[q.Query]
+		_, haveIntent := existingIntent.Queries[q.Query]
 		if haveNamed && haveIntent {
 			continue
 		}
@@ -212,19 +371,22 @@ func TestCaptureMissingGoldenCandidates(t *testing.T) {
 			}
 			existing[q.Query] = captured
 		}
+		matched := len(existingIntent.Queries[q.Query])
 		if !haveIntent {
-			answer, err := captureIntentAnswer(ctx, reader, q.Query)
+			matched, err = capturer.capture(ctx, q.Query, &existingIntent)
 			if err != nil {
 				t.Fatalf("%q: %v", q.Query, err)
 			}
-			existingIntent[q.Query] = answer
 		}
 		added++
-		t.Logf("added %-40q -> %2d candidates, %2d intent hits", q.Query, len(existing[q.Query]), len(existingIntent[q.Query].Hits))
+		t.Logf("added %-40q -> %2d candidates, %2d matched intent reasons", q.Query, len(existing[q.Query]), matched)
 	}
 	if added == 0 {
 		t.Log("every query already has captured candidates; nothing written")
 		return
+	}
+	if err := validateGoldenIntentFixture(existingIntent); err != nil {
+		t.Fatal(err)
 	}
 	writeGoldenJSON(t, dir+"candidates.json", existing)
 	writeGoldenJSON(t, dir+"intent_candidates.json", existingIntent)
@@ -282,31 +444,25 @@ type goldenCandidate struct {
 	Intent        string `json:"intent,omitempty"`
 }
 
-// goldenIntentAnswer mirrors the intent-candidate record the rank golden set
-// reads back: the ranked hits, every scored term with its reason count, and the
-// corpus size. The terms are captured because membership is gated on them.
-type goldenIntentAnswer struct {
-	Corpus int                `json:"corpus,omitempty"`
-	Terms  []goldenIntentTerm `json:"terms,omitempty"`
-	Hits   []goldenIntentHit  `json:"hits,omitempty"`
+type goldenIntentFixture struct {
+	Corpus    int                           `json:"corpus,omitempty"`
+	Nodes     map[uint]goldenIntentNode     `json:"nodes,omitempty"`
+	Documents map[uint]goldenIntentDocument `json:"documents,omitempty"`
+	Queries   map[string][]uint             `json:"queries"`
 }
 
-// goldenIntentTerm is one scored term of the question and how many recorded
-// reasons in the whole index hold it.
-type goldenIntentTerm struct {
-	Text      string `json:"text"`
-	InReasons int    `json:"in_reasons"`
+type goldenIntentDocument struct {
+	NodeID  uint   `json:"node_id"`
+	Content string `json:"content"`
 }
 
-// goldenIntentHit is one node the intent index answered the query with, the
-// recorded reason it matched, and the query terms the scorer counted in it.
-type goldenIntentHit struct {
-	ID            uint     `json:"id"`
-	Name          string   `json:"name"`
-	QualifiedName string   `json:"qualified_name"`
-	Kind          string   `json:"kind"`
-	FilePath      string   `json:"file_path"`
-	Intent        string   `json:"intent,omitempty"`
-	Reason        string   `json:"reason,omitempty"`
-	Terms         []string `json:"terms,omitempty"`
+type goldenIntentNode struct {
+	Name          string `json:"name"`
+	QualifiedName string `json:"qualified_name"`
+	Kind          string `json:"kind"`
+	FilePath      string `json:"file_path"`
+	Namespace     string `json:"namespace,omitempty"`
+	StartLine     int    `json:"start_line,omitempty"`
+	Intent        string `json:"intent,omitempty"`
+	Reason        string `json:"reason,omitempty"`
 }

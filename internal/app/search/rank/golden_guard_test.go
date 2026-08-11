@@ -221,10 +221,12 @@ var zeroScoreNotes = map[string]map[string]zeroScoreNote{
 		// → 0.938. Identifier names and file paths are what a question has least in
 		// common with, which is the reason absorbIntent leaves intent order alone.
 		//
-		// What is left to try lives in intentrank, and the ratchet cannot see it:
-		// intent_candidates.json freezes that scorer's ranked output, so a scoring
-		// change moves nothing here until the fixture is recaptured. The recapture
-		// is then what a reviewer reads. See testdata/README.md.
+		// The fixture now stores matched reasons and the ratchet calls intentrank.
+		// Two general rules were measured through that path and rejected. Symmetric
+		// prefix matching paid the total-byte-limit query but lowered ccg top1,
+		// top3 and MRR and context-diary MRR. Ordering first by distinct query-term
+		// coverage put the oversized-file answer in file 10, but regressed six ccg
+		// queries and lowered MRR. Neither satisfies the corpus-wide contract.
 		//
 		// The last one arrived with a fixture refresh, and no line of code
 		// moved with it. It was already at the edge of the page on the stale

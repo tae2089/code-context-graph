@@ -18,6 +18,7 @@ import (
 	searchapp "github.com/tae2089/code-context-graph/internal/app/search"
 	"github.com/tae2089/code-context-graph/internal/app/search/evidence"
 	intentapp "github.com/tae2089/code-context-graph/internal/app/search/intent"
+	"github.com/tae2089/code-context-graph/internal/app/search/intentrank"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
@@ -124,68 +125,72 @@ func nodeOf(c goldenCandidate) graph.Node {
 	return n
 }
 
-// goldenIntentAnswer is everything the intent index said about one golden
-// query, as captured through the production intent query path: the ranked hits,
-// every scored term with its reason count, and the corpus size. The terms are
-// captured because membership is gated on them — a replay without them would
-// score a search that thinks every question is answerable.
-type goldenIntentAnswer struct {
-	Corpus int                `json:"corpus,omitempty"`
-	Terms  []goldenIntentTerm `json:"terms,omitempty"`
-	Hits   []goldenIntentHit  `json:"hits,omitempty"`
+// goldenIntentFixture stores each corpus node and indexed reason once, then
+// records which reason rows each query matched. Keeping scorer input rather
+// than output makes replay exercise the current intentrank.Rank implementation
+// without repeating the same corpus text under every query that matched it.
+type goldenIntentFixture struct {
+	Corpus    int                           `json:"corpus,omitempty"`
+	Nodes     map[uint]goldenIntentNode     `json:"nodes,omitempty"`
+	Documents map[uint]goldenIntentDocument `json:"documents,omitempty"`
+	Queries   map[string][]uint             `json:"queries"`
 }
 
-// goldenIntentTerm is one scored term of the question and how many recorded
-// reasons in the whole index hold it.
-type goldenIntentTerm struct {
-	Text      string `json:"text"`
-	InReasons int    `json:"in_reasons"`
-}
-
-// goldenIntentHit is one candidate the intent index answered a golden query
-// with, as captured through the production intent query path.
-type goldenIntentHit struct {
-	ID            uint   `json:"id"`
+type goldenIntentNode struct {
 	Name          string `json:"name"`
 	QualifiedName string `json:"qualified_name"`
 	Kind          string `json:"kind"`
 	FilePath      string `json:"file_path"`
+	Namespace     string `json:"namespace,omitempty"`
+	StartLine     int    `json:"start_line,omitempty"`
 	Intent        string `json:"intent,omitempty"`
-	// Reason is the recorded reason the index matched — the @intent, or the
-	// @domainRule when the node has no @intent of its own.
+	// Reason is what search displays: @intent when present, otherwise the first
+	// @domainRule. Content remains the exact indexed reason Rank scores.
 	Reason string `json:"reason,omitempty"`
-	// Terms are the query terms the intent scorer counted in Reason.
-	Terms []string `json:"terms,omitempty"`
 }
 
-// intentHitOf rebuilds the hit the intent query hands the service, with enough
-// of the annotation restored that RecordedReason reads the captured reason back.
-func intentHitOf(h goldenIntentHit) intentapp.Hit {
+type goldenIntentDocument struct {
+	NodeID  uint   `json:"node_id"`
+	Content string `json:"content"`
+}
+
+func (d goldenIntentDocument) rankDoc(node goldenIntentNode) intentrank.Doc {
+	return intentrank.Doc{
+		NodeID: d.NodeID, Content: d.Content, FilePath: node.FilePath,
+		QualifiedName: node.QualifiedName, Kind: graph.NodeKind(node.Kind),
+		Namespace: node.Namespace, StartLine: node.StartLine,
+	}
+}
+
+// intentNodeOf rebuilds the node the intent query hands the service, with enough
+// annotation state that RecordedReason reads the captured display reason back.
+func intentNodeOf(id uint, c goldenIntentNode) graph.Node {
 	n := graph.Node{
-		ID:            h.ID,
-		Name:          h.Name,
-		QualifiedName: h.QualifiedName,
-		Kind:          graph.NodeKind(h.Kind),
-		FilePath:      h.FilePath,
+		ID:            id,
+		Name:          c.Name,
+		QualifiedName: c.QualifiedName,
+		Kind:          graph.NodeKind(c.Kind),
+		FilePath:      c.FilePath,
+		StartLine:     c.StartLine,
 	}
 	tags := make([]graph.DocTag, 0, 2)
-	if h.Intent != "" {
-		tags = append(tags, graph.DocTag{Kind: graph.TagIntent, Value: h.Intent})
+	if c.Intent != "" {
+		tags = append(tags, graph.DocTag{Kind: graph.TagIntent, Value: c.Intent})
 	}
-	if h.Reason != "" && h.Reason != h.Intent {
-		tags = append(tags, graph.DocTag{Kind: graph.TagDomainRule, Value: h.Reason})
+	if c.Reason != "" && c.Reason != c.Intent {
+		tags = append(tags, graph.DocTag{Kind: graph.TagDomainRule, Value: c.Reason})
 	}
 	if len(tags) > 0 {
 		n.Annotation = &graph.Annotation{Tags: tags}
 	}
-	return intentapp.Hit{Node: n, Terms: h.Terms}
+	return n
 }
 
 // fixtureSearcher answers the service's two fetches from the frozen captures,
 // so the only thing that can move a result is the search code itself.
 type fixtureSearcher struct {
 	named  map[string][]goldenCandidate
-	intent map[string]goldenIntentAnswer
+	intent goldenIntentFixture
 }
 
 func (f fixtureSearcher) Query(_ context.Context, query string, _ int) ([]graph.Node, error) {
@@ -197,17 +202,26 @@ func (f fixtureSearcher) Query(_ context.Context, query string, _ int) ([]graph.
 	return nodes, nil
 }
 
-func (f fixtureSearcher) QueryIntent(_ context.Context, query string, _ int) (intentapp.Result, error) {
-	captured := f.intent[query]
-	hits := make([]intentapp.Hit, len(captured.Hits))
-	for i, h := range captured.Hits {
-		hits[i] = intentHitOf(h)
+func (f fixtureSearcher) QueryIntent(_ context.Context, query string, limit int) (intentapp.Result, error) {
+	refs := f.intent.Queries[query]
+	docs := make([]intentrank.Doc, 0, len(refs))
+	nodes := make(map[uint]graph.Node, len(refs))
+	for _, ref := range refs {
+		document := f.intent.Documents[ref]
+		node := f.intent.Nodes[document.NodeID]
+		docs = append(docs, document.rankDoc(node))
+		nodes[document.NodeID] = intentNodeOf(document.NodeID, node)
 	}
-	terms := make([]intentapp.Term, len(captured.Terms))
-	for i, term := range captured.Terms {
+	ranked := intentrank.Rank(query, docs, f.intent.Corpus, limit)
+	hits := make([]intentapp.Hit, 0, len(ranked.Matches))
+	for _, match := range ranked.Matches {
+		hits = append(hits, intentapp.Hit{Node: nodes[match.NodeID], Terms: match.Terms})
+	}
+	terms := make([]intentapp.Term, len(ranked.Terms))
+	for i, term := range ranked.Terms {
 		terms[i] = intentapp.Term{Text: term.Text, InReasons: term.InReasons}
 	}
-	return intentapp.Result{Hits: hits, Terms: terms, Corpus: captured.Corpus}, nil
+	return intentapp.Result{Hits: hits, Terms: terms, Corpus: ranked.Corpus}, nil
 }
 
 // outcome is one query's result, and the unit the baseline compares.
@@ -255,20 +269,88 @@ func loadGolden(t *testing.T, dir string) (goldenSet, fixtureSearcher) {
 	var set goldenSet
 	readJSON(t, dir+"/queries.json", &set)
 	searcher := fixtureSearcher{
-		named:  map[string][]goldenCandidate{},
-		intent: map[string]goldenIntentAnswer{},
+		named: map[string][]goldenCandidate{},
 	}
 	readJSON(t, dir+"/candidates.json", &searcher.named)
 	readJSON(t, dir+"/intent_candidates.json", &searcher.intent)
+	if err := validateGoldenIntentFixture(searcher.intent); err != nil {
+		t.Fatalf("%s/intent_candidates.json: %v", dir, err)
+	}
+	if err := validateGoldenPoolIdentities(searcher.named, searcher.intent); err != nil {
+		t.Fatalf("%s: %v", dir, err)
+	}
 	for _, q := range set.Queries {
 		if _, ok := searcher.named[q.Query]; !ok {
 			t.Fatalf("query %q has no captured candidates; re-run the capture", q.Query)
 		}
-		if _, ok := searcher.intent[q.Query]; !ok {
+		if _, ok := searcher.intent.Queries[q.Query]; !ok {
 			t.Fatalf("query %q has no captured intent candidates; re-run the capture", q.Query)
 		}
 	}
 	return set, searcher
+}
+
+type goldenNodeIdentity struct {
+	QualifiedName string
+	Kind          string
+	FilePath      string
+}
+
+func validateGoldenPoolIdentities(named map[string][]goldenCandidate, intent goldenIntentFixture) error {
+	identities := make(map[uint]goldenNodeIdentity)
+	for query, candidates := range named {
+		for _, candidate := range candidates {
+			got := goldenNodeIdentity{candidate.QualifiedName, candidate.Kind, candidate.FilePath}
+			if previous, ok := identities[candidate.ID]; ok && previous != got {
+				return fmt.Errorf("named candidates reuse node id %d for different identities at query %q", candidate.ID, query)
+			}
+			identities[candidate.ID] = got
+		}
+	}
+	for id, node := range intent.Nodes {
+		got := goldenNodeIdentity{node.QualifiedName, node.Kind, node.FilePath}
+		if previous, ok := identities[id]; ok && previous != got {
+			return fmt.Errorf("named and intent candidates give node id %d different identities", id)
+		}
+	}
+	return nil
+}
+
+func validateGoldenIntentFixture(fixture goldenIntentFixture) error {
+	usedDocuments := make(map[uint]bool, len(fixture.Documents))
+	usedNodes := make(map[uint]bool, len(fixture.Nodes))
+	for query, refs := range fixture.Queries {
+		if !sort.SliceIsSorted(refs, func(i, j int) bool { return refs[i] < refs[j] }) {
+			return fmt.Errorf("refs for %q are not in canonical id order", query)
+		}
+		seen := make(map[uint]bool, len(refs))
+		for _, ref := range refs {
+			if seen[ref] {
+				return fmt.Errorf("refs for %q repeat document id %d", query, ref)
+			}
+			seen[ref] = true
+			document, ok := fixture.Documents[ref]
+			if !ok {
+				return fmt.Errorf("refs for %q point to missing document id %d", query, ref)
+			}
+			if _, ok := fixture.Nodes[document.NodeID]; !ok {
+				return fmt.Errorf("document id %d points to missing node id %d", ref, document.NodeID)
+			}
+			usedDocuments[ref] = true
+			usedNodes[document.NodeID] = true
+		}
+	}
+	for id := range fixture.Documents {
+		if !usedDocuments[id] {
+			return fmt.Errorf("document id %d is unreachable from every query", id)
+		}
+	}
+	for id := range fixture.Nodes {
+		if !usedNodes[id] {
+			return fmt.Errorf("node id %d is unreachable from every query", id)
+		}
+	}
+	return nil
 }
 
 func readJSON(t *testing.T, path string, into any) {
@@ -303,14 +385,16 @@ func (rel relevance) count() int { return len(rel.nodes) + len(rel.files) }
 
 // retrieved reports whether any judged node or file is anywhere in either
 // captured pool — the ceiling no ranking or filtering change can lift.
-func (rel relevance) retrieved(named []goldenCandidate, intent goldenIntentAnswer) bool {
+func (rel relevance) retrieved(named []goldenCandidate, intent goldenIntentFixture, query string) bool {
 	for _, c := range named {
 		if rel.nodes[label(nodeOf(c))] || rel.files[c.FilePath] {
 			return true
 		}
 	}
-	for _, h := range intent.Hits {
-		if rel.nodes[label(intentHitOf(h).Node)] || rel.files[h.FilePath] {
+	for _, ref := range intent.Queries[query] {
+		document := intent.Documents[ref]
+		node := intent.Nodes[document.NodeID]
+		if rel.nodes[label(intentNodeOf(document.NodeID, node))] || rel.files[node.FilePath] {
 			return true
 		}
 	}
@@ -355,7 +439,7 @@ func runGolden(t *testing.T, dir string) []outcome {
 			Bucket:     q.Bucket,
 			Negative:   rel.count() == 0,
 			OutOfScope: q.declinedBy("search"),
-			Retrieved:  rel.retrieved(searcher.named[q.Query], searcher.intent[q.Query]),
+			Retrieved:  rel.retrieved(searcher.named[q.Query], searcher.intent, q.Query),
 			Relevant:   rel.count(),
 		}
 		list, err := svc.Search(context.Background(), searchapp.Params{Query: q.Query, Limit: goldenLimit})
