@@ -54,7 +54,25 @@ func seedIntentFixture(t *testing.T, db *gorm.DB) (reasoned, namesake graph.Node
 // every one of them scores identically and only the tiebreak decides the order.
 func seedTiedIntentFixture(t *testing.T, db *gorm.DB, count int) {
 	t.Helper()
+	seedTiedIntentNodes(t, db, tiedIntentNames(count))
+}
+
+// tiedIntentNames is the fixture's declarations in ascending order, which is
+// both their file order and, when they are seeded in this sequence, their id
+// order. A test that seeds them in some other sequence takes the two apart.
+func tiedIntentNames(count int) []int {
+	indexes := make([]int, 0, count)
 	for i := range count {
+		indexes = append(indexes, i)
+	}
+	return indexes
+}
+
+// seedTiedIntentNodes writes the tied declarations in the sequence given, so a
+// caller can decide which declaration gets the lowest id.
+func seedTiedIntentNodes(t *testing.T, db *gorm.DB, indexes []int) {
+	t.Helper()
+	for _, i := range indexes {
 		node := graph.Node{
 			QualifiedName: fmt.Sprintf("tied.decl%02d", i),
 			Kind:          graph.NodeKindFunction,
