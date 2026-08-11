@@ -317,8 +317,8 @@ ranking change can fix that query.
 
 ```
 bucket           n  retrieved  Recall@10   top1  top3   MRR
-ALL             86   75/86      0.738 (124/168)  47    62  0.642
-ANSWERABLE      78   74/78      0.831 (123/148)  46    61  0.695
+ALL             86   75/86      0.744 (125/168)  47    62  0.644
+ANSWERABLE      78   74/78      0.838 (124/148)  46    61  0.697
 ```
 
 That block is `make search-eval`'s own output for the `ccg` corpus, copied
