@@ -2,7 +2,7 @@
 name: ccg-analyze
 description: "Analyze algorithms, feature pipelines, and code relationships with CCG impact radius, bounded flow tracing, callers/callees, git-diff risk, affected stored flows, and cross-namespace references. Use when a task asks how a feature or algorithm works, how a pipeline flows, what a change affects, who calls a symbol, whether results were truncated, or which flows recent changes touch. Do not use for simple text lookup, documentation generation, or annotation authoring."
 metadata:
-  version: 1.4.1
+  version: 1.4.2
   openclaw:
     category: "code-intelligence"
     domain: "analysis"
@@ -128,8 +128,8 @@ their `truncated` metadata by narrowing the start/scope or deliberately raising
 ## Prerequisites
 
 Use the `ccg` skill's Freshness Boundary before interpreting graph or
-stored-flow results. If refresh is required, use the `ccg-build` skill if
-available. The stored-flow tools — `list_flows`,
+stored-flow results. If refresh is required, report the gap; do not invoke
+`ccg-build` unless the user explicitly names it. The stored-flow tools — `list_flows`,
 `get_affected_flows` — require flow postprocessing; an empty flow list is not
 evidence of no flow until that state has been checked.
 

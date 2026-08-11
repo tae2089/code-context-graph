@@ -92,5 +92,5 @@ rules:
 
 ## Prerequisites
 
-Graph must be built first. If it is missing or stale, use `/ccg-build`; `/ccg`
-is read-only discovery.
+Graph must be built first. If it is missing or stale, report the gap; do not
+invoke `/ccg-build` unless the user explicitly names it. `/ccg` is read-only.

@@ -2,7 +2,7 @@
 name: ccg-docs
 description: "Generate, discover, read, and lint CCG documentation. Use when producing Markdown and Wiki snapshots, narrowing broad module questions with search, reading generated docs from configured content roots with get_doc_content, or diagnosing orphan, missing, stale, incomplete, contradiction, dead-ref, and drift findings. Do not use for direct source annotation authoring or exact call-graph analysis."
 metadata:
-  version: 1.3.1
+  version: 1.3.2
   openclaw:
     category: "code-intelligence"
     domain: "documentation"
@@ -35,7 +35,8 @@ selected evidence and documentation quality.
 ## Discovery Pipeline
 
 Use the `ccg` skill's Freshness Boundary before relying on graph evidence. If
-refresh is required, use the `ccg-build` skill if available.
+refresh is required, report the gap; do not invoke `ccg-build` unless the user
+explicitly names it.
 `search` can narrow candidates without generated Markdown:
 
 ```text
@@ -87,7 +88,7 @@ allowed root.
 ## Quality Checkpoints
 
 1. Sparse results: add accurate `@intent` or `@index` annotations with the `ccg-annotate` skill.
-2. Stale generated docs: assess graph freshness with the `ccg` skill, use `ccg-build` if graph refresh is required, then rerun `ccg docs --out docs`.
+2. Stale generated docs: assess graph freshness with the `ccg` skill. If graph refresh is required, report that the user must explicitly invoke `ccg-build`; do not invoke it automatically.
 3. Empty answers to a question-shaped `search`: an empty answer usually means nobody recorded a reason in the area, not that the graph is stale. Confirm namespace statistics and refresh only when the graph is missing or stale.
 4. Missing `get_doc_content` file: compare the generated-doc path with the configured content root before regenerating.
 5. Exact-answer needs: switch from documentation discovery to `get_node`, `query_graph`, or `trace_flow`.

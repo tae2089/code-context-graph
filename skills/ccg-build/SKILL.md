@@ -1,9 +1,9 @@
 ---
 name: ccg-build
-description: "Build, update, migrate, and postprocess code-context-graph graphs from source visible to the CCG runtime. Use when a graph is missing or stale, source annotations must be reindexed, a namespace needs Git-backed synchronization, or a scoped graph write needs explicit replacement semantics. Do not use for ordinary read-only search, lookup, or analysis when the existing graph is sufficient; use the ccg skill instead."
+description: "Explicit-only graph ingestion for building, updating, migrating, and postprocessing code-context-graph graphs from source visible to the CCG runtime. Use only when the user explicitly names the ccg-build skill in the current request. Do not invoke merely because a graph is missing or stale, annotations need reindexing, or another workflow would benefit from a refresh."
 disable-model-invocation: true
 metadata:
-  version: 1.0.1
+  version: 1.1.0
   openclaw:
     category: "code-intelligence"
     domain: "build"
@@ -17,6 +17,14 @@ metadata:
 
 Build or refresh graph state only from source paths the executing CCG runtime
 can read.
+
+## Invocation Gate
+
+Proceed only when the user explicitly names `ccg-build` in the current request.
+A stale or missing graph, a requested scoped update, another skill's suggestion,
+or an applicable task description is not invocation. If the name was not
+explicitly provided, do not load the maintenance reference and do not perform or
+plan a graph write; report that the user may invoke `ccg-build` explicitly.
 
 ## Mandatory Contract
 

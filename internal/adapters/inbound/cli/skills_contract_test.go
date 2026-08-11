@@ -41,7 +41,7 @@ func TestProjectSkillsDeclareRuntimeContract(t *testing.T) {
 		"ccg-analyze":   {domain: "analysis", requiresCore: true},
 		"ccg-annotate":  {domain: "annotation", requiresCore: true},
 		"ccg-docs":      {domain: "documentation", requiresCore: true, cliHelp: "ccg docs --help"},
-		"ccg-namespace": {domain: "namespace", requiresCore: true, cliHelp: "ccg build --help"},
+		"ccg-namespace": {domain: "namespace", requiresCore: true, cliHelp: "ccg search --help"},
 	}
 	skillsRoot := filepath.Join("..", "..", "..", "..", "skills")
 	entries, err := os.ReadDir(skillsRoot)
@@ -77,14 +77,20 @@ func TestProjectSkillsDeclareRuntimeContract(t *testing.T) {
 			if len(contract.Description) > 1024 || strings.ContainsAny(contract.Description, "<>") {
 				t.Errorf("description must be at most 1024 characters without angle brackets: %q", contract.Description)
 			}
-			if !strings.Contains(contract.Description, "Use when") {
-				t.Errorf("description must include concrete 'Use when' triggers: %q", contract.Description)
+			if !strings.Contains(contract.Description, "Use when") && !strings.Contains(contract.Description, "Use only when") {
+				t.Errorf("description must include concrete invocation triggers: %q", contract.Description)
 			}
-			if !strings.Contains(contract.Description, "Do not use") {
-				t.Errorf("description must include a concrete 'Do not use' boundary: %q", contract.Description)
+			if !strings.Contains(contract.Description, "Do not use") && !strings.Contains(contract.Description, "Do not invoke") {
+				t.Errorf("description must include a concrete negative boundary: %q", contract.Description)
 			}
 			if name == "ccg-build" && !contract.DisableModelInvocation {
 				t.Error("ccg-build must require explicit invocation")
+			}
+			if name == "ccg-build" && !strings.Contains(contract.Description, "Use only when the user explicitly names") {
+				t.Error("ccg-build description must restrict use to explicit invocation")
+			}
+			if name != "ccg-build" && slices.Contains(contract.Metadata.Requires.Skills, "ccg-build") {
+				t.Error("other skills must not implicitly require explicit-only ccg-build")
 			}
 			if matched, _ := regexp.MatchString(`^\d+\.\d+\.\d+$`, contract.Metadata.Version); !matched {
 				t.Errorf("metadata.version = %q, want semantic version", contract.Metadata.Version)
@@ -272,6 +278,7 @@ func TestProjectSkillsCoverOperationalHazards(t *testing.T) {
 			"server-visible path",
 			"streaming",
 			"git",
+			"explicitly names `ccg-build`",
 		},
 		"ccg-analyze": {
 			"`max_depth`",
@@ -342,13 +349,13 @@ func TestProjectSkillsCentralizeSharedOperationalGuidance(t *testing.T) {
 			"`ccg` skill's Response Budget Rule",
 		},
 		"ccg-annotate": {
-			"`ccg-build` skill",
+			"explicitly name `ccg-build`",
 		},
 		"ccg-docs": {
 			"`ccg` skill's Freshness Boundary",
 		},
 		"ccg-namespace": {
-			"`ccg-build` skill's Scoped Update Safety",
+			"## Write Boundary",
 		},
 	}
 	forbidden := map[string][]string{

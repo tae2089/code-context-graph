@@ -71,5 +71,6 @@ For detailed parameters, see MCP schema.
 
 ## Prerequisites
 
-Requires a populated, current graph. Use `/ccg-build` for build or migration;
-`/ccg` remains read-only discovery.
+Requires a populated, current graph. Report missing or stale state; do not
+invoke `/ccg-build` unless the user explicitly names it. `/ccg` remains
+read-only discovery.

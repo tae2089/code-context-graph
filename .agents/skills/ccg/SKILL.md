@@ -1,6 +1,6 @@
 ---
 name: ccg
-description: "Inspect and search code-context-graph graphs without mutating them. Use when a task needs annotation-aware discovery, symbol or relationship lookup, graph population or freshness assessment, hybrid CCG plus source verification before absence or completeness claims, or routing to CCG analysis, docs, annotation, namespace, and build workflows. Do not use for graph build, update, migration, or postprocessing; use the ccg-build skill instead."
+description: "Inspect and search code-context-graph graphs without mutating them. Use when a task needs annotation-aware discovery, symbol or relationship lookup, graph population or freshness assessment, hybrid CCG plus source verification before absence or completeness claims, or routing to CCG analysis, docs, annotation, and namespace workflows. Do not invoke graph build, update, migration, or postprocessing; ccg-build is available only when the user explicitly names it."
 ---
 
 # CCG Runtime Adapter

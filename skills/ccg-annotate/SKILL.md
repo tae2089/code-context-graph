@@ -2,7 +2,7 @@
 name: ccg-annotate
 description: "Author, refine, and verify CCG annotations such as @intent, @domainRule, @sideEffect, @mutates, @index, and @see. Use when adding business meaning to code, improving annotation-aware code or documentation retrieval, fixing annotation lint findings, checking supported tag syntax, or documenting operational contracts. Do not use for generated Markdown editing or annotations that merely restate symbol names."
 metadata:
-  version: 1.3.1
+  version: 1.3.2
   openclaw:
     category: "code-intelligence"
     domain: "annotation"
@@ -11,7 +11,6 @@ metadata:
       - ccg
     skills:
       - ccg
-      - ccg-build
 ---
 
 # ccg-annotate — Annotation Workflow
@@ -86,20 +85,20 @@ For cross-namespace behavior, explain the reason in the semantic tag and put the
 - Do not repeat the same keyword across tags unless each tag adds distinct evidence
 - Match the language of existing comments (Korean for Korean codebases, English for English)
 
-### Step 4: Rebuild, then verify
+### Step 4: Report reindex requirement
 
 Annotations enter the search index only at graph build time. An annotation
 written but not rebuilt is invisible to `search` — the most common way to
-conclude, wrongly, that "annotations don't work". So rebuild first: run
-use the `ccg-build` skill to run `ccg build <dir>`, or `ccg update <dir>` after
-ordinary edits. Then run `ccg lint` to verify annotation quality and
-references.
+conclude, wrongly, that "annotations don't work". Do not invoke `ccg-build`
+automatically. Report that reindexing is required and that the user must
+explicitly name `ccg-build` in a new request before graph refresh.
 
-For representative changed symbols, call `get_annotation` and confirm the
-expected tags and values were actually stored. The parser returns unknown-tag
-warnings to direct callers, but the current ingestion discards that warning
-list and `ccg lint` does not surface it. Treat the reference tag list as an
-allowlist; a green lint result alone does not prove an unknown tag was indexed.
+After an explicitly authorized refresh, representative changed symbols can be
+checked with `get_annotation`. Until then, report graph-backed verification as
+pending. The parser returns unknown-tag warnings to direct callers, but the
+current ingestion discards that warning list and `ccg lint` does not surface it.
+Treat the reference tag list as an allowlist; a green lint result alone does not
+prove an unknown tag was indexed.
 
 ## Quality Example
 

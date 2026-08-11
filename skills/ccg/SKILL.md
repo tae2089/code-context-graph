@@ -1,8 +1,8 @@
 ---
 name: ccg
-description: "Inspect and search code-context-graph graphs without mutating them. Use when a task needs annotation-aware discovery, symbol or relationship lookup, graph population or freshness assessment, hybrid CCG plus source verification before absence or completeness claims, or routing to CCG analysis, docs, annotation, namespace, and build workflows. Do not use for graph build, update, migration, or postprocessing; use the ccg-build skill instead."
+description: "Inspect and search code-context-graph graphs without mutating them. Use when a task needs annotation-aware discovery, symbol or relationship lookup, graph population or freshness assessment, hybrid CCG plus source verification before absence or completeness claims, or routing to CCG analysis, docs, annotation, and namespace workflows. Do not invoke graph build, update, migration, or postprocessing; ccg-build is available only when the user explicitly names it."
 metadata:
-  version: 2.0.0
+  version: 2.0.1
   openclaw:
     category: "code-intelligence"
     domain: "core"
@@ -43,7 +43,7 @@ whose credible candidate has already been verified in source.
 | Generated documentation | `ccg-docs` skill if available |
 | Write or repair annotations | `ccg-annotate` skill if available |
 | Multiple repositories or services | `ccg-namespace` skill if available |
-| Build, update, migrate, postprocess, or scoped graph write | `ccg-build` skill if available |
+| Build, update, migrate, postprocess, or scoped graph write | Stop and report that the user must explicitly invoke `ccg-build` |
 
 For an unfamiliar MCP task, call `get_minimal_context` once and confirm the
 namespace with `list_graph_stats`. Do not rebuild merely to begin a read-only
@@ -151,8 +151,9 @@ matches current source. Compare available graph provenance with relevant source
 changes before relying on a miss or relationship result.
 
 This skill is read-only. When the graph is missing or stale and the task needs a
-current graph, stop the read workflow and use the `ccg-build` skill if available.
-Do not perform graph writes from this skill.
+current graph, stop the read workflow. Do not invoke `ccg-build` automatically.
+Report the freshness gap and state that the user may explicitly name
+`ccg-build` in a new request. Do not perform graph writes from this skill.
 
 ## Response Budget Rule
 

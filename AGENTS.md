@@ -27,7 +27,7 @@ Graceful shutdown: SIGINT/SIGTERM propagates context cancellation to in-progress
 | Skill            | Description                                                         |
 | ---------------- | ------------------------------------------------------------------- |
 | `/ccg`           | Read-only discovery: search, lookup, and freshness assessment       |
-| `/ccg-build`     | Graph ingestion: build, update, migrate, and postprocess            |
+| `/ccg-build`     | Explicit-only graph build, update, migrate, and postprocess         |
 | `/ccg-analyze`   | Code analysis: impact radius, flow tracing, and change risk         |
 | `/ccg-annotate`  | Annotation system: AI annotation workflow and tag reference         |
 | `/ccg-docs`      | Documentation: generation, DB-backed discovery, and lint            |
@@ -56,8 +56,8 @@ use ccg MCP tools and Agent Skills first.
 - For code lookup and natural-language code understanding alike, start with ccg MCP `search`: it answers identifier queries and "why was this built" questions from one index, then walk from the `node_id` values it returns. Use the `/ccg-docs` skill and `get_doc_content` to read a generated doc.
 - For exact symbol locations, call relationships, and graph metadata, use ccg MCP `query_graph`, `get_node`, `get_minimal_context`, or the `/ccg` skill.
 - For impact radius, flows, and change-risk analysis, prefer the `/ccg-analyze` skill and related MCP tools (`get_impact_radius`, `trace_flow`, `detect_changes`, `get_affected_flows`).
-- For simple string checks, file existence checks, or cases where the ccg index is missing or stale, use `rg` as a supplement. Use the `/ccg-build` skill when graph creation or refresh is needed.
-- Use `/ccg-build` for graph migration and postprocessing as well. Remote ingestion stays Git webhook/sync based; do not treat MCP write tools as source-upload APIs.
+- For simple string checks, file existence checks, or cases where the ccg index is missing or stale, use `rg` as a supplement. Report missing or stale graph state without invoking `/ccg-build` automatically.
+- `/ccg-build` is explicit-only: use it only when the user names that skill in the current request. A task that needs graph creation, refresh, migration, or postprocessing is not by itself permission to load the skill. Remote ingestion stays Git webhook/sync based; do not treat MCP write tools as source-upload APIs.
 
 ## Documentation
 
@@ -105,10 +105,17 @@ Do not force annotations onto simple getters/setters or obvious one-line helpers
 
 ## Completion Checklist
 
-After completing code generation or code modifications, run the following by default:
+Graph refresh is opt-in. Run `ccg build .` only when the user explicitly invokes
+`ccg-build`; otherwise report it as an optional follow-up without executing it:
 
 ```bash
 ccg build .
+```
+
+Generate and lint docs when the existing graph is current. If graph refresh was
+not explicitly authorized, report stale-graph dependent verification as skipped.
+
+```bash
 ccg docs --out docs
 ccg lint
 ```

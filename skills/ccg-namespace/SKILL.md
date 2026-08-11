@@ -1,8 +1,8 @@
 ---
 name: ccg-namespace
-description: "Isolate CCG graph build, search, documentation discovery, and analysis by namespace. Use when working across multiple repositories or services, preventing cross-project graph leakage, choosing safe scoped-update semantics, federating supported reads, or traversing materialized cross-namespace references. Do not use for ordinary single-repository work that fits the default namespace."
+description: "Isolate read-only CCG search, documentation discovery, and analysis by namespace. Use when working across multiple repositories or services, preventing cross-project graph leakage, federating supported reads, or traversing materialized cross-namespace references. Do not use for graph writes or scoped updates; the user must explicitly invoke ccg-build for those operations."
 metadata:
-  version: 1.4.1
+  version: 2.0.0
   openclaw:
     category: "code-intelligence"
     domain: "namespace"
@@ -11,19 +11,17 @@ metadata:
       - ccg
     skills:
       - ccg
-      - ccg-build
-  cliHelp: "ccg build --help"
+  cliHelp: "ccg search --help"
 ---
 
 # ccg-namespace — Graph Namespace Isolation
 
-Use namespaces to isolate graph rows for different services or repositories. CCG no longer manages uploaded namespace files; callers provide a filesystem path to `build_or_update_graph` or use CLI build/update commands with `--namespace`.
+Use namespaces to isolate graph rows for different services or repositories.
+This skill reads existing namespace state and never writes it.
 
 ## Core Pattern
 
 ```bash
-ccg build ./services/payment --namespace payment
-ccg build ./services/users --namespace users
 ccg search --namespace payment "checkout"
 ccg status --namespace users
 ```
@@ -31,7 +29,6 @@ ccg status --namespace users
 Through MCP:
 
 ```text
-build_or_update_graph(path: "/repos/payment", namespace: "payment", full_rebuild: true)
 list_namespaces()
 search(namespace: "payment", query: "checkout")
 search(namespace: "payment", query: "why does checkout retry a failed capture")
@@ -42,19 +39,19 @@ count — the first call before interpreting any namespace-scoped result. Both
 `search` query shapes work namespace-scoped: keywords and plain-language
 questions answered from recorded reasons.
 
-## Scoped Update Decision
+## Write Boundary
 
-Classify a partial incremental update as either an authoritative snapshot or a
-maintenance work slice. Use the `ccg-build` skill's Scoped Update Safety for the
-exact `include_paths` and replacement arguments, then record which behavior was
-chosen for the namespace.
+Do not plan or execute a namespace build, update, migration, postprocess, or
+scoped replacement from this skill. A request that needs one of those operations
+is not enough to invoke `ccg-build`: report that the user must explicitly name
+`ccg-build` in the current request.
 
 ## Operational Guidance
 
 - Use one namespace per service or repository when graph state must remain isolated.
 - Use the default namespace for ordinary single-repository local work.
-- Pass the same namespace consistently to build, search, docs, and analysis tools.
-- Namespace deletion and file upload are not MCP capabilities; manage source directories outside CCG and rebuild graph state as needed.
+- Pass the same namespace consistently to search, docs, and analysis tools.
+- Namespace deletion and file upload are not MCP capabilities.
 - A graph namespace does not generate or copy Markdown files. Generate and place docs separately before expecting namespace-scoped `get_doc_content` reads to succeed.
 
 ## Federation Boundaries
@@ -108,7 +105,7 @@ queryable cross-namespace references on every build/update:
 
 ## Completion
 
-State the namespace used for every build/search/analysis step, confirm it with
-`list_namespaces` or graph statistics, report the `replace` choice for scoped
-updates, label federated errors, and state whether cross-namespace evidence was
-intentionally included.
+State the namespace used for every search or analysis step, confirm it with
+`list_namespaces` or graph statistics, label federated errors, and state whether
+cross-namespace evidence was intentionally included. Report any required graph
+write as awaiting explicit `ccg-build` invocation.
