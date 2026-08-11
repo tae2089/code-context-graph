@@ -2,7 +2,7 @@
 name: ccg-namespace
 description: "Isolate CCG graph build, search, documentation discovery, and analysis by namespace. Use when working across multiple repositories or services, preventing cross-project graph leakage, choosing safe scoped-update semantics, federating supported reads, or traversing materialized cross-namespace references. Do not use for ordinary single-repository work that fits the default namespace."
 metadata:
-  version: 1.4.0
+  version: 1.4.1
   openclaw:
     category: "code-intelligence"
     domain: "namespace"
@@ -11,6 +11,7 @@ metadata:
       - ccg
     skills:
       - ccg
+      - ccg-build
   cliHelp: "ccg build --help"
 ---
 
@@ -44,7 +45,7 @@ questions answered from recorded reasons.
 ## Scoped Update Decision
 
 Classify a partial incremental update as either an authoritative snapshot or a
-maintenance work slice. Use the `ccg` skill's Scoped Update Safety for the
+maintenance work slice. Use the `ccg-build` skill's Scoped Update Safety for the
 exact `include_paths` and replacement arguments, then record which behavior was
 chosen for the namespace.
 

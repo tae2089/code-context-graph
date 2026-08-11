@@ -71,4 +71,5 @@ For detailed parameters, see MCP schema.
 
 ## Prerequisites
 
-Requires `ccg build .` first. Schema error → `ccg migrate`, retry. (See `/ccg` skill.)
+Requires a populated, current graph. Use `/ccg-build` for build or migration;
+`/ccg` remains read-only discovery.

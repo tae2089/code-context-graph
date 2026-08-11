@@ -36,6 +36,7 @@ func TestProjectSkillsDeclareRuntimeContract(t *testing.T) {
 	}
 	want := map[string]expectation{
 		"ccg":           {domain: "core", cliHelp: "ccg --help"},
+		"ccg-build":     {domain: "build", cliHelp: "ccg build --help"},
 		"ccg-analyze":   {domain: "analysis", requiresCore: true},
 		"ccg-annotate":  {domain: "annotation", requiresCore: true},
 		"ccg-docs":      {domain: "documentation", requiresCore: true, cliHelp: "ccg docs --help"},
@@ -109,38 +110,43 @@ func TestProjectSkillsDeclareRuntimeContract(t *testing.T) {
 	}
 }
 
-func TestCoreSkillHasClaudeAndAntigravityProjectAdapters(t *testing.T) {
+func TestCoreSkillsHaveClaudeAndAntigravityProjectAdapters(t *testing.T) {
 	repoRoot := filepath.Join("..", "..", "..", "..")
-	canonicalPath := filepath.Join(repoRoot, "skills", "ccg", "SKILL.md")
-	canonicalRaw, err := os.ReadFile(canonicalPath)
-	if err != nil {
-		t.Fatalf("read canonical skill: %v", err)
-	}
-	canonical := parseSkillContract(t, canonicalRaw)
-
-	adapters := map[string]string{
-		"claude":      filepath.Join(repoRoot, ".claude", "skills", "ccg", "SKILL.md"),
-		"antigravity": filepath.Join(repoRoot, ".agents", "skills", "ccg", "SKILL.md"),
-	}
-	for runtime, path := range adapters {
-		t.Run(runtime, func(t *testing.T) {
-			raw, err := os.ReadFile(path)
+	for _, skillName := range []string{"ccg", "ccg-build"} {
+		t.Run(skillName, func(t *testing.T) {
+			canonicalPath := filepath.Join(repoRoot, "skills", skillName, "SKILL.md")
+			canonicalRaw, err := os.ReadFile(canonicalPath)
 			if err != nil {
-				t.Fatalf("read runtime adapter: %v", err)
+				t.Fatalf("read canonical skill: %v", err)
 			}
-			adapter := parseSkillContract(t, raw)
-			if adapter.Name != canonical.Name {
-				t.Errorf("name = %q, want canonical name %q", adapter.Name, canonical.Name)
+			canonical := parseSkillContract(t, canonicalRaw)
+
+			adapters := map[string]string{
+				"claude":      filepath.Join(repoRoot, ".claude", "skills", skillName, "SKILL.md"),
+				"antigravity": filepath.Join(repoRoot, ".agents", "skills", skillName, "SKILL.md"),
 			}
-			if adapter.Description != canonical.Description {
-				t.Errorf("description differs from canonical discovery contract")
-			}
-			if !strings.Contains(string(raw), "[canonical CCG skill](../../../skills/ccg/SKILL.md)") {
-				t.Error("adapter does not route to the canonical CCG skill")
-			}
-			linkedPath := filepath.Clean(filepath.Join(filepath.Dir(path), "..", "..", "..", "skills", "ccg", "SKILL.md"))
-			if linkedPath != filepath.Clean(canonicalPath) {
-				t.Errorf("canonical link resolves to %q, want %q", linkedPath, canonicalPath)
+			for runtime, path := range adapters {
+				t.Run(runtime, func(t *testing.T) {
+					raw, err := os.ReadFile(path)
+					if err != nil {
+						t.Fatalf("read runtime adapter: %v", err)
+					}
+					adapter := parseSkillContract(t, raw)
+					if adapter.Name != canonical.Name {
+						t.Errorf("name = %q, want canonical name %q", adapter.Name, canonical.Name)
+					}
+					if adapter.Description != canonical.Description {
+						t.Errorf("description differs from canonical discovery contract")
+					}
+					canonicalLink := "../../../skills/" + skillName + "/SKILL.md"
+					if !strings.Contains(string(raw), "("+canonicalLink+")") {
+						t.Errorf("adapter does not route to canonical skill %q", skillName)
+					}
+					linkedPath := filepath.Clean(filepath.Join(filepath.Dir(path), "..", "..", "..", "skills", skillName, "SKILL.md"))
+					if linkedPath != filepath.Clean(canonicalPath) {
+						t.Errorf("canonical link resolves to %q, want %q", linkedPath, canonicalPath)
+					}
+				})
 			}
 		})
 	}
@@ -242,11 +248,8 @@ func TestProjectSkillsCoverOperationalHazards(t *testing.T) {
 	skillsRoot := filepath.Join("..", "..", "..", "..", "skills")
 	required := map[string][]string{
 		"ccg": {
-			"`replace=false`",
-			"out-of-scope",
 			"`annotation_coverage`",
 			"names a `skill` instead of a `tool`",
-			"server-visible path",
 			"do not fan out",
 			"not found within the checked evidence",
 			"one grouped grep/read pass",
@@ -255,6 +258,13 @@ func TestProjectSkillsCoverOperationalHazards(t *testing.T) {
 			"overrides the general hybrid workflow",
 			"query budget",
 			"does not affect the conclusion",
+		},
+		"ccg-build": {
+			"`replace=false`",
+			"out-of-scope",
+			"server-visible path",
+			"streaming",
+			"git",
 		},
 		"ccg-analyze": {
 			"`max_depth`",
@@ -314,21 +324,24 @@ func TestProjectSkillsCentralizeSharedOperationalGuidance(t *testing.T) {
 	required := map[string][]string{
 		"ccg": {
 			"## Task Routing and Entry",
-			"## Graph Freshness",
-			"## Scoped Update Safety",
+			"## Freshness Boundary",
 			"## Response Budget Rule",
+		},
+		"ccg-build": {
+			"## Mandatory Contract",
+			"## Ingestion Boundary",
 		},
 		"ccg-analyze": {
 			"`ccg` skill's Response Budget Rule",
 		},
 		"ccg-annotate": {
-			"`ccg` skill's Graph Freshness workflow",
+			"`ccg-build` skill",
 		},
 		"ccg-docs": {
-			"`ccg` skill's Graph Freshness workflow",
+			"`ccg` skill's Freshness Boundary",
 		},
 		"ccg-namespace": {
-			"`ccg` skill's Scoped Update Safety",
+			"`ccg-build` skill's Scoped Update Safety",
 		},
 	}
 	forbidden := map[string][]string{

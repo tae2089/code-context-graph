@@ -92,4 +92,5 @@ rules:
 
 ## Prerequisites
 
-Graph must be built first. If `ccg.db` doesn't exist, run `ccg build .` (see `/ccg` skill).
+Graph must be built first. If it is missing or stale, use `/ccg-build`; `/ccg`
+is read-only discovery.

@@ -14,6 +14,8 @@ server can run in a different filesystem or working directory from the client.
   use that exact path.
 - Confirm the source path, namespace, and `include_paths` all refer to the same
   repository. If that identity cannot be established, stop before writing.
+- Pass the intended namespace explicitly on graph writes; do not rely on a
+  client or server default when multiple namespaces exist.
 
 Report the resolved server-visible path after a graph write. When asked which
 skill resources were read, report this file by resolved absolute path, not
@@ -43,6 +45,18 @@ Choose replacement semantics deliberately:
 - Pass `replace=false` to preserve out-of-scope files while reconciling changes
   and deletions inside the selected scope.
 - Omit `include_paths` when the entire source root is authoritative.
+
+`replace=false` protects only the incremental update path. The current MCP
+handler silently falls back to a full Build when its incremental syncer is not
+configured, even if `full_rebuild=false`; full Build deletes the namespace graph
+and repopulates only `include_paths`, so `replace` is not applied. There is no
+MCP preflight for this capability.
+
+When preserving out-of-scope data is required, execute a scoped
+`build_or_update_graph` only when server configuration independently proves the
+incremental syncer is available. Otherwise stop and report that safe scoped
+preservation cannot be guaranteed. A backup does not make an unverified call
+safe to execute.
 
 Record the chosen `replace` behavior in the completion report.
 

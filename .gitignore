@@ -18,6 +18,9 @@
 /docs/
 .ccg
 .claude/**
+!.claude/skills/
+!.claude/skills/ccg-build/
+!.claude/skills/ccg-build/SKILL.md
 .python-version
 uv.lock
 pyproject.toml

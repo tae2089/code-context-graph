@@ -2,7 +2,7 @@
 name: ccg-annotate
 description: "Author, refine, and verify CCG annotations such as @intent, @domainRule, @sideEffect, @mutates, @index, and @see. Use when adding business meaning to code, improving annotation-aware code or documentation retrieval, fixing annotation lint findings, checking supported tag syntax, or documenting operational contracts. Do not use for generated Markdown editing or annotations that merely restate symbol names."
 metadata:
-  version: 1.3.0
+  version: 1.3.1
   openclaw:
     category: "code-intelligence"
     domain: "annotation"
@@ -11,6 +11,7 @@ metadata:
       - ccg
     skills:
       - ccg
+      - ccg-build
 ---
 
 # ccg-annotate — Annotation Workflow
@@ -90,9 +91,9 @@ For cross-namespace behavior, explain the reason in the semantic tag and put the
 Annotations enter the search index only at graph build time. An annotation
 written but not rebuilt is invisible to `search` — the most common way to
 conclude, wrongly, that "annotations don't work". So rebuild first: run
-`ccg build <dir>`, or `ccg update <dir>` after ordinary edits — the
-`ccg` skill's Graph Freshness workflow decides which. Then run `ccg lint` to
-verify annotation quality and references.
+use the `ccg-build` skill to run `ccg build <dir>`, or `ccg update <dir>` after
+ordinary edits. Then run `ccg lint` to verify annotation quality and
+references.
 
 For representative changed symbols, call `get_annotation` and confirm the
 expected tags and values were actually stored. The parser returns unknown-tag

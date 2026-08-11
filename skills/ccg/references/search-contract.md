@@ -4,32 +4,36 @@ Read this file completely before an absence or completeness claim, and whenever
 `truncated`, `pool_truncated`, `annotation_coverage`, `weak_filtered`, or `next`
 can change the answer.
 
-## Mandatory Absence Gate
+## Mandatory Absence Algorithm
 
-This gate overrides the general hybrid workflow when the task asks for absence
-or completeness. Apply it before doing broad discovery or writing the
-conclusion:
+This algorithm overrides the general hybrid workflow for absence or
+completeness:
 
-1. **Query budget:** start with one grouped grep/read pass over current source
-   and one distinct CCG query in the appropriate shape. A prompt listing several
-   examples does not authorize one query per example. Following the exact
-   `next` paging call is not a new query.
-2. Do not add the other shape, split the query into individual words, build a
-   synonym grid, or enable `include_weak` merely because the first query missed.
-   An additional distinct query requires a concrete vocabulary mismatch or
-   ambiguous result that you can name before making the extra call. If you
-   cannot name one, stop instead of expanding.
-3. A confirmed absence requires verified graph freshness. An exhaustive grep
-   cannot compensate for unverified graph freshness in a hybrid absence claim.
-4. If freshness is unverified, the strongest allowed conclusion is: "not found
-   within the checked evidence; absence is not confirmed because graph
-   freshness was not verified."
+1. **Source pass:** combine the current task's exact clues into one alternation
+   and run one recursive grep/read pass. Derive the pattern from the task; never
+   reuse example vocabulary from this skill.
+2. **CCG pass:** run exactly one distinct query at `limit: 5`:
+   - Known term: choose one single rare domain anchor. Do not concatenate the
+     prompt's examples because CCG requires every query word in one document.
+   - Unknown symbol: ask one concise intent question.
+   Do not switch shape, split terms, retry synonyms, or enable `include_weak`
+   after a miss. Do not fan out. Only the exact call in `next` may extend this
+   pass.
+3. **Freshness:** set `graph_current=true` only when evidence proves the graph
+   represents relevant current source. Clean git state proves nothing; known
+   stale state means false. A freshness tool that accepts a path must receive a
+   verified server-visible path. If that path is unknown, skip the call and set
+   `graph_current=false` instead of trying the client-local path.
+4. **Paging:** follow exact `next` calls until both truncation flags are false.
 
-The sentence in item 4 must be the conclusion, not a caveat after a stronger
-claim. Never say the freshness gap "does not affect the conclusion." Before
-returning, count distinct queries; if the budget was exceeded, report the
-concrete expansion reason. Also verify that every read skill/resource is
-reported by resolved absolute path, not basename.
+```text
+absence_allowed = source_checked AND graph_current AND paging_complete
+```
+
+When false, conclude: "not found within the checked evidence; absence is not
+confirmed because graph freshness or paging was not verified." Never say
+"does not exist," "absence confirmed," or that the gap does not affect the
+conclusion. Report every read skill/resource by resolved absolute path.
 
 ## Evidence Shape
 
@@ -95,21 +99,8 @@ known, report that the suggestion is not actionable instead of inventing one.
 An empty response distinguishes no retrieved candidates, no justifiable
 candidates, an offset past the end, and missing recorded reasons. Do not collapse
 those states into "the code does not exist."
-
-Even for an absence investigation, start with the one query shape appropriate
-to the available clue. Do not fan out merely because the first query is empty.
-
-Before an absence claim:
-
-1. Verify relevant current source with grep/read.
-2. Use the one CCG query shape appropriate to the clue.
-3. Verify graph freshness against source changes.
-4. Exhaust paging signals through the exact calls in `next`.
-5. Explain any annotation-coverage gap or conditional tool not run.
-
-If freshness was not verified, say "not found within the checked evidence;
-absence is not confirmed because graph freshness was not verified." Never pair
-an unqualified "does not exist" conclusion with a later freshness caveat.
+For absence or completeness, apply the mandatory algorithm without fallback
+fan-out.
 
 Every hit's `node_id` can start `get_node`, `query_graph`,
 `get_impact_radius`, or `trace_flow`. Traverse only when the answer makes a

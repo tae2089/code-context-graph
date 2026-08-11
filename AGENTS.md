@@ -22,11 +22,12 @@ Compatible with GitHub (`X-Hub-Signature-256`) and Gitea (`X-Gitea-Signature`, `
 Push event pipeline: receive push event -> automatic clone/pull -> graph build -> DB persistence.
 Graceful shutdown: SIGINT/SIGTERM propagates context cancellation to in-progress clone/build work.
 
-## Agent Skills (5)
+## Agent Skills (6)
 
 | Skill            | Description                                                         |
 | ---------------- | ------------------------------------------------------------------- |
-| `/ccg`           | Core build and search: parsing, graph build, query, search          |
+| `/ccg`           | Read-only discovery: search, lookup, and freshness assessment       |
+| `/ccg-build`     | Graph ingestion: build, update, migrate, and postprocess            |
 | `/ccg-analyze`   | Code analysis: impact radius, flow tracing, and change risk         |
 | `/ccg-annotate`  | Annotation system: AI annotation workflow and tag reference         |
 | `/ccg-docs`      | Documentation: generation, DB-backed discovery, and lint            |
@@ -55,7 +56,8 @@ use ccg MCP tools and Agent Skills first.
 - For code lookup and natural-language code understanding alike, start with ccg MCP `search`: it answers identifier queries and "why was this built" questions from one index, then walk from the `node_id` values it returns. Use the `/ccg-docs` skill and `get_doc_content` to read a generated doc.
 - For exact symbol locations, call relationships, and graph metadata, use ccg MCP `query_graph`, `get_node`, `get_minimal_context`, or the `/ccg` skill.
 - For impact radius, flows, and change-risk analysis, prefer the `/ccg-analyze` skill and related MCP tools (`get_impact_radius`, `trace_flow`, `detect_changes`, `get_affected_flows`).
-- For simple string checks, file existence checks, or cases where the ccg index is missing or stale, use `rg` as a supplement. If needed, refresh the graph with `ccg build .` or `ccg update .`.
+- For simple string checks, file existence checks, or cases where the ccg index is missing or stale, use `rg` as a supplement. Use the `/ccg-build` skill when graph creation or refresh is needed.
+- Use `/ccg-build` for graph migration and postprocessing as well. Remote ingestion stays Git webhook/sync based; do not treat MCP write tools as source-upload APIs.
 
 ## Documentation
 

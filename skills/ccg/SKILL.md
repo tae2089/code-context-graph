@@ -1,8 +1,8 @@
 ---
 name: ccg
-description: "Build, update, inspect, and search code-context-graph graphs. Use when a task needs graph setup or freshness, annotation-aware discovery, symbol or relationship lookup, intent and impact analysis, safe scoped synchronization, hybrid CCG plus source verification before absence or completeness claims, or routing to CCG analysis, docs, annotation, and namespace workflows. Do not use for one simple file or string lookup when grep/read is sufficient."
+description: "Inspect and search code-context-graph graphs without mutating them. Use when a task needs annotation-aware discovery, symbol or relationship lookup, graph population or freshness assessment, hybrid CCG plus source verification before absence or completeness claims, or routing to CCG analysis, docs, annotation, namespace, and build workflows. Do not use for graph build, update, migration, or postprocessing; use the ccg-build skill instead."
 metadata:
-  version: 1.5.3
+  version: 2.0.0
   openclaw:
     category: "code-intelligence"
     domain: "core"
@@ -25,7 +25,6 @@ when its trigger applies:
 | Trigger | Reference |
 | --- | --- |
 | Absence/completeness claim, exhaustive search, or no credible hit when a result signal must decide the next action | [`references/search-contract.md`](references/search-contract.md) |
-| Build, update, migrate, postprocess, or scoped graph write | [`references/graph-maintenance.md`](references/graph-maintenance.md) |
 | Supported language or extension question | [`references/supported-languages.md`](references/supported-languages.md) |
 
 Do not load those references for an ordinary location lookup or a ranked search
@@ -44,6 +43,7 @@ whose credible candidate has already been verified in source.
 | Generated documentation | `ccg-docs` skill if available |
 | Write or repair annotations | `ccg-annotate` skill if available |
 | Multiple repositories or services | `ccg-namespace` skill if available |
+| Build, update, migrate, postprocess, or scoped graph write | `ccg-build` skill if available |
 
 For an unfamiliar MCP task, call `get_minimal_context` once and confirm the
 namespace with `list_graph_stats`. Do not rebuild merely to begin a read-only
@@ -57,10 +57,6 @@ selected symbols and runtime semantics in source.
 ```bash
 ccg search --limit 5 "<query>"  # Ranked files; annotations are indexed
 ccg status                      # Population, not freshness
-ccg update .                    # Ordinary incremental synchronization
-ccg build .                     # First use, intentional rebuild, or recovery
-ccg docs --out docs
-ccg serve                       # Local stdio MCP
 ```
 
 Use `ccg-server` for remote Streamable HTTP MCP. Use `ccg <command> --help` for
@@ -124,8 +120,9 @@ completely, then:
 
 1. Spend one grouped grep/read pass and one distinct CCG query. Named examples
    are search terms, not permission to fan out into separate queries.
-2. Verify graph freshness against relevant source changes. `ccg status` proves
-   only population.
+2. Verify that the graph is current against relevant source changes. Merely
+   checking freshness and discovering a stale graph is not successful freshness
+   verification. `ccg status` proves only population.
 3. When either truncation signal is true, invoke the exact paging call in
    `next`; never calculate or modify `offset`.
 
@@ -147,19 +144,15 @@ removes ranking uncertainty but still reports only stored graph state, so
 freshness limits remain. An unknown target returns `scope: "unknown"` plus the
 places that actually declare or call that name.
 
-## Graph Freshness
+## Freshness Boundary
 
-Before any graph write, read
-[`references/graph-maintenance.md`](references/graph-maintenance.md) completely.
-Use incremental update after ordinary source edits, full build for first use or
-recovery, and choose scoped `replace` behavior deliberately. Resolve the
-server-visible project path first; never assume that `.` names the intended
-repository.
+`ccg status` and `list_graph_stats` prove that graph data exists, not that it
+matches current source. Compare available graph provenance with relevant source
+changes before relying on a miss or relationship result.
 
-## Scoped Update Safety
-
-For `include_paths`, read the maintenance reference and choose `replace=true`
-or `replace=false` deliberately before writing.
+This skill is read-only. When the graph is missing or stale and the task needs a
+current graph, stop the read workflow and use the `ccg-build` skill if available.
+Do not perform graph writes from this skill.
 
 ## Response Budget Rule
 
@@ -178,17 +171,13 @@ or `replace=false` deliberately before writing.
 
 - `search` produces ranked candidates, not exact graph proof.
 - Report stale or missing graph state instead of presenting it as current.
-- Use specialized CCG skills for analysis, docs, annotations, and namespaces.
-- Never claim a degraded postprocess refreshed every requested artifact.
+- Use specialized CCG skills for analysis, docs, annotations, namespaces, and graph writes.
 
 ## Completion
 
 For read-only work, report the namespace, freshness evidence or gap, commands or
 tools used, result limit, truncation state, and whether grep/read corroborated
 CCG when absence or completeness was claimed.
-
-For graph writes, also report scoped `replace` behavior and every failed or
-skipped postprocess step. List any source fallback or verification not run.
 
 When asked which skill resources were read, report their resolved absolute
 paths when available; do not substitute repeated basenames. A basename-only

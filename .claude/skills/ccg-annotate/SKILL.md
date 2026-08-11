@@ -65,7 +65,8 @@ For each declaration, read the code and determine:
 - Do NOT add trivial annotations (e.g., `@intent returns the name` for `getName()`)
 
 ### Step 4: Rebuild
-After annotating, run `ccg build .` to re-index with new annotations.
+After annotating, use `/ccg-build` to re-index with new annotations. Do not run
+graph writes through the read-only `/ccg` skill.
 
 ## Annotation Quality Rules
 
