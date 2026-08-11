@@ -2,7 +2,7 @@
 name: ccg
 description: "Build, update, inspect, and search code-context-graph graphs and route to specialized CCG workflows. Use when a task needs CCG setup, graph freshness, algorithm or feature-pipeline understanding, exact symbol or relationship lookup, annotation-aware full-text search, safe full or scoped synchronization, MCP graph queries, combining direct source lookup with CCG before an absence or completeness claim, or selection among CCG analysis, docs, annotation, and namespace skills. Do not use for a simple file or string lookup when grep/read is sufficient."
 metadata:
-  version: 1.4.2
+  version: 1.4.3
   openclaw:
     category: "code-intelligence"
     domain: "core"
@@ -191,9 +191,10 @@ investigation:
 2. When the question cannot name a symbol yet, start with `ccg search`. Feed the
    returned qualified names, paths, and distinctive reason terms into grep/read
    to verify the candidate against source.
-3. Use the one CCG query shape that fits the clue: an identifier or keyword for
-   a named thing, or a plain-language question when the symbol is unknown. Do
-   not run both shapes by default.
+3. **Shape 1 and Shape 2 are alternatives, not a checklist.** Use the one shape
+   that fits the clue: an identifier or keyword for a named thing, or a
+   plain-language question when the symbol is unknown. Run both only when the
+   task independently contains both kinds of clue.
 4. Merge corroborating results by file path and symbol instead of presenting
    duplicate lists. Preserve why each result was found (`exact text`,
    `identifier`, `recorded reason`, or `graph relationship`). Treat source as
@@ -201,36 +202,42 @@ investigation:
    intent and relationships, then verify those claims with the relevant graph
    query or source read.
 
-Run the two searches in parallel when the request contains both an exact clue
-and an intent/relationship question, or when a completeness claim matters.
+Run grep/read and the selected CCG search in parallel when the request contains
+both an exact clue and an intent/relationship question, or when a completeness
+claim matters.
 
 ### Before an Absence or Completeness Claim
 
 The minimum check is:
 
 1. Search the current source with grep/read.
-2. Run the appropriate CCG search shape and verify graph freshness.
-3. Follow the response's paging call when `truncated` or `pool_truncated` is
-   true. A miss in either source search or CCG alone is not proof of absence.
+2. Run the one appropriate CCG search shape. Verify freshness by comparing the
+   graph with relevant source changes; `ccg status` and node counts prove only
+   that the graph is populated.
+3. When `truncated` or `pool_truncated` is true, invoke the exact call supplied
+   by `next`. Never calculate or modify `offset` yourself. When both flags are
+   false, no paging call is required.
+
+A miss in either source search or CCG alone is not proof of absence.
 
 Everything else is conditional:
 
-- Use `include_weak: true` only when `next` recommends it or the task explicitly
-  needs to inspect candidates withheld for weak evidence.
+- Use `include_weak: true` only when `next` explicitly recommends it or the user
+  asks to inspect candidates withheld for weak evidence. Do not enable it merely
+  because weak candidates exist.
 - Use `describe` only after a path or candidate scope is known and an unranked
   declaration inventory would answer the question.
 - Traverse the graph only when the answer makes a relationship, flow, or impact
   claim.
 
-Do not present those conditional tools as universal prerequisites. `ccg status`
-or node counts prove that a graph is populated, not that it is fresh; compare it
-with relevant source changes and update the graph when needed.
+Do not present those conditional tools as universal prerequisites.
 
 ## Reading a Path You Already Have
 
-`search` ranks; it can be wrong about what matters.
-`describe` does not rank, so it cannot be. Once either tool hands back a path —
-or a stack frame or a diff does — read it with `describe`:
+`search` ranks; it can be wrong about what matters. `describe` removes ranking
+uncertainty, but it still reports only what the stored graph contains and is
+subject to the same freshness limits. Once either tool hands back a path — or a
+stack frame or a diff does — read it with `describe`:
 
 ```text
 describe(target: "internal/app/search")        # folders and files one level down
