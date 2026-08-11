@@ -84,10 +84,14 @@ order, and insertion order is decided by the order files happened to be walked �
 nothing a reader chose and nothing they can see. Without the second key,
 indexing an unchanged repository again could hand back a different cut, because
 the `LIMIT` applies after the sort and drops what falls past it. That is a
-reproducibility guarantee, not a parity one: it does not make the two backends
-agree, because they still disagree about which rows tie. `rankorder_*_test.go`
-holds both properties — relevance decides the order, and identity decides what
-relevance left tied.
+reproducibility guarantee, not a parity one, and the distinction is worth being
+blunt about: it does not remove the skip above and was never going to. Measured
+with it applied, the two backends still order retrieval differently on 42 of the
+139 golden queries — 43 before. A second sort key cannot reconcile two cuts when
+the first key already disagrees, and bm25 and `ts_rank` disagree about which
+rows are tied in the first place. Closing that gap means changing the primary
+key, which is a different change. `rankorder_*_test.go` holds both properties —
+relevance decides the order, and identity decides what relevance left tied.
 
 There used to be a third path here. `wiki_search` named the Wiki web UI's search
 box — `retrieval.FromDB`, full-text plus a namespace scan — and had its own
@@ -128,6 +132,26 @@ change moves nothing here until this file is recaptured, and it is the recapture
 a reviewer has to read. Whoever wants the ratchet to measure the scorer directly
 has to change what is captured — the matched documents rather than the ranked
 hits — which is a fixture format change, not a scoring one.
+
+### Drift the next recapture will show
+
+Because the fixture is frozen, a change to retrieval does not reach it until
+someone recaptures — and then the whole backlog of such changes arrives at once,
+looking like one unexplained diff. What is known to be waiting, so it is not
+mistaken for a regression:
+
+- **The retrieval tie-break** (`ORDER BY ... qualified_name, file_path, id` in
+  both backends' `matchRows`, added for #103). Against the fixture committed at
+  `72305d4`, recapturing moves 11 queries within their pool and changes one
+  pool's membership: `discovery` stays at 50 candidates, drops
+  `treesitter.parseNodeWorkspaces` and gains `treesitter.dirMatchesPrefix`. The
+  scoreboard was measured across that change and is byte-identical on all four
+  corpora, so the reorder costs no ranking quality — it is the frozen pool
+  catching up to what retrieval already returns.
+
+Add to this list when a change alters retrieval but leaves the scoreboard
+untouched, and delete an entry once a recapture has absorbed it. An entry here
+is a debt the fixture has not paid yet, not a defect.
 
 ## Running it
 
