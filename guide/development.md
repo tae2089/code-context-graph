@@ -205,10 +205,55 @@ go test ./internal/adapters/inbound/cli -run TestProjectSkills -count=1
 
 - TDD: Red → Green → Refactor
 - Tidy First: Separate structural changes from behavioral changes
-- Use GORM queries only (no raw SQL)
+- Use GORM's model layer for queries; raw SQL only where GORM has no form for
+  the statement (see [Raw SQL](#raw-sql))
 - Logging: `slog`
 - CLI: `cobra` framework
 - Build flags: `CGO_ENABLED=1 -tags "fts5"`
+
+### Raw SQL
+
+Write queries through GORM's model layer — `Model`, `Where`, `FindInBatches`,
+`Migrator` — wherever GORM has a form for the statement. That is the default, and
+outside the two packages named below a raw `Raw`/`Exec` is a review stop.
+
+Raw SQL is allowed only where GORM has no form at all. That is not a matter of
+taste; each category below names something GORM's builder or migrator cannot
+express:
+
+- **Full-text operators and index maintenance** — SQLite FTS5 `MATCH` and its
+  `rank` column; PostgreSQL `to_tsvector`, `to_tsquery`, `ts_rank`, `@@`. GORM
+  has no builder form for a match operator or a rank expression.
+- **DDL on the FTS5 virtual tables** — `CREATE VIRTUAL TABLE … USING fts5`,
+  and the `DROP`/`ALTER TABLE … RENAME TO` pairs the legacy upgrade needs.
+  `AutoMigrate` does not model a virtual table.
+- **Writes into the FTS5 virtual tables** — the namespace-scoped deletes and the
+  bulk inserts. These tables have no GORM model and are not in `AutoMigrate`;
+  routing them through `Table("search_fts")` would name the table in a string
+  either way, and the bulk insert is one statement on purpose so a rebuild does
+  not pay a round trip per row.
+- **Schema introspection GORM's migrator cannot do** — `PRAGMA table_info`,
+  `sqlite_master`, `information_schema.columns`, `pg_indexes`, `pg_trigger`.
+- **Connection pragmas** — `PRAGMA journal_mode`, `PRAGMA busy_timeout`.
+
+These live in `internal/adapters/outbound/searchsql` and `internal/db` only.
+
+Two constraints hold inside an exempt statement. Table and column names come
+from package constants, never from caller input. Every value is a bound
+parameter — `Exec("DELETE FROM "+sqliteFTSTable+" WHERE namespace = ?", ns)` is
+correct; concatenating `ns` into the string is not, and no amount of exemption
+makes it correct.
+
+The introspection exemption is the one worth checking rather than trusting,
+because GORM does ship `Migrator().HasTable`, `HasColumn` and `ColumnTypes`.
+`searchsql/migrator_limits_test.go` runs all three against a real FTS5 table and
+records what happens: `HasTable` works, `ColumnTypes` fails with `invalid DDL`,
+and `HasColumn` matches the DDL text rather than the schema, so it can report
+`false` for a column that exists. `HasTable` works but returns no error, while
+every caller of `sqliteTableExists` propagates one — swallowing it would turn a
+transient failure into "the table is absent" in the upgrade path. If a GORM
+upgrade makes that test fail, the exemption should be reconsidered, not the
+test relaxed.
 
 ### Declaration order within a file
 
