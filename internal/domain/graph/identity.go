@@ -11,7 +11,7 @@ import "cmp"
 // stable sort, a comparison across two databases — belongs on this and not on
 // the id.
 //
-// The four fields are the columns of the node table's uniqueness index
+// The five fields are the four columns of the node table's uniqueness index
 // (namespace, qualified_name, file_path, start_line) plus the kind, so two
 // different nodes cannot share one Identity.
 // @intent give ranking a key that survives re-indexing, which the node id does not.
