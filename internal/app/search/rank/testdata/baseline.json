@@ -270,7 +270,7 @@
     "relevant": 4,
     "found": 4,
     "rank": 1,
-    "weak_filtered": 16
+    "weak_filtered": 17
   },
   {
     "query": "flow membership",
@@ -535,7 +535,7 @@
     "query": "what makes the order files are parsed the same on every build",
     "bucket": "behavior",
     "retrieved": true,
-    "returned": 23,
+    "returned": 24,
     "relevant": 1,
     "found": 1,
     "rank": 2
@@ -636,7 +636,7 @@
     "query": "what made readiness fail while webhook work kept piling up",
     "bucket": "incident",
     "retrieved": true,
-    "returned": 30,
+    "returned": 29,
     "relevant": 1,
     "found": 1,
     "rank": 3
@@ -690,7 +690,7 @@
     "query": "why does editing a function with many outgoing links rank as riskier",
     "bucket": "behavior",
     "retrieved": false,
-    "returned": 24,
+    "returned": 23,
     "relevant": 1,
     "found": 0,
     "rank": 0
@@ -838,7 +838,7 @@
   {
     "query": "what decides whether generated documentation may delete an existing page",
     "bucket": "policy",
-    "retrieved": false,
+    "retrieved": true,
     "returned": 16,
     "relevant": 1,
     "found": 0,

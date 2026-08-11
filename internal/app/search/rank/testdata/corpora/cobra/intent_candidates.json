@@ -1,15 +1,17 @@
 {
-  "ExactArgs": {},
-  "Excute": {},
-  "ExecuteC": {},
-  "SuggestionsFor": {},
-  "active help": {},
-  "database connection pool": {},
-  "flag error": {},
-  "flag groups": {},
-  "levenshtein": {},
-  "persistent flags": {},
-  "shell completion": {},
-  "usage template": {},
-  "valid args": {}
+  "queries": {
+    "ExactArgs": [],
+    "Excute": [],
+    "ExecuteC": [],
+    "SuggestionsFor": [],
+    "active help": [],
+    "database connection pool": [],
+    "flag error": [],
+    "flag groups": [],
+    "levenshtein": [],
+    "persistent flags": [],
+    "shell completion": [],
+    "usage template": [],
+    "valid args": []
+  }
 }
