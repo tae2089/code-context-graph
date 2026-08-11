@@ -287,15 +287,19 @@ type ftsRow struct {
 // tied rows past it are not reordered but dropped, so the same repository indexed
 // twice could answer differently. `n.id` last makes the key total.
 //
-// The key order here is deliberately NOT rank.compareIdentity's, which compares
-// file path before qualified name (and then kind and namespace). The difference
-// is not cosmetic: it decides which tied rows survive the LIMIT. File-path-first
-// would cut on file boundaries more often, which is closer to what wire.FileGroup
-// promises one layer up — that a file appearing in an answer appears whole.
-// Aligning the two is #106's job, where compareIdentity is reused across
-// retrieval, rerank and intent together and one measurement covers all three.
-// Do not flip these keys on their own: every ranking number and every recapture
-// figure recorded for #103 was measured with this order.
+// The key order here is deliberately NOT graph.CompareIdentity's, which compares
+// file path before qualified name (and then kind, namespace and start line). The
+// difference is not cosmetic: it decides which tied rows survive the LIMIT.
+// File-path-first would cut on file boundaries more often, which is closer to what
+// wire.FileGroup promises one layer up — that a file appearing in an answer appears
+// whole.
+//
+// #106 gave rerank and intent scoring that one shared key; retrieval is the layer
+// it left alone, because flipping these keys changes which rows the LIMIT keeps and
+// so moves measured ranking numbers. Do not flip them on their own: every ranking
+// number and every recapture figure recorded for #103 was measured with this order,
+// so the flip needs a -capture-golden recapture and a re-judgment landing as its own
+// change.
 //
 // @intent let Query run the same retrieval twice with a different expression.
 func (s *SQLiteBackend) matchRows(ctx context.Context, db *gorm.DB, ftsQuery, ns string, limit int) ([]ftsRow, error) {
@@ -362,7 +366,13 @@ func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, li
 // intentrank so that this backend and the PostgreSQL one answer the same
 // question the same way. What is left here is retrieval, which is what the index
 // is for.
-// @intent hand every candidate reason to shared scoring, in whatever order the index produced.
+//
+// The join onto nodes carries each candidate's identity — path, qualified name,
+// kind, namespace, start line — because that is what intentrank breaks its score
+// ties on. It also drops index rows whose node is gone, the same way matchRows
+// does: an orphan cannot be scored and would otherwise spend a row of the
+// candidate cap.
+// @intent hand every candidate reason to shared scoring, with the identity that scoring breaks ties on.
 // @requires maxCandidates must be greater than 0.
 // @return returns unordered candidates with the exact text that was indexed for each.
 func (s *SQLiteBackend) MatchIntent(ctx context.Context, db *gorm.DB, query string, maxCandidates int) ([]intentrank.Doc, error) {
@@ -376,9 +386,11 @@ func (s *SQLiteBackend) MatchIntent(ctx context.Context, db *gorm.DB, query stri
 
 	var docs []intentrank.Doc
 	if err := db.WithContext(ctx).Raw(
-		`SELECT CAST(node_id AS INTEGER) AS node_id, content
+		`SELECT CAST(intent_fts.node_id AS INTEGER) AS node_id, intent_fts.content,
+		        n.file_path, n.qualified_name, n.kind, n.namespace, n.start_line
 		 FROM intent_fts
-		 WHERE intent_fts MATCH ? AND namespace = ?
+		 JOIN nodes n ON n.id = CAST(intent_fts.node_id AS INTEGER)
+		 WHERE intent_fts MATCH ? AND intent_fts.namespace = ?
 		 LIMIT ?`, ftsQuery, requestctx.FromContext(ctx), maxCandidates).Scan(&docs).Error; err != nil {
 		return nil, trace.Wrap(err, "intent fts query")
 	}

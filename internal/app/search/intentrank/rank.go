@@ -10,15 +10,38 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/app/search/identtoken"
 	"github.com/tae2089/code-context-graph/internal/app/search/queryterm"
+	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
 // Doc is one candidate the index admitted: a node and one recorded reason that
 // was indexed for it. A node that recorded several reasons arrives as several
 // Docs sharing a node id.
+//
+// It carries the node's identity alongside its id because scoring ties are the
+// normal case here, and the tie-break has to mean the same thing after a
+// re-index. An id cannot: it is handed out in the order rows were written.
 // @intent carry the exact indexed text into scoring so the score is computed over what was matched.
 type Doc struct {
-	NodeID  uint
-	Content string
+	NodeID        uint
+	Content       string
+	FilePath      string
+	QualifiedName string
+	Kind          graph.NodeKind
+	Namespace     string
+	StartLine     int
+}
+
+// identity is who this candidate's node is, in the form every layer of search
+// breaks ties on.
+// @intent keep the fields that make up the tie-break named in one place.
+func (d Doc) identity() graph.Identity {
+	return graph.Identity{
+		FilePath:      d.FilePath,
+		QualifiedName: d.QualifiedName,
+		Kind:          d.Kind,
+		Namespace:     d.Namespace,
+		StartLine:     d.StartLine,
+	}
 }
 
 // Match is one declaration the question reached, and the terms of the question
@@ -132,9 +155,10 @@ func Rank(question string, docs []Doc, corpusSize, limit int) Result {
 	// term, summed over terms, charges each term exactly the length of the reason
 	// it was written in and still counts how much of the question was answered.
 	type scored struct {
-		nodeID uint
-		score  float64
-		best   []float64
+		nodeID   uint
+		identity graph.Identity
+		score    float64
+		best     []float64
 	}
 	grouped := make([]scored, 0, len(docs))
 	position := make(map[uint]int, len(docs))
@@ -143,7 +167,7 @@ func Rank(question string, docs []Doc, corpusSize, limit int) Result {
 		if !seen {
 			at = len(grouped)
 			position[doc.NodeID] = at
-			grouped = append(grouped, scored{nodeID: doc.NodeID, best: make([]float64, len(groups))})
+			grouped = append(grouped, scored{nodeID: doc.NodeID, identity: doc.identity(), best: make([]float64, len(groups))})
 		}
 		node := &grouped[at]
 		for g := range groups {
@@ -165,14 +189,21 @@ func Rank(question string, docs []Doc, corpusSize, limit int) Result {
 		results = append(results, node)
 	}
 
-	// The node id is not a preference, it is the promise that asking for one more
-	// row extends the answer instead of reshuffling it. Reasons are one sentence
-	// long, so exact ties are common rather than rare.
+	// The tie-break is not a preference, it is the promise that asking for one
+	// more row extends the answer instead of reshuffling it. Reasons are one
+	// sentence long, so exact ties are common rather than rare.
+	//
+	// It breaks on identity and not on the node id, which used to sit here. An id
+	// is handed out in the order rows were written, so it kept that promise for a
+	// single database and broke a bigger one: index the same repository twice in a
+	// different order and the same question came back with a different top hit.
+	// Identity is the same key the reranker uses, so the two layers of one search
+	// cannot disagree about who comes first.
 	sort.SliceStable(results, func(a, b int) bool {
 		if results[a].score != results[b].score {
 			return results[a].score > results[b].score
 		}
-		return results[a].nodeID < results[b].nodeID
+		return graph.CompareIdentity(results[a].identity, results[b].identity) < 0
 	})
 
 	matches := make([]Match, 0, min(limit, len(results)))
