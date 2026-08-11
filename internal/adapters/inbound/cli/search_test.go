@@ -17,9 +17,9 @@ import (
 
 	"github.com/tae2089/code-context-graph/internal/adapters/outbound/graphgorm"
 	search "github.com/tae2089/code-context-graph/internal/adapters/outbound/searchsql"
-	searchapp "github.com/tae2089/code-context-graph/internal/app/search"
 	"github.com/tae2089/code-context-graph/internal/app/search/evidence"
 	intentapp "github.com/tae2089/code-context-graph/internal/app/search/intent"
+	"github.com/tae2089/code-context-graph/internal/app/search/offsetrule"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
@@ -678,7 +678,7 @@ func TestSearchCommand_RejectsNonPositiveLimit(t *testing.T) {
 //
 // The sentence is read from searchapp rather than spelled out here, so that
 // "the flag and the tool agree" is what this asserts. What the words actually
-// are is TestValidateOffset_SaysOneSentence's job, in the package that owns
+// are is TestValidate_SaysOneSentence's job, in the package that owns
 // them.
 func TestSearchCommand_RejectsNegativeOffset(t *testing.T) {
 	for _, offset := range []string{"-1", "-42"} {
@@ -691,7 +691,7 @@ func TestSearchCommand_RejectsNegativeOffset(t *testing.T) {
 
 		err := executeCmd(deps, stdout, stderr, "search", "--offset", offset, "hello")
 
-		if err == nil || !strings.Contains(err.Error(), searchapp.OffsetMustNotBeNegative) {
+		if err == nil || !strings.Contains(err.Error(), offsetrule.MustNotBeNegative) {
 			t.Fatalf("expected offset validation error for %s, got %v", offset, err)
 		}
 		if called {
@@ -707,7 +707,7 @@ func TestSearchCommand_RejectsNegativeOffsetOnAnEmptyIndex(t *testing.T) {
 
 	err := executeCmd(deps, stdout, stderr, "search", "--offset", "-1", "nothing-matches-this")
 
-	if err == nil || !strings.Contains(err.Error(), searchapp.OffsetMustNotBeNegative) {
+	if err == nil || !strings.Contains(err.Error(), offsetrule.MustNotBeNegative) {
 		t.Fatalf("expected offset validation error, got %v", err)
 	}
 }

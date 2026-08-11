@@ -954,25 +954,3 @@ func TestSearch_ShowsADomainRuleWhenItIsTheOnlyReasonRecorded(t *testing.T) {
 		t.Errorf("Reason = %q, want the recorded domain rule", got)
 	}
 }
-
-// The exact sentence, spelled out once. Every other test that cares about it
-// compares against the constant, so this is the only place a reword shows up as
-// a failure — which is the point: what the CLI prints and what an MCP tool
-// answers with are user-visible text, and changing them should be a decision
-// somebody made rather than a rename that slipped through.
-func TestValidateOffset_SaysOneSentence(t *testing.T) {
-	if OffsetMustNotBeNegative != "offset must not be negative" {
-		t.Fatalf("the shared sentence changed to %q; update every surface that shows it, then this test", OffsetMustNotBeNegative)
-	}
-
-	err := ValidateOffset(-1)
-	if err == nil {
-		t.Fatal("expected a negative offset to be rejected")
-	}
-	if !strings.Contains(err.Error(), OffsetMustNotBeNegative) {
-		t.Fatalf("ValidateOffset(-1) = %q, want it to say %q", err.Error(), OffsetMustNotBeNegative)
-	}
-	if err := ValidateOffset(0); err != nil {
-		t.Fatalf("ValidateOffset(0) = %v, want nil", err)
-	}
-}

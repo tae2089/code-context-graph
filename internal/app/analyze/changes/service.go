@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	analyzeapp "github.com/tae2089/code-context-graph/internal/app/analyze"
+	"github.com/tae2089/code-context-graph/internal/app/search/offsetrule"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
@@ -70,8 +71,8 @@ func (s *Service) AnalyzePage(ctx context.Context, repoDir, baseRef string, limi
 	if limit > maxAnalyzePageLimit {
 		return Result{}, fmt.Errorf("limit must be <= %d, got %d", maxAnalyzePageLimit, limit)
 	}
-	if offset < 0 {
-		return Result{}, fmt.Errorf("offset must be >= 0, got %d", offset)
+	if err := offsetrule.Validate(offset); err != nil {
+		return Result{}, err
 	}
 
 	hits, err := s.changedNodeHits(ctx, repoDir, baseRef)

@@ -10,7 +10,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tae2089/trace"
 
-	searchapp "github.com/tae2089/code-context-graph/internal/app/search"
+	"github.com/tae2089/code-context-graph/internal/app/search/offsetrule"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 	"github.com/tae2089/code-context-graph/internal/obs"
@@ -211,8 +211,8 @@ func validatePositiveLimit(limit int) error {
 //
 // @intent let a caller who mistyped an offset read what went wrong instead of a transport failure.
 func validateOffset(offset int) error {
-	if err := searchapp.ValidateOffset(offset); err != nil {
-		return newToolResultErr(searchapp.OffsetMustNotBeNegative)
+	if err := offsetrule.Validate(offset); err != nil {
+		return newToolResultErr(offsetrule.MustNotBeNegative)
 	}
 	return nil
 }
