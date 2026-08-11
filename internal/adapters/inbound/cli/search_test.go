@@ -283,13 +283,13 @@ func seedCrowdedFile(t *testing.T, db *gorm.DB, dense, quiet int) {
 	nodes := make([]graph.Node, 0, dense+quiet)
 	for i := range dense {
 		nodes = append(nodes, graph.Node{
-			Name: fmt.Sprintf("syncQueueStep%03d", i), QualifiedName: fmt.Sprintf("pkg.SyncQueue.step%03d", i),
+			Name: fmt.Sprintf("syncQueueBusy%03d", i), QualifiedName: fmt.Sprintf("pkg.SyncQueue.busy%03d", i),
 			Kind: graph.NodeKindFunction, FilePath: "crowded.go", StartLine: i*10 + 1, EndLine: i*10 + 5, Language: "go",
 		})
 	}
 	for i := range quiet {
 		nodes = append(nodes, graph.Node{
-			Name: fmt.Sprintf("syncQueueStep%03d", dense+i), QualifiedName: fmt.Sprintf("pkg.SyncQueue.quiet%03d", i),
+			Name: fmt.Sprintf("syncQueueQuiet%03d", i), QualifiedName: fmt.Sprintf("pkg.SyncQueue.quiet%03d", i),
 			Kind: graph.NodeKindFunction, FilePath: fmt.Sprintf("quiet%02d.go", i), StartLine: 1, EndLine: 5, Language: "go",
 		})
 	}
