@@ -321,6 +321,13 @@
       "intent": "preserve a stable response envelope for annotation summary, context, and tags."
     },
     {
+      "id": 48,
+      "name": "annotation",
+      "qualified_name": "github.com/tae2089/code-context-graph/internal/domain/annotation",
+      "kind": "package",
+      "file_path": "internal/domain/annotation"
+    },
+    {
       "id": 393,
       "name": "annotationMarkdownBlocks",
       "qualified_name": "wikiserver.annotationMarkdownBlocks",
@@ -630,14 +637,6 @@
       "kind": "type",
       "file_path": "web/wiki/src/api.ts",
       "intent": "describe a parsed ccg:// cross-namespace reference attached to @see annotations."
-    },
-    {
-      "id": 1957,
-      "name": "retrieveDocs",
-      "qualified_name": "retrieveDocs",
-      "kind": "function",
-      "file_path": "web/wiki/src/api.ts",
-      "intent": "retrieve ranked generated docs using DB-backed graph and annotation evidence."
     }
   ],
   "anotation": [],
@@ -811,19 +810,19 @@
       "intent": "let impact and flow analysis walk across repository boundaries declared by annotations."
     },
     {
+      "id": 1834,
+      "name": "internal/domain/reference/ref.go",
+      "qualified_name": "internal/domain/reference/ref.go",
+      "kind": "file",
+      "file_path": "internal/domain/reference/ref.go"
+    },
+    {
       "id": 209,
       "name": "listCrossRefs",
       "qualified_name": "mcp.handlers.listCrossRefs",
       "kind": "function",
       "file_path": "internal/adapters/inbound/mcp/handler_crossref.go",
       "intent": "give agents a repository-level dependency map derived from ccg:// annotations."
-    },
-    {
-      "id": 1834,
-      "name": "internal/domain/reference/ref.go",
-      "qualified_name": "internal/domain/reference/ref.go",
-      "kind": "file",
-      "file_path": "internal/domain/reference/ref.go"
     },
     {
       "id": 1007,
@@ -1034,12 +1033,11 @@
   ],
   "crossref": [
     {
-      "id": 1804,
-      "name": "CrossRef",
-      "qualified_name": "graph.CrossRef",
-      "kind": "class",
-      "file_path": "internal/domain/graph/crossref.go",
-      "intent": "make annotation-declared repository links traversable and listable instead of plain tag text."
+      "id": 22,
+      "name": "crossref",
+      "qualified_name": "github.com/tae2089/code-context-graph/internal/app/crossref",
+      "kind": "package",
+      "file_path": "internal/app/crossref"
     },
     {
       "id": 1801,
@@ -1169,6 +1167,14 @@
       "kind": "function",
       "file_path": "internal/app/crossref/service.go",
       "intent": "translate matcher output into row state: namespace-scope hits stay resolved without a node target."
+    },
+    {
+      "id": 1804,
+      "name": "CrossRef",
+      "qualified_name": "graph.CrossRef",
+      "kind": "class",
+      "file_path": "internal/domain/graph/crossref.go",
+      "intent": "make annotation-declared repository links traversable and listable instead of plain tag text."
     },
     {
       "id": 1004,
@@ -2096,6 +2102,13 @@
   "how does the graph get built": [],
   "impact": [
     {
+      "id": 20,
+      "name": "impact",
+      "qualified_name": "github.com/tae2089/code-context-graph/internal/app/analyze/impact",
+      "kind": "package",
+      "file_path": "internal/app/analyze/impact"
+    },
+    {
       "id": 950,
       "name": "internal/app/analyze/impact/impact.go",
       "qualified_name": "internal/app/analyze/impact/impact.go",
@@ -2603,6 +2616,20 @@
   ],
   "mcp": [
     {
+      "id": 5,
+      "name": "mcp",
+      "qualified_name": "github.com/tae2089/code-context-graph/internal/adapters/inbound/mcp",
+      "kind": "package",
+      "file_path": "internal/adapters/inbound/mcp"
+    },
+    {
+      "id": 54,
+      "name": "mcpruntime",
+      "qualified_name": "github.com/tae2089/code-context-graph/internal/runtime/mcp",
+      "kind": "package",
+      "file_path": "internal/runtime/mcp"
+    },
+    {
       "id": 138,
       "name": "MCPAuthMiddleware",
       "qualified_name": "server.MCPAuthMiddleware",
@@ -2960,22 +2987,6 @@
       "kind": "class",
       "file_path": "internal/adapters/inbound/mcp/evidence.go",
       "intent": "keep evidence payloads typed while exposing namespace and git provenance."
-    },
-    {
-      "id": 328,
-      "name": "withNamespaceParam",
-      "qualified_name": "mcp.withNamespaceParam",
-      "kind": "function",
-      "file_path": "internal/adapters/inbound/mcp/tools_query.go",
-      "intent": "give every namespace-aware MCP tool the same isolation parameter."
-    },
-    {
-      "id": 314,
-      "name": "registerPrompts",
-      "qualified_name": "mcp.registerPrompts",
-      "kind": "function",
-      "file_path": "internal/adapters/inbound/mcp/prompts_register.go",
-      "intent": "package common review, onboarding, and debugging flows into reusable server prompts."
     }
   ],
   "membership": [
@@ -3367,20 +3378,20 @@
   ],
   "package discovery": [
     {
-      "id": 1150,
-      "name": "PackageDiscoveryOptions",
-      "qualified_name": "ingest.PackageDiscoveryOptions",
-      "kind": "class",
-      "file_path": "internal/app/ingest/ports.go",
-      "intent": "reuse ingest include/exclude and parser-registration policy during language-specific package discovery."
-    },
-    {
       "id": 676,
       "name": "nodePackageDiscoveryConfig",
       "qualified_name": "treesitter.nodePackageDiscoveryConfig",
       "kind": "class",
       "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
       "intent": "share package.json and tsconfig-based directory discovery across TypeScript and JavaScript."
+    },
+    {
+      "id": 1150,
+      "name": "PackageDiscoveryOptions",
+      "qualified_name": "ingest.PackageDiscoveryOptions",
+      "kind": "class",
+      "file_path": "internal/app/ingest/ports.go",
+      "intent": "reuse ingest include/exclude and parser-registration policy during language-specific package discovery."
     },
     {
       "id": 657,
@@ -3399,20 +3410,20 @@
       "intent": "delegate language-specific package discovery while ingest owns traversal policy."
     },
     {
-      "id": 662,
-      "name": "KotlinPackageDiscovery",
-      "qualified_name": "treesitter.KotlinPackageDiscovery",
-      "kind": "class",
-      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
-      "intent": "map Kotlin package headers to package nodes so imports and package containment use declared package names."
-    },
-    {
       "id": 668,
       "name": "GoPackageDiscovery",
       "qualified_name": "treesitter.GoPackageDiscovery",
       "kind": "class",
       "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
       "intent": "model a Go import path as one package node that contains every non-test file in that package."
+    },
+    {
+      "id": 662,
+      "name": "KotlinPackageDiscovery",
+      "qualified_name": "treesitter.KotlinPackageDiscovery",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
+      "intent": "map Kotlin package headers to package nodes so imports and package containment use declared package names."
     },
     {
       "id": 661,
@@ -3431,14 +3442,6 @@
       "intent": "group Kotlin source files by declared package so package nodes reflect Kotlin import targets."
     },
     {
-      "id": 669,
-      "name": "DiscoverPackages",
-      "qualified_name": "treesitter.GoPackageDiscovery.DiscoverPackages",
-      "kind": "function",
-      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
-      "intent": "walk the repository to identify Go packages and their source files."
-    },
-    {
       "id": 660,
       "name": "JavaScriptPackageDiscovery",
       "qualified_name": "treesitter.JavaScriptPackageDiscovery",
@@ -3453,6 +3456,14 @@
       "kind": "function",
       "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
       "intent": "include pnpm-managed workspace package roots in Node-family package discovery."
+    },
+    {
+      "id": 669,
+      "name": "DiscoverPackages",
+      "qualified_name": "treesitter.GoPackageDiscovery.DiscoverPackages",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
+      "intent": "walk the repository to identify Go packages and their source files."
     },
     {
       "id": 665,
@@ -3487,6 +3498,14 @@
       "intent": "group Java source files by declared package so package nodes reflect actual import targets rather than directory guesses."
     },
     {
+      "id": 1375,
+      "name": "languagePackageDiscoverer",
+      "qualified_name": "workflow.languagePackageDiscoverer",
+      "kind": "type",
+      "file_path": "internal/app/ingest/workflow/packages.go",
+      "intent": "select deterministic package discovery capabilities through the parser port."
+    },
+    {
       "id": 664,
       "name": "DiscoverPackages",
       "qualified_name": "treesitter.TypeScriptPackageDiscovery.DiscoverPackages",
@@ -3517,14 +3536,6 @@
       "kind": "function",
       "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
       "intent": "unify Node ecosystem package discovery so import edges can bind to package nodes consistently."
-    },
-    {
-      "id": 1375,
-      "name": "languagePackageDiscoverer",
-      "qualified_name": "workflow.languagePackageDiscoverer",
-      "kind": "type",
-      "file_path": "internal/app/ingest/workflow/packages.go",
-      "intent": "select deterministic package discovery capabilities through the parser port."
     },
     {
       "id": 656,
@@ -3606,20 +3617,20 @@
       "intent": "discover packages through the ingest parser port without exposing adapter language specifications."
     },
     {
-      "id": 688,
-      "name": "bestNodePackageScope",
-      "qualified_name": "treesitter.bestNodePackageScope",
-      "kind": "function",
-      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
-      "intent": "prefer workspace package names over the root package when files live under nested package roots."
-    },
-    {
       "id": 1384,
       "name": "mergeLanguagePackages",
       "qualified_name": "workflow.mergeLanguagePackages",
       "kind": "function",
       "file_path": "internal/app/ingest/workflow/packages.go",
       "intent": "consolidate package discovery results while discarding conflicting definitions."
+    },
+    {
+      "id": 688,
+      "name": "bestNodePackageScope",
+      "qualified_name": "treesitter.bestNodePackageScope",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
+      "intent": "prefer workspace package names over the root package when files live under nested package roots."
     },
     {
       "id": 691,
@@ -3662,22 +3673,6 @@
       "intent": "keep package nodes deterministic even when files come from multiple source roots."
     },
     {
-      "id": 704,
-      "name": "readGoPackageClause",
-      "qualified_name": "treesitter.readGoPackageClause",
-      "kind": "function",
-      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
-      "intent": "determine the local package name to assist in constructing qualified names."
-    },
-    {
-      "id": 679,
-      "name": "nodePackageScope",
-      "qualified_name": "treesitter.nodePackageScope",
-      "kind": "class",
-      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
-      "intent": "map repository files back to the package node that should own their imports."
-    },
-    {
       "id": 693,
       "name": "matchesWorkspacePatterns",
       "qualified_name": "treesitter.matchesWorkspacePatterns",
@@ -3694,12 +3689,20 @@
       "intent": "let tsconfig discovery accept common commented config files without introducing a separate parser dependency."
     },
     {
-      "id": 686,
-      "name": "discoverNodePackageScopes",
-      "qualified_name": "treesitter.discoverNodePackageScopes",
+      "id": 704,
+      "name": "readGoPackageClause",
+      "qualified_name": "treesitter.readGoPackageClause",
       "kind": "function",
       "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
-      "intent": "pick the nearest package.json name for monorepo files instead of assuming the repository root package applies everywhere."
+      "intent": "determine the local package name to assist in constructing qualified names."
+    },
+    {
+      "id": 679,
+      "name": "nodePackageScope",
+      "qualified_name": "treesitter.nodePackageScope",
+      "kind": "class",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
+      "intent": "map repository files back to the package node that should own their imports."
     },
     {
       "id": 682,
@@ -3708,6 +3711,14 @@
       "kind": "function",
       "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
       "intent": "use repository and workspace manifest metadata to build Node-family import paths."
+    },
+    {
+      "id": 686,
+      "name": "discoverNodePackageScopes",
+      "qualified_name": "treesitter.discoverNodePackageScopes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
+      "intent": "pick the nearest package.json name for monorepo files instead of assuming the repository root package applies everywhere."
     },
     {
       "id": 671,
@@ -3726,20 +3737,20 @@
       "intent": "ensure the file list for a package remains unique without duplicates."
     },
     {
-      "id": 674,
-      "name": "pythonDirToImportPath",
-      "qualified_name": "treesitter.pythonDirToImportPath",
-      "kind": "function",
-      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
-      "intent": "normalize filesystem package directories into the import-path form used by package nodes."
-    },
-    {
       "id": 692,
       "name": "splitWorkspacePatterns",
       "qualified_name": "treesitter.splitWorkspacePatterns",
       "kind": "function",
       "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
       "intent": "normalize npm/pnpm workspace pattern lists before matching concrete package roots."
+    },
+    {
+      "id": 674,
+      "name": "pythonDirToImportPath",
+      "qualified_name": "treesitter.pythonDirToImportPath",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/treesitter/package_discovery.go",
+      "intent": "normalize filesystem package directories into the import-path form used by package nodes."
     },
     {
       "id": 683,
@@ -4251,6 +4262,13 @@
       "intent": "keep derived search documents consistent with graph state before FTS rebuilds"
     },
     {
+      "id": 32,
+      "name": "document",
+      "qualified_name": "github.com/tae2089/code-context-graph/internal/app/search/document",
+      "kind": "package",
+      "file_path": "internal/app/search/document"
+    },
+    {
       "id": 1758,
       "name": "searchDocCollision",
       "qualified_name": "migration.searchDocCollision",
@@ -4315,20 +4333,20 @@
       "intent": "implement the full derived-search refresh required by a graph build."
     },
     {
-      "id": 1828,
-      "name": "SearchDocument",
-      "qualified_name": "graph.SearchDocument",
-      "kind": "class",
-      "file_path": "internal/domain/graph/search.go",
-      "intent": "전문 검색 백엔드가 사용할 노드별 검색 본문을 유지한다."
-    },
-    {
       "id": 1520,
       "name": "BuildContent",
       "qualified_name": "document.BuildContent",
       "kind": "function",
       "file_path": "internal/app/search/document/document.go",
       "intent": "combine symbol names, path/language tokens, and annotation evidence without persistence concerns."
+    },
+    {
+      "id": 1828,
+      "name": "SearchDocument",
+      "qualified_name": "graph.SearchDocument",
+      "kind": "class",
+      "file_path": "internal/domain/graph/search.go",
+      "intent": "전문 검색 백엔드가 사용할 노드별 검색 본문을 유지한다."
     },
     {
       "id": 1523,
@@ -4433,20 +4451,20 @@
       "intent": "implement the second application maintenance stage without exposing backend or database handles."
     },
     {
-      "id": 643,
-      "name": "RebuildNodes",
-      "qualified_name": "searchsql.Writer.RebuildNodes",
-      "kind": "function",
-      "file_path": "internal/adapters/outbound/searchsql/writer.go",
-      "intent": "implement the incremental derived-search refresh required by graph updates."
-    },
-    {
       "id": 588,
       "name": "PurgeNamespace",
       "qualified_name": "searchsql.PostgresBackend.PurgeNamespace",
       "kind": "function",
       "file_path": "internal/adapters/outbound/searchsql/postgres.go",
       "intent": "Aligns with the Backend interface and maintains consistency in the namespace purge path."
+    },
+    {
+      "id": 643,
+      "name": "RebuildNodes",
+      "qualified_name": "searchsql.Writer.RebuildNodes",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/writer.go",
+      "intent": "implement the incremental derived-search refresh required by graph updates."
     },
     {
       "id": 1904,
@@ -4489,20 +4507,20 @@
       "intent": "push many rows in a single statement so rebuild paths avoid per-row round trips."
     },
     {
-      "id": 1829,
-      "name": "SearchReason",
-      "qualified_name": "graph.SearchReason",
-      "kind": "class",
-      "file_path": "internal/domain/graph/search.go",
-      "intent": "or @domainRule tag."
-    },
-    {
       "id": 107,
       "name": "printJSONResponse",
       "qualified_name": "cli.printJSONResponse",
       "kind": "function",
       "file_path": "internal/adapters/inbound/cli/search.go",
       "intent": "keep --json output byte-stable and diffable while staying the MCP contract."
+    },
+    {
+      "id": 1829,
+      "name": "SearchReason",
+      "qualified_name": "graph.SearchReason",
+      "kind": "class",
+      "file_path": "internal/domain/graph/search.go",
+      "intent": "or @domainRule tag."
     },
     {
       "id": 600,
@@ -4545,20 +4563,20 @@
       "intent": "refresh only the requested node documents in SQLite FTS so incremental updates can avoid a full namespace rebuild."
     },
     {
-      "id": 630,
-      "name": "buildSQLiteIntentInsert",
-      "qualified_name": "searchsql.buildSQLiteIntentInsert",
-      "kind": "function",
-      "file_path": "internal/adapters/outbound/searchsql/sqlite.go",
-      "intent": "keep the intent index limited to reasons that were actually written down."
-    },
-    {
       "id": 530,
       "name": "DeleteGraph",
       "qualified_name": "graphgorm.Store.DeleteGraph",
       "kind": "function",
       "file_path": "internal/adapters/outbound/graphgorm/store.go",
       "intent": "replace namespace-scoped state before a full rebuild or include_paths rebuild."
+    },
+    {
+      "id": 630,
+      "name": "buildSQLiteIntentInsert",
+      "qualified_name": "searchsql.buildSQLiteIntentInsert",
+      "kind": "function",
+      "file_path": "internal/adapters/outbound/searchsql/sqlite.go",
+      "intent": "keep the intent index limited to reasons that were actually written down."
     },
     {
       "id": 528,
@@ -5888,20 +5906,20 @@
       "intent": "keep trait implementation edges stable when impl headers contain paths or generic arguments."
     },
     {
-      "id": 801,
-      "name": "internal/adapters/outbound/treesitter/semantics_jvm.go",
-      "qualified_name": "internal/adapters/outbound/treesitter/semantics_jvm.go",
-      "kind": "file",
-      "file_path": "internal/adapters/outbound/treesitter/semantics_jvm.go",
-      "intent": "emit Java hierarchy edges directly from class declaration syntax so type resolution can bind them later."
-    },
-    {
       "id": 790,
       "name": "ImplementedTypes",
       "qualified_name": "treesitter.JavaScriptSemantics.ImplementedTypes",
       "kind": "function",
       "file_path": "internal/adapters/outbound/treesitter/semantics_js_ts.go",
       "intent": "satisfy shared relationship normalization without inventing JS interface semantics."
+    },
+    {
+      "id": 801,
+      "name": "internal/adapters/outbound/treesitter/semantics_jvm.go",
+      "qualified_name": "internal/adapters/outbound/treesitter/semantics_jvm.go",
+      "kind": "file",
+      "file_path": "internal/adapters/outbound/treesitter/semantics_jvm.go",
+      "intent": "emit Java hierarchy edges directly from class declaration syntax so type resolution can bind them later."
     },
     {
       "id": 770,

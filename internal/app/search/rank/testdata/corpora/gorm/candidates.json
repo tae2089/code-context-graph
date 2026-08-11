@@ -530,6 +530,358 @@
       "file_path": "callbacks/preload.go"
     }
   ],
+  "clause": [
+    {
+      "id": 3,
+      "name": "clause",
+      "qualified_name": "gorm.io/gorm/clause",
+      "kind": "package",
+      "file_path": "clause"
+    },
+    {
+      "id": 150,
+      "name": "Clause",
+      "qualified_name": "clause.Clause",
+      "kind": "class",
+      "file_path": "clause/clause.go"
+    },
+    {
+      "id": 145,
+      "name": "clause/clause.go",
+      "qualified_name": "clause/clause.go",
+      "kind": "file",
+      "file_path": "clause/clause.go"
+    },
+    {
+      "id": 147,
+      "name": "ClauseBuilder",
+      "qualified_name": "clause.ClauseBuilder",
+      "kind": "type",
+      "file_path": "clause/clause.go"
+    },
+    {
+      "id": 151,
+      "name": "Build",
+      "qualified_name": "clause.Clause.Build",
+      "kind": "function",
+      "file_path": "clause/clause.go"
+    },
+    {
+      "id": 146,
+      "name": "Interface",
+      "qualified_name": "clause.Interface",
+      "kind": "type",
+      "file_path": "clause/clause.go"
+    },
+    {
+      "id": 148,
+      "name": "Writer",
+      "qualified_name": "clause.Writer",
+      "kind": "type",
+      "file_path": "clause/clause.go"
+    },
+    {
+      "id": 115,
+      "name": "Clauses",
+      "qualified_name": "gorm.DB.Clauses",
+      "kind": "function",
+      "file_path": "chainable_api.go"
+    },
+    {
+      "id": 192,
+      "name": "clause/from.go",
+      "qualified_name": "clause/from.go",
+      "kind": "file",
+      "file_path": "clause/from.go"
+    },
+    {
+      "id": 217,
+      "name": "clause/limit.go",
+      "qualified_name": "clause/limit.go",
+      "kind": "file",
+      "file_path": "clause/limit.go"
+    },
+    {
+      "id": 271,
+      "name": "clause/where.go",
+      "qualified_name": "clause/where.go",
+      "kind": "file",
+      "file_path": "clause/where.go"
+    },
+    {
+      "id": 202,
+      "name": "clause/insert.go",
+      "qualified_name": "clause/insert.go",
+      "kind": "file",
+      "file_path": "clause/insert.go"
+    },
+    {
+      "id": 207,
+      "name": "clause/joins.go",
+      "qualified_name": "clause/joins.go",
+      "kind": "file",
+      "file_path": "clause/joins.go"
+    },
+    {
+      "id": 222,
+      "name": "clause/locking.go",
+      "qualified_name": "clause/locking.go",
+      "kind": "file",
+      "file_path": "clause/locking.go"
+    },
+    {
+      "id": 238,
+      "name": "clause/returning.go",
+      "qualified_name": "clause/returning.go",
+      "kind": "file",
+      "file_path": "clause/returning.go"
+    },
+    {
+      "id": 261,
+      "name": "clause/update.go",
+      "qualified_name": "clause/update.go",
+      "kind": "file",
+      "file_path": "clause/update.go"
+    },
+    {
+      "id": 266,
+      "name": "clause/values.go",
+      "qualified_name": "clause/values.go",
+      "kind": "file",
+      "file_path": "clause/values.go"
+    },
+    {
+      "id": 149,
+      "name": "Builder",
+      "qualified_name": "clause.Builder",
+      "kind": "type",
+      "file_path": "clause/clause.go"
+    },
+    {
+      "id": 193,
+      "name": "From",
+      "qualified_name": "clause.From",
+      "kind": "class",
+      "file_path": "clause/from.go"
+    },
+    {
+      "id": 218,
+      "name": "Limit",
+      "qualified_name": "clause.Limit",
+      "kind": "class",
+      "file_path": "clause/limit.go"
+    },
+    {
+      "id": 272,
+      "name": "Where",
+      "qualified_name": "clause.Where",
+      "kind": "class",
+      "file_path": "clause/where.go"
+    },
+    {
+      "id": 152,
+      "name": "Column",
+      "qualified_name": "clause.Column",
+      "kind": "class",
+      "file_path": "clause/clause.go"
+    },
+    {
+      "id": 153,
+      "name": "Table",
+      "qualified_name": "clause.Table",
+      "kind": "class",
+      "file_path": "clause/clause.go"
+    },
+    {
+      "id": 154,
+      "name": "clause/delete.go",
+      "qualified_name": "clause/delete.go",
+      "kind": "file",
+      "file_path": "clause/delete.go"
+    },
+    {
+      "id": 214,
+      "name": "Join",
+      "qualified_name": "clause.Join",
+      "kind": "class",
+      "file_path": "clause/joins.go"
+    },
+    {
+      "id": 286,
+      "name": "clause/with.go",
+      "qualified_name": "clause/with.go",
+      "kind": "file",
+      "file_path": "clause/with.go"
+    },
+    {
+      "id": 197,
+      "name": "clause/group_by.go",
+      "qualified_name": "clause/group_by.go",
+      "kind": "file",
+      "file_path": "clause/group_by.go"
+    },
+    {
+      "id": 227,
+      "name": "clause/on_conflict.go",
+      "qualified_name": "clause/on_conflict.go",
+      "kind": "file",
+      "file_path": "clause/on_conflict.go"
+    },
+    {
+      "id": 232,
+      "name": "clause/order_by.go",
+      "qualified_name": "clause/order_by.go",
+      "kind": "file",
+      "file_path": "clause/order_by.go"
+    },
+    {
+      "id": 194,
+      "name": "Name",
+      "qualified_name": "clause.From.Name",
+      "kind": "function",
+      "file_path": "clause/from.go"
+    },
+    {
+      "id": 195,
+      "name": "Build",
+      "qualified_name": "clause.From.Build",
+      "kind": "function",
+      "file_path": "clause/from.go"
+    },
+    {
+      "id": 196,
+      "name": "MergeClause",
+      "qualified_name": "clause.From.MergeClause",
+      "kind": "function",
+      "file_path": "clause/from.go"
+    },
+    {
+      "id": 198,
+      "name": "GroupBy",
+      "qualified_name": "clause.GroupBy",
+      "kind": "class",
+      "file_path": "clause/group_by.go"
+    },
+    {
+      "id": 204,
+      "name": "Name",
+      "qualified_name": "clause.Insert.Name",
+      "kind": "function",
+      "file_path": "clause/insert.go"
+    },
+    {
+      "id": 205,
+      "name": "Build",
+      "qualified_name": "clause.Insert.Build",
+      "kind": "function",
+      "file_path": "clause/insert.go"
+    },
+    {
+      "id": 206,
+      "name": "MergeClause",
+      "qualified_name": "clause.Insert.MergeClause",
+      "kind": "function",
+      "file_path": "clause/insert.go"
+    },
+    {
+      "id": 219,
+      "name": "Name",
+      "qualified_name": "clause.Limit.Name",
+      "kind": "function",
+      "file_path": "clause/limit.go"
+    },
+    {
+      "id": 220,
+      "name": "Build",
+      "qualified_name": "clause.Limit.Build",
+      "kind": "function",
+      "file_path": "clause/limit.go"
+    },
+    {
+      "id": 224,
+      "name": "Name",
+      "qualified_name": "clause.Locking.Name",
+      "kind": "function",
+      "file_path": "clause/locking.go"
+    },
+    {
+      "id": 225,
+      "name": "Build",
+      "qualified_name": "clause.Locking.Build",
+      "kind": "function",
+      "file_path": "clause/locking.go"
+    },
+    {
+      "id": 240,
+      "name": "Name",
+      "qualified_name": "clause.Returning.Name",
+      "kind": "function",
+      "file_path": "clause/returning.go"
+    },
+    {
+      "id": 241,
+      "name": "Build",
+      "qualified_name": "clause.Returning.Build",
+      "kind": "function",
+      "file_path": "clause/returning.go"
+    },
+    {
+      "id": 256,
+      "name": "MergeClause",
+      "qualified_name": "clause.Set.MergeClause",
+      "kind": "function",
+      "file_path": "clause/set.go"
+    },
+    {
+      "id": 263,
+      "name": "Name",
+      "qualified_name": "clause.Update.Name",
+      "kind": "function",
+      "file_path": "clause/update.go"
+    },
+    {
+      "id": 264,
+      "name": "Build",
+      "qualified_name": "clause.Update.Build",
+      "kind": "function",
+      "file_path": "clause/update.go"
+    },
+    {
+      "id": 265,
+      "name": "MergeClause",
+      "qualified_name": "clause.Update.MergeClause",
+      "kind": "function",
+      "file_path": "clause/update.go"
+    },
+    {
+      "id": 268,
+      "name": "Name",
+      "qualified_name": "clause.Values.Name",
+      "kind": "function",
+      "file_path": "clause/values.go"
+    },
+    {
+      "id": 269,
+      "name": "Build",
+      "qualified_name": "clause.Values.Build",
+      "kind": "function",
+      "file_path": "clause/values.go"
+    },
+    {
+      "id": 270,
+      "name": "MergeClause",
+      "qualified_name": "clause.Values.MergeClause",
+      "kind": "function",
+      "file_path": "clause/values.go"
+    },
+    {
+      "id": 273,
+      "name": "Name",
+      "qualified_name": "clause.Where.Name",
+      "kind": "function",
+      "file_path": "clause/where.go"
+    }
+  ],
   "create in batches": [
     {
       "id": 291,

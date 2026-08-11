@@ -47,6 +47,15 @@
       "why": "The closure-based transaction wrapper is the API a developer means by the bare word in gorm."
     },
     {
+      "query": "clause",
+      "bucket": "exact",
+      "relevant": [
+        "package:gorm.io/gorm/clause@clause",
+        "class:clause.Clause@clause/clause.go"
+      ],
+      "why": "A bare package name, judged outside ccg so the behaviour is not read off one repository's layout. The package node is the answer: gorm's clause package is a whole subdirectory a reader means by the word. clause.Clause is judged with it because it carries the name exactly and is the type the package is built around; the rest of the package's forty-odd declarations are not distinguished from each other by this query and are not judged, on the same reasoning the ccg set gives for mcp."
+    },
+    {
       "query": "soft delete",
       "bucket": "concept",
       "relevant_files": [

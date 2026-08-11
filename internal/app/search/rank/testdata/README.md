@@ -161,7 +161,7 @@ fails when it shrinks.
 
 **It could not fail an entry that already scores nothing.** The ratchet holds an
 entry with two assertions — `found` may not drop, `rank` may not rise — and both
-are dead at zero. Twenty-one entries sit there: 18 on `ccg`, 2 on `cobra`, 1 on
+are dead at zero. Twenty entries sit there: 17 on `ccg`, 2 on `cobra`, 1 on
 `gorm`. Each carries a class and a reason in `zeroScoreNotes`, and the guard
 fails on one that has neither.
 
@@ -186,9 +186,16 @@ separates them.
 answer, nothing was declined — the ranker left it off the page, and that is a
 debt to work off. Six entries are in that state today, all on `ccg`, all
 answered by the intent index and all missing from the page of ten files. The
-other five `known gap` entries never got the answer out of retrieval, so no
-reordering can pay them: `mcp`, for one, wants a package node the name index
-does not carry.
+other four `known gap` entries never got the answer out of retrieval, so no
+reordering can pay them.
+
+`mcp` used to be one of those. It wanted the package node for
+`internal/adapters/inbound/mcp`, and the name index wrote a search document only
+for function, class, type, test and file — so the one correct answer never
+entered the pool and no reordering could reach it. Package nodes are indexed
+now, and `mcp` answers at rank 1. `clause` on `gorm` is the same query shape
+judged outside this repository, so the behaviour is not read off one codebase's
+layout.
 
 Two of those six arrived with a fixture refresh that changed no code. A stale
 fixture is not a neutral record — it freezes an old graph, and the numbers
@@ -264,8 +271,8 @@ ranking change can fix that query.
 
 ```
 bucket           n  retrieved  Recall@10   top1  top3   MRR
-ALL             86   74/86      0.720 (121/168)  47    61  0.636
-ANSWERABLE      78   73/78      0.811 (120/148)  46    60  0.688
+ALL             86   75/86      0.738 (124/168)  47    62  0.642
+ANSWERABLE      78   74/78      0.831 (123/148)  46    61  0.695
 ```
 
 That block is `make search-eval`'s own output for the `ccg` corpus, copied
