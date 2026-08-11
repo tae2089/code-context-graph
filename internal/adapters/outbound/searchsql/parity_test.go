@@ -221,7 +221,7 @@ func loadParityCorpus(t *testing.T, dir string) parityCorpus {
 	readParityJSON(t, dir+"queries.json", &set)
 	named := map[string][]goldenCandidate{}
 	readParityJSON(t, dir+"candidates.json", &named)
-	intents := map[string]goldenIntentAnswer{}
+	intents := goldenIntentFixture{}
 	readParityJSON(t, dir+"intent_candidates.json", &intents)
 
 	corpus := parityCorpus{namespace: set.Corpus.Namespace}
@@ -245,8 +245,10 @@ func loadParityCorpus(t *testing.T, dir string) parityCorpus {
 		for _, c := range named[q.Query] {
 			add(parityNode{name: c.Name, qualifiedName: c.QualifiedName, kind: c.Kind, filePath: c.FilePath, intent: c.Intent})
 		}
-		for _, h := range intents[q.Query].Hits {
-			add(parityNode{name: h.Name, qualifiedName: h.QualifiedName, kind: h.Kind, filePath: h.FilePath, intent: h.Intent, reason: h.Reason})
+		for _, ref := range intents.Queries[q.Query] {
+			document := intents.Documents[ref]
+			node := intents.Nodes[document.NodeID]
+			add(parityNode{name: node.Name, qualifiedName: node.QualifiedName, kind: node.Kind, filePath: node.FilePath, intent: node.Intent, reason: node.Reason})
 		}
 	}
 	return corpus

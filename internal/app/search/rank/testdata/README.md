@@ -109,29 +109,33 @@ scope rules.
 | --- | --- | --- |
 | `queries.json` | a human | 91 queries with the answers a developer typing them would accept, and why |
 | `candidates.json` | `TestCaptureGoldenCandidates` | the full-text candidates for `search`, in retrieval order, at `rank.FetchLimit(10)` |
-| `intent_candidates.json` | `TestCaptureGoldenCandidates` | what the intent index said per query: ranked hits, every scored term with its reason count, and the corpus size |
+| `intent_candidates.json` | `TestCaptureGoldenCandidates` | the matched reason documents per query, their nodes, and the corpus size |
 | `baseline.json` | `-update-golden` | where `search` put the first relevant node on the last accepted run |
 
-`intent_candidates.json` keeps the term counts, not only the hits, because
-membership is gated on them: `intent.Result.CanAnswer` drops every intent hit
-when fewer than half the question's scored terms appear in any recorded reason.
-A replay without the terms would score a search that thinks every question is
-answerable.
+`intent_candidates.json` stores each node and matched reason once at corpus
+scope, then gives each query a sorted list of reason IDs. Replay expands those
+references into `intentrank.Doc` values and calls `intentrank.Rank`, so the
+scorer recomputes both answer order and the term counts that
+`intent.Result.CanAnswer` gates on.
 
 The fixture is captured through the production query path, so the tool is scored
 on exactly the pool it gets in production. Once captured it is never re-read
 from a database, which is what makes a metric change attributable to the code
 and nothing else.
 
-What `intent_candidates.json` freezes is wider than retrieval, and the line is
-easy to miss. `hits` is `intentrank.Rank`'s output — already scored, already
-ordered — and the replay hands that order straight to the service, so the scorer
-itself is never called. Panicking inside `Rank` and re-running `make search-eval`
-prints all four scoreboards unchanged, which is the proof. So an intent-ranking
-change moves nothing here until this file is recaptured, and it is the recapture
-a reviewer has to read. Whoever wants the ratchet to measure the scorer directly
-has to change what is captured — the matched documents rather than the ranked
-hits — which is a fixture format change, not a scoring one.
+The boundary is now retrieval input, not scorer output. Removing the replay's
+`intentrank.Rank` call makes the focused fixture test fail and makes the ccg and
+context-diary ratchets report lost relevant answers. A scorer-only change is
+therefore measured without recapturing the fixture. The capture still has to be
+refreshed when intent retrieval, indexed reason text, corpus membership, or node
+identity changes.
+
+The named and intent fixtures are one snapshot contract, not independent
+captures. Replay rejects a node ID when the named pool uses it for a different
+qualified name, kind, or file path than the intent pool, and also rejects a
+named fixture that reuses one ID for two identities. A full capture rewrites
+both files together; mixing captures from separately built graphs is invalid
+even when each file is valid by itself.
 
 ### Drift the next recapture will show
 
@@ -264,10 +268,10 @@ a reviewer reads.
 ## Rebuilding the candidate fixture
 
 Only when candidate retrieval itself changes — the tokenizer, `SanitizeFTS5`,
-`promoteExactNameMatch`, the indexed document content — or when `intentrank.Rank`
-does, since the intent capture stores that scorer's ranked output rather than the
-documents it ranked. It needs a graph at the repository root, which is build
-output and not tracked:
+`promoteExactNameMatch`, the indexed document content — or when intent retrieval,
+indexed reasons, corpus membership, or captured node identity changes. A change
+to `intentrank.Rank` alone does not require a recapture. The capture needs a graph
+at the repository root, which is build output and not tracked:
 
 ```sh
 make wiki-db              # builds ./ccg.db, which the capture reads
