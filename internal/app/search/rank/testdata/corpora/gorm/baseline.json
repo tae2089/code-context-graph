@@ -37,6 +37,15 @@
     "weak_filtered": 4
   },
   {
+    "query": "clause",
+    "bucket": "exact",
+    "retrieved": true,
+    "returned": 32,
+    "relevant": 2,
+    "found": 2,
+    "rank": 1
+  },
+  {
     "query": "soft delete",
     "bucket": "concept",
     "retrieved": true,

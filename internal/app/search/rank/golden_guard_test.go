@@ -175,7 +175,7 @@ func TestGolden_BaselineIsFullyGuarded(t *testing.T) {
 // with the class and reason that let it stay. The list is a debt, not a
 // permission: the guard above fails when an entry is missing one, and equally
 // when a listed entry starts scoring, so it cannot rot into a silent excuse.
-// Six of the twenty-one are the ranker's own: the pool handed it the judged
+// Six of the twenty are the ranker's own: the pool handed it the judged
 // answer and the page of ten did not carry it. Those are `known gap` by
 // definition — nothing was declined — and the guard enforces that, so no
 // future zero can be filed under policy while retrieval is still finding it.
@@ -240,10 +240,12 @@ var zeroScoreNotes = map[string]map[string]zeroScoreNote{
 		"why does an answer with nothing in it still suggest another call":                {classKnownGap, "its two judged files are internal/adapters/inbound/mcp/handler_intent.go and handler_query.go. The first has since been deleted from the repository, and it was the one that answered: on the stale fixture it was hit 6 and file 6, while handler_query.go was file 8. Today only handler_query.go can be found at all, and its best hit is 24, which is file 21. So `relevant` counts 2 where at most 1 now exists, and the query needs re-judging. Narrowing the list here is not this refresh's to do: it would raise Recall without a line of code changing, the one move the golden set forbids outright."},
 
 		// Retrieval never handed the answer over. A reordering cannot pay
-		// these; the index or the tokenizer has to change first.
-		"mcp":                                 {classKnownGap, "the only defensible answer is the package node for internal/adapters/inbound/mcp, and the captured pool of 50 name-index candidates holds no package node at all, so no reordering can reach it. search means to answer identifier queries, so this is retrieval owing an answer, not a decision to decline — and closing it needs a recapture, not a constant."},
-		"what happens when a webhook arrives": {classKnownGap, "neither pool holds the judged webhook.WebhookHandler.ServeHTTP. The name index returns nothing because it needs every word of the question in one document; the intent index returns 46 hits and the handler is not among them, so the reason text the question is asking for was never fetched."},
-		"where do search results get ranked":  {classKnownGap, "neither pool holds the judged rank.Rerank. Its surface says Rerank, not ranked, and the question's other words — search, results, get — are spread across every file with a search API, so the 50 hits fetched are all of that spread. queries.json calls this the hardest question in the set."},
+		// these; the index or the tokenizer has to change first. mcp used to
+		// be listed here and is not any more: the name index now writes a
+		// search document for package nodes, so the package node it wanted is
+		// in the pool and answers at rank 1.
+		"what happens when a webhook arrives":                                      {classKnownGap, "neither pool holds the judged webhook.WebhookHandler.ServeHTTP. The name index returns nothing because it needs every word of the question in one document; the intent index returns 46 hits and the handler is not among them, so the reason text the question is asking for was never fetched."},
+		"where do search results get ranked":                                       {classKnownGap, "neither pool holds the judged rank.Rerank. Its surface says Rerank, not ranked, and the question's other words — search, results, get — are spread across every file with a search API, so the 50 hits fetched are all of that spread. queries.json calls this the hardest question in the set."},
 		"why does editing a function with many outgoing links rank as riskier":     {classKnownGap, "the judged internal/app/analyze/changes/service.go is in neither pool. Three of the seven scored terms — editing, riskier, and the phrasing around them — appear in no recorded reason, so the 49 intent hits fetched are ranked on function, many, outgoing, links and rank alone."},
 		"what decides whether generated documentation may delete an existing page": {classKnownGap, "the judged internal/app/docs/generator.go is in neither pool for this phrasing, though the incident query about the same prune path does retrieve it. So the file is indexed and reachable; this wording does not reach it."},
 	},

@@ -71,17 +71,17 @@
     "query": "annot",
     "bucket": "prefix",
     "retrieved": true,
-    "returned": 34,
+    "returned": 30,
     "relevant": 4,
     "found": 2,
-    "rank": 1,
+    "rank": 2,
     "weak_filtered": 9
   },
   {
     "query": "crossref",
     "bucket": "prefix",
     "retrieved": true,
-    "returned": 33,
+    "returned": 34,
     "relevant": 3,
     "found": 3,
     "rank": 1,
@@ -91,9 +91,9 @@
     "query": "impact",
     "bucket": "prefix",
     "retrieved": true,
-    "returned": 17,
+    "returned": 18,
     "relevant": 3,
-    "found": 2,
+    "found": 3,
     "rank": 1,
     "weak_filtered": 3
   },
@@ -170,11 +170,11 @@
   {
     "query": "mcp",
     "bucket": "acronym",
-    "retrieved": false,
-    "returned": 37,
+    "retrieved": true,
+    "returned": 28,
     "relevant": 1,
-    "found": 0,
-    "rank": 0
+    "found": 1,
+    "rank": 1
   },
   {
     "query": "cfg",
@@ -268,7 +268,7 @@
     "retrieved": true,
     "returned": 26,
     "relevant": 4,
-    "found": 3,
+    "found": 4,
     "rank": 1,
     "weak_filtered": 16
   },
