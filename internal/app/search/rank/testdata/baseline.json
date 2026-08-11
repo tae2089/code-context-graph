@@ -65,7 +65,7 @@
     "relevant": 1,
     "found": 1,
     "rank": 1,
-    "weak_filtered": 9
+    "weak_filtered": 10
   },
   {
     "query": "annot",
@@ -141,7 +141,7 @@
     "query": "membership",
     "bucket": "subword",
     "retrieved": true,
-    "returned": 9,
+    "returned": 10,
     "relevant": 1,
     "found": 1,
     "rank": 1,
@@ -155,17 +155,17 @@
     "relevant": 3,
     "found": 2,
     "rank": 1,
-    "weak_filtered": 13
+    "weak_filtered": 15
   },
   {
     "query": "sqlite",
     "bucket": "acronym",
     "retrieved": true,
-    "returned": 40,
+    "returned": 43,
     "relevant": 2,
     "found": 2,
     "rank": 2,
-    "weak_filtered": 9
+    "weak_filtered": 7
   },
   {
     "query": "mcp",
@@ -266,11 +266,11 @@
     "query": "search document",
     "bucket": "concept",
     "retrieved": true,
-    "returned": 24,
+    "returned": 26,
     "relevant": 4,
     "found": 3,
     "rank": 1,
-    "weak_filtered": 14
+    "weak_filtered": 16
   },
   {
     "query": "flow membership",
@@ -285,7 +285,7 @@
     "query": "incremental syncer",
     "bucket": "concept",
     "retrieved": true,
-    "returned": 50,
+    "returned": 48,
     "relevant": 3,
     "found": 3,
     "rank": 2,
@@ -313,7 +313,7 @@
     "query": "migration schema",
     "bucket": "path-scoped",
     "retrieved": true,
-    "returned": 43,
+    "returned": 40,
     "relevant": 2,
     "found": 2,
     "rank": 1
@@ -322,7 +322,7 @@
     "query": "worker pool",
     "bucket": "description",
     "retrieved": true,
-    "returned": 13,
+    "returned": 18,
     "relevant": 2,
     "found": 1,
     "rank": 1,
@@ -360,7 +360,7 @@
     "query": "where do search results get ranked",
     "bucket": "question",
     "retrieved": false,
-    "returned": 18,
+    "returned": 16,
     "relevant": 1,
     "found": 0,
     "rank": 0
@@ -369,7 +369,7 @@
     "query": "how do i follow a call chain",
     "bucket": "question",
     "retrieved": true,
-    "returned": 30,
+    "returned": 27,
     "relevant": 1,
     "found": 1,
     "rank": 3
@@ -390,7 +390,8 @@
     "returned": 17,
     "relevant": 4,
     "found": 4,
-    "rank": 1
+    "rank": 1,
+    "weak_filtered": 2
   },
   {
     "query": "webhookhandler",
@@ -405,7 +406,7 @@
     "query": "sqlitebackend",
     "bucket": "receiver",
     "retrieved": true,
-    "returned": 12,
+    "returned": 14,
     "relevant": 6,
     "found": 6,
     "rank": 1,
@@ -419,13 +420,14 @@
     "returned": 0,
     "relevant": 0,
     "found": 0,
-    "rank": 0
+    "rank": 0,
+    "weak_filtered": 1
   },
   {
     "query": "what stops two pushes for the same repository from building at the same time",
     "bucket": "incident",
     "retrieved": true,
-    "returned": 18,
+    "returned": 19,
     "relevant": 2,
     "found": 2,
     "rank": 1
@@ -452,10 +454,10 @@
     "query": "how does a sync that is already running end when the server is told to stop",
     "bucket": "incident",
     "retrieved": true,
-    "returned": 21,
+    "returned": 20,
     "relevant": 1,
     "found": 1,
-    "rank": 1
+    "rank": 2
   },
   {
     "query": "what refuses to read a file that sits outside the documentation directory",
@@ -470,7 +472,7 @@
     "query": "what keeps a parser result from being reused after the file it came from changed",
     "bucket": "behavior",
     "retrieved": true,
-    "returned": 20,
+    "returned": 22,
     "relevant": 2,
     "found": 1,
     "rank": 1
@@ -479,7 +481,7 @@
     "query": "why does a result say it was cut short instead of returning everything",
     "bucket": "behavior",
     "retrieved": true,
-    "returned": 19,
+    "returned": 20,
     "relevant": 4,
     "found": 1,
     "rank": 1
@@ -488,7 +490,7 @@
     "query": "what stops one repository from filling a result that covers several",
     "bucket": "behavior",
     "retrieved": true,
-    "returned": 18,
+    "returned": 17,
     "relevant": 1,
     "found": 1,
     "rank": 2
@@ -497,7 +499,7 @@
     "query": "why was a push that only deleted a branch ignored",
     "bucket": "incident",
     "retrieved": true,
-    "returned": 25,
+    "returned": 26,
     "relevant": 1,
     "found": 1,
     "rank": 1
@@ -515,16 +517,16 @@
     "query": "why is a lock file left behind by a crashed run eventually cleaned up",
     "bucket": "incident",
     "retrieved": true,
-    "returned": 20,
+    "returned": 21,
     "relevant": 1,
     "found": 1,
-    "rank": 1
+    "rank": 2
   },
   {
     "query": "what keeps the same relationship from being stored twice",
     "bucket": "behavior",
     "retrieved": true,
-    "returned": 22,
+    "returned": 20,
     "relevant": 2,
     "found": 1,
     "rank": 1
@@ -544,17 +546,17 @@
     "retrieved": true,
     "returned": 24,
     "relevant": 2,
-    "found": 2,
-    "rank": 6
+    "found": 0,
+    "rank": 0
   },
   {
     "query": "why must the database schema be migrated before the server will run",
     "bucket": "policy",
     "retrieved": true,
-    "returned": 23,
+    "returned": 26,
     "relevant": 2,
     "found": 2,
-    "rank": 1
+    "rank": 4
   },
   {
     "query": "네임스페이스 설정이 플래그 기본값에 가려지지 않게 하는 곳은 어디야",
@@ -580,7 +582,7 @@
     "query": "why did the build refuse a source file that changed while it was being opened",
     "bucket": "incident",
     "retrieved": true,
-    "returned": 30,
+    "returned": 28,
     "relevant": 1,
     "found": 1,
     "rank": 4
@@ -598,7 +600,7 @@
     "query": "why did an update merely warn about unreadable files instead of failing",
     "bucket": "incident",
     "retrieved": true,
-    "returned": 16,
+    "returned": 14,
     "relevant": 2,
     "found": 2,
     "rank": 1
@@ -616,10 +618,10 @@
     "query": "why was the wiki index never left half-written after the process died",
     "bucket": "incident",
     "retrieved": true,
-    "returned": 13,
+    "returned": 14,
     "relevant": 1,
-    "found": 1,
-    "rank": 10
+    "found": 0,
+    "rank": 0
   },
   {
     "query": "why is a cross-project link still dead after the target project was rebuilt",
@@ -637,7 +639,7 @@
     "returned": 30,
     "relevant": 1,
     "found": 1,
-    "rank": 2
+    "rank": 3
   },
   {
     "query": "why does status stay degraded after the latest repository sync failed",
@@ -697,7 +699,7 @@
     "query": "why does the wiki tree fetch only the requested number of levels",
     "bucket": "behavior",
     "retrieved": true,
-    "returned": 36,
+    "returned": 35,
     "relevant": 1,
     "found": 1,
     "rank": 2
@@ -715,10 +717,10 @@
     "query": "why does an exact short name jump ahead of stronger text matches",
     "bucket": "behavior",
     "retrieved": true,
-    "returned": 19,
+    "returned": 17,
     "relevant": 3,
     "found": 1,
-    "rank": 3
+    "rank": 4
   },
   {
     "query": "why can searching for a language name find files that only carry an extension",
@@ -733,10 +735,10 @@
     "query": "why are only reasons and rules searchable in the intent index",
     "bucket": "behavior",
     "retrieved": true,
-    "returned": 28,
+    "returned": 32,
     "relevant": 1,
     "found": 1,
-    "rank": 6
+    "rank": 4
   },
   {
     "query": "what decides whether an HTTP server may listen outside the local machine without authentication",
@@ -751,7 +753,7 @@
     "query": "what prevents a user supplied revision from being treated as a command option",
     "bucket": "policy",
     "retrieved": true,
-    "returned": 13,
+    "returned": 11,
     "relevant": 1,
     "found": 1,
     "rank": 4
@@ -810,7 +812,7 @@
     "bucket": "negative",
     "negative": true,
     "retrieved": false,
-    "returned": 19,
+    "returned": 17,
     "relevant": 0,
     "found": 0,
     "rank": 0
@@ -819,7 +821,7 @@
     "query": "why are old generated pages still present after their source files were removed",
     "bucket": "incident",
     "retrieved": true,
-    "returned": 25,
+    "returned": 22,
     "relevant": 1,
     "found": 0,
     "rank": 0
@@ -837,7 +839,7 @@
     "query": "what decides whether generated documentation may delete an existing page",
     "bucket": "policy",
     "retrieved": false,
-    "returned": 17,
+    "returned": 16,
     "relevant": 1,
     "found": 0,
     "rank": 0
