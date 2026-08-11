@@ -246,6 +246,15 @@ func TestProjectSkillsCoverOperationalHazards(t *testing.T) {
 			"out-of-scope",
 			"`annotation_coverage`",
 			"names a `skill` instead of a `tool`",
+			"server-visible path",
+			"do not fan out",
+			"not found within the checked evidence",
+			"one grouped grep/read pass",
+			"exhaustive grep cannot compensate",
+			"basename-only",
+			"overrides the general hybrid workflow",
+			"query budget",
+			"does not affect the conclusion",
 		},
 		"ccg-analyze": {
 			"`max_depth`",
@@ -269,11 +278,7 @@ func TestProjectSkillsCoverOperationalHazards(t *testing.T) {
 
 	for name, phrases := range required {
 		t.Run(name, func(t *testing.T) {
-			raw, err := os.ReadFile(filepath.Join(skillsRoot, name, "SKILL.md"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			text := strings.ToLower(string(raw))
+			text := strings.ToLower(readSkillBundle(t, filepath.Join(skillsRoot, name)))
 			for _, phrase := range phrases {
 				if !strings.Contains(text, strings.ToLower(phrase)) {
 					t.Errorf("missing operational contract %q", phrase)
@@ -281,6 +286,27 @@ func TestProjectSkillsCoverOperationalHazards(t *testing.T) {
 			}
 		})
 	}
+}
+
+func readSkillBundle(t *testing.T, skillDir string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var bundle strings.Builder
+	bundle.Write(raw)
+	pattern := regexp.MustCompile(`\]\((references/[^)#]+)\)`)
+	for _, match := range pattern.FindAllStringSubmatch(string(raw), -1) {
+		reference, err := os.ReadFile(filepath.Join(skillDir, filepath.FromSlash(match[1])))
+		if err != nil {
+			t.Fatalf("read reference %q: %v", match[1], err)
+		}
+		bundle.WriteByte('\n')
+		bundle.Write(reference)
+	}
+	return bundle.String()
 }
 
 func TestProjectSkillsCentralizeSharedOperationalGuidance(t *testing.T) {

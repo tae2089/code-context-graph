@@ -1,6 +1,6 @@
 ---
 name: ccg
-description: "Build, update, inspect, and search code-context-graph graphs and route to specialized CCG workflows. Use when a task needs CCG setup, graph freshness, algorithm or feature-pipeline understanding, exact symbol or relationship lookup, annotation-aware full-text search, safe full or scoped synchronization, MCP graph queries, combining direct source lookup with CCG before an absence or completeness claim, or selection among CCG analysis, docs, annotation, and namespace skills. Do not use for a simple file or string lookup when grep/read is sufficient."
+description: "Build, update, inspect, and search code-context-graph graphs. Use when a task needs graph setup or freshness, annotation-aware discovery, symbol or relationship lookup, intent and impact analysis, safe scoped synchronization, hybrid CCG plus source verification before absence or completeness claims, or routing to CCG analysis, docs, annotation, and namespace workflows. Do not use for one simple file or string lookup when grep/read is sufficient."
 ---
 
 # CCG Runtime Adapter
