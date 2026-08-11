@@ -204,6 +204,26 @@ var zeroScoreNotes = map[string]map[string]zeroScoreNote{
 
 		// The pool held the judged answer and the page did not. These four are
 		// the ranker's own debt, and the only ones here a reordering can pay.
+		//
+		// Two ways of paying it were measured against all four corpora, and both
+		// were worse. Each reorders the intent hits absorbIntent appends, which for
+		// these four is the whole answer — their name pools are empty.
+		//
+		// Ordering that tail by the structural evidence Rerank uses moved fileio.go
+		// from file 13 to 5 and from 18 to 1, but left the other two off the page —
+		// build.go 21 to 19, generator.go 12 to 19. It cost ccg ANSWERABLE Recall@10
+		// 0.831 → 0.791, top1 49 → 40, top3 62 → 55, MRR 0.716 → 0.630, and dropped
+		// context-diary from MRR 1.000 to 0.846. Keeping intent order and only
+		// floating the hits with any name or path evidence to the front paid the two
+		// fileio.go queries too — 13 to 8, 18 to 7 — and still cost: ccg 0.831 →
+		// 0.811, top1 49 → 47, top3 62 → 59, MRR 0.716 → 0.695, context-diary 1.000
+		// → 0.938. Identifier names and file paths are what a question has least in
+		// common with, which is the reason absorbIntent leaves intent order alone.
+		//
+		// What is left to try lives in intentrank, and the ratchet cannot see it:
+		// intent_candidates.json freezes that scorer's ranked output, so a scoring
+		// change moves nothing here until the fixture is recaptured. The recapture
+		// is then what a reviewer reads. See testdata/README.md.
 		"how does the graph get built":                                                    {classKnownGap, "the intent pool holds workflow.Service.Build in the judged internal/app/ingest/workflow/build.go, and the page of ten files did not carry it. The name index answers nothing here — SanitizeFTS5 joins terms with a space and FTS5 reads a space as AND, so a six-word question needs all six words in one document — which leaves the ordering entirely to the intent scorer."},
 		"why did one oversized file abort indexing before it was read":                    {classKnownGap, "the intent pool holds three declarations in the judged internal/app/ingest/workflow/fileio.go, CheckParseFileSize among them, and none reached the page of ten."},
 		"what limits how much source code a single indexing pass may read":                {classKnownGap, "the intent pool holds CheckTotalParsedBytes, readRegularSourceFile and inspectRegularSourceFile, all three in the judged internal/app/ingest/workflow/fileio.go, and none reached the page of ten."},

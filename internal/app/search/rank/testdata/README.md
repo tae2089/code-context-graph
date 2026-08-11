@@ -106,6 +106,16 @@ on exactly the pool it gets in production. Once captured it is never re-read
 from a database, which is what makes a metric change attributable to the code
 and nothing else.
 
+What `intent_candidates.json` freezes is wider than retrieval, and the line is
+easy to miss. `hits` is `intentrank.Rank`'s output — already scored, already
+ordered — and the replay hands that order straight to the service, so the scorer
+itself is never called. Panicking inside `Rank` and re-running `make search-eval`
+prints all four scoreboards unchanged, which is the proof. So an intent-ranking
+change moves nothing here until this file is recaptured, and it is the recapture
+a reviewer has to read. Whoever wants the ratchet to measure the scorer directly
+has to change what is captured — the matched documents rather than the ranked
+hits — which is a fixture format change, not a scoring one.
+
 ## Running it
 
 ```sh
@@ -192,8 +202,10 @@ a reviewer reads.
 ## Rebuilding the candidate fixture
 
 Only when candidate retrieval itself changes — the tokenizer, `SanitizeFTS5`,
-`promoteExactNameMatch`, the indexed document content. It needs a graph at the
-repository root, which is build output and not tracked:
+`promoteExactNameMatch`, the indexed document content — or when `intentrank.Rank`
+does, since the intent capture stores that scorer's ranked output rather than the
+documents it ranked. It needs a graph at the repository root, which is build
+output and not tracked:
 
 ```sh
 make wiki-db              # builds ./ccg.db, which the capture reads
