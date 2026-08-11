@@ -231,21 +231,14 @@ func RerankGroups(query string, groups [][]graph.Node, limit int) []graph.Node {
 }
 
 // compareIdentity orders two structurally tied candidates by who they are.
-// File path comes first so a tie group reads as whole files, matching how the
-// evidence list will group it anyway; namespace is included because federated
-// search can hold the same file in two repositories.
+//
+// The key itself lives in the domain, as graph.CompareIdentity, because the
+// intent scorer has to break its ties the same way. Two layers of one search
+// disagreeing about who comes first is how an answer starts depending on which
+// layer produced it.
 // @intent break structural ties by node identity so the order never depends on which backend retrieved the pool.
 func compareIdentity(a, b graph.Node) int {
-	if by := cmp.Compare(a.FilePath, b.FilePath); by != 0 {
-		return by
-	}
-	if by := cmp.Compare(a.QualifiedName, b.QualifiedName); by != 0 {
-		return by
-	}
-	if by := cmp.Compare(a.Kind, b.Kind); by != 0 {
-		return by
-	}
-	return cmp.Compare(a.Namespace, b.Namespace)
+	return graph.CompareIdentity(a.Identity(), b.Identity())
 }
 
 // applyLimit bounds the result slice, treating a non-positive limit as unbounded.

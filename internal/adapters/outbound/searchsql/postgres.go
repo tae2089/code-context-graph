@@ -113,10 +113,10 @@ type resultRow struct {
 // rather than reordering them — so the same repository indexed twice could answer
 // differently. `n.id` last makes the key total.
 //
-// The key order is deliberately NOT rank.compareIdentity's, which compares file
-// path before qualified name (and then kind and namespace). See the SQLite
-// matchRows for why that difference matters and why aligning them belongs to #106
-// rather than here.
+// The key order is deliberately NOT graph.CompareIdentity's, which compares file
+// path before qualified name (and then kind, namespace and start line). See the
+// SQLite matchRows for why that difference matters and why #106 left retrieval on
+// this order while giving rerank and intent scoring the shared one.
 //
 // @intent let Query run the same retrieval twice with a different expression.
 func (p *PostgresBackend) matchRows(ctx context.Context, db *gorm.DB, tsQuery, ns string, limit int) ([]resultRow, error) {
@@ -184,7 +184,13 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 // them, so it could not tell a distinctive word from a filler one. Retrieval is
 // what the GIN index is genuinely good at; scoring moved to intentrank, which
 // counts the corpus and gives both backends the same answer.
-// @intent hand every candidate reason to shared scoring, in whatever order the index produced.
+//
+// The join onto nodes carries each candidate's identity — path, qualified name,
+// kind, namespace, start line — because that is what intentrank breaks its score
+// ties on, and it drops reason rows whose node is gone rather than spending a row
+// of the candidate cap on one that cannot be scored. The SQLite twin does the
+// same; both have to, or the two backends tie-break on different information.
+// @intent hand every candidate reason to shared scoring, with the identity that scoring breaks ties on.
 // @requires maxCandidates must be greater than 0.
 // @return returns unordered candidates with the exact text that was indexed for each.
 func (p *PostgresBackend) MatchIntent(ctx context.Context, db *gorm.DB, query string, maxCandidates int) ([]intentrank.Doc, error) {
@@ -198,8 +204,10 @@ func (p *PostgresBackend) MatchIntent(ctx context.Context, db *gorm.DB, query st
 
 	var docs []intentrank.Doc
 	if err := db.WithContext(ctx).Raw(`
-		SELECT sr.node_id, sr.content
+		SELECT sr.node_id, sr.content,
+		       n.file_path, n.qualified_name, n.kind, n.namespace, n.start_line
 		FROM search_reasons sr
+		JOIN nodes n ON n.id = sr.node_id
 		WHERE sr.reason_tsv @@ to_tsquery('simple', ?)
 		AND sr.namespace = ?
 		LIMIT ?`, tsQuery, requestctx.FromContext(ctx), maxCandidates).Scan(&docs).Error; err != nil {

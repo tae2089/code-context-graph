@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/tae2089/code-context-graph/internal/app/search/intentrank"
+	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
 
 // rank is the shorthand every test here uses: score these documents against this
@@ -44,17 +45,60 @@ func TestRank_PrefersTheRarerWord(t *testing.T) {
 
 // Two documents that earn exactly the same score must always come back in the
 // same order, or asking for one more row reshuffles the answer.
-func TestRank_BreaksTiesByNodeID(t *testing.T) {
-	same := "keep the queue draining under backpressure"
-	docs := []intentrank.Doc{
-		{NodeID: 7, Content: same},
-		{NodeID: 3, Content: same},
-		{NodeID: 5, Content: same},
-	}
+//
+// The order is the identity order, and the ids here run against it on purpose:
+// ascending file path is descending node id, so a tie broken by id would answer
+// 3, 5, 7 while a tie broken by identity answers 7, 5, 3.
+func TestRank_BreaksTiesByIdentityNotByNodeID(t *testing.T) {
+	docs := tiedDocs()
 	got := rank(t, "what keeps the queue draining", len(docs), docs...)
-	if !slices.Equal(got, []uint{3, 5, 7}) {
-		t.Fatalf("got %v, want ascending node ids on a three-way tie", got)
+	if !slices.Equal(got, []uint{7, 5, 3}) {
+		t.Fatalf("got %v, want the file-path order 7, 5, 3 on a three-way tie", got)
 	}
+}
+
+// The same corpus with its ids handed out differently is the same answer. This
+// is the unit-level form of what re-indexing a repository does: same
+// declarations, same reasons, different ids.
+func TestRank_TiedAnswerDoesNotDependOnWhichIDsWereHandedOut(t *testing.T) {
+	docs := tiedDocs()
+	reassigned := make([]intentrank.Doc, 0, len(docs))
+	for i, doc := range docs {
+		doc.NodeID = uint(100 - i)
+		reassigned = append(reassigned, doc)
+	}
+
+	first := namesInAnswerOrder(rank(t, "what keeps the queue draining", len(docs), docs...), docs)
+	second := namesInAnswerOrder(rank(t, "what keeps the queue draining", len(reassigned), reassigned...), reassigned)
+	if !slices.Equal(first, second) {
+		t.Fatalf("answer is %v with one set of ids and %v with another", first, second)
+	}
+}
+
+// tiedDocs is three declarations whose recorded reason is byte-identical, so all
+// three score the same and only the tie-break decides the order.
+func tiedDocs() []intentrank.Doc {
+	same := "keep the queue draining under backpressure"
+	return []intentrank.Doc{
+		{NodeID: 7, Content: same, FilePath: "queue/drain.go", QualifiedName: "queue.Drain", Kind: graph.NodeKindFunction},
+		{NodeID: 3, Content: same, FilePath: "queue/worker.go", QualifiedName: "queue.Worker", Kind: graph.NodeKindFunction},
+		{NodeID: 5, Content: same, FilePath: "queue/pump.go", QualifiedName: "queue.Pump", Kind: graph.NodeKindFunction},
+	}
+}
+
+// namesInAnswerOrder reads an answer back as qualified names, which stay the
+// same across two seedings while the ids do not.
+func namesInAnswerOrder(answer []uint, docs []intentrank.Doc) []string {
+	names := make([]string, 0, len(answer))
+	for _, id := range answer {
+		for _, doc := range docs {
+			if doc.NodeID == id {
+				names = append(names, doc.QualifiedName)
+				break
+			}
+		}
+	}
+	return names
 }
 
 // A short Latin term matches whole words only. `get` reaching `getAnnotation`

@@ -82,16 +82,18 @@ func TestIntentIndex_HoldsOneDocumentPerReasonTag(t *testing.T) {
 func TestQueryIntent_ExtraRulesDoNotSinkTheDeclarationThatWroteThem(t *testing.T) {
 	db := setupTestDB(t)
 	const shared = "verify the signature so a push from anywhere else is rejected"
-	// The loaded declaration is seeded first so it holds the lower node id. Ties
-	// break on id, so on equal footing it must come first — and under the joined
-	// index it cannot, because its three rules lengthened its one document.
-	loaded := seedReasoned(t, db, "verifyLoaded",
+	// Ties break on identity, and `reasons/verifyAll.go` sorts before
+	// `reasons/verifyBare.go`, so on equal footing the loaded declaration must come
+	// first — and under the joined index it cannot, because its three rules
+	// lengthened its one document. It is seeded second on purpose: it holds the
+	// higher node id, so an answer that still leans on id order gets this backwards.
+	bare := seedReasoned(t, db, "verifyBare", graph.DocTag{Kind: graph.TagIntent, Value: shared})
+	loaded := seedReasoned(t, db, "verifyAll",
 		graph.DocTag{Kind: graph.TagIntent, Value: shared},
 		graph.DocTag{Kind: graph.TagDomainRule, Value: "the shared secret is read from the environment and never logged"},
 		graph.DocTag{Kind: graph.TagDomainRule, Value: "an unsigned request is refused before the body is parsed"},
 		graph.DocTag{Kind: graph.TagDomainRule, Value: "a signature that does not compare in constant time is a defect"},
 	)
-	bare := seedReasoned(t, db, "verifyBare", graph.DocTag{Kind: graph.TagIntent, Value: shared})
 	backend := buildIntentIndex(t, db)
 	ctx := requestctx.WithNamespace(t.Context(), requestctx.DefaultNamespace)
 
@@ -108,10 +110,10 @@ func TestQueryIntent_ExtraRulesDoNotSinkTheDeclarationThatWroteThem(t *testing.T
 	if !bareSeen || !loadedSeen {
 		t.Fatalf("both declarations must answer; got %v", answeringNodes(result))
 	}
-	// Same reason, same words, so neither may be ranked below the other. Ties
-	// break on node id, which is the only order the two can legitimately differ in.
-	if (bareRank < loadedRank) != (bare.ID < loaded.ID) {
-		t.Errorf("rank order (%d before %d) does not follow the tiebreak; the three domain rules moved the score",
+	// Same reason, same words, so the score cannot separate them and the identity
+	// tiebreak decides: file path first, which puts verifyAll ahead of verifyBare.
+	if loadedRank > bareRank {
+		t.Errorf("verifyBare answered at %d and verifyAll at %d, want the file-path order; the three domain rules moved the score",
 			bareRank, loadedRank)
 	}
 }
