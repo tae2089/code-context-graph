@@ -28,7 +28,7 @@ Graceful shutdown: SIGINT/SIGTERM propagates context cancellation to in-progress
 | ---------------- | ------------------------------------------------------------------- |
 | `/ccg`           | Read-only discovery: search, lookup, and freshness assessment       |
 | `/ccg-build`     | Explicit-only graph build, update, migrate, and postprocess         |
-| `/ccg-analyze`   | Code analysis: impact radius, flow tracing, and change risk         |
+| `/ccg-analyze`   | Explicit-only impact, flow tracing, and change-risk analysis        |
 | `/ccg-annotate`  | Annotation system: AI annotation workflow and tag reference         |
 | `/ccg-docs`      | Documentation: generation, DB-backed discovery, and lint            |
 | `/ccg-namespace` | Namespace isolation for multi-project graph data                    |
@@ -55,7 +55,7 @@ use ccg MCP tools and Agent Skills first.
 
 - For code lookup and natural-language code understanding alike, start with ccg MCP `search`: it answers identifier queries and "why was this built" questions from one index, then walk from the `node_id` values it returns. Use the `/ccg-docs` skill and `get_doc_content` to read a generated doc.
 - For exact symbol locations, call relationships, and graph metadata, use ccg MCP `query_graph`, `get_node`, `get_minimal_context`, or the `/ccg` skill.
-- For impact radius, flows, and change-risk analysis, prefer the `/ccg-analyze` skill and related MCP tools (`get_impact_radius`, `trace_flow`, `detect_changes`, `get_affected_flows`).
+- `/ccg-analyze` is explicit-only: use it only when the user names that skill in the current request. A request about impact, flow, callers, or relationships is not permission to load it or expand into its traversal workflow; keep ordinary `/ccg` discovery bounded instead.
 - For simple string checks, file existence checks, or cases where the ccg index is missing or stale, use `rg` as a supplement. Report missing or stale graph state without invoking `/ccg-build` automatically.
 - `/ccg-build` is explicit-only: use it only when the user names that skill in the current request. A task that needs graph creation, refresh, migration, or postprocessing is not by itself permission to load the skill. Remote ingestion stays Git webhook/sync based; do not treat MCP write tools as source-upload APIs.
 

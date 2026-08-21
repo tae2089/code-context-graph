@@ -1,8 +1,9 @@
 ---
 name: ccg-analyze
-description: "Analyze algorithms, feature pipelines, and code relationships with CCG impact radius, bounded flow tracing, callers/callees, git-diff risk, affected stored flows, and cross-namespace references. Use when a task asks how a feature or algorithm works, how a pipeline flows, what a change affects, who calls a symbol, whether results were truncated, or which flows recent changes touch. Do not use for simple text lookup, documentation generation, or annotation authoring."
+description: "Explicit-only deep analysis of algorithms, feature pipelines, and code relationships with CCG impact radius, bounded flow tracing, callers/callees, git-diff risk, affected stored flows, and cross-namespace references. Use only when the user explicitly names the ccg-analyze skill in the current request. Do not invoke merely because a task asks about a flow, pipeline, impact, caller, or relationship."
+disable-model-invocation: true
 metadata:
-  version: 1.4.2
+  version: 2.0.0
   openclaw:
     category: "code-intelligence"
     domain: "analysis"
@@ -16,6 +17,14 @@ metadata:
 # ccg-analyze — Code Analysis
 
 Graph-based analysis for **change impact, call flow, and recent-change risk**.
+
+## Invocation Gate
+
+Proceed only when the user explicitly names `ccg-analyze` in the current
+request. A request about an algorithm, pipeline, impact, caller, or relationship
+is not by itself an invocation. Without that explicit name, do not load this
+workflow or run its traversal and impact-analysis tools; use the bounded `ccg`
+discovery workflow instead.
 
 ## Intent → Tool Mapping
 

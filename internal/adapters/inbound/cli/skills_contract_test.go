@@ -33,12 +33,13 @@ func TestProjectSkillsDeclareRuntimeContract(t *testing.T) {
 	type expectation struct {
 		domain       string
 		requiresCore bool
+		explicitOnly bool
 		cliHelp      string
 	}
 	want := map[string]expectation{
 		"ccg":           {domain: "core", cliHelp: "ccg --help"},
-		"ccg-build":     {domain: "build", cliHelp: "ccg build --help"},
-		"ccg-analyze":   {domain: "analysis", requiresCore: true},
+		"ccg-build":     {domain: "build", explicitOnly: true, cliHelp: "ccg build --help"},
+		"ccg-analyze":   {domain: "analysis", requiresCore: true, explicitOnly: true},
 		"ccg-annotate":  {domain: "annotation", requiresCore: true},
 		"ccg-docs":      {domain: "documentation", requiresCore: true, cliHelp: "ccg docs --help"},
 		"ccg-namespace": {domain: "namespace", requiresCore: true, cliHelp: "ccg search --help"},
@@ -83,11 +84,11 @@ func TestProjectSkillsDeclareRuntimeContract(t *testing.T) {
 			if !strings.Contains(contract.Description, "Do not use") && !strings.Contains(contract.Description, "Do not invoke") {
 				t.Errorf("description must include a concrete negative boundary: %q", contract.Description)
 			}
-			if name == "ccg-build" && !contract.DisableModelInvocation {
-				t.Error("ccg-build must require explicit invocation")
+			if contract.DisableModelInvocation != expected.explicitOnly {
+				t.Errorf("disable-model-invocation = %t, want %t", contract.DisableModelInvocation, expected.explicitOnly)
 			}
-			if name == "ccg-build" && !strings.Contains(contract.Description, "Use only when the user explicitly names") {
-				t.Error("ccg-build description must restrict use to explicit invocation")
+			if expected.explicitOnly && !strings.Contains(contract.Description, "Use only when the user explicitly names") {
+				t.Errorf("%s description must restrict use to explicit invocation", name)
 			}
 			if name != "ccg-build" && slices.Contains(contract.Metadata.Requires.Skills, "ccg-build") {
 				t.Error("other skills must not implicitly require explicit-only ccg-build")
@@ -122,7 +123,7 @@ func TestProjectSkillsDeclareRuntimeContract(t *testing.T) {
 
 func TestCoreSkillsHaveClaudeAndAntigravityProjectAdapters(t *testing.T) {
 	repoRoot := filepath.Join("..", "..", "..", "..")
-	for _, skillName := range []string{"ccg", "ccg-build"} {
+	for _, skillName := range []string{"ccg", "ccg-build", "ccg-analyze"} {
 		t.Run(skillName, func(t *testing.T) {
 			canonicalPath := filepath.Join(repoRoot, "skills", skillName, "SKILL.md")
 			canonicalRaw, err := os.ReadFile(canonicalPath)
@@ -162,6 +163,26 @@ func TestCoreSkillsHaveClaudeAndAntigravityProjectAdapters(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+func TestProjectInstructionsKeepCCGAnalyzeExplicitOnly(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, phrase := range []string{
+		"`/ccg-analyze` is explicit-only",
+		"only when the user names that skill in the current request",
+		"keep ordinary `/ccg` discovery bounded instead",
+	} {
+		if !strings.Contains(text, phrase) {
+			t.Errorf("project instructions are missing explicit-analysis boundary %q", phrase)
+		}
+	}
+	if strings.Contains(text, "prefer the `/ccg-analyze` skill") {
+		t.Error("project instructions still route analysis requests to ccg-analyze implicitly")
 	}
 }
 
@@ -285,6 +306,7 @@ func TestProjectSkillsCoverOperationalHazards(t *testing.T) {
 			"`truncated`",
 			"server-visible",
 			"`annotation_coverage`",
+			"explicitly names `ccg-analyze`",
 		},
 		"ccg-annotate": {
 			"ingestion discards",
@@ -389,13 +411,13 @@ func TestProjectSkillsCentralizeSharedOperationalGuidance(t *testing.T) {
 	}
 }
 
-func TestProjectSkillsRoutePipelineAnalysisBeforeSourceVerification(t *testing.T) {
+func TestProjectSkillsKeepCoreDiscoveryBoundedAndDeepAnalysisExplicit(t *testing.T) {
 	skillsRoot := filepath.Join("..", "..", "..", "..", "skills")
 	required := map[string][]string{
 		"ccg": {
-			"algorithm",
-			"feature pipeline",
-			"graph-first",
+			"do not invoke `ccg-analyze` automatically",
+			"one bounded `search`",
+			"explicit `ccg-analyze` invocation",
 		},
 		"ccg-analyze": {
 			"pipeline analysis workflow",

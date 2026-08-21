@@ -1,8 +1,8 @@
 ---
 name: ccg
-description: "Inspect and search code-context-graph graphs without mutating them. Use when a task needs annotation-aware discovery, symbol or relationship lookup, graph population or freshness assessment, hybrid CCG plus source verification before absence or completeness claims, or routing to CCG analysis, docs, annotation, and namespace workflows. Do not invoke graph build, update, migration, or postprocessing; ccg-build is available only when the user explicitly names it."
+description: "Inspect and search code-context-graph graphs without mutating them. Use when a task needs annotation-aware discovery, bounded symbol or relationship lookup, graph population or freshness assessment, hybrid CCG plus source verification before absence or completeness claims, or routing to docs, annotation, and namespace workflows. Do not invoke ccg-analyze, graph build, update, migration, or postprocessing; ccg-analyze and ccg-build are available only when the user explicitly names them."
 metadata:
-  version: 2.0.1
+  version: 2.1.0
   openclaw:
     category: "code-intelligence"
     domain: "core"
@@ -38,8 +38,8 @@ whose credible candidate has already been verified in source.
 | Code related to a keyword or recorded intent | `search` |
 | Why something exists when the symbol is unknown | `search` with a plain-language question |
 | Contents of a known file or folder | `describe` |
-| Algorithm, pipeline, or feature flow | `ccg-analyze` skill if available |
-| Change impact or blast radius | `ccg-analyze` skill if available |
+| Ordinary algorithm, pipeline, or feature explanation | One bounded `search`, then verify the selected source |
+| Deep flow, change impact, or blast-radius analysis | Stop and report that the user must explicitly invoke `ccg-analyze` |
 | Generated documentation | `ccg-docs` skill if available |
 | Write or repair annotations | `ccg-annotate` skill if available |
 | Multiple repositories or services | `ccg-namespace` skill if available |
@@ -49,8 +49,10 @@ For an unfamiliar MCP task, call `get_minimal_context` once and confirm the
 namespace with `list_graph_stats`. Do not rebuild merely to begin a read-only
 query.
 
-Treat an algorithm or feature pipeline as graph-first analysis, then verify the
-selected symbols and runtime semantics in source.
+Do not invoke `ccg-analyze` automatically. A request about algorithms, feature
+pipelines, impact, callers, or flow does not itself authorize that workflow.
+Keep ordinary discovery bounded; the user must name `ccg-analyze` when they want
+its traversal and impact-analysis procedure.
 
 ## Core Commands
 
@@ -91,8 +93,9 @@ Choose one query shape, not both:
 Start with five files. Verify the best credible candidate in current source and
 stop when the task asks for an answer, not an inventory. Increase the limit or
 page only when no candidate is credible or completeness matters. A returned
-`node_id` can start `get_node`, `query_graph`, `get_impact_radius`, or
-`trace_flow` when the answer needs relationship evidence.
+`node_id` can start `get_node` or one bounded `query_graph` lookup when an
+ordinary answer needs relationship evidence. Reserve impact-radius and
+flow-tracing workflows for an explicit `ccg-analyze` invocation.
 
 ## Hybrid Search Workflow
 
@@ -172,7 +175,9 @@ Report the freshness gap and state that the user may explicitly name
 
 - `search` produces ranked candidates, not exact graph proof.
 - Report stale or missing graph state instead of presenting it as current.
-- Use specialized CCG skills for analysis, docs, annotations, namespaces, and graph writes.
+- Use specialized CCG skills for docs, annotations, and namespaces when their
+  routing applies. Use `ccg-analyze` and `ccg-build` only when the user
+  explicitly names the respective skill.
 
 ## Completion
 
