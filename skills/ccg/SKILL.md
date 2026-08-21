@@ -1,8 +1,8 @@
 ---
 name: ccg
-description: "Fast read-only code discovery with a bounded code-context-graph search and targeted source verification. Use when an ordinary positive lookup or explanation needs an entry point, recorded intent, known-path inventory, or direct relationship evidence. Do not use for absence, completeness, exhaustive inventory, deep flow or impact analysis, or graph writes; use ccg-search-verify for defensible negative claims, and require explicit invocation for ccg-analyze or ccg-build."
+description: "Fast read-only code discovery with mandatory structured CCG search for unknown entry points, followed by bounded source verification. Use for ordinary positive lookups, recorded intent, known-path inventory, or one direct relationship fact. Do not use for absence, completeness, exhaustive inventory, deep flow or impact analysis, or graph writes."
 metadata:
-  version: 3.0.7
+  version: 4.0.0
   openclaw:
     category: "code-intelligence"
     domain: "core"
@@ -14,160 +14,86 @@ metadata:
 
 # ccg — Fast Search
 
-Use CCG to find one directly relevant entry point, then verify it in current
-source. Keep ordinary discovery small enough that it beats broad grep
-exploration.
+Find one useful CCG candidate, verify it in current source, and stop as soon as
+the positive question is answered.
 
-## Task Routing and Entry
+## Route
 
-| User intent | Start with |
+| User intent | Route |
 | --- | --- |
-| Known filename, identifier, literal, or error text | Grep + Read |
-| Unknown entry point, recorded intent, or keyword | One bounded `search` |
-| Contents of a known file or folder | `describe` |
-| One direct caller/callee fact | One bounded `query_graph` lookup |
-| Absence, completeness, or exhaustive inventory | `ccg-search-verify` skill if available |
-| Deep flow, change impact, or blast radius | Stop and report that the user must explicitly invoke `ccg-analyze` |
-| Generated documentation | `ccg-docs` skill if available |
-| Write or repair annotations | `ccg-annotate` skill if available |
-| Multiple repositories or services | `ccg-namespace` skill if available |
-| Build, update, migrate, postprocess, or scoped graph write | Stop and report that the user must explicitly invoke `ccg-build` |
+| Known filename, identifier, literal, or error text | Grep + Read may start directly |
+| Unknown entry point, behavior, reason, or keyword | Run the Core Loop below |
+| Contents of a known file or folder | One `describe` call |
+| One direct caller/callee fact | One bounded `query_graph` call |
+| Absence, completeness, or exhaustive inventory | `ccg-search-verify` |
+| Deep flow, change impact, or blast radius | Require explicit `ccg-analyze` invocation |
+| Build, update, migrate, postprocess, or graph write | Require explicit `ccg-build` invocation |
 
-An ordinary miss is not permission to make a negative claim. When the answer
-would become “not found,” “does not exist,” “complete,” or “all,” switch to
-`ccg-search-verify` instead of widening this workflow.
+An ordinary miss never authorizes a negative claim. If the answer would become
+“not found,” “does not exist,” “complete,” or “all,” switch to
+`ccg-search-verify`.
 
-Do not invoke `ccg-analyze` automatically. A request about algorithms,
-pipelines, impact, callers, or flow does not itself authorize its traversal and
-impact-analysis procedure.
+## Core Loop
 
-## Fast Workflow
+For an unknown entry point, behavior, reason, or keyword, follow these steps in
+order:
 
-1. Reuse a namespace already supplied by repository instructions, configuration,
-   or the user. Do not call `get_minimal_context`, `list_namespaces`, or
-   `list_graph_stats` for an ordinary search when that information is already
-   known.
-2. With an exact clue, use grep/read. Otherwise start one `search` with
-   `limit: 5`:
-   - known thing: one short identifier or rare keyword;
-   - unknown symbol: one concise plain-language question that can match recorded
-     `@intent` or `@domainRule` reasons.
-   Write the natural-language part in the dominant language of the indexed
-   source comments and annotations. If the user uses another language, translate
-   the intent but preserve identifiers, paths, literals, and error text. Do not
-   combine both languages in one query.
-3. Classify every returned candidate as `production`, `test`, or `unknown`.
-   Confirm `test` only from, in priority order: CCG test-node metadata; explicit
-   repository source-set or build rules; or a repository/language test path or
-   filename convention. Test-only support artifacts such as fixtures, golden or
-   snapshot data, testdata, and generated mocks also count as `test` only when
-   repository or language conventions confirm that role; a generic directory
-   name alone is not proof. If no rule applies, keep the candidate `unknown`
-   rather than guessing. For a question not about tests, defer confirmed test
-   candidates while any unverified production or unknown candidate remains. If
-   the page contains only tests and has `next`, continue before reading tests.
-4. On the current result page, collect the active production and unknown
-   candidates related to the requested component or behavior. Check only paths
-   explicitly returned on that page; do not replace them with parent directories
-   or guessed paths, and do not recheck a path already examined on an earlier
-   page. Before reading source, identify the specific claim each candidate could
-   support from its returned symbol or summary. Skip candidates that share only
-   broad query words. When a result exposes `node_id`, use `get_node` to obtain
-   its declaration bounds. Otherwise use the returned line, language-aware
-   symbol navigation, or a targeted grep over those exact paths to locate the
-   declaration boundary. Read its attached annotation or doc comment and that
-   complete declaration only. If multiple declarations are needed, read them as
-   separate ranges; never read one continuous range that includes unrelated
-   declarations between them. Follow another declaration only when the selected
-   declaration directly references it. Stop when the verified source answers
-   the question. For a test-focused question, include confirmed test candidates
-   from the start.
-5. If the candidate evidence is insufficient and the response supplies a
-   continuation, the next action must be that exact `next` call. Preserve the
-   query, limit, namespace, and continuation offsets supplied by CCG; do not
-   calculate offsets or reformulate the query. Repeat steps 3 and 4 after each
-   page for at most three continuation calls, stopping if source evidence
-   answers the question or `next` disappears.
-6. Any search that includes a path not explicitly returned on the current CCG
-   page is a fallback search, regardless of the path's name or apparent size.
-   Begin fallback only when `next` is absent or three continuation calls have
-   been consumed. The first fallback search may expand scope. Every later search
-   must narrow scope using a concrete path, symbol, literal, or error text newly
-   produced by the preceding result; never repeat a broad search or fan out into
-   synonyms. For a non-test question, apply confirmed test and test-support path
-   exclusions in the search command before matches are returned. Apply the same
-   three-way classification to direct-search results and inspect production and
-   unknown files first. If they still provide insufficient evidence, confirmed
-   tests may be read as supporting evidence. Stop when source evidence answers
-   the question or a search yields no new clue. Do not make a negative claim if
-   fallback also misses.
-7. Use `get_node`, `describe`, or one bounded `query_graph` call only when the
-   answer needs exact identity, declaration bounds, an unranked known-path
-   inventory, or one direct relationship fact.
+1. **Search.** Before grep or source browsing, run one structured CCG `search`
+   with `limit: 5`. Prefer MCP. If MCP is unavailable, use
+   `ccg search --json --limit 5 "<query>"`; never use the plain CLI display.
+2. **Verify this page.** Inspect only relevant `production` and `unknown` paths
+   returned on the current page. Each source read must verify one concrete
+   claim. Read the exact declaration and its attached documentation, not broad
+   file ranges.
+3. **Decide.** If verified evidence answers the question, stop. If it does not
+   and the response contains `next`, the next action must be that continuation
+   verbatim. Do not grep a wider scope while an allowed continuation remains.
+4. **Continue.** Repeat page verification and decision for at most three `next`
+   calls. Preserve the query, limit, namespace, and offsets supplied by CCG;
+   never calculate or rewrite them.
+5. **Fallback.** Only when `next` is absent or three `next` calls have been used,
+   search current source directly. The first fallback search may expand scope;
+   every later search must narrow from a new concrete path, symbol, literal, or
+   error text found by the preceding step.
+6. **Stop.** Answer when the smallest verified evidence set is sufficient. If a
+   search yields no new clue, stop and report that the entry point could not be
+   located without claiming that the code does not exist.
 
-Every query word must occur in the same indexed document, so do not concatenate
-the prompt’s examples into a long query. Do not fan out into synonym searches
-inside this fast workflow.
+Do not replace a returned path with a guessed directory, reread an examined
+range, fan out into synonym searches, or echo raw candidate lists.
 
-```bash
-ccg search --limit 5 "<query>"
-ccg status  # population only; not proof of freshness
-```
+## Conditional Details
 
-Use `ccg <command> --help` rather than relying on remembered flags.
+Read
+[`references/search-execution.md`](references/search-execution.md) only when a
+branch needs it:
 
-## Freshness Boundary
+- MCP is unavailable and CLI fallback is required;
+- the user's language differs from repository annotations or comments;
+- a candidate may be test-only or declaration bounds are missing;
+- the direct-source fallback begins.
 
-Current source is authoritative for text, branches, runtime semantics, and
-location. CCG supplies indexed intent and relationship candidates.
+Read
+[`references/supported-languages.md`](references/supported-languages.md) only
+for a supported-language or extension question.
 
-Positive evidence verified in current source can answer an ordinary question
-without a separate freshness preflight. A graph miss, stale result, or missing
-namespace cannot support a negative claim; route that task to
-`ccg-search-verify`. Call `list_graph_stats` only when the user asks about graph
-population or graph state itself.
+## Boundaries
 
-This skill is read-only. Report a missing or stale graph instead of invoking
-`ccg-build`. The user must explicitly name `ccg-build` before any graph write.
-
-## Response Budget Rule
-
-- Start one CCG `search` with `limit: 5`; follow its exact `next` continuation
-  at most three times and stop early when verified source evidence answers the
-  question.
-- For each result page, search only paths explicitly returned on that page and
-  inspect only unseen candidates that can support a specific claim. Read
-  attached documentation plus exact declaration ranges rather than arbitrary
-  file ranges. Read separate declarations separately, and follow only directly
-  referenced declarations.
-- For non-test questions, prioritize production and unknown candidates. Defer
-  confirmed tests until CCG continuations and direct production-source evidence
-  are insufficient, and exclude confirmed test and test-support paths before
-  direct-search output is produced. Never classify an ambiguous path as test
-  merely to skip it.
-- Treat every scope expansion beyond returned paths as fallback. Begin fallback
-  only after `next` is absent or three continuations have been consumed. After
-  the initial expansion, every search must narrow using a newly found concrete
-  clue; stop when no new clue appears.
-- Do not reread a source range solely to obtain line numbers. Preserve line
-  numbers on the first read when the response needs source citations.
-- Disclose truncation only when the three-continuation cap limits the answer.
-- Do not echo raw result lists or mandatory operational reports. Return the
-  answer and its relevant paths or symbols.
-- Read [`references/supported-languages.md`](references/supported-languages.md)
-  only for a supported-language or extension question.
-
-## Boundary
-
-- `search` returns ranked candidates, not proof of absence or completeness.
-- Reserve impact-radius and flow-tracing workflows for an explicit
-  `ccg-analyze` invocation.
-- Use `ccg-search-verify` for defensible negative or exhaustive claims.
-- Use `ccg-build` only when explicitly invoked.
+- Current source is authoritative for text, location, and runtime semantics;
+  CCG supplies ranked intent and relationship candidates.
+- Positive evidence verified in current source needs no freshness preflight.
+  A graph miss or stale result is never negative evidence.
+- Do not call `get_minimal_context`, `list_namespaces`, or `list_graph_stats`
+  when repository instructions or configuration already supply the namespace.
+- Use `get_node` only for exact identity or declaration bounds, and follow
+  another declaration only when the selected declaration directly references
+  it.
+- This skill is read-only. Never invoke graph build, update, migration,
+  postprocessing, impact-radius, or flow-tracing tools from this workflow.
 
 ## Completion
 
-Answer from the smallest verified evidence set. Name the selected path or
-qualified symbol and disclose only uncertainty that materially limits the
-answer. Do not append namespace, freshness, limit, or tool-call accounting
-unless the user requests it or it changes the conclusion.
+Return the answer with the relevant path or qualified symbol. Mention
+truncation only when the three-continuation cap limits the answer, and disclose
+only uncertainty that materially changes the conclusion. Do not append tool,
+namespace, freshness, or call-count reports unless requested.
