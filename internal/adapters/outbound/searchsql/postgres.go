@@ -10,6 +10,7 @@ import (
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/app/search/intentrank"
+	"github.com/tae2089/code-context-graph/internal/app/search/queryterm"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/db/migration"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
@@ -136,12 +137,13 @@ func (p *PostgresBackend) matchRows(ctx context.Context, db *gorm.DB, tsQuery, n
 
 // Query searches for related nodes using PostgreSQL tsquery.
 //
-// Every term is required, mirroring the SQLite backend. See SQLiteBackend.Query
-// for why widening to any-term was measured and rejected.
+// Every meaningful term is required first, mirroring the SQLite backend. A
+// sentence-shaped query widens to any-term retrieval only when that strict pass
+// is empty, then uses the same Go scorer as SQLite.
 //
 // @intent Converts the user's search term into a prefix tsquery to find related nodes.
 // @requires limit must be greater than 0 to get meaningful results.
-// @return Returns a list of nodes sorted by ts_rank.
+// @return Returns strict matches by ts_rank, or soft sentence matches by shared relevance rank when strict retrieval is empty.
 func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]graph.Node, error) {
 	if limit <= 0 {
 		return nil, fmt.Errorf("limit must be > 0, got %d", limit)
@@ -162,6 +164,13 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 	// driven by an agent quoting identifiers out of code it has already read, so
 	// a query that matches nothing exactly is naming something that does not
 	// exist. Returning nothing says that; returning a near neighbour would not.
+	if len(rows) == 0 && queryterm.IsNaturalLanguage(query) {
+		docs, matchErr := p.matchContent(ctx, db, query, maxNaturalCandidates)
+		if matchErr != nil {
+			return nil, matchErr
+		}
+		return rankContentCandidates(ctx, db, query, docs, limit)
+	}
 	if len(rows) == 0 {
 		return nil, nil
 	}
@@ -175,6 +184,33 @@ func (p *PostgresBackend) Query(ctx context.Context, db *gorm.DB, query string, 
 		return nil, err
 	}
 	return promoteExactNameMatch(nodes, query), nil
+}
+
+// matchContent retrieves every indexed code document containing any meaningful
+// term of a natural-language query and leaves relevance ordering to shared Go
+// scoring.
+// @intent retrieve PostgreSQL soft-match candidates without backend-specific ranking.
+func (p *PostgresBackend) matchContent(ctx context.Context, db *gorm.DB, query string, maxCandidates int) ([]intentrank.Doc, error) {
+	if maxCandidates <= 0 {
+		return nil, fmt.Errorf("maxCandidates must be > 0, got %d", maxCandidates)
+	}
+	tsQuery := SanitizePostgresNaturalTSQuery(query)
+	if tsQuery == "" {
+		return nil, nil
+	}
+
+	var docs []intentrank.Doc
+	if err := db.WithContext(ctx).Raw(`
+		SELECT sd.node_id, sd.content,
+		       n.file_path, n.qualified_name, n.kind, n.namespace, n.start_line
+		FROM search_documents sd
+		JOIN nodes n ON n.id = sd.node_id
+		WHERE sd.tsv @@ to_tsquery('simple', ?)
+		AND sd.namespace = ?
+		LIMIT ?`, tsQuery, requestctx.FromContext(ctx), maxCandidates).Scan(&docs).Error; err != nil {
+		return nil, trace.Wrap(err, "natural-language ts_query")
+	}
+	return docs, nil
 }
 
 // MatchIntent finds every recorded reason holding any term of the question.

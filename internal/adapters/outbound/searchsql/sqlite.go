@@ -13,6 +13,7 @@ import (
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/app/search/intentrank"
+	"github.com/tae2089/code-context-graph/internal/app/search/queryterm"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
@@ -318,19 +319,15 @@ func (s *SQLiteBackend) matchRows(ctx context.Context, db *gorm.DB, ftsQuery, ns
 
 // Query searches for related nodes using FTS5 MATCH queries.
 //
-// Every term is required, and SanitizeFTS5 decides what counts as a term. That
-// pairing is the whole retrieval policy: requiring all terms is right when the
-// searcher typed identifiers, and it only became wrong for sentences because
-// ordinary English words were being required too.
-//
-// Widening to any-term when all-terms matches nothing was measured and
-// rejected. It answered no query the narrow expression missed — the two extra
-// nodes it retrieved never reached the top ten — and it filled the deliberate
-// nonsense query in the golden set with fifty unrelated hits.
+// Every meaningful term is required first. That preserves the precision of
+// identifier queries and sentence queries whose content words really do meet
+// in one document. Only a sentence-shaped query with no strict hit widens to
+// any-term retrieval and shared BM25/IDF scoring; compact identifier queries
+// never widen.
 //
 // @intent Converts the user's search term into a SQLite FTS prefix query to find nodes.
 // @requires limit must be greater than 0 to get meaningful results.
-// @return Returns a list of nodes sorted by FTS rank.
+// @return Returns strict matches by FTS rank, or soft sentence matches by shared relevance rank when strict retrieval is empty.
 func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, limit int) ([]graph.Node, error) {
 	if limit <= 0 {
 		return nil, fmt.Errorf("limit must be > 0, got %d", limit)
@@ -345,6 +342,13 @@ func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, li
 	if err != nil {
 		return nil, err
 	}
+	if len(rows) == 0 && queryterm.IsNaturalLanguage(query) {
+		docs, matchErr := s.matchContent(ctx, db, query, maxNaturalCandidates)
+		if matchErr != nil {
+			return nil, matchErr
+		}
+		return rankContentCandidates(ctx, db, query, docs, limit)
+	}
 	if len(rows) == 0 {
 		return nil, nil
 	}
@@ -358,6 +362,32 @@ func (s *SQLiteBackend) Query(ctx context.Context, db *gorm.DB, query string, li
 		return nil, err
 	}
 	return promoteExactNameMatch(nodes, query), nil
+}
+
+// matchContent retrieves every indexed code document containing any meaningful
+// term of a natural-language query. It deliberately leaves ordering to shared
+// Go scoring so SQLite and PostgreSQL cannot disagree about relevance.
+// @intent retrieve soft-matched general search candidates for backend-neutral ranking.
+func (s *SQLiteBackend) matchContent(ctx context.Context, db *gorm.DB, query string, maxCandidates int) ([]intentrank.Doc, error) {
+	if maxCandidates <= 0 {
+		return nil, fmt.Errorf("maxCandidates must be > 0, got %d", maxCandidates)
+	}
+	ftsQuery := SanitizeNaturalFTS5(query)
+	if ftsQuery == "" {
+		return nil, nil
+	}
+
+	var docs []intentrank.Doc
+	if err := db.WithContext(ctx).Raw(
+		`SELECT CAST(search_fts.node_id AS INTEGER) AS node_id, search_fts.content,
+		        n.file_path, n.qualified_name, n.kind, n.namespace, n.start_line
+		 FROM search_fts
+		 JOIN nodes n ON n.id = CAST(search_fts.node_id AS INTEGER)
+		 WHERE search_fts MATCH ? AND search_fts.namespace = ?
+		 LIMIT ?`, ftsQuery, requestctx.FromContext(ctx), maxCandidates).Scan(&docs).Error; err != nil {
+		return nil, trace.Wrap(err, "natural-language fts query")
+	}
+	return docs, nil
 }
 
 // MatchIntent finds every recorded reason holding any term of the question.

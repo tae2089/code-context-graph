@@ -168,6 +168,53 @@ func TestSearchCommand_JSONSpeaksTheMCPContract(t *testing.T) {
 	}
 }
 
+func TestSearchCommand_CompactJSONKeepsOnlyDecisionEvidence(t *testing.T) {
+	deps, stdout, stderr, db := setupSearchTest(t)
+	seedSearchData(t, db)
+
+	if err := executeCmd(deps, stdout, stderr, "search", "--json", "--compact", "Hello"); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode: %v output=%s", err, stdout.String())
+	}
+	if lines := strings.Count(stdout.String(), "\n"); lines != 1 {
+		t.Errorf("compact JSON used %d lines, want one encoded document", lines)
+	}
+	file := payload["files"].([]any)[0].(map[string]any)
+	hit := file["hits"].([]any)[0].(map[string]any)
+	for _, key := range []string{"qualified_name", "kind", "start_line", "end_line", "matched"} {
+		if _, ok := hit[key]; !ok {
+			t.Errorf("compact hit is missing %q: %s", key, stdout.String())
+		}
+	}
+	for _, duplicate := range []string{"id", "name", "file_path"} {
+		if _, ok := hit[duplicate]; ok {
+			t.Errorf("compact hit kept duplicate field %q: %s", duplicate, stdout.String())
+		}
+	}
+	compactSize := stdout.Len()
+	stdout.Reset()
+	if err := executeCmd(deps, stdout, stderr, "search", "--json", "Hello"); err != nil {
+		t.Fatalf("full search: %v", err)
+	}
+	if compactSize*4 >= stdout.Len()*3 {
+		t.Errorf("compact CLI output is %d bytes versus %d full bytes, want at least 25%% smaller", compactSize, stdout.Len())
+	}
+}
+
+func TestSearchCommand_CompactRequiresJSON(t *testing.T) {
+	deps, stdout, stderr, db := setupSearchTest(t)
+	seedSearchData(t, db)
+
+	err := executeCmd(deps, stdout, stderr, "search", "--compact", "Hello")
+	if err == nil || !strings.Contains(err.Error(), "--compact requires --json") {
+		t.Fatalf("error = %v, want --compact requires --json", err)
+	}
+}
+
 // A truncated --json answer carries the same next actions MCP emits, phrased as
 // a repeatable search call.
 func TestSearchCommand_JSONNamesTheNextPage(t *testing.T) {

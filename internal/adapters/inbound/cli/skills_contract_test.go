@@ -223,12 +223,74 @@ func TestProjectInstructionsRouteFastAndVerifiedSearchSeparately(t *testing.T) {
 	text := string(raw)
 	for _, phrase := range []string{
 		"`/ccg` is the fast default",
-		"at most one `search` call with `limit: 5`",
+		"environment-aware structured search",
+		"For this repository, use the local JSON CLI",
+		"start with one `search` call using `limit: 5`",
+		"pass the namespace already supplied",
+		"at most three verbatim `next` calls",
 		"Use `/ccg-search-verify`",
 		"freshness, hybrid source checking, and truncation paging",
 	} {
 		if !strings.Contains(text, phrase) {
 			t.Errorf("project instructions are missing search-mode boundary %q", phrase)
+		}
+	}
+	if strings.Contains(text, "use ccg MCP tools and Agent Skills first") {
+		t.Error("project instructions force MCP even when the fast skill selects a repository-local JSON CLI")
+	}
+}
+
+func TestFastSearchSkillDescribesSoftRetrievalAndAdaptiveVerification(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "skills", "ccg", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.ToLower(strings.Join(strings.Fields(string(raw)), " "))
+	for _, phrase := range []string{
+		"or matching",
+		"rejects single-term coincidences",
+		"bm25/idf",
+		"search first when the path is unknown",
+		"use it verbatim",
+		"do not compress a behavior or reason question into keywords",
+		"repository-local `.ccg.yaml`",
+		"use json cli",
+		"--compact",
+		"compact: true",
+		"explicit mcp or server-visible",
+		"mcp tool availability or mcp documentation alone",
+		"path-only reference lookup",
+		"before semantic paging",
+		"do not re-locate a hit with grep",
+		"each chosen declaration's exact range separately",
+		"exact-identifier miss",
+		"repeat the same local graph query",
+		"name the specific evidence gap",
+		"material evidence gap can",
+		"author-recorded design reason",
+		"one directly relevant author-recorded design reason",
+		"closes the rationale gap",
+		"secondary consequences are optional",
+		"do not trace constructor or dependency-injection wiring",
+		"state that gap in one sentence",
+		"do not create a new evidence gap from identifiers",
+		"do not load a reference merely because declaration bounds are missing",
+		"do not read tests to corroborate production behavior already established",
+		"next action must be the final answer",
+	} {
+		if !strings.Contains(text, phrase) {
+			t.Errorf("fast search skill is missing retrieval contract %q", phrase)
+		}
+	}
+	for _, overfit := range []string{
+		"default fast budget is two production",
+		"at most one targeted in-file grep",
+		"Known filename, identifier, literal, or error text | Grep + Read may start directly",
+		"Never restart with repository-wide",
+		"Prefer MCP",
+	} {
+		if strings.Contains(text, strings.ToLower(overfit)) {
+			t.Errorf("fast search skill hard-codes an example-specific budget %q", overfit)
 		}
 	}
 }
@@ -330,8 +392,10 @@ func TestProjectSkillsCoverOperationalHazards(t *testing.T) {
 	required := map[string][]string{
 		"ccg": {
 			"ordinary positive",
-			"`search` at most once",
-			"one or two source ranges",
+			"one initial structured ccg `search`",
+			"include it in the initial search arguments",
+			"at most three `next` calls",
+			"exact declaration",
 			"do not call `get_minimal_context`",
 			"`ccg-search-verify`",
 		},
@@ -413,9 +477,10 @@ func TestProjectSkillsCentralizeSharedOperationalGuidance(t *testing.T) {
 	skillsRoot := filepath.Join("..", "..", "..", "..", "skills")
 	required := map[string][]string{
 		"ccg": {
-			"## Task Routing and Entry",
-			"## Freshness Boundary",
-			"## Response Budget Rule",
+			"## Route",
+			"## Core Loop",
+			"## Boundaries",
+			"## Completion",
 		},
 		"ccg-search-verify": {
 			"## Mandatory Verification",
@@ -474,7 +539,8 @@ func TestProjectSkillsKeepCoreDiscoveryBoundedAndDeepAnalysisExplicit(t *testing
 	required := map[string][]string{
 		"ccg": {
 			"do not invoke `ccg-analyze` automatically",
-			"one bounded `search`",
+			"one initial structured ccg `search`",
+			"at most three `next` calls",
 			"explicit `ccg-analyze` invocation",
 		},
 		"ccg-analyze": {

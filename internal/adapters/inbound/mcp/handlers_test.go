@@ -277,6 +277,39 @@ func TestHandler_Search(t *testing.T) {
 	}
 }
 
+func TestHandler_Search_CompactKeepsOnlyDecisionEvidence(t *testing.T) {
+	deps := setupTestDeps(t)
+	ctx := context.Background()
+
+	testGraphStoreFor(deps).UpsertNodes(ctx, []graph.Node{
+		{QualifiedName: "pkg.AuthenticateUser", Kind: graph.NodeKindFunction, Name: "AuthenticateUser", FilePath: "auth.go", StartLine: 1, EndLine: 10, Language: "go"},
+	})
+	node, _ := testGraphStoreFor(deps).GetNode(ctx, "pkg.AuthenticateUser")
+	testDBFor(deps).Create(&graph.SearchDocument{
+		NodeID: node.ID, Content: "AuthenticateUser authenticates user credentials", Language: "go",
+	})
+	testSearchBackendFor(deps).Rebuild(ctx, testDBFor(deps))
+
+	result := callTool(t, deps, "search", map[string]any{"query": "authenticate", "limit": 10, "compact": true})
+	if result.IsError {
+		t.Fatalf("search returned error: %s", getTextContent(result))
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(getTextContent(result)), &payload); err != nil {
+		t.Fatalf("decode: %v result=%s", err, getTextContent(result))
+	}
+	file := payload["files"].([]any)[0].(map[string]any)
+	hit := file["hits"].([]any)[0].(map[string]any)
+	if _, ok := hit["qualified_name"]; !ok {
+		t.Fatalf("compact hit lost qualified_name: %v", hit)
+	}
+	for _, duplicate := range []string{"id", "name", "file_path"} {
+		if _, ok := hit[duplicate]; ok {
+			t.Errorf("compact hit kept duplicate field %q: %v", duplicate, hit)
+		}
+	}
+}
+
 // A caller that gets a result has to be able to open it and see why it is here,
 // without a second round trip.
 func TestHandler_Search_CarriesLineNumbersAndEvidence(t *testing.T) {
