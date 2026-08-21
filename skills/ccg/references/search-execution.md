@@ -19,15 +19,17 @@ hide structured continuation and declaration data.
 
 ## Query Language
 
-Use one short identifier or rare keyword for a known thing. When the symbol is
-unknown, use one concise question that can match recorded `@intent` or
-`@domainRule` text.
+Use one exact identifier, path, literal, or error fragment for a known thing.
+When the symbol is unknown, extract two to four discriminative terms that name
+the component and behavior. Prefer repository vocabulary, nouns, and rare
+operational terms over question words, generic verbs, connective prose, or the
+user's examples. Choose terms likely to occur together in one declaration or
+recorded `@intent` or `@domainRule`; do not submit the user's full sentence.
 
 Write natural-language terms in the dominant language of repository comments
 and annotations. Translate the user's intent when needed, but preserve exact
-identifiers, paths, literals, and error messages. Do not combine translations
-or prompt examples into one long query: every query word must occur in the same
-indexed document.
+identifiers, paths, literals, and error messages. Do not mix translations in one
+query: every query term must occur in the same indexed document.
 
 ## Candidate Classification
 
