@@ -3,7 +3,7 @@ name: ccg-analyze
 description: "Explicit-only deep analysis of algorithms, feature pipelines, and code relationships with CCG impact radius, bounded flow tracing, callers/callees, git-diff risk, affected stored flows, and cross-namespace references. Use only when the user explicitly names the ccg-analyze skill in the current request. Do not invoke merely because a task asks about a flow, pipeline, impact, caller, or relationship."
 disable-model-invocation: true
 metadata:
-  version: 2.0.0
+  version: 2.0.1
   openclaw:
     category: "code-intelligence"
     domain: "analysis"
@@ -108,8 +108,11 @@ entry points can legitimately have a large radius.
 
 ## Analysis Result Bounds
 
-Use the `ccg` skill's Response Budget Rule for paginated graph tools. Preserve
-per-page namespace labels and errors when accumulating federated results.
+Use the `ccg` skill's one-query discovery budget only for the initial entry-point
+search. Once this explicit analysis workflow is active, use the analysis-specific
+bounds below and read each additional source range needed to verify the selected
+stages. Preserve per-page namespace labels and errors when accumulating
+federated results.
 
 `get_impact_radius` and `trace_flow` are bounded rather than paginated. Follow
 their `truncated` metadata by narrowing the start/scope or deliberately raising

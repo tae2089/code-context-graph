@@ -6,7 +6,7 @@ can change the answer.
 
 ## Mandatory Absence Algorithm
 
-This algorithm overrides the general hybrid workflow for absence or
+This algorithm overrides the ordinary fast search workflow for absence or
 completeness:
 
 1. **Source pass:** combine the current task's exact clues into one alternation
@@ -33,7 +33,9 @@ absence_allowed = source_checked AND graph_current AND paging_complete
 When false, conclude: "not found within the checked evidence; absence is not
 confirmed because graph freshness or paging was not verified." Never say
 "does not exist," "absence confirmed," or that the gap does not affect the
-conclusion. Report every read skill/resource by resolved absolute path.
+conclusion. Report every read skill/resource by resolved absolute path; a
+basename-only report is incomplete. An exhaustive grep cannot compensate for
+unverified graph freshness.
 
 ## Evidence Shape
 
@@ -72,9 +74,8 @@ Use the exact paging call returned in `next`. Never calculate or modify
 `offset`: federated searches advance every namespace through its own list, so a
 locally computed offset can skip one namespace and repeat another.
 
-For an ordinary ranked answer, it is acceptable to stop after a credible hit is
-verified in source; report that the result was truncated. Exhaust all pages only
-when absence, completeness, or exhaustive inventory is part of the claim.
+Exhaust all pages because absence, completeness, or exhaustive inventory is
+part of the claim.
 
 ## Weak Candidates
 
@@ -89,19 +90,20 @@ because `weak_filtered` is non-zero.
 counts declarations, not tags.
 
 When `with_reason` is zero, an empty why-question says that nobody recorded a
-reason in the index, not that the code is absent. `next` sometimes names a `skill` instead of a `tool`;
-when it names `ccg-annotate`, use that skill if available: annotate the relevant
-area, rebuild the graph, and ask the same question again. If no relevant area is
-known, report that the suggestion is not actionable instead of inventing one.
+reason in the index, not that the code is absent. `next` sometimes names a
+`skill` instead of a `tool`; when it names `ccg-annotate`, report that suggestion
+and its coverage gap. Do not author annotations or rebuild the graph unless the
+user separately authorizes the relevant workflow. If no relevant area is known,
+report that the suggestion is not actionable instead of inventing one.
 
 ## Empty Results
 
 An empty response distinguishes no retrieved candidates, no justifiable
-candidates, an offset past the end, and missing recorded reasons. Do not collapse
-those states into "the code does not exist."
-For absence or completeness, apply the mandatory algorithm without fallback
-fan-out.
+candidates, an offset past the end, and missing recorded reasons. Do not
+collapse those states into "the code does not exist." Apply the mandatory
+algorithm without fallback fan-out.
 
-Every hit's `node_id` can start `get_node`, `query_graph`,
-`get_impact_radius`, or `trace_flow`. Traverse only when the answer makes a
-relationship, flow, or impact claim.
+Every hit's `node_id` can start `get_node` or one bounded `query_graph` lookup
+when a direct relationship fact is necessary. Do not invoke
+`get_impact_radius` or `trace_flow`; those belong to the explicit-only
+`ccg-analyze` skill.

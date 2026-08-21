@@ -22,11 +22,12 @@ Compatible with GitHub (`X-Hub-Signature-256`) and Gitea (`X-Gitea-Signature`, `
 Push event pipeline: receive push event -> automatic clone/pull -> graph build -> DB persistence.
 Graceful shutdown: SIGINT/SIGTERM propagates context cancellation to in-progress clone/build work.
 
-## Agent Skills (6)
+## Agent Skills (7)
 
 | Skill            | Description                                                         |
 | ---------------- | ------------------------------------------------------------------- |
-| `/ccg`           | Read-only discovery: search, lookup, and freshness assessment       |
+| `/ccg`           | Fast read-only discovery and targeted source verification           |
+| `/ccg-search-verify` | Absence, completeness, and exhaustive search verification       |
 | `/ccg-build`     | Explicit-only graph build, update, migrate, and postprocess         |
 | `/ccg-analyze`   | Explicit-only impact, flow tracing, and change-risk analysis        |
 | `/ccg-annotate`  | Annotation system: AI annotation workflow and tag reference         |
@@ -53,8 +54,10 @@ Use `.ccg.yaml` to manage project defaults such as exclude patterns and DB setti
 When looking for code locations, related implementations, call relationships, impact radius, or architecture context,
 use ccg MCP tools and Agent Skills first.
 
-- For code lookup and natural-language code understanding alike, start with ccg MCP `search`: it answers identifier queries and "why was this built" questions from one index, then walk from the `node_id` values it returns. Use the `/ccg-docs` skill and `get_doc_content` to read a generated doc.
-- For exact symbol locations, call relationships, and graph metadata, use ccg MCP `query_graph`, `get_node`, `get_minimal_context`, or the `/ccg` skill.
+- `/ccg` is the fast default for ordinary positive discovery: use at most one `search` call with `limit: 5`, then verify the best candidate in one or two source ranges. Skip namespace, minimal-context, and graph-stat preflights when repository instructions already provide what the query needs.
+- Use `/ccg-search-verify` when the user asks whether code does not exist, requests completeness or exhaustive inventory, or when a miss would become a defensible negative claim. It owns freshness, hybrid source checking, and truncation paging.
+- CCG `search` answers identifier queries and "why was this built" questions from one index. Use the `/ccg-docs` skill and `get_doc_content` to read a generated doc.
+- For exact symbol locations and one direct call relationship, use ccg MCP `query_graph`, `get_node`, or the `/ccg` skill. Use `get_minimal_context` only when the MCP tool contract needed for the task is unavailable; it is not an ordinary search preflight.
 - `/ccg-analyze` is explicit-only: use it only when the user names that skill in the current request. A request about impact, flow, callers, or relationships is not permission to load it or expand into its traversal workflow; keep ordinary `/ccg` discovery bounded instead.
 - For simple string checks, file existence checks, or cases where the ccg index is missing or stale, use `rg` as a supplement. Report missing or stale graph state without invoking `/ccg-build` automatically.
 - `/ccg-build` is explicit-only: use it only when the user names that skill in the current request. A task that needs graph creation, refresh, migration, or postprocessing is not by itself permission to load the skill. Remote ingestion stays Git webhook/sync based; do not treat MCP write tools as source-upload APIs.

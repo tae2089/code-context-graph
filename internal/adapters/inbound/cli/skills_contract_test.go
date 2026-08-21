@@ -37,12 +37,13 @@ func TestProjectSkillsDeclareRuntimeContract(t *testing.T) {
 		cliHelp      string
 	}
 	want := map[string]expectation{
-		"ccg":           {domain: "core", cliHelp: "ccg --help"},
-		"ccg-build":     {domain: "build", explicitOnly: true, cliHelp: "ccg build --help"},
-		"ccg-analyze":   {domain: "analysis", requiresCore: true, explicitOnly: true},
-		"ccg-annotate":  {domain: "annotation", requiresCore: true},
-		"ccg-docs":      {domain: "documentation", requiresCore: true, cliHelp: "ccg docs --help"},
-		"ccg-namespace": {domain: "namespace", requiresCore: true, cliHelp: "ccg search --help"},
+		"ccg":               {domain: "core", cliHelp: "ccg --help"},
+		"ccg-search-verify": {domain: "verification", cliHelp: "ccg search --help"},
+		"ccg-build":         {domain: "build", explicitOnly: true, cliHelp: "ccg build --help"},
+		"ccg-analyze":       {domain: "analysis", requiresCore: true, explicitOnly: true},
+		"ccg-annotate":      {domain: "annotation", requiresCore: true},
+		"ccg-docs":          {domain: "documentation", requiresCore: true, cliHelp: "ccg docs --help"},
+		"ccg-namespace":     {domain: "namespace", requiresCore: true, cliHelp: "ccg search --help"},
 	}
 	skillsRoot := filepath.Join("..", "..", "..", "..", "skills")
 	entries, err := os.ReadDir(skillsRoot)
@@ -123,7 +124,7 @@ func TestProjectSkillsDeclareRuntimeContract(t *testing.T) {
 
 func TestCoreSkillsHaveClaudeAndAntigravityProjectAdapters(t *testing.T) {
 	repoRoot := filepath.Join("..", "..", "..", "..")
-	for _, skillName := range []string{"ccg", "ccg-build", "ccg-analyze"} {
+	for _, skillName := range []string{"ccg", "ccg-search-verify", "ccg-build", "ccg-analyze"} {
 		t.Run(skillName, func(t *testing.T) {
 			canonicalPath := filepath.Join(repoRoot, "skills", skillName, "SKILL.md")
 			canonicalRaw, err := os.ReadFile(canonicalPath)
@@ -166,6 +167,34 @@ func TestCoreSkillsHaveClaudeAndAntigravityProjectAdapters(t *testing.T) {
 	}
 }
 
+func TestSearchSkillDescriptionsAreDisjoint(t *testing.T) {
+	skillsRoot := filepath.Join("..", "..", "..", "..", "skills")
+	required := map[string][]string{
+		"ccg": {
+			"Use when an ordinary positive lookup or explanation",
+			"Do not use for absence, completeness, exhaustive inventory",
+		},
+		"ccg-search-verify": {
+			"Use when the user asks whether code does not exist",
+			"Do not use for ordinary positive lookup or explanation",
+		},
+	}
+	for name, phrases := range required {
+		t.Run(name, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(skillsRoot, name, "SKILL.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			description := parseSkillContract(t, raw).Description
+			for _, phrase := range phrases {
+				if !strings.Contains(description, phrase) {
+					t.Errorf("description is missing disjoint search trigger %q", phrase)
+				}
+			}
+		})
+	}
+}
+
 func TestProjectInstructionsKeepCCGAnalyzeExplicitOnly(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "AGENTS.md"))
 	if err != nil {
@@ -183,6 +212,24 @@ func TestProjectInstructionsKeepCCGAnalyzeExplicitOnly(t *testing.T) {
 	}
 	if strings.Contains(text, "prefer the `/ccg-analyze` skill") {
 		t.Error("project instructions still route analysis requests to ccg-analyze implicitly")
+	}
+}
+
+func TestProjectInstructionsRouteFastAndVerifiedSearchSeparately(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, phrase := range []string{
+		"`/ccg` is the fast default",
+		"at most one `search` call with `limit: 5`",
+		"Use `/ccg-search-verify`",
+		"freshness, hybrid source checking, and truncation paging",
+	} {
+		if !strings.Contains(text, phrase) {
+			t.Errorf("project instructions are missing search-mode boundary %q", phrase)
+		}
 	}
 }
 
@@ -282,15 +329,22 @@ func TestProjectSkillsCoverOperationalHazards(t *testing.T) {
 	skillsRoot := filepath.Join("..", "..", "..", "..", "skills")
 	required := map[string][]string{
 		"ccg": {
+			"ordinary positive",
+			"`search` at most once",
+			"one or two source ranges",
+			"do not call `get_minimal_context`",
+			"`ccg-search-verify`",
+		},
+		"ccg-search-verify": {
 			"`annotation_coverage`",
 			"names a `skill` instead of a `tool`",
 			"do not fan out",
 			"not found within the checked evidence",
-			"one grouped grep/read pass",
+			"one recursive grep/read pass",
 			"exhaustive grep cannot compensate",
 			"basename-only",
-			"overrides the general hybrid workflow",
-			"query budget",
+			"overrides the ordinary fast search workflow",
+			"exactly one distinct query",
 			"does not affect the conclusion",
 		},
 		"ccg-build": {
@@ -324,7 +378,7 @@ func TestProjectSkillsCoverOperationalHazards(t *testing.T) {
 
 	for name, phrases := range required {
 		t.Run(name, func(t *testing.T) {
-			text := strings.ToLower(readSkillBundle(t, filepath.Join(skillsRoot, name)))
+			text := strings.ToLower(strings.Join(strings.Fields(readSkillBundle(t, filepath.Join(skillsRoot, name))), " "))
 			for _, phrase := range phrases {
 				if !strings.Contains(text, strings.ToLower(phrase)) {
 					t.Errorf("missing operational contract %q", phrase)
@@ -363,12 +417,16 @@ func TestProjectSkillsCentralizeSharedOperationalGuidance(t *testing.T) {
 			"## Freshness Boundary",
 			"## Response Budget Rule",
 		},
+		"ccg-search-verify": {
+			"## Mandatory Verification",
+			"references/search-contract.md",
+		},
 		"ccg-build": {
 			"## Mandatory Contract",
 			"## Ingestion Boundary",
 		},
 		"ccg-analyze": {
-			"`ccg` skill's Response Budget Rule",
+			"`ccg` skill's one-query discovery budget",
 		},
 		"ccg-annotate": {
 			"explicitly name `ccg-build`",
