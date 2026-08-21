@@ -2,7 +2,7 @@
 name: ccg
 description: "Fast read-only code discovery with a bounded code-context-graph search and targeted source verification. Use when an ordinary positive lookup or explanation needs an entry point, recorded intent, known-path inventory, or direct relationship evidence. Do not use for absence, completeness, exhaustive inventory, deep flow or impact analysis, or graph writes; use ccg-search-verify for defensible negative claims, and require explicit invocation for ccg-analyze or ccg-build."
 metadata:
-  version: 3.0.3
+  version: 3.0.5
   openclaw:
     category: "code-intelligence"
     domain: "core"
@@ -52,28 +52,37 @@ impact-analysis procedure.
    - known thing: one short identifier or rare keyword;
    - unknown symbol: one concise plain-language question that can match recorded
      `@intent` or `@domainRule` reasons.
-3. On the current result page, inspect all returned paths, symbols, and
-   summaries. Collect the candidates related to the requested component or
-   behavior. Every path passed to the candidate grep must literally appear in
-   that page's CCG response; repository roots and broader directories are not
-   candidate paths unless CCG returned them. Run one grep across that exact path
-   set, keep at most 20 matching lines, and read at most the strongest two source
-   ranges of no more than 80 lines each. Stop when the verified source provides
-   enough evidence to answer.
-4. If the candidate evidence is insufficient and the response supplies a
+3. Classify every returned candidate as `production`, `test`, or `unknown`.
+   Confirm `test` only from, in priority order: CCG test-node metadata; explicit
+   repository source-set or build rules; or a repository/language test path or
+   filename convention. If none applies, keep the candidate `unknown` rather
+   than guessing. For a question not about tests, defer confirmed test
+   candidates while any unverified production or unknown candidate remains. If
+   the page contains only tests and has `next`, continue before reading tests.
+4. On the current result page, collect the active production and unknown
+   candidates related to the requested component or behavior. A candidate check
+   may search only paths explicitly returned on that page; do not replace them
+   with parent directories or guessed paths. Inspect the strongest one or two
+   files, starting with narrow source ranges and extending within those files
+   only when the declaration or control flow continues. Stop when the verified
+   source provides enough evidence to answer. For a test-focused question,
+   include confirmed test candidates from the start.
+5. If the candidate evidence is insufficient and the response supplies a
    continuation, the next action must be that exact `next` call. Preserve the
    query, limit, namespace, and continuation offsets supplied by CCG; do not
-   calculate offsets or reformulate the query. Repeat step 3 after each page for
-   at most three continuation calls, stopping if source evidence answers the
-   question or `next` disappears.
-5. A repository-wide grep is allowed only when `next` is absent or three
-   continuation calls have been consumed. Run exactly one bounded fallback from
-   the repository root, exclude tests by default, and keep at most 20 matching
-   lines. When include and exclude filters are both used, apply exclusions last
-   so a later include cannot re-enable test files. Read at most the strongest
-   two source ranges of no more than 80 lines each. Do not make a negative claim
-   if this fallback also misses.
-6. Use `get_node`, `describe`, or one bounded `query_graph` call only when the
+   calculate offsets or reformulate the query. Repeat steps 3 and 4 after each
+   page for at most three continuation calls, stopping if source evidence
+   answers the question or `next` disappears.
+6. Any search that includes a path not explicitly returned on the current CCG
+   page is a fallback search, regardless of the path's name or apparent size.
+   Enter the fallback phase only when `next` is absent or three continuation
+   calls have been consumed. In that single phase, run one bounded grouped
+   search and, only if its results are ambiguous, one narrower refinement.
+   Apply the same three-way classification to direct-search results and inspect
+   production and unknown files first. If they still provide insufficient
+   evidence, confirmed tests may be read as supporting evidence. Do not make a
+   negative claim if fallback also misses.
+7. Use `get_node`, `describe`, or one bounded `query_graph` call only when the
    answer needs exact identity, an unranked known-path inventory, or one direct
    relationship fact.
 
@@ -107,11 +116,15 @@ This skill is read-only. Report a missing or stale graph instead of invoking
 - Start one CCG `search` with `limit: 5`; follow its exact `next` continuation
   at most three times and stop early when verified source evidence answers the
   question.
-- For each result page, run at most one candidate grep, using only literal paths
-  returned on that page and keeping at most 20 matching lines.
-- Read at most two source ranges per page and at most 80 lines per range.
-- Run exactly one repository-wide grep only after `next` is absent or three
-  continuations have been consumed; exclude tests and keep at most 20 matches.
+- For each result page, search only paths explicitly returned on that page and
+  inspect at most the strongest one or two files. Start with narrow ranges and
+  extend within those files only when required by the code structure.
+- For non-test questions, prioritize production and unknown candidates. Defer
+  confirmed tests until CCG continuations and direct production-source evidence
+  are insufficient; never classify an ambiguous path as test merely to skip it.
+- Treat every scope expansion beyond returned paths as fallback. Enter fallback
+  once, only after `next` is absent or three continuations have been consumed;
+  allow one grouped search plus at most one narrower refinement.
 - Do not reread a source range solely to obtain line numbers. Preserve line
   numbers on the first read when the response needs source citations.
 - Disclose truncation only when the three-continuation cap limits the answer.
