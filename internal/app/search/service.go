@@ -8,11 +8,13 @@ package search
 
 import (
 	"context"
+	"sort"
 
 	"github.com/tae2089/trace"
 
 	"github.com/tae2089/code-context-graph/internal/app/search/evidence"
 	intentapp "github.com/tae2089/code-context-graph/internal/app/search/intent"
+	"github.com/tae2089/code-context-graph/internal/app/search/queryterm"
 	searchrank "github.com/tae2089/code-context-graph/internal/app/search/rank"
 	requestctx "github.com/tae2089/code-context-graph/internal/ctx"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
@@ -232,6 +234,9 @@ func (s *Service) fetch(ctx context.Context, p Params) (pool, error) {
 // @ensures the order of the first n rows does not depend on any row after them, at every n that is a multiple of block.
 // @intent keep a page already delivered from being reshuffled by the wider pool the next page fetches.
 func orderPool(query string, nodes []graph.Node, block int) []graph.Node {
+	if queryterm.IsNaturalLanguage(query) {
+		return nodes
+	}
 	if block <= 0 || len(nodes) <= block {
 		return searchrank.Rerank(query, nodes, 0)
 	}
@@ -255,6 +260,9 @@ func orderPool(query string, nodes []graph.Node, block int) []graph.Node {
 // @requires each group is that repository's rank-ordered pool, fetched in whole multiples of block.
 // @intent give federated paging the same fixed prefix a single repository's paging has.
 func orderGroupedPool(query string, groups [][]graph.Node, block int) []graph.Node {
+	if queryterm.IsNaturalLanguage(query) {
+		return mergeRankedGroups(groups)
+	}
 	widest, total := 0, 0
 	for _, g := range groups {
 		widest = max(widest, len(g))
@@ -273,6 +281,33 @@ func orderGroupedPool(query string, groups [][]graph.Node, block int) []graph.No
 			inBlock = append(inBlock, g[start:min(start+block, len(g))])
 		}
 		out = append(out, searchrank.RerankGroups(query, inBlock, 0)...)
+	}
+	return out
+}
+
+// mergeRankedGroups combines backend-neutral natural-language rankings without
+// replacing them with identifier-oriented structural scores. Items at the same
+// rank across repositories use the canonical node identity as their stable tie
+// break, so changing namespace input order cannot change the answer.
+// @intent preserve soft-match relevance while merging independently ranked namespace results.
+func mergeRankedGroups(groups [][]graph.Node) []graph.Node {
+	widest, total := 0, 0
+	for _, group := range groups {
+		widest = max(widest, len(group))
+		total += len(group)
+	}
+	out := make([]graph.Node, 0, total)
+	for position := range widest {
+		level := make([]graph.Node, 0, len(groups))
+		for _, group := range groups {
+			if position < len(group) {
+				level = append(level, group[position])
+			}
+		}
+		sort.SliceStable(level, func(i, j int) bool {
+			return graph.CompareIdentity(level[i].Identity(), level[j].Identity()) < 0
+		})
+		out = append(out, level...)
 	}
 	return out
 }

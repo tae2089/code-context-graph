@@ -39,6 +39,49 @@ func (r *Reader) Query(ctx context.Context, query string, limit int) ([]graph.No
 	return r.backend.Query(ctx, r.db, query, limit)
 }
 
+// rankContentCandidates gives natural-language retrieval one backend-neutral
+// order. The SQL engines only admit documents containing any meaningful query
+// term; the same BM25/IDF implementation then rewards both distinctive terms
+// and coverage of more of the question.
+// @intent rank soft-matched general search documents identically on SQLite and PostgreSQL.
+func rankContentCandidates(ctx context.Context, db *gorm.DB, query string, docs []intentrank.Doc, limit int) ([]graph.Node, error) {
+	if len(docs) == 0 {
+		return nil, nil
+	}
+	var corpusSize int64
+	if err := db.WithContext(ctx).Model(&graph.SearchDocument{}).
+		Where("namespace = ?", requestctx.FromContext(ctx)).
+		Count(&corpusSize).Error; err != nil {
+		return nil, trace.Wrap(err, "count indexed search documents")
+	}
+	ranked := intentrank.Rank(query, docs, int(corpusSize), len(docs))
+	nodeIDs := make([]uint, 0, min(limit, len(ranked.Matches)))
+	for _, match := range ranked.Matches {
+		// OR admits candidates; it does not make a single coincidental word an
+		// answer to a sentence. Requiring two distinct content terms preserves
+		// the useful widening while dropping common one-word neighbours.
+		if distinctTermCount(match.Terms) < 2 {
+			continue
+		}
+		nodeIDs = append(nodeIDs, match.NodeID)
+		if len(nodeIDs) >= limit {
+			break
+		}
+	}
+	return loadNodesInOrder(ctx, db, nodeIDs)
+}
+
+// distinctTermCount prevents a repeated query word from satisfying the
+// multi-signal guard by itself.
+// @intent count independent soft-match signals rather than repeated wording.
+func distinctTermCount(terms []string) int {
+	seen := make(map[string]struct{}, len(terms))
+	for _, term := range terms {
+		seen[term] = struct{}{}
+	}
+	return len(seen)
+}
+
 // QueryIntent answers a question from the recorded-reason index only.
 //
 // The database finds the candidates and Go ranks them. That split is what makes

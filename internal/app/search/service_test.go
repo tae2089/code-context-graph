@@ -66,6 +66,39 @@ func node(id uint, name, path string) graph.Node {
 	return graph.Node{ID: id, Name: name, QualifiedName: name, FilePath: path, Kind: "function"}
 }
 
+func TestOrderPool_NaturalLanguagePreservesSoftMatchRank(t *testing.T) {
+	query := "why are graph updates processed as a separate background job"
+	softRanked := []graph.Node{
+		node(1, "SyncQueue", "internal/app/reposync/queue.go"),
+		node(2, "GraphUpdates", "internal/graph/updates.go"),
+	}
+
+	got := orderPool(query, softRanked, 10)
+	if got[0].ID != 1 {
+		t.Fatalf("first node = %d, want soft-ranked node 1", got[0].ID)
+	}
+}
+
+func TestMergeRankedGroups_NaturalLanguagePreservesRanksAndStableTies(t *testing.T) {
+	query := "explain graph update background processing"
+	alpha := []graph.Node{
+		node(1, "A1", "z/a1.go"),
+		node(2, "A2", "a/a2.go"),
+	}
+	beta := []graph.Node{
+		node(3, "B1", "a/b1.go"),
+		node(4, "B2", "z/b2.go"),
+	}
+
+	got := orderGroupedPool(query, [][]graph.Node{alpha, beta}, 10)
+	want := []uint{3, 1, 2, 4}
+	for i, id := range want {
+		if got[i].ID != id {
+			t.Fatalf("result[%d] = %d, want %d", i, got[i].ID, id)
+		}
+	}
+}
+
 func TestSearch_OverfetchesThenCutsToLimit(t *testing.T) {
 	pool := []graph.Node{
 		node(1, "alpha", "a/alpha.go"),

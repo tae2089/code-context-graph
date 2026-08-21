@@ -5,7 +5,11 @@
 // the searcher asked for.
 package queryterm
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/tae2089/code-context-graph/internal/app/search/identtoken"
+)
 
 // functionWords are English words that carry no meaning in a corpus of code
 // identifiers and one-line annotations. They hurt both searches, in opposite
@@ -34,6 +38,15 @@ var functionWords = map[string]bool{
 	"would": true, "should": true, "will": true, "shall": true, "there": true,
 }
 
+// questionWords identify queries whose grammar says they are prose even when
+// only a few content words survive stopword removal. They are kept separate
+// from functionWords because the two sets answer different questions: one
+// chooses a retrieval shape, while the other chooses terms worth matching.
+var questionWords = map[string]bool{
+	"how": true, "what": true, "where": true, "when": true,
+	"why": true, "who": true, "which": true,
+}
+
 // IsFunctionWord reports whether a term is one of the meaningless words.
 // @intent let a caller judge one term without copying the list.
 func IsFunctionWord(term string) bool {
@@ -56,4 +69,25 @@ func DropFunctionWords(tokens []string) []string {
 		return tokens
 	}
 	return kept
+}
+
+// IsNaturalLanguage reports whether a query should retrieve documents by any
+// meaningful term and let shared scoring combine the evidence.
+//
+// Two or three code terms are normally a partially remembered identifier and
+// retain strict all-term matching. Prose either announces itself with a
+// question word or contains more than three meaningful terms. The
+// count happens after function-word removal so "get user by id" remains the
+// compact identifier-shaped query "get user id".
+// @intent choose soft retrieval only for sentence-shaped queries while preserving precise identifier lookup.
+// @domainRule compact queries of at most three meaningful terms remain strict unless their grammar explicitly asks a question.
+func IsNaturalLanguage(query string) bool {
+	tokens := identtoken.FieldsLower(query)
+	meaningful := DropFunctionWords(tokens)
+	for _, token := range tokens {
+		if questionWords[token] && len(meaningful) >= 2 {
+			return true
+		}
+	}
+	return len(meaningful) > 3
 }

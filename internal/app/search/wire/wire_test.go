@@ -1,6 +1,7 @@
 package wire
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,6 +12,78 @@ import (
 	"github.com/tae2089/code-context-graph/internal/app/search/evidence"
 	"github.com/tae2089/code-context-graph/internal/domain/graph"
 )
+
+func TestResponse_CompactKeepsDecisionEvidenceWithoutDuplicateFields(t *testing.T) {
+	list := evidence.List{
+		Files: []evidence.File{{
+			Namespace: "repo-a",
+			FilePath:  "internal/app/search/service.go",
+			Hits: []evidence.Result{{
+				Node: graph.Node{
+					ID:            41,
+					QualifiedName: "search.Service.Search",
+					Kind:          graph.NodeKindFunction,
+					Name:          "Search",
+					FilePath:      "internal/app/search/service.go",
+					StartLine:     73,
+					EndLine:       121,
+				},
+				Intent:       "rank precise matches before widening a natural-language question",
+				Matched:      []evidence.Match{evidence.MatchName, evidence.MatchIntent},
+				Reason:       "widen a natural-language question only after the precise match is empty",
+				MatchedTerms: []string{"natural", "question"},
+			}},
+		}},
+		OverflowFiles: 2,
+		NextOffset:    1,
+		Coverage:      evidence.Coverage{WithReason: 12, Declarations: 40},
+	}
+	seed := list.Files[0].Hits[0]
+	list.Files[0].Hits = append(list.Files[0].Hits, seed, seed, seed, seed)
+
+	full := NewResponse(list, "natural question", 1, 0, true)
+	compact := full.Compact()
+	raw, err := json.Marshal(compact)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	files := payload["files"].([]any)
+	file := files[0].(map[string]any)
+	if file["namespace"] != "repo-a" {
+		t.Errorf("compact file namespace = %v, want repo-a", file["namespace"])
+	}
+	hit := file["hits"].([]any)[0].(map[string]any)
+	for _, key := range []string{"qualified_name", "kind", "start_line", "end_line", "intent", "matched", "reason", "matched_terms"} {
+		if _, ok := hit[key]; !ok {
+			t.Errorf("compact hit is missing %q: %s", key, raw)
+		}
+	}
+	for _, duplicate := range []string{"id", "name", "file_path", "namespace"} {
+		if _, ok := hit[duplicate]; ok {
+			t.Errorf("compact hit kept duplicate field %q: %s", duplicate, raw)
+		}
+	}
+	if payload["truncated"] != true || payload["annotation_coverage"] == nil {
+		t.Errorf("compact response lost completion metadata: %s", raw)
+	}
+	next := payload["next"].([]any)[0].(map[string]any)
+	args := next["args"].(map[string]any)
+	if args["compact"] != true {
+		t.Errorf("next args = %v, want compact=true so paging stays compact", args)
+	}
+	fullRaw, err := json.Marshal(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw)*10 >= len(fullRaw)*9 {
+		t.Errorf("compact response is %d bytes versus %d full bytes, want at least 10%% smaller", len(raw), len(fullRaw))
+	}
+}
 
 func file(path string, hits int) evidence.File {
 	f := evidence.File{FilePath: path}

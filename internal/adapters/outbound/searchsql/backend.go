@@ -103,3 +103,7 @@ func loadNodesInOrder(ctx context.Context, db *gorm.DB, nodeIDs []uint) ([]graph
 // where a question can match more than this many reasons would be ranked on a
 // biased sample.
 const maxIntentCandidates = 10000
+
+// maxNaturalCandidates is a runaway guard for soft retrieval, not a result
+// limit. Ranking needs the full any-term candidate set to measure term rarity.
+const maxNaturalCandidates = 10000

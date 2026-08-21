@@ -92,6 +92,99 @@ type Response struct {
 	Note               string            `json:"note,omitempty"`
 }
 
+// CompactResultItem keeps the evidence an agent needs to choose and open a hit,
+// without repeating data already present in its file group.
+// @intent reduce search-response context while preserving rank evidence and exact source bounds.
+type CompactResultItem struct {
+	QualifiedName string           `json:"qualified_name"`
+	Kind          graph.NodeKind   `json:"kind"`
+	StartLine     int              `json:"start_line"`
+	EndLine       int              `json:"end_line"`
+	Intent        string           `json:"intent,omitempty"`
+	Matched       []evidence.Match `json:"matched,omitempty"`
+	Reason        string           `json:"reason,omitempty"`
+	MatchedTerms  []string         `json:"matched_terms,omitempty"`
+}
+
+// CompactFileGroup groups compact hits under the one copy of their file path.
+// @intent avoid repeating file identity on every hit while keeping federated namespace labels.
+type CompactFileGroup struct {
+	FilePath  string              `json:"file_path"`
+	Namespace string              `json:"namespace,omitempty"`
+	Hits      []CompactResultItem `json:"hits"`
+}
+
+// CompactResponse is the token-efficient search view used by agents that do
+// not need storage ids or redundant per-hit names and paths.
+// @intent preserve search decisions, completion signals, and continuations in a smaller wire payload.
+type CompactResponse struct {
+	Files              []CompactFileGroup `json:"files"`
+	WeakFiltered       int                `json:"weak_filtered"`
+	Truncated          bool               `json:"truncated"`
+	PoolTruncated      bool               `json:"pool_truncated"`
+	Limits             Limits             `json:"limits"`
+	AnnotationCoverage evidence.Coverage  `json:"annotation_coverage"`
+	Next               []NextAction       `json:"next,omitempty"`
+	Note               string             `json:"note,omitempty"`
+}
+
+// Compact returns a smaller view without changing the full response contract.
+// Search continuations retain compact mode so later pages do not grow again.
+// @ensures every search action in Next carries compact=true.
+// @intent let CLI and MCP share one loss-aware compact representation.
+func (r Response) Compact() CompactResponse {
+	files := make([]CompactFileGroup, len(r.Files))
+	for i, file := range r.Files {
+		hits := make([]CompactResultItem, len(file.Hits))
+		for j, hit := range file.Hits {
+			intent := hit.Intent
+			if intent == hit.Reason {
+				intent = ""
+			}
+			hits[j] = CompactResultItem{
+				QualifiedName: hit.QualifiedName,
+				Kind:          hit.Kind,
+				StartLine:     hit.StartLine,
+				EndLine:       hit.EndLine,
+				Intent:        intent,
+				Matched:       hit.Matched,
+				Reason:        hit.Reason,
+				MatchedTerms:  hit.MatchedTerms,
+			}
+		}
+		files[i] = CompactFileGroup{
+			FilePath:  file.FilePath,
+			Namespace: file.Namespace,
+			Hits:      hits,
+		}
+	}
+
+	next := make([]NextAction, len(r.Next))
+	for i, action := range r.Next {
+		next[i] = action
+		if action.Tool != "search" {
+			continue
+		}
+		args := make(map[string]any, len(action.Args)+1)
+		for key, value := range action.Args {
+			args[key] = value
+		}
+		args["compact"] = true
+		next[i].Args = args
+	}
+
+	return CompactResponse{
+		Files:              files,
+		WeakFiltered:       r.WeakFiltered,
+		Truncated:          r.Truncated,
+		PoolTruncated:      r.PoolTruncated,
+		Limits:             r.Limits,
+		AnnotationCoverage: r.AnnotationCoverage,
+		Next:               next,
+		Note:               r.Note,
+	}
+}
+
 // Limits states the bounds that shaped this page, all counted in files
 // except the budget, which only decides whether one more file joins.
 // @intent let a caller tell a short answer from the first page of a long one.

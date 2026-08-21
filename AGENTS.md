@@ -52,9 +52,12 @@ Use `.ccg.yaml` to manage project defaults such as exclude patterns and DB setti
 ## Code Search Rules
 
 When looking for code locations, related implementations, call relationships, impact radius, or architecture context,
-use ccg MCP tools and Agent Skills first.
+use CCG Agent Skills and environment-aware structured search first. The `/ccg` skill selects MCP when repository
+instructions provide server-visible routing, and local JSON CLI when the repository has usable local `ccg` configuration.
+For this repository, use the local JSON CLI backed by `.ccg.yaml`; the MCP server documentation below describes the
+product and is not a routing instruction for the default remote MCP connection.
 
-- `/ccg` is the fast default for ordinary positive discovery: use at most one `search` call with `limit: 5`, then verify the best candidate in one or two source ranges. Skip namespace, minimal-context, and graph-stat preflights when repository instructions already provide what the query needs.
+- `/ccg` is the fast default for ordinary positive discovery: start with one `search` call using `limit: 5`, pass the namespace already supplied by repository instructions or `.ccg.yaml` without a preflight, verify the best candidates in targeted source ranges, and follow at most three verbatim `next` calls only while the evidence remains insufficient. Skip namespace-list, minimal-context, and graph-stat preflights when repository instructions already provide what the query needs.
 - Use `/ccg-search-verify` when the user asks whether code does not exist, requests completeness or exhaustive inventory, or when a miss would become a defensible negative claim. It owns freshness, hybrid source checking, and truncation paging.
 - CCG `search` answers identifier queries and "why was this built" questions from one index. Use the `/ccg-docs` skill and `get_doc_content` to read a generated doc.
 - For exact symbol locations and one direct call relationship, use ccg MCP `query_graph`, `get_node`, or the `/ccg` skill. Use `get_minimal_context` only when the MCP tool contract needed for the task is unavailable; it is not an ordinary search preflight.

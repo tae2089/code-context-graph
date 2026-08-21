@@ -186,6 +186,7 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 	offset := request.GetInt("offset", 0)
 	pathPrefix := request.GetString("path", "")
 	includeWeak := request.GetBool("include_weak", false)
+	compact := request.GetBool("compact", false)
 	if err := validateQueryGraphLimit(limit); err != nil {
 		return finalizeToolResult("", err)
 	}
@@ -200,10 +201,14 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 	}
 
 	if namespaces := requestNamespaces(request); len(namespaces) > 0 {
-		return h.searchFederated(ctx, query, limit, offset, pathPrefix, includeWeak, namespaces)
+		return h.searchFederated(ctx, query, limit, offset, pathPrefix, includeWeak, compact, namespaces)
 	}
 
-	return finalizeToolResult(h.cachedExecute(ctx, "search:", map[string]any{"query": query, "limit": limit, "offset": offset, "path": pathPrefix, "include_weak": includeWeak, "namespace": requestNamespace(request)}, func() (string, error) {
+	cacheKey := map[string]any{
+		"query": query, "limit": limit, "offset": offset, "path": pathPrefix,
+		"include_weak": includeWeak, "compact": compact, "namespace": requestNamespace(request),
+	}
+	return finalizeToolResult(h.cachedExecute(ctx, "search:", cacheKey, func() (string, error) {
 		list, err := searchapp.New(h.deps.Graph.Search).Search(ctx, searchapp.Params{
 			Query: query, Limit: limit, Offset: offset, PathPrefix: pathPrefix, IncludeWeak: includeWeak,
 		})
@@ -214,7 +219,7 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 
 		log.Info("search completed", "query", query, "file_count", len(list.Files), "weak_filtered", list.WeakFiltered)
 
-		result, err := marshalJSON(searchwire.NewResponse(list, query, limit, offset, false))
+		result, err := marshalSearchResponse(searchwire.NewResponse(list, query, limit, offset, false), compact)
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}
@@ -225,9 +230,22 @@ func (h *handlers) search(ctx context.Context, request mcp.CallToolRequest) (*mc
 // searchFederated fans full-text search out over an explicit namespace set and merges reranked hits.
 // @intent answer one search across several repositories with per-item namespace labels.
 // @domainRule each namespace is queried in isolation; every namespace's hits keep their own backend rank when fused.
-func (h *handlers) searchFederated(ctx context.Context, query string, limit, offset int, pathPrefix string, includeWeak bool, namespaces []string) (*mcp.CallToolResult, error) {
+func (h *handlers) searchFederated(
+	ctx context.Context,
+	query string,
+	limit int,
+	offset int,
+	pathPrefix string,
+	includeWeak bool,
+	compact bool,
+	namespaces []string,
+) (*mcp.CallToolResult, error) {
 	log := h.logger()
-	return finalizeToolResult(h.cachedExecute(ctx, "search:", map[string]any{"query": query, "limit": limit, "offset": offset, "path": pathPrefix, "include_weak": includeWeak, "namespaces": namespaces}, func() (string, error) {
+	cacheKey := map[string]any{
+		"query": query, "limit": limit, "offset": offset, "path": pathPrefix,
+		"include_weak": includeWeak, "compact": compact, "namespaces": namespaces,
+	}
+	return finalizeToolResult(h.cachedExecute(ctx, "search:", cacheKey, func() (string, error) {
 		list, err := searchapp.New(h.deps.Graph.Search).SearchFederated(ctx, namespaces, searchapp.Params{
 			Query: query, Limit: limit, Offset: offset, PathPrefix: pathPrefix, IncludeWeak: includeWeak,
 		})
@@ -237,12 +255,22 @@ func (h *handlers) searchFederated(ctx context.Context, query string, limit, off
 		}
 		log.Info("federated search completed", "query", query, "namespaces", namespaces, "file_count", len(list.Files), "weak_filtered", list.WeakFiltered)
 
-		result, err := marshalJSON(searchwire.NewResponse(list, query, limit, offset, true))
+		result, err := marshalSearchResponse(searchwire.NewResponse(list, query, limit, offset, true), compact)
 		if err != nil {
 			return "", trace.Wrap(err, "marshal result")
 		}
 		return result, nil
 	}))
+}
+
+// marshalSearchResponse selects the full compatibility payload or the compact
+// agent view without duplicating the search execution path.
+// @intent keep CLI-equivalent compact search semantics on single and federated MCP calls.
+func marshalSearchResponse(response searchwire.Response, compact bool) (string, error) {
+	if compact {
+		return marshalJSON(response.Compact())
+	}
+	return marshalJSON(response)
 }
 
 // getAnnotation returns stored annotation metadata for a graph node.

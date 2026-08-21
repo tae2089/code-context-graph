@@ -48,6 +48,7 @@ ccg update ./backend --namespace backend
 | `ccg search --offset <n> <query>` | Skip the first `n` files, so reading on never splits a file; the last line names the offset to use next |
 | `ccg search --include-weak <query>` | Also show candidates whose name, path, and `@intent` say nothing about the query |
 | `ccg search --json <query>` | Print the answer as JSON, in the same shape the MCP `search` tool returns — stable for scripts and diffs |
+| `ccg search --json --compact <query>` | Print a smaller agent-oriented JSON view that keeps file paths, declaration bounds, evidence, truncation, and exact next actions while omitting redundant IDs and repeated per-hit names/paths |
 | `ccg docs [--out dir]` | Generate Markdown documentation and the `wiki-index.json` compatibility snapshot (prunes stale generator-managed docs by default) |
 | `ccg docs --rag-index-dir <dir>` | Override the legacy-named Wiki index output directory (default `.ccg` or `rag.index_dir`) |
 | `ccg docs --prune=false` | Regenerate docs without deleting older generator-managed files |

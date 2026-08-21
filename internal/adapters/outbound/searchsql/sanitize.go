@@ -16,28 +16,26 @@ import (
 // @intent build SQLite FTS queries that preserve prefix matching without exposing parser-breaking characters.
 // @domainRule empty or fully stripped input returns an empty query string.
 func SanitizeFTS5(query string) string {
-	return buildPrefixQuery(query, alwaysPrefix(`"`+"%s"+`"*`), " AND ", " OR ", " ")
+	return buildPrefixQuery(query, alwaysPrefix(`"`+"%s"+`"*`), " AND ", " OR ", " AND ")
 }
 
-// SanitizeIntentFTS5 converts a question into an any-term FTS5 prefix query for
-// the intent index.
+// SanitizeNaturalFTS5 converts prose into an any-term FTS5 query.
 //
 // SanitizeFTS5 requires every term because the searcher there typed identifiers,
 // and an identifier a caller half-remembers is still worth demanding in full.
-// An intent question is the opposite: it is a sentence aimed at another sentence,
-// and no recorded reason will contain all of "why do we verify the signature on a
-// push". Requiring every term would answer almost nothing.
-//
-// Any-term is only safe here because this index holds nothing but recorded
-// reasons. The same widening was measured on the shared index and rejected: there
-// a common word could match an identifier, a path segment, or a language alias,
-// so widening pulled in fifty unrelated nodes. With the names removed, a term can
-// only match prose somebody wrote on purpose, and bm25 discounts the words that
-// appear in many of those.
-// @intent let a sentence-shaped question match a sentence-shaped reason.
-// @domainRule any-term matching is confined to the intent index, which holds no identifier text.
-func SanitizeIntentFTS5(query string) string {
+// Prose is the opposite: no useful code document will contain every word of
+// "why do we verify the signature on a push". Stopword removal, any-term
+// retrieval, and shared BM25/IDF scoring together let distinctive terms win
+// without requiring every term to occur in one document.
+// @intent retrieve candidates for a sentence-shaped query without requiring every content word in one document.
+func SanitizeNaturalFTS5(query string) string {
 	return buildPrefixQuery(query, intentTerm(`"`+"%s"+`"*`, `"`+"%s"+`"`), " AND ", " OR ", " OR ")
+}
+
+// SanitizeIntentFTS5 applies the natural-language query shape to recorded reasons.
+// @intent keep intent retrieval on the same soft-matching syntax as general prose retrieval.
+func SanitizeIntentFTS5(query string) string {
+	return SanitizeNaturalFTS5(query)
 }
 
 // SanitizePostgresTSQuery converts raw user input into a safe prefix tsquery,
@@ -48,14 +46,16 @@ func SanitizePostgresTSQuery(query string) string {
 	return buildPrefixQuery(query, alwaysPrefix("%s:*"), " & ", " | ", " & ")
 }
 
-// SanitizePostgresIntentTSQuery is the PostgreSQL twin of SanitizeIntentFTS5:
-// any term may match, because no recorded reason contains every word of a
-// question. See SanitizeIntentFTS5 for why that widening is confined to the
-// intent index.
-// @intent let a sentence-shaped question match a sentence-shaped reason on PostgreSQL.
-// @domainRule any-term matching is confined to the intent index, which holds no identifier text.
-func SanitizePostgresIntentTSQuery(query string) string {
+// SanitizePostgresNaturalTSQuery is the PostgreSQL twin of SanitizeNaturalFTS5.
+// @intent retrieve PostgreSQL candidates for prose with any-term matching.
+func SanitizePostgresNaturalTSQuery(query string) string {
 	return buildPrefixQuery(query, intentTerm("%s:*", "%s"), " & ", " | ", " | ")
+}
+
+// SanitizePostgresIntentTSQuery applies the natural-language query shape to recorded reasons.
+// @intent keep PostgreSQL intent retrieval on the same soft-matching syntax as general prose retrieval.
+func SanitizePostgresIntentTSQuery(query string) string {
+	return SanitizePostgresNaturalTSQuery(query)
 }
 
 // alwaysPrefix renders every term as a prefix, whatever it looks like.
@@ -64,15 +64,14 @@ func alwaysPrefix(termFmt string) func(string) string {
 	return func(tok string) string { return strings.Replace(termFmt, "%s", tok, 1) }
 }
 
-// intentTerm renders one term of an intent question, choosing prefix or exact
+// intentTerm renders one term of a natural-language question, choosing prefix or exact
 // matching by intentrank.MatchesByPrefix.
 //
 // The rule lives with the scorer rather than here because both have to apply the
 // same one: the index decides what a term matches, the scorer decides what that
 // match is worth, and a term matched one way and scored the other would order
 // the answer by evidence from a query that never ran.
-// @intent keep a short question word from reaching an identifier spelled inside a recorded reason.
-// @domainRule only the intent index narrows a term to an exact match.
+// @intent keep a short question word from reaching a longer identifier only because it shares a prefix.
 func intentTerm(prefixFmt, exactFmt string) func(string) string {
 	return func(tok string) string {
 		if intentrank.MatchesByPrefix(tok) {

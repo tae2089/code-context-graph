@@ -26,6 +26,7 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 	var pathPrefix string
 	var includeWeak bool
 	var asJSON bool
+	var compact bool
 
 	cmd := &cobra.Command{
 		Use:   "search <query>",
@@ -33,6 +34,9 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := args[0]
+			if compact && !asJSON {
+				return fmt.Errorf("--compact requires --json")
+			}
 			if limit <= 0 {
 				return fmt.Errorf("limit must be > 0, got %d", limit)
 			}
@@ -54,7 +58,11 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 			}
 
 			if asJSON {
-				return printJSONResponse(stdout(cmd), searchwire.NewResponse(list, query, limit, offset, false))
+				response := searchwire.NewResponse(list, query, limit, offset, false)
+				if compact {
+					return printCompactJSONResponse(stdout(cmd), response.Compact())
+				}
+				return printJSONResponse(stdout(cmd), response)
 			}
 			printEvidenceList(stdout(cmd), list, offset)
 			return nil
@@ -66,6 +74,12 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().StringVar(&pathPrefix, "path", "", "Filter results to file paths starting with this prefix (e.g. internal/auth)")
 	cmd.Flags().BoolVar(&includeWeak, "include-weak", false, "Also show candidates whose name, path, and @intent say nothing about the query")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the answer as JSON, in the same shape the MCP search tool returns")
+	cmd.Flags().BoolVar(
+		&compact,
+		"compact",
+		false,
+		"With --json, omit redundant fields while preserving evidence, source bounds, and next actions",
+	)
 
 	return cmd
 }
@@ -73,10 +87,18 @@ func newSearchCmd(deps *Deps) *cobra.Command {
 // printJSONResponse writes the wire payload as one indented JSON document.
 // @intent keep --json output byte-stable and diffable while staying the MCP contract.
 // @sideEffect writes the whole search answer to out.
-func printJSONResponse(out io.Writer, response searchwire.Response) error {
+func printJSONResponse(out io.Writer, response any) error {
 	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")
 	return trace.Wrap(encoder.Encode(response), "encode search response")
+}
+
+// printCompactJSONResponse writes one unindented JSON document so formatting
+// whitespace does not consume an agent's context window.
+// @intent keep compact search output compact on the wire as well as in its fields.
+// @sideEffect writes the whole compact search answer to out.
+func printCompactJSONResponse(out io.Writer, response searchwire.CompactResponse) error {
+	return trace.Wrap(json.NewEncoder(out).Encode(response), "encode compact search response")
 }
 
 // printEvidenceList writes one result per unindented line and everything else

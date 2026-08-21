@@ -13,7 +13,7 @@ func TestSanitizeFTS5_SplitsCamelCaseTokens(t *testing.T) {
 	}{
 		{query: "", want: ""},
 		{query: "user", want: `"user"*`},                                 // 단일 단어 불변
-		{query: "get user", want: `"get"* "user"*`},                      // 소문자 멀티토큰 불변
+		{query: "get user", want: `"get"* AND "user"*`},                  // 소문자 멀티토큰 불변
 		{query: "getUser", want: `("getuser"* OR ("get"* AND "user"*))`}, // camelCase 분할
 		{query: "UserService", want: `("userservice"* OR ("user"* AND "service"*))`},
 	}
@@ -51,19 +51,19 @@ func TestSanitize_DropsFunctionWords(t *testing.T) {
 		{
 			name:  "a question keeps only its content words",
 			query: "what stops the server",
-			fts5:  `"stops"* "server"*`,
+			fts5:  `"stops"* AND "server"*`,
 			pg:    "stops:* & server:*",
 		},
 		{
 			name:  "a query made only of function words keeps them",
 			query: "how does the",
-			fts5:  `"how"* "does"* "the"*`,
+			fts5:  `"how"* AND "does"* AND "the"*`,
 			pg:    "how:* & does:* & the:*",
 		},
 		{
 			name:  "code words that read like function words survive",
 			query: "get set list new",
-			fts5:  `"get"* "set"* "list"* "new"*`,
+			fts5:  `"get"* AND "set"* AND "list"* AND "new"*`,
 			pg:    "get:* & set:* & list:* & new:*",
 		},
 	}
@@ -129,11 +129,21 @@ func TestSanitizeIntent_KeepsShortLatinTermsExact(t *testing.T) {
 	}
 }
 
+func TestSanitizeNatural_UsesAnyMeaningfulTerm(t *testing.T) {
+	query := "why are graph updates processed as a background job"
+	if got, want := SanitizeNaturalFTS5(query), `"graph"* OR "updates"* OR "processed"* OR "background"* OR "job"`; got != want {
+		t.Errorf("SanitizeNaturalFTS5 = %q, want %q", got, want)
+	}
+	if got, want := SanitizePostgresNaturalTSQuery(query), "graph:* | updates:* | processed:* | background:* | job"; got != want {
+		t.Errorf("SanitizePostgresNaturalTSQuery = %q, want %q", got, want)
+	}
+}
+
 // The shared index keeps prefix expansion for every term. A caller there typed a
 // symbol out of code it already read, so `get` reaching getAnnotation is the
 // answer rather than the mistake.
 func TestSanitizeSearch_KeepsShortTermsAsPrefixes(t *testing.T) {
-	if got, want := SanitizeFTS5("lock get keeps"), `"lock"* "get"* "keeps"*`; got != want {
+	if got, want := SanitizeFTS5("lock get keeps"), `"lock"* AND "get"* AND "keeps"*`; got != want {
 		t.Errorf("SanitizeFTS5 = %q, want %q", got, want)
 	}
 	if got, want := SanitizePostgresTSQuery("lock get keeps"), "lock:* & get:* & keeps:*"; got != want {
