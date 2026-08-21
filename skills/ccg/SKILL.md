@@ -2,7 +2,7 @@
 name: ccg
 description: "Fast read-only code discovery with mandatory structured CCG search for unknown entry points, followed by bounded source verification. Use for ordinary positive lookups, recorded intent, known-path inventory, or one direct relationship fact. Do not use for absence, completeness, exhaustive inventory, deep flow or impact analysis, or graph writes."
 metadata:
-  version: 4.0.0
+  version: 4.0.1
   openclaw:
     category: "code-intelligence"
     domain: "core"
@@ -38,9 +38,15 @@ An ordinary miss never authorizes a negative claim. If the answer would become
 For an unknown entry point, behavior, reason, or keyword, follow these steps in
 order:
 
-1. **Search.** Before grep or source browsing, run one structured CCG `search`
-   with `limit: 5`. Prefer MCP. If MCP is unavailable, use
-   `ccg search --json --limit 5 "<query>"`; never use the plain CLI display.
+1. **Search.** Before grep or source browsing, rewrite the request as a CCG
+   query; never submit the user's full sentence. Preserve an exact identifier,
+   path, literal, or error text as one clue. Otherwise select two to four
+   discriminative repository-language terms that name the component and
+   behavior and are likely to coexist in one declaration or annotation. Drop
+   question words, connective prose, and illustrative examples. Run one
+   structured CCG `search` with that query and `limit: 5`. Prefer MCP. If MCP
+   is unavailable, use `ccg search --json --limit 5 "<query>"`; never use the
+   plain CLI display.
 2. **Verify this page.** Inspect only relevant `production` and `unknown` paths
    returned on the current page. Each source read must verify one concrete
    claim. Read the exact declaration and its attached documentation, not broad
