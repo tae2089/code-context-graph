@@ -2,7 +2,7 @@
 name: ccg
 description: "Fast read-only code discovery with a bounded code-context-graph search and targeted source verification. Use when an ordinary positive lookup or explanation needs an entry point, recorded intent, known-path inventory, or direct relationship evidence. Do not use for absence, completeness, exhaustive inventory, deep flow or impact analysis, or graph writes; use ccg-search-verify for defensible negative claims, and require explicit invocation for ccg-analyze or ccg-build."
 metadata:
-  version: 3.0.6
+  version: 3.0.7
   openclaw:
     category: "code-intelligence"
     domain: "core"
@@ -59,8 +59,11 @@ impact-analysis procedure.
 3. Classify every returned candidate as `production`, `test`, or `unknown`.
    Confirm `test` only from, in priority order: CCG test-node metadata; explicit
    repository source-set or build rules; or a repository/language test path or
-   filename convention. If none applies, keep the candidate `unknown` rather
-   than guessing. For a question not about tests, defer confirmed test
+   filename convention. Test-only support artifacts such as fixtures, golden or
+   snapshot data, testdata, and generated mocks also count as `test` only when
+   repository or language conventions confirm that role; a generic directory
+   name alone is not proof. If no rule applies, keep the candidate `unknown`
+   rather than guessing. For a question not about tests, defer confirmed test
    candidates while any unverified production or unknown candidate remains. If
    the page contains only tests and has `next`, continue before reading tests.
 4. On the current result page, collect the active production and unknown
@@ -69,12 +72,16 @@ impact-analysis procedure.
    or guessed paths, and do not recheck a path already examined on an earlier
    page. Before reading source, identify the specific claim each candidate could
    support from its returned symbol or summary. Skip candidates that share only
-   broad query words. Use the returned line or a targeted grep over those exact
-   paths to locate the relevant declaration. Read its attached annotation or doc
-   comment and the complete declaration, not a large contiguous file range.
-   Follow another declaration only when the selected declaration directly
-   references it. Stop when the verified source answers the question. For a
-   test-focused question, include confirmed test candidates from the start.
+   broad query words. When a result exposes `node_id`, use `get_node` to obtain
+   its declaration bounds. Otherwise use the returned line, language-aware
+   symbol navigation, or a targeted grep over those exact paths to locate the
+   declaration boundary. Read its attached annotation or doc comment and that
+   complete declaration only. If multiple declarations are needed, read them as
+   separate ranges; never read one continuous range that includes unrelated
+   declarations between them. Follow another declaration only when the selected
+   declaration directly references it. Stop when the verified source answers
+   the question. For a test-focused question, include confirmed test candidates
+   from the start.
 5. If the candidate evidence is insufficient and the response supplies a
    continuation, the next action must be that exact `next` call. Preserve the
    query, limit, namespace, and continuation offsets supplied by CCG; do not
@@ -87,16 +94,16 @@ impact-analysis procedure.
    been consumed. The first fallback search may expand scope. Every later search
    must narrow scope using a concrete path, symbol, literal, or error text newly
    produced by the preceding result; never repeat a broad search or fan out into
-   synonyms. For a non-test question, apply confirmed test-path exclusions in
-   the search command before matches are returned. Apply the same three-way
-   classification to direct-search results and inspect production and unknown
-   files first. If they still provide insufficient evidence, confirmed tests
-   may be read as supporting evidence. Stop when source evidence answers the
-   question or a search yields no new clue. Do not make a negative claim if
+   synonyms. For a non-test question, apply confirmed test and test-support path
+   exclusions in the search command before matches are returned. Apply the same
+   three-way classification to direct-search results and inspect production and
+   unknown files first. If they still provide insufficient evidence, confirmed
+   tests may be read as supporting evidence. Stop when source evidence answers
+   the question or a search yields no new clue. Do not make a negative claim if
    fallback also misses.
 7. Use `get_node`, `describe`, or one bounded `query_graph` call only when the
-   answer needs exact identity, an unranked known-path inventory, or one direct
-   relationship fact.
+   answer needs exact identity, declaration bounds, an unranked known-path
+   inventory, or one direct relationship fact.
 
 Every query word must occur in the same indexed document, so do not concatenate
 the prompt’s examples into a long query. Do not fan out into synonym searches
@@ -130,12 +137,14 @@ This skill is read-only. Report a missing or stale graph instead of invoking
   question.
 - For each result page, search only paths explicitly returned on that page and
   inspect only unseen candidates that can support a specific claim. Read
-  attached documentation plus complete declarations rather than arbitrary file
-  ranges; follow only directly referenced declarations.
+  attached documentation plus exact declaration ranges rather than arbitrary
+  file ranges. Read separate declarations separately, and follow only directly
+  referenced declarations.
 - For non-test questions, prioritize production and unknown candidates. Defer
   confirmed tests until CCG continuations and direct production-source evidence
-  are insufficient, and exclude confirmed test paths before direct-search
-  output is produced. Never classify an ambiguous path as test merely to skip it.
+  are insufficient, and exclude confirmed test and test-support paths before
+  direct-search output is produced. Never classify an ambiguous path as test
+  merely to skip it.
 - Treat every scope expansion beyond returned paths as fallback. Begin fallback
   only after `next` is absent or three continuations have been consumed. After
   the initial expansion, every search must narrow using a newly found concrete
