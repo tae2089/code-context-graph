@@ -2,7 +2,7 @@
 name: ccg
 description: "Fast read-only code discovery with a bounded code-context-graph search and targeted source verification. Use when an ordinary positive lookup or explanation needs an entry point, recorded intent, known-path inventory, or direct relationship evidence. Do not use for absence, completeness, exhaustive inventory, deep flow or impact analysis, or graph writes; use ccg-search-verify for defensible negative claims, and require explicit invocation for ccg-analyze or ccg-build."
 metadata:
-  version: 3.0.1
+  version: 3.0.2
   openclaw:
     category: "code-intelligence"
     domain: "core"
@@ -14,8 +14,9 @@ metadata:
 
 # ccg — Fast Search
 
-Use CCG to find one credible entry point, then verify it in current source. Keep
-ordinary discovery small enough that it beats broad grep exploration.
+Use CCG to find one directly relevant entry point, then verify it in current
+source. Keep ordinary discovery small enough that it beats broad grep
+exploration.
 
 ## Task Routing and Entry
 
@@ -51,22 +52,32 @@ impact-analysis procedure.
    - known thing: one short identifier or rare keyword;
    - unknown symbol: one concise plain-language question that can match recorded
      `@intent` or `@domainRule` reasons.
-3. If the current page has no credible candidate and the result supplies a
-   continuation, follow that exact `next` call up to three times. Preserve the
+3. On the current result page, inspect all returned paths, symbols, and
+   summaries. Collect the candidates related to the requested component or
+   behavior, then run one targeted grep across only those returned paths. Limit
+   that candidate check to 20 matching lines, and read at most the strongest one
+   or two source ranges. Stop when the verified source provides enough evidence
+   to answer. This candidate-set check is not the repository-wide fallback.
+4. If the candidate check is insufficient and the response supplies a
+   continuation, follow that exact `next` call and repeat step 3. Preserve the
    query, limit, namespace, and continuation offsets supplied by CCG; do not
-   calculate offsets or reformulate the query. Stop paging as soon as one
-   credible candidate appears, `next` disappears, or the third continuation
-   has been read.
-4. Verify the best credible candidate in one or two source ranges. Stop when
-   those ranges answer the question.
-5. Use `get_node`, `describe`, or one bounded `query_graph` call only when the
+   calculate offsets or reformulate the query. Perform at most three such
+   continuation-and-check cycles, stopping if source evidence answers the
+   question or `next` disappears. Do not run repository-wide grep during these
+   cycles.
+5. Only after `next` disappears or three continuation calls have been consumed,
+   use one bounded grep fallback if the question is still unanswered. Restrict
+   it to production source where possible, exclude tests by default, and return
+   at most 20 matching lines. Read only the best matching source range. Do not
+   make a negative claim if this fallback also misses.
+6. Use `get_node`, `describe`, or one bounded `query_graph` call only when the
    answer needs exact identity, an unranked known-path inventory, or one direct
    relationship fact.
 
 Every query word must occur in the same indexed document, so do not concatenate
-the prompt’s examples into a long query. If the search pages have no credible
-hit, do not fan out into synonyms inside this fast workflow; use narrowly
-targeted grep/read and do not make a negative claim.
+the prompt’s examples into a long query. If the search pages have no qualifying
+result, do not fan out into synonyms inside this fast workflow; use the single
+bounded grep/read fallback and do not make a negative claim.
 
 ```bash
 ccg search --limit 5 "<query>"
@@ -92,12 +103,17 @@ This skill is read-only. Report a missing or stale graph instead of invoking
 ## Response Budget Rule
 
 - Start one CCG `search` with `limit: 5`; follow its exact `next` continuation
-  at most three times and stop early when a credible candidate appears.
-- Verify no more than one or two source ranges unless the selected source itself
-  points to one necessary continuation.
-- Do not start broad grep exploration while an actionable CCG continuation
-  remains. Disclose truncation only when the three-continuation cap limits the
-  answer.
+  at most three times and stop early when verified source evidence answers the
+  question.
+- For each result page, inspect all returned candidate metadata, run one
+  targeted grep across the relevant returned paths with at most 20 matching
+  lines, and read only the strongest one or two source ranges.
+- Do not run repository-wide grep while an actionable CCG continuation remains.
+  After continuation ends, allow only one grep fallback with tests excluded and
+  at most 20 matching lines.
+- Do not reread a source range solely to obtain line numbers. Preserve line
+  numbers on the first read when the response needs source citations.
+- Disclose truncation only when the three-continuation cap limits the answer.
 - Do not echo raw result lists or mandatory operational reports. Return the
   answer and its relevant paths or symbols.
 - Read [`references/supported-languages.md`](references/supported-languages.md)
