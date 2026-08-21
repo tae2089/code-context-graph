@@ -2,7 +2,7 @@
 name: ccg
 description: "Fast read-only code discovery with a bounded code-context-graph search and targeted source verification. Use when an ordinary positive lookup or explanation needs an entry point, recorded intent, known-path inventory, or direct relationship evidence. Do not use for absence, completeness, exhaustive inventory, deep flow or impact analysis, or graph writes; use ccg-search-verify for defensible negative claims, and require explicit invocation for ccg-analyze or ccg-build."
 metadata:
-  version: 3.0.0
+  version: 3.0.1
   openclaw:
     category: "code-intelligence"
     domain: "core"
@@ -46,20 +46,27 @@ impact-analysis procedure.
    or the user. Do not call `get_minimal_context`, `list_namespaces`, or
    `list_graph_stats` for an ordinary search when that information is already
    known.
-2. With an exact clue, use grep/read. Otherwise call `search` at most once with
+2. With an exact clue, use grep/read. Otherwise start one `search` with
    `limit: 5`:
    - known thing: one short identifier or rare keyword;
    - unknown symbol: one concise plain-language question that can match recorded
      `@intent` or `@domainRule` reasons.
-3. Verify the best credible candidate in one or two source ranges. Stop when
+3. If the current page has no credible candidate and the result supplies a
+   continuation, follow that exact `next` call up to three times. Preserve the
+   query, limit, namespace, and continuation offsets supplied by CCG; do not
+   calculate offsets or reformulate the query. Stop paging as soon as one
+   credible candidate appears, `next` disappears, or the third continuation
+   has been read.
+4. Verify the best credible candidate in one or two source ranges. Stop when
    those ranges answer the question.
-4. Use `get_node`, `describe`, or one bounded `query_graph` call only when the
+5. Use `get_node`, `describe`, or one bounded `query_graph` call only when the
    answer needs exact identity, an unranked known-path inventory, or one direct
    relationship fact.
 
 Every query word must occur in the same indexed document, so do not concatenate
-the prompt’s examples into a long query. If the first query has no credible hit,
-do not fan out into synonyms inside this fast workflow.
+the prompt’s examples into a long query. If the search pages have no credible
+hit, do not fan out into synonyms inside this fast workflow; use narrowly
+targeted grep/read and do not make a negative claim.
 
 ```bash
 ccg search --limit 5 "<query>"
@@ -84,11 +91,13 @@ This skill is read-only. Report a missing or stale graph instead of invoking
 
 ## Response Budget Rule
 
-- One CCG `search` at most, with `limit: 5`.
+- Start one CCG `search` with `limit: 5`; follow its exact `next` continuation
+  at most three times and stop early when a credible candidate appears.
 - Verify no more than one or two source ranges unless the selected source itself
   points to one necessary continuation.
-- Do not page an ordinary ranked answer. Disclose truncation only when it limits
-  the answer.
+- Do not start broad grep exploration while an actionable CCG continuation
+  remains. Disclose truncation only when the three-continuation cap limits the
+  answer.
 - Do not echo raw result lists or mandatory operational reports. Return the
   answer and its relevant paths or symbols.
 - Read [`references/supported-languages.md`](references/supported-languages.md)
