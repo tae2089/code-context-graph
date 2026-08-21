@@ -54,8 +54,8 @@ ccg migrate       # Existing database schema upgrade when required
 
 Over MCP:
 
-- `build_or_update_graph(full_rebuild=false)` requests an incremental update.
-- `build_or_update_graph(full_rebuild=true)` requests a full rebuild.
+- Use `build_or_update_graph` with `full_rebuild=false` for an incremental update.
+- Use `build_or_update_graph` with `full_rebuild=true` for a full rebuild.
 - `parse_project` writes parsed graph state without search postprocessing.
 - `run_postprocess` refreshes selected derived artifacts after graph changes.
 
